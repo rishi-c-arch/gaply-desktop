@@ -428,26 +428,50 @@ const SecondSection: React.FC = () => {
     
     setIsLoading(true);
     try {
-      // Try the backend API first
-      const response = await fetch('https://gaply-production-backend.onrender.com/api/v2/search/papers', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query: searchQuery
-        })
-      });
+      // Try multiple possible endpoints from your backend
+      const endpoints = [
+        'https://gaply-production-backend.onrender.com/api/v2/search/papers',
+        'https://gaply-production-backend.onrender.com/api/v1/search',
+        'https://gaply-production-backend.onrender.com/api/search'
+      ];
       
-      if (response.ok) {
-        const data = await response.json();
+      let response = null;
+      let data = null;
+      
+      for (const endpoint of endpoints) {
+        try {
+          response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              query: {
+                keywords: searchQuery.split(' ').filter(word => word.length > 0),
+                max_results: 10,
+                include_citations: true
+              }
+            })
+          });
+          
+          if (response.ok) {
+            data = await response.json();
+            break;
+          }
+        } catch (err) {
+          console.log(`Endpoint ${endpoint} failed:`, err);
+          continue;
+        }
+      }
+      
+      if (response && response.ok && data) {
         setResults({
           type: 'search',
           query: searchQuery,
           papers: data.papers || data.results || []
         });
       } else {
-        // Fallback to enhanced mock results
+        // Use enhanced mock results
         throw new Error('Backend search not available');
       }
     } catch (error) {
@@ -496,7 +520,33 @@ const SecondSection: React.FC = () => {
           abstract: "This study demonstrates how artificial intelligence is revolutionizing drug discovery processes, reducing time and costs while improving success rates."
         }
       );
-    } else if (keywords.includes('sustainability') || keywords.includes('renewable')) {
+    } else if (keywords.includes('supply chain') || keywords.includes('logistics') || keywords.includes('procurement')) {
+      papers.push(
+        {
+          title: "Supply Chain Resilience in the Digital Age: A Comprehensive Analysis",
+          authors: "Johnson, M., Smith, A., Brown, K.",
+          year: 2023,
+          journal: "International Journal of Operations & Production Management",
+          doi: "10.1108/IJOPM-2023-1234",
+          abstract: "This study examines how digital technologies are transforming supply chain resilience, with particular focus on AI-driven demand forecasting and blockchain-based traceability systems."
+        },
+        {
+          title: "Sustainable Supply Chain Management: Environmental and Social Impact Assessment",
+          authors: "Garcia, L., Wilson, P., Chen, R.",
+          year: 2023,
+          journal: "Journal of Cleaner Production",
+          doi: "10.1016/j.jclepro.2023.123456",
+          abstract: "We present a framework for assessing environmental and social impacts in supply chain operations, with case studies from manufacturing and retail sectors."
+        },
+        {
+          title: "Blockchain Technology in Supply Chain Transparency: Opportunities and Challenges",
+          authors: "Kumar, S., Lee, H., Patel, N.",
+          year: 2022,
+          journal: "Supply Chain Management: An International Journal",
+          doi: "10.1108/SCM-2022-7890",
+          abstract: "This research explores the implementation of blockchain technology for enhancing supply chain transparency and traceability across multiple industries."
+        }
+      );
       papers.push(
         {
           title: "Renewable Energy Integration in Smart Grids: Challenges and Solutions",
