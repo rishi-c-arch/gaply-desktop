@@ -1681,7 +1681,7 @@ html {
   font-weight: 400;
 }
 
-/* Results Section Styles */
+/* Enhanced Results Section Styles */
 .results-section {
   margin-top: 2rem;
   padding: 1.5rem;
@@ -1689,6 +1689,8 @@ html {
   border-radius: 12px;
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.2);
+  max-height: 80vh;
+  overflow-y: auto;
 }
 
 .results-section h3 {
@@ -1702,18 +1704,68 @@ html {
   margin-bottom: 1rem;
 }
 
+.result-content h4 {
+  color: #1d1d1f;
+  margin-bottom: 1rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+/* Scrollable Papers Container */
+.papers-container {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 10px;
+}
+
+.papers-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.papers-container::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.papers-container::-webkit-scrollbar-thumb {
+  background: #ff6b35;
+  border-radius: 4px;
+}
+
+.papers-container::-webkit-scrollbar-thumb:hover {
+  background: #e55a2b;
+}
+
 .result-item, .paper-result, .journal-result {
   background: rgba(255, 255, 255, 0.8);
   padding: 1rem;
   border-radius: 8px;
   margin-bottom: 1rem;
   border-left: 4px solid #ff6b35;
+  transition: all 0.3s ease;
+}
+
+.paper-result:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
 .result-item h4, .paper-result h5, .journal-result h5 {
   color: #1d1d1f;
   margin-bottom: 0.5rem;
   font-weight: 600;
+}
+
+/* Clickable Paper Title */
+.paper-title-link {
+  color: #1d1d1f;
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+.paper-title-link:hover {
+  color: #ff6b35;
+  text-decoration: underline;
 }
 
 .result-item p, .paper-result p, .journal-result p {
@@ -1734,6 +1786,44 @@ html {
   margin-top: 0.5rem;
   font-style: italic;
   color: #34495e;
+}
+
+/* Paper Action Buttons */
+.paper-actions {
+  margin-top: 1rem;
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.paper-link-btn, .paper-pdf-btn {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.paper-link-btn {
+  background: #ff6b35;
+  color: white;
+}
+
+.paper-link-btn:hover {
+  background: #e55a2b;
+  transform: translateY(-1px);
+}
+
+.paper-pdf-btn {
+  background: #6c757d;
+  color: white;
+}
+
+.paper-pdf-btn:hover {
+  background: #5a6268;
+  transform: translateY(-1px);
 }
 
 .clear-results-btn {
