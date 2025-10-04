@@ -1713,9 +1713,13 @@ html {
 
 /* Scrollable Papers Container */
 .papers-container {
-  max-height: 60vh;
-  overflow-y: auto;
+  max-height: 60vh !important;
+  overflow-y: auto !important;
   padding-right: 10px;
+  border: 2px solid #ff6b35;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 1rem;
 }
 
 .papers-container::-webkit-scrollbar {
@@ -1758,14 +1762,15 @@ html {
 
 /* Clickable Paper Title */
 .paper-title-link {
-  color: #1d1d1f;
-  text-decoration: none;
+  color: #ff6b35 !important;
+  text-decoration: none !important;
   transition: color 0.3s ease;
+  font-weight: 600;
 }
 
 .paper-title-link:hover {
-  color: #ff6b35;
-  text-decoration: underline;
+  color: #e55a2b !important;
+  text-decoration: underline !important;
 }
 
 .result-item p, .paper-result p, .journal-result p {
@@ -1807,23 +1812,27 @@ html {
 }
 
 .paper-link-btn {
-  background: #ff6b35;
-  color: white;
+  background: #ff6b35 !important;
+  color: white !important;
+  border: 2px solid #ff6b35 !important;
 }
 
 .paper-link-btn:hover {
-  background: #e55a2b;
+  background: #e55a2b !important;
   transform: translateY(-1px);
+  border-color: #e55a2b !important;
 }
 
 .paper-pdf-btn {
-  background: #6c757d;
-  color: white;
+  background: #6c757d !important;
+  color: white !important;
+  border: 2px solid #6c757d !important;
 }
 
 .paper-pdf-btn:hover {
-  background: #5a6268;
+  background: #5a6268 !important;
   transform: translateY(-1px);
+  border-color: #5a6268 !important;
 }
 
 .clear-results-btn {

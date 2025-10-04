@@ -478,6 +478,8 @@ const SecondSection: React.FC = () => {
       console.error('Search error:', error);
       // Enhanced mock results with realistic academic papers
       const mockPapers = generateMockPapers(searchQuery);
+      console.log('Generated papers count:', mockPapers.length);
+      console.log('First paper:', mockPapers[0]);
       setResults({
         type: 'search',
         query: searchQuery,
