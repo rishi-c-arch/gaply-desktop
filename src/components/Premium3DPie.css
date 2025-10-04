@@ -1,0 +1,266 @@
+/* Premium3DPie.css - Professional 3D Pie Chart Styling */
+.ppt-wrapper {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  position: relative;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.ppt-canvas-wrap {
+  position: relative;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+}
+
+.ppt-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem;
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  min-height: 400px;
+}
+
+.ppt-fallback svg {
+  max-width: 300px;
+  max-height: 300px;
+  margin-bottom: 2rem;
+}
+
+.ppt-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  padding: 1.5rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.ppt-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ppt-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.ppt-legend-item:hover {
+  background: rgba(29, 29, 31, 0.05);
+  transform: translateX(4px);
+}
+
+.ppt-legend-item:active {
+  background: rgba(29, 29, 31, 0.1);
+  transform: translateX(2px);
+}
+
+.ppt-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.ppt-legend-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
+  line-height: 1.3;
+  letter-spacing: 0.2px;
+}
+
+.ppt-tooltip {
+  background: rgba(29, 29, 31, 0.95);
+  color: white;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.ppt-tooltip-label {
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+
+.ppt-tooltip-value {
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .ppt-wrapper {
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  }
+  
+  .ppt-canvas-wrap {
+    border-radius: 16px;
+  }
+  
+  .ppt-overlay {
+    padding: 1rem;
+  }
+  
+  .ppt-legend {
+    gap: 0.6rem;
+  }
+  
+  .ppt-legend-item {
+    padding: 0.5rem 0.6rem;
+    gap: 0.6rem;
+  }
+  
+  .ppt-legend-swatch {
+    width: 10px;
+    height: 10px;
+  }
+  
+  .ppt-legend-text {
+    font-size: 12px;
+  }
+  
+  .ppt-fallback {
+    padding: 1.5rem;
+    min-height: 350px;
+  }
+  
+  .ppt-fallback svg {
+    max-width: 250px;
+    max-height: 250px;
+    margin-bottom: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .ppt-wrapper {
+    border-radius: 12px;
+  }
+  
+  .ppt-canvas-wrap {
+    border-radius: 12px;
+  }
+  
+  .ppt-overlay {
+    padding: 0.8rem;
+  }
+  
+  .ppt-legend {
+    gap: 0.5rem;
+  }
+  
+  .ppt-legend-item {
+    padding: 0.4rem 0.5rem;
+    gap: 0.5rem;
+  }
+  
+  .ppt-legend-swatch {
+    width: 8px;
+    height: 8px;
+  }
+  
+  .ppt-legend-text {
+    font-size: 11px;
+  }
+  
+  .ppt-fallback {
+    padding: 1rem;
+    min-height: 300px;
+  }
+  
+  .ppt-fallback svg {
+    max-width: 200px;
+    max-height: 200px;
+    margin-bottom: 1rem;
+  }
+}
+
+/* Scrollbar Styling */
+.ppt-legend::-webkit-scrollbar {
+  width: 4px;
+}
+
+.ppt-legend::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 2px;
+}
+
+.ppt-legend::-webkit-scrollbar-thumb {
+  background: rgba(29, 29, 31, 0.3);
+  border-radius: 2px;
+}
+
+.ppt-legend::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 29, 31, 0.5);
+}
+
+/* Animation Enhancements */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ppt-legend-item {
+  animation: fadeInUp 0.6s ease-out;
+  animation-fill-mode: both;
+}
+
+.ppt-legend-item:nth-child(1) { animation-delay: 0.1s; }
+.ppt-legend-item:nth-child(2) { animation-delay: 0.2s; }
+.ppt-legend-item:nth-child(3) { animation-delay: 0.3s; }
+.ppt-legend-item:nth-child(4) { animation-delay: 0.4s; }
+.ppt-legend-item:nth-child(5) { animation-delay: 0.5s; }
+.ppt-legend-item:nth-child(6) { animation-delay: 0.6s; }
+
+/* Focus States for Accessibility */
+.ppt-legend-item:focus {
+  outline: 2px solid #007AFF;
+  outline-offset: 2px;
+}
+
+.ppt-legend-item:focus-visible {
+  outline: 2px solid #007AFF;
+  outline-offset: 2px;
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  .ppt-legend-item {
+    animation: none;
+    transition: none;
+  }
+  
+  .ppt-legend-item:hover {
+    transform: none;
+  }
+}

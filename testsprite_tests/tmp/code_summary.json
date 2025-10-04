@@ -1,0 +1,91 @@
+{
+  "tech_stack": [
+    "TypeScript",
+    "React 19",
+    "CSS3",
+    "GSAP",
+    "Lenis",
+    "Three.js",
+    "Razorpay",
+    "Web3 Design",
+    "Glassmorphism",
+    "Responsive Design"
+  ],
+  "features": [
+    {
+      "name": "Main Application",
+      "description": "Core application component with routing, state management, and global popup handling",
+      "files": ["src/App.tsx", "src/App.css", "src/index.tsx", "src/index.css"]
+    },
+    {
+      "name": "Hero Section",
+      "description": "Landing page hero with transparent navigation, animated background, and premium typography",
+      "files": ["src/App.tsx", "src/App.css"]
+    },
+    {
+      "name": "Free Features Section",
+      "description": "Interactive features showcase with Apple.com style cards and coachmark animations",
+      "files": ["src/App.tsx", "src/App.css"]
+    },
+    {
+      "name": "Journal Quartile Analysis",
+      "description": "Interactive Q1-Q4 statistical graphs with click-to-explore functionality",
+      "files": ["src/App.tsx", "src/App.css"]
+    },
+    {
+      "name": "Login/Signup System",
+      "description": "Modern authentication with Web3 3D effects, social login, and form validation",
+      "files": ["src/LoginPage.tsx", "src/LoginPage.css"]
+    },
+    {
+      "name": "Package Selection & Payment",
+      "description": "Professional package selection with Razorpay integration and rotating interface",
+      "files": ["src/PackageSelection.tsx", "src/PackageSelection.css"]
+    },
+    {
+      "name": "Account Management",
+      "description": "User account dashboard with usage statistics and package management",
+      "files": ["src/PackageSelection.tsx", "src/PackageSelection.css"]
+    },
+    {
+      "name": "Legal Popups",
+      "description": "Terms of Service and Privacy Policy popups with Web3 styling",
+      "files": ["src/LegalPopup.tsx", "src/LegalPopup.css"]
+    },
+    {
+      "name": "Fixed Footer",
+      "description": "Interactive footer with earth background and popup system",
+      "files": ["src/App.tsx", "src/App.css"]
+    },
+    {
+      "name": "Payment Integration",
+      "description": "Razorpay payment gateway integration with live keys and webhook handling",
+      "files": ["src/PackageSelection.tsx"]
+    },
+    {
+      "name": "3D Animations",
+      "description": "Advanced CSS and GSAP animations with Web3 effects and glassmorphism",
+      "files": ["src/App.css", "src/LoginPage.css", "src/PackageSelection.css", "src/LegalPopup.css"]
+    },
+    {
+      "name": "Responsive Design",
+      "description": "Mobile-first responsive design with breakpoints and adaptive layouts",
+      "files": ["src/App.css", "src/LoginPage.css", "src/PackageSelection.css", "src/LegalPopup.css"]
+    },
+    {
+      "name": "Asset Management",
+      "description": "Optimized image assets for all sections with proper loading and display",
+      "files": ["src/assets/"]
+    },
+    {
+      "name": "TypeScript Configuration",
+      "description": "Type safety with interfaces, types, and proper error handling",
+      "files": ["src/App.tsx", "src/LoginPage.tsx", "src/PackageSelection.tsx", "src/LegalPopup.tsx"]
+    },
+    {
+      "name": "Environment Configuration",
+      "description": "Environment variables for API endpoints, Razorpay keys, and deployment settings",
+      "files": ["src/PackageSelection.tsx", "src/LoginPage.tsx"]
+    }
+  ]
+}

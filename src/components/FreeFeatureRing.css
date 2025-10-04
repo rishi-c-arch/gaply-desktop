@@ -1,0 +1,178 @@
+/* FreeFeatureRing.css - keep palette via CSS variables in root */
+.ffr-wrapper { 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  gap: 28px; 
+  padding: 36px 0; 
+  position: relative; 
+}
+
+.ffr-canvas-wrap { 
+  width: 420px; 
+  height: 420px; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  transform-origin: center; 
+  transition: transform 720ms cubic-bezier(.22,.9,.1,1); 
+  cursor: pointer; 
+}
+
+.r3f-canvas { 
+  width: 100%; 
+  height: 100%; 
+  display: block; 
+}
+
+.ffr-css-ring { 
+  width: 420px; 
+  height: 420px; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  border-radius: 50%; 
+  position: relative; 
+  overflow: hidden; 
+  background: transparent;
+  border: none;
+}
+
+.ffr-css-text { 
+  transform-origin: center; 
+  animation: ffr-rot 12s linear infinite; 
+  font-weight: 900; 
+  letter-spacing: 0.08em; 
+  color: #1d1d1f; 
+  font-size: 28px; 
+  opacity: 1; 
+  text-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+}
+
+@keyframes ffr-rot { 
+  to { 
+    transform: rotate(360deg); 
+  } 
+}
+
+/* DOM hero (hidden initially) */
+.ffr-dom-hero { 
+  position: absolute; 
+  display: flex; 
+  flex-direction: column; 
+  align-items: center; 
+  gap: 12px; 
+  text-align: center; 
+  opacity: 0; 
+  transform: scale(0.98); 
+  transition: opacity 520ms cubic-bezier(.22,.9,.1,1), transform 520ms cubic-bezier(.22,.9,.1,1); 
+  pointer-events: none; 
+  width: min(720px, 88%); 
+}
+
+.ffr-dom-hero[aria-hidden="false"] { 
+  opacity: 1; 
+  transform: scale(1); 
+  pointer-events: auto; 
+}
+
+/* Hero typography */
+.ffr-hero-heading { 
+  font-size: clamp(28px, 6vw, 56px); 
+  margin: 0; 
+  font-weight: 800; 
+  letter-spacing: -0.01em; 
+  color: var(--gaply-hero-title, #261145); 
+}
+
+.ffr-hero-sub { 
+  color: var(--gaply-muted, #6b6b6b); 
+  max-width: 820px; 
+  margin: 0; 
+}
+
+/* CTA buttons */
+.btn-primary { 
+  background: var(--gaply-accent, #E9C31D); 
+  color: #111; 
+  padding: 10px 18px; 
+  border-radius: 10px; 
+  border: none; 
+  font-weight: 700; 
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(233, 195, 29, 0.3);
+}
+
+.btn-ghost { 
+  margin-left: 12px; 
+  background: transparent; 
+  color: var(--gaply-hero-title, #261145); 
+  border: 1px solid rgba(0,0,0,0.06); 
+  padding: 10px 14px; 
+  border-radius: 10px; 
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-ghost:hover {
+  background: rgba(0,0,0,0.05);
+  border-color: rgba(0,0,0,0.1);
+}
+
+/* Loading indicator */
+.ffr-loading {
+  color: #1d1d1f;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+/* reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .ffr-css-text { 
+    animation: none; 
+  }
+  .ffr-canvas-wrap, .ffr-dom-hero { 
+    transition: none; 
+  }
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .ffr-wrapper {
+    padding: 20px 0;
+    gap: 20px;
+  }
+  
+  .ffr-canvas-wrap {
+    width: 300px;
+    height: 300px;
+  }
+  
+  .ffr-css-ring {
+    width: 300px;
+    height: 300px;
+  }
+  
+  .ffr-css-text {
+    font-size: 16px;
+  }
+  
+  .ffr-dom-hero {
+    width: 90%;
+    gap: 8px;
+  }
+  
+  .ffr-hero-heading {
+    font-size: clamp(24px, 8vw, 40px);
+  }
+  
+  .ffr-hero-sub {
+    font-size: 14px;
+  }
+}

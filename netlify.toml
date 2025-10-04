@@ -1,0 +1,56 @@
+# Netlify Configuration for GAPLY Frontend
+
+[build]
+  publish = "build"
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "18"
+  REACT_APP_API_BASE_URL = "https://your-render-backend-url.onrender.com"
+  REACT_APP_RAZORPAY_KEY_ID = "rzp_live_REMOVED"
+  REACT_APP_ENVIRONMENT = "production"
+
+# API Proxy - Redirect API calls to your backend
+[[redirects]]
+  from = "/api/*"
+  to = "https://your-render-backend-url.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+# SPA Routing - Redirect all other requests to index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Security Headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+
+# Cache static assets
+[[headers]]
+  for = "/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Cache service worker
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# Environment-specific builds
+[context.production]
+  environment = { REACT_APP_ENVIRONMENT = "production" }
+
+[context.deploy-preview]
+  environment = { REACT_APP_ENVIRONMENT = "staging" }
+
+[context.branch-deploy]
+  environment = { REACT_APP_ENVIRONMENT = "development" }
