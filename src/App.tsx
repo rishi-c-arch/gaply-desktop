@@ -385,7 +385,7 @@ const SecondSection: React.FC = () => {
     setIsLoading(true);
     try {
       // Connect to real backend API
-      const response = await fetch('https://gaply-production-backend.onrender.com/api/v2/enhanced-paraphrase', {
+      const response = await fetch('https://gaply-production-backend.onrender.com/api/v1/paraphrase/direct', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -402,9 +402,9 @@ const SecondSection: React.FC = () => {
       const data = await response.json();
       setResults({
         type: 'paraphrase',
-        original: paraphraseText,
-        paraphrased: data.enhanced_text || data.result || 'Enhanced academic version: ' + paraphraseText,
-        analysis: data.analysis || null
+        original: data.original_text || paraphraseText,
+        paraphrased: data.paraphrased_text || 'Enhanced academic version: ' + paraphraseText,
+        analysis: data.processing_method || null
       });
     } catch (error) {
       console.error('Paraphrasing error:', error);
