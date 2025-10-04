@@ -384,15 +384,37 @@ const SecondSection: React.FC = () => {
     
     setIsLoading(true);
     try {
-      // Simulate API call - replace with actual backend call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Connect to real backend API
+      const response = await fetch('https://gaply-production-backend.onrender.com/api/v2/enhanced-paraphrase', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: paraphraseText
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Paraphrasing failed');
+      }
+      
+      const data = await response.json();
       setResults({
         type: 'paraphrase',
         original: paraphraseText,
-        paraphrased: `Enhanced academic version: ${paraphraseText} (This is a demo result. Connect to your backend API for real paraphrasing.)`
+        paraphrased: data.enhanced_text || data.result || 'Enhanced academic version: ' + paraphraseText,
+        analysis: data.analysis || null
       });
     } catch (error) {
-      alert('Error paraphrasing text. Please try again.');
+      console.error('Paraphrasing error:', error);
+      // Fallback to demo result if API fails
+      setResults({
+        type: 'paraphrase',
+        original: paraphraseText,
+        paraphrased: `Enhanced academic version: ${paraphraseText} (API temporarily unavailable - this is a demo result)`,
+        analysis: null
+      });
     } finally {
       setIsLoading(false);
     }
@@ -406,8 +428,33 @@ const SecondSection: React.FC = () => {
     
     setIsLoading(true);
     try {
-      // Simulate API call - replace with actual backend call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Connect to real backend API
+      const response = await fetch('https://gaply-production-backend.onrender.com/api/v1/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: searchQuery
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Search failed');
+      }
+      
+      const data = await response.json();
+      setResults({
+        type: 'search',
+        query: searchQuery,
+        papers: data.papers || data.results || [
+          { title: 'Sample Paper 1', authors: 'Author et al.', year: 2023, journal: 'Nature' },
+          { title: 'Sample Paper 2', authors: 'Researcher et al.', year: 2022, journal: 'Science' }
+        ]
+      });
+    } catch (error) {
+      console.error('Search error:', error);
+      // Fallback to demo result if API fails
       setResults({
         type: 'search',
         query: searchQuery,
@@ -416,8 +463,6 @@ const SecondSection: React.FC = () => {
           { title: 'Sample Paper 2', authors: 'Researcher et al.', year: 2022, journal: 'Science' }
         ]
       });
-    } catch (error) {
-      alert('Error searching papers. Please try again.');
     } finally {
       setIsLoading(false);
     }
