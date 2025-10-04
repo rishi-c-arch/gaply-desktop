@@ -284,6 +284,17 @@ const SecondSection: React.FC = () => {
   const ringRef = useRef<HTMLDivElement>(null);
   const [showFeatures, setShowFeatures] = useState(false);
   const [activeFeature, setActiveFeature] = useState('paraphrase');
+  
+  // Free features state
+  const [paraphraseText, setParaphraseText] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [journalPreferences, setJournalPreferences] = useState({
+    access: 'free',
+    quartile: 'any',
+    subject: 'general'
+  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [results, setResults] = useState<any>(null);
 
   useEffect(() => {
     // Smooth transition animation from hero section
@@ -364,6 +375,74 @@ const SecondSection: React.FC = () => {
     });
   };
 
+  // Free features handlers
+  const handleParaphrase = async () => {
+    if (!paraphraseText.trim()) {
+      alert('Please enter some text to paraphrase');
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      // Simulate API call - replace with actual backend call
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      setResults({
+        type: 'paraphrase',
+        original: paraphraseText,
+        paraphrased: `Enhanced academic version: ${paraphraseText} (This is a demo result. Connect to your backend API for real paraphrasing.)`
+      });
+    } catch (error) {
+      alert('Error paraphrasing text. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) {
+      alert('Please enter a search query');
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      // Simulate API call - replace with actual backend call
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      setResults({
+        type: 'search',
+        query: searchQuery,
+        papers: [
+          { title: 'Sample Paper 1', authors: 'Author et al.', year: 2023, journal: 'Nature' },
+          { title: 'Sample Paper 2', authors: 'Researcher et al.', year: 2022, journal: 'Science' }
+        ]
+      });
+    } catch (error) {
+      alert('Error searching papers. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleJournalMatch = async () => {
+    setIsLoading(true);
+    try {
+      // Simulate API call - replace with actual backend call
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      setResults({
+        type: 'journal',
+        preferences: journalPreferences,
+        recommendations: [
+          { name: 'Journal of Academic Research', quartile: 'Q1', impact: 4.2 },
+          { name: 'Research Quarterly', quartile: 'Q2', impact: 3.8 }
+        ]
+      });
+    } catch (error) {
+      alert('Error finding journal matches. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <section ref={sectionRef} className="second-section">
       <div className="container">
@@ -427,9 +506,15 @@ const SecondSection: React.FC = () => {
                                   placeholder="Paste your text here for paraphrasing..." 
                                   className="abstract-input"
                                   style={{ minHeight: '150px' }}
+                                  value={paraphraseText}
+                                  onChange={(e) => setParaphraseText(e.target.value)}
                                 />
-                                <button className="btn-search">
-                                  🔄 Paraphrase Text
+                                <button 
+                                  className="btn-search"
+                                  onClick={handleParaphrase}
+                                  disabled={isLoading}
+                                >
+                                  {isLoading ? '⏳ Processing...' : '🔄 Paraphrase Text'}
                                 </button>
                               </div>
                             </div>
@@ -444,9 +529,15 @@ const SecondSection: React.FC = () => {
                                   type="text" 
                                   placeholder="Enter your research query (e.g., 'machine learning in healthcare', 'renewable energy solutions')..." 
                                   className="search-input"
+                                  value={searchQuery}
+                                  onChange={(e) => setSearchQuery(e.target.value)}
                                 />
-                                <button className="btn-search">
-                                  🔍 Search Papers
+                                <button 
+                                  className="btn-search"
+                                  onClick={handleSearch}
+                                  disabled={isLoading}
+                                >
+                                  {isLoading ? '⏳ Searching...' : '🔍 Search Papers'}
                                 </button>
                               </div>
                             </div>
@@ -460,18 +551,81 @@ const SecondSection: React.FC = () => {
                                 <div className="preference-section">
                                   <label>Select Your Preferences:</label>
                                   <div className="radio-group">
-                                    <label><input type="radio" name="access" value="free" defaultChecked /> Free Access Only</label>
-                                    <label><input type="radio" name="access" value="paid" /> Paid Access OK</label>
+                                    <label>
+                                      <input 
+                                        type="radio" 
+                                        name="access" 
+                                        value="free" 
+                                        checked={journalPreferences.access === 'free'}
+                                        onChange={(e) => setJournalPreferences(prev => ({...prev, access: e.target.value}))}
+                                      /> 
+                                      Free Access Only
+                                    </label>
+                                    <label>
+                                      <input 
+                                        type="radio" 
+                                        name="access" 
+                                        value="paid" 
+                                        checked={journalPreferences.access === 'paid'}
+                                        onChange={(e) => setJournalPreferences(prev => ({...prev, access: e.target.value}))}
+                                      /> 
+                                      Paid Access OK
+                                    </label>
                                   </div>
                                 </div>
                                 <div className="preference-section">
                                   <label>Journal Quartiles:</label>
                                   <div className="radio-group">
-                                    <label><input type="radio" name="quartile" value="q1" /> Q1 (Top-tier)</label>
-                                    <label><input type="radio" name="quartile" value="q2" /> Q2 (High-tier)</label>
-                                    <label><input type="radio" name="quartile" value="q3" /> Q3 (Mid-tier)</label>
-                                    <label><input type="radio" name="quartile" value="q4" /> Q4 (Specialized)</label>
-                                    <label><input type="radio" name="quartile" value="all" defaultChecked /> All Quartiles</label>
+                                    <label>
+                                      <input 
+                                        type="radio" 
+                                        name="quartile" 
+                                        value="q1" 
+                                        checked={journalPreferences.quartile === 'q1'}
+                                        onChange={(e) => setJournalPreferences(prev => ({...prev, quartile: e.target.value}))}
+                                      /> 
+                                      Q1 (Top-tier)
+                                    </label>
+                                    <label>
+                                      <input 
+                                        type="radio" 
+                                        name="quartile" 
+                                        value="q2" 
+                                        checked={journalPreferences.quartile === 'q2'}
+                                        onChange={(e) => setJournalPreferences(prev => ({...prev, quartile: e.target.value}))}
+                                      /> 
+                                      Q2 (High-tier)
+                                    </label>
+                                    <label>
+                                      <input 
+                                        type="radio" 
+                                        name="quartile" 
+                                        value="q3" 
+                                        checked={journalPreferences.quartile === 'q3'}
+                                        onChange={(e) => setJournalPreferences(prev => ({...prev, quartile: e.target.value}))}
+                                      /> 
+                                      Q3 (Mid-tier)
+                                    </label>
+                                    <label>
+                                      <input 
+                                        type="radio" 
+                                        name="quartile" 
+                                        value="q4" 
+                                        checked={journalPreferences.quartile === 'q4'}
+                                        onChange={(e) => setJournalPreferences(prev => ({...prev, quartile: e.target.value}))}
+                                      /> 
+                                      Q4 (Specialized)
+                                    </label>
+                                    <label>
+                                      <input 
+                                        type="radio" 
+                                        name="quartile" 
+                                        value="any" 
+                                        checked={journalPreferences.quartile === 'any'}
+                                        onChange={(e) => setJournalPreferences(prev => ({...prev, quartile: e.target.value}))}
+                                      /> 
+                                      All Quartiles
+                                    </label>
                                   </div>
                                 </div>
                                 <div className="input-section">
@@ -492,13 +646,65 @@ const SecondSection: React.FC = () => {
                                   />
                                   <div className="tip">💡 Tip: Include methodology, results, and conclusions for better matching</div>
                                 </div>
-                                <button className="btn-search">
-                                  🎯 Find Matching Journals
+                                <button 
+                                  className="btn-search"
+                                  onClick={handleJournalMatch}
+                                  disabled={isLoading}
+                                >
+                                  {isLoading ? '⏳ Finding Journals...' : '🎯 Find Matching Journals'}
                                 </button>
                               </div>
                             </div>
                           )}
                         </div>
+
+                        {/* Results Display */}
+                        {results && (
+                          <div className="results-section">
+                            <h3>Results</h3>
+                            {results.type === 'paraphrase' && (
+                              <div className="result-content">
+                                <div className="result-item">
+                                  <h4>Original Text:</h4>
+                                  <p>{results.original}</p>
+                                </div>
+                                <div className="result-item">
+                                  <h4>Enhanced Version:</h4>
+                                  <p>{results.paraphrased}</p>
+                                </div>
+                              </div>
+                            )}
+                            {results.type === 'search' && (
+                              <div className="result-content">
+                                <h4>Search Results for: "{results.query}"</h4>
+                                {results.papers.map((paper: any, index: number) => (
+                                  <div key={index} className="paper-result">
+                                    <h5>{paper.title}</h5>
+                                    <p><strong>Authors:</strong> {paper.authors}</p>
+                                    <p><strong>Journal:</strong> {paper.journal} ({paper.year})</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {results.type === 'journal' && (
+                              <div className="result-content">
+                                <h4>Journal Recommendations</h4>
+                                {results.recommendations.map((journal: any, index: number) => (
+                                  <div key={index} className="journal-result">
+                                    <h5>{journal.name}</h5>
+                                    <p><strong>Quartile:</strong> {journal.quartile} | <strong>Impact Factor:</strong> {journal.impact}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <button 
+                              className="clear-results-btn"
+                              onClick={() => setResults(null)}
+                            >
+                              Clear Results
+                            </button>
+                          </div>
+                        )}
 
                         <button 
                           className="back-button" 
