@@ -61,18 +61,15 @@ export const useLoading = (initialState: boolean = false) => {
     setIsLoading(false);
   }, []);
 
-  const withLoading = React.useCallback(<T>(
-    asyncFunction: () => Promise<T>
-  ): Promise<T> => {
-    return (async () => {
+  const withLoading = React.useCallback(
+    async (asyncFunction: () => Promise<any>) => {
       try {
         startLoading();
         return await asyncFunction();
       } finally {
         stopLoading();
       }
-    })();
-  }, [startLoading, stopLoading]);
+    }, [startLoading, stopLoading]);
 
   return {
     isLoading,

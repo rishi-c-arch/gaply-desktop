@@ -16,7 +16,7 @@ interface UserAccount {
 
 const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
   const [currentView, setCurrentView] = useState<'plans' | 'account'>('plans');
-  const [showAccountPanel, setShowAccountPanel] = useState(false);
+  // Removed unused showAccountPanel state
   const [userAccount, setUserAccount] = useState<UserAccount>({
     package: 'Gaply Basic',
     gapFinderUses: 3,
