@@ -103,7 +103,7 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({ error, onRetry }) => {
         </div>
       </div>
       
-      <style jsx>{`
+      <style>{`
         .error-fallback {
           min-height: 100vh;
           display: flex;
