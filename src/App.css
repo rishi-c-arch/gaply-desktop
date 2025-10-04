@@ -1722,6 +1722,20 @@ html {
   margin: 0.25rem 0;
 }
 
+.paper-abstract {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+  border-left: 3px solid #ff6b35;
+}
+
+.paper-abstract p {
+  margin-top: 0.5rem;
+  font-style: italic;
+  color: #34495e;
+}
+
 .clear-results-btn {
   background: #6c757d;
   color: white;
