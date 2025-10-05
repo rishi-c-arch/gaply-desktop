@@ -2020,7 +2020,7 @@ const App: React.FC = () => {
   const [showPackageSelection, setShowPackageSelection] = useState(false);
   const [usePremiumHero, setUsePremiumHero] = useState(true); // Toggle for premium hero
   // Feature flag for R3F Hero (default: false for safety)
-  const useR3FHero = process.env.REACT_APP_R3F_HERO === 'true' || localStorage.getItem('useR3FHero') === 'true' || false;
+  const useR3FHero = process.env.REACT_APP_R3F_HERO === 'true' || localStorage.getItem('useR3FHero') === 'true' || true; // Temporarily enabled for testing
 
   return (
     <div className="App">
