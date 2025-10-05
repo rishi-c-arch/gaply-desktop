@@ -8,6 +8,7 @@ import earthImage from './assets/earth-1756274.jpg';
 import LoginPage from './LoginPage';
 import PackageSelection from './PackageSelection';
 import PremiumHero from './components/PremiumHero';
+import HeroR3F from './components/HeroR3F';
 import './components/PremiumHero.css';
 
 // TypeScript declaration for window function
@@ -2018,6 +2019,8 @@ const App: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
   const [showPackageSelection, setShowPackageSelection] = useState(false);
   const [usePremiumHero, setUsePremiumHero] = useState(true); // Toggle for premium hero
+  // Feature flag for R3F Hero (default: false for safety)
+  const useR3FHero = process.env.REACT_APP_R3F_HERO === 'true' || localStorage.getItem('useR3FHero') === 'true' || false;
 
   return (
     <div className="App">
@@ -2095,11 +2098,17 @@ const App: React.FC = () => {
             >
               Get Premium
             </button>
-            {/* Developer Toggle - Remove in production */}
+            {/* Developer Toggles - Remove in production */}
             <button 
-              onClick={() => setUsePremiumHero(!usePremiumHero)}
+              onClick={() => {
+                const newValue = !usePremiumHero;
+                setUsePremiumHero(newValue);
+                if (newValue) {
+                  localStorage.setItem('useR3FHero', 'false');
+                }
+              }}
               style={{
-                background: '#ff6b35',
+                background: usePremiumHero ? '#ff6b35' : '#6b7280',
                 color: 'white',
                 border: 'none',
                 padding: '8px 12px',
@@ -2110,14 +2119,69 @@ const App: React.FC = () => {
               }}
               title="Toggle Premium Hero"
             >
-              {usePremiumHero ? 'Old Hero' : 'New Hero'}
+              {usePremiumHero ? 'Premium' : 'Legacy'}
+            </button>
+            <button 
+              onClick={() => {
+                localStorage.setItem('useR3FHero', useR3FHero ? 'false' : 'true');
+                window.location.reload();
+              }}
+              style={{
+                background: useR3FHero ? '#4F46E5' : '#6b7280',
+                color: 'white',
+                border: 'none',
+                padding: '8px 12px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                marginLeft: '5px'
+              }}
+              title="Toggle R3F Hero"
+            >
+              {useR3FHero ? 'R3F' : '2D'}
+            </button>
+            
+            {/* R3F Hero Toggle - Remove in production */}
+            <button 
+              onClick={() => {
+                // This would need to be handled differently in production
+                // For now, we'll use localStorage to persist the choice
+                const currentR3F = localStorage.getItem('useR3FHero') === 'true';
+                localStorage.setItem('useR3FHero', (!currentR3F).toString());
+                window.location.reload(); // Reload to apply the change
+              }}
+              style={{
+                background: '#4F46E5',
+                color: 'white',
+                border: 'none',
+                padding: '8px 12px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                marginLeft: '10px'
+              }}
+              title="Toggle R3F Hero"
+            >
+              {useR3FHero ? 'R3F OFF' : 'R3F ON'}
             </button>
           </div>
         </div>
       </nav>
 
       {/* Hero Section */}
-      {usePremiumHero ? <PremiumHero /> : <HeroSection />}
+      {useR3FHero ? (
+        <HeroR3F 
+          spinSpeed={0.18}
+          maxWords={24}
+          words={['IDEA', 'PAPER', 'MENTOR', 'FUND', 'REVIEW', 'PUBLISH', 'GAPLY']}
+          onWordClick={(word) => console.log('Word clicked:', word)}
+          enablePoster={true}
+        />
+      ) : usePremiumHero ? (
+        <PremiumHero />
+      ) : (
+        <HeroSection />
+      )}
 
       {/* Second Section with FREE FEATURES */}
       <SecondSection />
