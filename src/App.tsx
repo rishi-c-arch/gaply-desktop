@@ -2018,7 +2018,7 @@ const FixedFooter: React.FC = () => {
 const App: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
   const [showPackageSelection, setShowPackageSelection] = useState(false);
-  const [usePremiumHero, setUsePremiumHero] = useState(true); // Toggle for premium hero
+  const [usePremiumHero, setUsePremiumHero] = useState(false); // Toggle for premium hero - disabled to show R3F
   // Feature flag for R3F Hero (default: false for safety)
   const useR3FHero = process.env.REACT_APP_R3F_HERO === 'true' || localStorage.getItem('useR3FHero') === 'true' || true; // Temporarily enabled for testing
 
@@ -2170,17 +2170,53 @@ const App: React.FC = () => {
 
       {/* Hero Section */}
       {useR3FHero ? (
-        <HeroR3F 
-          spinSpeed={0.18}
-          maxWords={24}
-          words={['IDEA', 'PAPER', 'MENTOR', 'FUND', 'REVIEW', 'PUBLISH', 'GAPLY']}
-          onWordClick={(word) => console.log('Word clicked:', word)}
-          enablePoster={true}
-        />
+        <>
+          <div style={{ 
+            background: '#4F46E5', 
+            color: 'white', 
+            padding: '10px', 
+            textAlign: 'center', 
+            fontSize: '14px',
+            fontWeight: 'bold'
+          }}>
+            🎮 R3F HERO ACTIVE - 3D Rotating Logo + Falling Words
+          </div>
+          <HeroR3F 
+            spinSpeed={0.18}
+            maxWords={24}
+            words={['IDEA', 'PAPER', 'MENTOR', 'FUND', 'REVIEW', 'PUBLISH', 'GAPLY']}
+            onWordClick={(word) => console.log('Word clicked:', word)}
+            enablePoster={true}
+          />
+        </>
       ) : usePremiumHero ? (
-        <PremiumHero />
+        <>
+          <div style={{ 
+            background: '#ff6b35', 
+            color: 'white', 
+            padding: '10px', 
+            textAlign: 'center', 
+            fontSize: '14px',
+            fontWeight: 'bold'
+          }}>
+            🎨 PREMIUM HERO ACTIVE
+          </div>
+          <PremiumHero />
+        </>
       ) : (
-        <HeroSection />
+        <>
+          <div style={{ 
+            background: '#6b7280', 
+            color: 'white', 
+            padding: '10px', 
+            textAlign: 'center', 
+            fontSize: '14px',
+            fontWeight: 'bold'
+          }}>
+            📚 LEGACY HERO ACTIVE
+          </div>
+          <HeroSection />
+        </>
       )}
 
       {/* Second Section with FREE FEATURES */}
