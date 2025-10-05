@@ -1,0 +1,254 @@
+/* Premium Hero Component Styles */
+
+/* Inter Font Import */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+/* Model Viewer Custom Styles */
+model-viewer {
+  --poster-color: transparent;
+  --progress-bar-color: #4F46E5;
+  --progress-bar-height: 4px;
+  --progress-mask: transparent;
+}
+
+/* Smooth Transitions */
+* {
+  transition: transform 160ms ease;
+}
+
+/* Header Styles */
+.premium-header {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Hero Background Gradient */
+.hero-gradient {
+  background: linear-gradient(180deg, rgba(120,120,128,0.5) 0%, rgba(120,120,128,0) 50%);
+}
+
+/* Glass/Frosted Panel */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Typography */
+.hero-headline {
+  font-family: 'Inter', 'SF Pro', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 700;
+  line-height: 1.02;
+  color: #0f172a;
+}
+
+.hero-subhead {
+  font-family: 'Inter', 'SF Pro', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 500;
+  color: #374151;
+}
+
+/* Stats Typography */
+.stats-number {
+  font-family: 'Inter', 'SF Pro', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #0f172a;
+}
+
+.stats-label {
+  font-family: 'Inter', 'SF Pro', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+}
+
+/* Button Hover Effects */
+.cta-button {
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.cta-button:hover {
+  transform: scale(1.03);
+}
+
+.cta-button:active {
+  transform: scale(0.98);
+}
+
+/* 3D Model Container */
+.model-container {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 
+    0 25px 50px -12px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+/* Model Shadow */
+.model-shadow {
+  position: absolute;
+  bottom: -16px;
+  left: 16px;
+  right: 16px;
+  height: 32px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.1), transparent);
+  border-radius: 50%;
+  filter: blur(24px);
+}
+
+/* Responsive Typography */
+@media (max-width: 768px) {
+  .hero-headline {
+    font-size: 28px;
+    line-height: 1.1;
+  }
+  
+  .hero-subhead {
+    font-size: 16px;
+  }
+  
+  .stats-number {
+    font-size: 28px;
+  }
+  
+  .stats-label {
+    font-size: 11px;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .hero-headline {
+    font-size: 48px;
+  }
+  
+  .hero-subhead {
+    font-size: 18px;
+  }
+  
+  .stats-number {
+    font-size: 36px;
+  }
+}
+
+@media (min-width: 1025px) {
+  .hero-headline {
+    font-size: 56px;
+  }
+  
+  .hero-subhead {
+    font-size: 18px;
+  }
+  
+  .stats-number {
+    font-size: 48px;
+  }
+}
+
+@media (min-width: 1440px) {
+  .hero-headline {
+    font-size: 64px;
+  }
+}
+
+/* Header Height Responsive */
+@media (max-width: 767px) {
+  .premium-header {
+    height: 56px;
+  }
+}
+
+@media (min-width: 768px) {
+  .premium-header {
+    height: 72px;
+  }
+}
+
+/* Search Button */
+.search-button {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(229, 231, 235, 0.8);
+  transition: all 160ms ease;
+}
+
+.search-button:hover {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(229, 231, 235, 1);
+}
+
+/* Keyboard Shortcut */
+kbd {
+  background: rgba(243, 244, 246, 0.8);
+  border: 1px solid rgba(209, 213, 219, 0.8);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: 'Inter', monospace;
+  color: #6b7280;
+}
+
+/* Mobile Menu */
+.mobile-menu-button {
+  transition: background-color 160ms ease;
+}
+
+.mobile-menu-button:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+  
+  model-viewer {
+    auto-rotate: false;
+  }
+}
+
+/* Focus States */
+a:focus,
+button:focus {
+  outline: 2px solid #4F46E5;
+  outline-offset: 2px;
+}
+
+/* High Contrast Mode */
+@media (prefers-contrast: high) {
+  .hero-headline {
+    color: #000000;
+  }
+  
+  .hero-subhead {
+    color: #000000;
+  }
+  
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.9);
+  }
+}
+
+/* Print Styles */
+@media print {
+  .premium-header {
+    position: static !important;
+    background: white !important;
+    backdrop-filter: none !important;
+  }
+  
+  model-viewer {
+    display: none;
+  }
+  
+  .hero-gradient {
+    background: white !important;
+  }
+}

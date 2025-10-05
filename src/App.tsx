@@ -7,6 +7,8 @@ import pointOfViewImage from './assets/point-of-view-731844.jpg';
 import earthImage from './assets/earth-1756274.jpg';
 import LoginPage from './LoginPage';
 import PackageSelection from './PackageSelection';
+import PremiumHero from './components/PremiumHero';
+import './components/PremiumHero.css';
 
 // TypeScript declaration for window function
 declare global {
@@ -2015,6 +2017,7 @@ const FixedFooter: React.FC = () => {
 const App: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
   const [showPackageSelection, setShowPackageSelection] = useState(false);
+  const [usePremiumHero, setUsePremiumHero] = useState(true); // Toggle for premium hero
 
   return (
     <div className="App">
@@ -2092,12 +2095,29 @@ const App: React.FC = () => {
             >
               Get Premium
             </button>
+            {/* Developer Toggle - Remove in production */}
+            <button 
+              onClick={() => setUsePremiumHero(!usePremiumHero)}
+              style={{
+                background: '#ff6b35',
+                color: 'white',
+                border: 'none',
+                padding: '8px 12px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                marginLeft: '10px'
+              }}
+              title="Toggle Premium Hero"
+            >
+              {usePremiumHero ? 'Old Hero' : 'New Hero'}
+            </button>
           </div>
         </div>
       </nav>
 
       {/* Hero Section */}
-      <HeroSection />
+      {usePremiumHero ? <PremiumHero /> : <HeroSection />}
 
       {/* Second Section with FREE FEATURES */}
       <SecondSection />
