@@ -9,12 +9,17 @@ import HeroToSecondTransition from './components/HeroToSecondTransition';
 import FreeFeatures3D from './components/FreeFeatures3D';
 import QuartileAnalysis3D from './components/QuartileAnalysis3D';
 import PremiumFooter3D from './components/PremiumFooter3D';
+import PremiumLanding from './pages/PremiumLanding';
+import PremiumFeaturePage from './pages/PremiumFeaturePage';
+import UserDashboard from './pages/UserDashboard';
+import PackageSelection from './components/PackageSelection';
 
 // TypeScript declaration for window function
 declare global {
   interface Window {
     showThirdSection?: () => void;
     openPopup?: (section: string) => void;
+    openPackageSelection?: (planId?: string) => void;
   }
 }
 
@@ -240,15 +245,59 @@ const App: React.FC = () => {
     return () => observer.disconnect();
   }, []);
 
+const App: React.FC = () => {
+  const [currentPage, setCurrentPage] = useState('home');
+  const [showPackageSelection, setShowPackageSelection] = useState(false);
+
+  // Handle routing based on URL hash
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      setCurrentPage(hash || 'home');
+    };
+
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // Expose package selection function globally
+  useEffect(() => {
+    window.openPackageSelection = (planId?: string) => {
+      setShowPackageSelection(true);
+    };
+  }, []);
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'premium':
+        return <PremiumLanding />;
+      case 'premium/gap-finder':
+        return <PremiumFeaturePage featureType="gap-finder" />;
+      case 'premium/deep-analysis':
+        return <PremiumFeaturePage featureType="deep-analysis" />;
+      case 'dashboard':
+        return <UserDashboard />;
+      default:
+        return (
+          <>
+            <Header theme={headerTheme} />
+            <HeroSection />
+            <FreeFeatures3D />
+            <HeroToSecondTransition />
+            <QuartileAnalysis3D />
+            <PremiumFooter3D />
+          </>
+        );
+    }
+  };
+
   return (
     <div className="App">
-      <Header theme={headerTheme} />
-      <HeroSection />
-      {/* Section 2: Free Features should appear right after hero */}
-      <FreeFeatures3D />
-      <HeroToSecondTransition />
-      <QuartileAnalysis3D />
-      <PremiumFooter3D />
+      {renderPage()}
+      {showPackageSelection && (
+        <PackageSelection onClose={() => setShowPackageSelection(false)} />
+      )}
     </div>
   );
 };
