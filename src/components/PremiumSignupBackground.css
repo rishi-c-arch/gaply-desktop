@@ -105,9 +105,9 @@
   position: relative;
   z-index: 15;
   width: 100%;
-  max-width: 550px;
-  padding: 25px;
-  transform: perspective(1200px) rotateX(3deg) rotateY(-1deg);
+  max-width: 420px;
+  padding: 20px;
+  transform: perspective(1200px) rotateX(2deg) rotateY(-0.5deg);
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -119,8 +119,8 @@
   background: rgba(255, 255, 255, 0.02) !important;
   backdrop-filter: blur(40px) !important;
   border: 2px solid rgba(255, 122, 26, 0.2) !important;
-  border-radius: 32px !important;
-  padding: 60px !important;
+  border-radius: 24px !important;
+  padding: 40px !important;
   box-shadow: 
     0 35px 70px rgba(0, 0, 0, 0.7),
     0 0 0 1px rgba(255, 255, 255, 0.1),
@@ -197,15 +197,15 @@
 
 .signup-header {
   text-align: center;
-  margin-bottom: 50px;
+  margin-bottom: 35px;
   transform: translateZ(20px);
 }
 
 .signup-header h1 {
   color: #ffffff !important;
-  font-size: 3.5rem !important;
+  font-size: 2.8rem !important;
   font-weight: 900 !important;
-  margin-bottom: 20px !important;
+  margin-bottom: 15px !important;
   font-family: 'Inter', sans-serif !important;
   background: linear-gradient(135deg, #ffffff 0%, #ff7a1a 30%, #ffffff 60%, #ff7a1a 100%);
   background-size: 300% 300%;
@@ -237,14 +237,14 @@
 .signup-form {
   display: flex;
   flex-direction: column;
-  gap: 30px;
+  gap: 20px;
   transform: translateZ(10px);
 }
 
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 25px;
+  gap: 20px;
 }
 
 .form-group {
@@ -264,12 +264,12 @@
 }
 
 .form-group input {
-  padding: 22px 24px;
+  padding: 18px 20px;
   border: 2px solid rgba(255, 255, 255, 0.15);
-  border-radius: 16px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.05);
   color: #ffffff;
-  font-size: 1.1rem;
+  font-size: 1rem;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   backdrop-filter: blur(15px);
   position: relative;
@@ -326,23 +326,23 @@
 }
 
 .signup-btn {
-  padding: 24px;
+  padding: 18px;
   background: linear-gradient(135deg, #ff7a1a 0%, #ff8c42 25%, #ff7a1a 50%, #ff8c42 75%, #ff7a1a 100%);
   background-size: 300% 300%;
   color: #ffffff;
   border: none;
-  border-radius: 16px;
-  font-size: 1.2rem;
+  border-radius: 14px;
+  font-size: 1rem;
   font-weight: 800;
   cursor: pointer;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  margin-top: 20px;
+  margin-top: 15px;
   text-transform: uppercase;
-  letter-spacing: 2px;
+  letter-spacing: 1.5px;
   position: relative;
   overflow: hidden;
-  box-shadow: 
-    0 15px 40px rgba(255, 122, 26, 0.4),
+  box-shadow:
+    0 12px 30px rgba(255, 122, 26, 0.4),
     inset 0 2px 0 rgba(255, 255, 255, 0.3),
     0 0 0 2px rgba(255, 122, 26, 0.2);
   animation: buttonShimmer 1.5s ease-in-out infinite;

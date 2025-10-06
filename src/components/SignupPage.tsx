@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import './PremiumSignupBackground.css';
-import './GaplySignupStyles.css';
 import PremiumSignupBackground from './PremiumSignupBackground';
 
 
