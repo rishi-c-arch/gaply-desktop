@@ -12,7 +12,7 @@ import PremiumFooter3D from './components/PremiumFooter3D';
 import PremiumLanding from './pages/PremiumLanding';
 import PremiumFeaturePage from './pages/PremiumFeaturePage';
 import UserDashboard from './pages/UserDashboard';
-import PackageSelection from './components/PackageSelection';
+// import PackageSelection from './components/PackageSelection';
 
 // TypeScript declaration for window function
 declare global {
@@ -245,9 +245,10 @@ const App: React.FC = () => {
     return () => observer.disconnect();
   }, []);
 
+// Main App component with routing
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState('home');
-  const [showPackageSelection, setShowPackageSelection] = useState(false);
+  const [headerTheme, setHeaderTheme] = useState<'light'|'dark'>('dark');
 
   // Handle routing based on URL hash
   useEffect(() => {
@@ -261,11 +262,36 @@ const App: React.FC = () => {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Expose package selection function globally
+  // Header theme detection
   useEffect(() => {
-    window.openPackageSelection = (planId?: string) => {
-      setShowPackageSelection(true);
+    const toLuminance = (r: number, g: number, b: number) => {
+      const a = [r, g, b].map(v => {
+        v /= 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      });
+      return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
     };
+
+    const parseRGB = (color: string): [number, number, number] | null => {
+      const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      return match ? [parseInt(match[1]), parseInt(match[2]), parseInt(match[3])] : null;
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const bgColor = window.getComputedStyle(entry.target).backgroundColor;
+          const rgb = parseRGB(bgColor);
+          if (rgb) {
+            const luminance = toLuminance(rgb[0], rgb[1], rgb[2]);
+            setHeaderTheme(luminance > 0.5 ? 'light' : 'dark');
+          }
+        }
+      });
+    }, { root: null, rootMargin: '-40% 0px -55% 0px', threshold: [0.25, 0.5, 0.75] });
+
+    document.querySelectorAll('section').forEach((s) => observer.observe(s));
+    return () => observer.disconnect();
   }, []);
 
   const renderPage = () => {
@@ -295,9 +321,6 @@ const App: React.FC = () => {
   return (
     <div className="App">
       {renderPage()}
-      {showPackageSelection && (
-        <PackageSelection onClose={() => setShowPackageSelection(false)} />
-      )}
     </div>
   );
 };
