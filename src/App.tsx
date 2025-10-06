@@ -13,7 +13,7 @@ import PremiumPage from './components/PremiumPage';
 import UserDashboard from './components/UserDashboard';
 import PremiumFeatureModal from './components/PremiumFeatureModal';
 import LoginPage from './components/LoginPage';
-import TestSignupPage from './components/TestSignupPage';
+import SignupPage from './components/SignupPage';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 // TypeScript declaration for window function
@@ -196,16 +196,13 @@ const App: React.FC = () => {
   // Simple routing based on URL
   useEffect(() => {
     const path = window.location.pathname;
-    console.log('Current path:', path); // Debug log
     if (path === '/premium') {
       setCurrentPage('premium');
     } else if (path === '/dashboard') {
       setCurrentPage('dashboard');
     } else if (path === '/login') {
-      console.log('Setting showAuth to login'); // Debug log
       setShowAuth('login');
     } else if (path === '/signup') {
-      console.log('Setting showAuth to signup'); // Debug log
       setShowAuth('signup');
     } else {
       setCurrentPage('home');
@@ -262,8 +259,6 @@ const App: React.FC = () => {
   };
 
   const renderPage = () => {
-    console.log('Rendering page - showAuth:', showAuth, 'currentPage:', currentPage, 'isLoading:', isLoading); // Debug log
-    
     // Show loading spinner while checking authentication
     if (isLoading) {
       return (
@@ -282,7 +277,6 @@ const App: React.FC = () => {
 
     // Show authentication pages
     if (showAuth === 'login') {
-      console.log('Rendering LoginPage'); // Debug log
       return (
         <LoginPage 
           onLoginSuccess={handleAuthSuccess}
@@ -292,8 +286,12 @@ const App: React.FC = () => {
     }
 
     if (showAuth === 'signup') {
-      console.log('Rendering TestSignupPage'); // Debug log
-      return <TestSignupPage />;
+      return (
+        <SignupPage 
+          onSignupSuccess={handleAuthSuccess}
+          onSwitchToLogin={() => handleSwitchAuth('login')}
+        />
+      );
     }
 
     // Show main pages
