@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import './PremiumSignupBackground.css';
+import './GaplySignupStyles.css';
 import PremiumSignupBackground from './PremiumSignupBackground';
 
 
@@ -84,21 +85,21 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
   };
 
   return (
-    <div className="signup-page">
+    <div className="gaply-signup-page">
       {/* Premium 3D Background */}
       <PremiumSignupBackground />
 
       {/* Signup Form */}
-      <div className="signup-container">
-        <div className="signup-card">
-          <div className="signup-header">
+      <div className="gaply-signup-container">
+        <div className="gaply-signup-card">
+          <div className="gaply-signup-header">
             <h1>Join GAPLY</h1>
             <p>Create your account to get started</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="signup-form">
-            <div className="form-row">
-              <div className="form-group">
+          <form onSubmit={handleSubmit} className="gaply-signup-form">
+            <div className="gaply-form-row">
+              <div className="gaply-form-group">
                 <label htmlFor="firstName">First Name</label>
                 <input
                   type="text"
@@ -112,7 +113,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
                 />
               </div>
 
-              <div className="form-group">
+              <div className="gaply-form-group">
                 <label htmlFor="lastName">Last Name</label>
                 <input
                   type="text"
@@ -127,7 +128,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
               </div>
             </div>
 
-            <div className="form-group">
+            <div className="gaply-form-group">
               <label htmlFor="email">Email Address</label>
               <input
                 type="email"
@@ -141,7 +142,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
               />
             </div>
 
-            <div className="form-group">
+            <div className="gaply-form-group">
               <label htmlFor="password">Password</label>
               <input
                 type="password"
@@ -155,7 +156,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
               />
             </div>
 
-            <div className="form-group">
+            <div className="gaply-form-group">
               <label htmlFor="confirmPassword">Confirm Password</label>
               <input
                 type="password"
@@ -177,19 +178,19 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
 
             <button 
               type="submit" 
-              className="signup-btn"
+              className="gaply-signup-btn"
               disabled={loading}
             >
               {loading ? 'Creating Account...' : 'Create Account'}
             </button>
           </form>
 
-          <div className="signup-footer">
+          <div className="gaply-signup-footer">
             <p>
               Already have an account?{' '}
               <button 
                 type="button" 
-                className="switch-btn"
+                className="gaply-switch-btn"
                 onClick={onSwitchToLogin}
               >
                 Sign In

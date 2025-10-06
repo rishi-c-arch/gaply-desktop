@@ -1,0 +1,247 @@
+/* Ultra-Premium Signup Page Styles - Force Override */
+.gaply-signup-page {
+  position: relative !important;
+  width: 100% !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+  background: linear-gradient(135deg, #0A0A0A 0%, #1a1a1a 30%, #2a2a2a 70%, #0A0A0A 100%) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 100vh !important;
+}
+
+.gaply-signup-container {
+  position: relative !important;
+  z-index: 15 !important;
+  width: 100% !important;
+  max-width: 550px !important;
+  padding: 25px !important;
+  transform: perspective(1200px) rotateX(3deg) rotateY(-1deg) !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.gaply-signup-container:hover {
+  transform: perspective(1200px) rotateX(0deg) rotateY(0deg) translateY(-8px) scale(1.02) !important;
+}
+
+.gaply-signup-card {
+  background: rgba(255, 255, 255, 0.02) !important;
+  backdrop-filter: blur(40px) !important;
+  border: 2px solid rgba(255, 122, 26, 0.2) !important;
+  border-radius: 32px !important;
+  padding: 60px !important;
+  box-shadow: 
+    0 35px 70px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 2px 0 rgba(255, 255, 255, 0.15),
+    0 0 50px rgba(255, 122, 26, 0.1) !important;
+  position: relative !important;
+  overflow: hidden !important;
+  transform: translateZ(30px) !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.gaply-signup-card:hover {
+  transform: translateZ(50px) scale(1.03) !important;
+  box-shadow: 
+    0 50px 100px rgba(0, 0, 0, 0.8),
+    0 0 0 2px rgba(255, 122, 26, 0.3),
+    inset 0 2px 0 rgba(255, 255, 255, 0.2),
+    0 0 80px rgba(255, 122, 26, 0.2) !important;
+}
+
+.gaply-signup-header {
+  text-align: center !important;
+  margin-bottom: 50px !important;
+  transform: translateZ(20px) !important;
+}
+
+.gaply-signup-header h1 {
+  color: #ffffff !important;
+  font-size: 3.5rem !important;
+  font-weight: 900 !important;
+  margin-bottom: 20px !important;
+  font-family: 'Inter', sans-serif !important;
+  background: linear-gradient(135deg, #ffffff 0%, #ff7a1a 30%, #ffffff 60%, #ff7a1a 100%) !important;
+  background-size: 300% 300% !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+  animation: textShimmer 2s ease-in-out infinite !important;
+  text-shadow: 0 0 40px rgba(255, 122, 26, 0.4) !important;
+  letter-spacing: -0.02em !important;
+}
+
+.gaply-signup-header p {
+  color: #cecece !important;
+  font-size: 1.2rem !important;
+  font-weight: 500 !important;
+  opacity: 0.9 !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5) !important;
+}
+
+.gaply-signup-form {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 30px !important;
+  transform: translateZ(10px) !important;
+}
+
+.gaply-form-row {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 25px !important;
+}
+
+.gaply-form-group {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  position: relative !important;
+}
+
+.gaply-form-group label {
+  color: #ffffff !important;
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 1px !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5) !important;
+}
+
+.gaply-form-group input {
+  padding: 22px 24px !important;
+  border: 2px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 16px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #ffffff !important;
+  font-size: 1.1rem !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  backdrop-filter: blur(15px) !important;
+  position: relative !important;
+  z-index: 1 !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+}
+
+.gaply-form-group input:focus {
+  outline: none !important;
+  border-color: #ff7a1a !important;
+  box-shadow: 
+    0 0 0 6px rgba(255, 122, 26, 0.15),
+    0 0 30px rgba(255, 122, 26, 0.3),
+    inset 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  transform: translateY(-3px) scale(1.02) !important;
+}
+
+.gaply-form-group input::placeholder {
+  color: rgba(255, 255, 255, 0.5) !important;
+  font-weight: 400 !important;
+}
+
+.gaply-signup-btn {
+  padding: 24px !important;
+  background: linear-gradient(135deg, #ff7a1a 0%, #ff8c42 25%, #ff7a1a 50%, #ff8c42 75%, #ff7a1a 100%) !important;
+  background-size: 300% 300% !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 16px !important;
+  font-size: 1.2rem !important;
+  font-weight: 800 !important;
+  cursor: pointer !important;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  margin-top: 20px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 2px !important;
+  position: relative !important;
+  overflow: hidden !important;
+  box-shadow: 
+    0 15px 40px rgba(255, 122, 26, 0.4),
+    inset 0 2px 0 rgba(255, 255, 255, 0.3),
+    0 0 0 2px rgba(255, 122, 26, 0.2) !important;
+  animation: buttonShimmer 1.5s ease-in-out infinite !important;
+}
+
+.gaply-signup-btn:hover:not(:disabled) {
+  transform: translateY(-4px) scale(1.05) !important;
+  box-shadow: 
+    0 25px 60px rgba(255, 122, 26, 0.5),
+    inset 0 2px 0 rgba(255, 255, 255, 0.4),
+    0 0 0 3px rgba(255, 122, 26, 0.3) !important;
+  background-position: 100% 0% !important;
+}
+
+.gaply-signup-footer {
+  text-align: center !important;
+  margin-top: 40px !important;
+  transform: translateZ(10px) !important;
+}
+
+.gaply-signup-footer p {
+  color: #cecece !important;
+  font-size: 1.1rem !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5) !important;
+}
+
+.gaply-switch-btn {
+  background: none !important;
+  border: none !important;
+  color: #ff7a1a !important;
+  font-weight: 800 !important;
+  cursor: pointer !important;
+  text-decoration: underline !important;
+  transition: all 0.3s ease !important;
+  font-size: 1.1rem !important;
+  text-shadow: 0 0 15px rgba(255, 122, 26, 0.5) !important;
+}
+
+.gaply-switch-btn:hover {
+  color: #ff8c42 !important;
+  text-shadow: 0 0 20px rgba(255, 122, 26, 0.8) !important;
+  transform: scale(1.05) !important;
+}
+
+@keyframes textShimmer {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes buttonShimmer {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .gaply-signup-container {
+    max-width: 450px !important;
+    padding: 20px !important;
+    transform: perspective(1200px) rotateX(0deg) rotateY(0deg) !important;
+  }
+  
+  .gaply-signup-card {
+    padding: 45px !important;
+  }
+  
+  .gaply-signup-header h1 {
+    font-size: 2.8rem !important;
+  }
+  
+  .gaply-form-row {
+    grid-template-columns: 1fr !important;
+    gap: 30px !important;
+  }
+  
+  .gaply-signup-card:hover {
+    transform: translateZ(40px) scale(1.02) !important;
+  }
+}
