@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Environment } from '@react-three/drei';
 import * as THREE from 'three';
+import apiService, { PaperSearchRequest, JournalMatchRequest, ParaphraseRequest } from '../services/api';
 
 // 3D Background Elements
 const BackgroundElements: React.FC = () => {
@@ -77,10 +78,12 @@ const FreeFeatures3D: React.FC = () => {
   // Remover state
   const [removerText, setRemoverText] = useState('');
   const [removerResult, setRemoverResult] = useState<string | null>(null);
+  const [removerLoading, setRemoverLoading] = useState(false);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Array<{title: string; source: string; url: string}>>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   // Journal matching state
   const [jmTitle, setJmTitle] = useState('');
@@ -93,6 +96,7 @@ const FreeFeatures3D: React.FC = () => {
   const [journalResults, setJournalResults] = useState<Array<{
     journal: string; quartile: string; impact?: number; acceptance?: string; url: string
   }>>([]);
+  const [journalLoading, setJournalLoading] = useState(false);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -339,10 +343,34 @@ const FreeFeatures3D: React.FC = () => {
                     background: 'rgba(255,255,255,0.04)', color: '#e6e6e6', border: '1px solid rgba(255,255,255,0.12)'
                   }} />
                   <div style={{ display: 'flex', justifyContent: 'center' }}>
-                    <button onClick={()=> setRemoverResult(removerText ? removerText.replace(/\b(very|really|basically|just)\b/gi,'').trim()+ ' (refined)' : '')} style={{
-                      padding: '10px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.18)',
-                      background: 'linear-gradient(135deg, #4b4b4b, #6c6c6c)', color: '#fff', cursor: 'pointer'
-                    }}>Paraphrase Text</button>
+                    <button 
+                      onClick={async () => {
+                        if (!removerText.trim()) return;
+                        setRemoverLoading(true);
+                        try {
+                          const request: ParaphraseRequest = {
+                            text: removerText,
+                            style: 'academic'
+                          };
+                          const response = await apiService.paraphraseText(request);
+                          setRemoverResult(response.paraphrased_text);
+                        } catch (error) {
+                          console.error('Paraphrase error:', error);
+                          setRemoverResult('Error: Unable to paraphrase text. Please try again.');
+                        } finally {
+                          setRemoverLoading(false);
+                        }
+                      }}
+                      disabled={removerLoading || !removerText.trim()}
+                      style={{
+                        padding: '10px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.18)',
+                        background: removerLoading ? 'linear-gradient(135deg, #6c6c6c, #8a8a8a)' : 'linear-gradient(135deg, #4b4b4b, #6c6c6c)', 
+                        color: '#fff', cursor: removerLoading ? 'not-allowed' : 'pointer',
+                        opacity: removerLoading ? 0.7 : 1
+                      }}
+                    >
+                      {removerLoading ? 'Processing...' : 'Paraphrase Text'}
+                    </button>
                   </div>
                   {removerResult !== null && (
                     <div style={{
@@ -365,14 +393,44 @@ const FreeFeatures3D: React.FC = () => {
                     background: 'rgba(255,255,255,0.04)', color: '#e6e6e6', border: '1px solid rgba(255,255,255,0.12)'
                   }} />
                   <div style={{ display: 'flex', justifyContent: 'center' }}>
-                    <button onClick={()=> setSearchResults(searchQuery ? Array.from({length:5}).map((_,i)=>({
-                      title: `${searchQuery} — Study ${i+1}`,
-                      source: ['arXiv','CrossRef','OpenAlex'][i%3],
-                      url: '#'
-                    })) : [])} style={{
-                      padding: '10px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.18)',
-                      background: 'linear-gradient(135deg, #4b4b4b, #6c6c6c)', color: '#fff', cursor: 'pointer'
-                    }}>Search Papers</button>
+                    <button 
+                      onClick={async () => {
+                        if (!searchQuery.trim()) return;
+                        setSearchLoading(true);
+                        try {
+                          const request: PaperSearchRequest = {
+                            query: {
+                              keywords: searchQuery.split(' ').filter(k => k.length > 0),
+                              max_results: 10
+                            }
+                          };
+                          const response = await apiService.searchPapers(request);
+                          setSearchResults(response.papers.map(paper => ({
+                            title: paper.title,
+                            source: paper.source,
+                            url: paper.url || paper.doi
+                          })));
+                        } catch (error) {
+                          console.error('Search error:', error);
+                          setSearchResults([{
+                            title: 'Error: Unable to search papers. Please try again.',
+                            source: 'Error',
+                            url: '#'
+                          }]);
+                        } finally {
+                          setSearchLoading(false);
+                        }
+                      }}
+                      disabled={searchLoading || !searchQuery.trim()}
+                      style={{
+                        padding: '10px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.18)',
+                        background: searchLoading ? 'linear-gradient(135deg, #6c6c6c, #8a8a8a)' : 'linear-gradient(135deg, #4b4b4b, #6c6c6c)', 
+                        color: '#fff', cursor: searchLoading ? 'not-allowed' : 'pointer',
+                        opacity: searchLoading ? 0.7 : 1
+                      }}
+                    >
+                      {searchLoading ? 'Searching...' : 'Search Papers'}
+                    </button>
                   </div>
                   {searchResults.length > 0 && (
                     <div style={{
@@ -439,23 +497,51 @@ const FreeFeatures3D: React.FC = () => {
                     </label>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'center' }}>
-                    <button onClick={()=> {
-                      const base = [
-                        { journal:'IEEE Access', quartile:'Q1', impact:4.64, acceptance:'30%', url:'#' },
-                        { journal:'PLOS ONE', quartile:'Q2', impact:3.75, acceptance:'48%', url:'#' },
-                        { journal:'Heliyon', quartile:'Q3', impact:3.2, acceptance:'40%', url:'#' },
-                      ];
-                      const filtered = prefQuartile==='ALL' ? base : base.filter(b=>b.quartile===prefQuartile);
-                      setJournalResults(filtered.map(b=> ({
-                        journal: b.journal, quartile:b.quartile,
-                        impact: showImpact ? b.impact : undefined,
-                        acceptance: showAcceptance ? b.acceptance : undefined,
-                        url: b.url
-                      })));
-                    }} style={{
-                      padding: '10px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.18)',
-                      background: 'linear-gradient(135deg, #4b4b4b, #6c6c6c)', color: '#fff', cursor: 'pointer'
-                    }}>Find Matching Journals</button>
+                    <button 
+                      onClick={async () => {
+                        if (!jmTitle.trim() || !jmAbstract.trim()) return;
+                        setJournalLoading(true);
+                        try {
+                          const request: JournalMatchRequest = {
+                            title: jmTitle,
+                            abstract: jmAbstract,
+                            preferences: {
+                              access_type: prefAccess,
+                              quartile: prefQuartile,
+                              show_impact_factor: showImpact,
+                              show_acceptance_rate: showAcceptance,
+                              include_guidelines: includeGuidelines
+                            }
+                          };
+                          const response = await apiService.matchJournals(request);
+                          setJournalResults(response.journals.map(journal => ({
+                            journal: journal.journal_name,
+                            quartile: journal.quartile,
+                            impact: journal.impact_factor,
+                            acceptance: journal.acceptance_rate,
+                            url: journal.url
+                          })));
+                        } catch (error) {
+                          console.error('Journal matching error:', error);
+                          setJournalResults([{
+                            journal: 'Error: Unable to find matching journals. Please try again.',
+                            quartile: 'Error',
+                            url: '#'
+                          }]);
+                        } finally {
+                          setJournalLoading(false);
+                        }
+                      }}
+                      disabled={journalLoading || !jmTitle.trim() || !jmAbstract.trim()}
+                      style={{
+                        padding: '10px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.18)',
+                        background: journalLoading ? 'linear-gradient(135deg, #6c6c6c, #8a8a8a)' : 'linear-gradient(135deg, #4b4b4b, #6c6c6c)', 
+                        color: '#fff', cursor: journalLoading ? 'not-allowed' : 'pointer',
+                        opacity: journalLoading ? 0.7 : 1
+                      }}
+                    >
+                      {journalLoading ? 'Finding Journals...' : 'Find Matching Journals'}
+                    </button>
                   </div>
                   {journalResults.length > 0 && (
                     <div style={{
