@@ -10,6 +10,8 @@ interface SignupPageProps {
 }
 
 const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogin }) => {
+  console.log('SignupPage component rendering'); // Debug log
+  
   const [formData, setFormData] = useState({
     email: '',
     password: '',
