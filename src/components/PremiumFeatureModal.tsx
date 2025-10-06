@@ -126,7 +126,7 @@ const PremiumFeatureModal: React.FC<PremiumFeatureProps> = ({ featureType, onClo
       });
 
       // Update local state
-      setUserPlan(prev => prev ? {
+      setUserPlan((prev: any) => prev ? {
         ...prev,
         [featureType === 'gapFinder' ? 'gapFinderUsesRemaining' : 'deepEvalUsesRemaining']: newUses
       } : null);
