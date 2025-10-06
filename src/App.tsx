@@ -3,7 +3,6 @@ import gsap from 'gsap';
 import './App.css';
 import './hero-animations.css';
 import './hero-new.css';
-import ThreeJSGlobe from './components/ThreeJSGlobe';
 import PremiumHeroText from './components/PremiumHeroText';
 import HeroToSecondTransition from './components/HeroToSecondTransition';
 import FreeFeatures3D from './components/FreeFeatures3D';
@@ -138,8 +137,6 @@ const HeroSection: React.FC = () => {
       {/* Sphere Background */}
       <div ref={sphereRef} className="sphere-background"></div>
       
-      {/* Three.js Globe */}
-      <ThreeJSGlobe />
       
       {/* Premium Hero Text Animation */}
       <PremiumHeroText />
