@@ -4,6 +4,7 @@ import './App.css';
 import './hero-animations.css';
 import './hero-new.css';
 import ThreeJSGlobe from './components/ThreeJSGlobe';
+import PremiumHeroText from './components/PremiumHeroText';
 import HeroToSecondTransition from './components/HeroToSecondTransition';
 import FreeFeatures3D from './components/FreeFeatures3D';
 import QuartileAnalysis3D from './components/QuartileAnalysis3D';
