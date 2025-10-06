@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import './PremiumLoginBackground.css';
-import PremiumLoginBackground from './PremiumLoginBackground';
+import './CleanLoginBackground.css';
+import CleanLoginBackground from './CleanLoginBackground';
 
 
 interface LoginPageProps {
@@ -65,8 +65,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
 
   return (
     <div className="login-page">
-      {/* Premium 3D Background */}
-      <PremiumLoginBackground />
+      {/* Clean CSS Background */}
+      <CleanLoginBackground />
 
       {/* Login Form */}
       <div className="login-container">
