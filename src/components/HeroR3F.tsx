@@ -113,7 +113,7 @@ function FallingWords({
 }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const [wordInstances, setWordInstances] = useState<WordInstance[]>([]);
-  const [hoveredWord] = useState<number | null>(null);
+  const [hoveredWord, setHoveredWord] = useState<number | null>(null);
 
   // Initialize word instances
   useMemo(() => {

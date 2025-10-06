@@ -1,0 +1,170 @@
+/* Animations for Hero Section */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Moving Dots Animation */
+.moving-dots {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.moving-dot {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  animation: moveDot linear infinite;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+}
+
+@keyframes moveDot {
+  0% {
+    transform: translateY(100vh) translateX(0px);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100px) translateX(50px);
+    opacity: 0;
+  }
+}
+
+/* 3D Moving Cube */
+.cube-container {
+  position: absolute;
+  top: 50%;
+  right: 10%;
+  transform: translateY(-50%);
+  perspective: 1000px;
+  z-index: 2;
+}
+
+.cube {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  transform-style: preserve-3d;
+  animation: rotateCube 8s infinite linear;
+  transform-origin: center center;
+}
+
+.cube-face {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  background: #D2B48C; /* Beige color */
+  border: 2px solid rgba(210, 180, 140, 0.3);
+  box-shadow: 
+    inset 0 0 20px rgba(210, 180, 140, 0.2),
+    0 0 30px rgba(210, 180, 140, 0.4),
+    0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.cube-face.front {
+  transform: translateZ(60px);
+  background: linear-gradient(135deg, #D2B48C 0%, #F5DEB3 100%);
+}
+
+.cube-face.back {
+  transform: translateZ(-60px) rotateY(180deg);
+  background: linear-gradient(135deg, #DEB887 0%, #F5DEB3 100%);
+}
+
+.cube-face.right {
+  transform: rotateY(90deg) translateZ(60px);
+  background: linear-gradient(135deg, #CD853F 0%, #D2B48C 100%);
+}
+
+.cube-face.left {
+  transform: rotateY(-90deg) translateZ(60px);
+  background: linear-gradient(135deg, #D2B48C 0%, #DEB887 100%);
+}
+
+.cube-face.top {
+  transform: rotateX(90deg) translateZ(60px);
+  background: linear-gradient(135deg, #F5DEB3 0%, #FFE4B5 100%);
+}
+
+.cube-face.bottom {
+  transform: rotateX(-90deg) translateZ(60px);
+  background: linear-gradient(135deg, #BC9A6A 0%, #D2B48C 100%);
+}
+
+@keyframes rotateCube {
+  0% {
+    transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg);
+  }
+  25% {
+    transform: rotateX(90deg) rotateY(0deg) rotateZ(0deg);
+  }
+  50% {
+    transform: rotateX(90deg) rotateY(90deg) rotateZ(0deg);
+  }
+  75% {
+    transform: rotateX(0deg) rotateY(90deg) rotateZ(90deg);
+  }
+  100% {
+    transform: rotateX(0deg) rotateY(360deg) rotateZ(360deg);
+  }
+}
+
+/* Responsive adjustments for cube */
+@media (max-width: 768px) {
+  .cube-container {
+    right: 5%;
+    top: 40%;
+  }
+  
+  .cube {
+    width: 80px;
+    height: 80px;
+  }
+  
+  .cube-face {
+    width: 80px;
+    height: 80px;
+  }
+  
+  .cube-face.front {
+    transform: translateZ(40px);
+  }
+  
+  .cube-face.back {
+    transform: translateZ(-40px) rotateY(180deg);
+  }
+  
+  .cube-face.right {
+    transform: rotateY(90deg) translateZ(40px);
+  }
+  
+  .cube-face.left {
+    transform: rotateY(-90deg) translateZ(40px);
+  }
+  
+  .cube-face.top {
+    transform: rotateX(90deg) translateZ(40px);
+  }
+  
+  .cube-face.bottom {
+    transform: rotateX(-90deg) translateZ(40px);
+  }
+}

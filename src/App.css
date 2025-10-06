@@ -272,6 +272,21 @@ html {
   justify-content: center;
   min-height: 100vh;
   overflow: hidden;
+  border-top: 3px solid transparent;
+  background-image: 
+    radial-gradient(ellipse at center top, rgba(132, 132, 132, 0.3) 0%, rgba(108, 108, 108, 0.2) 30%, rgba(83, 83, 83, 0.1) 60%, transparent 100%),
+    linear-gradient(180deg, #1a1a1a 0%, #2a2a2a 100%);
+}
+
+.second-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100px;
+  background: radial-gradient(ellipse at center bottom, rgba(206, 206, 206, 0.08) 0%, rgba(181, 181, 181, 0.04) 50%, transparent 100%);
+  pointer-events: none;
 }
 
 .container {

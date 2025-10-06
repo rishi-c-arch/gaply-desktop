@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quartile Analysis Fallback Charts</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #cecece;
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .chart-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .chart-wrapper {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        
+        .chart-title {
+            text-align: center;
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #cecece;
+        }
+        
+        canvas {
+            max-height: 250px;
+        }
+        
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+        
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <h2 style="text-align: center; margin-bottom: 10px;">Interactive Quartile Charts</h2>
+    <p style="text-align: center; opacity: 0.7; margin-bottom: 20px;">Click on charts to download reports</p>
+    
+    <div class="chart-container">
+        <!-- Q1 Chart -->
+        <div class="chart-wrapper">
+            <div class="chart-title">Q1 TOP-TIER INTERNATIONAL JOURNALS</div>
+            <canvas id="q1Chart"></canvas>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #2c2c2c;"></div>
+                    <span>Medicine & Clinical Sciences (10)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #404040;"></div>
+                    <span>Life Sciences & Molecular Biology (10)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #555555;"></div>
+                    <span>Chemistry (10)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #6a6a6a;"></div>
+                    <span>Physics & Astronomy (10)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #7f7f7f;"></div>
+                    <span>Computer Science & AI (10)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #949494;"></div>
+                    <span>Engineering (10)</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Q2 Chart -->
+        <div class="chart-wrapper">
+            <div class="chart-title">Q2 STRONG REPUTABLE INTERNATIONAL JOURNALS</div>
+            <canvas id="q2Chart"></canvas>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #2c2c2c;"></div>
+                    <span>Medicine & Health Sciences (5)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #404040;"></div>
+                    <span>Engineering & Technology (5)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #555555;"></div>
+                    <span>Computer Science & AI (5)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #6a6a6a;"></div>
+                    <span>Business, Management & Economics (5)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #7f7f7f;"></div>
+                    <span>Social Sciences & Education (5)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #949494;"></div>
+                    <span>Environmental & Sustainability (5)</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Q3 Chart -->
+        <div class="chart-wrapper">
+            <div class="chart-title">Q3 REGIONAL SPECIALIZED INTERNATIONAL JOURNALS</div>
+            <canvas id="q3Chart"></canvas>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #2c2c2c;"></div>
+                    <span>Medicine & Health Sciences (5)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #404040;"></div>
+                    <span>Engineering & Technology (5)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #555555;"></div>
+                    <span>Computer Science & AI (5)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #6a6a6a;"></div>
+                    <span>Business, Management & Economics (5)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #7f7f7f;"></div>
+                    <span>Social Sciences & Education (5)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #949494;"></div>
+                    <span>Environmental & Sustainability (5)</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Q4 Chart -->
+        <div class="chart-wrapper">
+            <div class="chart-title">Q4 EMERGING INTERNATIONAL JOURNALS</div>
+            <canvas id="q4Chart"></canvas>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #2c2c2c;"></div>
+                    <span>Medicine & Health Sciences (3)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #404040;"></div>
+                    <span>Engineering & Technology (3)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #555555;"></div>
+                    <span>Computer Science & AI (3)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #6a6a6a;"></div>
+                    <span>Business, Management & Economics (3)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #7f7f7f;"></div>
+                    <span>Social Sciences & Education (3)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #949494;"></div>
+                    <span>Environmental & Sustainability (3)</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Chart.js configuration
+        Chart.defaults.color = '#cecece';
+        Chart.defaults.borderColor = 'rgba(255,255,255,0.1)';
+        
+        // Q1 Chart
+        const q1Ctx = document.getElementById('q1Chart').getContext('2d');
+        new Chart(q1Ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Medicine & Clinical Sciences', 'Life Sciences & Molecular Biology', 'Chemistry', 'Physics & Astronomy', 'Computer Science & AI', 'Engineering'],
+                datasets: [{
+                    data: [10, 10, 10, 10, 10, 10],
+                    backgroundColor: ['#2c2c2c', '#404040', '#555555', '#6a6a6a', '#7f7f7f', '#949494'],
+                    borderColor: '#1a1a1a',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '60%',
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                onClick: () => downloadReport('q1')
+            }
+        });
+        
+        // Q2 Chart
+        const q2Ctx = document.getElementById('q2Chart').getContext('2d');
+        new Chart(q2Ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Medicine & Health Sciences', 'Engineering & Technology', 'Computer Science & AI', 'Business, Management & Economics', 'Social Sciences & Education', 'Environmental & Sustainability'],
+                datasets: [{
+                    data: [5, 5, 5, 5, 5, 5],
+                    backgroundColor: ['#2c2c2c', '#404040', '#555555', '#6a6a6a', '#7f7f7f', '#949494'],
+                    borderColor: '#1a1a1a',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '60%',
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                onClick: () => downloadReport('q2')
+            }
+        });
+        
+        // Q3 Chart
+        const q3Ctx = document.getElementById('q3Chart').getContext('2d');
+        new Chart(q3Ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Medicine & Health Sciences', 'Engineering & Technology', 'Computer Science & AI', 'Business, Management & Economics', 'Social Sciences & Education', 'Environmental & Sustainability'],
+                datasets: [{
+                    data: [5, 5, 5, 5, 5, 5],
+                    backgroundColor: ['#2c2c2c', '#404040', '#555555', '#6a6a6a', '#7f7f7f', '#949494'],
+                    borderColor: '#1a1a1a',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '60%',
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                onClick: () => downloadReport('q3')
+            }
+        });
+        
+        // Q4 Chart
+        const q4Ctx = document.getElementById('q4Chart').getContext('2d');
+        new Chart(q4Ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Medicine & Health Sciences', 'Engineering & Technology', 'Computer Science & AI', 'Business, Management & Economics', 'Social Sciences & Education', 'Environmental & Sustainability'],
+                datasets: [{
+                    data: [3, 3, 3, 3, 3, 3],
+                    backgroundColor: ['#2c2c2c', '#404040', '#555555', '#6a6a6a', '#7f7f7f', '#949494'],
+                    borderColor: '#1a1a1a',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '60%',
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                onClick: () => downloadReport('q4')
+            }
+        });
+        
+        // Download report function
+        function downloadReport(quartile) {
+            window.open(`/reports/journal-${quartile}-analysis.html`, '_blank');
+        }
+    </script>
+</body>
+</html>
