@@ -151,8 +151,8 @@ const PremiumLanding: React.FC = () => {
       return;
     }
     
-    // Open package selection modal
-    window.openPackageSelection?.(planId);
+    // Redirect to package selection
+    window.location.href = `#package-selection?plan=${planId}`;
   };
 
   if (loading) {
