@@ -139,6 +139,22 @@
   }
 }
 
+/* Simple Globe Styles */
+.threejs-globe-container {
+  position: absolute;
+  right: 5%;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 500px;
+  height: 500px;
+  z-index: 10;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 10px 30px rgba(255, 122, 26, 0.3);
+  border: 2px solid rgba(255, 122, 26, 0.3);
+  animation: globeRotate 20s linear infinite;
+}
+
 /* Magnifying Glass Removed */
 
 .magnifying-glass {
