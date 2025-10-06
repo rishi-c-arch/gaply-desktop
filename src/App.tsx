@@ -9,9 +9,9 @@ import HeroToSecondTransition from './components/HeroToSecondTransition';
 import FreeFeatures3D from './components/FreeFeatures3D';
 import QuartileAnalysis3D from './components/QuartileAnalysis3D';
 import PremiumFooter3D from './components/PremiumFooter3D';
-import PremiumLanding from './pages/PremiumLanding';
-import PremiumFeaturePage from './pages/PremiumFeaturePage';
-import UserDashboard from './pages/UserDashboard';
+import PremiumPage from './components/PremiumPage';
+import UserDashboard from './components/UserDashboard';
+import PremiumFeatureModal from './components/PremiumFeatureModal';
 
 // TypeScript declaration for window function
 declare global {
@@ -25,115 +25,96 @@ declare global {
 type HeaderProps = { theme: 'light' | 'dark' };
 
 const Header: React.FC<HeaderProps> = ({ theme }) => {
+  const textColor = theme === 'dark' ? '#e5e7eb' : '#111827';
+  const textShadow = theme === 'dark' ? '0 1px 2px rgba(0,0,0,0.25)' : '0 1px 2px rgba(255,255,255,0.25)';
   return (
-    <header className={`header ${theme}`} style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      width: '100%',
-      zIndex: 1000,
-      background: 'transparent',
-      backdropFilter: 'none',
-      WebkitBackdropFilter: 'none',
-      borderBottom: 'none',
-      transition: 'all 0.3s ease-in-out',
-      padding: '10px 20px',
-      height: 'auto',
-    }}>
-      <div className="header-content" style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        maxWidth: 1200,
-        margin: '0 auto',
-      }}>
-        <div className="logo" style={{
-          fontSize: '1.5rem',
-          fontWeight: 700,
-          letterSpacing: '0.05em',
-          color: 'white',
-          mixBlendMode: 'difference',
-          transition: 'color 0.3s ease-in-out',
-        }}>
-          <h1>Gaply</h1>
-        </div>
-        <nav className="nav-menu" style={{
+    <header 
+      className="header"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000,
+        background: 'transparent',
+        color: textColor,
+        backdropFilter: 'none',
+        WebkitBackdropFilter: 'none',
+        borderBottom: 'none'
+      }}
+    >
+      <div 
+        className="header-content"
+        style={{
+          maxWidth: 1200,
+          margin: '0 auto',
+          padding: '10px 16px',
           display: 'flex',
-          gap: '25px',
           alignItems: 'center',
-        }}>
-          <a href="#features" style={{
-            color: 'white',
-            textDecoration: 'none',
-            fontSize: '0.9rem',
-            fontWeight: 500,
-            transition: 'all 0.3s ease-in-out',
-            mixBlendMode: 'difference',
-            position: 'relative',
-            padding: '5px 0',
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-          onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-          >Features</a>
-          <a href="#premium" style={{
-            color: 'white',
-            textDecoration: 'none',
-            fontSize: '0.9rem',
-            fontWeight: 500,
-            transition: 'all 0.3s ease-in-out',
-            mixBlendMode: 'difference',
-            position: 'relative',
-            padding: '5px 0',
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-          onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-          >Premium</a>
-          <a href="#contact" style={{
-            color: 'white',
-            textDecoration: 'none',
-            fontSize: '0.9rem',
-            fontWeight: 500,
-            transition: 'all 0.3s ease-in-out',
-            mixBlendMode: 'difference',
-            position: 'relative',
-            padding: '5px 0',
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-          onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-          >Contact</a>
-          <a href="#dashboard" className="premium-btn" style={{
-            background: 'transparent',
-            border: '1px solid',
-            borderColor: 'white',
-            color: 'white',
-            padding: '8px 18px',
-            borderRadius: '20px',
-            textDecoration: 'none',
-            fontSize: '0.9rem',
-            fontWeight: 600,
-            transition: 'all 0.3s ease-in-out',
-            mixBlendMode: 'difference',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)';
-            e.currentTarget.style.transform = 'translateY(-2px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = 'transparent';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-          >Dashboard</a>
+          justifyContent: 'space-between'
+        }}
+      >
+        <div className="logo" style={{ fontWeight: 800, letterSpacing: '.02em', transformStyle: 'preserve-3d' }}>
+          <h1 style={{ margin: 0, fontSize: 16, color: '#ffffff', transform: 'translateZ(6px)', textShadow, mixBlendMode: 'difference' as any }}>Gaply</h1>
+        </div>
+        <nav className="nav-menu" style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          {[
+            { label: 'Features', href: '#features' },
+            { label: 'Pricing', href: '#pricing' },
+            { label: 'Contact', href: '#contact' },
+          ].map((l) => (
+            <a
+              key={l.label}
+              href={l.href}
+              style={{
+                color: '#ffffff',
+                mixBlendMode: 'difference',
+                textDecoration: 'none',
+                fontWeight: 600,
+                letterSpacing: '.02em',
+                opacity: 0.9,
+                padding: '4px 8px',
+                borderRadius: 8,
+                transition: 'transform .15s ease, opacity .15s ease, background-color .15s ease'
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.transform = 'translateZ(6px)'; e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.transform = 'none'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+            >
+              {l.label}
+            </a>
+          ))}
+          <a 
+            href="#premium"
+            className="premium-btn"
+            style={{
+              color: '#ffffff',
+              mixBlendMode: 'difference',
+              background: 'transparent',
+              padding: '6px 12px',
+              borderRadius: 10,
+              textDecoration: 'none',
+              fontWeight: 700,
+              fontSize: 12,
+              border: '1px solid currentColor'
+            }}
+          >
+            Get Premium
+          </a>
         </nav>
       </div>
     </header>
   );
 };
 
+// Hero Section Component
 const HeroSection: React.FC = () => {
   const heroRef = useRef<HTMLElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const statsRef = useRef<HTMLDivElement>(null);
   const sphereRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // 3D motion for sphere background
     if (sphereRef.current) {
       gsap.to(sphereRef.current, {
         rotation: 360,
@@ -142,6 +123,17 @@ const HeroSection: React.FC = () => {
         repeat: -1
       });
     }
+
+    // Initial animations with proper timing
+    gsap.fromTo(titleRef.current, 
+      { y: 50, opacity: 0 },
+      { y: 0, opacity: 1, duration: 1, ease: "power3.out", delay: 0.2 }
+    );
+
+    gsap.fromTo(statsRef.current?.children || [], 
+      { y: 30, opacity: 0 },
+      { y: 0, opacity: 1, duration: 0.6, ease: "power3.out", stagger: 0.08, delay: 0.4 }
+    );
   }, []);
 
   return (
@@ -174,24 +166,59 @@ const HeroSection: React.FC = () => {
   );
 };
 
-// Main App component with routing
+// (legacy SecondSection removed)
+
+// Third Section Component replaced with interactive graphs
+const ThirdSection: React.FC = () => <QuartileAnalysis3D />;
+
+// Transition Image Component
+const TransitionImage: React.FC = () => {
+  return (
+    <div className="transition-image">
+      <img src="/api/placeholder/1200/300" alt="Transition" />
+    </div>
+  );
+};
+
+// Fixed Footer Component
+const FixedFooter: React.FC = () => {
+  return (
+    <footer className="fixed-footer">
+      <div className="footer-content">
+        <div className="footer-left">
+          <h3>Gaply</h3>
+          <p>Accelerating academic research</p>
+        </div>
+        <div className="footer-right">
+          <div className="footer-links">
+            <a href="#features">Features</a>
+            <a href="#pricing">Pricing</a>
+            <a href="#contact">Contact</a>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+};
+
+// Main App component
 const App: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState('home');
   const [headerTheme, setHeaderTheme] = useState<'light'|'dark'>('dark');
+  const [currentPage, setCurrentPage] = useState('home');
+  const [premiumModal, setPremiumModal] = useState<{ type: 'gapFinder' | 'deepEvaluation' | null }>({ type: null });
 
-  // Handle routing based on URL hash
+  // Simple routing based on URL
   useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash.slice(1);
-      setCurrentPage(hash || 'home');
-    };
-
-    handleHashChange();
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+    const path = window.location.pathname;
+    if (path === '/premium') {
+      setCurrentPage('premium');
+    } else if (path === '/dashboard') {
+      setCurrentPage('dashboard');
+    } else {
+      setCurrentPage('home');
+    }
   }, []);
 
-  // Header theme detection
   useEffect(() => {
     const toLuminance = (r: number, g: number, b: number) => {
       const a = [r, g, b].map(v => {
@@ -202,21 +229,28 @@ const App: React.FC = () => {
     };
 
     const parseRGB = (color: string): [number, number, number] | null => {
-      const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-      return match ? [parseInt(match[1]), parseInt(match[2]), parseInt(match[3])] : null;
+      const m = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+      if (!m) return null;
+      return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
     };
 
     const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          const bgColor = window.getComputedStyle(entry.target).backgroundColor;
-          const rgb = parseRGB(bgColor);
-          if (rgb) {
-            const luminance = toLuminance(rgb[0], rgb[1], rgb[2]);
-            setHeaderTheme(luminance > 0.5 ? 'light' : 'dark');
-          }
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        // section in view; sample its background
+        const el = entry.target as HTMLElement;
+        const styles = getComputedStyle(el);
+        const bg = styles.backgroundColor || styles.background || 'rgb(255,255,255)';
+        const rgb = parseRGB(bg);
+        if (rgb) {
+          const lum = toLuminance(rgb[0], rgb[1], rgb[2]);
+          // threshold ~ 0.5 for light bg
+          setHeaderTheme(lum > 0.5 ? 'light' : 'dark');
+        } else {
+          setHeaderTheme('dark');
         }
-      });
+        break;
+      }
     }, { root: null, rootMargin: '-40% 0px -55% 0px', threshold: [0.25, 0.5, 0.75] });
 
     document.querySelectorAll('section').forEach((s) => observer.observe(s));
@@ -226,11 +260,7 @@ const App: React.FC = () => {
   const renderPage = () => {
     switch (currentPage) {
       case 'premium':
-        return <PremiumLanding />;
-      case 'premium/gap-finder':
-        return <PremiumFeaturePage featureType="gap-finder" />;
-      case 'premium/deep-analysis':
-        return <PremiumFeaturePage featureType="deep-analysis" />;
+        return <PremiumPage />;
       case 'dashboard':
         return <UserDashboard />;
       default:
@@ -250,6 +280,12 @@ const App: React.FC = () => {
   return (
     <div className="App">
       {renderPage()}
+      {premiumModal.type && (
+        <PremiumFeatureModal
+          featureType={premiumModal.type}
+          onClose={() => setPremiumModal({ type: null })}
+        />
+      )}
     </div>
   );
 };
