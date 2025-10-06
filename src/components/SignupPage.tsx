@@ -50,7 +50,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
     setError('');
 
     try {
-      const response = await fetch('https://backend.gaply.in/api/v1/auth/register', {
+      const response = await fetch('https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com/api/v1/auth/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -65,7 +65,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
 
       const data = await response.json();
 
-      if (data.success) {
+      if (response.ok && data.success) {
         // Store token and user data
         localStorage.setItem('authToken', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
@@ -73,11 +73,20 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
         // Call success callback
         onSignupSuccess(data.token, data.user);
       } else {
-        setError(data.message || 'Registration failed. Please try again.');
+        // Handle different error types
+        if (response.status === 409) {
+          setError('An account with this email already exists. Please try logging in instead.');
+        } else if (response.status === 400) {
+          setError(data.message || 'Please check your information and try again.');
+        } else if (response.status >= 500) {
+          setError('Server error. Please try again later.');
+        } else {
+          setError(data.message || 'Registration failed. Please try again.');
+        }
       }
     } catch (err) {
       console.error('Signup error:', err);
-      setError('Network error. Please try again.');
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }

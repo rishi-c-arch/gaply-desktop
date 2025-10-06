@@ -3,7 +3,7 @@
 export const API_BASE_URL: string =
   (import.meta as any)?.env?.VITE_API_BASE_URL ||
   (typeof process !== 'undefined' && (process as any)?.env?.REACT_APP_API_BASE_URL) ||
-  'https://backend.gaply.in';
+  'https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com';
 
 export function buildApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;

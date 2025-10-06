@@ -32,7 +32,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
     setError('');
 
     try {
-      const response = await fetch('https://backend.gaply.in/api/v1/auth/login', {
+      const response = await fetch('https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com/api/v1/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -45,7 +45,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
 
       const data = await response.json();
 
-      if (data.success) {
+      if (response.ok && data.success) {
         // Store token and user data
         localStorage.setItem('authToken', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
@@ -53,11 +53,20 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
         // Call success callback
         onLoginSuccess(data.token, data.user);
       } else {
-        setError(data.message || 'Login failed. Please check your credentials.');
+        // Handle different error types
+        if (response.status === 401) {
+          setError('Invalid email or password. Please check your credentials.');
+        } else if (response.status === 400) {
+          setError(data.message || 'Please check your information and try again.');
+        } else if (response.status >= 500) {
+          setError('Server error. Please try again later.');
+        } else {
+          setError(data.message || 'Login failed. Please try again.');
+        }
       }
     } catch (err) {
       console.error('Login error:', err);
-      setError('Network error. Please try again.');
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
