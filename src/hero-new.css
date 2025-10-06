@@ -79,8 +79,6 @@
   background-image: 
     radial-gradient(ellipse at center bottom, rgba(42, 42, 42, 0.8) 0%, rgba(83, 83, 83, 0.6) 30%, rgba(108, 108, 108, 0.4) 60%, transparent 100%),
     linear-gradient(180deg, #0A0A0A 0%, #1a1a1a 100%);
-  /* Ensure globe stays within bounds */
-  contain: layout style;
 }
 
 .hero-section::after {
@@ -147,8 +145,8 @@
   right: 2%;
   top: 50%;
   transform: translateY(-50%);
-  width: 500px;
-  height: 500px;
+  width: 700px;
+  height: 700px;
   z-index: 1;
   border-radius: 50%;
   overflow: hidden;
@@ -163,9 +161,6 @@
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  /* Ensure it doesn't overflow the hero section */
-  max-width: 50vw;
-  max-height: 50vh;
 }
 
 /* Magnifying Glass Removed */
