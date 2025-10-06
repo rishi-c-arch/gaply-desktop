@@ -139,20 +139,28 @@
   }
 }
 
-/* Simple Globe Styles */
+/* Three.js Globe Container */
 .threejs-globe-container {
   position: absolute;
-  right: 5%;
+  right: 2%;
   top: 50%;
   transform: translateY(-50%);
-  width: 500px;
-  height: 500px;
-  z-index: 10;
+  width: 700px;
+  height: 700px;
+  z-index: 1;
   border-radius: 50%;
   overflow: hidden;
+  /* Enhanced shadow */
   box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 10px 30px rgba(255, 122, 26, 0.3);
-  border: 2px solid rgba(255, 122, 26, 0.3);
-  animation: globeRotate 20s linear infinite;
+  /* Remove any default styling */
+  border: none;
+  outline: none;
+  background: transparent;
+  /* Fallback background in case Three.js fails */
+  background-image: url('./assets/dreamstime_xxl_126606510.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 /* Magnifying Glass Removed */
