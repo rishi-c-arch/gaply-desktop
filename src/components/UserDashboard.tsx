@@ -25,12 +25,14 @@ const UserDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'usage' | 'payments'>('overview');
 
+  const getToken = () => localStorage.getItem('token') || localStorage.getItem('gaply_token');
+
   useEffect(() => {
     loadUserData();
   }, []);
 
   const loadUserData = async () => {
-    const token = localStorage.getItem('gaply_token');
+    const token = getToken();
     if (!token) {
       window.location.href = '/login';
       return;

@@ -13,12 +13,14 @@ const PremiumFeatureModal: React.FC<PremiumFeatureProps> = ({ featureType, onClo
   const [result, setResult] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
 
+  const getToken = () => localStorage.getItem('token') || localStorage.getItem('gaply_token');
+
   useEffect(() => {
     checkUserPlan();
   }, []);
 
   const checkUserPlan = async () => {
-    const token = localStorage.getItem('gaply_token');
+    const token = getToken();
     if (!token) {
       alert('Please login first');
       onClose();
@@ -81,7 +83,7 @@ const PremiumFeatureModal: React.FC<PremiumFeatureProps> = ({ featureType, onClo
       const response = await fetch(buildApiUrl(endpoint), {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('gaply_token')}`
+          'Authorization': `Bearer ${getToken()}`
         },
         body: formData
       });
@@ -105,7 +107,7 @@ const PremiumFeatureModal: React.FC<PremiumFeatureProps> = ({ featureType, onClo
   };
 
   const updateUsage = async () => {
-    const token = localStorage.getItem('gaply_token');
+    const token = getToken();
     if (!token) return;
 
     try {

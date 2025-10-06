@@ -74,12 +74,14 @@ const PremiumPage: React.FC = () => {
     }
   ];
 
+  const getToken = () => localStorage.getItem('token') || localStorage.getItem('gaply_token');
+
   useEffect(() => {
     checkAuthentication();
   }, []);
 
   const checkAuthentication = async () => {
-    const token = localStorage.getItem('gaply_token');
+    const token = getToken();
     if (!token) {
       setIsAuthenticated(false);
       setLoading(false);
@@ -100,6 +102,7 @@ const PremiumPage: React.FC = () => {
       } else {
         setIsAuthenticated(false);
         localStorage.removeItem('gaply_token');
+        localStorage.removeItem('token');
       }
     } catch (error) {
       console.error('Auth check failed:', error);
@@ -110,7 +113,7 @@ const PremiumPage: React.FC = () => {
   };
 
   const checkUserPlan = async () => {
-    const token = localStorage.getItem('gaply_token');
+    const token = getToken();
     if (!token) return;
 
     try {
@@ -131,7 +134,7 @@ const PremiumPage: React.FC = () => {
   };
 
   const initiatePayment = async (planId: string) => {
-    const token = localStorage.getItem('gaply_token');
+    const token = getToken();
     if (!token) {
       alert('Please login first');
       return;
@@ -189,7 +192,7 @@ const PremiumPage: React.FC = () => {
       const response = await fetch(buildApiUrl('/api/v1/payment/verify'), {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('gaply_token')}`,
+          'Authorization': `Bearer ${getToken()}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
