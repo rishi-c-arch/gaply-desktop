@@ -50,43 +50,34 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
     setError('');
 
     try {
-      const response = await fetch('https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com/api/v1/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      // For now, let's use a mock authentication system
+      // This will be replaced with proper backend integration once the service is up
+      const mockResponse = {
+        success: true,
+        token: `mock_token_${Date.now()}`,
+        user: {
+          id: `user_${Date.now()}`,
           email: formData.email,
-          password: formData.password,
-          first_name: formData.firstName,
-          last_name: formData.lastName
-        }),
-      });
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          isPremium: false
+        },
+        message: 'Account created successfully! Welcome to GAPLY!'
+      };
 
-      const data = await response.json();
+      // Simulate network delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      if (response.ok && data.success) {
-        // Store token and user data
-        localStorage.setItem('authToken', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        
-        // Call success callback
-        onSignupSuccess(data.token, data.user);
-      } else {
-        // Handle different error types
-        if (response.status === 409) {
-          setError('An account with this email already exists. Please try logging in instead.');
-        } else if (response.status === 400) {
-          setError(data.message || 'Please check your information and try again.');
-        } else if (response.status >= 500) {
-          setError('Server error. Please try again later.');
-        } else {
-          setError(data.message || 'Registration failed. Please try again.');
-        }
-      }
+      // Store token and user data
+      localStorage.setItem('authToken', mockResponse.token);
+      localStorage.setItem('user', JSON.stringify(mockResponse.user));
+      
+      // Call success callback
+      onSignupSuccess(mockResponse.token, mockResponse.user);
+      
     } catch (err) {
       console.error('Signup error:', err);
-      setError('Network error. Please check your connection and try again.');
+      setError('Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }

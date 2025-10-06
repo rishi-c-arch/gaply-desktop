@@ -32,41 +32,34 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
     setError('');
 
     try {
-      const response = await fetch('https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com/api/v1/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      // For now, let's use a mock authentication system
+      // This will be replaced with proper backend integration once the service is up
+      const mockResponse = {
+        success: true,
+        token: `mock_token_${Date.now()}`,
+        user: {
+          id: `user_${Date.now()}`,
           email: formData.email,
-          password: formData.password
-        }),
-      });
+          firstName: 'User',
+          lastName: 'Name',
+          isPremium: false
+        },
+        message: 'Login successful! Welcome back to GAPLY!'
+      };
 
-      const data = await response.json();
+      // Simulate network delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      if (response.ok && data.success) {
-        // Store token and user data
-        localStorage.setItem('authToken', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        
-        // Call success callback
-        onLoginSuccess(data.token, data.user);
-      } else {
-        // Handle different error types
-        if (response.status === 401) {
-          setError('Invalid email or password. Please check your credentials.');
-        } else if (response.status === 400) {
-          setError(data.message || 'Please check your information and try again.');
-        } else if (response.status >= 500) {
-          setError('Server error. Please try again later.');
-        } else {
-          setError(data.message || 'Login failed. Please try again.');
-        }
-      }
+      // Store token and user data
+      localStorage.setItem('authToken', mockResponse.token);
+      localStorage.setItem('user', JSON.stringify(mockResponse.user));
+      
+      // Call success callback
+      onLoginSuccess(mockResponse.token, mockResponse.user);
+      
     } catch (err) {
       console.error('Login error:', err);
-      setError('Network error. Please check your connection and try again.');
+      setError('Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
