@@ -7,7 +7,23 @@
   height: 100%;
   z-index: 1;
   overflow: hidden;
-  background: linear-gradient(135deg, #0A0A0A 0%, #1a1a1a 30%, #2a2a2a 70%, #0A0A0A 100%);
+  background: linear-gradient(135deg, #535353 0%, #6c6c6c 15%, #848484 30%, #9d9d9d 45%, #b5b5b5 60%, #cecece 75%, #e6e6e6 100%);
+  animation: colorShift 8s ease-in-out infinite;
+}
+
+@keyframes colorShift {
+  0%, 100% {
+    background: linear-gradient(135deg, #535353 0%, #6c6c6c 15%, #848484 30%, #9d9d9d 45%, #b5b5b5 60%, #cecece 75%, #e6e6e6 100%);
+  }
+  25% {
+    background: linear-gradient(135deg, #6c6c6c 0%, #848484 15%, #9d9d9d 30%, #b5b5b5 45%, #cecece 60%, #e6e6e6 75%, #535353 100%);
+  }
+  50% {
+    background: linear-gradient(135deg, #848484 0%, #9d9d9d 15%, #b5b5b5 30%, #cecece 45%, #e6e6e6 60%, #535353 75%, #6c6c6c 100%);
+  }
+  75% {
+    background: linear-gradient(135deg, #9d9d9d 0%, #b5b5b5 15%, #cecece 30%, #e6e6e6 45%, #535353 60%, #6c6c6c 75%, #848484 100%);
+  }
 }
 
 .gradient-overlay {
@@ -18,12 +34,22 @@
   height: 100%;
   background: radial-gradient(
     ellipse at center,
-    rgba(255, 122, 26, 0.1) 0%,
-    rgba(255, 122, 26, 0.05) 20%,
-    rgba(0, 0, 0, 0.2) 50%,
-    rgba(0, 0, 0, 0.6) 80%,
-    rgba(0, 0, 0, 0.9) 100%
+    rgba(255, 122, 26, 0.05) 0%,
+    rgba(255, 122, 26, 0.02) 20%,
+    rgba(0, 0, 0, 0.1) 50%,
+    rgba(0, 0, 0, 0.3) 80%,
+    rgba(0, 0, 0, 0.5) 100%
   );
+  animation: overlayPulse 6s ease-in-out infinite;
+}
+
+@keyframes overlayPulse {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.6;
+  }
 }
 
 .floating-shapes {
@@ -38,8 +64,9 @@
 .shape {
   position: absolute;
   border-radius: 50%;
-  background: rgba(255, 122, 26, 0.1);
+  background: rgba(255, 122, 26, 0.08);
   animation: float 6s ease-in-out infinite;
+  backdrop-filter: blur(10px);
 }
 
 .shape-1 {
@@ -107,7 +134,7 @@
   width: 100%;
   height: 100vh;
   overflow: hidden;
-  background: linear-gradient(135deg, #0A0A0A 0%, #1a1a1a 30%, #2a2a2a 70%, #0A0A0A 100%);
+  background: linear-gradient(135deg, #535353 0%, #6c6c6c 15%, #848484 30%, #9d9d9d 45%, #b5b5b5 60%, #cecece 75%, #e6e6e6 100%);
   display: flex;
   align-items: center;
   justify-content: center;
