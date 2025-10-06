@@ -170,6 +170,89 @@ class ApiService {
     }
   }
 
+  // Authentication methods
+  async verifyToken(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        return { success: false, error: 'No token found' };
+      }
+      
+      return await this.makeRequest<{ success: boolean; data?: any; error?: string }>('/api/premium/status', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+    } catch (error) {
+      console.error('Token verification failed:', error);
+      return { success: false, error: 'Token verification failed' };
+    }
+  }
+
+  async login(credentials: { email: string; password: string }): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      return await this.makeRequest<{ success: boolean; data?: any; error?: string }>('/api/premium/login', {
+        method: 'POST',
+        body: JSON.stringify(credentials),
+      });
+    } catch (error) {
+      console.error('Login failed:', error);
+      return { success: false, error: 'Login failed' };
+    }
+  }
+
+  async register(credentials: { email: string; password: string; name: string }): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      return await this.makeRequest<{ success: boolean; data?: any; error?: string }>('/api/premium/signup', {
+        method: 'POST',
+        body: JSON.stringify(credentials),
+      });
+    } catch (error) {
+      console.error('Registration failed:', error);
+      return { success: false, error: 'Registration failed' };
+    }
+  }
+
+  async logout(): Promise<{ success: boolean }> {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        return { success: true };
+      }
+      
+      await this.makeRequest('/api/premium/logout', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      return { success: true };
+    } catch (error) {
+      console.error('Logout failed:', error);
+      return { success: true }; // Always succeed for logout
+    }
+  }
+
+  async getUserProfile(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        return { success: false, error: 'No token found' };
+      }
+      
+      return await this.makeRequest<{ success: boolean; data?: any; error?: string }>('/api/premium/user-plan', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+    } catch (error) {
+      console.error('Get user profile failed:', error);
+      return { success: false, error: 'Failed to get user profile' };
+    }
+  }
+
   // Health check
   async healthCheck(): Promise<{ status: string }> {
     try {
