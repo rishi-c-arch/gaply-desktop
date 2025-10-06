@@ -66,7 +66,25 @@ const LoadingFallback: React.FC = () => {
 
 const ThreeJSGlobe: React.FC = () => {
   return (
-    <div className="threejs-globe-container">
+    <div className="threejs-globe-container" style={{ 
+      position: 'absolute',
+      right: '2%',
+      top: '50%',
+      transform: 'translateY(-50%)',
+      width: '640px',
+      height: '640px',
+      zIndex: 3,
+      borderRadius: '50%',
+      overflow: 'hidden',
+      boxShadow: '0 25px 60px rgba(0, 0, 0, 0.8), 0 10px 30px rgba(255, 122, 26, 0.3)',
+      background: 'transparent',
+      pointerEvents: 'none',
+      // Fallback background image
+      backgroundImage: 'url(./assets/dreamstime_xxl_126606510.jpg)',
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat'
+    }}>
       <Canvas
         camera={{ position: [0, 0, 5], fov: 45 }}
         style={{ width: '100%', height: '100%' }}
