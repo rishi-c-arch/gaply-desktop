@@ -95,12 +95,12 @@
 /* Three.js Globe Container */
 .threejs-globe-container {
   position: absolute;
-  right: 0%;
+  right: 2%;
   top: 50%;
   transform: translateY(-50%);
-  width: 700px;
-  height: 700px;
-  z-index: 1;
+  width: 640px;
+  height: 640px;
+  z-index: 3;
   border-radius: 50%;
   overflow: hidden;
   /* Enhanced shadow */
@@ -109,6 +109,7 @@
   border: none;
   outline: none;
   background: transparent;
+  pointer-events: none;
   /* Fallback background in case Three.js fails */
   background-image: url('./assets/dreamstime_xxl_126606510.jpg');
   background-size: cover;
