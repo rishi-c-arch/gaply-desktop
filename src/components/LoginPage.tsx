@@ -1,54 +1,8 @@
 import React, { useState } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { Environment } from '@react-three/drei';
-import * as THREE from 'three';
 import './LoginPage.css';
+import './PremiumLoginBackground.css';
+import PremiumLoginBackground from './PremiumLoginBackground';
 
-// 3D Background Elements
-const BackgroundElements: React.FC = () => {
-  const groupRef = React.useRef<THREE.Group>(null);
-
-  useFrame((state) => {
-    if (groupRef.current) {
-      groupRef.current.rotation.y = state.clock.elapsedTime * 0.1;
-    }
-  });
-
-  return (
-    <group ref={groupRef}>
-      {/* Floating Geometric Shapes */}
-      {Array.from({ length: 8 }).map((_, i) => (
-        <mesh 
-          key={i} 
-          position={[
-            Math.sin(i * 0.8) * 6,
-            Math.cos(i * 0.8) * 6,
-            Math.sin(i * 0.4) * 2
-          ]}
-        >
-          <torusGeometry args={[0.2, 0.05, 8, 16]} />
-          <meshStandardMaterial 
-            color="#535353" 
-            transparent
-            opacity={0.2}
-          />
-        </mesh>
-      ))}
-      
-      {/* Central Orb */}
-      <mesh position={[0, 0, -1]}>
-        <sphereGeometry args={[0.3, 32, 32]} />
-        <meshStandardMaterial 
-          color="#6c6c6c"
-          metalness={0.7}
-          roughness={0.3}
-          transparent
-          opacity={0.3}
-        />
-      </mesh>
-    </group>
-  );
-};
 
 interface LoginPageProps {
   onLoginSuccess: (token: string, user: any) => void;
@@ -112,15 +66,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
 
   return (
     <div className="login-page">
-      {/* 3D Background */}
-      <div className="login-background-canvas">
-        <Canvas camera={{ position: [0, 0, 8], fov: 75 }}>
-          <ambientLight intensity={0.4} />
-          <pointLight position={[5, 5, 5]} intensity={0.8} />
-          <Environment preset="city" />
-          <BackgroundElements />
-        </Canvas>
-      </div>
+      {/* Premium 3D Background */}
+      <PremiumLoginBackground />
 
       {/* Login Form */}
       <div className="login-container">
