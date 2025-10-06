@@ -13,7 +13,7 @@ import PremiumPage from './components/PremiumPage';
 import UserDashboard from './components/UserDashboard';
 import PremiumFeatureModal from './components/PremiumFeatureModal';
 import LoginPage from './components/LoginPage';
-import SignupPage from './components/SignupPage';
+import TestSignupPage from './components/TestSignupPage';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 // TypeScript declaration for window function
@@ -292,13 +292,8 @@ const App: React.FC = () => {
     }
 
     if (showAuth === 'signup') {
-      console.log('Rendering SignupPage'); // Debug log
-      return (
-        <SignupPage 
-          onSignupSuccess={handleAuthSuccess}
-          onSwitchToLogin={() => handleSwitchAuth('login')}
-        />
-      );
+      console.log('Rendering TestSignupPage'); // Debug log
+      return <TestSignupPage />;
     }
 
     // Show main pages
