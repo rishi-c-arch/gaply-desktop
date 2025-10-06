@@ -33,65 +33,65 @@ const MagnifyingGlass3D: React.FC = () => {
   });
 
   return (
-    <group ref={meshRef} position={[0, 0, -2]}>
-      {/* Main magnifying glass body - larger and more prominent */}
+    <group ref={meshRef} position={[0, 0, -1.5]}>
+      {/* Main magnifying glass body - much larger and more prominent */}
       <mesh position={[0, 0, 0]}>
-        <cylinderGeometry args={[1.2, 0.9, 0.4, 64]} />
+        <cylinderGeometry args={[1.8, 1.4, 0.6, 64]} />
         <meshPhysicalMaterial 
           map={texture}
           metalness={0.9}
           roughness={0.1}
           clearcoat={1.0}
           clearcoatRoughness={0.05}
-          transmission={0.15}
-          thickness={0.3}
+          transmission={0.2}
+          thickness={0.4}
           ior={1.6}
           transparent
-          opacity={0.95}
+          opacity={0.98}
           emissive="#ff7a1a"
-          emissiveIntensity={0.1}
+          emissiveIntensity={0.2}
         />
       </mesh>
       
-      {/* Glass lens - more prominent */}
-      <mesh position={[0, 0, 0.25]}>
-        <cylinderGeometry args={[1.0, 1.0, 0.15, 128]} />
+      {/* Glass lens - much larger and more prominent */}
+      <mesh position={[0, 0, 0.35]}>
+        <cylinderGeometry args={[1.5, 1.5, 0.2, 128]} />
         <meshPhysicalMaterial 
           transmission={0.98}
-          thickness={0.15}
+          thickness={0.2}
           ior={1.6}
           roughness={0.0}
           metalness={0.0}
           clearcoat={1.0}
           clearcoatRoughness={0.0}
           transparent
-          opacity={0.9}
+          opacity={0.95}
           emissive="#ffffff"
-          emissiveIntensity={0.05}
+          emissiveIntensity={0.1}
         />
       </mesh>
       
-      {/* Enhanced handle */}
-      <mesh position={[-0.6, -1.2, 0]} rotation={[0, 0, Math.PI / 6]}>
-        <cylinderGeometry args={[0.08, 0.08, 1.8, 32]} />
+      {/* Enhanced handle - larger */}
+      <mesh position={[-0.9, -1.8, 0]} rotation={[0, 0, Math.PI / 6]}>
+        <cylinderGeometry args={[0.12, 0.12, 2.5, 32]} />
         <meshPhysicalMaterial 
           color="#8B4513"
           metalness={0.4}
           roughness={0.6}
           emissive="#8B4513"
-          emissiveIntensity={0.05}
+          emissiveIntensity={0.1}
         />
       </mesh>
       
-      {/* Additional lens reflection */}
-      <mesh position={[0, 0, 0.3]}>
-        <cylinderGeometry args={[0.3, 0.3, 0.02, 32]} />
+      {/* Additional lens reflection - larger */}
+      <mesh position={[0, 0, 0.45]}>
+        <cylinderGeometry args={[0.5, 0.5, 0.03, 32]} />
         <meshStandardMaterial 
           color="#ffffff"
           transparent
-          opacity={0.6}
+          opacity={0.8}
           emissive="#ffffff"
-          emissiveIntensity={0.3}
+          emissiveIntensity={0.5}
         />
       </mesh>
     </group>
@@ -189,7 +189,7 @@ const PremiumSignupBackground: React.FC = () => {
   return (
     <div className="premium-signup-background">
       <Canvas
-        camera={{ position: [0, 0, 8], fov: 60 }}
+        camera={{ position: [0, 0, 6], fov: 75 }}
         style={{ width: '100%', height: '100%' }}
         shadows
         gl={{ 

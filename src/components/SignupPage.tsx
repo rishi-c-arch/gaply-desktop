@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import './SignupPage.css';
 import './PremiumSignupBackground.css';
 import PremiumSignupBackground from './PremiumSignupBackground';
 
