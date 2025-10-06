@@ -12,6 +12,9 @@ import PremiumFooter3D from './components/PremiumFooter3D';
 import PremiumPage from './components/PremiumPage';
 import UserDashboard from './components/UserDashboard';
 import PremiumFeatureModal from './components/PremiumFeatureModal';
+import LoginPage from './components/LoginPage';
+import SignupPage from './components/SignupPage';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 // TypeScript declaration for window function
 declare global {
@@ -25,8 +28,20 @@ declare global {
 type HeaderProps = { theme: 'light' | 'dark' };
 
 const Header: React.FC<HeaderProps> = ({ theme }) => {
+  const { user } = useAuth();
   const textColor = theme === 'dark' ? '#e5e7eb' : '#111827';
   const textShadow = theme === 'dark' ? '0 1px 2px rgba(0,0,0,0.25)' : '0 1px 2px rgba(255,255,255,0.25)';
+  
+  const handleGetPremium = () => {
+    if (user) {
+      // User is logged in, redirect to premium page
+      window.location.href = '/premium';
+    } else {
+      // User not logged in, redirect to login
+      window.location.href = '/login';
+    }
+  };
+
   return (
     <header 
       className="header"
@@ -83,8 +98,8 @@ const Header: React.FC<HeaderProps> = ({ theme }) => {
               {l.label}
             </a>
           ))}
-          <a 
-            href="#premium"
+          <button 
+            onClick={handleGetPremium}
             className="premium-btn"
             style={{
               color: '#ffffff',
@@ -95,11 +110,12 @@ const Header: React.FC<HeaderProps> = ({ theme }) => {
               textDecoration: 'none',
               fontWeight: 700,
               fontSize: 12,
-              border: '1px solid currentColor'
+              border: '1px solid currentColor',
+              cursor: 'pointer'
             }}
           >
-            Get Premium
-          </a>
+            {user ? 'Premium' : 'Get Premium'}
+          </button>
         </nav>
       </div>
     </header>
@@ -168,44 +184,14 @@ const HeroSection: React.FC = () => {
 
 // (legacy SecondSection removed)
 
-// Third Section Component replaced with interactive graphs
-const ThirdSection: React.FC = () => <QuartileAnalysis3D />;
-
-// Transition Image Component
-const TransitionImage: React.FC = () => {
-  return (
-    <div className="transition-image">
-      <img src="/api/placeholder/1200/300" alt="Transition" />
-    </div>
-  );
-};
-
-// Fixed Footer Component
-const FixedFooter: React.FC = () => {
-  return (
-    <footer className="fixed-footer">
-      <div className="footer-content">
-        <div className="footer-left">
-          <h3>Gaply</h3>
-          <p>Accelerating academic research</p>
-        </div>
-        <div className="footer-right">
-          <div className="footer-links">
-            <a href="#features">Features</a>
-            <a href="#pricing">Pricing</a>
-            <a href="#contact">Contact</a>
-          </div>
-        </div>
-      </div>
-    </footer>
-  );
-};
 
 // Main App component
 const App: React.FC = () => {
+  const { isLoading } = useAuth();
   const [headerTheme, setHeaderTheme] = useState<'light'|'dark'>('dark');
   const [currentPage, setCurrentPage] = useState('home');
   const [premiumModal, setPremiumModal] = useState<{ type: 'gapFinder' | 'deepEvaluation' | null }>({ type: null });
+  const [showAuth, setShowAuth] = useState<'login' | 'signup' | null>(null);
 
   // Simple routing based on URL
   useEffect(() => {
@@ -214,8 +200,13 @@ const App: React.FC = () => {
       setCurrentPage('premium');
     } else if (path === '/dashboard') {
       setCurrentPage('dashboard');
+    } else if (path === '/login') {
+      setShowAuth('login');
+    } else if (path === '/signup') {
+      setShowAuth('signup');
     } else {
       setCurrentPage('home');
+      setShowAuth(null);
     }
   }, []);
 
@@ -257,7 +248,53 @@ const App: React.FC = () => {
     return () => observer.disconnect();
   }, []);
 
+  const handleAuthSuccess = (token: string, userData: any) => {
+    // Redirect to premium page after successful login/signup
+    window.location.href = '/premium';
+  };
+
+  const handleSwitchAuth = (type: 'login' | 'signup') => {
+    setShowAuth(type);
+    window.history.pushState({}, '', `/${type}`);
+  };
+
   const renderPage = () => {
+    // Show loading spinner while checking authentication
+    if (isLoading) {
+      return (
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100vh',
+          background: '#0A0A0A',
+          color: '#ffffff'
+        }}>
+          <div>Loading...</div>
+        </div>
+      );
+    }
+
+    // Show authentication pages
+    if (showAuth === 'login') {
+      return (
+        <LoginPage 
+          onLoginSuccess={handleAuthSuccess}
+          onSwitchToSignup={() => handleSwitchAuth('signup')}
+        />
+      );
+    }
+
+    if (showAuth === 'signup') {
+      return (
+        <SignupPage 
+          onSignupSuccess={handleAuthSuccess}
+          onSwitchToLogin={() => handleSwitchAuth('login')}
+        />
+      );
+    }
+
+    // Show main pages
     switch (currentPage) {
       case 'premium':
         return <PremiumPage />;
@@ -290,4 +327,13 @@ const App: React.FC = () => {
   );
 };
 
-export default App;
+// Wrap App with AuthProvider
+const AppWithAuth: React.FC = () => {
+  return (
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  );
+};
+
+export default AppWithAuth;
