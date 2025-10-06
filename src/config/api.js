@@ -1,7 +1,7 @@
 // config/api.js
 // Centralized API Configuration
 export const CONFIG = {
-  API_BASE_URL: 'https://gaply-production-backend.onrender.com',
+  API_BASE_URL: (typeof process !== 'undefined' && process.env && (process.env.REACT_APP_API_BASE_URL || process.env.VITE_API_BASE_URL)) || 'https://backend.gaply.in',
   VERSION: 'v1',
   TIMEOUT: 10000,
   RETRY_ATTEMPTS: 3
