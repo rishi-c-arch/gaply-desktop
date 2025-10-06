@@ -97,34 +97,32 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
           </div>
 
           <form onSubmit={handleSubmit} className="signup-form">
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="firstName">First Name</label>
-                <input
-                  type="text"
-                  id="firstName"
-                  name="firstName"
-                  value={formData.firstName}
-                  onChange={handleInputChange}
-                  required
-                  placeholder="Enter your first name"
-                  className={error ? 'error' : ''}
-                />
-              </div>
+            <div className="form-group">
+              <label htmlFor="firstName">First Name</label>
+              <input
+                type="text"
+                id="firstName"
+                name="firstName"
+                value={formData.firstName}
+                onChange={handleInputChange}
+                required
+                placeholder="Enter your first name"
+                className={error ? 'error' : ''}
+              />
+            </div>
 
-              <div className="form-group">
-                <label htmlFor="lastName">Last Name</label>
-                <input
-                  type="text"
-                  id="lastName"
-                  name="lastName"
-                  value={formData.lastName}
-                  onChange={handleInputChange}
-                  required
-                  placeholder="Enter your last name"
-                  className={error ? 'error' : ''}
-                />
-              </div>
+            <div className="form-group">
+              <label htmlFor="lastName">Last Name</label>
+              <input
+                type="text"
+                id="lastName"
+                name="lastName"
+                value={formData.lastName}
+                onChange={handleInputChange}
+                required
+                placeholder="Enter your last name"
+                className={error ? 'error' : ''}
+              />
             </div>
 
             <div className="form-group">
