@@ -65,6 +65,11 @@ const PremiumFooter3D: React.FC = () => {
               { label: 'Contact', href: '#contact' },
               { label: 'Privacy Policy', href: '#privacy' },
               { label: 'Terms of Service', href: '#terms' },
+              { label: 'Careers', href: '#careers' },
+              { label: 'Blog', href: '#blog' },
+              { label: 'Docs', href: '#docs' },
+              { label: 'Status', href: '#status' },
+              { label: 'Support', href: '#support' },
             ].map((l) => (
               <a
                 key={l.label}
