@@ -29,18 +29,12 @@ declare global {
 type HeaderProps = { theme: 'light' | 'dark' };
 
 const Header: React.FC<HeaderProps> = ({ theme }) => {
-  const { user } = useAuth();
   const textColor = theme === 'dark' ? '#e5e7eb' : '#111827';
   const textShadow = theme === 'dark' ? '0 1px 2px rgba(0,0,0,0.25)' : '0 1px 2px rgba(255,255,255,0.25)';
   
   const handleGetPremium = () => {
-    if (user) {
-      // User is logged in, redirect to package selection
-      window.location.href = '/packages';
-    } else {
-      // User not logged in, redirect to login
-      window.location.href = '/login';
-    }
+    // Always redirect to login first
+    window.location.href = '/login';
   };
 
   return (
@@ -115,7 +109,7 @@ const Header: React.FC<HeaderProps> = ({ theme }) => {
               cursor: 'pointer'
             }}
           >
-            {user ? 'Premium' : 'Get Premium'}
+            Get Premium
           </button>
         </nav>
       </div>
@@ -197,16 +191,20 @@ const App: React.FC = () => {
   // Simple routing based on URL
   useEffect(() => {
     const path = window.location.pathname;
-    
     if (path === '/premium') {
       setCurrentPage('premium');
+      setShowAuth(null);
     } else if (path === '/packages') {
       setCurrentPage('packages');
+      setShowAuth(null);
     } else if (path === '/dashboard') {
       setCurrentPage('dashboard');
+      setShowAuth(null);
     } else if (path === '/login') {
+      setCurrentPage('home');
       setShowAuth('login');
     } else if (path === '/signup') {
+      setCurrentPage('home');
       setShowAuth('signup');
     } else {
       setCurrentPage('home');

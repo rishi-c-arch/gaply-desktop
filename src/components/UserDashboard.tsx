@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { buildApiUrl } from '../api/config';
-import { useAuth } from '../contexts/AuthContext';
 
 interface UserAccount {
   planId: string;
@@ -21,47 +20,16 @@ interface PaymentHistory {
 }
 
 const UserDashboard: React.FC = () => {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [userAccount, setUserAccount] = useState<UserAccount | null>(null);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'usage' | 'payments'>('overview');
 
-  const getToken = () => localStorage.getItem('authToken') || localStorage.getItem('token') || localStorage.getItem('gaply_token');
-
-  // Redirect to login if not authenticated
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      window.location.href = '/login';
-    }
-  }, [isAuthenticated, authLoading]);
+  const getToken = () => localStorage.getItem('token') || localStorage.getItem('gaply_token');
 
   useEffect(() => {
-    if (isAuthenticated) {
-      loadUserData();
-    }
-  }, [isAuthenticated]);
-
-  // Show loading while checking authentication
-  if (authLoading) {
-    return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh',
-        background: '#0A0A0A',
-        color: '#cecece'
-      }}>
-        <div>Loading...</div>
-      </div>
-    );
-  }
-
-  // Don't render if not authenticated (will redirect)
-  if (!isAuthenticated) {
-    return null;
-  }
+    loadUserData();
+  }, []);
 
   const loadUserData = async () => {
     const token = getToken();
@@ -267,7 +235,7 @@ const UserDashboard: React.FC = () => {
                 gap: '20px'
               }}>
                 <button
-                  onClick={() => window.location.href = '/packages'}
+                  onClick={() => window.location.href = '/premium'}
                   style={{
                     background: 'linear-gradient(45deg, #ff7a1a, #ff9500)',
                     color: 'white',
@@ -364,7 +332,7 @@ const UserDashboard: React.FC = () => {
 
             <div style={{ marginTop: '30px', textAlign: 'center' }}>
               <p style={{ opacity: 0.7 }}>
-                Need more uses? <a href="/packages" style={{ color: '#ff7a1a' }}>Upgrade your plan</a>
+                Need more uses? <a href="/premium" style={{ color: '#ff7a1a' }}>Upgrade your plan</a>
               </p>
             </div>
           </div>

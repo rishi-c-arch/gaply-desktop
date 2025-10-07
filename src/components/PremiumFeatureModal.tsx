@@ -189,7 +189,7 @@ const PremiumFeatureModal: React.FC<PremiumFeatureProps> = ({ featureType, onClo
             You need a premium plan to access this feature.
           </p>
           <button
-            onClick={() => window.location.href = '/packages'}
+            onClick={() => window.location.href = '/premium'}
             style={{
               background: 'linear-gradient(45deg, #ff7a1a, #ff9500)',
               color: 'white',
@@ -289,7 +289,7 @@ const PremiumFeatureModal: React.FC<PremiumFeatureProps> = ({ featureType, onClo
           <strong>Uses Remaining: {usesRemaining}</strong>
           {!hasUses && (
             <p style={{ color: '#ff7a1a', margin: '10px 0 0 0' }}>
-              No uses remaining. <a href="/packages" style={{ color: '#ff7a1a' }}>Upgrade your plan</a>
+              No uses remaining. <a href="/premium" style={{ color: '#ff7a1a' }}>Upgrade your plan</a>
             </p>
           )}
         </div>
