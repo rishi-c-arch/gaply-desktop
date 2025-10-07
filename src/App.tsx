@@ -11,6 +11,7 @@ import QuartileAnalysis3D from './components/QuartileAnalysis3D';
 import PremiumFooter3D from './components/PremiumFooter3D';
 import PremiumPage from './components/PremiumPage';
 import UserDashboard from './components/UserDashboard';
+import PackageSelection from './components/PackageSelection';
 import PremiumFeatureModal from './components/PremiumFeatureModal';
 import LoginPage from './components/LoginPage';
 import SignupPage from './components/SignupPage';
@@ -34,8 +35,8 @@ const Header: React.FC<HeaderProps> = ({ theme }) => {
   
   const handleGetPremium = () => {
     if (user) {
-      // User is logged in, redirect to premium page
-      window.location.href = '/premium';
+      // User is logged in, redirect to package selection
+      window.location.href = '/packages';
     } else {
       // User not logged in, redirect to login
       window.location.href = '/login';
@@ -196,8 +197,11 @@ const App: React.FC = () => {
   // Simple routing based on URL
   useEffect(() => {
     const path = window.location.pathname;
+    
     if (path === '/premium') {
       setCurrentPage('premium');
+    } else if (path === '/packages') {
+      setCurrentPage('packages');
     } else if (path === '/dashboard') {
       setCurrentPage('dashboard');
     } else if (path === '/login') {
@@ -249,8 +253,8 @@ const App: React.FC = () => {
   }, []);
 
   const handleAuthSuccess = (token: string, userData: any) => {
-    // Redirect to premium page after successful login/signup
-    window.location.href = '/premium';
+    // Redirect to package selection after successful login/signup
+    window.location.href = '/packages';
   };
 
   const handleSwitchAuth = (type: 'login' | 'signup') => {
@@ -298,6 +302,8 @@ const App: React.FC = () => {
     switch (currentPage) {
       case 'premium':
         return <PremiumPage />;
+      case 'packages':
+        return <PackageSelection onClose={() => window.location.href = '/'} />;
       case 'dashboard':
         return <UserDashboard />;
       default:

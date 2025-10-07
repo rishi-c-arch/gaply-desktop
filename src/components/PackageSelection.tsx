@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './PackageSelection.css';
+import { useAuth } from '../contexts/AuthContext';
 
 interface PackageSelectionProps {
   onClose: () => void;
@@ -15,6 +16,7 @@ interface UserAccount {
 }
 
 const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
+  const { isAuthenticated, isLoading } = useAuth();
   const [currentView, setCurrentView] = useState<'plans' | 'account'>('plans');
   // Removed unused showAccountPanel state
   const [userAccount, setUserAccount] = useState<UserAccount>({
@@ -25,6 +27,34 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
     whatsappSupport: false,
     validUntil: '2025-10-04'
   });
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      window.location.href = '/login';
+    }
+  }, [isAuthenticated, isLoading]);
+
+  // Show loading while checking authentication
+  if (isLoading) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        background: '#0A0A0A',
+        color: '#ffffff'
+      }}>
+        <div>Loading...</div>
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated (will redirect)
+  if (!isAuthenticated) {
+    return null;
+  }
 
   const packages = [
     {
