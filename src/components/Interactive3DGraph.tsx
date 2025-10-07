@@ -1,27 +1,33 @@
-import React, { useRef, useMemo, useState, useEffect } from 'react';
+import React, { useRef, useMemo, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Line, Text, Sphere, Box } from '@react-three/drei';
+import { Line, Text, Sphere } from '@react-three/drei';
 import * as THREE from 'three';
 
 // Popular research topics data
 const topicsData = [
-  { name: 'AI/ML', popularity: 95, color: '#3b82f6', position: [0, 0, 0] },
-  { name: 'Blockchain', popularity: 78, color: '#10b981', position: [2, 1, -1] },
-  { name: 'Quantum Computing', popularity: 82, color: '#8b5cf6', position: [-2, 2, 1] },
-  { name: 'Neuroscience', popularity: 88, color: '#f59e0b', position: [1, -1, 2] },
-  { name: 'Climate Science', popularity: 92, color: '#ef4444', position: [-1, -2, -1] },
-  { name: 'Biotechnology', popularity: 85, color: '#06b6d4', position: [3, 0, -2] },
-  { name: 'Space Research', popularity: 76, color: '#84cc16', position: [-3, 1, 1] },
-  { name: 'Renewable Energy', popularity: 89, color: '#f97316', position: [0, 3, -1] },
-  { name: 'Cybersecurity', popularity: 91, color: '#ec4899', position: [-2, -1, 2] },
-  { name: 'Materials Science', popularity: 83, color: '#6366f1', position: [2, -2, 0] }
+  { name: 'AI/ML', popularity: 95, color: '#3b82f6', position: [0, 0, 0] as [number, number, number] },
+  { name: 'Blockchain', popularity: 78, color: '#10b981', position: [2, 1, -1] as [number, number, number] },
+  { name: 'Quantum Computing', popularity: 82, color: '#8b5cf6', position: [-2, 2, 1] as [number, number, number] },
+  { name: 'Neuroscience', popularity: 88, color: '#f59e0b', position: [1, -1, 2] as [number, number, number] },
+  { name: 'Climate Science', popularity: 92, color: '#ef4444', position: [-1, -2, -1] as [number, number, number] },
+  { name: 'Biotechnology', popularity: 85, color: '#06b6d4', position: [3, 0, -2] as [number, number, number] },
+  { name: 'Space Research', popularity: 76, color: '#84cc16', position: [-3, 1, 1] as [number, number, number] },
+  { name: 'Renewable Energy', popularity: 89, color: '#f97316', position: [0, 3, -1] as [number, number, number] },
+  { name: 'Cybersecurity', popularity: 91, color: '#ec4899', position: [-2, -1, 2] as [number, number, number] },
+  { name: 'Materials Science', popularity: 83, color: '#6366f1', position: [2, -2, 0] as [number, number, number] }
 ];
 
 // Animated data points component
-function DataPoint({ position, color, size, topic, popularity, index }: any) {
+function DataPoint({ position, color, size, topic, popularity, index }: {
+  position: [number, number, number];
+  color: string;
+  size: number;
+  topic: string;
+  popularity: number;
+  index: number;
+}) {
   const meshRef = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState(false);
-  const [clicked, setClicked] = useState(false);
 
   useFrame((state) => {
     if (meshRef.current) {
@@ -44,7 +50,6 @@ function DataPoint({ position, color, size, topic, popularity, index }: any) {
         args={[size, 32, 32]}
         onPointerOver={() => setHovered(true)}
         onPointerOut={() => setHovered(false)}
-        onClick={() => setClicked(!clicked)}
       >
         <meshStandardMaterial
           color={color}
@@ -90,7 +95,7 @@ function DataPoint({ position, color, size, topic, popularity, index }: any) {
 }
 
 // Interactive line chart component
-function LineChart({ data }: any) {
+function LineChart({ data }: { data: typeof topicsData }) {
   const lineRef = useRef<THREE.Group>(null);
   
   useFrame((state) => {
@@ -100,11 +105,11 @@ function LineChart({ data }: any) {
   });
 
   const points = useMemo(() => {
-    return data.map((item: any, index: number) => [
+    return data.map((item, index) => [
       index * 0.8 - 4,
       (item.popularity / 100) * 3,
       Math.sin(index) * 0.5
-    ]);
+    ] as [number, number, number]);
   }, [data]);
 
   return (
@@ -156,8 +161,6 @@ function CameraController() {
 
 // Main 3D Graph Component
 const Interactive3DGraph: React.FC = () => {
-  const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
-
   return (
     <section className="py-20 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative overflow-hidden">
       {/* Background decorative elements */}
@@ -230,8 +233,8 @@ const Interactive3DGraph: React.FC = () => {
             <div className="absolute top-4 left-4 bg-black/20 backdrop-blur-sm rounded-lg p-4 text-white">
               <h3 className="font-semibold mb-2">Interactive Controls</h3>
               <p className="text-sm opacity-90">• Hover over spheres to highlight</p>
-              <p className="text-sm opacity-90">• Click to select topics</p>
               <p className="text-sm opacity-90">• Camera auto-rotates</p>
+              <p className="text-sm opacity-90">• 3D visualization</p>
             </div>
           </div>
         </div>
@@ -276,18 +279,6 @@ const Interactive3DGraph: React.FC = () => {
         </div>
       </div>
 
-      <style jsx>{`
-        @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(30px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-      `}</style>
     </section>
   );
 };
