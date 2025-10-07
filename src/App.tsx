@@ -169,8 +169,8 @@ const HeroSection: React.FC = () => {
           <p>JOURNALS</p>
         </div>
         <div className="stat-item">
-          <h3>95%</h3>
-          <p>ACCURACY</p>
+          <h3 style={{ color: '#bdbdbd' }}>95%</h3>
+          <p style={{ color: '#bdbdbd' }}>ACCURACY</p>
         </div>
       </div>
     </section>
