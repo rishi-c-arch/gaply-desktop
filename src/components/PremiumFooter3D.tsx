@@ -57,7 +57,7 @@ const PremiumFooter3D: React.FC = () => {
             <div style={{ opacity: 0.7, marginTop: 8 }}>Accelerating academic research</div>
           </div>
 
-          <nav style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(140px, 1fr))', gap: 16, minWidth: 420 }}>
+          <nav style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(140px, 1fr))', gap: 8, minWidth: 420 }}>
             {[
               { label: 'Features', href: '#features' },
               { label: 'WHY WE EXIST', href: '#why' },
@@ -67,8 +67,6 @@ const PremiumFooter3D: React.FC = () => {
               { label: 'Terms of Service', href: '#terms' },
               { label: 'Careers', href: '#careers' },
               { label: 'Blog', href: '#blog' },
-              { label: 'Docs', href: '#docs' },
-              { label: 'Status', href: '#status' },
               { label: 'Support', href: '#support' },
             ].map((l) => (
               <a
@@ -77,24 +75,23 @@ const PremiumFooter3D: React.FC = () => {
                 style={{
                   color: '#e5e7eb',
                   textDecoration: 'none',
-                  opacity: 0.9,
-                  padding: '10px 12px',
-                  borderRadius: 10,
-                  background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  backdropFilter: 'blur(6px)',
-                  transformStyle: 'preserve-3d',
-                  transition: 'transform .2s ease, box-shadow .2s ease, opacity .2s ease'
+                  opacity: 0.8,
+                  padding: 0,
+                  borderRadius: 0,
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: 12,
+                  lineHeight: '18px',
+                  fontWeight: 400,
+                  transition: 'color .2s ease, opacity .2s ease'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateZ(8px)';
-                  e.currentTarget.style.boxShadow = '0 10px 24px -12px rgba(59,130,246,0.35)';
                   e.currentTarget.style.opacity = '1';
+                  e.currentTarget.style.textDecoration = 'underline';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'none';
-                  e.currentTarget.style.boxShadow = 'none';
-                  e.currentTarget.style.opacity = '0.9';
+                  e.currentTarget.style.textDecoration = 'none';
+                  e.currentTarget.style.opacity = '0.8';
                 }}
               >
                 {l.label}
