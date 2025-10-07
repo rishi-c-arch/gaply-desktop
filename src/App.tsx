@@ -8,7 +8,6 @@ import PremiumHeroText from './components/PremiumHeroText';
 import HeroToSecondTransition from './components/HeroToSecondTransition';
 import FreeFeatures3D from './components/FreeFeatures3D';
 import QuartileAnalysis3D from './components/QuartileAnalysis3D';
-import Simple3DTest from './components/Simple3DTest';
 import PremiumFooter3D from './components/PremiumFooter3D';
 import PremiumPage from './components/PremiumPage';
 import UserDashboard from './components/UserDashboard';
@@ -312,7 +311,6 @@ const App: React.FC = () => {
             <HeroSection />
             <FreeFeatures3D />
             <HeroToSecondTransition />
-            <Simple3DTest />
             <QuartileAnalysis3D />
             <PremiumFooter3D />
           </>
