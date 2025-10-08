@@ -34,17 +34,6 @@ const BackgroundElements: React.FC = () => {
         </mesh>
       ))}
       
-      {/* Central Orb */}
-      <mesh position={[0, 0, -2]}>
-        <sphereGeometry args={[0.5, 32, 32]} />
-        <meshStandardMaterial 
-          color="#6c6c6c"
-          metalness={0.7}
-          roughness={0.3}
-          transparent
-          opacity={0.4}
-        />
-      </mesh>
       
       {/* Floating Particles - REMOVED */}
     </group>
