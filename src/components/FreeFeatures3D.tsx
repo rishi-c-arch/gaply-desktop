@@ -179,10 +179,12 @@ const FreeFeatures3D: React.FC = () => {
             color: 'white',
             border: 'none',
             borderRadius: '8px',
-            cursor: 'pointer'
+            cursor: 'pointer',
+            fontSize: '16px',
+            fontWeight: 'bold'
           }}
         >
-          TEST MODAL (Click Me)
+          🔴 TEST MODAL (Click Me) - V2
         </button>
       </div>
 
