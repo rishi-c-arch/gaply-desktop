@@ -170,7 +170,12 @@ const FreeFeatures3D: React.FC = () => {
         <button 
           onClick={() => {
             console.log('Test button clicked!');
+            console.log('Current activeTool before:', activeTool);
             setActiveTool('remover');
+            console.log('setActiveTool called with remover');
+            setTimeout(() => {
+              console.log('ActiveTool after timeout:', activeTool);
+            }, 100);
           }}
           style={{
             marginTop: '20px',
@@ -293,7 +298,7 @@ const FreeFeatures3D: React.FC = () => {
           }}
           style={{
             position: 'fixed', inset: 0, zIndex: 9999,
-            background: 'rgba(0,0,0,0.8)',
+            background: 'rgba(255,0,0,0.9)', // Bright red background for debugging
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '20px'
           }}
