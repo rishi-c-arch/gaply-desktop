@@ -194,7 +194,10 @@ const FreeFeatures3D: React.FC = () => {
         }].map((card) => (
           <button
             key={card.key}
-            onClick={() => setActiveTool(card.key as typeof activeTool)}
+            onClick={() => {
+              console.log('Opening tool:', card.key);
+              setActiveTool(card.key as typeof activeTool);
+            }}
             style={{
               perspective: '1000px',
               WebkitTapHighlightColor: 'transparent',
@@ -261,11 +264,15 @@ const FreeFeatures3D: React.FC = () => {
       </div>
 
       {/* Compact Modals (task windows) */}
+      {console.log('Active tool state:', activeTool)}
       {activeTool && (
         <div
           role="dialog"
           aria-modal="true"
-          onClick={() => setActiveTool(null)}
+          onClick={() => {
+            console.log('Closing modal');
+            setActiveTool(null);
+          }}
           style={{
             position: 'fixed', inset: 0, zIndex: 50,
             background: 'rgba(0,0,0,0.55)',
