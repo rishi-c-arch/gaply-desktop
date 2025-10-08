@@ -37,21 +37,6 @@ const TransitionMesh: React.FC<{ scrollProgress: number }> = ({ scrollProgress }
         />
       </mesh>
       
-      {/* Floating particles */}
-      {Array.from({ length: 20 }).map((_, i) => (
-        <mesh key={i} position={[
-          Math.sin(i * 0.3) * 3,
-          Math.cos(i * 0.3) * 3,
-          Math.sin(i * 0.5) * 2
-        ]}>
-          <sphereGeometry args={[0.05, 8, 8]} />
-          <meshStandardMaterial 
-            color="#b5b5b5" 
-            transparent
-            opacity={0.6}
-          />
-        </mesh>
-      ))}
     </group>
   );
 };
