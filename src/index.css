@@ -4,8 +4,16 @@
 .mouse-follower,
 .orb,
 .light-orb,
-.hero-orb {
+.hero-orb,
+.floating-orbs,
+.particle,
+[class*="cursor"],
+[class*="orb"],
+[class*="blob"],
+[class*="float"],
+div[style*="position: fixed"][style*="z-index"] {
   display: none !important;
   opacity: 0 !important;
   pointer-events: none !important;
+  visibility: hidden !important;
 }
