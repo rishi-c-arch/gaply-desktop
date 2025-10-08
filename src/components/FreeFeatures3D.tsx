@@ -179,12 +179,10 @@ const FreeFeatures3D: React.FC = () => {
             color: 'white',
             border: 'none',
             borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '16px',
-            fontWeight: 'bold'
+            cursor: 'pointer'
           }}
         >
-          🔴 TEST MODAL (Click Me) - V2
+          TEST MODAL (Click Me)
         </button>
       </div>
 
@@ -285,7 +283,6 @@ const FreeFeatures3D: React.FC = () => {
       </div>
 
       {/* Compact Modals (task windows) */}
-      {console.log('Active tool state:', activeTool)}
       {activeTool && (
         <div
           role="dialog"
