@@ -50,34 +50,37 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
     setError('');
 
     try {
-      // For now, let's use a mock authentication system
-      // This will be replaced with proper backend integration once the service is up
-      const mockResponse = {
-        success: true,
-        token: `mock_token_${Date.now()}`,
-        user: {
-          id: `user_${Date.now()}`,
-          email: formData.email,
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          isPremium: false
+      // Connect to real backend
+      const response = await fetch('https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com/api/premium/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        message: 'Account created successfully! Welcome to GAPLY!'
-      };
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+        }),
+      });
 
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Registration failed');
+      }
+
+      const data = await response.json();
 
       // Store token and user data
-      localStorage.setItem('authToken', mockResponse.token);
-      localStorage.setItem('user', JSON.stringify(mockResponse.user));
+      localStorage.setItem('authToken', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
       
       // Call success callback
-      onSignupSuccess(mockResponse.token, mockResponse.user);
+      onSignupSuccess(data.token, data.user);
       
-    } catch (err) {
+    } catch (err: any) {
       console.error('Signup error:', err);
-      setError('Registration failed. Please try again.');
+      setError(err.message || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }

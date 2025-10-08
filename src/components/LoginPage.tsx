@@ -32,34 +32,35 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
     setError('');
 
     try {
-      // For now, let's use a mock authentication system
-      // This will be replaced with proper backend integration once the service is up
-      const mockResponse = {
-        success: true,
-        token: `mock_token_${Date.now()}`,
-        user: {
-          id: `user_${Date.now()}`,
-          email: formData.email,
-          firstName: 'User',
-          lastName: 'Name',
-          isPremium: false
+      // Connect to real backend
+      const response = await fetch('https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com/api/premium/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        message: 'Login successful! Welcome back to GAPLY!'
-      };
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+        }),
+      });
 
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Login failed');
+      }
 
+      const data = await response.json();
+      
       // Store token and user data
-      localStorage.setItem('authToken', mockResponse.token);
-      localStorage.setItem('user', JSON.stringify(mockResponse.user));
+      localStorage.setItem('authToken', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
       
       // Call success callback
-      onLoginSuccess(mockResponse.token, mockResponse.user);
+      onLoginSuccess(data.token, data.user);
       
-    } catch (err) {
+    } catch (err: any) {
       console.error('Login error:', err);
-      setError('Login failed. Please try again.');
+      setError(err.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
