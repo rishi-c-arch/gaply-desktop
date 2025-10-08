@@ -235,7 +235,7 @@ const UserDashboard: React.FC = () => {
                 gap: '20px'
               }}>
                 <button
-                  onClick={() => window.location.href = '/premium'}
+                  onClick={() => window.location.href = '/packages'}
                   style={{
                     background: 'linear-gradient(45deg, #ff7a1a, #ff9500)',
                     color: 'white',
@@ -332,7 +332,7 @@ const UserDashboard: React.FC = () => {
 
             <div style={{ marginTop: '30px', textAlign: 'center' }}>
               <p style={{ opacity: 0.7 }}>
-                Need more uses? <a href="/premium" style={{ color: '#ff7a1a' }}>Upgrade your plan</a>
+                Need more uses? <a href="/packages" style={{ color: '#ff7a1a' }}>Upgrade your plan</a>
               </p>
             </div>
           </div>
