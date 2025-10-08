@@ -274,8 +274,8 @@ const FreeFeatures3D: React.FC = () => {
             setActiveTool(null);
           }}
           style={{
-            position: 'fixed', inset: 0, zIndex: 50,
-            background: 'rgba(0,0,0,0.55)',
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.8)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '20px'
           }}
