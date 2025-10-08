@@ -17,6 +17,43 @@ import LoginPage from './components/LoginPage';
 import SignupPage from './components/SignupPage';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
+// Remove floating orb function
+const removeFloatingOrb = () => {
+  // Remove any elements that might be the floating orb
+  const selectors = [
+    '.blob', '.cursor', '.mouse-follower', '.orb', '.light-orb', '.hero-orb',
+    '.floating-orbs', '.particle', '[class*="cursor"]', '[class*="orb"]', 
+    '[class*="blob"]', '[class*="float"]'
+  ];
+  
+  selectors.forEach(selector => {
+    const elements = document.querySelectorAll(selector);
+    elements.forEach(el => {
+      if (el instanceof HTMLElement) {
+        el.style.display = 'none';
+        el.style.opacity = '0';
+        el.style.visibility = 'hidden';
+        el.style.pointerEvents = 'none';
+      }
+    });
+  });
+  
+  // Also remove any fixed positioned elements with high z-index that might be the orb
+  const allDivs = document.querySelectorAll('div');
+  allDivs.forEach(div => {
+    const style = window.getComputedStyle(div);
+    if (style.position === 'fixed' && parseInt(style.zIndex) > 1000) {
+      // Check if it's a circular element (likely the orb)
+      if (style.borderRadius === '50%' || style.borderRadius.includes('%')) {
+        div.style.display = 'none';
+        div.style.opacity = '0';
+        div.style.visibility = 'hidden';
+        div.style.pointerEvents = 'none';
+      }
+    }
+  });
+};
+
 // TypeScript declaration for window function
 declare global {
   interface Window {
@@ -187,6 +224,33 @@ const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState('home');
   const [premiumModal, setPremiumModal] = useState<{ type: 'gapFinder' | 'deepEvaluation' | null }>({ type: null });
   const [showAuth, setShowAuth] = useState<'login' | 'signup' | null>(null);
+
+  // Remove floating orb on component mount and periodically
+  useEffect(() => {
+    // Remove orb immediately
+    removeFloatingOrb();
+    
+    // Remove orb periodically to catch any dynamically created ones
+    const interval = setInterval(removeFloatingOrb, 1000);
+    
+    
+    // Listen for any DOM changes that might add the orb back
+    const observer = new MutationObserver(() => {
+      removeFloatingOrb();
+    });
+    
+    observer.observe(document.body, { 
+      childList: true, 
+      subtree: true, 
+      attributes: true,
+      attributeFilter: ['class', 'style']
+    });
+    
+    return () => {
+      clearInterval(interval);
+      observer.disconnect();
+    };
+  }, []);
 
   // Simple routing based on URL
   useEffect(() => {
