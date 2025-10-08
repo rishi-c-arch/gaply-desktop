@@ -165,6 +165,25 @@ const FreeFeatures3D: React.FC = () => {
         >
           Powerful tools to accelerate your academic journey
         </div>
+        
+        {/* Test Button */}
+        <button 
+          onClick={() => {
+            console.log('Test button clicked!');
+            setActiveTool('remover');
+          }}
+          style={{
+            marginTop: '20px',
+            padding: '10px 20px',
+            background: '#ff4444',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer'
+          }}
+        >
+          TEST MODAL (Click Me)
+        </button>
       </div>
 
       {/* Tool Cards - compact row */}
