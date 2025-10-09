@@ -47,6 +47,11 @@ const FreeFeatures3D: React.FC = () => {
   const [isVisible, setIsVisible] = useState(false);
   const [activeTool, setActiveTool] = useState<null | 'remover' | 'search' | 'journals'>(null);
 
+  // Debug: Log activeTool changes
+  useEffect(() => {
+    console.log('STATE CHANGED: activeTool =', activeTool);
+  }, [activeTool]);
+
   // Remover state
   const [removerText, setRemoverText] = useState('');
   const [removerResult, setRemoverResult] = useState<string | null>(null);
@@ -330,8 +335,8 @@ const FreeFeatures3D: React.FC = () => {
         </button>
       </div>
 
-      {/* Render modal using React Portal to bypass z-index stacking */}
-      {activeTool && createPortal(
+      {/* Inline Modal (no Portal) */}
+      {activeTool === 'remover' && (
         <div
           role="dialog"
           aria-modal="true"
@@ -616,8 +621,7 @@ const FreeFeatures3D: React.FC = () => {
               </div>
             )}
           </div>
-        </div>,
-        document.body
+        </div>
       )}
     </section>
   );
