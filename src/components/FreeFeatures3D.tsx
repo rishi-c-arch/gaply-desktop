@@ -288,7 +288,10 @@ const FreeFeatures3D: React.FC = () => {
       </div>
 
       {/* Compact Modals (task windows) */}
-      {activeTool && (
+      {(() => {
+        console.log('Rendering modal check, activeTool:', activeTool);
+        return activeTool;
+      })() && (
         <div
           role="dialog"
           aria-modal="true"
@@ -297,10 +300,19 @@ const FreeFeatures3D: React.FC = () => {
             setActiveTool(null);
           }}
           style={{
-            position: 'fixed', inset: 0, zIndex: 9999,
-            background: 'rgba(255,0,0,0.9)', // Bright red background for debugging
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: '20px'
+            position: 'fixed', 
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 999999,
+            background: 'rgba(255,0,0,0.98)',
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            padding: '20px',
+            visibility: 'visible',
+            opacity: 1
           }}
         >
           <div
