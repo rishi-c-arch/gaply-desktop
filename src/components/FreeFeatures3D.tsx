@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Environment } from '@react-three/drei';
 import * as THREE from 'three';
@@ -287,373 +288,6 @@ const FreeFeatures3D: React.FC = () => {
         ))}
       </div>
 
-      {/* Compact Modals (task windows) */}
-      {(() => {
-        console.log('Rendering modal check, activeTool:', activeTool);
-        return activeTool;
-      })() && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          onClick={() => {
-            console.log('Closing modal');
-            setActiveTool(null);
-          }}
-          style={{
-            position: 'fixed', 
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 999999,
-            background: 'rgba(255,0,0,0.98)',
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            padding: '20px',
-            visibility: 'visible',
-            opacity: 1
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 'min(900px, 92vw)',
-              background: 'linear-gradient(180deg, rgba(20,20,20,0.9), rgba(30,30,30,0.9))',
-              border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: '18px',
-              boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
-              overflow: 'hidden'
-            }}
-          >
-            <div style={{ padding: '18px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{
-                  margin: 0,
-                  fontFamily: 'Inter, sans-serif',
-                  fontWeight: 700,
-                  fontSize: '1.15rem',
-                  color: '#e6e6e6'
-                }}>
-                  {activeTool === 'remover' && 'AI Text Remover'}
-                  {activeTool === 'search' && 'Research Paper Search'}
-                  {activeTool === 'journals' && 'Journal Matching'}
-                </h3>
-                <button onClick={() => setActiveTool(null)} style={{
-                  background: 'transparent', border: 'none', color: '#cecece', cursor: 'pointer', fontSize: '1.1rem'
-                }}>✕</button>
-              </div>
-            </div>
-            <div style={{ padding: '18px 20px' }}>
-              {activeTool === 'remover' && (
-                <div style={{ display: 'grid', gap: '12px' }}>
-                  <p style={{ margin: 0, color: '#bdbdbd' }}>From AI text to scholarly excellence — enhance your paper with precise academic language.</p>
-                  <textarea rows={6} placeholder="Paste your text here for paraphrasing…" value={removerText} onChange={(e)=>setRemoverText(e.target.value)} style={{
-                    width: '100%', borderRadius: '12px', padding: '12px',
-                    background: 'rgba(255,255,255,0.04)', color: '#e6e6e6', border: '1px solid rgba(255,255,255,0.12)'
-                  }} />
-                  <div style={{ display: 'flex', justifyContent: 'center' }}>
-                    <button onClick={async () => {
-                      if (!removerText.trim()) return;
-                      
-                      try {
-                        const response = await fetch('https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com/api/v1/paraphrase/direct', {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                          },
-                          body: JSON.stringify({
-                            text: removerText,
-                          }),
-                        });
-                        
-                        if (response.ok) {
-                          const data = await response.json();
-                          setRemoverResult(data.paraphrased_text || data.result || 'Paraphrasing completed');
-                        } else {
-                          // Fallback to simple processing if backend fails
-                          setRemoverResult(removerText.replace(/\b(very|really|basically|just)\b/gi,'').trim() + ' (processed locally)');
-                        }
-                      } catch (error) {
-                        // Fallback to simple processing if backend fails
-                        setRemoverResult(removerText.replace(/\b(very|really|basically|just)\b/gi,'').trim() + ' (processed locally)');
-                      }
-                    }} style={{
-                      padding: '10px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.18)',
-                      background: 'linear-gradient(135deg, #4b4b4b, #6c6c6c)', color: '#fff', cursor: 'pointer'
-                    }}>Paraphrase Text</button>
-                  </div>
-                  {removerResult !== null && (
-                    <div style={{
-                      marginTop: '10px',
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      borderRadius: '12px', padding: '12px',
-                      background: 'rgba(255,255,255,0.03)', color: '#dcdcdc'
-                    }}>
-                      <div style={{ fontWeight: 600, marginBottom: 6 }}>Result</div>
-                      <div style={{ whiteSpace: 'pre-wrap' }}>{removerResult || 'No text provided.'}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-              {activeTool === 'search' && (
-                <div style={{ display: 'grid', gap: '12px' }}>
-                  <p style={{ margin: 0, color: '#bdbdbd' }}>Discover relevant academic papers with AI‑powered search.</p>
-                  <input value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} placeholder="Enter your research query (e.g., 'renewable energy solutions')" style={{
-                    width: '100%', borderRadius: '12px', padding: '12px',
-                    background: 'rgba(255,255,255,0.04)', color: '#e6e6e6', border: '1px solid rgba(255,255,255,0.12)'
-                  }} />
-                  <div style={{ display: 'flex', justifyContent: 'center' }}>
-                    <button onClick={async () => {
-                      if (!searchQuery.trim()) return;
-                      
-                      try {
-                        const response = await fetch('https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com/api/search', {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                          },
-                          body: JSON.stringify({
-                            query: searchQuery,
-                          }),
-                        });
-                        
-                        if (response.ok) {
-                          const data = await response.json();
-                          // Handle different response formats
-                          if (data.papers && Array.isArray(data.papers)) {
-                            setSearchResults(data.papers.map((paper: any, i: number) => ({
-                              title: paper.title || `${searchQuery} — Study ${i+1}`,
-                              source: paper.source || paper.publisher || ['arXiv','CrossRef','OpenAlex'][i%3],
-                              url: paper.url || paper.link || '#'
-                            })));
-                          } else if (data.results && Array.isArray(data.results)) {
-                            setSearchResults(data.results.map((result: any, i: number) => ({
-                              title: result.title || `${searchQuery} — Study ${i+1}`,
-                              source: result.source || ['arXiv','CrossRef','OpenAlex'][i%3],
-                              url: result.url || '#'
-                            })));
-                          } else {
-                            // Fallback to mock data if backend format is unexpected
-                            setSearchResults(Array.from({length:3}).map((_,i)=>({
-                              title: `${searchQuery} — Study ${i+1}`,
-                              source: ['arXiv','CrossRef','OpenAlex'][i%3],
-                              url: '#'
-                            })));
-                          }
-                        } else {
-                          // Fallback to mock data if backend fails
-                          setSearchResults(Array.from({length:3}).map((_,i)=>({
-                            title: `${searchQuery} — Study ${i+1}`,
-                            source: ['arXiv','CrossRef','OpenAlex'][i%3],
-                            url: '#'
-                          })));
-                        }
-                      } catch (error) {
-                        // Fallback to mock data if backend fails
-                        setSearchResults(Array.from({length:3}).map((_,i)=>({
-                          title: `${searchQuery} — Study ${i+1}`,
-                          source: ['arXiv','CrossRef','OpenAlex'][i%3],
-                          url: '#'
-                        })));
-                      }
-                    }} style={{
-                      padding: '10px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.18)',
-                      background: 'linear-gradient(135deg, #4b4b4b, #6c6c6c)', color: '#fff', cursor: 'pointer'
-                    }}>Search Papers</button>
-                  </div>
-                  {searchResults.length > 0 && (
-                    <div style={{
-                      marginTop: '10px',
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      borderRadius: '12px', padding: '10px',
-                      background: 'rgba(255,255,255,0.03)'
-                    }}>
-                      <div style={{ fontWeight: 600, color:'#dcdcdc', marginBottom: 6 }}>Results</div>
-                      <ul style={{ margin:0, paddingLeft:'18px', color:'#cfcfcf' }}>
-                        {searchResults.map((r, idx)=> (
-                          <li key={idx} style={{ marginBottom: 6 }}>
-                            <a href={r.url} style={{ color:'#e6e6e6', textDecoration:'none' }}>{r.title}</a>
-                            <span style={{ opacity:.7 }}> · {r.source}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-              {activeTool === 'journals' && (
-                <div style={{ display: 'grid', gap: '12px' }}>
-                  <p style={{ margin: 0, color: '#bdbdbd' }}>Find the perfect journal for your research. Get personalized recommendations.</p>
-
-                  {/* Preferences row */}
-                  <div style={{
-                    display:'flex', flexWrap:'wrap', gap:'10px',
-                    border:'1px solid rgba(255,255,255,0.12)', borderRadius:'12px', padding:'10px',
-                    background:'rgba(255,255,255,0.03)'
-                  }}>
-                    <div style={{ color:'#dcdcdc', fontWeight:600 }}>Select Your Preferences:</div>
-                    <label style={{ display:'flex', alignItems:'center', gap:6, color:'#cfcfcf' }}>
-                      <input type="radio" checked={prefAccess==='free'} onChange={()=>setPrefAccess('free')} /> Free Access Only
-                    </label>
-                    <label style={{ display:'flex', alignItems:'center', gap:6, color:'#cfcfcf' }}>
-                      <input type="radio" checked={prefAccess==='paid'} onChange={()=>setPrefAccess('paid')} /> Paid Access OK
-                    </label>
-                    <div style={{ width:'100%', height:0 }} />
-                    {(['Q1','Q2','Q3','Q4','ALL'] as const).map(q=> (
-                      <label key={q} style={{ display:'flex', alignItems:'center', gap:6, color:'#cfcfcf' }}>
-                        <input type="radio" checked={prefQuartile===q} onChange={()=>setPrefQuartile(q)} /> {q==='ALL' ? 'All Quartiles' : q+ ' (tier)'}
-                      </label>
-                    ))}
-                  </div>
-
-                  <input value={jmTitle} onChange={(e)=>setJmTitle(e.target.value)} placeholder="Enter your research title…" style={{
-                    width: '100%', borderRadius: '12px', padding: '12px',
-                    background: 'rgba(255,255,255,0.04)', color: '#e6e6e6', border: '1px solid rgba(255,255,255,0.12)'
-                  }} />
-                  <textarea rows={4} value={jmAbstract} onChange={(e)=>setJmAbstract(e.target.value)} placeholder="Paste your abstract here… (Minimum 100 words recommended)" style={{
-                    width: '100%', borderRadius: '12px', padding: '12px',
-                    background: 'rgba(255,255,255,0.04)', color: '#e6e6e6', border: '1px solid rgba(255,255,255,0.12)'
-                  }} />
-                  <div style={{ display:'flex', gap:'14px', flexWrap:'wrap', color:'#cfcfcf' }}>
-                    <label style={{ display:'flex', alignItems:'center', gap:6 }}>
-                      <input type="checkbox" checked={showImpact} onChange={(e)=>setShowImpact(e.target.checked)} /> Show Impact Factor
-                    </label>
-                    <label style={{ display:'flex', alignItems:'center', gap:6 }}>
-                      <input type="checkbox" checked={showAcceptance} onChange={(e)=>setShowAcceptance(e.target.checked)} /> Show Acceptance Rate
-                    </label>
-                    <label style={{ display:'flex', alignItems:'center', gap:6 }}>
-                      <input type="checkbox" checked={includeGuidelines} onChange={(e)=>setIncludeGuidelines(e.target.checked)} /> Include Submission Guidelines
-                    </label>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'center' }}>
-                    <button onClick={async () => {
-                      if (!jmTitle.trim() || !jmAbstract.trim()) {
-                        // Fallback to mock data if no input
-                        const base = [
-                          { journal:'IEEE Access', quartile:'Q1', impact:4.64, acceptance:'30%', url:'#' },
-                          { journal:'PLOS ONE', quartile:'Q2', impact:3.75, acceptance:'48%', url:'#' },
-                          { journal:'Heliyon', quartile:'Q3', impact:3.2, acceptance:'40%', url:'#' },
-                        ];
-                        const filtered = prefQuartile==='ALL' ? base : base.filter(b=>b.quartile===prefQuartile);
-                        setJournalResults(filtered.map(b=> ({
-                          journal: b.journal, quartile:b.quartile,
-                          impact: showImpact ? b.impact : undefined,
-                          acceptance: showAcceptance ? b.acceptance : undefined,
-                          url: b.url
-                        })));
-                        return;
-                      }
-                      
-                      try {
-                        const response = await fetch('https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com/api/match', {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                          },
-                          body: JSON.stringify({
-                            title: jmTitle,
-                            abstract: jmAbstract,
-                            preferences: {
-                              access: prefAccess,
-                              quartile: prefQuartile,
-                              showImpact,
-                              showAcceptance,
-                              includeGuidelines
-                            }
-                          }),
-                        });
-                        
-                        if (response.ok) {
-                          const data = await response.json();
-                          // Handle different response formats
-                          if (data.journals && Array.isArray(data.journals)) {
-                            setJournalResults(data.journals.map((journal: any) => ({
-                              journal: journal.name || journal.journal,
-                              quartile: journal.quartile || journal.tier || 'Q2',
-                              impact: showImpact ? (journal.impact_factor || journal.impact) : undefined,
-                              acceptance: showAcceptance ? (journal.acceptance_rate || journal.acceptance) : undefined,
-                              url: journal.url || journal.link || '#'
-                            })));
-                          } else if (data.results && Array.isArray(data.results)) {
-                            setJournalResults(data.results.map((result: any) => ({
-                              journal: result.journal || result.name,
-                              quartile: result.quartile || result.tier || 'Q2',
-                              impact: showImpact ? result.impact : undefined,
-                              acceptance: showAcceptance ? result.acceptance : undefined,
-                              url: result.url || '#'
-                            })));
-                          } else {
-                            // Fallback to mock data if backend format is unexpected
-                            const base = [
-                              { journal:'IEEE Access', quartile:'Q1', impact:4.64, acceptance:'30%', url:'#' },
-                              { journal:'PLOS ONE', quartile:'Q2', impact:3.75, acceptance:'48%', url:'#' },
-                            ];
-                            setJournalResults(base.map(b=> ({
-                              journal: b.journal, quartile:b.quartile,
-                              impact: showImpact ? b.impact : undefined,
-                              acceptance: showAcceptance ? b.acceptance : undefined,
-                              url: b.url
-                            })));
-                          }
-                        } else {
-                          // Fallback to mock data if backend fails
-                          const base = [
-                            { journal:'IEEE Access', quartile:'Q1', impact:4.64, acceptance:'30%', url:'#' },
-                            { journal:'PLOS ONE', quartile:'Q2', impact:3.75, acceptance:'48%', url:'#' },
-                          ];
-                          setJournalResults(base.map(b=> ({
-                            journal: b.journal, quartile:b.quartile,
-                            impact: showImpact ? b.impact : undefined,
-                            acceptance: showAcceptance ? b.acceptance : undefined,
-                            url: b.url
-                          })));
-                        }
-                      } catch (error) {
-                        // Fallback to mock data if backend fails
-                        const base = [
-                          { journal:'IEEE Access', quartile:'Q1', impact:4.64, acceptance:'30%', url:'#' },
-                          { journal:'PLOS ONE', quartile:'Q2', impact:3.75, acceptance:'48%', url:'#' },
-                        ];
-                        setJournalResults(base.map(b=> ({
-                          journal: b.journal, quartile:b.quartile,
-                          impact: showImpact ? b.impact : undefined,
-                          acceptance: showAcceptance ? b.acceptance : undefined,
-                          url: b.url
-                        })));
-                      }
-                    }} style={{
-                      padding: '10px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.18)',
-                      background: 'linear-gradient(135deg, #4b4b4b, #6c6c6c)', color: '#fff', cursor: 'pointer'
-                    }}>Find Matching Journals</button>
-                  </div>
-                  {journalResults.length > 0 && (
-                    <div style={{
-                      marginTop: '10px',
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      borderRadius: '12px', padding: '10px',
-                      background: 'rgba(255,255,255,0.03)'
-                    }}>
-                      <div style={{ fontWeight: 600, color:'#dcdcdc', marginBottom: 6 }}>Results</div>
-                      <ul style={{ margin:0, paddingLeft:'18px', color:'#cfcfcf' }}>
-                        {journalResults.map((r, idx)=> (
-                          <li key={idx} style={{ marginBottom: 8 }}>
-                            <a href={r.url} style={{ color:'#e6e6e6', textDecoration:'none' }}>{r.journal}</a>
-                            <span style={{ opacity:.7 }}> · {r.quartile}</span>
-                            {r.impact !== undefined && <span style={{ opacity:.7 }}> · IF {r.impact}</span>}
-                            {r.acceptance && <span style={{ opacity:.7 }}> · Acceptance {r.acceptance}</span>}
-                            {includeGuidelines && <span style={{ opacity:.7 }}> · Guidelines included</span>}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Floating Action Button */}
       <div 
@@ -695,6 +329,296 @@ const FreeFeatures3D: React.FC = () => {
           ↑
         </button>
       </div>
+
+      {/* Render modal using React Portal to bypass z-index stacking */}
+      {activeTool && createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => {
+            console.log('Portal modal closing');
+            setActiveTool(null);
+          }}
+          style={{
+            position: 'fixed', 
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 999999,
+            background: 'rgba(0, 0, 0, 0.85)',
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(900px, 92vw)',
+              maxHeight: '90vh',
+              overflow: 'auto',
+              background: 'linear-gradient(180deg, rgba(20,20,20,0.98), rgba(30,30,30,0.98))',
+              borderRadius: '20px',
+              padding: '30px',
+              border: '1px solid rgba(255,255,255,0.1)',
+              boxShadow: '0 25px 50px rgba(0,0,0,0.5)'
+            }}
+          >
+            <h2 style={{ color: '#fff', marginBottom: '20px', fontSize: '24px' }}>
+              {activeTool === 'remover' ? '✨ Powered by AI — Academic AI Remover' : 
+               activeTool === 'search' ? '📄 Paper Search' : 
+               '🎯 Journal Matching'}
+            </h2>
+            <p style={{ color: '#fff', marginBottom: '20px', opacity: 0.8 }}>
+              {activeTool === 'remover' ? 'Transform AI text to scholarly excellence' : 
+               activeTool === 'search' ? 'Discover relevant academic papers' : 
+               'Find the perfect journal for your research'}
+            </p>
+            
+            {activeTool === 'remover' && (
+              <div>
+                <textarea 
+                  value={removerText}
+                  onChange={(e) => setRemoverText(e.target.value)}
+                  placeholder="Paste your text here..."
+                  style={{
+                    width: '100%', minHeight: '200px', padding: '15px', borderRadius: '10px',
+                    border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(40,40,40,0.5)', 
+                    color: '#fff', fontSize: '14px', fontFamily: 'inherit', marginBottom: '15px'
+                  }}
+                />
+                <button onClick={async () => {
+                  if (!removerText.trim()) return;
+                  try {
+                    const response = await fetch('https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com/api/v1/paraphrase/direct', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ text: removerText }),
+                    });
+                    if (response.ok) {
+                      const data = await response.json();
+                      setRemoverResult(data.paraphrased_text || data.result || 'Paraphrasing completed');
+                    } else {
+                      setRemoverResult(removerText.replace(/\b(very|really|basically|just)\b/gi,'').trim() + ' (processed locally)');
+                    }
+                  } catch (error) {
+                    setRemoverResult(removerText.replace(/\b(very|really|basically|just)\b/gi,'').trim() + ' (processed locally)');
+                  }
+                }} style={{
+                  padding: '12px 24px', borderRadius: '10px', border: 'none',
+                  background: 'linear-gradient(135deg, #4b4b4b, #6c6c6c)', color: '#fff', 
+                  cursor: 'pointer', fontSize: '16px', fontWeight: 600
+                }}>Paraphrase Text</button>
+                {removerResult && (
+                  <div style={{
+                    marginTop: '20px', padding: '15px', borderRadius: '10px',
+                    background: 'rgba(60,60,60,0.5)', border: '1px solid rgba(255,255,255,0.1)'
+                  }}>
+                    <h4 style={{ color: '#fff', marginBottom: '10px' }}>Result:</h4>
+                    <p style={{ color: '#fff', opacity: 0.9, lineHeight: 1.6 }}>{removerResult}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTool === 'search' && (
+              <div>
+                <input 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Enter keywords..."
+                  style={{
+                    width: '100%', padding: '12px 15px', borderRadius: '10px',
+                    border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(40,40,40,0.5)', 
+                    color: '#fff', fontSize: '14px', marginBottom: '15px'
+                  }}
+                />
+                <button onClick={async () => {
+                  if (!searchQuery.trim()) return;
+                  try {
+                    const response = await fetch('https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com/api/search', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ query: searchQuery }),
+                    });
+                    if (response.ok) {
+                      const data = await response.json();
+                      if (data.papers && Array.isArray(data.papers)) {
+                        setSearchResults(data.papers.map((paper: any, i: number) => ({
+                          title: paper.title || `${searchQuery} — Study ${i+1}`,
+                          source: paper.source || paper.publisher || ['arXiv','CrossRef','OpenAlex'][i%3],
+                          url: paper.url || paper.link || '#'
+                        })));
+                      } else {
+                        setSearchResults(Array.from({length:3}).map((_,i)=>({
+                          title: `${searchQuery} — Study ${i+1}`,
+                          source: ['arXiv','CrossRef','OpenAlex'][i%3],
+                          url: '#'
+                        })));
+                      }
+                    } else {
+                      setSearchResults(Array.from({length:3}).map((_,i)=>({
+                        title: `${searchQuery} — Study ${i+1}`,
+                        source: ['arXiv','CrossRef','OpenAlex'][i%3],
+                        url: '#'
+                      })));
+                    }
+                  } catch (error) {
+                    setSearchResults(Array.from({length:3}).map((_,i)=>({
+                      title: `${searchQuery} — Study ${i+1}`,
+                      source: ['arXiv','CrossRef','OpenAlex'][i%3],
+                      url: '#'
+                    })));
+                  }
+                }} style={{
+                  padding: '12px 24px', borderRadius: '10px', border: 'none',
+                  background: 'linear-gradient(135deg, #4b4b4b, #6c6c6c)', color: '#fff', 
+                  cursor: 'pointer', fontSize: '16px', fontWeight: 600
+                }}>Search Papers</button>
+                {searchResults.length > 0 && (
+                  <div style={{ marginTop: '20px' }}>
+                    {searchResults.map((result, i) => (
+                      <div key={i} style={{
+                        padding: '15px', marginBottom: '10px', borderRadius: '10px',
+                        background: 'rgba(60,60,60,0.5)', border: '1px solid rgba(255,255,255,0.1)'
+                      }}>
+                        <a href={result.url} target="_blank" rel="noopener noreferrer" style={{ 
+                          color: '#ff7a1a', textDecoration: 'none', fontSize: '16px', fontWeight: 600
+                        }}>{result.title}</a>
+                        <p style={{ color: '#fff', opacity: 0.7, marginTop: '5px', fontSize: '14px' }}>
+                          Source: {result.source}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTool === 'journals' && (
+              <div>
+                <input 
+                  value={jmTitle}
+                  onChange={(e) => setJmTitle(e.target.value)}
+                  placeholder="Paper title..."
+                  style={{
+                    width: '100%', padding: '12px 15px', borderRadius: '10px',
+                    border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(40,40,40,0.5)', 
+                    color: '#fff', fontSize: '14px', marginBottom: '10px'
+                  }}
+                />
+                <textarea 
+                  value={jmAbstract}
+                  onChange={(e) => setJmAbstract(e.target.value)}
+                  placeholder="Abstract..."
+                  style={{
+                    width: '100%', minHeight: '120px', padding: '12px 15px', borderRadius: '10px',
+                    border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(40,40,40,0.5)', 
+                    color: '#fff', fontSize: '14px', marginBottom: '15px'
+                  }}
+                />
+                <button onClick={async () => {
+                  if (!jmTitle.trim() || !jmAbstract.trim()) {
+                    const base = [
+                      { journal:'IEEE Access', quartile:'Q1', impact:4.64, acceptance:'30%', url:'#' },
+                      { journal:'PLOS ONE', quartile:'Q2', impact:3.75, acceptance:'48%', url:'#' }
+                    ];
+                    setJournalResults(base.map(b=> ({
+                      journal: b.journal, quartile:b.quartile,
+                      impact: showImpact ? b.impact : undefined,
+                      acceptance: showAcceptance ? b.acceptance : undefined,
+                      url: b.url
+                    })));
+                    return;
+                  }
+                  try {
+                    const response = await fetch('https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com/api/match', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        title: jmTitle,
+                        abstract: jmAbstract,
+                        preferences: { access: prefAccess, quartile: prefQuartile, showImpact, showAcceptance, includeGuidelines }
+                      }),
+                    });
+                    if (response.ok) {
+                      const data = await response.json();
+                      if (data.journals && Array.isArray(data.journals)) {
+                        setJournalResults(data.journals.map((journal: any) => ({
+                          journal: journal.name || journal.journal,
+                          quartile: journal.quartile || journal.tier || 'Q2',
+                          impact: showImpact ? (journal.impact_factor || journal.impact) : undefined,
+                          acceptance: showAcceptance ? (journal.acceptance_rate || journal.acceptance) : undefined,
+                          url: journal.url || journal.link || '#'
+                        })));
+                      } else {
+                        const base = [
+                          { journal:'IEEE Access', quartile:'Q1', impact:4.64, acceptance:'30%', url:'#' },
+                          { journal:'PLOS ONE', quartile:'Q2', impact:3.75, acceptance:'48%', url:'#' }
+                        ];
+                        setJournalResults(base.map(b=> ({
+                          journal: b.journal, quartile:b.quartile,
+                          impact: showImpact ? b.impact : undefined,
+                          acceptance: showAcceptance ? b.acceptance : undefined,
+                          url: b.url
+                        })));
+                      }
+                    } else {
+                      const base = [
+                        { journal:'IEEE Access', quartile:'Q1', impact:4.64, acceptance:'30%', url:'#' },
+                        { journal:'PLOS ONE', quartile:'Q2', impact:3.75, acceptance:'48%', url:'#' }
+                      ];
+                      setJournalResults(base.map(b=> ({
+                        journal: b.journal, quartile:b.quartile,
+                        impact: showImpact ? b.impact : undefined,
+                        acceptance: showAcceptance ? b.acceptance : undefined,
+                        url: b.url
+                      })));
+                    }
+                  } catch (error) {
+                    const base = [
+                      { journal:'IEEE Access', quartile:'Q1', impact:4.64, acceptance:'30%', url:'#' },
+                      { journal:'PLOS ONE', quartile:'Q2', impact:3.75, acceptance:'48%', url:'#' }
+                    ];
+                    setJournalResults(base.map(b=> ({
+                      journal: b.journal, quartile:b.quartile,
+                      impact: showImpact ? b.impact : undefined,
+                      acceptance: showAcceptance ? b.acceptance : undefined,
+                      url: b.url
+                    })));
+                  }
+                }} style={{
+                  padding: '12px 24px', borderRadius: '10px', border: 'none',
+                  background: 'linear-gradient(135deg, #4b4b4b, #6c6c6c)', color: '#fff', 
+                  cursor: 'pointer', fontSize: '16px', fontWeight: 600
+                }}>Find Matching Journals</button>
+                {journalResults.length > 0 && (
+                  <div style={{ marginTop: '20px' }}>
+                    {journalResults.map((result, i) => (
+                      <div key={i} style={{
+                        padding: '15px', marginBottom: '10px', borderRadius: '10px',
+                        background: 'rgba(60,60,60,0.5)', border: '1px solid rgba(255,255,255,0.1)'
+                      }}>
+                        <a href={result.url} target="_blank" rel="noopener noreferrer" style={{ 
+                          color: '#ff7a1a', textDecoration: 'none', fontSize: '16px', fontWeight: 600
+                        }}>{result.journal}</a>
+                        <p style={{ color: '#fff', opacity: 0.7, marginTop: '5px', fontSize: '14px' }}>
+                          Quartile: {result.quartile} 
+                          {result.impact && ` | Impact: ${result.impact}`}
+                          {result.acceptance && ` | Acceptance: ${result.acceptance}`}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
     </section>
   );
 };
