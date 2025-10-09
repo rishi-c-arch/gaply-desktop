@@ -336,7 +336,7 @@ const FreeFeatures3D: React.FC = () => {
       </div>
 
       {/* Inline Modal (no Portal) */}
-      {activeTool === 'remover' && (
+      {activeTool && (
         <div
           role="dialog"
           aria-modal="true"
