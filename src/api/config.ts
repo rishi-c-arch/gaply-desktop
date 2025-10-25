@@ -1,8 +1,9 @@
 // Central API configuration for backend base URL
 // Priority: env var → public env → hardcoded domain
 const FALLBACK_URLS = [
-  'https://backend.gaply.in',
+  'https://gaply-backend-gaply.up.railway.app',
   'https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com',
+  'https://backend.gaply.in',
 ];
 
 export const API_BASE_URL: string =

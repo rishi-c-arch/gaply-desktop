@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gaply - AI-Powered Academic Research Platform</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+        }
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(20px);
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .logo {
+            font-weight: 800;
+            font-size: 18px;
+            color: #fff;
+        }
+        .nav {
+            display: flex;
+            gap: 32px;
+            align-items: center;
+        }
+        .nav a {
+            color: #fff;
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 14px;
+            opacity: 0.8;
+            padding: 8px 12px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        .nav a:hover {
+            opacity: 1;
+            background: rgba(255,255,255,0.1);
+        }
+        .hero {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #000000 0%, #0A0A0A 50%, #000000 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            padding-top: 80px;
+        }
+        .hero-content {
+            max-width: 500px;
+            color: #fff;
+            text-align: left;
+        }
+        .hero h1 {
+            font-size: clamp(18px, 3vw, 28px);
+            font-weight: 600;
+            margin: 0 0 40px 0;
+            line-height: 1.4;
+            font-family: Georgia, "Times New Roman", serif;
+        }
+        .stats {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-bottom: 60px;
+        }
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .stat-number {
+            font-size: clamp(20px, 3.5vw, 28px);
+            font-weight: 700;
+            font-family: Georgia, "Times New Roman", serif;
+        }
+        .stat-label {
+            font-size: clamp(12px, 2vw, 16px);
+            font-weight: 500;
+            color: #e0e0e0;
+            font-family: "Libre Baskerville", Georgia, serif;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+        .premium-btn {
+            background: linear-gradient(135deg, #007AFF 0%, #5856D6 50%, #AF52DE 100%);
+            border: none;
+            border-radius: 28px;
+            padding: 18px 36px;
+            font-size: 18px;
+            font-weight: 700;
+            color: #fff;
+            cursor: pointer;
+            box-shadow: 0 8px 30px rgba(0, 122, 255, 0.3);
+            transition: all 0.3s ease;
+            min-width: 200px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .premium-btn:hover {
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 12px 40px rgba(0, 122, 255, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">Gaply</div>
+            <nav class="nav">
+                <a href="/features">Features</a>
+                <a href="/pricing">Pricing</a>
+                <a href="/career">Career</a>
+                <a href="/contact">Contact</a>
+            </nav>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="hero-content">
+            <h1>AI-Powered Academic Research Platform for Thesis Writing, Journal Matching & Research Support</h1>
+            
+            <div class="stats">
+                <div class="stat">
+                    <span class="stat-number">10K+</span>
+                    <span class="stat-label">Research Papers Analyzed</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">500+</span>
+                    <span class="stat-label">Journals Matched</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">95%</span>
+                    <span class="stat-label">AI Detection Accuracy</span>
+                </div>
+            </div>
+
+            <button class="premium-btn" onclick="window.location.href='/pricing'">
+                Get Premium
+            </button>
+        </div>
+    </section>
+</body>
+</html>

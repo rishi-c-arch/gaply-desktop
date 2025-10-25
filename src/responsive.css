@@ -1,0 +1,385 @@
+/* Apple.com-Level Responsive Design - Targeting Actual Components */
+
+/* Base responsive settings */
+html {
+  font-size: clamp(14px, 1.5vw, 18px);
+  scroll-behavior: smooth;
+}
+
+/* Prevent horizontal scroll */
+body {
+  overflow-x: hidden;
+}
+
+/* Mobile First - Base styles for mobile */
+@media screen and (max-width: 480px) {
+  /* Header mobile optimization */
+  header {
+    padding: 8px 0 !important;
+  }
+  
+  header > div {
+    padding: 0 16px !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+  
+  header nav {
+    gap: 16px !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+  }
+  
+  header nav a {
+    font-size: 12px !important;
+    padding: 6px 8px !important;
+  }
+  
+  /* Hero section mobile - targeting the actual structure */
+  section[style*="minHeight: '100vh'"] {
+    padding-top: 120px !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+  }
+  
+  /* Text content mobile */
+  div[style*="left: '15%'"] {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    max-width: 90% !important;
+    margin: 20px auto !important;
+    text-align: center !important;
+    padding: 0 16px !important;
+  }
+  
+  /* Globe mobile */
+  div[style*="right: '5%'"] {
+    position: relative !important;
+    right: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 250px !important;
+    height: 250px !important;
+    margin: 20px auto !important;
+  }
+  
+  /* Stats mobile */
+  div[style*="display: 'flex'"] > div[style*="display: 'flex'"] {
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 8px !important;
+  }
+  
+  /* Button mobile */
+  button[style*="background: 'linear-gradient'"] {
+    margin-left: 0 !important;
+    margin-top: 20px !important;
+    padding: 14px 24px !important;
+    font-size: 16px !important;
+    min-width: 160px !important;
+    height: 48px !important;
+  }
+  
+  /* Transition section mobile */
+  div[style*="height: '200px'"] {
+    height: 100px !important;
+  }
+  
+  /* Free features mobile */
+  div[style*="background: 'linear-gradient(180deg, #000000'"] {
+    padding: 40px 16px !important;
+  }
+  
+  /* Portfolio cards mobile */
+  div[style*="display: 'grid'"] {
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+    padding: 0 16px !important;
+  }
+  
+  div[style*="width: '350px'"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  
+  /* Quartile analysis mobile */
+  div[style*="background: 'linear-gradient(135deg, #000000'"] {
+    padding: 40px 16px !important;
+  }
+  
+  div[style*="display: 'flex'"] > div[style*="width: '45%'"] {
+    width: 100% !important;
+    margin-bottom: 20px !important;
+  }
+  
+  /* Footer mobile */
+  div[style*="background: 'linear-gradient(180deg, #1a1a1a'"] {
+    padding: 40px 16px !important;
+  }
+}
+
+/* Tablet Portrait */
+@media screen and (min-width: 481px) and (max-width: 768px) {
+  header nav {
+    gap: 20px !important;
+  }
+  
+  div[style*="left: '15%'"] {
+    left: 8% !important;
+    max-width: 85% !important;
+  }
+  
+  div[style*="right: '5%'"] {
+    width: 350px !important;
+    height: 350px !important;
+    right: 3% !important;
+  }
+  
+  div[style*="display: 'grid'"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 24px !important;
+  }
+  
+  div[style*="width: '350px'"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* Tablet Landscape */
+@media screen and (min-width: 769px) and (max-width: 1024px) {
+  div[style*="left: '15%'"] {
+    left: 10% !important;
+    max-width: 80% !important;
+  }
+  
+  div[style*="right: '5%'"] {
+    width: 400px !important;
+    height: 400px !important;
+    right: 4% !important;
+  }
+  
+  div[style*="display: 'grid'"] {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 28px !important;
+  }
+}
+
+/* Laptop screens */
+@media screen and (min-width: 1025px) and (max-width: 1440px) {
+  div[style*="left: '15%'"] {
+    left: 12% !important;
+    max-width: 75% !important;
+  }
+  
+  div[style*="right: '5%'"] {
+    width: 450px !important;
+    height: 450px !important;
+    right: 4% !important;
+  }
+}
+
+/* Large monitors */
+@media screen and (min-width: 1441px) {
+  div[style*="left: '15%'"] {
+    left: 15% !important;
+    max-width: 70% !important;
+  }
+  
+  div[style*="right: '5%'"] {
+    width: 500px !important;
+    height: 500px !important;
+    right: 5% !important;
+  }
+  
+  div[style*="display: 'grid'"] {
+    max-width: 1200px !important;
+    margin: 0 auto !important;
+  }
+}
+
+/* Ultra-wide screens */
+@media screen and (min-width: 1920px) {
+  .App {
+    max-width: 1920px;
+    margin: 0 auto;
+  }
+  
+  div[style*="left: '15%'"] {
+    left: 20% !important;
+    max-width: 60% !important;
+  }
+  
+  div[style*="right: '5%'"] {
+    width: 550px !important;
+    height: 550px !important;
+    right: 8% !important;
+  }
+}
+
+/* Login/Signup pages responsive */
+@media screen and (max-width: 768px) {
+  div[style*="minHeight: '100vh'"][style*="background: 'linear-gradient(135deg, #000000'"] {
+    padding: 20px !important;
+  }
+  
+  div[style*="width: '400px'"] {
+    width: 100% !important;
+    max-width: 400px !important;
+  }
+  
+  h1[style*="fontSize: '2.5rem'"] {
+    font-size: clamp(24px, 6vw, 32px) !important;
+  }
+  
+  input[style*="padding: '16px'"] {
+    padding: 12px 16px !important;
+    font-size: 16px !important;
+  }
+  
+  button[style*="padding: '16px 32px'"] {
+    padding: 14px 24px !important;
+    font-size: 16px !important;
+  }
+}
+
+/* Package selection responsive */
+@media screen and (max-width: 768px) {
+  div[style*="minHeight: '100vh'"][style*="background: 'linear-gradient(135deg, #000000'"] {
+    padding: 20px !important;
+  }
+  
+  div[style*="display: 'grid'"][style*="gridTemplateColumns: 'repeat(3, 1fr)'"] {
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+  }
+  
+  div[style*="width: '300px'"] {
+    width: 100% !important;
+  }
+}
+
+/* Features page responsive */
+@media screen and (max-width: 768px) {
+  div[style*="minHeight: '100vh'"][style*="background: '#000000'"] {
+    padding: 40px 16px !important;
+  }
+  
+  div[style*="display: 'grid'"][style*="gridTemplateColumns: 'repeat(2, 1fr)'"] {
+    grid-template-columns: 1fr !important;
+    gap: 24px !important;
+  }
+  
+  div[style*="padding: '32px'"] {
+    padding: 24px !important;
+  }
+}
+
+/* Pricing page responsive */
+@media screen and (max-width: 768px) {
+  div[style*="minHeight: '100vh'"][style*="backgroundColor: '#000000'"] {
+    padding: 40px 16px !important;
+  }
+  
+  div[style*="display: 'grid'"][style*="gridTemplateColumns: 'repeat(3, 1fr)'"] {
+    grid-template-columns: 1fr !important;
+    gap: 24px !important;
+  }
+  
+  div[style*="width: '350px'"] {
+    width: 100% !important;
+  }
+}
+
+/* Career page responsive */
+@media screen and (max-width: 768px) {
+  div[style*="minHeight: '100vh'"][style*="background: 'linear-gradient(135deg, #000000'"] {
+    padding: 40px 16px !important;
+  }
+  
+  div[style*="maxWidth: '800px'"] {
+    max-width: 100% !important;
+  }
+}
+
+/* Contact page responsive */
+@media screen and (max-width: 768px) {
+  div[style*="minHeight: '100vh'"][style*="background: 'linear-gradient(135deg, #000000'"] {
+    padding: 40px 16px !important;
+  }
+  
+  div[style*="width: '500px'"] {
+    width: 100% !important;
+  }
+}
+
+/* Touch-friendly interactions for mobile */
+@media screen and (max-width: 768px) {
+  button, a, input, textarea {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Make cards touch-friendly */
+  div[style*="cursor: 'pointer'"] {
+    cursor: pointer;
+  }
+}
+
+/* High DPI displays */
+@media screen and (-webkit-min-device-pixel-ratio: 2), 
+       screen and (min-resolution: 192dpi) {
+  div[style*="width: '500px'"],
+  div[style*="width: '350px'"],
+  div[style*="width: '300px'"] {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+}
+
+/* Landscape orientation adjustments */
+@media screen and (max-height: 500px) and (orientation: landscape) {
+  div[style*="left: '15%'"] {
+    top: 40% !important;
+  }
+  
+  div[style*="right: '5%'"] {
+    top: 40% !important;
+  }
+  
+  div[style*="height: '200px'"] {
+    height: 100px !important;
+  }
+}
+
+/* Print styles */
+@media print {
+  .App {
+    background: white !important;
+    color: black !important;
+  }
+  
+  header,
+  div[style*="right: '5%'"],
+  div[style*="height: '200px'"],
+  div[style*="background: 'linear-gradient(180deg, #1a1a1a'"] {
+    display: none !important;
+  }
+}
+
+/* Force responsive behavior on all elements */
+@media screen and (max-width: 768px) {
+  * {
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  
+  /* Ensure text doesn't overflow */
+  h1, h2, h3, h4, h5, h6, p, span, div {
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+  }
+}

@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Create Expert Profile | Gaply</title>
+    <meta name="description" content="Admin panel for creating expert profiles on Gaply platform">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #000000 0%, #0A0A0A 50%, #000000 100%);
+            color: #ffffff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            padding: 40px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            color: rgba(255, 255, 255, 0.7);
+            line-height: 1.5;
+        }
+
+        .form-section {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            margin-bottom: 24px;
+        }
+
+        .form-section h3 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #ffffff;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+
+        label {
+            font-size: 14px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.8);
+            margin-bottom: 8px;
+        }
+
+        input, textarea, select {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 16px;
+            font-family: inherit;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        input:focus, textarea:focus, select:focus {
+            border-color: #007AFF;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        .image-upload {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+        }
+
+        .upload-button {
+            flex: 1;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 16px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .upload-button:hover {
+            border-color: #007AFF;
+            color: #007AFF;
+        }
+
+        .image-preview {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .image-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .domain-selector {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .add-domain-btn {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+            border: none;
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 16px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .add-domain-btn:disabled {
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.4);
+            cursor: not-allowed;
+        }
+
+        .domains-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .domain-tag {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        .remove-domain {
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.6);
+            cursor: pointer;
+            font-size: 16px;
+            padding: 0;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            accent-color: #007AFF;
+        }
+
+        .submit-btn {
+            padding: 16px 48px;
+            background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+            border: none;
+            border-radius: 12px;
+            color: #ffffff;
+            font-size: 18px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 200px;
+        }
+
+        .submit-btn:disabled {
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.4);
+            cursor: not-allowed;
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(0, 122, 255, 0.3);
+        }
+
+        .message {
+            padding: 16px;
+            border-radius: 12px;
+            margin-bottom: 32px;
+            font-weight: 500;
+        }
+
+        .message.success {
+            background: rgba(0, 255, 0, 0.1);
+            border: 1px solid rgba(0, 255, 0, 0.3);
+            color: #51cf66;
+        }
+
+        .message.error {
+            background: rgba(255, 0, 0, 0.1);
+            border: 1px solid rgba(255, 0, 0, 0.3);
+            color: #ff6b6b;
+        }
+
+        .submit-container {
+            text-align: center;
+            margin-top: 32px;
+        }
+
+        @media (max-width: 768px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .image-upload {
+                flex-direction: column;
+            }
+            
+            .domain-selector {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Create Expert Profile</h1>
+            <p>Add new expert profiles to the Gaply platform</p>
+        </div>
+
+        <div id="message"></div>
+
+        <form id="expertForm">
+            <!-- Basic Information -->
+            <div class="form-section">
+                <h3>Basic Information</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="name">Full Name *</label>
+                        <input type="text" id="name" name="name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="email">Email *</label>
+                        <input type="email" id="email" name="email" required>
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="bio">Bio *</label>
+                        <textarea id="bio" name="bio" required placeholder="Brief description of expertise and background..."></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Profile Image -->
+            <div class="form-section">
+                <h3>Profile Image</h3>
+                <div class="image-upload">
+                    <input type="file" id="imageInput" accept="image/*" style="display: none;">
+                    <button type="button" class="upload-button" onclick="document.getElementById('imageInput').click()">
+                        📷 Upload Profile Image
+                    </button>
+                    <div id="imagePreview" class="image-preview" style="display: none;"></div>
+                </div>
+            </div>
+
+            <!-- Experience & Statistics -->
+            <div class="form-section">
+                <h3>Experience & Statistics</h3>
+                <div class="stats-grid">
+                    <div class="form-group">
+                        <label for="experience">Experience (Years)</label>
+                        <input type="number" id="experience" name="experience" min="0" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="publications">Publications</label>
+                        <input type="number" id="publications" name="publications" min="0" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="patents">Patents</label>
+                        <input type="number" id="patents" name="patents" min="0" value="0">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Research Domains -->
+            <div class="form-section">
+                <h3>Research Domains</h3>
+                <div class="domain-selector">
+                    <select id="domainSelect">
+                        <option value="">Select a domain...</option>
+                        <option value="Data Analysis & Statistics">Data Analysis & Statistics</option>
+                        <option value="Machine Learning / AI Engineer">Machine Learning / AI Engineer</option>
+                        <option value="Research & Writing">Research & Writing</option>
+                        <option value="Health & Medicine">Health & Medicine</option>
+                        <option value="Business & Economics">Business & Economics</option>
+                        <option value="Technology & Engineering">Technology & Engineering</option>
+                        <option value="Compliance & Ethics">Compliance & Ethics</option>
+                        <option value="Legal & Policy">Legal & Policy</option>
+                        <option value="Humanities & Social Sciences">Humanities & Social Sciences</option>
+                        <option value="Science & Technology">Science & Technology</option>
+                        <option value="Data & Analytics">Data & Analytics</option>
+                        <option value="Gender & Society">Gender & Society</option>
+                        <option value="Emerging Technologies">Emerging Technologies</option>
+                        <option value="Interdisciplinary Research">Interdisciplinary Research</option>
+                    </select>
+                    <button type="button" class="add-domain-btn" onclick="addDomain()">Add Domain</button>
+                </div>
+                <div id="domainsList" class="domains-list"></div>
+            </div>
+
+            <!-- Availability -->
+            <div class="form-section">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="isAvailable" name="isAvailable" checked>
+                    <label for="isAvailable">Expert is available for new projects</label>
+                </div>
+            </div>
+
+            <!-- Submit Button -->
+            <div class="submit-container">
+                <button type="submit" class="submit-btn" id="submitBtn">Create Expert Profile</button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        let selectedDomains = [];
+        let imageFile = null;
+
+        // Image upload handling
+        document.getElementById('imageInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                imageFile = file;
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const preview = document.getElementById('imagePreview');
+                    preview.innerHTML = `<img src="${e.target.result}" alt="Preview">`;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Add domain function
+        function addDomain() {
+            const select = document.getElementById('domainSelect');
+            const domain = select.value;
+            
+            if (domain && !selectedDomains.includes(domain)) {
+                selectedDomains.push(domain);
+                updateDomainsList();
+                select.value = '';
+            }
+        }
+
+        // Remove domain function
+        function removeDomain(domain) {
+            selectedDomains = selectedDomains.filter(d => d !== domain);
+            updateDomainsList();
+        }
+
+        // Update domains list display
+        function updateDomainsList() {
+            const container = document.getElementById('domainsList');
+            container.innerHTML = selectedDomains.map(domain => `
+                <div class="domain-tag">
+                    <span>${domain}</span>
+                    <button type="button" class="remove-domain" onclick="removeDomain('${domain}')">×</button>
+                </div>
+            `).join('');
+        }
+
+        // Show message function
+        function showMessage(text, type = 'success') {
+            const messageDiv = document.getElementById('message');
+            messageDiv.innerHTML = text;
+            messageDiv.className = `message ${type}`;
+            messageDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                messageDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        // Form submission
+        document.getElementById('expertForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating Profile...';
+            
+            try {
+                // Collect form data
+                const formData = new FormData();
+                formData.append('name', document.getElementById('name').value);
+                formData.append('email', document.getElementById('email').value);
+                formData.append('bio', document.getElementById('bio').value);
+                formData.append('experience', document.getElementById('experience').value);
+                formData.append('publications', document.getElementById('publications').value);
+                formData.append('patents', document.getElementById('patents').value);
+                formData.append('domains', JSON.stringify(selectedDomains));
+                formData.append('is_available', document.getElementById('isAvailable').checked);
+                
+                if (imageFile) {
+                    formData.append('image', imageFile);
+                }
+
+                // Send to backend
+                const response = await fetch('/api/admin/expert/profile', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('admin_token') || 'demo_token'}`
+                    },
+                    body: formData
+                });
+
+                if (response.ok) {
+                    showMessage('Expert profile created successfully!', 'success');
+                    // Reset form
+                    document.getElementById('expertForm').reset();
+                    selectedDomains = [];
+                    updateDomainsList();
+                    document.getElementById('imagePreview').style.display = 'none';
+                    imageFile = null;
+                } else {
+                    const errorData = await response.json();
+                    showMessage(`Error: ${errorData.error || 'Failed to create profile'}`, 'error');
+                }
+            } catch (error) {
+                showMessage('Network error. Please try again.', 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create Expert Profile';
+            }
+        });
+
+        // Form validation
+        function validateForm() {
+            const name = document.getElementById('name').value;
+            const email = document.getElementById('email').value;
+            const bio = document.getElementById('bio').value;
+            const submitBtn = document.getElementById('submitBtn');
+            
+            const isValid = name && email && bio;
+            submitBtn.disabled = !isValid;
+        }
+
+        // Add validation listeners
+        document.getElementById('name').addEventListener('input', validateForm);
+        document.getElementById('email').addEventListener('input', validateForm);
+        document.getElementById('bio').addEventListener('input', validateForm);
+
+        // Initial validation
+        validateForm();
+    </script>
+</body>
+</html>

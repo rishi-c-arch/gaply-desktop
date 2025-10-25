@@ -1,3 +1,8 @@
+/* Smooth scrolling for entire website */
+html {
+  scroll-behavior: smooth;
+}
+
 /* TEMP hide floating orb */
 .blob,
 .cursor,
@@ -11,7 +16,10 @@
 [class*="orb"],
 [class*="blob"],
 [class*="float"],
-div[style*="position: fixed"][style*="z-index"] {
+/* More specific selector to avoid hiding modals */
+div[style*="position: fixed"][style*="z-index"][style*="border-radius: 50%"],
+div[style*="position: fixed"][style*="z-index"][class*="orb"],
+div[style*="position: fixed"][style*="z-index"][class*="blob"] {
   display: none !important;
   opacity: 0 !important;
   pointer-events: none !important;

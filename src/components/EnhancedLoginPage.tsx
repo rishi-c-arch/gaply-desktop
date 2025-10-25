@@ -2,11 +2,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { authService } from '../services/authService';
+import { useAuth } from '../contexts/AuthContext';
 
-interface LoginPageProps {
-  onLoginSuccess: (token: string, user: any) => void;
+interface EnhancedLoginPageProps {
   onSwitchToSignup: () => void;
+  onLoginSuccess?: () => void;
 }
 
 // 3D Floating Auth Particles
@@ -148,7 +148,11 @@ const LoginForm3D: React.FC<{
   );
 };
 
-const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup }) => {
+const EnhancedLoginPage: React.FC<EnhancedLoginPageProps> = ({ 
+  onSwitchToSignup, 
+  onLoginSuccess 
+}) => {
+  const { login } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -171,34 +175,19 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
     setLoading(true);
 
     try {
-      const response = await authService.login({
+      const result = await login({
         email: formData.email,
         password: formData.password,
       });
 
-      console.log('Login response:', response); // Debug log
-
-      if (response.success && response.data && response.data.token) {
-        localStorage.setItem('authToken', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-        localStorage.setItem('user_email', response.data.user.email);
-        
-        onLoginSuccess(response.data.token, response.data.user);
+      if (result.success) {
+        onLoginSuccess?.();
       } else {
-        throw new Error(response.error || 'Login failed');
+        setError(result.error || 'Login failed. Please try again.');
       }
     } catch (err: any) {
       console.error('Login error:', err);
-      
-      if (err.message.includes('Invalid email or password')) {
-        setError('Invalid email or password. Please check your credentials and try again.');
-      } else if (err.message.includes('User not found')) {
-        setError('No account found with this email address. Please sign up first.');
-      } else if (err.message.includes('Cannot read properties of undefined')) {
-        setError('Server connection error. Please try again.');
-      } else {
-        setError(err.message || 'Login failed. Please try again.');
-      }
+      setError(err.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -475,4 +464,4 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
   );
 };
 
-export default LoginPage;
+export default EnhancedLoginPage;

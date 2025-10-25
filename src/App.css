@@ -18,14 +18,125 @@
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--primary-bg);
-  color: var(--text-light);
+  font-family: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif';
+  background: #000000;
+  color: #ffffff;
   overflow-x: hidden;
+  margin: 0;
+  padding: 0;
 }
 
 html {
   scroll-behavior: smooth;
+}
+
+/* Enhanced scroll transitions */
+.free-features-3d-section {
+  will-change: transform, opacity;
+}
+
+.features-heading-3d {
+  will-change: transform, opacity;
+}
+
+.tool-card {
+  will-change: transform, opacity;
+}
+
+/* Smooth scroll performance */
+* {
+  scroll-behavior: smooth;
+}
+
+/* Responsive Design for Compact Layout */
+@media (max-width: 1024px) {
+  .professional-text-left {
+    left: 5% !important;
+    max-width: 500px !important;
+  }
+  
+  .globe-right {
+    right: 2% !important;
+    width: 400px !important;
+    height: 400px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .professional-text-left {
+    left: 4% !important;
+    max-width: 450px !important;
+  }
+  
+  .globe-right {
+    right: 1% !important;
+    width: 300px !important;
+    height: 300px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .professional-text-left {
+    left: 3% !important;
+    max-width: 350px !important;
+  }
+  
+  .globe-right {
+    right: 0% !important;
+    width: 250px !important;
+    height: 250px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .apple-hero-section {
+    gap: 32px !important;
+    padding: 0 16px !important;
+  }
+  
+  .apple-stats {
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+    align-items: center !important;
+  }
+  
+  .apple-header nav {
+    gap: 16px !important;
+  }
+  
+  .apple-header nav a {
+    font-size: 12px !important;
+    padding: 6px 8px !important;
+  }
+  
+  .globe-container {
+    width: 300px !important;
+    height: 300px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .apple-hero-title {
+    font-size: 36px !important;
+    line-height: 1.2 !important;
+  }
+  
+  .apple-hero-subtitle {
+    font-size: 16px !important;
+  }
+  
+  .apple-stats h3 {
+    font-size: 24px !important;
+  }
+  
+  .apple-stats p {
+    font-size: 12px !important;
+  }
+  
+  .globe-container {
+    width: 250px !important;
+    height: 250px !important;
+  }
 }
 
 /* Transparent Navigation */

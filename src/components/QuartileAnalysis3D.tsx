@@ -125,7 +125,7 @@ const QuartileAnalysis3D: React.FC = () => {
           }}>
             <Canvas
               camera={{ position: [0, 0, 6], fov: 55 }}
-              style={{ width: '100%', height: 160, background: 'transparent' }}
+              style={{ width: '100%', height: window.innerWidth <= 768 ? '120px' : '160px', background: 'transparent' }}
             >
               <HeadingDecoration />
             </Canvas>
@@ -134,19 +134,26 @@ const QuartileAnalysis3D: React.FC = () => {
           <div style={{ position: 'relative', zIndex: 2, textAlign: 'center', perspective: 800 }}>
             <h2 style={{
               fontFamily: 'Inter, sans-serif', fontWeight: 800, letterSpacing: '.02em',
-              fontSize: 'clamp(26px,5vw,48px)', margin: 0,
+              fontSize: window.innerWidth <= 480 ? 'clamp(20px, 6vw, 28px)' : window.innerWidth <= 768 ? 'clamp(24px, 5vw, 36px)' : 'clamp(26px,5vw,48px)', 
+              margin: 0,
               transform: 'translateZ(20px)'
             }}>JOURNAL QUARTILE ANALYSIS</h2>
-            <p style={{ opacity: 0.7, marginTop: 10, transform: 'translateZ(10px)' }}>
+            <p style={{ 
+              opacity: 0.7, 
+              marginTop: 10, 
+              transform: 'translateZ(10px)',
+              fontSize: window.innerWidth <= 768 ? '14px' : '16px',
+              padding: window.innerWidth <= 768 ? '0 20px' : '0'
+            }}>
               Interactive exploration of Q1-Q4 journal categories with detailed insights and guidelines
             </p>
           </div>
         </div>
 
-        <div style={{ position: 'relative', marginTop: 40 }}>
+        <div style={{ position: 'relative', marginTop: window.innerWidth <= 768 ? '30px' : '40px' }}>
           {/* Subtle decorative background behind grid */}
           <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-            <Canvas camera={{ position: [0, 0, 10], fov: 60 }} style={{ width: '100%', height: 260, background: 'transparent' }}>
+            <Canvas camera={{ position: [0, 0, 10], fov: 60 }} style={{ width: '100%', height: window.innerWidth <= 768 ? '200px' : '260px', background: 'transparent' }}>
               <group position={[0, -0.5, 0]}>
                 <mesh rotation={[Math.PI/2, 0, 0]}>
                   <torusGeometry args={[5, 0.12, 16, 256]} />
@@ -166,20 +173,61 @@ const QuartileAnalysis3D: React.FC = () => {
             </Canvas>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(220px,1fr))', gap: 28, alignItems: 'start', position: 'relative', zIndex: 2 }}>
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: window.innerWidth <= 768 ? 'repeat(2, 1fr)' : 'repeat(4, minmax(220px,1fr))', 
+            gap: window.innerWidth <= 768 ? '20px' : '28px', 
+            alignItems: 'start', 
+            position: 'relative', 
+            zIndex: 2 
+          }}>
           {[{title:'Q1', ref:q1Ref, sub:'Q1 TOP-TIER INTERNATIONAL JOURNALS BY DOMAIN'},
             {title:'Q2', ref:q2Ref, sub:'Q2 STRONG REPUTABLE INTERNATIONAL JOURNALS BY DOMAIN'},
             {title:'Q3', ref:q3Ref, sub:'Q3 REGIONAL SPECIALIZED INTERNATIONAL JOURNALS BY DOMAIN'},
             {title:'Q4', ref:q4Ref, sub:'Q4 EMERGING INTERNATIONAL JOURNALS BY DOMAIN'}].map((item) => (
-            <div key={item.title} style={{ textAlign: 'center', transformStyle: 'preserve-3d', transition: 'transform 0.25s ease, box-shadow 0.25s ease', borderRadius: 16, padding: 10 }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.transform = 'perspective(800px) translateZ(8px) rotateX(2deg)'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 20px 40px -20px rgba(2,6,23,0.15)'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.transform = 'none'; (e.currentTarget as HTMLDivElement).style.boxShadow = 'none'; }}
+            <div key={item.title} style={{ 
+              textAlign: 'center', 
+              transformStyle: 'preserve-3d', 
+              transition: 'transform 0.25s ease, box-shadow 0.25s ease', 
+              borderRadius: 16, 
+              padding: window.innerWidth <= 768 ? '8px' : '10px' 
+            }}
+              onMouseEnter={(e) => { 
+                if (window.innerWidth > 768) {
+                  (e.currentTarget as HTMLDivElement).style.transform = 'perspective(800px) translateZ(8px) rotateX(2deg)'; 
+                  (e.currentTarget as HTMLDivElement).style.boxShadow = '0 20px 40px -20px rgba(2,6,23,0.15)'; 
+                }
+              }}
+              onMouseLeave={(e) => { 
+                if (window.innerWidth > 768) {
+                  (e.currentTarget as HTMLDivElement).style.transform = 'none'; 
+                  (e.currentTarget as HTMLDivElement).style.boxShadow = 'none'; 
+                }
+              }}
             >
-              <div style={{ fontWeight: 800, fontSize: 22, marginBottom: 14 }}>{item.title}</div>
-              <div style={{ height: 180, width: '100%', maxWidth: 220, margin: '0 auto', filter: 'drop-shadow(0 10px 22px rgba(2,6,23,0.08))' }}>
+              <div style={{ 
+                fontWeight: 800, 
+                fontSize: window.innerWidth <= 768 ? '18px' : '22px', 
+                marginBottom: 14 
+              }}>{item.title}</div>
+              <div style={{ 
+                height: window.innerWidth <= 768 ? '140px' : '180px', 
+                width: '100%', 
+                maxWidth: window.innerWidth <= 768 ? '180px' : '220px', 
+                margin: '0 auto', 
+                filter: 'drop-shadow(0 10px 22px rgba(2,6,23,0.08))' 
+              }}>
                 <canvas ref={item.ref} />
               </div>
-              <div style={{ marginTop: 16, fontSize: 12, letterSpacing: 0.3, color: '#374151', textTransform: 'uppercase', fontWeight: 700 }}>{item.sub}</div>
+              <div style={{ 
+                marginTop: 16, 
+                fontSize: window.innerWidth <= 768 ? '10px' : '12px', 
+                letterSpacing: 0.3, 
+                color: '#374151', 
+                textTransform: 'uppercase', 
+                fontWeight: 700,
+                padding: window.innerWidth <= 768 ? '0 10px' : '0'
+              }}>{item.sub}</div>
             </div>
           ))}
           </div>

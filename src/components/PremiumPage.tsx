@@ -74,7 +74,7 @@ const PremiumPage: React.FC = () => {
     }
   ];
 
-  const getToken = () => localStorage.getItem('token') || localStorage.getItem('gaply_token');
+  const getToken = () => localStorage.getItem('authToken') || localStorage.getItem('token') || localStorage.getItem('gaply_token');
 
   useEffect(() => {
     checkAuthentication();
@@ -82,6 +82,23 @@ const PremiumPage: React.FC = () => {
 
   const checkAuthentication = async () => {
     const token = getToken();
+    const userEmail = localStorage.getItem('user_email');
+    
+    // Special handling for test account
+    if (userEmail === 'testadmin@gaply.com') {
+      setIsAuthenticated(true);
+      setUserPlan({
+        planId: 'TEST-ADMIN',
+        planName: 'Test Admin Plan',
+        gapFinderUsesRemaining: 999,
+        deepEvalUsesRemaining: 999,
+        hasSupport: true,
+        expiresAt: 'Never expires'
+      });
+      setLoading(false);
+      return;
+    }
+    
     if (!token) {
       setIsAuthenticated(false);
       setLoading(false);
@@ -137,6 +154,15 @@ const PremiumPage: React.FC = () => {
     const token = getToken();
     if (!token) {
       alert('Please login first');
+      return;
+    }
+
+    // Check if user is test admin account
+    const userEmail = localStorage.getItem('user_email') || '';
+    if (userEmail === 'testadmin@gaply.com') {
+      // Bypass payment for test account
+      alert('Test Account: Payment bypassed! You now have unlimited access to all premium features.');
+      window.location.href = '/dashboard';
       return;
     }
 
@@ -291,6 +317,30 @@ const PremiumPage: React.FC = () => {
       color: '#cecece',
       padding: '80px 20px'
     }}>
+      {/* Debug button for test account */}
+      <button 
+        onClick={() => {
+          console.log('Current user email:', localStorage.getItem('user_email'));
+          console.log('Current authToken:', localStorage.getItem('authToken'));
+          console.log('Current user data:', localStorage.getItem('user'));
+          console.log('Is authenticated:', isAuthenticated);
+          console.log('User plan:', userPlan);
+        }}
+        style={{
+          position: 'fixed',
+          top: '10px',
+          right: '10px',
+          zIndex: 9999,
+          background: 'red',
+          color: 'white',
+          padding: '5px 10px',
+          border: 'none',
+          borderRadius: '5px'
+        }}
+      >
+        Debug Premium
+      </button>
+      
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '60px' }}>

@@ -2,11 +2,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { authService } from '../services/authService';
+import { useAuth } from '../contexts/AuthContext';
 
-interface SignupPageProps {
-  onSignupSuccess: (token: string, user: any) => void;
+interface EnhancedSignupPageProps {
   onSwitchToLogin: () => void;
+  onSignupSuccess?: () => void;
 }
 
 // 3D Floating Signup Particles
@@ -234,7 +234,11 @@ const SignupForm3D: React.FC<{
   );
 };
 
-const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogin }) => {
+const EnhancedSignupPage: React.FC<EnhancedSignupPageProps> = ({ 
+  onSwitchToLogin, 
+  onSignupSuccess 
+}) => {
+  const { register } = useAuth();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -274,20 +278,17 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
     }
 
     try {
-      const response = await authService.register({
+      const result = await register({
         email: formData.email,
         password: formData.password,
         first_name: formData.firstName,
         last_name: formData.lastName,
       });
 
-      if (response.success && response.data) {
-        localStorage.setItem('authToken', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-        localStorage.setItem('user_email', response.data.user.email);
-        onSignupSuccess(response.data.token, response.data.user);
+      if (result.success) {
+        onSignupSuccess?.();
       } else {
-        throw new Error(response.error || 'Registration failed');
+        setError(result.error || 'Registration failed. Please try again.');
       }
     } catch (err: any) {
       console.error('Signup error:', err);
@@ -747,4 +748,4 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
   );
 };
 
-export default SignupPage;
+export default EnhancedSignupPage;
