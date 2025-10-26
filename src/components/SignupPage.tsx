@@ -169,67 +169,6 @@ const SignupForm3D: React.FC<{
           emissiveIntensity={0.2}
         />
       </mesh>
-
-      {/* Labels */}
-      <Text
-        position={[-2, 2.6, 0.1]}
-        fontSize={0.15}
-        color="#ffffff"
-        anchorX="center"
-        anchorY="middle"
-      >
-        First Name
-      </Text>
-      
-      <Text
-        position={[2, 2.6, 0.1]}
-        fontSize={0.15}
-        color="#ffffff"
-        anchorX="center"
-        anchorY="middle"
-      >
-        Last Name
-      </Text>
-      
-      <Text
-        position={[0, 1.6, 0.1]}
-        fontSize={0.15}
-        color="#ffffff"
-        anchorX="center"
-        anchorY="middle"
-      >
-        Email Address
-      </Text>
-      
-      <Text
-        position={[0, 0.6, 0.1]}
-        fontSize={0.15}
-        color="#ffffff"
-        anchorX="center"
-        anchorY="middle"
-      >
-        Password
-      </Text>
-      
-      <Text
-        position={[0, -0.4, 0.1]}
-        fontSize={0.15}
-        color="#ffffff"
-        anchorX="center"
-        anchorY="middle"
-      >
-        Confirm Password
-      </Text>
-      
-      <Text
-        position={[0, -1.9, 0.1]}
-        fontSize={0.2}
-        color="#ffffff"
-        anchorX="center"
-        anchorY="middle"
-      >
-        {loading ? "Creating Account..." : "Create Account"}
-      </Text>
     </group>
   );
 };

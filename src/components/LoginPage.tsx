@@ -113,37 +113,6 @@ const LoginForm3D: React.FC<{
           emissiveIntensity={0.2}
         />
       </mesh>
-
-      {/* Labels */}
-      <Text
-        position={[0, 1.6, 0.1]}
-        fontSize={0.2}
-        color="#ffffff"
-        anchorX="center"
-        anchorY="middle"
-      >
-        Email Address
-      </Text>
-      
-      <Text
-        position={[0, 0.6, 0.1]}
-        fontSize={0.2}
-        color="#ffffff"
-        anchorX="center"
-        anchorY="middle"
-      >
-        Password
-      </Text>
-      
-      <Text
-        position={[0, -0.4, 0.1]}
-        fontSize={0.25}
-        color="#ffffff"
-        anchorX="center"
-        anchorY="middle"
-      >
-        {loading ? "Signing In..." : "Sign In"}
-      </Text>
     </group>
   );
 };

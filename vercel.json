@@ -25,22 +25,13 @@
       ]
     }
   ],
-  "rewrites": [
+  "routes": [
     {
-      "source": "/features",
-      "destination": "/features/index.html"
+      "handle": "filesystem"
     },
     {
-      "source": "/pricing",
-      "destination": "/pricing/index.html"
-    },
-    {
-      "source": "/career",
-      "destination": "/career/index.html"
-    },
-    {
-      "source": "/hire-expert",
-      "destination": "/hire-expert/index.html"
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ],
   "env": {
