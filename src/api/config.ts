@@ -2,7 +2,7 @@
 // Priority: env var → public env → hardcoded domain
 const FALLBACK_URLS = [
   'https://gaply-backend-gaply.up.railway.app',
-  'https://srv-d3cl1tmmcj7s73dmq9eg.onrender.com',
+  'https://gaply-backend-production.up.railway.app',
   'https://backend.gaply.in',
 ];
 
