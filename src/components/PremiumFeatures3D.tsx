@@ -15,7 +15,7 @@ const PremiumFeatures3D: React.FC = () => {
     {
       id: 'journal-evaluator',
       title: 'Journal Evaluator AI Agent',
-      videoSrc: '/videos/j_premium.mov',
+      videoSrc: '/videos/Journal_Evaluator.mov',
       description: 'Evaluate your research paper with 70+ parameters'
     },
     {
