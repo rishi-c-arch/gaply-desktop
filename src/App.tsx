@@ -334,17 +334,15 @@ const AppleHeroSection: React.FC = () => {
           textAlign: 'left'
         }}>
           <h1 style={{
-            fontSize: 'clamp(18px, 3vw, 28px)',
-            fontWeight: '600',
+            fontSize: window.innerWidth <= 480 ? 'clamp(1.6rem, 6.4vw, 2.4rem)' : window.innerWidth <= 768 ? 'clamp(2rem, 4.8vw, 3.2rem)' : '4rem',
+            fontWeight: '300',
             color: '#ffffff',
             margin: 0,
-            lineHeight: '1.4',
-            letterSpacing: '-0.01em',
-            fontFamily: 'Georgia, "Times New Roman", serif',
-            textShadow: '0 2px 10px rgba(0, 0, 0, 0.8)',
-            textTransform: 'capitalize'
+            lineHeight: '1.1',
+            letterSpacing: '-0.02em',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif'
           }}>
-            AI-Powered Academic Research Platform for Thesis Writing, Journal Matching & Research Support
+            AI-Powered Academic Research Platform
           </h1>
         </div>
 
@@ -363,21 +361,19 @@ const AppleHeroSection: React.FC = () => {
               gap: '12px'
             }}>
               <span style={{
-                fontSize: 'clamp(20px, 3.5vw, 28px)',
-                fontWeight: '700',
+                fontSize: 'clamp(2rem, 4vw, 3rem)',
+                fontWeight: '300',
                 color: '#ffffff',
-                fontFamily: 'Georgia, "Times New Roman", serif',
-                textShadow: '0 2px 8px rgba(0, 0, 0, 0.6)'
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'
               }}>
                 10K+
               </span>
               <span style={{
-                fontSize: 'clamp(12px, 2vw, 16px)',
-                fontWeight: '500',
-                color: '#e0e0e0',
-                fontFamily: '"Libre Baskerville", Georgia, serif',
-                letterSpacing: '0.02em',
-                textTransform: 'uppercase'
+                fontSize: 'clamp(0.875rem, 2vw, 1rem)',
+                fontWeight: '300',
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+                letterSpacing: '0.01em'
               }}>
                 RESEARCH PAPERS ANALYZED
               </span>
@@ -389,21 +385,19 @@ const AppleHeroSection: React.FC = () => {
               gap: '12px'
             }}>
               <span style={{
-                fontSize: 'clamp(20px, 3.5vw, 28px)',
-                fontWeight: '700',
+                fontSize: 'clamp(2rem, 4vw, 3rem)',
+                fontWeight: '300',
                 color: '#ffffff',
-                fontFamily: 'Georgia, "Times New Roman", serif',
-                textShadow: '0 2px 8px rgba(0, 0, 0, 0.6)'
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'
               }}>
                 500+
               </span>
               <span style={{
-                fontSize: 'clamp(12px, 2vw, 16px)',
-                fontWeight: '500',
-                color: '#e0e0e0',
-                fontFamily: '"Libre Baskerville", Georgia, serif',
-                letterSpacing: '0.02em',
-                textTransform: 'uppercase'
+                fontSize: 'clamp(0.875rem, 2vw, 1rem)',
+                fontWeight: '300',
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+                letterSpacing: '0.01em'
               }}>
                 JOURNALS MATCHED
               </span>
@@ -415,21 +409,19 @@ const AppleHeroSection: React.FC = () => {
               gap: '12px'
             }}>
               <span style={{
-                fontSize: 'clamp(20px, 3.5vw, 28px)',
-                fontWeight: '700',
-                color: '#a0a0a0',
-                fontFamily: 'Georgia, "Times New Roman", serif',
-                textShadow: '0 2px 8px rgba(0, 0, 0, 0.6)'
+                fontSize: 'clamp(2rem, 4vw, 3rem)',
+                fontWeight: '300',
+                color: '#ffffff',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'
               }}>
                 95%
               </span>
               <span style={{
-                fontSize: 'clamp(12px, 2vw, 16px)',
-                fontWeight: '500',
-                color: '#a0a0a0',
-                fontFamily: '"Libre Baskerville", Georgia, serif',
-                letterSpacing: '0.02em',
-                textTransform: 'uppercase'
+                fontSize: 'clamp(0.875rem, 2vw, 1rem)',
+                fontWeight: '300',
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+                letterSpacing: '0.01em'
               }}>
                 AI DETECTION ACCURACY
               </span>
