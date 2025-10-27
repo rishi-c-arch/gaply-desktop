@@ -28,7 +28,8 @@
     "web-vitals": "^2.1.4"
   },
   "devDependencies": {
-    "puppeteer": "^21.0.0"
+    "puppeteer": "^21.0.0",
+    "react-snap": "^1.23.0"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -39,7 +40,26 @@
     "prerender": "node scripts/prerender.js",
     "generate-sitemap": "node scripts/generate-sitemap.js",
     "smoke-test": "node scripts/smoke-test.js",
-    "postbuild": "npm run generate-sitemap"
+    "postbuild": "npm run prerender && npm run generate-sitemap"
+  },
+  "reactSnap": {
+    "include": [
+      "/",
+      "/features",
+      "/pricing",
+      "/career",
+      "/hire-expert"
+    ],
+    "minifyHtml": {
+      "collapseWhitespace": false,
+      "removeComments": false
+    },
+    "puppeteerArgs": [
+      "--no-sandbox",
+      "--disable-setuid-sandbox"
+    ],
+    "waitFor": 3000,
+    "skipThirdPartyRequests": false
   },
   "eslintConfig": {
     "extends": [
