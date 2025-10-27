@@ -39,7 +39,7 @@
     "prerender": "node scripts/prerender.js",
     "generate-sitemap": "node scripts/generate-sitemap.js",
     "smoke-test": "node scripts/smoke-test.js",
-    "postbuild": "npm run prerender && npm run generate-sitemap"
+    "postbuild": "npm run generate-sitemap"
   },
   "eslintConfig": {
     "extends": [

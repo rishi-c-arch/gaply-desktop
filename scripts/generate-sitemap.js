@@ -2,7 +2,19 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROUTES = ['/', '/features', '/pricing', '/career', '/hire-expert'];
+// Main public routes for sitemap (focus on SEO-important pages)
+const ROUTES = [
+  '/',
+  '/features',
+  '/pricing',
+  '/career',
+  '/hire-expert',
+  '/academic-ai-remover',
+  '/paper-search',
+  '/journal-matching',
+  '/login',
+  '/signup'
+];
 const BUILD_DIR = path.join(__dirname, '..', 'build');
 const SITEMAP_PATH = path.join(BUILD_DIR, 'sitemap.xml');
 

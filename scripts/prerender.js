@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const ROUTES = ['/features', '/pricing', '/career', '/hire-expert']; // <-- adjust to your public marketing routes (excluding / to avoid overwriting main index.html)
+const ROUTES = ['/', '/features', '/pricing', '/career', '/hire-expert']; // Test homepage first to see if it renders
 const BUILD_DIR = path.join(__dirname, '..', 'build');
 const PORT = process.env.PRERENDER_PORT || 5000;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -47,6 +47,11 @@ function startStaticServer() {
   try {
     serverProc = await startStaticServer();
     const page = await browser.newPage();
+    
+    // Log console messages and errors from the page
+    page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+    page.on('pageerror', error => console.log('PAGE ERROR:', error.message));
+    
     // optional: set a crawler-like UA for snapshotting
     await page.setUserAgent('Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)');
     for (const route of ROUTES) {
@@ -54,8 +59,32 @@ function startStaticServer() {
       console.log('Rendering', url);
       try {
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-        await page.waitForTimeout(500); // wait a bit for late fetches
+        
+        // Wait for React to render - wait for root div to have content
+        await page.waitForFunction(
+          () => {
+            const root = document.getElementById('root');
+            return root && root.innerHTML.length > 100;
+          },
+          { timeout: 15000 }
+        ).catch(() => console.log('Warning: React content may not be fully loaded for', route));
+        
+        // Wait for SEOHead useEffect to run and update meta tags
+        await page.waitForTimeout(3000);
+        
+        // Double-check that title has been updated (indicates SEOHead ran)
+        const pageTitle = await page.title();
+        console.log(`Page title for ${route}: "${pageTitle}"`);
+        
         const html = await page.content();
+        
+        // Verify we have actual content, not just the shell
+        if (html.includes('<div id="root"></div>') || html.length < 1000) {
+          console.warn(`Warning: Route ${route} may not have rendered properly (content length: ${html.length})`);
+        } else {
+          console.log(`✓ Route ${route} rendered successfully (content length: ${html.length})`);
+        }
+        
         saveSnapshot(route, html);
       } catch (err) {
         console.error('Error rendering route', route, err && err.message ? err.message : err);
