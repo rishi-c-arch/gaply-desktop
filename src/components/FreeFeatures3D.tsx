@@ -47,16 +47,16 @@ const FreeFeatures3D: React.FC = () => {
 
   return (
     <div style={{ 
-      minHeight: '100vh', 
+      minHeight: '80vh', 
       backgroundColor: '#000000', 
-      padding: window.innerWidth <= 768 ? '80px 20px' : '120px 40px',
+      padding: window.innerWidth <= 768 ? '60px 20px' : '80px 40px',
       color: 'white',
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif'
     }}>
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: window.innerWidth <= 768 ? '60px' : '100px' }}>
+      <div style={{ textAlign: 'center', marginBottom: window.innerWidth <= 768 ? '40px' : '60px' }}>
         <h2 style={{ 
-          fontSize: window.innerWidth <= 480 ? 'clamp(2rem, 8vw, 3rem)' : window.innerWidth <= 768 ? 'clamp(2.5rem, 6vw, 4rem)' : '5rem', 
+          fontSize: window.innerWidth <= 480 ? 'clamp(1.6rem, 6.4vw, 2.4rem)' : window.innerWidth <= 768 ? 'clamp(2rem, 4.8vw, 3.2rem)' : '4rem', 
           fontWeight: '300',
           letterSpacing: '-0.02em',
           marginBottom: '30px',
@@ -107,7 +107,7 @@ const FreeFeatures3D: React.FC = () => {
                   ? '0 40px 80px rgba(255, 255, 255, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.2)' 
                   : '0 20px 40px rgba(0, 0, 0, 0.4)',
                 position: 'relative',
-                width: '380px',
+                width: '320px',
                 opacity: isMiddle ? '1' : '0.9'
               }}
               onMouseEnter={() => setHoveredCard(item.id)}
@@ -117,7 +117,7 @@ const FreeFeatures3D: React.FC = () => {
             {/* Video Section */}
             <div style={{ 
               position: 'relative', 
-              height: window.innerWidth <= 480 ? '200px' : window.innerWidth <= 768 ? '250px' : '320px', 
+              height: window.innerWidth <= 480 ? '180px' : window.innerWidth <= 768 ? '220px' : '280px', 
               overflow: 'hidden',
               background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)'
             }}>
@@ -176,13 +176,13 @@ const FreeFeatures3D: React.FC = () => {
 
             {/* Content Section */}
             <div style={{ 
-              padding: '40px',
+              padding: '32px',
               background: 'linear-gradient(135deg, #0a0a0a 0%, #000000 100%)',
               borderTop: '1px solid rgba(255, 255, 255, 0.05)'
             }}>
               {/* Feature Name */}
               <h3 style={{ 
-                fontSize: '1.8rem', 
+                fontSize: '1.5rem', 
                 fontWeight: '400', 
                 marginBottom: '12px',
                 color: '#ffffff',
@@ -258,7 +258,7 @@ const FreeFeatures3D: React.FC = () => {
       {/* Elegant Footer */}
       <div style={{ 
         textAlign: 'center', 
-        marginTop: '100px',
+        marginTop: '60px',
         paddingTop: '60px',
         borderTop: '1px solid rgba(255, 255, 255, 0.1)'
       }}>
