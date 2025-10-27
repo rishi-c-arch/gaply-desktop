@@ -1,42 +1,124 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
-const HeadingDecoration: React.FC = () => {
-  const ringRef = useRef<THREE.Mesh>(null);
-  const particlesRef = useRef<THREE.Group>(null);
+const InteractiveChart: React.FC<{ data: number[], colors: string[], title: string, subtitle: string, quartile: string }> = ({ data, colors, title, subtitle, quartile }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isHovered, setIsHovered] = useState(false);
 
-  useFrame(({ clock }) => {
-    if (ringRef.current) {
-      ringRef.current.rotation.x = Math.PI / 2;
-      ringRef.current.rotation.z = clock.elapsedTime * 0.12;
-    }
-    if (particlesRef.current) {
-      particlesRef.current.rotation.z = clock.elapsedTime * 0.05;
-    }
-  });
+  useEffect(() => {
+    let isMounted = true;
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    s.async = true;
+    s.onload = () => {
+      if (!isMounted) return;
+      // @ts-ignore
+      const Chart = (window as any).Chart;
+      if (!Chart || !canvasRef.current) return;
+
+      Chart.defaults.color = '#ffffff';
+      Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif';
+      Chart.defaults.borderColor = 'rgba(255,255,255,0.3)';
+
+      const ctx = canvasRef.current.getContext('2d');
+      if (!ctx) return;
+
+      const chart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: new Array(data.length).fill(''),
+          datasets: [{
+            data,
+            backgroundColor: colors,
+            borderColor: 'rgba(255,255,255,0.3)',
+            borderWidth: 2,
+            hoverOffset: 8,
+            shadowOffsetX: 4,
+            shadowOffsetY: 4,
+            shadowBlur: 10,
+            shadowColor: 'rgba(0,0,0,0.3)'
+          }]
+        },
+        options: {
+          maintainAspectRatio: false,
+          responsive: true,
+          cutout: '70%',
+          plugins: { 
+            legend: { display: false }, 
+            tooltip: { 
+              enabled: true,
+              backgroundColor: 'rgba(0,0,0,0.8)',
+              titleColor: '#ffffff',
+              bodyColor: '#ffffff',
+              borderColor: 'rgba(255,255,255,0.3)',
+              borderWidth: 1,
+              padding: 12,
+              callbacks: {
+                label: (context: any) => `${context.parsed}%`
+              }
+            }
+          },
+          animation: {
+            animateRotate: true,
+            animateScale: true,
+            duration: 1500,
+            easing: 'easeOutCubic'
+          },
+          onHover: (event: any) => {
+            if (event.native) {
+              const canvas = event.native.target as HTMLCanvasElement;
+              canvas.style.cursor = 'pointer';
+            }
+          },
+          onClick: () => {
+            window.open(`/reports/journal-${quartile.toLowerCase()}-analysis.html`, '_blank');
+          }
+        }
+      });
+
+      return () => {
+        if (chart) chart.destroy();
+      };
+    };
+    document.body.appendChild(s);
+    return () => { 
+      isMounted = false; 
+      try { document.body.removeChild(s); } catch(e) {}
+    };
+  }, [data, colors]);
 
   return (
-    <>
-      <mesh ref={ringRef} position={[0, 0, 0]}>
-        <torusGeometry args={[2.2, 0.08, 16, 256]} />
-        <meshStandardMaterial color="#000000" opacity={0.08} transparent metalness={0.2} roughness={0.8} />
-      </mesh>
-      <group ref={particlesRef}>
-        {Array.from({ length: 40 }).map((_, i) => (
-          <mesh key={i} position={[
-            Math.cos((i / 40) * Math.PI * 2) * (2.4 + Math.random() * 0.2),
-            Math.sin((i / 40) * Math.PI * 2) * (0.2 + Math.random() * 0.1),
-            (Math.random() - 0.5) * 0.3
-          ]}>
-            <sphereGeometry args={[0.03, 8, 8]} />
-            <meshBasicMaterial color="#000000" opacity={0.1} transparent />
-          </mesh>
-        ))}
-      </group>
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[2, 3, 4]} intensity={0.4} />
-    </>
+    <div 
+      style={{ 
+        position: 'relative',
+        cursor: 'pointer',
+        transition: 'transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+        transform: isHovered ? 'scale(1.05)' : 'scale(1)'
+      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <div style={{
+        position: 'absolute',
+        inset: 0,
+        background: isHovered 
+          ? 'radial-gradient(circle, rgba(147, 51, 234, 0.15) 0%, transparent 70%)'
+          : 'transparent',
+        borderRadius: '50%',
+        transition: 'all 0.6s ease',
+        pointerEvents: 'none',
+        zIndex: 1
+      }} />
+      <canvas ref={canvasRef} style={{ 
+        width: '100%', 
+        height: '100%',
+        filter: isHovered ? 'brightness(1.1) drop-shadow(0 10px 30px rgba(147, 51, 234, 0.4))' : 'drop-shadow(0 5px 15px rgba(0,0,0,0.2))',
+        transition: 'all 0.6s ease',
+        position: 'relative',
+        zIndex: 2
+      }} />
+    </div>
   );
 };
 
@@ -46,194 +128,212 @@ const QuartileAnalysis3D: React.FC = () => {
   const q3Ref = useRef<HTMLCanvasElement>(null);
   const q4Ref = useRef<HTMLCanvasElement>(null);
 
-  useEffect(() => {
-    let isMounted = true;
-    // Load Chart.js via CDN just-in-time
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/chart.js';
-    s.async = true;
-    s.onload = () => {
-      if (!isMounted) return;
-      // @ts-ignore
-      const Chart = (window as any).Chart;
-      if (!Chart) return;
+  // Luxury purple-blue gradient colors
+  const colorSchemes = {
+    q1: ['#667eea', '#764ba2', '#8b5cf6', '#a78bfa'], // Purple to violet
+    q2: ['#4c51bf', '#667eea', '#7c3aed', '#9333ea'], // Deep purple
+    q3: ['#5b21b6', '#7c3aed', '#9d4edd', '#c084fc'], // Rich purple
+    q4: ['#6d28d9', '#8b5cf6', '#a855f7', '#c084fc'] // Vibrant purple-blue
+  };
 
-      Chart.defaults.color = '#1f2937';
-      Chart.defaults.font.family = 'Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-      Chart.defaults.borderColor = 'rgba(31,41,55,0.08)';
-
-      const makeDoughnut = (canvas: HTMLCanvasElement | null, data: number[], onClick: () => void) => {
-        if (!canvas) return null;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return null;
-        return new Chart(ctx, {
-          type: 'doughnut',
-          data: {
-            labels: new Array(data.length).fill(''),
-            datasets: [{
-              data,
-              backgroundColor: ['#475569','#64748b','#94a3b8','#cbd5e1','#e2e8f0','#9ca3af','#818cf8','#60a5fa'].slice(0, data.length),
-              borderColor: 'rgba(255,255,255,0.6)',
-              borderWidth: 2,
-              hoverOffset: 6
-            }]
-          },
-          options: {
-            maintainAspectRatio: false,
-            responsive: true,
-            cutout: '68%',
-            plugins: { legend: { display: false }, tooltip: { enabled: false } },
-            onClick: () => onClick()
-          }
-        });
-      };
-
-      // Data mirrors repository buckets
-      makeDoughnut(q1Ref.current, [25,25,25,25], () => window.open('/reports/journal-q1-analysis.html','_blank'));
-      makeDoughnut(q2Ref.current, [20,20,20,20,20], () => window.open('/reports/journal-q2-analysis.html','_blank'));
-      makeDoughnut(q3Ref.current, [20,20,20,20,20], () => window.open('/reports/journal-q3-analysis.html','_blank'));
-      makeDoughnut(q4Ref.current, [25,25,25,25], () => window.open('/reports/journal-q4-analysis.html','_blank'));
-    };
-    document.body.appendChild(s);
-    return () => { isMounted = false; document.body.removeChild(s); };
-  }, []);
+  const quartileData = {
+    q1: [25, 25, 25, 25],
+    q2: [20, 20, 20, 20, 20],
+    q3: [20, 20, 20, 20, 20],
+    q4: [25, 25, 25, 25]
+  };
 
   return (
-    <section className="third-section" style={{ 
-      background: 
-        'linear-gradient(180deg, rgba(26,26,26,1) 0%, rgba(26,26,26,0.85) 6%, rgba(26,26,26,0.5) 14%, rgba(26,26,26,0.2) 22%, rgba(26,26,26,0) 30%), ' +
-        'radial-gradient(1200px 400px at 50% 0%, #f2f4f7 0%, #f7f7f8 40%, #fafafa 100%)', 
-      color: '#111',
-      position: 'relative'
+    <div style={{ 
+      minHeight: '80vh', 
+      backgroundColor: '#000000',
+      background: `
+        linear-gradient(135deg, #000000 0%, #0a0a0a 25%, #1a0a2e 50%, #16213e 75%, #000000 100%),
+        radial-gradient(ellipse at top right, rgba(147, 51, 234, 0.15), transparent 50%),
+        radial-gradient(ellipse at bottom left, rgba(59, 130, 246, 0.15), transparent 50%)
+      `,
+      padding: window.innerWidth <= 768 ? '80px 20px' : '120px 40px',
+      color: 'white',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif',
+      position: 'relative',
+      overflow: 'hidden'
     }}>
-      {/* Color blending layer between sections */}
+      {/* Subtle background pattern */}
       <div style={{
         position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: '120px',
-        background: 'linear-gradient(180deg, rgba(248,248,248,0) 0%, rgba(236,236,236,0.35) 25%, rgba(200,200,200,0.65) 55%, rgba(80,80,80,0.85) 85%, rgba(18,18,18,1) 100%)',
-        pointerEvents: 'none',
-        zIndex: 1
+        inset: 0,
+        background: `
+          repeating-linear-gradient(
+            45deg,
+            transparent,
+            transparent 50px,
+            rgba(147, 51, 234, 0.02) 50px,
+            rgba(147, 51, 234, 0.02) 100px
+          )
+        `,
+        pointerEvents: 'none'
       }} />
-      <div className="container" style={{ padding: '60px 20px', maxWidth: 1200, margin: '0 auto', position: 'relative', zIndex: 2 }}>
-        <div style={{ position: 'relative', paddingTop: 20, paddingBottom: 20 }}>
-          <div style={{
-            position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
-            pointerEvents: 'none'
-          }}>
-            <Canvas
-              camera={{ position: [0, 0, 6], fov: 55 }}
-              style={{ width: '100%', height: window.innerWidth <= 768 ? '120px' : '160px', background: 'transparent' }}
-            >
-              <HeadingDecoration />
-            </Canvas>
-          </div>
 
-          <div style={{ position: 'relative', zIndex: 2, textAlign: 'center', perspective: 800 }}>
-            <h2 style={{
-              fontFamily: 'Inter, sans-serif', fontWeight: 800, letterSpacing: '.02em',
-              fontSize: window.innerWidth <= 480 ? 'clamp(20px, 6vw, 28px)' : window.innerWidth <= 768 ? 'clamp(24px, 5vw, 36px)' : 'clamp(26px,5vw,48px)', 
-              margin: 0,
-              transform: 'translateZ(20px)'
-            }}>JOURNAL QUARTILE ANALYSIS</h2>
-            <p style={{ 
-              opacity: 0.7, 
-              marginTop: 10, 
-              transform: 'translateZ(10px)',
-              fontSize: window.innerWidth <= 768 ? '14px' : '16px',
-              padding: window.innerWidth <= 768 ? '0 20px' : '0'
-            }}>
-              Interactive exploration of Q1-Q4 journal categories with detailed insights and guidelines
-            </p>
-          </div>
-        </div>
-
-        <div style={{ position: 'relative', marginTop: window.innerWidth <= 768 ? '30px' : '40px' }}>
-          {/* Subtle decorative background behind grid */}
-          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-            <Canvas camera={{ position: [0, 0, 10], fov: 60 }} style={{ width: '100%', height: window.innerWidth <= 768 ? '200px' : '260px', background: 'transparent' }}>
-              <group position={[0, -0.5, 0]}>
-                <mesh rotation={[Math.PI/2, 0, 0]}>
-                  <torusGeometry args={[5, 0.12, 16, 256]} />
-                  <meshBasicMaterial color={'#111111'} opacity={0.05} transparent />
-                </mesh>
-                {Array.from({ length: 24 }).map((_, i) => (
-                  <mesh key={i} position={[
-                    Math.cos((i/24)*Math.PI*2)*5.2,
-                    Math.sin((i/24)*Math.PI*2)*0.2,
-                    0
-                  ]}>
-                    <sphereGeometry args={[0.06, 8, 8]} />
-                    <meshBasicMaterial color={'#111111'} opacity={0.06} transparent />
-                  </mesh>
-                ))}
-              </group>
-            </Canvas>
-          </div>
-
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: window.innerWidth <= 768 ? 'repeat(2, 1fr)' : 'repeat(4, minmax(220px,1fr))', 
-            gap: window.innerWidth <= 768 ? '20px' : '28px', 
-            alignItems: 'start', 
-            position: 'relative', 
-            zIndex: 2 
-          }}>
-          {[{title:'Q1', ref:q1Ref, sub:'Q1 TOP-TIER INTERNATIONAL JOURNALS BY DOMAIN'},
-            {title:'Q2', ref:q2Ref, sub:'Q2 STRONG REPUTABLE INTERNATIONAL JOURNALS BY DOMAIN'},
-            {title:'Q3', ref:q3Ref, sub:'Q3 REGIONAL SPECIALIZED INTERNATIONAL JOURNALS BY DOMAIN'},
-            {title:'Q4', ref:q4Ref, sub:'Q4 EMERGING INTERNATIONAL JOURNALS BY DOMAIN'}].map((item) => (
-            <div key={item.title} style={{ 
-              textAlign: 'center', 
-              transformStyle: 'preserve-3d', 
-              transition: 'transform 0.25s ease, box-shadow 0.25s ease', 
-              borderRadius: 16, 
-              padding: window.innerWidth <= 768 ? '8px' : '10px' 
-            }}
-              onMouseEnter={(e) => { 
-                if (window.innerWidth > 768) {
-                  (e.currentTarget as HTMLDivElement).style.transform = 'perspective(800px) translateZ(8px) rotateX(2deg)'; 
-                  (e.currentTarget as HTMLDivElement).style.boxShadow = '0 20px 40px -20px rgba(2,6,23,0.15)'; 
-                }
-              }}
-              onMouseLeave={(e) => { 
-                if (window.innerWidth > 768) {
-                  (e.currentTarget as HTMLDivElement).style.transform = 'none'; 
-                  (e.currentTarget as HTMLDivElement).style.boxShadow = 'none'; 
-                }
-              }}
-            >
-              <div style={{ 
-                fontWeight: 800, 
-                fontSize: window.innerWidth <= 768 ? '18px' : '22px', 
-                marginBottom: 14 
-              }}>{item.title}</div>
-              <div style={{ 
-                height: window.innerWidth <= 768 ? '140px' : '180px', 
-                width: '100%', 
-                maxWidth: window.innerWidth <= 768 ? '180px' : '220px', 
-                margin: '0 auto', 
-                filter: 'drop-shadow(0 10px 22px rgba(2,6,23,0.08))' 
-              }}>
-                <canvas ref={item.ref} />
-              </div>
-              <div style={{ 
-                marginTop: 16, 
-                fontSize: window.innerWidth <= 768 ? '10px' : '12px', 
-                letterSpacing: 0.3, 
-                color: '#374151', 
-                textTransform: 'uppercase', 
-                fontWeight: 700,
-                padding: window.innerWidth <= 768 ? '0 10px' : '0'
-              }}>{item.sub}</div>
-            </div>
-          ))}
-          </div>
-        </div>
+      {/* Header */}
+      <div style={{ textAlign: 'center', marginBottom: window.innerWidth <= 768 ? '60px' : '80px' }}>
+        <h2 style={{ 
+          fontSize: window.innerWidth <= 480 ? 'clamp(1.6rem, 6.4vw, 2.4rem)' : window.innerWidth <= 768 ? 'clamp(2rem, 4.8vw, 3.2rem)' : '4rem', 
+          fontWeight: '300',
+          letterSpacing: '-0.02em',
+          marginBottom: '20px',
+          color: '#ffffff',
+          lineHeight: '1.1',
+          background: 'linear-gradient(135deg, #ffffff 0%, #e0e7ff 50%, #ddd6fe 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          backgroundClip: 'text'
+        }}>
+          Journal Quartile Analysis
+        </h2>
+        <p style={{
+          color: 'rgba(255, 255, 255, 0.7)',
+          fontSize: '1.1rem',
+          fontWeight: '300',
+          letterSpacing: '0.02em',
+          maxWidth: '800px',
+          margin: '0 auto'
+        }}>
+          Interactive exploration of Q1-Q4 journal categories with detailed insights and guidelines
+        </p>
+        <div style={{
+          width: window.innerWidth <= 768 ? '40px' : '60px',
+          height: '1px',
+          background: 'linear-gradient(90deg, transparent, rgba(147, 51, 234, 0.5), transparent)',
+          margin: '30px auto',
+          opacity: '0.6'
+        }} />
       </div>
-    </section>
+
+      {/* Quartile Cards */}
+      <div style={{ 
+        maxWidth: '1400px', 
+        margin: '0 auto',
+        display: 'grid',
+        gridTemplateColumns: window.innerWidth <= 768 ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
+        gap: '30px'
+      }}>
+        {[
+          { quartile: 'q1', title: 'Q1', colors: colorSchemes.q1, subtitle: 'TOP-TIER INTERNATIONAL JOURNALS', data: quartileData.q1 },
+          { quartile: 'q2', title: 'Q2', colors: colorSchemes.q2, subtitle: 'REPUTABLE INTERNATIONAL JOURNALS', data: quartileData.q2 },
+          { quartile: 'q3', title: 'Q3', colors: colorSchemes.q3, subtitle: 'SPECIALIZED INTERNATIONAL JOURNALS', data: quartileData.q3 },
+          { quartile: 'q4', title: 'Q4', colors: colorSchemes.q4, subtitle: 'EMERGING INTERNATIONAL JOURNALS', data: quartileData.q4 }
+        ].map((item, index) => (
+          <div
+            key={item.quartile}
+            style={{
+              backgroundColor: 'rgba(255, 255, 255, 0.02)',
+              borderRadius: '24px',
+              padding: '40px 32px',
+              border: '1px solid rgba(147, 51, 234, 0.2)',
+              cursor: 'pointer',
+              transition: 'all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(147, 51, 234, 0.5)';
+              (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(147, 51, 234, 0.05)';
+              (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-8px)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(147, 51, 234, 0.2)';
+              (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(255, 255, 255, 0.02)';
+              (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
+            }}
+            onClick={() => window.open(`/reports/journal-${item.quartile}-analysis.html`, '_blank')}
+          >
+            {/* Gradient glow effect */}
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '50%',
+              background: `linear-gradient(135deg, ${item.colors[0]}20, ${item.colors[1]}10, transparent)`,
+              opacity: 0,
+              transition: 'opacity 0.6s ease',
+              pointerEvents: 'none',
+              zIndex: 0
+            }} className="quartile-glow" />
+
+            {/* Content */}
+            <div style={{ position: 'relative', zIndex: 2, textAlign: 'center' }}>
+              <div style={{
+                fontSize: '1.8rem',
+                fontWeight: '400',
+                marginBottom: '20px',
+                color: '#ffffff',
+                letterSpacing: '-0.01em'
+              }}>
+                {item.title}
+              </div>
+
+              <div style={{
+                height: window.innerWidth <= 768 ? '180px' : '220px',
+                width: '100%',
+                maxWidth: '280px',
+                margin: '0 auto 24px',
+                position: 'relative'
+              }}>
+                <InteractiveChart
+                  data={item.data}
+                  colors={item.colors}
+                  title={item.title}
+                  subtitle={item.subtitle}
+                  quartile={item.quartile}
+                />
+              </div>
+
+              <div style={{
+                fontSize: window.innerWidth <= 768 ? '10px' : '12px',
+                fontWeight: '500',
+                letterSpacing: '0.1em',
+                color: 'rgba(255, 255, 255, 0.6)',
+                textTransform: 'uppercase',
+                lineHeight: '1.6'
+              }}>
+                {item.subtitle}
+              </div>
+            </div>
+
+            {/* Hover glow effect */}
+            <div style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: '2px',
+              background: `linear-gradient(90deg, ${item.colors[0]}, ${item.colors[1]}, ${item.colors[2]})`,
+              opacity: 0,
+              transition: 'opacity 0.6s ease',
+              pointerEvents: 'none'
+            }} className="quartile-border-glow" />
+          </div>
+        ))}
+      </div>
+
+      {/* Footer */}
+      <div style={{ 
+        textAlign: 'center', 
+        marginTop: '80px',
+        paddingTop: '60px',
+        borderTop: '1px solid rgba(147, 51, 234, 0.2)'
+      }}>
+        <p style={{ 
+          color: 'rgba(255, 255, 255, 0.5)', 
+          fontSize: '1rem',
+          fontWeight: '300',
+          letterSpacing: '0.02em'
+        }}>
+          Click on any quartile to explore detailed analysis
+        </p>
+      </div>
+    </div>
   );
 };
 
