@@ -21,7 +21,7 @@ const FreeFeatures3D: React.FC = () => {
     {
       id: 'journals',
       title: 'Journal Matching',
-      videoSrc: '/videos/Journal_Matching.mov',
+      videoSrc: '/videos/Journal_Matching_v2.mov',
       description: 'Find the perfect journal for your research'
     },
   ];
