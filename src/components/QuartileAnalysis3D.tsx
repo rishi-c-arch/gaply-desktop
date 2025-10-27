@@ -113,7 +113,9 @@ const InteractiveChart: React.FC<{ data: number[], colors: string[], title: stri
             <canvas ref={canvasRef} style={{ 
               width: '100%', 
               height: '100%',
-              filter: isHovered ? 'brightness(1.05) drop-shadow(0 5px 15px rgba(147, 51, 234, 0.2))' : 'drop-shadow(0 3px 8px rgba(0,0,0,0.3))',
+              filter: isHovered 
+                ? 'brightness(1.2) drop-shadow(0 0 30px rgba(147, 51, 234, 0.6)) drop-shadow(0 0 60px rgba(59, 130, 246, 0.3))' 
+                : 'drop-shadow(0 0 20px rgba(147, 51, 234, 0.3)) drop-shadow(0 0 40px rgba(59, 130, 246, 0.15)) drop-shadow(0 3px 10px rgba(0,0,0,0.5))',
               transition: 'all 0.6s ease',
               position: 'relative',
               zIndex: 2
@@ -128,12 +130,12 @@ const QuartileAnalysis3D: React.FC = () => {
   const q3Ref = useRef<HTMLCanvasElement>(null);
   const q4Ref = useRef<HTMLCanvasElement>(null);
 
-  // Grey-black colors with subtle purple-blue glow accents
+  // Premium white/light colors with purple-blue glow accents (like Hire Expert button)
   const colorSchemes = {
-    q1: ['#1f2937', '#374151', '#4b5563', '#6b7280'], // Dark grey
-    q2: ['#111827', '#1f2937', '#374151', '#4b5563'], // Very dark grey
-    q3: ['#0f172a', '#1e293b', '#334155', '#475569'], // Slate grey
-    q4: ['#111827', '#1f2937', '#374151', '#6b7280'] // Charcoal grey
+    q1: ['rgba(255,255,255,0.9)', 'rgba(255,255,255,0.7)', 'rgba(255,255,255,0.5)', 'rgba(255,255,255,0.3)'], // White with varying opacity
+    q2: ['rgba(255,255,255,0.95)', 'rgba(255,255,255,0.75)', 'rgba(255,255,255,0.55)', 'rgba(255,255,255,0.35)', 'rgba(255,255,255,0.15)'], // Bright white
+    q3: ['rgba(255,255,255,0.88)', 'rgba(255,255,255,0.68)', 'rgba(255,255,255,0.48)', 'rgba(255,255,255,0.28)', 'rgba(255,255,255,0.08)'], // Soft white
+    q4: ['rgba(255,255,255,0.85)', 'rgba(255,255,255,0.65)', 'rgba(255,255,255,0.45)', 'rgba(255,255,255,0.25)'] // Translucent white
   };
 
   const quartileData = {
@@ -202,27 +204,27 @@ const QuartileAnalysis3D: React.FC = () => {
           <div
             key={item.quartile}
             style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.01)',
+              backgroundColor: 'rgba(255, 255, 255, 0.03)',
               borderRadius: '24px',
               padding: '40px 32px',
-              border: '1px solid rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
               cursor: 'pointer',
               transition: 'all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
               position: 'relative',
               overflow: 'hidden',
-              boxShadow: '0 0 20px rgba(147, 51, 234, 0.05)'
+              boxShadow: '0 0 30px rgba(147, 51, 234, 0.15), 0 0 50px rgba(59, 130, 246, 0.08)'
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(147, 51, 234, 0.3)';
-              (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(147, 51, 234, 0.02)';
+              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(147, 51, 234, 0.5)';
+              (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(147, 51, 234, 0.05)';
               (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-8px)';
-              (e.currentTarget as HTMLDivElement).style.boxShadow = '0 0 30px rgba(147, 51, 234, 0.15)';
+              (e.currentTarget as HTMLDivElement).style.boxShadow = '0 0 50px rgba(147, 51, 234, 0.3), 0 0 80px rgba(59, 130, 246, 0.15)';
             }}
             onMouseLeave={(e) => {
-              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255, 255, 255, 0.05)';
-              (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(255, 255, 255, 0.01)';
+              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255, 255, 255, 0.08)';
+              (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(255, 255, 255, 0.03)';
               (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
-              (e.currentTarget as HTMLDivElement).style.boxShadow = '0 0 20px rgba(147, 51, 234, 0.05)';
+              (e.currentTarget as HTMLDivElement).style.boxShadow = '0 0 30px rgba(147, 51, 234, 0.15), 0 0 50px rgba(59, 130, 246, 0.08)';
             }}
             onClick={() => window.open(`/reports/journal-${item.quartile}-analysis.html`, '_blank')}
           >
