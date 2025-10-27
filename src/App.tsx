@@ -329,7 +329,7 @@ const AppleHeroSection: React.FC = () => {
       }}>
         {/* Main Description */}
         <div style={{
-          marginBottom: '40px',
+          marginBottom: '24px',
           position: 'relative',
           textAlign: 'left'
         }}>
@@ -348,82 +348,92 @@ const AppleHeroSection: React.FC = () => {
 
         {/* Stats Section */}
         <div style={{
-          padding: '0'
+          marginTop: '24px',
+          maxWidth: '400px'
         }}>
           <div style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '16px'
+            gap: '8px'
           }}>
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px'
+              gap: '8px'
             }}>
               <span style={{
-                fontSize: 'clamp(2rem, 4vw, 3rem)',
+                fontSize: 'clamp(1.2rem, 2vw, 1.5rem)',
                 fontWeight: '300',
                 color: '#ffffff',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+                lineHeight: '1.2',
+                minWidth: '60px'
               }}>
                 10K+
               </span>
               <span style={{
-                fontSize: 'clamp(0.875rem, 2vw, 1rem)',
+                fontSize: 'clamp(0.7rem, 1.5vw, 0.875rem)',
                 fontWeight: '300',
-                color: 'rgba(255, 255, 255, 0.7)',
+                color: 'rgba(255, 255, 255, 0.6)',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-                letterSpacing: '0.01em'
+                letterSpacing: '0.01em',
+                lineHeight: '1.3'
               }}>
-                RESEARCH PAPERS ANALYZED
+                Research Papers Analyzed
               </span>
             </div>
 
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px'
+              gap: '8px'
             }}>
               <span style={{
-                fontSize: 'clamp(2rem, 4vw, 3rem)',
+                fontSize: 'clamp(1.2rem, 2vw, 1.5rem)',
                 fontWeight: '300',
                 color: '#ffffff',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+                lineHeight: '1.2',
+                minWidth: '60px'
               }}>
                 500+
               </span>
               <span style={{
-                fontSize: 'clamp(0.875rem, 2vw, 1rem)',
+                fontSize: 'clamp(0.7rem, 1.5vw, 0.875rem)',
                 fontWeight: '300',
-                color: 'rgba(255, 255, 255, 0.7)',
+                color: 'rgba(255, 255, 255, 0.6)',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-                letterSpacing: '0.01em'
+                letterSpacing: '0.01em',
+                lineHeight: '1.3'
               }}>
-                JOURNALS MATCHED
+                Journals Matched
               </span>
             </div>
 
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px'
+              gap: '8px'
             }}>
               <span style={{
-                fontSize: 'clamp(2rem, 4vw, 3rem)',
+                fontSize: 'clamp(1.2rem, 2vw, 1.5rem)',
                 fontWeight: '300',
                 color: '#ffffff',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+                lineHeight: '1.2',
+                minWidth: '60px'
               }}>
                 95%
               </span>
               <span style={{
-                fontSize: 'clamp(0.875rem, 2vw, 1rem)',
+                fontSize: 'clamp(0.7rem, 1.5vw, 0.875rem)',
                 fontWeight: '300',
-                color: 'rgba(255, 255, 255, 0.7)',
+                color: 'rgba(255, 255, 255, 0.6)',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-                letterSpacing: '0.01em'
+                letterSpacing: '0.01em',
+                lineHeight: '1.3'
               }}>
-                AI DETECTION ACCURACY
+                AI Detection Accuracy
               </span>
             </div>
           </div>
