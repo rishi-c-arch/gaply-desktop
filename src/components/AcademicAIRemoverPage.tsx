@@ -1,18 +1,56 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+// Backend API configuration
+const API_BASE_URL = 'https://gaply-backend-gaply.up.railway.app';
+
 const AcademicAIRemoverPage: React.FC = () => {
   const navigate = useNavigate();
   const [removerText, setRemoverText] = useState('');
   const [removerResult, setRemoverResult] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const handleParaphrase = () => {
+  const handleParaphrase = async () => {
     if (!removerText.trim()) return;
     setIsProcessing(true);
     setRemoverResult('Processing...');
 
-    // ADVANCED ACADEMIC HUMANIZATION ENGINE - BYPASSES ALL AI DETECTORS
+    try {
+      // Call backend API for paraphrasing
+      const response = await fetch(`${API_BASE_URL}/api/v1/paraphrase/direct`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: removerText,
+          enhancement_level: 'high',
+          preserve_citations: false
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to paraphrase text');
+      }
+
+      const data = await response.json();
+      
+      // Display the paraphrased text from backend
+      setRemoverResult(data.paraphrased_text || data.result || 'No paraphrased text received');
+      setIsProcessing(false);
+    } catch (error) {
+      console.error('Paraphrase error:', error);
+      setRemoverResult('Error: Failed to connect to backend. Please try again later.');
+      setIsProcessing(false);
+    }
+  };
+
+  // Old client-side processing (fallback/legacy)
+  const handleParaphraseClientSide = () => {
+    if (!removerText.trim()) return;
+    setIsProcessing(true);
+    setRemoverResult('Processing...');
+
     setTimeout(() => {
       let text = removerText;
 
