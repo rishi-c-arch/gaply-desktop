@@ -7,6 +7,7 @@ import './responsive.css';
 import ThreeJSGlobe from './components/ThreeJSGlobe';
 import HeroToSecondTransition from './components/HeroToSecondTransition';
 import FreeFeatures3D from './components/FreeFeatures3D';
+import PremiumFeatures3D from './components/PremiumFeatures3D';
 import QuartileAnalysis3D from './components/QuartileAnalysis3D';
 import PremiumFooter3D from './components/PremiumFooter3D';
 import PremiumPage from './components/PremiumPage';
@@ -538,6 +539,7 @@ const AppContent: React.FC = () => {
               <AppleHeroSection />
               <HeroToSecondTransition />
               <FreeFeatures3D />
+              <PremiumFeatures3D />
               <QuartileAnalysis3D />
               <PremiumFooter3D />
             </>
