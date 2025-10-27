@@ -130,12 +130,12 @@ const QuartileAnalysis3D: React.FC = () => {
   const q3Ref = useRef<HTMLCanvasElement>(null);
   const q4Ref = useRef<HTMLCanvasElement>(null);
 
-  // Premium white/light colors with purple-blue glow accents (like Hire Expert button)
+  // Premium pure white colors with impressive structure variations
   const colorSchemes = {
-    q1: ['rgba(255,255,255,0.9)', 'rgba(255,255,255,0.7)', 'rgba(255,255,255,0.5)', 'rgba(255,255,255,0.3)'], // White with varying opacity
-    q2: ['rgba(255,255,255,0.95)', 'rgba(255,255,255,0.75)', 'rgba(255,255,255,0.55)', 'rgba(255,255,255,0.35)', 'rgba(255,255,255,0.15)'], // Bright white
-    q3: ['rgba(255,255,255,0.88)', 'rgba(255,255,255,0.68)', 'rgba(255,255,255,0.48)', 'rgba(255,255,255,0.28)', 'rgba(255,255,255,0.08)'], // Soft white
-    q4: ['rgba(255,255,255,0.85)', 'rgba(255,255,255,0.65)', 'rgba(255,255,255,0.45)', 'rgba(255,255,255,0.25)'] // Translucent white
+    q1: ['#ffffff', '#f0f0f0', '#e0e0e0', '#d0d0d0'], // Pure white with subtle shade variations
+    q2: ['#ffffff', '#f8f8f8', '#f0f0f0', '#e8e8e8', '#e0e0e0'], // Bright white variations
+    q3: ['#ffffff', '#fafafa', '#f5f5f5', '#f0f0f0', '#ebebeb'], // Soft white shades
+    q4: ['#ffffff', '#f7f7f7', '#efefef', '#e7e7e7'] // Chalk white
   };
 
   const quartileData = {
@@ -155,6 +155,16 @@ const QuartileAnalysis3D: React.FC = () => {
       position: 'relative',
       overflow: 'hidden'
     }}>
+      {/* Very subtle white gradient divider at top to separate from Premium Features */}
+      <div style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: '2px',
+        background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.08) 20%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.08) 80%, transparent 100%)',
+        pointerEvents: 'none'
+      }} />
 
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: window.innerWidth <= 768 ? '60px' : '80px' }}>
