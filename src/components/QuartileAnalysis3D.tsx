@@ -99,25 +99,25 @@ const InteractiveChart: React.FC<{ data: number[], colors: string[], title: stri
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <div style={{
-        position: 'absolute',
-        inset: 0,
-        background: isHovered 
-          ? 'radial-gradient(circle, rgba(147, 51, 234, 0.15) 0%, transparent 70%)'
-          : 'transparent',
-        borderRadius: '50%',
-        transition: 'all 0.6s ease',
-        pointerEvents: 'none',
-        zIndex: 1
-      }} />
-      <canvas ref={canvasRef} style={{ 
-        width: '100%', 
-        height: '100%',
-        filter: isHovered ? 'brightness(1.1) drop-shadow(0 10px 30px rgba(147, 51, 234, 0.4))' : 'drop-shadow(0 5px 15px rgba(0,0,0,0.2))',
-        transition: 'all 0.6s ease',
-        position: 'relative',
-        zIndex: 2
-      }} />
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              background: isHovered 
+                ? 'radial-gradient(circle, rgba(147, 51, 234, 0.08) 0%, transparent 70%)'
+                : 'transparent',
+              borderRadius: '50%',
+              transition: 'all 0.6s ease',
+              pointerEvents: 'none',
+              zIndex: 1
+            }} />
+            <canvas ref={canvasRef} style={{ 
+              width: '100%', 
+              height: '100%',
+              filter: isHovered ? 'brightness(1.05) drop-shadow(0 5px 15px rgba(147, 51, 234, 0.2))' : 'drop-shadow(0 3px 8px rgba(0,0,0,0.3))',
+              transition: 'all 0.6s ease',
+              position: 'relative',
+              zIndex: 2
+            }} />
     </div>
   );
 };
@@ -128,12 +128,12 @@ const QuartileAnalysis3D: React.FC = () => {
   const q3Ref = useRef<HTMLCanvasElement>(null);
   const q4Ref = useRef<HTMLCanvasElement>(null);
 
-  // Luxury purple-blue gradient colors
+  // Grey-black colors with subtle purple-blue glow accents
   const colorSchemes = {
-    q1: ['#667eea', '#764ba2', '#8b5cf6', '#a78bfa'], // Purple to violet
-    q2: ['#4c51bf', '#667eea', '#7c3aed', '#9333ea'], // Deep purple
-    q3: ['#5b21b6', '#7c3aed', '#9d4edd', '#c084fc'], // Rich purple
-    q4: ['#6d28d9', '#8b5cf6', '#a855f7', '#c084fc'] // Vibrant purple-blue
+    q1: ['#1f2937', '#374151', '#4b5563', '#6b7280'], // Dark grey
+    q2: ['#111827', '#1f2937', '#374151', '#4b5563'], // Very dark grey
+    q3: ['#0f172a', '#1e293b', '#334155', '#475569'], // Slate grey
+    q4: ['#111827', '#1f2937', '#374151', '#6b7280'] // Charcoal grey
   };
 
   const quartileData = {
@@ -147,32 +147,12 @@ const QuartileAnalysis3D: React.FC = () => {
     <div style={{ 
       minHeight: '80vh', 
       backgroundColor: '#000000',
-      background: `
-        linear-gradient(135deg, #000000 0%, #0a0a0a 25%, #1a0a2e 50%, #16213e 75%, #000000 100%),
-        radial-gradient(ellipse at top right, rgba(147, 51, 234, 0.15), transparent 50%),
-        radial-gradient(ellipse at bottom left, rgba(59, 130, 246, 0.15), transparent 50%)
-      `,
       padding: window.innerWidth <= 768 ? '80px 20px' : '120px 40px',
       color: 'white',
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif',
       position: 'relative',
       overflow: 'hidden'
     }}>
-      {/* Subtle background pattern */}
-      <div style={{
-        position: 'absolute',
-        inset: 0,
-        background: `
-          repeating-linear-gradient(
-            45deg,
-            transparent,
-            transparent 50px,
-            rgba(147, 51, 234, 0.02) 50px,
-            rgba(147, 51, 234, 0.02) 100px
-          )
-        `,
-        pointerEvents: 'none'
-      }} />
 
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: window.innerWidth <= 768 ? '60px' : '80px' }}>
@@ -182,11 +162,7 @@ const QuartileAnalysis3D: React.FC = () => {
           letterSpacing: '-0.02em',
           marginBottom: '20px',
           color: '#ffffff',
-          lineHeight: '1.1',
-          background: 'linear-gradient(135deg, #ffffff 0%, #e0e7ff 50%, #ddd6fe 100%)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          backgroundClip: 'text'
+          lineHeight: '1.1'
         }}>
           Journal Quartile Analysis
         </h2>
@@ -226,24 +202,27 @@ const QuartileAnalysis3D: React.FC = () => {
           <div
             key={item.quartile}
             style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.02)',
+              backgroundColor: 'rgba(255, 255, 255, 0.01)',
               borderRadius: '24px',
               padding: '40px 32px',
-              border: '1px solid rgba(147, 51, 234, 0.2)',
+              border: '1px solid rgba(255, 255, 255, 0.05)',
               cursor: 'pointer',
               transition: 'all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
               position: 'relative',
-              overflow: 'hidden'
+              overflow: 'hidden',
+              boxShadow: '0 0 20px rgba(147, 51, 234, 0.05)'
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(147, 51, 234, 0.5)';
-              (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(147, 51, 234, 0.05)';
+              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(147, 51, 234, 0.3)';
+              (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(147, 51, 234, 0.02)';
               (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-8px)';
+              (e.currentTarget as HTMLDivElement).style.boxShadow = '0 0 30px rgba(147, 51, 234, 0.15)';
             }}
             onMouseLeave={(e) => {
-              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(147, 51, 234, 0.2)';
-              (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(255, 255, 255, 0.02)';
+              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255, 255, 255, 0.05)';
+              (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(255, 255, 255, 0.01)';
               (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
+              (e.currentTarget as HTMLDivElement).style.boxShadow = '0 0 20px rgba(147, 51, 234, 0.05)';
             }}
             onClick={() => window.open(`/reports/journal-${item.quartile}-analysis.html`, '_blank')}
           >
