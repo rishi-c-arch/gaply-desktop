@@ -16,20 +16,14 @@ const AcademicAIRemoverPage: React.FC = () => {
     setRemoverResult('Processing...');
 
     try {
-      // Generate a temporary document ID for this request
-      const documentId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      
-      // Call backend API for paraphrasing
-      const response = await fetch(`${API_BASE_URL}/api/v1/paraphrase`, {
+      // Call backend API for direct paraphrasing (only requires 'text' field)
+      const response = await fetch(`${API_BASE_URL}/api/v1/paraphrase/direct`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          document_id: documentId,
-          text: removerText,
-          enhancement_level: 'high',
-          preserve_citations: false
+          text: removerText
         }),
       });
 
