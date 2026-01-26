@@ -15,17 +15,202 @@
   --accent-yellow: #f59e0b;
   --transition-fast: 0.3s ease;
   --transition-smooth: 0.75s ease;
+  --app-bg: #000000;
+  --app-text: #ffffff;
+  --header-bg: rgba(0, 0, 0, 0.8);
+  --header-border: rgba(255, 255, 255, 0.1);
+  --header-text: #ffffff;
+  --header-link-hover: rgba(255,255,255,0.1);
+  --toggle-bg: rgba(255,255,255,0.08);
+  --toggle-border: rgba(255,255,255,0.2);
+  --section-bg: #000000;
+  --section-text: #ffffff;
+  --muted-text: rgba(255,255,255,0.7);
+  --divider: rgba(255,255,255,0.3);
+  --card-bg: #050505;
+  --card-bg-hover: #0a0a0a;
+  --card-border: rgba(255,255,255,0.1);
+  --card-border-hover: rgba(255,255,255,0.2);
+  --card-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+  --card-shadow-hover: 0 28px 70px rgba(255, 255, 255, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.2);
+  --media-bg: linear-gradient(135deg, #1a1a1a 0%, #000000 100%);
+  --media-overlay: linear-gradient(135deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.4) 100%);
+  --badge-bg: rgba(255, 255, 255, 0.12);
+  --badge-border: rgba(255, 255, 255, 0.2);
+  --badge-text: #ffffff;
+  --content-bg: linear-gradient(135deg, #0a0a0a 0%, #000000 100%);
+  --button-text: #ffffff;
+  --button-border: rgba(255, 255, 255, 0.3);
+  --button-border-hover: rgba(255, 255, 255, 0.6);
+  --button-bg: transparent;
+  --button-bg-hover: rgba(255, 255, 255, 0.1);
+  --card-glow: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+  --hero-bg: radial-gradient(120% 120% at 70% 40%, rgba(255, 255, 255, 0.06), transparent 55%),
+    linear-gradient(180deg, #070707 0%, #0c0c0c 45%, #000000 100%);
+  --hero-title: #ffffff;
+  --hero-title-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  --hero-cta-bg: linear-gradient(180deg, #f5f5f5 0%, #d9d9d9 100%);
+  --hero-cta-bg-hover: linear-gradient(180deg, #ffffff 0%, #d0d0d0 100%);
+  --hero-cta-text: #111111;
+  --hero-cta-border: rgba(255, 255, 255, 0.18);
+  --hero-globe-shadow: 0 28px 80px rgba(0, 0, 0, 0.7), 0 10px 30px rgba(255, 255, 255, 0.06);
+  --transition-bg: linear-gradient(180deg, #000000 0%, #1a1a1a 100%);
+  --tooltip-bg: rgba(17, 24, 39, 0.6);
+  --tooltip-border: rgba(255,255,255,0.1);
+  --qa-center: #0b0f18;
+  --qa-ring: rgba(255,255,255,0.08);
+  --donut-base: #0e1424;
+  --qa-track: rgba(255,255,255,0.14);
+  --donut-fallback: rgba(255,255,255,0.9);
+  --qa-title: #ffffff;
+  --hire-bg: linear-gradient(135deg, #000000 0%, #0a0a0a 50%, #000000 100%);
+  --hire-text: #ffffff;
+  --hire-muted: rgba(255, 255, 255, 0.7);
+  --hire-card-bg: #0b0b0b;
+  --hire-card-border: rgba(255, 255, 255, 0.12);
+  --hire-card-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  --hire-card-shadow-hover: 0 20px 60px rgba(255, 255, 255, 0.2);
+  --hire-accent-1: rgba(0, 122, 255, 0.12);
+  --hire-accent-2: rgba(88, 86, 214, 0.12);
+  --hire-particle: rgba(255, 255, 255, 0.3);
+  --hire-surface: rgba(255, 255, 255, 0.05);
+  --hire-surface-border: rgba(255, 255, 255, 0.1);
+  --hire-input-bg: rgba(255, 255, 255, 0.03);
+  --hire-input-border: rgba(255, 255, 255, 0.15);
+  --hire-input-placeholder: rgba(255, 255, 255, 0.45);
+  --hire-badge-bg: rgba(255, 255, 255, 0.15);
+  --hire-badge-border: rgba(255, 255, 255, 0.3);
+  --hire-button-text: #ffffff;
+  --hire-button-border: rgba(255, 255, 255, 0.3);
+  --hire-button-hover-bg: rgba(255, 255, 255, 0.1);
+  --hire-button-hover-border: rgba(255, 255, 255, 0.6);
+  --hire-photo-border: rgba(255, 255, 255, 0.2);
+  --hire-photo-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --footer-bg: linear-gradient(180deg, #0b0f1a 0%, #0a0a0a 100%);
+  --footer-text: #e5e7eb;
+  --footer-border: rgba(255,255,255,0.06);
+  --footer-seam: linear-gradient(180deg, rgba(250,250,250,0) 0%, rgba(16,16,16,0.10) 45%, rgba(12,12,12,0.25) 70%, rgba(10,10,10,0.45) 100%);
+}
+
+html[data-theme="light"] {
+  --app-bg: #F2F0EF;
+  --app-text: #0b0b0b;
+  --header-bg: rgba(242, 240, 239, 0.92);
+  --header-border: rgba(15, 23, 42, 0.08);
+  --header-text: #0b0b0b;
+  --header-link-hover: rgba(0,0,0,0.06);
+  --toggle-bg: rgba(0,0,0,0.06);
+  --toggle-border: rgba(15, 23, 42, 0.12);
+  --section-bg: #F2F0EF;
+  --section-text: #0b0b0b;
+  --muted-text: rgba(11,11,11,0.65);
+  --divider: rgba(11,11,11,0.15);
+  --card-bg: #ffffff;
+  --card-bg-hover: #f7f5f4;
+  --card-border: rgba(15, 23, 42, 0.12);
+  --card-border-hover: rgba(15, 23, 42, 0.2);
+  --card-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+  --card-shadow-hover: 0 26px 60px rgba(15, 23, 42, 0.18);
+  --media-bg: linear-gradient(135deg, #ffffff 0%, #ece9e7 100%);
+  --media-overlay: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(0,0,0,0.08) 100%);
+  --badge-bg: rgba(15, 23, 42, 0.06);
+  --badge-border: rgba(15, 23, 42, 0.12);
+  --badge-text: #0b0b0b;
+  --content-bg: linear-gradient(135deg, #ffffff 0%, #f5f2f0 100%);
+  --button-text: #0b0b0b;
+  --button-border: rgba(15, 23, 42, 0.2);
+  --button-border-hover: rgba(15, 23, 42, 0.4);
+  --button-bg: transparent;
+  --button-bg-hover: rgba(15, 23, 42, 0.06);
+  --card-glow: linear-gradient(135deg, rgba(15, 23, 42, 0.06) 0%, rgba(15, 23, 42, 0.02) 100%);
+  --hero-bg: radial-gradient(120% 120% at 70% 40%, rgba(0, 0, 0, 0.05), transparent 60%),
+    linear-gradient(180deg, #f8f5f3 0%, #f2f0ef 55%, #ece9e7 100%);
+  --hero-title: #0b0b0b;
+  --hero-title-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+  --hero-cta-bg: linear-gradient(180deg, #121212 0%, #0b0b0b 100%);
+  --hero-cta-bg-hover: linear-gradient(180deg, #1d1d1d 0%, #0b0b0b 100%);
+  --hero-cta-text: #ffffff;
+  --hero-cta-border: rgba(15, 23, 42, 0.12);
+  --hero-globe-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+  --transition-bg: linear-gradient(180deg, #f2f0ef 0%, #ece9e7 100%);
+  --tooltip-bg: rgba(255,255,255,0.9);
+  --tooltip-border: rgba(15, 23, 42, 0.12);
+  --qa-center: #f7f5f4;
+  --qa-ring: rgba(15, 23, 42, 0.1);
+  --donut-base: #e7e4e1;
+  --qa-track: rgba(15, 23, 42, 0.14);
+  --donut-fallback: rgba(15, 23, 42, 0.85);
+  --qa-title: #0b0b0b;
+  --hire-bg: linear-gradient(135deg, #f6f3f1 0%, #f2f0ef 50%, #ece9e7 100%);
+  --hire-text: #0b0b0b;
+  --hire-muted: rgba(11, 11, 11, 0.6);
+  --hire-card-bg: #ffffff;
+  --hire-card-border: rgba(15, 23, 42, 0.12);
+  --hire-card-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  --hire-card-shadow-hover: 0 20px 50px rgba(15, 23, 42, 0.18);
+  --hire-accent-1: rgba(0, 122, 255, 0.08);
+  --hire-accent-2: rgba(88, 86, 214, 0.08);
+  --hire-particle: rgba(15, 23, 42, 0.18);
+  --hire-surface: #ffffff;
+  --hire-surface-border: rgba(15, 23, 42, 0.1);
+  --hire-input-bg: rgba(15, 23, 42, 0.04);
+  --hire-input-border: rgba(15, 23, 42, 0.14);
+  --hire-input-placeholder: rgba(15, 23, 42, 0.45);
+  --hire-badge-bg: rgba(15, 23, 42, 0.06);
+  --hire-badge-border: rgba(15, 23, 42, 0.2);
+  --hire-button-text: #0b0b0b;
+  --hire-button-border: rgba(15, 23, 42, 0.2);
+  --hire-button-hover-bg: rgba(15, 23, 42, 0.08);
+  --hire-button-hover-border: rgba(15, 23, 42, 0.4);
+  --hire-photo-border: rgba(15, 23, 42, 0.18);
+  --hire-photo-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  --footer-bg: linear-gradient(180deg, #f6f4f2 0%, #ece9e7 100%);
+  --footer-text: #0b0b0b;
+  --footer-border: rgba(15, 23, 42, 0.08);
+  --footer-seam: linear-gradient(180deg, rgba(255,255,255,0.6) 0%, rgba(242,240,239,0.9) 55%, rgba(236,233,231,1) 100%);
 }
 
 body {
   font-family: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif';
-  background: #000000;
-  color: #ffffff;
+  background: var(--app-bg);
+  color: var(--app-text);
   overflow-x: hidden;
   margin: 0;
   padding: 0;
+  transition: background-color 0.6s ease, color 0.6s ease;
 }
 
+.App {
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-family: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif';
+  overflow-x: hidden;
+  transition: background-color 0.6s ease, color 0.6s ease;
+}
+
+.theme-toggle {
+  border-radius: 999px;
+  border: 1px solid var(--toggle-border);
+  background: var(--toggle-bg);
+  color: var(--header-text);
+  font-weight: 600;
+  letter-spacing: .02em;
+  cursor: pointer;
+  transition: transform 0.35s ease, box-shadow 0.35s ease, background-color 0.35s ease, color 0.35s ease;
+  transform: perspective(700px) rotateX(0deg);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+  padding: 8px 12px;
+}
+
+.theme-toggle:hover {
+  transform: perspective(700px) rotateX(8deg) translateY(-2px);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.28);
+}
+
+.theme-toggle:active {
+  transform: perspective(700px) rotateX(0deg) translateY(0);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+}
 html {
   scroll-behavior: smooth;
 }

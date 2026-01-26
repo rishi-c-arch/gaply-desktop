@@ -7,12 +7,6 @@ const FreeFeatures3D: React.FC = () => {
 
   const portfolioItems = [
     {
-      id: 'remover',
-      title: 'Academic AI Remover',
-      videoSrc: '/videos/A.mov',
-      description: 'Transform AI text to scholarly excellence'
-    },
-    {
       id: 'search',
       title: 'Research Paper Search',
       videoSrc: '/videos/P.mov',
@@ -31,9 +25,6 @@ const FreeFeatures3D: React.FC = () => {
     
     // Navigate to the appropriate feature page
     switch (itemId) {
-      case 'remover':
-        navigate('/academic-ai-remover');
-        break;
       case 'search':
         navigate('/paper-search');
         break;
@@ -48,27 +39,35 @@ const FreeFeatures3D: React.FC = () => {
   return (
     <div style={{ 
       minHeight: '80vh', 
-      backgroundColor: '#000000', 
-      padding: window.innerWidth <= 768 ? '60px 20px' : '80px 40px',
-      color: 'white',
+      backgroundColor: 'var(--section-bg)', 
+      padding: 'clamp(56px, 6vw, 90px) clamp(20px, 5vw, 48px)',
+      color: 'var(--section-text)',
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif'
     }}>
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: window.innerWidth <= 768 ? '40px' : '60px' }}>
+      <div style={{ 
+        textAlign: 'center', 
+        marginBottom: 'clamp(28px, 5vw, 64px)',
+        maxWidth: 'min(92vw, 960px)',
+        marginLeft: 'auto',
+        marginRight: 'auto',
+        padding: '0 6px'
+      }}>
         <h2 style={{ 
-          fontSize: window.innerWidth <= 480 ? 'clamp(1.6rem, 6.4vw, 2.4rem)' : window.innerWidth <= 768 ? 'clamp(2rem, 4.8vw, 3.2rem)' : '4rem', 
+          fontSize: 'clamp(1.6rem, 4.2vw, 3.4rem)', 
           fontWeight: '300',
           letterSpacing: '-0.02em',
-          marginBottom: '30px',
-          color: '#ffffff',
-          lineHeight: '1.1'
+          marginBottom: 'clamp(16px, 3vw, 28px)',
+          color: 'var(--section-text)',
+          lineHeight: '1.15',
+          wordBreak: 'break-word'
         }}>
           Discover Our Free Features
         </h2>
         <div style={{
-          width: window.innerWidth <= 768 ? '40px' : '60px',
+          width: 'clamp(36px, 6vw, 64px)',
           height: '1px',
-          backgroundColor: '#ffffff',
+          backgroundColor: 'var(--divider)',
           margin: '0 auto',
           opacity: '0.3'
         }} />
@@ -76,39 +75,32 @@ const FreeFeatures3D: React.FC = () => {
 
       {/* Cards Container */}
       <div style={{ 
-        maxWidth: '1400px', 
+        maxWidth: '1000px', 
         margin: '0 auto',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        gap: '40px',
-        perspective: '1000px'
+        width: '100%',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+        gap: 'clamp(16px, 3.5vw, 32px)',
+        alignItems: 'stretch'
       }}>
-        {portfolioItems.map((item, index) => {
-          const isMiddle = index === 1;
-          const isLeft = index === 0;
-          
+        {portfolioItems.map((item) => {
           return (
             <div
               key={item.id}
               style={{
-                backgroundColor: '#000000',
-                borderRadius: '24px',
+                backgroundColor: 'var(--card-bg)',
+                borderRadius: '20px',
                 overflow: 'hidden',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
+                border: '1px solid var(--card-border)',
                 cursor: 'pointer',
                 transition: 'all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-                transform: isMiddle 
-                  ? 'translateZ(20px) scale(1.05)' 
-                  : isLeft 
-                    ? 'translateZ(-10px) translateX(-20px) scale(0.95)' 
-                    : 'translateZ(-10px) translateX(20px) scale(0.95)',
-                boxShadow: isMiddle 
-                  ? '0 40px 80px rgba(255, 255, 255, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.2)' 
-                  : '0 20px 40px rgba(0, 0, 0, 0.4)',
+                transform: hoveredCard === item.id ? 'translateY(-6px)' : 'translateY(0)',
+                boxShadow: hoveredCard === item.id
+                  ? 'var(--card-shadow-hover)' 
+                  : 'var(--card-shadow)',
                 position: 'relative',
-                width: '320px',
-                opacity: isMiddle ? '1' : '0.9'
+                width: '100%',
+                opacity: '1'
               }}
               onMouseEnter={() => setHoveredCard(item.id)}
               onMouseLeave={() => setHoveredCard(null)}
@@ -117,9 +109,9 @@ const FreeFeatures3D: React.FC = () => {
             {/* Video Section */}
             <div style={{ 
               position: 'relative', 
-              height: window.innerWidth <= 480 ? '180px' : window.innerWidth <= 768 ? '220px' : '280px', 
+              height: 'clamp(160px, 22vw, 250px)', 
               overflow: 'hidden',
-              background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)'
+              background: 'var(--media-bg)'
             }}>
               <video
                 style={{
@@ -148,7 +140,7 @@ const FreeFeatures3D: React.FC = () => {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                background: 'linear-gradient(135deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.4) 100%)',
+                background: 'var(--media-overlay)',
                 transition: 'opacity 0.6s ease',
                 opacity: hoveredCard === item.id ? '0.3' : '0.6'
               }} />
@@ -157,17 +149,17 @@ const FreeFeatures3D: React.FC = () => {
               {/* Elegant FREE Badge */}
               <div style={{
                 position: 'absolute',
-                top: '24px',
-                right: '24px',
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                color: 'white',
-                padding: '8px 16px',
+                top: '20px',
+                right: '20px',
+                backgroundColor: 'var(--badge-bg)',
+                color: 'var(--badge-text)',
+                padding: '6px 14px',
                 borderRadius: '20px',
-                fontSize: '12px',
-                fontWeight: '500',
-                letterSpacing: '0.5px',
+                fontSize: '11px',
+                fontWeight: '600',
+                letterSpacing: '0.6px',
                 backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
+                border: '1px solid var(--badge-border)',
                 textTransform: 'uppercase'
               }}>
                 Free
@@ -176,16 +168,16 @@ const FreeFeatures3D: React.FC = () => {
 
             {/* Content Section */}
             <div style={{ 
-              padding: '32px',
-              background: 'linear-gradient(135deg, #0a0a0a 0%, #000000 100%)',
-              borderTop: '1px solid rgba(255, 255, 255, 0.05)'
+              padding: 'clamp(18px, 3vw, 28px)',
+              background: 'var(--content-bg)',
+              borderTop: '1px solid var(--divider)'
             }}>
               {/* Feature Name */}
               <h3 style={{ 
-                fontSize: '1.5rem', 
+                fontSize: 'clamp(1.05rem, 2vw, 1.3rem)', 
                 fontWeight: '400', 
                 marginBottom: '12px',
-                color: '#ffffff',
+                color: 'var(--section-text)',
                 letterSpacing: '-0.01em',
                 lineHeight: '1.3',
                 transition: 'color 0.6s ease'
@@ -195,10 +187,10 @@ const FreeFeatures3D: React.FC = () => {
               
               {/* Description */}
               <p style={{ 
-                color: 'rgba(255, 255, 255, 0.7)', 
-                marginBottom: '32px',
-                fontSize: '1rem',
-                lineHeight: '1.6',
+                color: 'var(--muted-text)', 
+                marginBottom: 'clamp(18px, 3vw, 28px)',
+                fontSize: 'clamp(0.85rem, 1.6vw, 0.95rem)',
+                lineHeight: '1.55',
                 fontWeight: '300',
                 letterSpacing: '0.01em'
               }}>
@@ -206,32 +198,33 @@ const FreeFeatures3D: React.FC = () => {
               </p>
 
               {/* Elegant Button */}
-              <button style={{
-                width: '100%',
-                backgroundColor: 'transparent',
-                color: '#ffffff',
-                border: '1px solid rgba(255, 255, 255, 0.3)',
-                padding: '16px 32px',
-                borderRadius: '12px',
-                fontSize: '14px',
-                fontWeight: '500',
-                letterSpacing: '0.5px',
-                cursor: 'pointer',
-                transition: 'all 0.6s ease',
-                textTransform: 'uppercase',
-                position: 'relative',
-                overflow: 'hidden'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.6)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
-                e.currentTarget.style.transform = 'translateY(0)';
-              }}
+              <button
+                style={{
+                  width: '100%',
+                  backgroundColor: 'var(--button-bg)',
+                  color: 'var(--button-text)',
+                  border: '1px solid var(--button-border)',
+                  padding: '12px 24px',
+                  borderRadius: '10px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  letterSpacing: '0.5px',
+                  cursor: 'pointer',
+                  transition: 'all 0.6s ease',
+                  textTransform: 'uppercase',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'var(--button-bg-hover)';
+                  e.currentTarget.style.borderColor = 'var(--button-border-hover)';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'var(--button-bg)';
+                  e.currentTarget.style.borderColor = 'var(--button-border)';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
               >
                 Explore Feature
               </button>
@@ -245,7 +238,7 @@ const FreeFeatures3D: React.FC = () => {
               right: 0,
               bottom: 0,
               borderRadius: '24px',
-              background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
+              background: 'var(--card-glow)',
               opacity: hoveredCard === item.id ? '1' : '0',
               transition: 'opacity 0.6s ease',
               pointerEvents: 'none'
@@ -258,13 +251,13 @@ const FreeFeatures3D: React.FC = () => {
       {/* Elegant Footer */}
       <div style={{ 
         textAlign: 'center', 
-        marginTop: '60px',
-        paddingTop: '60px',
-        borderTop: '1px solid rgba(255, 255, 255, 0.1)'
+        marginTop: 'clamp(40px, 6vw, 70px)',
+        paddingTop: 'clamp(36px, 5vw, 60px)',
+        borderTop: '1px solid var(--divider)'
       }}>
         <p style={{ 
-          color: 'rgba(255, 255, 255, 0.5)', 
-          fontSize: '1rem',
+          color: 'var(--muted-text)', 
+          fontSize: 'clamp(0.9rem, 2vw, 1rem)',
           fontWeight: '300',
           letterSpacing: '0.02em'
         }}>

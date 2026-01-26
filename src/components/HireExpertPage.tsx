@@ -36,8 +36,8 @@ const HireExpertPage: React.FC = () => {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #000000 0%, #0A0A0A 50%, #000000 100%)',
-      color: '#ffffff',
+      background: 'var(--hire-bg)',
+      color: 'var(--hire-text)',
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
       display: 'flex',
       flexDirection: 'column',
@@ -56,7 +56,7 @@ const HireExpertPage: React.FC = () => {
         left: 0,
         right: 0,
         bottom: 0,
-        background: 'radial-gradient(circle at 30% 20%, rgba(0, 122, 255, 0.1) 0%, transparent 50%), radial-gradient(circle at 70% 80%, rgba(88, 86, 214, 0.1) 0%, transparent 50%)',
+        background: 'radial-gradient(circle at 30% 20%, var(--hire-accent-1) 0%, transparent 50%), radial-gradient(circle at 70% 80%, var(--hire-accent-2) 0%, transparent 50%)',
         pointerEvents: 'none'
       }} />
       
@@ -76,7 +76,7 @@ const HireExpertPage: React.FC = () => {
               position: 'absolute',
               width: '2px',
               height: '2px',
-              background: 'rgba(255, 255, 255, 0.3)',
+              background: 'var(--hire-particle)',
               borderRadius: '50%',
               left: `${Math.random() * 100}%`,
               top: `${Math.random() * 100}%`,
@@ -102,7 +102,7 @@ const HireExpertPage: React.FC = () => {
                    fontSize: 'clamp(2rem, 4vw, 2.5rem)',
                    fontWeight: '600',
                    marginBottom: '16px',
-                   color: '#ffffff',
+                  color: 'var(--hire-text)',
                    letterSpacing: '-0.02em',
                    lineHeight: '1.2',
                    margin: '0 0 16px 0'
@@ -111,7 +111,7 @@ const HireExpertPage: React.FC = () => {
                  </h1>
                  <p style={{
                    fontSize: 'clamp(0.9rem, 2vw, 1.1rem)',
-                   color: 'rgba(255, 255, 255, 0.6)',
+                  color: 'var(--hire-muted)',
                    lineHeight: '1.4',
                    fontWeight: '400',
                    letterSpacing: '-0.01em',
@@ -147,7 +147,7 @@ const HireExpertPage: React.FC = () => {
                <div style={{
                  marginTop: '80px',
                  padding: '0px 20px 60px 20px',
-                 color: 'white',
+                color: 'var(--hire-text)',
                  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif',
                  width: '100%',
                  maxWidth: '1200px',
@@ -158,38 +158,40 @@ const HireExpertPage: React.FC = () => {
                  <div style={{ 
                    maxWidth: '1200px', 
                    margin: '0 auto',
-                   display: 'flex',
-                   justifyContent: 'center',
-                   alignItems: 'center',
-                   gap: '30px',
+                   width: '100%',
+                   display: 'grid',
+                   gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                   gap: 'clamp(16px, 3vw, 28px)',
+                   alignItems: 'stretch',
                    perspective: '1200px',
                    transformStyle: 'preserve-3d'
                  }}>
                    {/* Prakhar Singh - Center */}
                    <div style={{
-                     backgroundColor: '#000000',
+                    backgroundColor: 'var(--hire-card-bg)',
                      borderRadius: '20px',
                      overflow: 'hidden',
-                     border: '1px solid rgba(255, 255, 255, 0.12)',
+                    border: '1px solid var(--hire-card-border)',
                      cursor: 'pointer',
                      transition: 'all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
                      transform: 'translateZ(0px) scale(1)',
-                     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+                    boxShadow: 'var(--hire-card-shadow)',
                      position: 'relative',
-                     width: '300px',
-                     maxWidth: '300px',
+                    width: '100%',
+                    maxWidth: '320px',
+                    margin: '0 auto',
                      opacity: '1',
                      zIndex: 2
                    }}
                    onMouseEnter={(e) => {
                      e.currentTarget.style.transform = 'translateZ(20px) scale(1.05)';
-                     e.currentTarget.style.boxShadow = '0 20px 60px rgba(255, 255, 255, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.3)';
+                    e.currentTarget.style.boxShadow = 'var(--hire-card-shadow-hover)';
                      e.currentTarget.style.opacity = '1';
                      e.currentTarget.style.zIndex = '10';
                    }}
                    onMouseLeave={(e) => {
                      e.currentTarget.style.transform = 'translateZ(0px) scale(1)';
-                     e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.3)';
+                    e.currentTarget.style.boxShadow = 'var(--hire-card-shadow)';
                      e.currentTarget.style.opacity = '1';
                      e.currentTarget.style.zIndex = '2';
                    }}
@@ -199,7 +201,7 @@ const HireExpertPage: React.FC = () => {
                        position: 'relative', 
                        height: '200px',
                        overflow: 'hidden',
-                       background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
+                      background: 'var(--hire-surface)',
                        display: 'flex',
                        alignItems: 'center',
                        justifyContent: 'center'
@@ -212,8 +214,8 @@ const HireExpertPage: React.FC = () => {
                            height: '120px',
                            borderRadius: '50%',
                            objectFit: 'cover',
-                           border: '3px solid rgba(255, 255, 255, 0.2)',
-                           boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                           border: '3px solid var(--hire-photo-border)',
+                           boxShadow: 'var(--hire-photo-shadow)'
                          }}
                          onError={(e) => {
                            e.currentTarget.style.display = 'none';
@@ -227,15 +229,15 @@ const HireExpertPage: React.FC = () => {
                          width: '120px',
                          height: '120px',
                          borderRadius: '50%',
-                         background: 'rgba(255, 255, 255, 0.1)',
+                        background: 'var(--hire-input-bg)',
                          display: 'none',
                          alignItems: 'center',
                          justifyContent: 'center',
                          fontSize: '28px',
                          fontWeight: '700',
-                         color: '#ffffff',
-                         border: '3px solid rgba(255, 255, 255, 0.2)',
-                         boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                        color: 'var(--hire-text)',
+                        border: '3px solid var(--hire-photo-border)',
+                        boxShadow: 'var(--hire-photo-shadow)'
                        }}>
                          PS
                        </div>
@@ -245,15 +247,15 @@ const HireExpertPage: React.FC = () => {
                          position: 'absolute',
                          top: '16px',
                          right: '16px',
-                         backgroundColor: 'rgba(255, 255, 255, 0.15)',
-                         color: 'white',
+                        backgroundColor: 'var(--hire-badge-bg)',
+                        color: 'var(--hire-text)',
                          padding: '6px 12px',
                          borderRadius: '12px',
                          fontSize: '10px',
                          fontWeight: '600',
                          letterSpacing: '0.5px',
                          backdropFilter: 'blur(20px)',
-                         border: '1px solid rgba(255, 255, 255, 0.3)',
+                        border: '1px solid var(--hire-badge-border)',
                          textTransform: 'uppercase'
                        }}>
                          Expert
@@ -263,14 +265,14 @@ const HireExpertPage: React.FC = () => {
                      {/* Content Section */}
                      <div style={{ 
                        padding: '24px',
-                       background: 'linear-gradient(135deg, #0a0a0a 0%, #000000 100%)',
-                       borderTop: '1px solid rgba(255, 255, 255, 0.08)'
+                      background: 'var(--hire-card-bg)',
+                      borderTop: '1px solid var(--hire-surface-border)'
                      }}>
                        <h3 style={{ 
                          fontSize: '1.4rem',
                          fontWeight: '600', 
                          marginBottom: '12px',
-                         color: '#ffffff',
+                        color: 'var(--hire-text)',
                          letterSpacing: '-0.01em',
                          lineHeight: '1.3'
                        }}>
@@ -278,7 +280,7 @@ const HireExpertPage: React.FC = () => {
                        </h3>
                        
                        <p style={{ 
-                         color: 'rgba(255, 255, 255, 0.8)', 
+                        color: 'var(--hire-muted)', 
                          marginBottom: '20px',
                          fontSize: '0.95rem',
                          lineHeight: '1.5',
@@ -291,8 +293,8 @@ const HireExpertPage: React.FC = () => {
                       <button style={{
                         width: '100%',
                         backgroundColor: 'transparent',
-                        color: '#ffffff',
-                        border: '1px solid rgba(255, 255, 255, 0.3)',
+                        color: 'var(--hire-button-text)',
+                        border: '1px solid var(--hire-button-border)',
                         padding: '14px 24px',
                         borderRadius: '12px',
                         fontSize: '12px',
@@ -318,13 +320,13 @@ const HireExpertPage: React.FC = () => {
                         created_at: new Date().toISOString()
                       })}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.6)';
+                        e.currentTarget.style.backgroundColor = 'var(--hire-button-hover-bg)';
+                        e.currentTarget.style.borderColor = 'var(--hire-button-hover-border)';
                         e.currentTarget.style.transform = 'translateY(-2px)';
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.backgroundColor = 'transparent';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                        e.currentTarget.style.borderColor = 'var(--hire-button-border)';
                         e.currentTarget.style.transform = 'translateY(0)';
                       }}
                       >
@@ -335,29 +337,30 @@ const HireExpertPage: React.FC = () => {
 
                    {/* Anurag Singh - Right */}
                    <div style={{
-                     backgroundColor: '#000000',
+                    backgroundColor: 'var(--hire-card-bg)',
                      borderRadius: '20px',
                      overflow: 'hidden',
-                     border: '1px solid rgba(255, 255, 255, 0.12)',
+                    border: '1px solid var(--hire-card-border)',
                      cursor: 'pointer',
                      transition: 'all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
                      transform: 'translateZ(0px) scale(1)',
-                     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+                    boxShadow: 'var(--hire-card-shadow)',
                      position: 'relative',
-                     width: '300px',
-                     maxWidth: '300px',
+                    width: '100%',
+                    maxWidth: '320px',
+                    margin: '0 auto',
                      opacity: '1',
                      zIndex: 2
                    }}
                    onMouseEnter={(e) => {
                      e.currentTarget.style.transform = 'translateZ(20px) scale(1.05)';
-                     e.currentTarget.style.boxShadow = '0 20px 60px rgba(255, 255, 255, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.3)';
+                    e.currentTarget.style.boxShadow = 'var(--hire-card-shadow-hover)';
                      e.currentTarget.style.opacity = '1';
                      e.currentTarget.style.zIndex = '10';
                    }}
                    onMouseLeave={(e) => {
                      e.currentTarget.style.transform = 'translateZ(0px) scale(1)';
-                     e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.3)';
+                    e.currentTarget.style.boxShadow = 'var(--hire-card-shadow)';
                      e.currentTarget.style.opacity = '1';
                      e.currentTarget.style.zIndex = '2';
                    }}
@@ -367,7 +370,7 @@ const HireExpertPage: React.FC = () => {
                        position: 'relative', 
                        height: '200px',
                        overflow: 'hidden',
-                       background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
+                      background: 'var(--hire-surface)',
                        display: 'flex',
                        alignItems: 'center',
                        justifyContent: 'center'
@@ -380,8 +383,8 @@ const HireExpertPage: React.FC = () => {
                            height: '120px',
                            borderRadius: '50%',
                            objectFit: 'cover',
-                           border: '3px solid rgba(255, 255, 255, 0.2)',
-                           boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                           border: '3px solid var(--hire-photo-border)',
+                           boxShadow: 'var(--hire-photo-shadow)'
                          }}
                          onError={(e) => {
                            e.currentTarget.style.display = 'none';
@@ -395,15 +398,15 @@ const HireExpertPage: React.FC = () => {
                          width: '120px',
                          height: '120px',
                          borderRadius: '50%',
-                         background: 'rgba(255, 255, 255, 0.1)',
+                        background: 'var(--hire-input-bg)',
                          display: 'none',
                          alignItems: 'center',
                          justifyContent: 'center',
                          fontSize: '28px',
                          fontWeight: '700',
-                         color: '#ffffff',
-                         border: '3px solid rgba(255, 255, 255, 0.2)',
-                         boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                        color: 'var(--hire-text)',
+                        border: '3px solid var(--hire-photo-border)',
+                        boxShadow: 'var(--hire-photo-shadow)'
                        }}>
                          AS
                        </div>
@@ -413,15 +416,15 @@ const HireExpertPage: React.FC = () => {
                          position: 'absolute',
                          top: '16px',
                          right: '16px',
-                         backgroundColor: 'rgba(255, 255, 255, 0.15)',
-                         color: 'white',
+                        backgroundColor: 'var(--hire-badge-bg)',
+                        color: 'var(--hire-text)',
                          padding: '6px 12px',
                          borderRadius: '12px',
                          fontSize: '10px',
                          fontWeight: '600',
                          letterSpacing: '0.5px',
                          backdropFilter: 'blur(20px)',
-                         border: '1px solid rgba(255, 255, 255, 0.3)',
+                        border: '1px solid var(--hire-badge-border)',
                          textTransform: 'uppercase'
                        }}>
                          Expert
@@ -431,14 +434,14 @@ const HireExpertPage: React.FC = () => {
                      {/* Content Section */}
                      <div style={{ 
                        padding: '24px',
-                       background: 'linear-gradient(135deg, #0a0a0a 0%, #000000 100%)',
-                       borderTop: '1px solid rgba(255, 255, 255, 0.08)'
+                      background: 'var(--hire-card-bg)',
+                      borderTop: '1px solid var(--hire-surface-border)'
                      }}>
                        <h3 style={{ 
                          fontSize: '1.4rem',
                          fontWeight: '600', 
                          marginBottom: '12px',
-                         color: '#ffffff',
+                        color: 'var(--hire-text)',
                          letterSpacing: '-0.01em',
                          lineHeight: '1.3'
                        }}>
@@ -446,7 +449,7 @@ const HireExpertPage: React.FC = () => {
                        </h3>
                        
                        <p style={{ 
-                         color: 'rgba(255, 255, 255, 0.8)', 
+                        color: 'var(--hire-muted)', 
                          marginBottom: '20px',
                          fontSize: '0.95rem',
                          lineHeight: '1.5',
@@ -459,8 +462,8 @@ const HireExpertPage: React.FC = () => {
                       <button style={{
                         width: '100%',
                         backgroundColor: 'transparent',
-                        color: '#ffffff',
-                        border: '1px solid rgba(255, 255, 255, 0.3)',
+                        color: 'var(--hire-button-text)',
+                        border: '1px solid var(--hire-button-border)',
                         padding: '14px 24px',
                         borderRadius: '12px',
                         fontSize: '12px',
@@ -486,13 +489,13 @@ const HireExpertPage: React.FC = () => {
                         created_at: new Date().toISOString()
                       })}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.6)';
+                        e.currentTarget.style.backgroundColor = 'var(--hire-button-hover-bg)';
+                        e.currentTarget.style.borderColor = 'var(--hire-button-hover-border)';
                         e.currentTarget.style.transform = 'translateY(-2px)';
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.backgroundColor = 'transparent';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                        e.currentTarget.style.borderColor = 'var(--hire-button-border)';
                         e.currentTarget.style.transform = 'translateY(0)';
                       }}
                       >
@@ -503,29 +506,30 @@ const HireExpertPage: React.FC = () => {
 
                    {/* Piyush Anand - Left */}
                    <div style={{
-                     backgroundColor: '#000000',
+                    backgroundColor: 'var(--hire-card-bg)',
                      borderRadius: '20px',
                      overflow: 'hidden',
-                     border: '1px solid rgba(255, 255, 255, 0.12)',
+                    border: '1px solid var(--hire-card-border)',
                      cursor: 'pointer',
                      transition: 'all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
                      transform: 'translateZ(0px) scale(1)',
-                     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+                    boxShadow: 'var(--hire-card-shadow)',
                      position: 'relative',
-                     width: '300px',
-                     maxWidth: '300px',
+                    width: '100%',
+                    maxWidth: '320px',
+                    margin: '0 auto',
                      opacity: '1',
                      zIndex: 2
                    }}
                    onMouseEnter={(e) => {
                      e.currentTarget.style.transform = 'translateZ(20px) scale(1.05)';
-                     e.currentTarget.style.boxShadow = '0 20px 60px rgba(255, 255, 255, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.3)';
+                    e.currentTarget.style.boxShadow = 'var(--hire-card-shadow-hover)';
                      e.currentTarget.style.opacity = '1';
                      e.currentTarget.style.zIndex = '10';
                    }}
                    onMouseLeave={(e) => {
                      e.currentTarget.style.transform = 'translateZ(0px) scale(1)';
-                     e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.3)';
+                    e.currentTarget.style.boxShadow = 'var(--hire-card-shadow)';
                      e.currentTarget.style.opacity = '1';
                      e.currentTarget.style.zIndex = '2';
                    }}
@@ -535,7 +539,7 @@ const HireExpertPage: React.FC = () => {
                        position: 'relative', 
                        height: '200px',
                        overflow: 'hidden',
-                       background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
+                      background: 'var(--hire-surface)',
                        display: 'flex',
                        alignItems: 'center',
                        justifyContent: 'center'
@@ -548,8 +552,8 @@ const HireExpertPage: React.FC = () => {
                            height: '120px',
                            borderRadius: '50%',
                            objectFit: 'cover',
-                           border: '3px solid rgba(255, 255, 255, 0.2)',
-                           boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                           border: '3px solid var(--hire-photo-border)',
+                           boxShadow: 'var(--hire-photo-shadow)'
                          }}
                          onError={(e) => {
                            e.currentTarget.style.display = 'none';
@@ -563,15 +567,15 @@ const HireExpertPage: React.FC = () => {
                          width: '120px',
                          height: '120px',
                          borderRadius: '50%',
-                         background: 'rgba(255, 255, 255, 0.1)',
+                        background: 'var(--hire-input-bg)',
                          display: 'none',
                          alignItems: 'center',
                          justifyContent: 'center',
                          fontSize: '28px',
                          fontWeight: '700',
-                         color: '#ffffff',
-                         border: '3px solid rgba(255, 255, 255, 0.2)',
-                         boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                        color: 'var(--hire-text)',
+                        border: '3px solid var(--hire-photo-border)',
+                        boxShadow: 'var(--hire-photo-shadow)'
                        }}>
                          PA
                        </div>
@@ -581,15 +585,15 @@ const HireExpertPage: React.FC = () => {
                          position: 'absolute',
                          top: '16px',
                          right: '16px',
-                         backgroundColor: 'rgba(255, 255, 255, 0.15)',
-                         color: 'white',
+                        backgroundColor: 'var(--hire-badge-bg)',
+                        color: 'var(--hire-text)',
                          padding: '6px 12px',
                          borderRadius: '12px',
                          fontSize: '10px',
                          fontWeight: '600',
                          letterSpacing: '0.5px',
                          backdropFilter: 'blur(20px)',
-                         border: '1px solid rgba(255, 255, 255, 0.3)',
+                        border: '1px solid var(--hire-badge-border)',
                          textTransform: 'uppercase'
                        }}>
                          Expert
@@ -599,14 +603,14 @@ const HireExpertPage: React.FC = () => {
                      {/* Content Section */}
                      <div style={{ 
                        padding: '24px',
-                       background: 'linear-gradient(135deg, #0a0a0a 0%, #000000 100%)',
-                       borderTop: '1px solid rgba(255, 255, 255, 0.08)'
+                      background: 'var(--hire-card-bg)',
+                      borderTop: '1px solid var(--hire-surface-border)'
                      }}>
                        <h3 style={{ 
                          fontSize: '1.4rem',
                          fontWeight: '600', 
                          marginBottom: '12px',
-                         color: '#ffffff',
+                        color: 'var(--hire-text)',
                          letterSpacing: '-0.01em',
                          lineHeight: '1.3'
                        }}>
@@ -614,7 +618,7 @@ const HireExpertPage: React.FC = () => {
                        </h3>
                        
                        <p style={{ 
-                         color: 'rgba(255, 255, 255, 0.8)', 
+                        color: 'var(--hire-muted)', 
                          marginBottom: '20px',
                          fontSize: '0.95rem',
                          lineHeight: '1.5',
@@ -627,8 +631,8 @@ const HireExpertPage: React.FC = () => {
                       <button style={{
                         width: '100%',
                         backgroundColor: 'transparent',
-                        color: '#ffffff',
-                        border: '1px solid rgba(255, 255, 255, 0.3)',
+                        color: 'var(--hire-button-text)',
+                        border: '1px solid var(--hire-button-border)',
                         padding: '14px 24px',
                         borderRadius: '12px',
                         fontSize: '12px',
@@ -654,13 +658,13 @@ const HireExpertPage: React.FC = () => {
                         created_at: new Date().toISOString()
                       })}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.6)';
+                        e.currentTarget.style.backgroundColor = 'var(--hire-button-hover-bg)';
+                        e.currentTarget.style.borderColor = 'var(--hire-button-hover-border)';
                         e.currentTarget.style.transform = 'translateY(-2px)';
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.backgroundColor = 'transparent';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                        e.currentTarget.style.borderColor = 'var(--hire-button-border)';
                         e.currentTarget.style.transform = 'translateY(0)';
                       }}
                       >

@@ -5,7 +5,7 @@ const HeroToSecondTransition: React.FC = () => {
     <div style={{
       position: 'relative',
       height: '200px',
-      background: 'linear-gradient(180deg, #000000 0%, #1a1a1a 100%)',
+      background: 'var(--transition-bg)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',

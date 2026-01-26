@@ -180,7 +180,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
       left: 0,
       right: 0,
       bottom: 0,
-      background: '#000000',
+      background: 'var(--app-bg)',
       zIndex: 1000,
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
       overflow: 'hidden'
@@ -221,13 +221,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
         padding: '20px'
       }}>
         <div style={{
-          background: 'rgba(255, 255, 255, 0.05)',
+          background: 'var(--card-bg)',
           borderRadius: '20px',
           padding: '40px',
           maxWidth: '400px',
           width: '100%',
           backdropFilter: 'blur(20px)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
+          border: '1px solid var(--card-border)',
           transform: 'translateZ(0)',
           transformStyle: 'preserve-3d',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
@@ -240,7 +240,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
             <h1 style={{
               fontSize: '28px',
               fontWeight: '600',
-              color: '#ffffff',
+              color: 'var(--app-text)',
               margin: '0 0 8px 0',
               letterSpacing: '-0.02em',
               lineHeight: '1.1',
@@ -251,7 +251,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
             <p style={{
               fontSize: '14px',
               fontWeight: '400',
-              color: '#888888',
+              color: 'var(--muted-text)',
               margin: 0,
               lineHeight: '1.3'
             }}>
@@ -270,7 +270,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
                 display: 'block',
                 fontSize: '12px',
                 fontWeight: '500',
-                color: '#ffffff',
+                color: 'var(--app-text)',
                 marginBottom: '6px'
               }}>
                 Email Address
@@ -284,12 +284,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
                 placeholder="Enter your email"
                 style={{
                   width: '100%',
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  background: 'var(--toggle-bg)',
+                  border: '1px solid var(--toggle-border)',
                   borderRadius: '8px',
                   padding: '12px 16px',
                   fontSize: '14px',
-                  color: '#ffffff',
+                  color: 'var(--app-text)',
                   outline: 'none',
                   transition: 'all 0.3s ease',
                   backdropFilter: 'blur(10px)',
@@ -297,13 +297,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
                   transformStyle: 'preserve-3d'
                 }}
                 onFocus={(e) => {
-                  e.currentTarget.style.borderColor = '#007AFF';
-                  e.currentTarget.style.background = 'rgba(0, 122, 255, 0.1)';
+                  e.currentTarget.style.borderColor = 'var(--button-bg)';
+                  e.currentTarget.style.background = 'var(--card-bg)';
                   e.currentTarget.style.transform = 'translateZ(5px) scale(1.02)';
                 }}
                 onBlur={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.borderColor = 'var(--toggle-border)';
+                  e.currentTarget.style.background = 'var(--toggle-bg)';
                   e.currentTarget.style.transform = 'translateZ(0) scale(1)';
                 }}
               />
@@ -314,7 +314,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
                 display: 'block',
                 fontSize: '12px',
                 fontWeight: '500',
-                color: '#ffffff',
+                color: 'var(--app-text)',
                 marginBottom: '6px'
               }}>
                 Password
@@ -328,12 +328,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
                 placeholder="Enter your password"
                 style={{
                   width: '100%',
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  background: 'var(--toggle-bg)',
+                  border: '1px solid var(--toggle-border)',
                   borderRadius: '8px',
                   padding: '12px 16px',
                   fontSize: '14px',
-                  color: '#ffffff',
+                  color: 'var(--app-text)',
                   outline: 'none',
                   transition: 'all 0.3s ease',
                   backdropFilter: 'blur(10px)',
@@ -341,13 +341,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
                   transformStyle: 'preserve-3d'
                 }}
                 onFocus={(e) => {
-                  e.currentTarget.style.borderColor = '#30D158';
-                  e.currentTarget.style.background = 'rgba(48, 209, 88, 0.1)';
+                  e.currentTarget.style.borderColor = 'var(--button-bg)';
+                  e.currentTarget.style.background = 'var(--card-bg)';
                   e.currentTarget.style.transform = 'translateZ(5px) scale(1.02)';
                 }}
                 onBlur={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.borderColor = 'var(--toggle-border)';
+                  e.currentTarget.style.background = 'var(--toggle-bg)';
                   e.currentTarget.style.transform = 'translateZ(0) scale(1)';
                 }}
               />
@@ -372,8 +372,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
               disabled={loading}
               style={{
                 width: '100%',
-                background: loading ? '#FF9500' : '#007AFF',
-                color: 'white',
+                background: loading ? '#FF9500' : 'var(--hero-cta-bg)',
+                color: 'var(--hero-cta-text)',
                 border: 'none',
                 borderRadius: '8px',
                 padding: '12px 20px',
@@ -387,13 +387,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
               }}
               onMouseOver={(e) => {
                 if (!loading) {
-                  e.currentTarget.style.background = '#0056CC';
+                  e.currentTarget.style.background = 'var(--hero-cta-bg-hover)';
                   e.currentTarget.style.transform = 'translateZ(5px) scale(1.02)';
                 }
               }}
               onMouseOut={(e) => {
                 if (!loading) {
-                  e.currentTarget.style.background = '#007AFF';
+                  e.currentTarget.style.background = 'var(--hero-cta-bg)';
                   e.currentTarget.style.transform = 'translateZ(0) scale(1)';
                 }
               }}
@@ -407,11 +407,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
             textAlign: 'center',
             marginTop: '24px',
             paddingTop: '20px',
-            borderTop: '1px solid rgba(255, 255, 255, 0.1)'
+            borderTop: '1px solid var(--divider)'
           }}>
             <p style={{
               fontSize: '12px',
-              color: '#888888',
+              color: 'var(--muted-text)',
               margin: '0 0 12px 0'
             }}>
               Don't have an account?
@@ -420,7 +420,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
               onClick={onSwitchToSignup}
               style={{
                 background: 'transparent',
-                color: '#007AFF',
+                color: 'var(--accent-blue)',
                 border: 'none',
                 fontSize: '14px',
                 fontWeight: '500',
@@ -429,10 +429,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
                 transition: 'all 0.3s ease'
               }}
               onMouseOver={(e) => {
-                e.currentTarget.style.color = '#0056CC';
+                e.currentTarget.style.color = '#2563eb';
               }}
               onMouseOut={(e) => {
-                e.currentTarget.style.color = '#007AFF';
+                e.currentTarget.style.color = 'var(--accent-blue)';
               }}
             >
               Create Account

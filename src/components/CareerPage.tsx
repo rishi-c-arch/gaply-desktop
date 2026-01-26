@@ -61,8 +61,8 @@ const CareerPage: React.FC = () => {
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#000000',
-      color: '#ffffff',
+      background: 'var(--app-bg)',
+      color: 'var(--app-text)',
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
       overflowX: 'hidden'
     }}>
@@ -78,10 +78,10 @@ const CareerPage: React.FC = () => {
         left: 0,
         right: 0,
         zIndex: 1000,
-        background: 'rgba(0, 0, 0, 0.8)',
+        background: 'var(--header-bg)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        borderBottom: '1px solid var(--header-border)',
         padding: '12px 0'
       }}>
         <div style={{
@@ -96,7 +96,7 @@ const CareerPage: React.FC = () => {
             <h1 style={{ 
               margin: 0, 
               fontSize: 18, 
-              color: '#ffffff',
+              color: 'var(--header-text)',
               fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif'
             }}>
               Gaply
@@ -105,11 +105,11 @@ const CareerPage: React.FC = () => {
           <button
             onClick={() => navigate('/')}
             style={{
-              background: 'rgba(255, 255, 255, 0.1)',
-              color: '#ffffff',
+              background: 'var(--toggle-bg)',
+              color: 'var(--app-text)',
               padding: '10px 20px',
               borderRadius: '12px',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
+              border: '1px solid var(--toggle-border)',
               cursor: 'pointer',
               fontSize: '1rem',
               fontWeight: '500',
@@ -117,8 +117,14 @@ const CareerPage: React.FC = () => {
               backdropFilter: 'blur(10px)',
               WebkitBackdropFilter: 'blur(10px)'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--button-bg-hover)';
+              e.currentTarget.style.borderColor = 'var(--button-border-hover)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--toggle-bg)';
+              e.currentTarget.style.borderColor = 'var(--toggle-border)';
+            }}
           >
             Back to Home
           </button>
@@ -128,15 +134,15 @@ const CareerPage: React.FC = () => {
       {/* Hero Section */}
       <div style={{
         paddingTop: '120px',
-        paddingBottom: '80px',
+        paddingBottom: 'clamp(56px, 8vw, 96px)',
         textAlign: 'center',
-        background: 'linear-gradient(135deg, #000000 0%, #1a1a1a 100%)'
+        background: 'var(--hero-bg)'
       }}>
-        <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '0 40px' }}>
+        <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '0 clamp(16px, 4vw, 40px)' }}>
           <h1 style={{
             fontSize: 'clamp(3rem, 6vw, 5rem)',
             fontWeight: '700',
-            color: '#ffffff',
+            color: 'var(--hero-title)',
             marginBottom: '24px',
             letterSpacing: '-0.02em',
             lineHeight: '1.1'
@@ -145,7 +151,7 @@ const CareerPage: React.FC = () => {
           </h1>
           <p style={{
             fontSize: 'clamp(1.2rem, 2.5vw, 1.8rem)',
-            color: 'rgba(255, 255, 255, 0.8)',
+            color: 'var(--muted-text)',
             marginBottom: '40px',
             lineHeight: '1.4',
             fontWeight: '300'
@@ -155,7 +161,7 @@ const CareerPage: React.FC = () => {
           <div style={{
             width: '80px',
             height: '2px',
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--divider)',
             margin: '0 auto',
             opacity: '0.3'
           }} />
@@ -164,14 +170,14 @@ const CareerPage: React.FC = () => {
 
       {/* Core Values Section */}
       <div style={{
-        padding: '80px 40px',
-        background: '#000000'
+        padding: 'clamp(56px, 8vw, 96px) clamp(16px, 4vw, 40px)',
+        background: 'var(--section-bg)'
       }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
           <h2 style={{
             fontSize: 'clamp(2.5rem, 4vw, 3.5rem)',
             fontWeight: '600',
-            color: '#ffffff',
+            color: 'var(--section-text)',
             textAlign: 'center',
             marginBottom: '60px',
             letterSpacing: '-0.02em'
@@ -188,21 +194,21 @@ const CareerPage: React.FC = () => {
               <div
                 key={index}
                 style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
+                  background: 'var(--card-bg)',
                   borderRadius: '16px',
                   padding: '24px',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  border: '1px solid var(--card-border)',
                   transition: 'all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
                   textAlign: 'center'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.background = 'var(--card-bg-hover)';
+                  e.currentTarget.style.borderColor = 'var(--card-border-hover)';
                   e.currentTarget.style.transform = 'translateY(-8px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.background = 'var(--card-bg)';
+                  e.currentTarget.style.borderColor = 'var(--card-border)';
                   e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
@@ -215,7 +221,7 @@ const CareerPage: React.FC = () => {
                 <h3 style={{
                   fontSize: '1.3rem',
                   fontWeight: '600',
-                  color: '#ffffff',
+                  color: 'var(--section-text)',
                   marginBottom: '12px',
                   letterSpacing: '-0.01em'
                 }}>
@@ -223,7 +229,7 @@ const CareerPage: React.FC = () => {
                 </h3>
                 <p style={{
                   fontSize: '0.9rem',
-                  color: 'rgba(255, 255, 255, 0.7)',
+                  color: 'var(--muted-text)',
                   lineHeight: '1.5',
                   margin: 0
                 }}>
@@ -237,14 +243,14 @@ const CareerPage: React.FC = () => {
 
       {/* Positions Section */}
       <div style={{
-        padding: '80px 40px',
-        background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)'
+        padding: 'clamp(56px, 8vw, 96px) clamp(16px, 4vw, 40px)',
+        background: 'var(--content-bg)'
       }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
           <h2 style={{
             fontSize: 'clamp(2.5rem, 4vw, 3.5rem)',
             fontWeight: '600',
-            color: '#ffffff',
+            color: 'var(--section-text)',
             textAlign: 'center',
             marginBottom: '60px',
             letterSpacing: '-0.02em'
@@ -260,10 +266,10 @@ const CareerPage: React.FC = () => {
               <div
                 key={position.id}
                 style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
+                  background: 'var(--card-bg)',
                   borderRadius: '20px',
                   padding: '32px',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  border: '1px solid var(--card-border)',
                   transition: 'all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
                   position: 'relative',
                   overflow: 'hidden',
@@ -278,7 +284,7 @@ const CareerPage: React.FC = () => {
                 <h3 style={{
                   fontSize: '1.6rem',
                   fontWeight: '700',
-                  color: '#ffffff',
+                  color: 'var(--section-text)',
                   marginBottom: '8px',
                   letterSpacing: '-0.01em'
                 }}>
@@ -288,7 +294,7 @@ const CareerPage: React.FC = () => {
                 {/* Position Subtitle */}
                 <p style={{
                   fontSize: '1rem',
-                  color: 'rgba(255, 255, 255, 0.8)',
+                  color: 'var(--muted-text)',
                   marginBottom: '16px',
                   fontWeight: '500'
                 }}>
@@ -298,7 +304,7 @@ const CareerPage: React.FC = () => {
                 {/* Description */}
                 <p style={{
                   fontSize: '0.9rem',
-                  color: 'rgba(255, 255, 255, 0.7)',
+                  color: 'var(--muted-text)',
                   lineHeight: '1.5',
                   marginBottom: '24px'
                 }}>
@@ -310,7 +316,7 @@ const CareerPage: React.FC = () => {
                   <h4 style={{
                     fontSize: '0.9rem',
                     fontWeight: '600',
-                    color: '#ffffff',
+                    color: 'var(--section-text)',
                     marginBottom: '8px',
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
@@ -326,7 +332,7 @@ const CareerPage: React.FC = () => {
                     {position.requirements.map((req, reqIndex) => (
                       <li key={reqIndex} style={{
                         fontSize: '0.8rem',
-                        color: 'rgba(255, 255, 255, 0.7)',
+                        color: 'var(--muted-text)',
                         marginBottom: '4px',
                         paddingLeft: '16px',
                         position: 'relative'
@@ -337,7 +343,7 @@ const CareerPage: React.FC = () => {
                           top: '4px',
                           width: '4px',
                           height: '4px',
-                          backgroundColor: '#007AFF',
+                          backgroundColor: 'var(--accent-blue)',
                           borderRadius: '50%'
                         }} />
                         {req}
@@ -351,7 +357,7 @@ const CareerPage: React.FC = () => {
                   <h4 style={{
                     fontSize: '0.9rem',
                     fontWeight: '600',
-                    color: '#ffffff',
+                    color: 'var(--section-text)',
                     marginBottom: '8px',
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
@@ -367,7 +373,7 @@ const CareerPage: React.FC = () => {
                     {position.benefits.map((benefit, benefitIndex) => (
                       <li key={benefitIndex} style={{
                         fontSize: '0.8rem',
-                        color: 'rgba(255, 255, 255, 0.7)',
+                        color: 'var(--muted-text)',
                         marginBottom: '4px',
                         paddingLeft: '16px',
                         position: 'relative'
@@ -394,7 +400,7 @@ const CareerPage: React.FC = () => {
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  background: 'linear-gradient(135deg, rgba(0, 122, 255, 0.05) 0%, rgba(52, 199, 89, 0.05) 100%)',
+                  background: 'linear-gradient(135deg, rgba(0, 122, 255, 0.08) 0%, rgba(52, 199, 89, 0.08) 100%)',
                   opacity: hoveredCard === position.id ? '1' : '0',
                   transition: 'opacity 0.6s ease',
                   pointerEvents: 'none',
@@ -408,15 +414,15 @@ const CareerPage: React.FC = () => {
 
       {/* Application Section */}
       <div style={{
-        padding: '80px 40px',
-        background: '#000000',
+        padding: 'clamp(56px, 8vw, 96px) clamp(16px, 4vw, 40px)',
+        background: 'var(--section-bg)',
         textAlign: 'center'
       }}>
         <div style={{ maxWidth: '800px', margin: '0 auto' }}>
           <h2 style={{
             fontSize: 'clamp(2.5rem, 4vw, 3.5rem)',
             fontWeight: '600',
-            color: '#ffffff',
+            color: 'var(--section-text)',
             marginBottom: '24px',
             letterSpacing: '-0.02em'
           }}>
@@ -424,7 +430,7 @@ const CareerPage: React.FC = () => {
           </h2>
           <p style={{
             fontSize: '1.2rem',
-            color: 'rgba(255, 255, 255, 0.8)',
+            color: 'var(--muted-text)',
             marginBottom: '40px',
             lineHeight: '1.6'
           }}>
@@ -433,8 +439,8 @@ const CareerPage: React.FC = () => {
           <button
             onClick={handleApplyClick}
             style={{
-              background: 'linear-gradient(135deg, #007AFF, #005bb5)',
-              color: '#ffffff',
+              background: 'var(--hero-cta-bg)',
+              color: 'var(--hero-cta-text)',
               padding: '20px 40px',
               borderRadius: '16px',
               border: 'none',
@@ -447,10 +453,12 @@ const CareerPage: React.FC = () => {
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.boxShadow = '0 15px 25px rgba(0, 122, 255, 0.3)';
+              e.currentTarget.style.background = 'var(--hero-cta-bg-hover)';
               e.currentTarget.style.transform = 'translateY(-2px)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.boxShadow = '0 10px 20px rgba(0, 122, 255, 0.2)';
+              e.currentTarget.style.background = 'var(--hero-cta-bg)';
               e.currentTarget.style.transform = 'translateY(0)';
             }}
           >
@@ -458,7 +466,7 @@ const CareerPage: React.FC = () => {
           </button>
           <p style={{
             fontSize: '1rem',
-            color: 'rgba(255, 255, 255, 0.6)',
+            color: 'var(--muted-text)',
             marginTop: '24px',
             fontStyle: 'italic'
           }}>
@@ -469,13 +477,13 @@ const CareerPage: React.FC = () => {
 
       {/* Footer */}
       <div style={{
-        padding: '60px 40px',
-        background: 'rgba(255, 255, 255, 0.02)',
-        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+        padding: 'clamp(40px, 6vw, 60px) clamp(16px, 4vw, 40px)',
+        background: 'var(--section-bg)',
+        borderTop: '1px solid var(--divider)',
         textAlign: 'center'
       }}>
         <p style={{
-          color: 'rgba(255, 255, 255, 0.5)',
+          color: 'var(--muted-text)',
           fontSize: '1rem',
           margin: 0
         }}>

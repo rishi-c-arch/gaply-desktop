@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import './JournalMatchingPage.css';
 
 interface JournalResult {
   journal: string;
@@ -455,42 +456,14 @@ const JournalMatchingPage: React.FC = () => {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#000000',
-      padding: '40px 20px',
-    }}>
+    <div className="journal-matching-page">
       {/* Navigation Bar */}
-      <div style={{
-        maxWidth: '1200px',
-        margin: '0 auto 40px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-      }}>
-        <h1 style={{
-          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-          fontSize: 'clamp(1.5rem, 3vw, 2rem)',
-          fontWeight: '600',
-          color: '#ffffff',
-          margin: 0,
-          letterSpacing: '-0.02em',
-        }}>Journal Matching</h1>
+      <div className="journal-matching-header">
+        <h1 className="journal-matching-title">Journal Matching</h1>
         
         <button
           onClick={() => navigate('/')}
-          style={{
-            padding: '10px 20px',
-            borderRadius: '980px',
-            background: 'rgba(255, 255, 255, 0.1)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            color: '#ffffff',
-            fontSize: '14px',
-            fontWeight: '500',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-            cursor: 'pointer',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          }}
+          className="journal-matching-back"
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
           }}
@@ -503,21 +476,8 @@ const JournalMatchingPage: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div style={{
-        maxWidth: '1200px',
-        margin: '0 auto',
-        background: 'rgba(255, 255, 255, 0.05)',
-        borderRadius: '24px',
-        padding: '48px',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-      }}>
-        <p style={{
-          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-          fontSize: '1.125rem',
-          color: 'rgba(255, 255, 255, 0.7)',
-          marginBottom: '32px',
-          lineHeight: '1.6',
-        }}>
+      <div className="journal-matching-card">
+        <p className="journal-matching-description">
           Get intelligent journal recommendations based on your research domain. Our AI analyzes your title and abstract to match you with the most suitable journals, complete with submission guidelines and direct links.
         </p>
 
@@ -525,55 +485,23 @@ const JournalMatchingPage: React.FC = () => {
           value={jmTitle}
           onChange={(e) => setJmTitle(e.target.value)}
           placeholder="Paper title..."
-          style={{
-            width: '100%',
-            padding: '16px 20px',
-            borderRadius: '16px',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            background: 'rgba(255, 255, 255, 0.03)',
-            color: '#ffffff',
-            fontSize: '16px',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-            marginBottom: '16px',
-            outline: 'none',
-          }}
+          className="journal-matching-input"
         />
 
         <textarea
           value={jmAbstract}
           onChange={(e) => setJmAbstract(e.target.value)}
           placeholder="Abstract..."
-          style={{
-            width: '100%',
-            minHeight: '200px',
-            padding: '20px',
-            borderRadius: '16px',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            background: 'rgba(255, 255, 255, 0.03)',
-            color: '#ffffff',
-            fontSize: '16px',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-            marginBottom: '24px',
-            resize: 'vertical',
-            outline: 'none',
-          }}
+          className="journal-matching-textarea"
         />
 
         <button
           onClick={handleMatch}
           disabled={isMatching}
+          className="journal-matching-button"
           style={{
-            padding: '16px 32px',
-            borderRadius: '980px',
             background: !isMatching ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            color: '#ffffff',
-            fontSize: '16px',
-            fontWeight: '600',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
             cursor: !isMatching ? 'pointer' : 'not-allowed',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            width: '100%',
           }}
           onMouseEnter={(e) => {
             if (!isMatching) {

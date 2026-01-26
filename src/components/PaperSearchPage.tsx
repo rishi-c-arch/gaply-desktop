@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import './PaperSearchPage.css';
 
 interface SearchResult {
   title: string;
@@ -198,42 +199,14 @@ const PaperSearchPage: React.FC = () => {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#000000',
-      padding: '40px 20px',
-    }}>
+    <div className="paper-search-page">
       {/* Navigation Bar */}
-      <div style={{
-        maxWidth: '1200px',
-        margin: '0 auto 40px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-      }}>
-        <h1 style={{
-          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-          fontSize: 'clamp(1.5rem, 3vw, 2rem)',
-          fontWeight: '600',
-          color: '#ffffff',
-          margin: 0,
-          letterSpacing: '-0.02em',
-        }}>Paper Search</h1>
+      <div className="paper-search-header">
+        <h1 className="paper-search-title">Paper Search</h1>
         
         <button
           onClick={() => navigate('/')}
-          style={{
-            padding: '10px 20px',
-            borderRadius: '980px',
-            background: 'rgba(255, 255, 255, 0.1)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            color: '#ffffff',
-            fontSize: '14px',
-            fontWeight: '500',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-            cursor: 'pointer',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          }}
+          className="paper-search-back"
           onMouseEnter={(e) => {
             e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
           }}
@@ -246,59 +219,28 @@ const PaperSearchPage: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div style={{
-        maxWidth: '1200px',
-        margin: '0 auto',
-        background: 'rgba(255, 255, 255, 0.05)',
-        borderRadius: '24px',
-        padding: '48px',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-      }}>
-        <p style={{
-          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-          fontSize: '1.125rem',
-          color: 'rgba(255, 255, 255, 0.7)',
-          marginBottom: '32px',
-          lineHeight: '1.6',
-        }}>
+      <div className="paper-search-card">
+        <p className="paper-search-description">
           Search across multiple academic databases to find relevant research papers with direct links to full texts. 
           Our intelligent search combines results from arXiv, CrossRef, OpenAlex, and Semantic Scholar to provide comprehensive coverage.
         </p>
 
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '32px' }}>
+        <div className="paper-search-actions">
           <input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
             placeholder="Enter keywords or research topic..."
-            style={{
-              flex: 1,
-              padding: '16px 20px',
-              borderRadius: '980px',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              background: 'rgba(255, 255, 255, 0.03)',
-              color: '#ffffff',
-              fontSize: '16px',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-              outline: 'none',
-            }}
+            className="paper-search-input"
           />
 
           <button
             onClick={handleSearch}
             disabled={!searchQuery.trim() || isSearching}
+            className="paper-search-button"
             style={{
-              padding: '16px 40px',
-              borderRadius: '980px',
               background: searchQuery.trim() && !isSearching ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              color: '#ffffff',
-              fontSize: '16px',
-              fontWeight: '600',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
               cursor: searchQuery.trim() && !isSearching ? 'pointer' : 'not-allowed',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              whiteSpace: 'nowrap',
             }}
             onMouseEnter={(e) => {
               if (searchQuery.trim() && !isSearching) {

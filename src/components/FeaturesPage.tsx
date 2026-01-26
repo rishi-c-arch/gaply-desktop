@@ -10,21 +10,6 @@ const FeaturesPage: React.FC = () => {
   // Free Features Data
   const freeFeatures = [
     {
-      id: 'ai-remover',
-      title: 'Academic AI Remover',
-      subtitle: 'Transform AI text to scholarly excellence',
-      description: 'Advanced paraphrasing engine that converts AI-generated text into authentic academic writing with scholarly vocabulary and natural flow.',
-      features: [
-        'Bypasses Turnitin, GPTZero, Crossplag',
-        'Advanced academic language processing',
-        'Perfect grammar and structure',
-        'Human-like writing patterns',
-        'Real-time text transformation'
-      ],
-      color: 'rgba(0, 122, 255, 0.1)',
-      borderColor: 'rgba(0, 122, 255, 0.3)'
-    },
-    {
       id: 'paper-search',
       title: 'Research Paper Search',
       subtitle: 'Discover relevant academic papers',
@@ -59,72 +44,56 @@ const FeaturesPage: React.FC = () => {
   // Premium Features Data
   const premiumFeatures = [
     {
-      id: 'research-gaps',
-      title: 'Research Gap Analysis',
-      subtitle: 'Discover unexplored research opportunities',
-      description: 'AI-powered analysis that identifies genuine research gaps based on existing literature and emerging trends.',
+      id: 'publish-ready',
+      title: 'PublishReady',
+      subtitle: 'Journal-fit evaluation in minutes',
+      description: 'Plain-language checks that compare your manuscript to journal rules and return a publication-likelihood score with prioritized fixes.',
       features: [
-        'Comprehensive literature analysis',
-        'Trend identification and prediction',
-        'Gap validation and verification',
-        'Research opportunity scoring',
-        'Publication potential assessment'
-      ],
-      color: 'rgba(255, 45, 85, 0.1)',
-      borderColor: 'rgba(255, 45, 85, 0.3)'
-    },
-    {
-      id: 'problem-statement',
-      title: 'Problem Statement Generator',
-      subtitle: 'Craft compelling research problems',
-      description: 'Advanced AI that generates clear, testable problem statements with objectives and hypotheses.',
-      features: [
-        'Clear objective formulation',
-        'Testable hypothesis generation',
-        'Research question optimization',
-        'Methodology alignment',
-        'Academic writing standards'
-      ],
-      color: 'rgba(175, 82, 222, 0.1)',
-      borderColor: 'rgba(175, 82, 222, 0.3)'
-    },
-    {
-      id: 'deep-evaluation',
-      title: 'Deep Research Evaluation',
-      subtitle: '70+ point comprehensive analysis',
-      description: 'Thorough evaluation system that checks journal fit, highlights weaknesses, and provides detailed proofreading.',
-      features: [
-        '70+ evaluation criteria',
-        'Journal compatibility analysis',
-        'Weakness identification',
-        'Detailed proofreading',
-        'Improvement recommendations'
+        'Clear, trustable, instant evaluation from journal guidelines + DOI/CrossRef checks',
+        'Upload manuscript (PDF/DOCX/TXT) + paste journal guideline link',
+        'Compliance checks: structure, word limits, section order, figure/table rules',
+        'Reference validation and formatting (APA/IEEE/etc.)',
+        'Formatting + submission checklist with pass/fail items',
+        'Plagiarism & similarity signals with exact-match highlights',
+        'AI-use detection signal with transparent rationale',
+        'Novelty estimate vs. similar papers',
+        'Line-by-line edits with rewrite suggestions',
+        'Annotated report + shareable PDF',
+        'Interactive chat for clarifications, examples, and step-by-step fixes',
+        '3 steps: choose journal -> upload manuscript -> review & fix'
       ],
       color: 'rgba(90, 200, 250, 0.1)',
       borderColor: 'rgba(90, 200, 250, 0.3)'
     },
     {
-      id: 'mentor-matching',
-      title: 'Expert Mentor Matching',
-      subtitle: 'Connect with verified field experts',
-      description: 'Personalized mentor matching system that connects you with verified experts in your research field.',
+      id: 'data-maestro',
+      title: 'DataMaestro',
+      subtitle: 'Academic-grade analysis, fast and clear',
+      description: 'Upload data, describe your study, and receive a chapter-style report with tables, figures, formulas, and plain-English interpretations.',
       features: [
-        'Verified expert profiles',
-        'Field-specific matching',
-        'Publication history review',
-        'One-on-one guidance',
-        'Publication strategy planning'
+        'Upload CSV/XLS/XLSX/TSV/PDF tables/DOCX datasets',
+        'Enter title, objectives, hypotheses, methodology, variables',
+        'Auto-select or manually choose tests (t-tests, ANOVA, regression, SEM, time-series)',
+        'Publication-style chapters: Methods -> Results -> Interpretation -> Conclusion',
+        'Professional tables & labeled figures, export-ready',
+        'LaTeX formulas included for methods and reports',
+        'Plain-language explanations for every result',
+        'Interactive Q&A tied to specific tables/plots',
+        'One-click re-run after edits or data fixes',
+        'Outputs: executive summary, full chapter write-up, stats tables, high-quality figures',
+        'Best for PhD students, supervisors, research groups, non-coders',
+        'Honest note: guidance is reliable, final interpretation stays with you'
       ],
-      color: 'rgba(255, 204, 0, 0.1)',
-      borderColor: 'rgba(255, 204, 0, 0.3)'
+      color: 'rgba(255, 45, 85, 0.1)',
+      borderColor: 'rgba(255, 45, 85, 0.3)'
     }
   ];
 
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#000000',
-      color: '#ffffff',
+      background: 'var(--app-bg)',
+      color: 'var(--app-text)',
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
       paddingTop: '80px'
     }}>
@@ -140,10 +109,10 @@ const FeaturesPage: React.FC = () => {
         left: 0,
         right: 0,
         zIndex: 1000,
-        background: 'rgba(0, 0, 0, 0.8)',
+        background: 'var(--header-bg)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        borderBottom: '1px solid var(--header-border)',
         padding: '20px 40px',
         display: 'flex',
         justifyContent: 'space-between',
@@ -161,11 +130,11 @@ const FeaturesPage: React.FC = () => {
         <button
           onClick={() => navigate('/')}
           style={{
-            background: 'rgba(255, 255, 255, 0.1)',
-            color: '#ffffff',
+            background: 'var(--toggle-bg)',
+            color: 'var(--app-text)',
             padding: '10px 20px',
             borderRadius: '12px',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
+            border: '1px solid var(--toggle-border)',
             cursor: 'pointer',
             fontSize: '14px',
             fontWeight: '500',
@@ -173,8 +142,14 @@ const FeaturesPage: React.FC = () => {
             backdropFilter: 'blur(10px)',
             WebkitBackdropFilter: 'blur(10px)'
           }}
-          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)'}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--button-hover-bg)';
+            e.currentTarget.style.borderColor = 'var(--button-hover-border)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'var(--toggle-bg)';
+            e.currentTarget.style.borderColor = 'var(--toggle-border)';
+          }}
         >
           ← Back to Home
         </button>
@@ -182,7 +157,7 @@ const FeaturesPage: React.FC = () => {
 
       {/* Hero Section */}
       <div style={{
-        padding: '120px 40px 80px',
+        padding: '120px clamp(16px, 4vw, 40px) 80px',
         textAlign: 'center',
         maxWidth: '1200px',
         margin: '0 auto'
@@ -192,7 +167,7 @@ const FeaturesPage: React.FC = () => {
           fontWeight: '700',
           letterSpacing: '-0.02em',
           marginBottom: '30px',
-          background: 'linear-gradient(135deg, #ffffff 0%, #a0a0a0 100%)',
+          background: 'linear-gradient(135deg, var(--app-text) 0%, var(--muted-text) 100%)',
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent',
           backgroundClip: 'text'
@@ -202,7 +177,7 @@ const FeaturesPage: React.FC = () => {
         
         <p style={{
           fontSize: 'clamp(1.2rem, 3vw, 1.8rem)',
-          color: '#a0a0a0',
+          color: 'var(--muted-text)',
           marginBottom: '60px',
           lineHeight: '1.4',
           maxWidth: '800px',
@@ -216,7 +191,7 @@ const FeaturesPage: React.FC = () => {
           display: 'flex',
           justifyContent: 'center',
           marginBottom: '80px',
-          background: 'rgba(255, 255, 255, 0.05)',
+          background: 'var(--toggle-bg)',
           borderRadius: '16px',
           padding: '8px',
           width: 'fit-content',
@@ -228,8 +203,8 @@ const FeaturesPage: React.FC = () => {
               padding: '16px 32px',
               borderRadius: '12px',
               border: 'none',
-              background: activeSection === 'free' ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
-              color: '#ffffff',
+              background: activeSection === 'free' ? 'var(--toggle-active-bg)' : 'transparent',
+              color: 'var(--app-text)',
               fontSize: '16px',
               fontWeight: '600',
               cursor: 'pointer',
@@ -244,8 +219,8 @@ const FeaturesPage: React.FC = () => {
               padding: '16px 32px',
               borderRadius: '12px',
               border: 'none',
-              background: activeSection === 'premium' ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
-              color: '#ffffff',
+              background: activeSection === 'premium' ? 'var(--toggle-active-bg)' : 'transparent',
+              color: 'var(--app-text)',
               fontSize: '16px',
               fontWeight: '600',
               cursor: 'pointer',
@@ -259,20 +234,20 @@ const FeaturesPage: React.FC = () => {
 
       {/* Features Grid */}
       <div style={{
-        padding: '0 40px 120px',
+        padding: '0 clamp(16px, 4vw, 40px) 120px',
         maxWidth: '1200px',
         margin: '0 auto'
       }}>
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
           gap: '24px'
         }}>
           {(activeSection === 'free' ? freeFeatures : premiumFeatures).map((feature) => (
             <div
               key={feature.id}
               style={{
-                background: 'rgba(255, 255, 255, 0.02)',
+                background: 'var(--card-bg)',
                 borderRadius: '16px',
                 padding: '24px',
                 border: `1px solid ${feature.borderColor}`,
@@ -289,7 +264,7 @@ const FeaturesPage: React.FC = () => {
                 fontSize: '20px',
                 fontWeight: '600',
                 marginBottom: '8px',
-                color: '#ffffff',
+                color: 'var(--section-text)',
                 letterSpacing: '-0.01em',
                 lineHeight: '1.3'
               }}>
@@ -299,7 +274,7 @@ const FeaturesPage: React.FC = () => {
               {/* Subtitle */}
               <p style={{
                 fontSize: '14px',
-                color: '#a0a0a0',
+                color: 'var(--muted-text)',
                 marginBottom: '16px',
                 fontWeight: '400',
                 lineHeight: '1.4'
@@ -310,7 +285,7 @@ const FeaturesPage: React.FC = () => {
               {/* Description */}
               <p style={{
                 fontSize: '13px',
-                color: '#e0e0e0',
+                color: 'var(--section-text)',
                 marginBottom: '20px',
                 lineHeight: '1.5'
               }}>
@@ -328,13 +303,13 @@ const FeaturesPage: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     fontSize: '12px',
-                    color: '#c0c0c0',
+                    color: 'var(--muted-text)',
                     lineHeight: '1.4'
                   }}>
                     <div style={{
                       width: '4px',
                       height: '4px',
-                      backgroundColor: '#007AFF',
+                      backgroundColor: 'var(--button-bg)',
                       borderRadius: '50%',
                       marginRight: '8px',
                       flexShrink: '0'
@@ -345,7 +320,7 @@ const FeaturesPage: React.FC = () => {
                 {feature.features.length > 3 && (
                   <div style={{
                     fontSize: '11px',
-                    color: '#888',
+                    color: 'var(--muted-text)',
                     marginTop: '4px',
                     fontStyle: 'italic'
                   }}>
@@ -374,10 +349,10 @@ const FeaturesPage: React.FC = () => {
 
       {/* CTA Section */}
       <div style={{
-        padding: '80px 40px',
+        padding: '80px clamp(16px, 4vw, 40px)',
         textAlign: 'center',
-        background: 'linear-gradient(135deg, rgba(0, 122, 255, 0.1) 0%, rgba(0, 0, 0, 0.8) 100%)',
-        borderTop: '1px solid rgba(255, 255, 255, 0.1)'
+        background: 'linear-gradient(135deg, rgba(0, 122, 255, 0.1) 0%, var(--app-bg) 100%)',
+        borderTop: '1px solid var(--divider)'
       }}>
         <h2 style={{
           fontSize: 'clamp(2rem, 5vw, 3rem)',
@@ -390,7 +365,7 @@ const FeaturesPage: React.FC = () => {
         
         <p style={{
           fontSize: '1.2rem',
-          color: '#a0a0a0',
+          color: 'var(--muted-text)',
           marginBottom: '40px',
           maxWidth: '600px',
           margin: '0 auto 40px'
@@ -410,7 +385,7 @@ const FeaturesPage: React.FC = () => {
               padding: '18px 36px',
               borderRadius: '16px',
               background: 'linear-gradient(135deg, #007AFF, #005bb5)',
-              color: '#ffffff',
+              color: 'var(--button-text)',
               fontSize: '16px',
               fontWeight: '600',
               border: 'none',
@@ -436,20 +411,20 @@ const FeaturesPage: React.FC = () => {
               padding: '18px 36px',
               borderRadius: '16px',
               background: 'transparent',
-              color: '#ffffff',
+              color: 'var(--app-text)',
               fontSize: '16px',
               fontWeight: '600',
-              border: '1px solid rgba(255, 255, 255, 0.3)',
+              border: '1px solid var(--button-border)',
               cursor: 'pointer',
               transition: 'all 0.3s ease'
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.6)';
+              e.currentTarget.style.background = 'var(--button-hover-bg)';
+              e.currentTarget.style.borderColor = 'var(--button-hover-border)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+              e.currentTarget.style.borderColor = 'var(--button-border)';
             }}
           >
             Explore Premium

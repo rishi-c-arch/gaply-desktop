@@ -253,8 +253,8 @@ const PremiumPage: React.FC = () => {
         justifyContent: 'center', 
         alignItems: 'center', 
         height: '100vh',
-        background: '#0A0A0A',
-        color: '#cecece'
+        background: 'var(--app-bg)',
+        color: 'var(--app-text)'
       }}>
         <div>Loading...</div>
       </div>
@@ -265,8 +265,8 @@ const PremiumPage: React.FC = () => {
     return (
       <div style={{
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #0A0A0A 0%, #1a1a1a 100%)',
-        color: '#cecece',
+        background: 'linear-gradient(135deg, var(--app-bg) 0%, var(--section-bg) 100%)',
+        color: 'var(--app-text)',
         padding: '80px 20px',
         display: 'flex',
         flexDirection: 'column',
@@ -278,13 +278,13 @@ const PremiumPage: React.FC = () => {
             fontSize: '3rem', 
             fontWeight: 'bold', 
             marginBottom: '20px',
-            background: 'linear-gradient(45deg, #ff7a1a, #ffffff)',
+            background: 'linear-gradient(45deg, #ff7a1a, var(--app-text))',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent'
           }}>
             Premium Access Required
           </h1>
-          <p style={{ fontSize: '1.2rem', marginBottom: '40px', opacity: 0.8 }}>
+          <p style={{ fontSize: '1.2rem', marginBottom: '40px', opacity: 0.8, color: 'var(--muted-text)' }}>
             Please login to access premium features and pricing
           </p>
           <button 
@@ -313,8 +313,8 @@ const PremiumPage: React.FC = () => {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #0A0A0A 0%, #1a1a1a 100%)',
-      color: '#cecece',
+      background: 'linear-gradient(135deg, var(--app-bg) 0%, var(--section-bg) 100%)',
+      color: 'var(--app-text)',
       padding: '80px 20px'
     }}>
       {/* Debug button for test account */}
@@ -348,13 +348,13 @@ const PremiumPage: React.FC = () => {
             fontSize: '3rem', 
             fontWeight: 'bold', 
             marginBottom: '20px',
-            background: 'linear-gradient(45deg, #ff7a1a, #ffffff)',
+            background: 'linear-gradient(45deg, #ff7a1a, var(--app-text))',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent'
           }}>
             Choose Your Plan
           </h1>
-          <p style={{ fontSize: '1.2rem', opacity: 0.8 }}>
+          <p style={{ fontSize: '1.2rem', opacity: 0.8, color: 'var(--muted-text)' }}>
             Unlock advanced research tools and accelerate your academic journey
           </p>
         </div>
@@ -397,8 +397,8 @@ const PremiumPage: React.FC = () => {
         }}>
           {plans.map((plan) => (
             <div key={plan.id} style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
+              background: 'var(--card-bg)',
+              border: '1px solid var(--card-border)',
               borderRadius: '20px',
               padding: '30px',
               textAlign: 'center',
@@ -411,7 +411,7 @@ const PremiumPage: React.FC = () => {
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+              e.currentTarget.style.borderColor = 'var(--card-border)';
             }}
             >
               {plan.name === 'Gaply Pro' && (
@@ -435,7 +435,7 @@ const PremiumPage: React.FC = () => {
                 fontSize: '1.8rem', 
                 fontWeight: 'bold', 
                 marginBottom: '10px',
-                color: '#ffffff'
+                color: 'var(--app-text)'
               }}>
                 {plan.name}
               </h3>
@@ -462,7 +462,7 @@ const PremiumPage: React.FC = () => {
                     alignItems: 'center'
                   }}>
                     <span style={{ color: '#ff7a1a', marginRight: '10px' }}>✓</span>
-                    {feature}
+                    <span style={{ color: 'var(--app-text)' }}>{feature}</span>
                   </li>
                 ))}
               </ul>
@@ -493,7 +493,7 @@ const PremiumPage: React.FC = () => {
 
         {/* Features Comparison */}
         <div style={{
-          background: 'rgba(255, 255, 255, 0.05)',
+          background: 'var(--card-bg)',
           borderRadius: '20px',
           padding: '40px',
           marginBottom: '40px'
@@ -502,7 +502,7 @@ const PremiumPage: React.FC = () => {
             textAlign: 'center', 
             fontSize: '2rem', 
             marginBottom: '30px',
-            color: '#ffffff'
+            color: 'var(--app-text)'
           }}>
             Premium Features
           </h3>
@@ -516,7 +516,7 @@ const PremiumPage: React.FC = () => {
               <h4 style={{ color: '#ff7a1a', marginBottom: '15px' }}>
                 🔍 Advanced Literature Analysis
               </h4>
-              <p style={{ opacity: 0.8 }}>
+              <p style={{ opacity: 0.8, color: 'var(--muted-text)' }}>
                 Upload up to 5 research papers and get AI-powered gap identification with professional report generation.
               </p>
             </div>
@@ -525,7 +525,7 @@ const PremiumPage: React.FC = () => {
               <h4 style={{ color: '#ff7a1a', marginBottom: '15px' }}>
                 📊 Deep Paper Analysis
               </h4>
-              <p style={{ opacity: 0.8 }}>
+              <p style={{ opacity: 0.8, color: 'var(--muted-text)' }}>
                 70-parameter evaluation engine with journal compliance checking (Q1-Q4) and evidence-based analysis.
               </p>
             </div>
@@ -534,7 +534,7 @@ const PremiumPage: React.FC = () => {
               <h4 style={{ color: '#ff7a1a', marginBottom: '15px' }}>
                 📄 Professional Reports
               </h4>
-              <p style={{ opacity: 0.8 }}>
+              <p style={{ opacity: 0.8, color: 'var(--muted-text)' }}>
                 Generate comprehensive HTML reports with detailed insights and recommendations for your research.
               </p>
             </div>
@@ -542,7 +542,7 @@ const PremiumPage: React.FC = () => {
         </div>
 
         {/* Support Info */}
-        <div style={{ textAlign: 'center', opacity: 0.7 }}>
+        <div style={{ textAlign: 'center', opacity: 0.7, color: 'var(--muted-text)' }}>
           <p>Need help choosing a plan? Contact our support team.</p>
           <p>All plans include 30-day money-back guarantee.</p>
         </div>

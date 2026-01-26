@@ -24,7 +24,9 @@ import CareerPage from './components/CareerPage';
 import HireExpertPage from './components/HireExpertPage';
 import ExpertSearchResultsPage from './components/ExpertSearchResultsPage';
 import PricingSection from './components/PricingSection';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
+import PrivacyPolicyPage from './components/PrivacyPolicyPage';
+import TermsOfServicePage from './components/TermsOfServicePage';
+import { AuthProvider } from './contexts/AuthContext';
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{ title?: string; description?: string; keywords?: string }> = ({ 
@@ -114,383 +116,74 @@ const removeFloatingOrb = () => {
 };
 
 // Apple-style Header Component
-const AppleHeader: React.FC<{ theme: 'light' | 'dark' }> = ({ theme }) => {
-  const textColor = theme === 'dark' ? '#ffffff' : '#000000';
-  const textShadow = theme === 'dark' ? '0 1px 2px rgba(0,0,0,0.25)' : '0 1px 2px rgba(255,255,255,0.25)';
+const AppleHeader: React.FC<{ theme: 'light' | 'dark'; onToggleTheme: () => void }> = ({ theme, onToggleTheme }) => {
+  const isDark = theme === 'dark';
+  const textShadow = isDark ? '0 1px 2px rgba(0,0,0,0.25)' : '0 1px 2px rgba(0,0,0,0.12)';
 
   return (
-    <header
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 1000,
-        background: 'rgba(0, 0, 0, 0.8)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-        padding: window.innerWidth <= 480 ? '8px 0' : '12px 0'
-      }}
-    >
-             <div
-               style={{
-                 maxWidth: 1200,
-                 margin: '0 auto',
-                 padding: window.innerWidth <= 480 ? '0 16px' : '0 24px',
-                 display: 'flex',
-                 alignItems: 'center',
-                 justifyContent: 'space-between',
-                 flexDirection: window.innerWidth <= 480 ? 'column' : 'row',
-                 gap: window.innerWidth <= 480 ? '12px' : '0'
-               }}
-             >
-               <div style={{ fontWeight: 800, letterSpacing: '.02em' }}>
-                 <h1 style={{
-                   margin: 0,
-                   fontSize: window.innerWidth <= 480 ? '16px' : '18px',
-                   color: textColor,
-                   textShadow,
-                   fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif'
-                 }}>
-                   Gaply
-                 </h1>
-               </div>
-        <nav style={{ 
-          display: 'flex', 
-          gap: window.innerWidth <= 480 ? '16px' : '32px', 
-          alignItems: 'center',
-          flexWrap: window.innerWidth <= 480 ? 'wrap' : 'nowrap',
-          justifyContent: window.innerWidth <= 480 ? 'center' : 'flex-end'
-        }}>
-                 {[
-                   { label: 'Features', href: '/features' },
-                   { label: 'Pricing', href: '/pricing' },
-                   { label: 'Career', href: '/career' },
-                 ].map((l) => (
-                   <a
-                     key={l.label}
-                     href={l.href}
-                     style={{
-                       color: textColor,
-                       textDecoration: 'none',
-                       fontWeight: 500,
-                       fontSize: window.innerWidth <= 480 ? '12px' : '14px',
-                       letterSpacing: '.01em',
-                       opacity: 0.8,
-                       padding: window.innerWidth <= 480 ? '6px 8px' : '8px 12px',
-                       borderRadius: 8,
-                       transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif'
-                     }}
-                     onMouseEnter={(e) => {
-                       e.currentTarget.style.opacity = '1';
-                       e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)';
-                       e.currentTarget.style.transform = 'translateY(-1px)';
-                     }}
-                     onMouseLeave={(e) => {
-                       e.currentTarget.style.opacity = '0.8';
-                       e.currentTarget.style.backgroundColor = 'transparent';
-                       e.currentTarget.style.transform = 'translateY(0)';
-                     }}
-                   >
-                     {l.label}
-                   </a>
-                 ))}
-                 
-                 {/* Right side - Hire Expert Button */}
-                 <button
-                   onClick={() => window.location.href = '/hire-expert'}
-                   style={{
-                     background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 25%, #e9ecef 50%, #dee2e6 75%, #ced4da 100%)',
-                     border: '1px solid rgba(0, 0, 0, 0.08)',
-                     borderRadius: '24px',
-                     padding: window.innerWidth <= 480 ? '10px 18px' : '12px 24px',
-                     fontSize: window.innerWidth <= 480 ? '13px' : '15px',
-                     fontWeight: '700',
-                     color: '#1a1a1a',
-                     fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-                     letterSpacing: '-0.02em',
-                     cursor: 'pointer',
-                     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8)',
-                     transition: 'all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-                     textTransform: 'none',
-                     minWidth: window.innerWidth <= 480 ? '130px' : '150px',
-                     height: window.innerWidth <= 480 ? '42px' : '48px',
-                     display: 'flex',
-                     alignItems: 'center',
-                     justifyContent: 'center',
-                     marginLeft: window.innerWidth <= 480 ? '0' : '24px',
-                     position: 'relative',
-                     overflow: 'hidden',
-                     backdropFilter: 'blur(20px)',
-                     WebkitBackdropFilter: 'blur(20px)'
-                   }}
-                   onMouseEnter={(e) => {
-                     e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)';
-                     e.currentTarget.style.boxShadow = '0 16px 48px rgba(0, 0, 0, 0.18), 0 4px 16px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9)';
-                     e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 20%, #e9ecef 40%, #dee2e6 60%, #ced4da 80%, #adb5bd 100%)';
-                     e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.15)';
-                     e.currentTarget.style.color = '#000000';
-                     
-                     // Trigger shine effect
-                     const shineElement = e.currentTarget.querySelector('div');
-                     if (shineElement) {
-                       shineElement.style.left = '100%';
-                     }
-                   }}
-                   onMouseLeave={(e) => {
-                     e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                     e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8)';
-                     e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 25%, #e9ecef 50%, #dee2e6 75%, #ced4da 100%)';
-                     e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.08)';
-                     e.currentTarget.style.color = '#1a1a1a';
-                     
-                     // Reset shine effect
-                     const shineElement = e.currentTarget.querySelector('div');
-                     if (shineElement) {
-                       shineElement.style.left = '-100%';
-                     }
-                   }}
-                   onMouseDown={(e) => {
-                     e.currentTarget.style.transform = 'translateY(-1px) scale(1.02)';
-                     e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.15), 0 1px 4px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.7)';
-                   }}
-                   onMouseUp={(e) => {
-                     e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)';
-                     e.currentTarget.style.boxShadow = '0 16px 48px rgba(0, 0, 0, 0.18), 0 4px 16px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9)';
-                   }}
-                 >
-                   <span style={{
-                     position: 'relative',
-                     zIndex: 2,
-                     fontWeight: '500',
-                     fontSize: window.innerWidth <= 480 ? '12px' : '14px',
-                     letterSpacing: '.01em',
-                     fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif'
-                   }}>
-                     Hire an expert
-                   </span>
-                   
-                   {/* Premium shine effect */}
-                   <div style={{
-                     position: 'absolute',
-                     top: 0,
-                     left: '-100%',
-                     width: '100%',
-                     height: '100%',
-                     background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent)',
-                     transition: 'left 0.6s ease',
-                     zIndex: 1
-                   }} />
-                 </button>
+    <header className="apple-header">
+      <div className="apple-header__content">
+        <div className="apple-header__logo" style={{ color: 'var(--header-text)', textShadow }}>
+          Gaply
+        </div>
+        <nav className="apple-header__nav" aria-label="Primary">
+          {[
+            { label: 'Features', href: '/features' },
+            { label: 'Pricing', href: '/pricing' },
+            { label: 'Career', href: '/career' },
+          ].map((l) => (
+            <a
+              key={l.label}
+              href={l.href}
+              className="apple-header__link"
+              style={{ color: 'var(--header-text)' }}
+            >
+              {l.label}
+            </a>
+          ))}
+          <button
+            className="theme-toggle"
+            onClick={onToggleTheme}
+            aria-label="Toggle light/dark theme"
+          >
+            {isDark ? 'Light Mode' : 'Dark Mode'}
+          </button>
+          <button
+            className="apple-header__cta"
+            onClick={() => {
+              window.location.href = '/hire-expert';
+            }}
+          >
+            <span>Hire an expert</span>
+            <div className="apple-header__cta-shine" aria-hidden="true" />
+          </button>
         </nav>
       </div>
-      </header>
+    </header>
   );
 };
 
 // Apple-style Hero Section
 const AppleHeroSection: React.FC = () => {
   return (
-    <section style={{ 
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #000000 0%, #0A0A0A 50%, #000000 100%)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      position: 'relative',
-      overflow: 'hidden',
-      paddingTop: '80px'
-    }}>
-      {/* Interactive Globe - Hard Right Position */}
-      <div style={{
-        position: 'absolute',
-        top: '50%',
-        right: '5%',
-        transform: 'translate(0, -50%)',
-        zIndex: 2,
-        width: window.innerWidth <= 480 ? '300px' : window.innerWidth <= 768 ? '400px' : '500px',
-        height: window.innerWidth <= 480 ? '300px' : window.innerWidth <= 768 ? '400px' : '500px',
-        cursor: 'grab'
-      }}>
-        <ThreeJSGlobe />
-      </div>
-
-      {/* Professional Text Content - Left Side */}
-      <div style={{
-        position: 'absolute',
-        top: '50%',
-        left: '15%',
-        transform: 'translate(0, -50%)',
-        zIndex: 3,
-        maxWidth: window.innerWidth <= 768 ? '70%' : '500px',
-        color: '#ffffff'
-      }}>
-        {/* Main Description */}
-        <div style={{
-          marginBottom: '24px',
-          position: 'relative',
-          textAlign: 'left'
-        }}>
-          <h1 style={{
-            fontSize: window.innerWidth <= 480 ? 'clamp(1.6rem, 6.4vw, 2.4rem)' : window.innerWidth <= 768 ? 'clamp(2rem, 4.8vw, 3.2rem)' : '4rem',
-            fontWeight: '300',
-            color: '#ffffff',
-            margin: 0,
-            lineHeight: '1.1',
-            letterSpacing: '-0.02em',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif'
-          }}>
-            AI-Powered Academic Research Platform
+    <section className="apple-hero">
+      <div className="apple-hero__inner">
+        <div className="apple-hero__content">
+          <h1 className="apple-hero__title">
+            <span>Academic Research</span>
+            <span className="apple-hero__title-line">Platform</span>
           </h1>
-        </div>
-
-        {/* Stats Section */}
-        <div style={{
-          marginTop: '24px',
-          maxWidth: '400px'
-        }}>
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px'
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              <span style={{
-                fontSize: 'clamp(1.2rem, 2vw, 1.5rem)',
-                fontWeight: '300',
-                color: '#ffffff',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-                lineHeight: '1.2',
-                minWidth: '60px'
-              }}>
-                10K+
-              </span>
-              <span style={{
-                fontSize: 'clamp(0.7rem, 1.5vw, 0.875rem)',
-                fontWeight: '300',
-                color: 'rgba(255, 255, 255, 0.6)',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-                letterSpacing: '0.01em',
-                lineHeight: '1.3'
-              }}>
-                Research Papers Analyzed
-              </span>
-            </div>
-
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              <span style={{
-                fontSize: 'clamp(1.2rem, 2vw, 1.5rem)',
-                fontWeight: '300',
-                color: '#ffffff',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-                lineHeight: '1.2',
-                minWidth: '60px'
-              }}>
-                500+
-              </span>
-              <span style={{
-                fontSize: 'clamp(0.7rem, 1.5vw, 0.875rem)',
-                fontWeight: '300',
-                color: 'rgba(255, 255, 255, 0.6)',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-                letterSpacing: '0.01em',
-                lineHeight: '1.3'
-              }}>
-                Journals Matched
-              </span>
-            </div>
-
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              <span style={{
-                fontSize: 'clamp(1.2rem, 2vw, 1.5rem)',
-                fontWeight: '300',
-                color: '#ffffff',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-                lineHeight: '1.2',
-                minWidth: '60px'
-              }}>
-                95%
-              </span>
-              <span style={{
-                fontSize: 'clamp(0.7rem, 1.5vw, 0.875rem)',
-                fontWeight: '300',
-                color: 'rgba(255, 255, 255, 0.6)',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-                letterSpacing: '0.01em',
-                lineHeight: '1.3'
-              }}>
-                AI Detection Accuracy
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Get Premium Button */}
-        <div style={{
-          marginTop: '60px',
-          display: 'flex',
-          justifyContent: 'flex-start',
-          marginLeft: '-40px'
-        }}>
-          <button 
-            onClick={() => window.location.href = '/login'}
-            style={{
-              background: 'linear-gradient(135deg, #007AFF 0%, #5856D6 50%, #AF52DE 100%)',
-              border: 'none',
-              borderRadius: '28px',
-              padding: '18px 36px',
-              fontSize: '18px',
-              fontWeight: '700',
-              color: '#ffffff',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-              letterSpacing: '-0.01em',
-              textTransform: 'none',
-              cursor: 'pointer',
-              boxShadow: '0 8px 30px rgba(0, 122, 255, 0.3)',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              position: 'relative',
-              overflow: 'hidden',
-              textShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
-              minWidth: '200px',
-              height: '56px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
-              e.currentTarget.style.boxShadow = '0 12px 40px rgba(0, 122, 255, 0.4)';
-              e.currentTarget.style.background = 'linear-gradient(135deg, #0056CC 0%, #4A4AC7 50%, #9B4BC7 100%)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0) scale(1)';
-              e.currentTarget.style.boxShadow = '0 8px 30px rgba(0, 122, 255, 0.3)';
-              e.currentTarget.style.background = 'linear-gradient(135deg, #007AFF 0%, #5856D6 50%, #AF52DE 100%)';
+          <button
+            className="apple-hero__cta"
+            onClick={() => {
+              window.location.href = '/login';
             }}
           >
-            <span style={{
-              fontSize: '18px',
-              fontWeight: '700',
-              letterSpacing: '-0.01em',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif'
-            }}>
-              Get Premium
-            </span>
+            Get Premium
           </button>
+        </div>
+        <div className="apple-hero__globe" aria-hidden="true">
+          <ThreeJSGlobe />
         </div>
       </div>
     </section>
@@ -499,7 +192,10 @@ const AppleHeroSection: React.FC = () => {
 
 // Inner App component that uses useAuth
 const AppContent: React.FC = () => {
-  const [headerTheme] = useState<'light'|'dark'>('dark');
+  const [headerTheme, setHeaderTheme] = useState<'light' | 'dark'>(() => {
+    const stored = localStorage.getItem('gaply_theme');
+    return stored === 'light' || stored === 'dark' ? stored : 'dark';
+  });
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
 
   // Call the function to remove the floating orb when the component mounts
@@ -515,6 +211,15 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener('popstate', handleRouteChange);
   }, []);
 
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', headerTheme);
+    localStorage.setItem('gaply_theme', headerTheme);
+  }, [headerTheme]);
+
+  const handleToggleTheme = () => {
+    setHeaderTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
   const handleAuthSuccess = (token: string, userData: any) => {
     window.location.href = '/packages';
   };
@@ -523,13 +228,8 @@ const AppContent: React.FC = () => {
   const shouldShowHeader = currentPath !== '/hire-expert' && currentPath !== '/search-results';
 
   return (
-    <div className="App" style={{
-      background: '#000000',
-      color: '#ffffff',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif',
-      overflowX: 'hidden'
-    }}>
-      {shouldShowHeader && <AppleHeader theme={headerTheme} />}
+    <div className="App">
+      {shouldShowHeader && <AppleHeader theme={headerTheme} onToggleTheme={handleToggleTheme} />}
       <Routes>
           <Route path="/" element={
             <>
@@ -594,6 +294,26 @@ const AppContent: React.FC = () => {
                 keywords="academic research platform pricing, thesis writing services pricing, AI detection pricing, journal matching pricing, research paper assistance pricing, dissertation editing pricing"
               />
               <PricingSection />
+            </>
+          } />
+          <Route path="/privacy" element={
+            <>
+              <SEOHead
+                title="Privacy Policy | Gaply"
+                description="Gaply privacy policy covering data processing, temporary storage, optional saving, third-party services, and user rights."
+                keywords="Gaply privacy policy, data processing, file retention, academic research privacy"
+              />
+              <PrivacyPolicyPage />
+            </>
+          } />
+          <Route path="/terms" element={
+            <>
+              <SEOHead
+                title="Terms of Service | Gaply"
+                description="Gaply terms of service covering accounts, content, billing, acceptable use, and legal policies."
+                keywords="Gaply terms of service, user agreement, acceptable use, billing terms"
+              />
+              <TermsOfServicePage />
             </>
           } />
           <Route path="/career" element={

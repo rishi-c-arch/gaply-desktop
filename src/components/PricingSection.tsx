@@ -7,52 +7,36 @@ const PricingSection: React.FC = () => {
 
   const plans = [
     {
-      id: "basic",
-      name: "Gaply Basic",
-      price: "₹471",
-      description: "Research Gap Finder - Analyze 5 base papers to identify research gaps and opportunities",
+      id: "premium-2499",
+      name: "Gaply Premium",
+      price: "₹2,499",
+      description: "PublishReady + DataMaestro bundled access with priority-quality outputs.",
       features: [
-        "Research Gap Finder (1 use)",
-        "Analyze 5 base papers",
-        "Publishable problem statement",
-        "Clear objectives & hypotheses",
+        "PublishReady (2 uses)",
+        "DataMaestro (1 use)",
+        "Unlimited chat with Gaply.AI in both features",
+        "Priority evaluation queue",
         "Valid for 365 days"
       ],
-      buttonText: "Get Gaply Basic",
-      popular: false,
-      color: "rgba(255, 255, 255, 0.05)"
-    },
-    {
-      id: "plus",
-      name: "Gaply Plus",
-      price: "₹1,061",
-      description: "Research Pro - Gap Finder (2 uses) + Deep Paper Analysis (1 use) with 70+ parameter evaluation",
-      features: [
-        "Research Gap Finder (2 uses)",
-        "Deep Paper Analysis (1 use)",
-        "70+ parameter evaluation",
-        "Journal compliance checking",
-        "Valid for 365 days"
-      ],
-      buttonText: "Get Gaply Plus",
+      buttonText: "Get Gaply Premium",
       popular: true,
-      color: "rgba(0, 122, 255, 0.1)"
+      color: "var(--card-bg)"
     },
     {
-      id: "pro",
-      name: "Gaply Pro",
-      price: "₹2,241",
-      description: "Research Elite - Full access (5 uses each) + Team support with 30min session + WhatsApp support",
+      id: "enterprise",
+      name: "Gaply Enterprise",
+      price: "Quotation basis",
+      description: "Custom pricing and tailored onboarding for institutions, labs, and research teams.",
       features: [
-        "Research Gap Finder (5 uses)",
-        "Deep Paper Analysis (5 uses)",
-        "Team support (30min session)",
-        "WhatsApp support",
-        "Valid for 365 days"
+        "Custom usage limits for PublishReady + DataMaestro",
+        "Team access and admin controls",
+        "Dedicated onboarding and support",
+        "Flexible billing and invoicing",
+        "Security and compliance review"
       ],
-      buttonText: "Get Gaply Pro",
+      buttonText: "Request a Quote",
       popular: false,
-      color: "rgba(255, 255, 255, 0.05)"
+      color: "var(--card-bg)"
     }
   ];
 
@@ -63,9 +47,9 @@ const PricingSection: React.FC = () => {
   return (
     <div style={{
       minHeight: '100vh',
-      backgroundColor: '#000000',
-      padding: '120px 40px',
-      color: 'white',
+      backgroundColor: 'var(--app-bg)',
+      padding: 'clamp(96px, 12vw, 140px) clamp(16px, 4vw, 40px)',
+      color: 'var(--app-text)',
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif'
     }}>
       <SEO 
@@ -74,21 +58,21 @@ const PricingSection: React.FC = () => {
         keywords="academic research pricing, thesis writing cost, journal matching price, AI content detection cost, research paper editing price, dissertation writing assistance pricing, PhD thesis support cost, academic proofreading price, plagiarism checker cost, statistical analysis help pricing, Scopus journal finder cost, research methodology guidance price, academic writing service cost, literature review help price, conference paper preparation cost, research proposal writing price, data analysis support cost, academic consultation pricing"
       />
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: '100px' }}>
+      <div style={{ textAlign: 'center', marginBottom: 'clamp(48px, 8vw, 110px)' }}>
         <h2 style={{
-          fontSize: '5rem',
-          fontWeight: '300',
+          fontSize: 'clamp(2.6rem, 6vw, 5rem)',
+          fontWeight: '600',
           letterSpacing: '-0.02em',
-          marginBottom: '30px',
-          color: '#ffffff',
+          marginBottom: '24px',
+          color: 'var(--app-text)',
           lineHeight: '1.1'
         }}>
           Choose Your Plan
         </h2>
         <p style={{
-          fontSize: '1.5rem',
-          color: 'rgba(255, 255, 255, 0.7)',
-          marginBottom: '40px',
+          fontSize: 'clamp(1.05rem, 2.2vw, 1.5rem)',
+          color: 'var(--muted-text)',
+          marginBottom: '32px',
           fontWeight: '400',
           lineHeight: '1.4'
         }}>
@@ -97,7 +81,7 @@ const PricingSection: React.FC = () => {
         <div style={{
           width: '60px',
           height: '1px',
-          backgroundColor: '#ffffff',
+          backgroundColor: 'var(--divider)',
           margin: '0 auto',
           opacity: '0.3'
         }} />
@@ -109,7 +93,7 @@ const PricingSection: React.FC = () => {
         margin: '0 auto',
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
-        gap: '40px',
+        gap: 'clamp(20px, 4vw, 40px)',
         alignItems: 'stretch'
       }}>
         {plans.map((plan, index) => (
@@ -118,32 +102,33 @@ const PricingSection: React.FC = () => {
             style={{
               backgroundColor: plan.color,
               borderRadius: '24px',
-              padding: '48px 40px',
+              padding: 'clamp(28px, 5vw, 48px) clamp(22px, 4vw, 40px)',
               border: plan.popular 
                 ? '2px solid rgba(0, 122, 255, 0.3)' 
-                : '1px solid rgba(255, 255, 255, 0.1)',
+                : '1px solid var(--card-border)',
               cursor: 'pointer',
               transition: 'all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
               position: 'relative',
               backdropFilter: 'blur(20px)',
               WebkitBackdropFilter: 'blur(20px)',
               transform: 'translateZ(0)',
-              transformStyle: 'preserve-3d'
+              transformStyle: 'preserve-3d',
+              boxShadow: plan.popular ? '0 30px 70px rgba(0, 122, 255, 0.18)' : 'var(--card-shadow)'
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateZ(20px) scale(1.02)';
               e.currentTarget.style.borderColor = plan.popular 
                 ? 'rgba(0, 122, 255, 0.6)' 
-                : 'rgba(255, 255, 255, 0.3)';
+                : 'var(--card-border-hover)';
               e.currentTarget.style.boxShadow = plan.popular
                 ? '0 40px 80px rgba(0, 122, 255, 0.2), 0 0 0 1px rgba(0, 122, 255, 0.4)'
-                : '0 40px 80px rgba(255, 255, 255, 0.1)';
+                : 'var(--card-shadow-hover)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateZ(0) scale(1)';
               e.currentTarget.style.borderColor = plan.popular 
                 ? 'rgba(0, 122, 255, 0.3)' 
-                : 'rgba(255, 255, 255, 0.1)';
+                : 'var(--card-border)';
               e.currentTarget.style.boxShadow = 'none';
             }}
             onClick={() => handlePlanClick(plan.id)}
@@ -172,7 +157,7 @@ const PricingSection: React.FC = () => {
             <h3 style={{
               fontSize: '2rem',
               fontWeight: '700',
-              color: '#ffffff',
+              color: 'var(--app-text)',
               marginBottom: '16px',
               textAlign: 'center'
             }}>
@@ -185,9 +170,11 @@ const PricingSection: React.FC = () => {
               marginBottom: '24px'
             }}>
               <span style={{
-                fontSize: '3.5rem',
-                fontWeight: '300',
-                color: '#007AFF',
+                fontSize: 'clamp(2.4rem, 6vw, 3.5rem)',
+                fontWeight: '600',
+                color: 'var(--accent-blue)',
+                letterSpacing: '-0.01em',
+                textShadow: '0 6px 20px rgba(0, 122, 255, 0.25)',
                 lineHeight: '1'
               }}>
                 {plan.price}
@@ -197,7 +184,7 @@ const PricingSection: React.FC = () => {
             {/* Description */}
             <p style={{
               fontSize: '1rem',
-              color: 'rgba(255, 255, 255, 0.8)',
+              color: 'var(--muted-text)',
               marginBottom: '32px',
               lineHeight: '1.6',
               textAlign: 'center'
@@ -215,7 +202,7 @@ const PricingSection: React.FC = () => {
                   alignItems: 'center',
                   marginBottom: '16px',
                   fontSize: '1rem',
-                  color: '#e0e0e0'
+                  color: 'var(--section-text)'
                 }}>
                   <div style={{
                     width: '20px',
@@ -241,43 +228,34 @@ const PricingSection: React.FC = () => {
             <button style={{
               width: '100%',
               background: plan.popular 
-                ? 'linear-gradient(135deg, #007AFF, #0056CC)' 
-                : 'rgba(255, 255, 255, 0.1)',
-              color: '#ffffff',
+                ? 'var(--hero-cta-bg)' 
+                : 'var(--hero-cta-bg)',
+              color: 'var(--hero-cta-text)',
               fontWeight: '600',
               padding: '18px 32px',
               borderRadius: '16px',
               fontSize: '1.1rem',
               border: plan.popular 
                 ? 'none' 
-                : '1px solid rgba(255, 255, 255, 0.3)',
+                : '1px solid var(--hero-cta-border)',
               cursor: 'pointer',
               transition: 'all 0.6s ease',
               textTransform: 'uppercase',
               position: 'relative',
               overflow: 'hidden',
               transform: 'translateZ(0)',
-              transformStyle: 'preserve-3d'
+              transformStyle: 'preserve-3d',
+              boxShadow: '0 12px 30px rgba(15, 23, 42, 0.18)'
             }}
             onMouseEnter={(e) => {
-              if (plan.popular) {
-                e.currentTarget.style.background = 'linear-gradient(135deg, #0056CC, #003D99)';
-                e.currentTarget.style.transform = 'translateZ(10px) scale(1.05)';
-              } else {
-                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.6)';
-                e.currentTarget.style.transform = 'translateZ(10px) scale(1.05)';
-              }
+              e.currentTarget.style.background = 'var(--hero-cta-bg-hover)';
+              e.currentTarget.style.borderColor = 'var(--button-border-hover)';
+              e.currentTarget.style.transform = 'translateZ(10px) scale(1.05)';
             }}
             onMouseLeave={(e) => {
-              if (plan.popular) {
-                e.currentTarget.style.background = 'linear-gradient(135deg, #007AFF, #0056CC)';
-                e.currentTarget.style.transform = 'translateZ(0) scale(1)';
-              } else {
-                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
-                e.currentTarget.style.transform = 'translateZ(0) scale(1)';
-              }
+              e.currentTarget.style.background = 'var(--hero-cta-bg)';
+              e.currentTarget.style.borderColor = 'var(--hero-cta-border)';
+              e.currentTarget.style.transform = 'translateZ(0) scale(1)';
             }}
             >
               {plan.buttonText}
@@ -291,24 +269,24 @@ const PricingSection: React.FC = () => {
         maxWidth: '800px',
         margin: '100px auto 0',
         textAlign: 'center',
-        padding: '60px 40px',
-        background: 'rgba(255, 255, 255, 0.05)',
+        padding: 'clamp(36px, 6vw, 60px) clamp(20px, 4vw, 40px)',
+        background: 'var(--card-bg)',
         borderRadius: '24px',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
+        border: '1px solid var(--card-border)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)'
       }}>
         <h3 style={{
-          fontSize: '2.5rem',
+          fontSize: 'clamp(1.8rem, 4vw, 2.5rem)',
           fontWeight: '600',
-          color: '#ffffff',
+          color: 'var(--app-text)',
           marginBottom: '24px'
         }}>
           Need Expert Help?
         </h3>
         <p style={{
-          fontSize: '1.2rem',
-          color: 'rgba(255, 255, 255, 0.8)',
+          fontSize: 'clamp(1rem, 2.5vw, 1.2rem)',
+          color: 'var(--muted-text)',
           marginBottom: '32px',
           lineHeight: '1.6'
         }}>
@@ -317,8 +295,8 @@ const PricingSection: React.FC = () => {
         <button
           onClick={() => navigate('/contact')}
           style={{
-            background: 'linear-gradient(135deg, #FF9500, #FF6B00)',
-            color: '#ffffff',
+            background: 'var(--hero-cta-bg)',
+            color: 'var(--hero-cta-text)',
             fontWeight: '600',
             padding: '18px 40px',
             borderRadius: '16px',
@@ -331,11 +309,11 @@ const PricingSection: React.FC = () => {
             transformStyle: 'preserve-3d'
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, #FF6B00, #E55A00)';
+            e.currentTarget.style.background = 'var(--hero-cta-bg-hover)';
             e.currentTarget.style.transform = 'translateZ(10px) scale(1.05)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, #FF9500, #FF6B00)';
+            e.currentTarget.style.background = 'var(--hero-cta-bg)';
             e.currentTarget.style.transform = 'translateZ(0) scale(1)';
           }}
         >
@@ -348,17 +326,17 @@ const PricingSection: React.FC = () => {
         textAlign: 'center',
         marginTop: '80px',
         paddingTop: '40px',
-        borderTop: '1px solid rgba(255, 255, 255, 0.1)'
+        borderTop: '1px solid var(--divider)'
       }}>
         <p style={{
-          color: 'rgba(255, 255, 255, 0.6)',
+          color: 'var(--muted-text)',
           fontSize: '1rem',
           marginBottom: '16px'
         }}>
-          All plans include 30-day money-back guarantee
+          All plans include 7-day money-back guarantee
         </p>
         <p style={{
-          color: 'rgba(255, 255, 255, 0.5)',
+          color: 'var(--muted-text)',
           fontSize: '0.9rem'
         }}>
           Need help choosing? Contact our support team
