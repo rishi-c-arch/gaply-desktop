@@ -208,10 +208,10 @@ const PaperSearchPage: React.FC = () => {
           onClick={() => navigate('/')}
           className="paper-search-back"
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+            e.currentTarget.style.background = 'var(--button-bg-hover)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+            e.currentTarget.style.background = 'var(--button-bg)';
           }}
         >
           ← Back to Home
@@ -239,17 +239,17 @@ const PaperSearchPage: React.FC = () => {
             disabled={!searchQuery.trim() || isSearching}
             className="paper-search-button"
             style={{
-              background: searchQuery.trim() && !isSearching ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+              background: searchQuery.trim() && !isSearching ? 'var(--button-bg-hover)' : 'var(--button-bg)',
               cursor: searchQuery.trim() && !isSearching ? 'pointer' : 'not-allowed',
             }}
             onMouseEnter={(e) => {
               if (searchQuery.trim() && !isSearching) {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+                e.currentTarget.style.background = 'var(--button-bg-hover)';
               }
             }}
             onMouseLeave={(e) => {
               if (searchQuery.trim() && !isSearching) {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                e.currentTarget.style.background = 'var(--button-bg)';
               }
             }}
           >
@@ -274,14 +274,14 @@ const PaperSearchPage: React.FC = () => {
                 fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                 fontSize: '1.25rem',
                 fontWeight: '600',
-                color: '#ffffff',
+                color: 'var(--section-text)',
                 margin: 0,
               }}>
                 Search Results ({searchResults.length})
               </h3>
               <div style={{
                 fontSize: '0.875rem',
-                color: 'rgba(255, 255, 255, 0.6)',
+                color: 'var(--muted-text)',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
               }}>
                 Powered by arXiv, CrossRef, OpenAlex & Semantic Scholar
@@ -294,19 +294,19 @@ const PaperSearchPage: React.FC = () => {
                 style={{
                   padding: '28px',
                   borderRadius: '20px',
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  background: 'var(--card-bg)',
+                  border: '1px solid var(--card-border)',
                   transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                   position: 'relative',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.background = 'var(--card-bg-hover)';
+                  e.currentTarget.style.borderColor = 'var(--card-border-hover)';
                   e.currentTarget.style.transform = 'translateY(-2px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.background = 'var(--card-bg)';
+                  e.currentTarget.style.borderColor = 'var(--card-border)';
                   e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
@@ -319,7 +319,7 @@ const PaperSearchPage: React.FC = () => {
                     fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                     fontSize: '1.25rem',
                     fontWeight: '600',
-                    color: '#ffffff',
+                    color: 'var(--section-text)',
                     textDecoration: 'none',
                     lineHeight: '1.3',
                     display: 'block',
@@ -327,10 +327,10 @@ const PaperSearchPage: React.FC = () => {
                     transition: 'color 0.3s ease',
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.color = '#007AFF';
+                    e.currentTarget.style.color = 'var(--accent-blue)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.color = '#ffffff';
+                    e.currentTarget.style.color = 'var(--section-text)';
                   }}
                 >
                   {result.title}
@@ -340,7 +340,7 @@ const PaperSearchPage: React.FC = () => {
                 <p style={{
                   fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                   fontSize: '0.95rem',
-                  color: 'rgba(255, 255, 255, 0.8)',
+                  color: 'var(--section-text)',
                   margin: '0 0 12px 0',
                   fontWeight: '500',
                 }}>
@@ -351,7 +351,7 @@ const PaperSearchPage: React.FC = () => {
                 <p style={{
                   fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                   fontSize: '0.9rem',
-                  color: 'rgba(255, 255, 255, 0.7)',
+                  color: 'var(--muted-text)',
                   margin: '0 0 16px 0',
                   lineHeight: '1.5',
                 }}>
@@ -374,14 +374,14 @@ const PaperSearchPage: React.FC = () => {
                   }}>
                     {/* Source Badge */}
                     <div style={{
-                      background: 'rgba(0, 122, 255, 0.2)',
-                      color: '#007AFF',
+                      background: 'var(--badge-bg)',
+                      color: 'var(--accent-blue)',
                       padding: '6px 12px',
                       borderRadius: '12px',
                       fontSize: '0.8rem',
                       fontWeight: '600',
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-                      border: '1px solid rgba(0, 122, 255, 0.3)',
+                      border: '1px solid var(--badge-border)',
                     }}>
                       {result.source}
                     </div>
@@ -390,7 +390,7 @@ const PaperSearchPage: React.FC = () => {
                     {result.year && (
                       <span style={{
                         fontSize: '0.85rem',
-                        color: 'rgba(255, 255, 255, 0.6)',
+                        color: 'var(--muted-text)',
                         fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                       }}>
                         {result.year}
@@ -401,7 +401,7 @@ const PaperSearchPage: React.FC = () => {
                     {result.citations && (
                       <span style={{
                         fontSize: '0.85rem',
-                        color: 'rgba(255, 255, 255, 0.6)',
+                        color: 'var(--muted-text)',
                         fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                       }}>
                         📊 {result.citations} citations
@@ -413,12 +413,12 @@ const PaperSearchPage: React.FC = () => {
                   {result.doi && (
                     <div style={{
                       fontSize: '0.8rem',
-                      color: 'rgba(255, 255, 255, 0.5)',
+                      color: 'var(--muted-text)',
                       fontFamily: 'monospace',
-                      background: 'rgba(255, 255, 255, 0.05)',
+                      background: 'var(--badge-bg)',
                       padding: '4px 8px',
                       borderRadius: '6px',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      border: '1px solid var(--badge-border)',
                     }}>
                       DOI: {result.doi}
                     </div>
@@ -431,7 +431,7 @@ const PaperSearchPage: React.FC = () => {
                   top: '20px',
                   right: '20px',
                   fontSize: '0.8rem',
-                  color: 'rgba(255, 255, 255, 0.4)',
+                  color: 'var(--muted-text)',
                   fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                 }}>
                   ↗

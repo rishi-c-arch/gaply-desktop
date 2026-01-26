@@ -465,10 +465,10 @@ const JournalMatchingPage: React.FC = () => {
           onClick={() => navigate('/')}
           className="journal-matching-back"
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+            e.currentTarget.style.background = 'var(--button-bg-hover)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+            e.currentTarget.style.background = 'var(--button-bg)';
           }}
         >
           ← Back to Home
@@ -500,17 +500,17 @@ const JournalMatchingPage: React.FC = () => {
           disabled={isMatching}
           className="journal-matching-button"
           style={{
-            background: !isMatching ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+            background: !isMatching ? 'var(--button-bg-hover)' : 'var(--button-bg)',
             cursor: !isMatching ? 'pointer' : 'not-allowed',
           }}
           onMouseEnter={(e) => {
             if (!isMatching) {
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+              e.currentTarget.style.background = 'var(--button-bg-hover)';
             }
           }}
           onMouseLeave={(e) => {
             if (!isMatching) {
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+              e.currentTarget.style.background = 'var(--button-bg)';
             }
           }}
         >
@@ -535,14 +535,14 @@ const JournalMatchingPage: React.FC = () => {
                 fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                 fontSize: '1.25rem',
                 fontWeight: '600',
-                color: '#ffffff',
+                color: 'var(--section-text)',
                 margin: 0,
               }}>
                 🎯 Recommended Journals ({journalResults.length})
               </h3>
               <div style={{
                 fontSize: '0.875rem',
-                color: 'rgba(255, 255, 255, 0.6)',
+                color: 'var(--muted-text)',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
               }}>
                 Sorted by Impact Factor
@@ -555,19 +555,19 @@ const JournalMatchingPage: React.FC = () => {
                 style={{
                   padding: '32px',
                   borderRadius: '24px',
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  background: 'var(--card-bg)',
+                  border: '1px solid var(--card-border)',
                   transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                   position: 'relative',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.background = 'var(--card-bg-hover)';
+                  e.currentTarget.style.borderColor = 'var(--card-border-hover)';
                   e.currentTarget.style.transform = 'translateY(-2px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.background = 'var(--card-bg)';
+                  e.currentTarget.style.borderColor = 'var(--card-border)';
                   e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
@@ -583,7 +583,7 @@ const JournalMatchingPage: React.FC = () => {
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                       fontSize: '1.4rem',
                       fontWeight: '600',
-                      color: '#ffffff',
+                      color: 'var(--section-text)',
                       margin: '0 0 8px 0',
                       lineHeight: '1.3',
                     }}>
@@ -592,7 +592,7 @@ const JournalMatchingPage: React.FC = () => {
                     <p style={{
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                       fontSize: '1rem',
-                      color: 'rgba(255, 255, 255, 0.7)',
+                      color: 'var(--muted-text)',
                       margin: '0 0 12px 0',
                     }}>
                       {result.publisher}
@@ -622,26 +622,26 @@ const JournalMatchingPage: React.FC = () => {
                         {result.quartile}
                       </div>
                       <div style={{
-                        background: 'rgba(0, 122, 255, 0.2)',
-                        color: '#007AFF',
+                        background: 'var(--badge-bg)',
+                        color: 'var(--accent-blue)',
                         padding: '6px 12px',
                         borderRadius: '12px',
                         fontSize: '0.85rem',
                         fontWeight: '600',
                         fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-                        border: '1px solid rgba(0, 122, 255, 0.3)',
+                        border: '1px solid var(--badge-border)',
                       }}>
                         IF: {result.impactFactor}
                       </div>
                       <div style={{
-                        background: 'rgba(255, 255, 255, 0.1)',
-                        color: 'rgba(255, 255, 255, 0.8)',
+                        background: 'var(--badge-bg)',
+                        color: 'var(--section-text)',
                         padding: '6px 12px',
                         borderRadius: '12px',
                         fontSize: '0.85rem',
                         fontWeight: '500',
                         fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        border: '1px solid var(--badge-border)',
                       }}>
                         {result.acceptanceRate} acceptance
                       </div>
@@ -670,23 +670,23 @@ const JournalMatchingPage: React.FC = () => {
                   <p style={{
                     fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                     fontSize: '0.95rem',
-                    color: 'rgba(255, 255, 255, 0.8)',
+                    color: 'var(--section-text)',
                     margin: '0 0 12px 0',
                     lineHeight: '1.5',
                   }}>
-                    <strong style={{ color: 'rgba(255, 255, 255, 0.9)' }}>Scope:</strong> {result.scope}
+                    <strong style={{ color: 'var(--section-text)' }}>Scope:</strong> {result.scope}
                   </p>
                   <div style={{
                     display: 'flex',
                     gap: '20px',
                     flexWrap: 'wrap',
                     fontSize: '0.9rem',
-                    color: 'rgba(255, 255, 255, 0.7)',
+                    color: 'var(--muted-text)',
                   }}>
-                    <span><strong style={{ color: 'rgba(255, 255, 255, 0.9)' }}>Processing Time:</strong> {result.processingTime}</span>
-                    <span><strong style={{ color: 'rgba(255, 255, 255, 0.9)' }}>Indexing:</strong> {result.indexing.join(', ')}</span>
+                    <span><strong style={{ color: 'var(--section-text)' }}>Processing Time:</strong> {result.processingTime}</span>
+                    <span><strong style={{ color: 'var(--section-text)' }}>Indexing:</strong> {result.indexing.join(', ')}</span>
                     {result.articleProcessingCharge && (
-                      <span><strong style={{ color: 'rgba(255, 255, 255, 0.9)' }}>APC:</strong> {result.articleProcessingCharge}</span>
+                      <span><strong style={{ color: 'var(--section-text)' }}>APC:</strong> {result.articleProcessingCharge}</span>
                     )}
                   </div>
                 </div>
@@ -731,7 +731,7 @@ const JournalMatchingPage: React.FC = () => {
                     rel="noopener noreferrer"
                     style={{
                       background: 'transparent',
-                      color: '#ffffff',
+                      color: 'var(--button-text)',
                       padding: '12px 24px',
                       borderRadius: '12px',
                       fontSize: '0.9rem',
@@ -739,16 +739,16 @@ const JournalMatchingPage: React.FC = () => {
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                       textDecoration: 'none',
                       transition: 'all 0.3s ease',
-                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      border: '1px solid var(--button-border)',
                       cursor: 'pointer',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+                      e.currentTarget.style.background = 'var(--button-bg-hover)';
+                      e.currentTarget.style.borderColor = 'var(--button-border-hover)';
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                      e.currentTarget.style.borderColor = 'var(--button-border)';
                     }}
                   >
                     📋 Guidelines
@@ -761,7 +761,7 @@ const JournalMatchingPage: React.FC = () => {
                   top: '24px',
                   right: '24px',
                   fontSize: '0.8rem',
-                  color: 'rgba(255, 255, 255, 0.4)',
+                  color: 'var(--muted-text)',
                   fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
                 }}>
                   ↗
