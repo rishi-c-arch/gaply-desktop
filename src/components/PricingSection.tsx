@@ -20,7 +20,9 @@ const PricingSection: React.FC = () => {
       ],
       buttonText: "Get Gaply Premium",
       popular: true,
-      color: "var(--card-bg)"
+      color: "var(--card-bg)",
+      ctaVariant: "solid" as const,
+      ctaHref: "/login"
     },
     {
       id: "enterprise",
@@ -36,12 +38,14 @@ const PricingSection: React.FC = () => {
       ],
       buttonText: "Request a Quote",
       popular: false,
-      color: "var(--card-bg)"
+      color: "var(--card-bg)",
+      ctaVariant: "outline" as const,
+      ctaHref: "/contact"
     }
   ];
 
-  const handlePlanClick = (planId: string) => {
-    navigate('/login');
+  const handlePlanClick = (planHref: string) => {
+    navigate(planHref);
   };
 
   return (
@@ -92,15 +96,15 @@ const PricingSection: React.FC = () => {
         maxWidth: '1400px',
         margin: '0 auto',
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
         gap: 'clamp(20px, 4vw, 40px)',
         alignItems: 'stretch'
       }}>
-        {plans.map((plan, index) => (
+        {plans.map((plan) => (
           <div
             key={plan.id}
             style={{
-              backgroundColor: plan.color,
+              background: `linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0) 55%), ${plan.color}`,
               borderRadius: '24px',
               padding: 'clamp(28px, 5vw, 48px) clamp(22px, 4vw, 40px)',
               border: plan.popular 
@@ -113,10 +117,12 @@ const PricingSection: React.FC = () => {
               WebkitBackdropFilter: 'blur(20px)',
               transform: 'translateZ(0)',
               transformStyle: 'preserve-3d',
-              boxShadow: plan.popular ? '0 30px 70px rgba(0, 122, 255, 0.18)' : 'var(--card-shadow)'
+              boxShadow: plan.popular ? '0 30px 70px rgba(0, 122, 255, 0.18)' : 'var(--card-shadow)',
+              display: 'flex',
+              flexDirection: 'column'
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateZ(20px) scale(1.02)';
+              e.currentTarget.style.transform = 'translateZ(16px) scale(1.02)';
               e.currentTarget.style.borderColor = plan.popular 
                 ? 'rgba(0, 122, 255, 0.6)' 
                 : 'var(--card-border-hover)';
@@ -129,9 +135,9 @@ const PricingSection: React.FC = () => {
               e.currentTarget.style.borderColor = plan.popular 
                 ? 'rgba(0, 122, 255, 0.3)' 
                 : 'var(--card-border)';
-              e.currentTarget.style.boxShadow = 'none';
+              e.currentTarget.style.boxShadow = plan.popular ? '0 30px 70px rgba(0, 122, 255, 0.18)' : 'var(--card-shadow)';
             }}
-            onClick={() => handlePlanClick(plan.id)}
+            onClick={() => handlePlanClick(plan.ctaHref)}
           >
             {/* Popular Badge */}
             {plan.popular && (
@@ -170,11 +176,11 @@ const PricingSection: React.FC = () => {
               marginBottom: '24px'
             }}>
               <span style={{
-                fontSize: 'clamp(2.4rem, 6vw, 3.5rem)',
+                fontSize: plan.id === 'enterprise' ? 'clamp(2rem, 5vw, 2.8rem)' : 'clamp(2.4rem, 6vw, 3.5rem)',
                 fontWeight: '600',
-                color: 'var(--accent-blue)',
+                color: plan.id === 'enterprise' ? 'var(--app-text)' : 'var(--accent-blue)',
                 letterSpacing: '-0.01em',
-                textShadow: '0 6px 20px rgba(0, 122, 255, 0.25)',
+                textShadow: plan.id === 'enterprise' ? 'none' : '0 6px 20px rgba(0, 122, 255, 0.25)',
                 lineHeight: '1'
               }}>
                 {plan.price}
@@ -225,38 +231,57 @@ const PricingSection: React.FC = () => {
             </div>
 
             {/* Button */}
-            <button style={{
-              width: '100%',
-              background: plan.popular 
-                ? 'var(--hero-cta-bg)' 
-                : 'var(--hero-cta-bg)',
-              color: 'var(--hero-cta-text)',
-              fontWeight: '600',
-              padding: '18px 32px',
-              borderRadius: '16px',
-              fontSize: '1.1rem',
-              border: plan.popular 
-                ? 'none' 
-                : '1px solid var(--hero-cta-border)',
-              cursor: 'pointer',
-              transition: 'all 0.6s ease',
-              textTransform: 'uppercase',
-              position: 'relative',
-              overflow: 'hidden',
-              transform: 'translateZ(0)',
-              transformStyle: 'preserve-3d',
-              boxShadow: '0 12px 30px rgba(15, 23, 42, 0.18)'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--hero-cta-bg-hover)';
-              e.currentTarget.style.borderColor = 'var(--button-border-hover)';
-              e.currentTarget.style.transform = 'translateZ(10px) scale(1.05)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--hero-cta-bg)';
-              e.currentTarget.style.borderColor = 'var(--hero-cta-border)';
-              e.currentTarget.style.transform = 'translateZ(0) scale(1)';
-            }}
+            <button
+              style={{
+                width: '100%',
+                background: plan.ctaVariant === 'outline'
+                  ? 'var(--pricing-cta-outline-bg)'
+                  : 'var(--pricing-cta-bg)',
+                color: plan.ctaVariant === 'outline'
+                  ? 'var(--pricing-cta-outline-text)'
+                  : 'var(--pricing-cta-text)',
+                fontWeight: '600',
+                padding: '18px 32px',
+                borderRadius: '16px',
+                fontSize: '1.05rem',
+                border: plan.ctaVariant === 'outline'
+                  ? '1px solid var(--pricing-cta-outline-border)'
+                  : '1px solid var(--pricing-cta-border)',
+                cursor: 'pointer',
+                transition: 'all 0.6s ease',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                position: 'relative',
+                overflow: 'hidden',
+                transform: 'translateZ(0)',
+                transformStyle: 'preserve-3d',
+                boxShadow: plan.ctaVariant === 'outline'
+                  ? 'none'
+                  : '0 12px 30px rgba(15, 23, 42, 0.18)',
+                marginTop: 'auto'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = plan.ctaVariant === 'outline'
+                  ? 'var(--pricing-cta-outline-hover-bg)'
+                  : 'var(--pricing-cta-bg-hover)';
+                e.currentTarget.style.borderColor = plan.ctaVariant === 'outline'
+                  ? 'var(--pricing-cta-outline-border)'
+                  : 'var(--pricing-cta-border)';
+                e.currentTarget.style.transform = 'translateZ(10px) scale(1.03)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = plan.ctaVariant === 'outline'
+                  ? 'var(--pricing-cta-outline-bg)'
+                  : 'var(--pricing-cta-bg)';
+                e.currentTarget.style.borderColor = plan.ctaVariant === 'outline'
+                  ? 'var(--pricing-cta-outline-border)'
+                  : 'var(--pricing-cta-border)';
+                e.currentTarget.style.transform = 'translateZ(0) scale(1)';
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePlanClick(plan.ctaHref);
+              }}
             >
               {plan.buttonText}
             </button>
@@ -333,7 +358,7 @@ const PricingSection: React.FC = () => {
           fontSize: '1rem',
           marginBottom: '16px'
         }}>
-          All plans include 7-day money-back guarantee
+          All plans include 30-day money-back guarantee
         </p>
         <p style={{
           color: 'var(--muted-text)',

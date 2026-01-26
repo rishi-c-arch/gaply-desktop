@@ -130,7 +130,8 @@ const AppleHeader: React.FC<{ theme: 'light' | 'dark'; onToggleTheme: () => void
           {[
             { label: 'Features', href: '/features' },
             { label: 'Pricing', href: '/pricing' },
-            { label: 'Career', href: '/career' },
+            { label: 'Careers', href: '/career' },
+            { label: 'Contact', href: '/contact' },
           ].map((l) => (
             <a
               key={l.label}
@@ -294,6 +295,16 @@ const AppContent: React.FC = () => {
                 keywords="academic research platform pricing, thesis writing services pricing, AI detection pricing, journal matching pricing, research paper assistance pricing, dissertation editing pricing"
               />
               <PricingSection />
+            </>
+          } />
+          <Route path="/contact" element={
+            <>
+              <SEOHead 
+                title="Contact Gaply | Academic Research Support & Expert Consultation"
+                description="Get in touch with Gaply's academic research experts. Contact us for thesis writing help, journal matching, research paper editing, AI content detection, and statistical analysis support."
+                keywords="contact Gaply, academic research support, thesis writing help contact, journal matching support, research paper editing contact, AI content detection support"
+              />
+              <ContactPage />
             </>
           } />
           <Route path="/privacy" element={
