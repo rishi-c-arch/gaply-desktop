@@ -211,7 +211,7 @@ const UserDashboard: React.FC = () => {
     }
 
     try {
-      const accountResponse = await fetch(`${buildApiUrl('/api/premium/subscription')}`, {
+      const accountResponse = await fetch(`${buildApiUrl('/api/premium-features/usage')}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -221,21 +221,16 @@ const UserDashboard: React.FC = () => {
       if (accountResponse.ok) {
         const accountData = await accountResponse.json();
         if (accountData.success) {
-          setUserAccount(accountData.data);
-        }
-      }
-
-      const paymentResponse = await fetch(`${buildApiUrl('/api/premium/payment-history')}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (paymentResponse.ok) {
-        const paymentData = await paymentResponse.json();
-        if (paymentData.success) {
-          setPaymentHistory(paymentData.data);
+          setUserAccount({
+            planId: accountData.plan?.code || 'NONE',
+            planName: accountData.plan?.name || 'No Active Plan',
+            gapFinderUsesRemaining: accountData.usage?.gap_finder || 0,
+            deepEvalUsesRemaining: accountData.usage?.deep_eval || 0,
+            hasSupport: false,
+            expiresAt: accountData.plan?.expires_at || 'N/A',
+            createdAt: accountData.plan?.purchased_at || new Date().toISOString(),
+          });
+          setPaymentHistory([]);
         }
       }
     } catch (error) {

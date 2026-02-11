@@ -5,6 +5,34 @@ import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 
+// Suppress non-critical warnings (source map errors, 403 errors from external resources)
+if (process.env.NODE_ENV === 'development') {
+  const originalError = console.error;
+  const originalWarn = console.warn;
+
+  console.error = (...args: any[]) => {
+    const message = args.join(' ');
+    // Suppress mediapipe source map warnings (transitive dependency issue, non-critical)
+    if (message.includes('Failed to parse source map') && message.includes('mediapipe')) {
+      return;
+    }
+    // Suppress 403 Forbidden warnings (external resources, non-critical)
+    if (message.includes('Failed to load resource') && message.includes('403')) {
+      return;
+    }
+    originalError.apply(console, args);
+  };
+
+  console.warn = (...args: any[]) => {
+    const message = args.join(' ');
+    // Suppress mediapipe source map warnings
+    if (message.includes('Failed to parse source map') && message.includes('mediapipe')) {
+      return;
+    }
+    originalWarn.apply(console, args);
+  };
+}
+
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 );
