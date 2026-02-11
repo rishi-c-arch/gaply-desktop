@@ -1,12 +1,11 @@
-import { API_BASE_URL, apiFetch } from '../api/config';
+import { apiFetch } from '../api/config';
 
 export interface User {
   id: string;
   email: string;
   first_name?: string;
   last_name?: string;
-  is_premium: boolean;
-  premium_expires_at?: string;
+  role?: string;
   created_at: string;
   last_login_at?: string;
 }
@@ -87,10 +86,23 @@ class AuthService {
     };
   }
 
+  // Safely parse JSON from response; handles empty or invalid bodies
+  private async safeParseJson<T = unknown>(response: Response): Promise<{ data: T | null; error: string | null }> {
+    const text = await response.text();
+    if (!text || text.trim() === '') {
+      return { data: null, error: 'Server returned empty response. Check backend URL and CORS.' };
+    }
+    try {
+      return { data: JSON.parse(text) as T, error: null };
+    } catch {
+      return { data: null, error: `Invalid response from server: ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}` };
+    }
+  }
+
   // Register new user
   async register(credentials: RegisterCredentials): Promise<AuthResponse> {
     try {
-      const response = await apiFetch('/api/premium/signup', {
+      const response = await apiFetch('/v1/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -101,23 +113,33 @@ class AuthService {
         }),
       });
 
-      const data = await response.json();
-      console.log('Registration API response:', data); // Debug log
-
-      if (response.ok && data.success && data.token && data.user) {
-        this.setToken(data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        localStorage.setItem('user_email', data.user.email); // Store email for test account detection
-        return {
-          success: true,
-          data: { token: data.token, user: data.user },
-        };
-      } else {
+      const { data, error: parseError } = await this.safeParseJson<{ access_token?: string; error?: string }>(response);
+      if (parseError) {
+        return { success: false, error: parseError };
+      }
+      if (!data) {
+        return { success: false, error: 'Invalid server response' };
+      }
+      if (!response.ok) {
         return {
           success: false,
-          error: data.error || data.message || 'Registration failed',
+          error: data.error || 'Registration failed',
         };
       }
+
+      const token = data.access_token;
+      if (!token) {
+        return { success: false, error: 'Missing access token' };
+      }
+
+      this.setToken(token);
+      const user = await this.fetchMe();
+      if (user) {
+        localStorage.setItem('user', JSON.stringify(user));
+        return { success: true, data: { token, user } };
+      }
+
+      return { success: false, error: 'Failed to load user profile' };
     } catch (error) {
       console.error('Registration error:', error);
       return {
@@ -130,7 +152,7 @@ class AuthService {
   // Login user
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
     try {
-      const response = await apiFetch('/api/premium/login', {
+      const response = await apiFetch('/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -139,23 +161,30 @@ class AuthService {
         }),
       });
 
-      const data = await response.json();
-      console.log('Login API response:', data); // Debug log
-
-      if (response.ok && data.success && data.token && data.user) {
-        this.setToken(data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        localStorage.setItem('user_email', data.user.email); // Store email for test account detection
-        return {
-          success: true,
-          data: { token: data.token, user: data.user },
-        };
-      } else {
-        return {
-          success: false,
-          error: data.error || data.message || 'Login failed',
-        };
+      const { data, error: parseError } = await this.safeParseJson<{ access_token?: string; error?: string }>(response);
+      if (parseError) {
+        return { success: false, error: parseError };
       }
+      if (!data) {
+        return { success: false, error: 'Invalid server response' };
+      }
+      if (!response.ok) {
+        return { success: false, error: data.error || 'Login failed' };
+      }
+
+      const token = data.access_token;
+      if (!token) {
+        return { success: false, error: 'Missing access token' };
+      }
+
+      this.setToken(token);
+      const user = await this.fetchMe();
+      if (user) {
+        localStorage.setItem('user', JSON.stringify(user));
+        return { success: true, data: { token, user } };
+      }
+
+      return { success: false, error: 'Failed to load user profile' };
     } catch (error) {
       console.error('Login error:', error);
       return {
@@ -170,8 +199,8 @@ class AuthService {
     try {
       const token = this.getToken();
       if (token) {
-        await apiFetch('/api/premium/logout', {
-          method: 'POST',
+        await apiFetch('/v1/auth/logout', {
+          method: 'DELETE',
           headers: this.getAuthHeaders(),
         });
       }
@@ -190,33 +219,20 @@ class AuthService {
         return { success: false, error: 'No token found' };
       }
 
-      // Extract email from token (format: token_email_timestamp)
-      const parts = token.split('_');
-      if (parts.length < 3) {
-        return { success: false, error: 'Invalid token format' };
-      }
-      const email = parts[1];
-
-      const response = await apiFetch(`/api/premium/status?email=${encodeURIComponent(email)}`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        localStorage.setItem('user', JSON.stringify(data));
+      const user = await this.fetchMe();
+      if (user) {
+        localStorage.setItem('user', JSON.stringify(user));
         return {
           success: true,
-          data: { token, user: data },
-        };
-      } else {
-        this.clearAuth();
-        return {
-          success: false,
-          error: data.error || 'Token verification failed',
+          data: { token, user },
         };
       }
+
+      this.clearAuth();
+      return {
+        success: false,
+        error: 'Token verification failed',
+      };
     } catch (error) {
       console.error('Token verification error:', error);
       this.clearAuth();
@@ -230,18 +246,22 @@ class AuthService {
   // Get user subscription summary
   async getUserSubscription(userId: string): Promise<SubscriptionSummary | null> {
     try {
-      const response = await apiFetch(`/api/premium/subscription/${userId}`, {
+      const response = await apiFetch(`/api/premium-features/usage`, {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });
 
       const data = await response.json();
-
       if (response.ok && data.success) {
-        return data.data;
-      } else {
-        return null;
+        return {
+          package_id: data.plan?.code || '',
+          package_name: data.plan?.name || '',
+          purchased_at: data.plan?.purchased_at || '',
+          remaining_uses: data.usage || {},
+          status: data.plan ? 'active' : 'none',
+        };
       }
+      return null;
     } catch (error) {
       console.error('Get subscription error:', error);
       return null;
@@ -251,21 +271,22 @@ class AuthService {
   // Check feature access
   async checkFeatureAccess(userId: string, featureType: string): Promise<FeatureAccess> {
     try {
-      const response = await apiFetch(`/api/premium/check-access/${userId}/${featureType}`, {
+      const response = await apiFetch(`/v1/entitlements`, {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });
 
       const data = await response.json();
-
-      if (response.ok && data.success) {
-        return data.data;
-      } else {
-        return {
-          has_access: false,
-          remaining_uses: 0,
-        };
+      if (!response.ok || !Array.isArray(data)) {
+        return { has_access: false, remaining_uses: 0 };
       }
+
+      const found = data.find((item: any) => item.feature_name === featureType);
+      const remaining = found?.remaining_uses ?? 0;
+      return {
+        has_access: remaining > 0,
+        remaining_uses: remaining,
+      };
     } catch (error) {
       console.error('Check feature access error:', error);
       return {
@@ -277,19 +298,7 @@ class AuthService {
 
   // Use a feature (decrement usage)
   async useFeature(userId: string, featureType: string, jobId?: string): Promise<boolean> {
-    try {
-      const response = await apiFetch(`/api/premium/use-feature/${userId}/${featureType}`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify({ job_id: jobId }),
-      });
-
-      const data = await response.json();
-      return response.ok && data.success;
-    } catch (error) {
-      console.error('Use feature error:', error);
-      return false;
-    }
+    return true;
   }
 
   // Get current user from localStorage
@@ -310,14 +319,24 @@ class AuthService {
 
   // Check if user has premium access
   isPremium(): boolean {
-    const user = this.getCurrentUser();
-    if (!user || !user.is_premium) return false;
-    
-    if (user.premium_expires_at) {
-      return new Date(user.premium_expires_at) > new Date();
+    return this.isAuthenticated();
+  }
+
+  private async fetchMe(): Promise<User | null> {
+    try {
+      const response = await apiFetch('/v1/auth/me', {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+      if (!response.ok) {
+        return null;
+      }
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Fetch user profile error:', error);
+      return null;
     }
-    
-    return true;
   }
 }
 
