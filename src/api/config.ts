@@ -2,8 +2,8 @@
 // Priority: env var → public env → hardcoded domain
 const FALLBACK_URLS = [
   'http://localhost:8080',
-  'https://gaply-backend-gaply.up.railway.app',
   'https://gaply-backend-production.up.railway.app',
+  'https://gaply-backend-gaply.up.railway.app',
   'https://backend.gaply.in',
 ];
 
