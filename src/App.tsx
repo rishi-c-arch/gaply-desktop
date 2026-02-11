@@ -23,14 +23,11 @@ import CareerPage from './components/CareerPage';
 import HireExpertPage from './components/HireExpertPage';
 import ExpertSearchResultsPage from './components/ExpertSearchResultsPage';
 import PricingSection from './components/PricingSection';
-<<<<<<< Updated upstream
 import PrivacyPolicyPage from './components/PrivacyPolicyPage';
 import TermsOfServicePage from './components/TermsOfServicePage';
-=======
 import DocumentOrchestratorPage from './components/DocumentOrchestratorPage';
 import ManuscriptOrchestratorPage from './components/ManuscriptOrchestratorPage';
 import StatisticalResearchOrchestratorPage from './components/StatisticalResearchOrchestratorPage';
->>>>>>> Stashed changes
 import { AuthProvider } from './contexts/AuthContext';
 
 // SEO Component for dynamic meta tags
