@@ -8,6 +8,7 @@ export interface User {
   role?: string;
   created_at: string;
   last_login_at?: string;
+  is_premium?: boolean;
 }
 
 export interface LoginCredentials {
