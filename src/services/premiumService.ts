@@ -71,6 +71,8 @@ class PremiumService {
         if (Array.isArray(data.data)) {
           return data.data;
         }
+        // If neither packages nor data is an array, return default plans
+        return this.getDefaultPlans();
       } else {
         // Fallback to hardcoded plans if API fails
         return this.getDefaultPlans();
