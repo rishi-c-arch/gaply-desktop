@@ -28,6 +28,7 @@ import TermsOfServicePage from './components/TermsOfServicePage';
 import DocumentOrchestratorPage from './components/DocumentOrchestratorPage';
 import ManuscriptOrchestratorPage from './components/ManuscriptOrchestratorPage';
 import StatisticalResearchOrchestratorPage from './components/StatisticalResearchOrchestratorPage';
+import ContactPage from './components/ContactPage';
 import { AuthProvider } from './contexts/AuthContext';
 
 // SEO Component for dynamic meta tags
