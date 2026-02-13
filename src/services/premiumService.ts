@@ -158,6 +158,30 @@ class PremiumService {
           },
         },
       },
+      {
+        id: "PLAN-PREMIUM",
+        name: "Gaply Premium",
+        description: "PublishReady + DataMaestro bundled access with priority-quality outputs",
+        price: 2499,
+        currency: "INR",
+        features: {
+          gap_finder: {
+            name: "PublishReady",
+            description: "Research gap finder with professional report generation",
+            uses: 2,
+            included: true,
+          },
+          deep_eval: {
+            name: "DataMaestro",
+            description: "70+ parameter evaluation engine with professional reports",
+            uses: 1,
+            included: true,
+          },
+          support: {
+            included: false,
+          },
+        },
+      },
     ];
   }
 
