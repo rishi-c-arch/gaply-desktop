@@ -98,6 +98,20 @@
   --footer-text: #e5e7eb;
   --footer-border: rgba(255,255,255,0.06);
   --footer-seam: linear-gradient(180deg, rgba(250,250,250,0) 0%, rgba(16,16,16,0.10) 45%, rgba(12,12,12,0.25) 70%, rgba(10,10,10,0.45) 100%);
+  /* Dashboard / Packages (Gaply Design Spec) */
+  --dash-bg: #000000;
+  --dash-bg-secondary: #0a0a0a;
+  --dash-text: #ffffff;
+  --dash-text-secondary: rgba(255, 255, 255, 0.72);
+  --dash-text-tertiary: rgba(255, 255, 255, 0.5);
+  --dash-border: rgba(255, 255, 255, 0.1);
+  --dash-glow: rgba(255, 255, 255, 0.15);
+  --dash-content-max: 1024px;
+  --dash-space-sm: 16px;
+  --dash-space-md: 24px;
+  --dash-space-lg: 48px;
+  --dash-space-xl: 80px;
+  --dash-space-xxl: 120px;
 }
 
 html[data-theme="light"] {
@@ -184,6 +198,13 @@ html[data-theme="light"] {
   --footer-text: #0b0b0b;
   --footer-border: rgba(15, 23, 42, 0.08);
   --footer-seam: linear-gradient(180deg, rgba(255,255,255,0.6) 0%, rgba(242,240,239,0.9) 55%, rgba(236,233,231,1) 100%);
+  --dash-bg: #F2F0EF;
+  --dash-bg-secondary: #ece9e7;
+  --dash-text: #0b0b0b;
+  --dash-text-secondary: rgba(11, 11, 11, 0.72);
+  --dash-text-tertiary: rgba(11, 11, 11, 0.5);
+  --dash-border: rgba(11, 11, 11, 0.12);
+  --dash-glow: rgba(11, 11, 11, 0.08);
 }
 
 body {

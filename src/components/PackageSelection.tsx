@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Text, Box, Sphere } from '@react-three/drei';
-import { authService } from '../services/authService';
+import { OrbitControls, Text } from '@react-three/drei';
 import * as THREE from 'three';
 
 interface PackageSelectionProps {
@@ -145,6 +145,7 @@ const PackageCard3D: React.FC<{
 };
 
 const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
+  const navigate = useNavigate();
   const [currentView, setCurrentView] = useState<'plans' | 'account'>('plans');
   const [userAccount, setUserAccount] = useState<UserAccount>({
     package: 'Gaply Basic',
@@ -154,6 +155,10 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
     whatsappSupport: false,
     validUntil: '2025-10-04'
   });
+
+  const gapFinderTotal = 5;
+  const deepAnalysisTotal = userAccount.package === 'Gaply Pro' ? 5 : userAccount.package === 'Gaply Plus' ? 1 : 0;
+  const showDeepAnalysis = deepAnalysisTotal > 0;
 
   const packages = [
     {
@@ -223,10 +228,10 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
       left: 0,
       right: 0,
       bottom: 0,
-      background: '#000000',
+      background: 'var(--dash-bg)',
       zIndex: 1000,
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-      overflow: 'hidden'
+      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+      overflow: 'auto'
     }}>
       {/* 3D Background Canvas - Simplified */}
       <div style={{
@@ -248,190 +253,166 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
         </Canvas>
       </div>
 
-      {/* UI Overlay */}
+      {/* UI Overlay - Design spec: max-width 1024px, spacing scale, typography */}
       <div style={{
         position: 'relative',
         zIndex: 2,
-        height: '100vh',
+        minHeight: '100vh',
         display: 'flex',
         flexDirection: 'column',
-        padding: '20px'
+        padding: 'clamp(24px, 5vw, 80px)',
+        maxWidth: 'var(--dash-content-max)',
+        margin: '0 auto'
       }}>
-      {/* Header */}
+        {/* Header */}
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: '30px',
-          paddingBottom: '20px',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+          marginBottom: 'var(--dash-space-md)',
+          paddingBottom: 'var(--dash-space-md)',
+          borderBottom: '1px solid var(--dash-border)'
         }}>
           <button
-            onClick={onClose}
+            onClick={() => { onClose(); navigate('/'); }}
             style={{
-              background: 'rgba(255, 255, 255, 0.1)',
-              border: 'none',
-              borderRadius: '8px',
-              padding: '8px 16px',
+              background: 'var(--dash-glow)',
+              border: '1px solid var(--dash-border)',
+              borderRadius: '12px',
+              padding: '10px 18px',
               cursor: 'pointer',
-              fontSize: '14px',
+              fontSize: '17px',
               fontWeight: '500',
-              color: '#ffffff',
-              transition: 'all 0.3s ease',
-              backdropFilter: 'blur(10px)',
-              transform: 'translateZ(0)',
-              transformStyle: 'preserve-3d'
+              color: 'var(--dash-text)',
+              transition: 'all 0.25s ease',
+              backdropFilter: 'blur(10px)'
             }}
             onMouseOver={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
-              e.currentTarget.style.transform = 'translateZ(10px) scale(1.05)';
+              e.currentTarget.style.background = 'var(--dash-text-secondary)';
+              e.currentTarget.style.borderColor = 'var(--dash-border)';
             }}
             onMouseOut={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-              e.currentTarget.style.transform = 'translateZ(0) scale(1)';
+              e.currentTarget.style.background = 'var(--dash-glow)';
+              e.currentTarget.style.borderColor = 'var(--dash-border)';
             }}
           >
-          ← Back
-        </button>
-          
+            ← Back
+          </button>
+
           <div style={{ textAlign: 'center' }}>
             <h1 style={{
-              fontSize: '32px',
-              fontWeight: '600',
-              color: '#ffffff',
-              margin: '0 0 4px 0',
+              fontSize: 'clamp(28px, 4vw, 48px)',
+              fontWeight: 600,
+              color: 'var(--dash-text)',
+              margin: '0 0 8px 0',
               letterSpacing: '-0.02em',
-              lineHeight: '1.1',
-              textShadow: '0 0 20px rgba(0, 122, 255, 0.5)'
+              lineHeight: 1.1
             }}>
               Choose your plan.
             </h1>
             <p style={{
-              fontSize: '16px',
-              fontWeight: '400',
-              color: '#888888',
+              fontSize: '17px',
+              fontWeight: 400,
+              color: 'var(--dash-text-secondary)',
               margin: 0,
-              lineHeight: '1.3'
+              lineHeight: 1.5
             }}>
               Select the research plan that fits your needs.
             </p>
           </div>
-          
-          <div style={{ width: '80px' }}></div>
+
+          <div style={{ width: '80px' }} />
         </div>
-        
-        {/* View Toggle */}
+
+        {/* View Toggle - Plans | My Account */}
         <div style={{
           display: 'flex',
           justifyContent: 'center',
-          marginBottom: '30px'
+          marginBottom: 'var(--dash-space-lg)'
         }}>
           <div style={{
-            background: 'rgba(255, 255, 255, 0.1)',
+            background: 'var(--dash-glow)',
             borderRadius: '12px',
             padding: '4px',
             display: 'flex',
             gap: '4px',
-            backdropFilter: 'blur(10px)',
-            transform: 'translateZ(0)',
-            transformStyle: 'preserve-3d'
+            border: '1px solid var(--dash-border)'
           }}>
-          <button 
-            onClick={() => setCurrentView('plans')}
+            <button
+              onClick={() => setCurrentView('plans')}
               style={{
                 background: currentView === 'plans' ? '#007AFF' : 'transparent',
-                color: currentView === 'plans' ? 'white' : '#ffffff',
+                color: 'var(--dash-text)',
                 border: 'none',
                 borderRadius: '8px',
-                padding: '8px 20px',
-                fontSize: '14px',
-                fontWeight: '500',
+                padding: '10px 24px',
+                fontSize: '17px',
+                fontWeight: 500,
                 cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                transform: 'translateZ(0)',
-                transformStyle: 'preserve-3d'
+                transition: 'all 0.25s ease'
               }}
               onMouseOver={(e) => {
-                if (currentView !== 'plans') {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                  e.currentTarget.style.transform = 'translateZ(5px) scale(1.05)';
-                }
+                if (currentView !== 'plans') e.currentTarget.style.background = 'var(--dash-border)';
               }}
               onMouseOut={(e) => {
-                if (currentView !== 'plans') {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.transform = 'translateZ(0) scale(1)';
-                }
+                if (currentView !== 'plans') e.currentTarget.style.background = 'transparent';
               }}
             >
               Plans
-          </button>
-          <button 
-            onClick={() => setCurrentView('account')}
+            </button>
+            <button
+              onClick={() => setCurrentView('account')}
               style={{
                 background: currentView === 'account' ? '#007AFF' : 'transparent',
-                color: currentView === 'account' ? 'white' : '#ffffff',
+                color: 'var(--dash-text)',
                 border: 'none',
                 borderRadius: '8px',
-                padding: '8px 20px',
-                fontSize: '14px',
-                fontWeight: '500',
+                padding: '10px 24px',
+                fontSize: '17px',
+                fontWeight: 500,
                 cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                transform: 'translateZ(0)',
-                transformStyle: 'preserve-3d'
+                transition: 'all 0.25s ease'
               }}
               onMouseOver={(e) => {
-                if (currentView !== 'account') {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                  e.currentTarget.style.transform = 'translateZ(5px) scale(1.05)';
-                }
+                if (currentView !== 'account') e.currentTarget.style.background = 'var(--dash-border)';
               }}
               onMouseOut={(e) => {
-                if (currentView !== 'account') {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.transform = 'translateZ(0) scale(1)';
-                }
+                if (currentView !== 'account') e.currentTarget.style.background = 'transparent';
               }}
-          >
-            My Account
-          </button>
+            >
+              My Account
+            </button>
+          </div>
         </div>
-      </div>
 
-        {/* 2D Package Fallback */}
+        {/* Plans grid - 12-col feel, 24px gutters */}
         {currentView === 'plans' && (
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: '20px',
-            marginBottom: '30px',
-            maxWidth: '900px',
-            margin: '0 auto 30px'
+            gap: 'var(--dash-space-md)',
+            marginBottom: 'var(--dash-space-lg)'
           }}>
             {packages.map((pkg) => (
-              <div 
-                key={pkg.id} 
+              <div
+                key={pkg.id}
                 style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  borderRadius: '16px',
-                  padding: '24px',
-                  border: pkg.popular ? '2px solid #007AFF' : '1px solid rgba(255, 255, 255, 0.1)',
+                  background: 'var(--card-bg)',
+                  borderRadius: '20px',
+                  padding: 'var(--dash-space-md)',
+                  border: pkg.popular ? '2px solid #007AFF' : '1px solid var(--dash-border)',
                   position: 'relative',
-                  transition: 'all 0.3s ease',
+                  transition: 'all 0.25s ease',
                   cursor: 'pointer',
-                  backdropFilter: 'blur(20px)',
-                  transform: 'translateZ(0)',
-                  transformStyle: 'preserve-3d',
-                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
+                  boxShadow: 'var(--card-shadow)'
                 }}
                 onMouseOver={(e) => {
-                  e.currentTarget.style.transform = 'translateZ(10px) scale(1.02)';
-                  e.currentTarget.style.boxShadow = '0 12px 40px rgba(0, 0, 0, 0.4)';
+                  e.currentTarget.style.background = 'var(--card-bg-hover)';
+                  e.currentTarget.style.boxShadow = 'var(--card-shadow-hover)';
                 }}
                 onMouseOut={(e) => {
-                  e.currentTarget.style.transform = 'translateZ(0) scale(1)';
-                  e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.3)';
+                  e.currentTarget.style.background = 'var(--card-bg)';
+                  e.currentTarget.style.boxShadow = 'var(--card-shadow)';
                 }}
                 onClick={() => handlePackageSelect(pkg.id)}
               >
@@ -442,20 +423,22 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
                     left: '50%',
                     transform: 'translateX(-50%)',
                     background: '#007AFF',
-                    color: 'white',
+                    color: '#ffffff',
                     padding: '6px 16px',
-                    borderRadius: '16px',
+                    borderRadius: '20px',
                     fontSize: '12px',
-                    fontWeight: '600'
+                    fontWeight: 600,
+                    letterSpacing: '0.02em',
+                    textTransform: 'uppercase'
                   }}>
                     Most Popular
                   </div>
                 )}
 
                 <h3 style={{
-                  fontSize: '20px',
-                  fontWeight: '600',
-                  color: '#ffffff',
+                  fontSize: '28px',
+                  fontWeight: 600,
+                  color: 'var(--dash-text)',
                   margin: '0 0 8px 0',
                   letterSpacing: '-0.01em'
                 }}>
@@ -463,74 +446,59 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
                 </h3>
 
                 <div style={{
-                  fontSize: '32px',
-                  fontWeight: '700',
+                  fontSize: 'clamp(28px, 3vw, 36px)',
+                  fontWeight: 700,
                   color: '#007AFF',
                   margin: '0 0 12px 0',
                   letterSpacing: '-0.02em'
                 }}>
                   {pkg.price}
                 </div>
-                
+
                 <p style={{
-                  fontSize: '14px',
-                  color: '#888888',
+                  fontSize: '17px',
+                  color: 'var(--dash-text-secondary)',
                   margin: '0 0 20px 0',
-                  lineHeight: '1.4'
+                  lineHeight: 1.5
                 }}>
                   {pkg.description}
                 </p>
 
-                <ul style={{
-                  listStyle: 'none',
-                  padding: 0,
-                  margin: '0 0 20px 0'
-                }}>
+                <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px 0' }}>
                   {pkg.features.map((feature, index) => (
                     <li key={index} style={{
-                      fontSize: '13px',
-                      color: '#cccccc',
-                      margin: '0 0 8px 0',
+                      fontSize: '17px',
+                      color: 'var(--dash-text-secondary)',
+                      margin: '0 0 12px 0',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '8px'
+                      gap: '12px'
                     }}>
-                      <span style={{
-                        color: '#30D158',
-                        fontSize: '14px',
-                        fontWeight: '600'
-                      }}>✓</span>
+                      <span style={{ color: '#30D158', fontWeight: 600 }}>✓</span>
                       {feature}
                     </li>
                   ))}
                 </ul>
-                
-                <button style={{
-                  width: '100%',
-                  background: pkg.popular ? '#007AFF' : 'rgba(255, 255, 255, 0.1)',
-                  color: pkg.popular ? 'white' : '#ffffff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '12px 20px',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease',
-                  transform: 'translateZ(0)',
-                  transformStyle: 'preserve-3d'
-                }}
-                onMouseOver={(e) => {
-                  if (!pkg.popular) {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
-                    e.currentTarget.style.transform = 'translateZ(5px) scale(1.05)';
-                  }
-                }}
-                onMouseOut={(e) => {
-                  if (!pkg.popular) {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                    e.currentTarget.style.transform = 'translateZ(0) scale(1)';
-                  }
-                }}
+
+                <button
+                  style={{
+                    width: '100%',
+                    background: pkg.popular ? '#007AFF' : 'var(--dash-glow)',
+                    color: 'var(--dash-text)',
+                    border: pkg.popular ? 'none' : '1px solid var(--dash-border)',
+                    borderRadius: '12px',
+                    padding: '14px 24px',
+                    fontSize: '17px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.25s ease'
+                  }}
+                  onMouseOver={(e) => {
+                    if (!pkg.popular) e.currentTarget.style.background = 'var(--dash-border)';
+                  }}
+                  onMouseOut={(e) => {
+                    if (!pkg.popular) e.currentTarget.style.background = 'var(--dash-glow)';
+                  }}
                 >
                   Get {pkg.name}
                 </button>
@@ -539,64 +507,61 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
           </div>
         )}
 
-        {/* Account View */}
+        {/* My Account View - Design spec typography & spacing */}
         {currentView === 'account' && (
           <div style={{
-            maxWidth: '500px',
+            maxWidth: '560px',
             margin: '0 auto',
-            background: 'rgba(255, 255, 255, 0.05)',
-            borderRadius: '16px',
-            padding: '30px',
-            backdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            transform: 'translateZ(0)',
-            transformStyle: 'preserve-3d',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
+            background: 'var(--card-bg)',
+            borderRadius: '24px',
+            padding: 'var(--dash-space-lg)',
+            border: '1px solid var(--dash-border)',
+            boxShadow: 'var(--card-shadow)'
           }}>
             <h2 style={{
-              fontSize: '24px',
-              fontWeight: '600',
-              color: '#ffffff',
-              margin: '0 0 20px 0',
+              fontSize: '28px',
+              fontWeight: 600,
+              color: 'var(--dash-text)',
+              margin: '0 0 var(--dash-space-md) 0',
               letterSpacing: '-0.01em'
             }}>
               Current Package
             </h2>
 
             <div style={{
-              background: 'rgba(0, 122, 255, 0.1)',
-              borderRadius: '12px',
-              padding: '20px',
-              marginBottom: '20px',
-              border: '1px solid rgba(0, 122, 255, 0.2)'
+              background: 'var(--dash-glow)',
+              borderRadius: '16px',
+              padding: 'var(--dash-space-md)',
+              marginBottom: 'var(--dash-space-lg)',
+              border: '1px solid var(--dash-border)'
             }}>
               <h3 style={{
-                fontSize: '18px',
-                fontWeight: '600',
+                fontSize: '21px',
+                fontWeight: 600,
                 color: '#007AFF',
                 margin: '0 0 8px 0'
               }}>
                 {userAccount.package}
               </h3>
               <p style={{
-                fontSize: '14px',
-                color: '#888888',
+                fontSize: '17px',
+                color: 'var(--dash-text-secondary)',
                 margin: 0
               }}>
                 Valid until: {userAccount.validUntil}
               </p>
-                </div>
+            </div>
 
             <h3 style={{
-              fontSize: '20px',
-              fontWeight: '600',
-              color: '#ffffff',
-              margin: '0 0 16px 0'
+              fontSize: '28px',
+              fontWeight: 600,
+              color: 'var(--dash-text)',
+              margin: '0 0 var(--dash-space-md) 0'
             }}>
               Usage Statistics
             </h3>
 
-            <div style={{ marginBottom: '20px' }}>
+            <div style={{ marginBottom: 'var(--dash-space-md)' }}>
               <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -604,138 +569,154 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
                 marginBottom: '8px'
               }}>
                 <span style={{
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  color: '#ffffff'
+                  fontSize: '17px',
+                  fontWeight: 500,
+                  color: 'var(--dash-text)'
                 }}>
                   Research Gap Finder
                 </span>
-                <span style={{
-                  fontSize: '14px',
-                  color: '#888888'
-                }}>
-                  {userAccount.gapFinderUses}/5 uses left
+                <span style={{ fontSize: '17px', color: 'var(--dash-text-secondary)' }}>
+                  {userAccount.gapFinderUses}/{gapFinderTotal} uses left
                 </span>
               </div>
               <div style={{
-                background: 'rgba(255, 255, 255, 0.1)',
+                background: 'var(--dash-border)',
                 borderRadius: '8px',
-                height: '6px',
+                height: '8px',
                 overflow: 'hidden'
               }}>
                 <div style={{
                   background: 'linear-gradient(90deg, #007AFF, #30D158)',
                   height: '100%',
-                  width: `${(userAccount.gapFinderUses / 5) * 100}%`,
+                  width: `${(userAccount.gapFinderUses / gapFinderTotal) * 100}%`,
                   transition: 'width 0.3s ease'
-                }}></div>
+                }} />
               </div>
             </div>
 
+            {showDeepAnalysis && (
+              <div style={{ marginBottom: 'var(--dash-space-md)' }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '8px'
+                }}>
+                  <span style={{
+                    fontSize: '17px',
+                    fontWeight: 500,
+                    color: 'var(--dash-text)'
+                  }}>
+                    Deep Paper Analysis
+                  </span>
+                  <span style={{ fontSize: '17px', color: 'var(--dash-text-secondary)' }}>
+                    {userAccount.deepAnalysisUses}/{deepAnalysisTotal} uses left
+                  </span>
+                </div>
+                <div style={{
+                  background: 'var(--dash-border)',
+                  borderRadius: '8px',
+                  height: '8px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    background: 'linear-gradient(90deg, #007AFF, #30D158)',
+                    height: '100%',
+                    width: `${(userAccount.deepAnalysisUses / deepAnalysisTotal) * 100}%`,
+                    transition: 'width 0.3s ease'
+                  }} />
+                </div>
+              </div>
+            )}
+
             <div style={{
               display: 'flex',
-              gap: '12px',
+              gap: 'var(--dash-space-sm)',
               flexWrap: 'wrap'
             }}>
-              <button style={{
-                background: '#007AFF',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                padding: '12px 20px',
-                fontSize: '14px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                flex: '1',
-                minWidth: '120px',
-                transform: 'translateZ(0)',
-                transformStyle: 'preserve-3d'
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.background = '#0056CC';
-                e.currentTarget.style.transform = 'translateZ(5px) scale(1.05)';
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.background = '#007AFF';
-                e.currentTarget.style.transform = 'translateZ(0) scale(1)';
-              }}
+              <button
+                onClick={() => navigate('/dashboard')}
+                style={{
+                  background: '#007AFF',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '12px',
+                  padding: '14px 24px',
+                  fontSize: '17px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.25s ease',
+                  flex: '1',
+                  minWidth: '140px'
+                }}
+                onMouseOver={(e) => { e.currentTarget.style.background = '#0056CC'; }}
+                onMouseOut={(e) => { e.currentTarget.style.background = '#007AFF'; }}
               >
                 View Dashboard
               </button>
-              
-              <button style={{
-                background: 'rgba(255, 255, 255, 0.1)',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '8px',
-                padding: '12px 20px',
-                fontSize: '14px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                flex: '1',
-                minWidth: '120px',
-                transform: 'translateZ(0)',
-                transformStyle: 'preserve-3d'
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
-                e.currentTarget.style.transform = 'translateZ(5px) scale(1.05)';
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                e.currentTarget.style.transform = 'translateZ(0) scale(1)';
-              }}
+              <button
+                onClick={() => setCurrentView('plans')}
+                style={{
+                  background: 'var(--dash-glow)',
+                  color: 'var(--dash-text)',
+                  border: '1px solid var(--dash-border)',
+                  borderRadius: '12px',
+                  padding: '14px 24px',
+                  fontSize: '17px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.25s ease',
+                  flex: '1',
+                  minWidth: '140px'
+                }}
+                onMouseOver={(e) => { e.currentTarget.style.background = 'var(--dash-border)'; }}
+                onMouseOut={(e) => { e.currentTarget.style.background = 'var(--dash-glow)'; }}
               >
-                  Upgrade Package
-                </button>
+                Upgrade Package
+              </button>
             </div>
 
-            <div style={{
-              textAlign: 'center',
-              marginTop: '20px'
-            }}>
-              <button style={{
-                background: 'transparent',
-                color: '#007AFF',
-                border: 'none',
-                fontSize: '14px',
-                fontWeight: '500',
-                cursor: 'pointer',
-                textDecoration: 'underline',
-                transition: 'all 0.3s ease'
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.color = '#0056CC';
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.color = '#007AFF';
-              }}
+            <div style={{ textAlign: 'center', marginTop: 'var(--dash-space-md)' }}>
+              <button
+                onClick={() => navigate('/contact')}
+                style={{
+                  background: 'transparent',
+                  color: '#007AFF',
+                  border: 'none',
+                  fontSize: '17px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  transition: 'color 0.2s ease'
+                }}
+                onMouseOver={(e) => { e.currentTarget.style.color = '#0056CC'; }}
+                onMouseOut={(e) => { e.currentTarget.style.color = '#007AFF'; }}
               >
-                  Contact Support
-                </button>
+                Contact Support
+              </button>
             </div>
           </div>
         )}
 
-        {/* Footer */}
+        {/* Footer - Design spec caption */}
         <div style={{
           textAlign: 'center',
           marginTop: 'auto',
-          paddingTop: '20px',
-          borderTop: '1px solid rgba(255, 255, 255, 0.1)'
+          paddingTop: 'var(--dash-space-md)',
+          borderTop: '1px solid var(--dash-border)'
         }}>
           <p style={{
             fontSize: '12px',
-            color: '#666666',
+            fontWeight: 500,
+            letterSpacing: '0.02em',
+            color: 'var(--dash-text-tertiary)',
             margin: '0 0 4px 0'
           }}>
             All plans include 30-day money-back guarantee
           </p>
           <p style={{
             fontSize: '12px',
-            color: '#666666',
+            color: 'var(--dash-text-tertiary)',
             margin: 0
           }}>
             Need help choosing? Contact our support team
