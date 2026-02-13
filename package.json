@@ -25,22 +25,25 @@
     "react-scripts": "5.0.1",
     "three": "^0.180.0",
     "typescript": "^4.9.5",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "puppeteer": "^21.0.0",
     "react-snap": "^1.23.0"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "CI=false react-scripts build",
+    "start": "GENERATE_SOURCEMAP=false react-scripts start",
+    "build": "CI=false GENERATE_SOURCEMAP=false react-scripts build",
     "build:prod": "CI=false GENERATE_SOURCEMAP=false react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "prerender": "node scripts/prerender.js",
     "generate-sitemap": "node scripts/generate-sitemap.js",
     "smoke-test": "node scripts/smoke-test.js",
-    "postbuild": "npm run prerender && npm run generate-sitemap"
+    "postbuild": "(npm run prerender || true) && npm run generate-sitemap",
+    "preview": "npx serve -s build -l 3000",
+    "deploy": "npm run build && npx vercel --prod --yes"
   },
   "reactSnap": {
     "include": [

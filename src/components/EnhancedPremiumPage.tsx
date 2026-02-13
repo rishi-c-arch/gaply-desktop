@@ -76,21 +76,21 @@ const EnhancedPremiumPage: React.FC = () => {
         return;
       }
 
-      const { order } = orderResult.data;
+      const { order, key_id: keyId } = orderResult.data;
 
       // Load Razorpay script
       if (!window.Razorpay) {
         const script = document.createElement('script');
         script.src = 'https://checkout.razorpay.com/v1/checkout.js';
         script.onload = () => {
-          openRazorpayModal(order, orderResult.data!.user_subscription_id);
+          openRazorpayModal(order, keyId);
         };
         script.onerror = () => {
           setError('Failed to load payment gateway');
         };
         document.head.appendChild(script);
       } else {
-        openRazorpayModal(order, orderResult.data.user_subscription_id);
+        openRazorpayModal(order, keyId);
       }
     } catch (error) {
       console.error('Purchase error:', error);
@@ -100,9 +100,9 @@ const EnhancedPremiumPage: React.FC = () => {
     }
   };
 
-  const openRazorpayModal = (order: any, subscriptionId: string) => {
+  const openRazorpayModal = (order: any, keyId?: string) => {
     const options = {
-      key: process.env.REACT_APP_RAZORPAY_KEY_ID || 'rzp_test_your_key_here',
+      key: keyId || process.env.REACT_APP_RAZORPAY_KEY_ID || 'rzp_test_your_key_here',
       amount: order.amount,
       currency: order.currency,
       name: 'GAPLY',

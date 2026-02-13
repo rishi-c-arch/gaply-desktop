@@ -38,7 +38,7 @@ export interface PaymentResponse {
   success: boolean;
   data?: {
     order: RazorpayOrder;
-    user_subscription_id: string;
+    key_id?: string;
   };
   error?: string;
 }
@@ -65,7 +65,14 @@ class PremiumService {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        return data.data;
+        if (Array.isArray(data.packages)) {
+          return data.packages;
+        }
+        if (Array.isArray(data.data)) {
+          return data.data;
+        }
+        // If neither packages nor data is an array, return default plans
+        return this.getDefaultPlans();
       } else {
         // Fallback to hardcoded plans if API fails
         return this.getDefaultPlans();
@@ -151,6 +158,30 @@ class PremiumService {
           },
         },
       },
+      {
+        id: "PLAN-PREMIUM",
+        name: "Gaply Premium",
+        description: "PublishReady + DataMaestro bundled access with priority-quality outputs",
+        price: 2499,
+        currency: "INR",
+        features: {
+          gap_finder: {
+            name: "PublishReady",
+            description: "Research gap finder with professional report generation",
+            uses: 2,
+            included: true,
+          },
+          deep_eval: {
+            name: "DataMaestro",
+            description: "70+ parameter evaluation engine with professional reports",
+            uses: 1,
+            included: true,
+          },
+          support: {
+            included: false,
+          },
+        },
+      },
     ];
   }
 
@@ -165,29 +196,40 @@ class PremiumService {
         };
       }
 
-      const response = await apiFetch('/api/premium/create-order', {
+      const response = await apiFetch('/v1/payments/razorpay/create-order', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
           ...(authService.getToken() && { Authorization: `Bearer ${authService.getToken()}` }),
         },
         body: JSON.stringify({
-          package_id: planId,
-          user_id: user.id,
+          plan_code: planId,
         }),
       });
 
       const data = await response.json();
 
-      if (response.ok && data.success) {
+      if (response.ok && data.order_id) {
         return {
           success: true,
-          data: data.data,
+          data: {
+            order: {
+              id: data.order_id,
+              amount: data.amount,
+              currency: data.currency,
+              receipt: data.order_id,
+              status: data.status,
+            },
+            key_id: data.key_id,
+          },
         };
       } else {
+        const errMsg = data.error || 'Failed to create payment order';
+        const detail = data.detail ? ` (${data.detail})` : '';
         return {
           success: false,
-          error: data.message || 'Failed to create payment order',
+          error: errMsg + detail,
         };
       }
     } catch (error) {
@@ -210,7 +252,7 @@ class PremiumService {
         };
       }
 
-      const response = await apiFetch('/api/premium/verify-payment', {
+      const response = await apiFetch('/v1/payments/razorpay/verify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -220,7 +262,6 @@ class PremiumService {
           razorpay_order_id: orderId,
           razorpay_payment_id: paymentId,
           razorpay_signature: signature,
-          user_id: user.id,
         }),
       });
 
@@ -286,12 +327,14 @@ class PremiumService {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // Use the feature (decrement usage)
-        await authService.useFeature(user.id, 'gap_finder', data.data.job_id);
-        
+        await authService.useFeature(user.id, 'gap_finder', data.job_id);
         return {
           success: true,
-          data: data.data,
+          data: {
+            job_id: data.job_id,
+            status: 'queued',
+            message: data.message || 'Request accepted',
+          },
         };
       } else {
         return {
@@ -343,12 +386,14 @@ class PremiumService {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // Use the feature (decrement usage)
-        await authService.useFeature(user.id, 'deep_eval', data.data.job_id);
-        
+        await authService.useFeature(user.id, 'deep_eval', data.job_id);
         return {
           success: true,
-          data: data.data,
+          data: {
+            job_id: data.job_id,
+            status: 'queued',
+            message: data.message || 'Request accepted',
+          },
         };
       } else {
         return {
@@ -377,7 +422,7 @@ class PremiumService {
     error?: string;
   }> {
     try {
-      const response = await apiFetch(`/api/premium-features/job-status/${jobId}`, {
+      const response = await apiFetch(`/api/premium-features/status/${jobId}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -390,7 +435,11 @@ class PremiumService {
       if (response.ok && data.success) {
         return {
           success: true,
-          data: data.data,
+          data: {
+            status: data.message,
+            result: data.data,
+            download_url: data.download_url,
+          },
         };
       } else {
         return {

@@ -1,0 +1,228 @@
+.orchestrator-page {
+  background: radial-gradient(1200px 600px at 10% -10%, rgba(10, 132, 255, 0.2), transparent 60%),
+    radial-gradient(1200px 600px at 90% -20%, rgba(88, 86, 214, 0.2), transparent 60%),
+    #060606;
+  min-height: 100vh;
+  color: #f5f5f7;
+  padding: 120px 6vw 80px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.orchestrator-hero {
+  position: relative;
+  max-width: 1100px;
+  margin: 0 auto 48px;
+  padding: 40px 48px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+}
+
+.hero-glow {
+  position: absolute;
+  right: -30%;
+  top: -60%;
+  width: 520px;
+  height: 520px;
+  background: radial-gradient(circle, rgba(10, 132, 255, 0.4), transparent 60%);
+  filter: blur(10px);
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  font-size: 12px;
+  color: rgba(245, 245, 247, 0.6);
+  font-weight: 600;
+}
+
+.orchestrator-hero h1 {
+  font-size: clamp(28px, 4vw, 44px);
+  margin: 12px 0;
+  letter-spacing: -0.02em;
+}
+
+.hero-subtitle {
+  max-width: 680px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: rgba(245, 245, 247, 0.7);
+}
+
+.hero-actions {
+  margin-top: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+button.primary {
+  background: linear-gradient(135deg, #0a84ff, #5e5ce6);
+  color: #fff;
+  border: none;
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 12px 24px rgba(10, 132, 255, 0.35);
+}
+
+button.secondary {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f5f5f7;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 12px 20px;
+  border-radius: 999px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.status-pill {
+  margin-top: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.status-pill small {
+  font-size: 12px;
+  color: rgba(245, 245, 247, 0.7);
+}
+
+.status-pill.success {
+  border: 1px solid rgba(52, 199, 89, 0.4);
+}
+
+.status-pill.error {
+  border: 1px solid rgba(255, 69, 58, 0.4);
+}
+
+.status-pill.running {
+  border: 1px solid rgba(255, 159, 10, 0.4);
+}
+
+.orchestrator-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto 32px;
+}
+
+.panel {
+  background: rgba(15, 15, 18, 0.85);
+  border-radius: 20px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+
+.panel h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.subtitle {
+  color: rgba(245, 245, 247, 0.6);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.grid-two {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.field {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+
+label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(245, 245, 247, 0.55);
+}
+
+input,
+textarea {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  color: #f5f5f7;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.task-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.task-chip {
+  border-radius: 999px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f5f5f7;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.task-chip.selected {
+  background: rgba(10, 132, 255, 0.25);
+  border-color: rgba(10, 132, 255, 0.6);
+}
+
+.hint {
+  font-size: 12px;
+  color: rgba(245, 245, 247, 0.6);
+}
+
+.response pre {
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 14px;
+  padding: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 420px;
+  overflow: auto;
+}
+
+@media (max-width: 768px) {
+  .orchestrator-page {
+    padding: 100px 6vw 60px;
+  }
+
+  .orchestrator-hero {
+    padding: 32px 24px;
+  }
+}

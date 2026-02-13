@@ -23,7 +23,9 @@ function saveSnapshot(route, html) {
 function startStaticServer() {
   return new Promise((resolve, reject) => {
     console.log('Starting static server on port', PORT);
+    const cwd = path.join(__dirname, '..');
     const proc = spawn('npx', ['serve', '-s', 'build', '-l', `${PORT}`], {
+      cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: process.platform === 'win32'
     });
@@ -43,17 +45,39 @@ function startStaticServer() {
 
 (async () => {
   let serverProc;
-  const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  const browser = await puppeteer.launch({
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
   try {
     serverProc = await startStaticServer();
     const page = await browser.newPage();
-    
-    // Log console messages and errors from the page
-    page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+
+    // Block API/backend requests during prerender - they cause 403 and aren't needed for HTML snapshot
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      const u = req.url();
+      const isApi =
+        u.includes(':8080') ||
+        u.includes('gaply-backend') ||
+        u.includes('backend.gaply') ||
+        u.includes('/api/');
+      if (isApi) {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
+
+    // Log console messages and errors from the page (skip 403 noise from blocked API)
+    page.on('console', msg => {
+      const t = msg.text();
+      if (!t.includes('403') && !t.includes('Failed to load resource')) console.log('PAGE LOG:', t);
+    });
     page.on('pageerror', error => console.log('PAGE ERROR:', error.message));
-    
-    // optional: set a crawler-like UA for snapshotting
-    await page.setUserAgent('Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)');
+
+    // Use normal Chrome UA - serve blocks Googlebot/crawlers with 403
+    await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
     for (const route of ROUTES) {
       const url = `${BASE}${route}`;
       console.log('Rendering', url);
@@ -93,7 +117,7 @@ function startStaticServer() {
     console.log('Prerender complete.');
   } catch (err) {
     console.error('Prerender failure:', err);
-    process.exitCode = 1;
+    // Don't fail build - deploy can proceed with base build output
   } finally {
     try { await browser.close(); } catch(e){}
     try { if (serverProc) serverProc.kill(); } catch(e){}

@@ -10,7 +10,7 @@ import FreeFeatures3D from './components/FreeFeatures3D';
 import PremiumFeatures3D from './components/PremiumFeatures3D';
 import QuartileAnalysis3D from './components/QuartileAnalysis3D';
 import PremiumFooter3D from './components/PremiumFooter3D';
-import PremiumPage from './components/PremiumPage';
+import EnhancedPremiumPage from './components/EnhancedPremiumPage';
 import UserDashboard from './components/UserDashboard';
 import PackageSelection from './components/PackageSelection';
 import LoginPage from './components/LoginPage';
@@ -19,13 +19,16 @@ import AcademicAIRemoverPage from './components/AcademicAIRemoverPage';
 import PaperSearchPage from './components/PaperSearchPage';
 import JournalMatchingPage from './components/JournalMatchingPage';
 import FeaturesPage from './components/FeaturesPage';
-import ContactPage from './components/ContactPage';
 import CareerPage from './components/CareerPage';
 import HireExpertPage from './components/HireExpertPage';
 import ExpertSearchResultsPage from './components/ExpertSearchResultsPage';
 import PricingSection from './components/PricingSection';
 import PrivacyPolicyPage from './components/PrivacyPolicyPage';
 import TermsOfServicePage from './components/TermsOfServicePage';
+import DocumentOrchestratorPage from './components/DocumentOrchestratorPage';
+import ManuscriptOrchestratorPage from './components/ManuscriptOrchestratorPage';
+import StatisticalResearchOrchestratorPage from './components/StatisticalResearchOrchestratorPage';
+import ContactPage from './components/ContactPage';
 import { AuthProvider } from './contexts/AuthContext';
 
 // SEO Component for dynamic meta tags
@@ -277,6 +280,36 @@ const AppContent: React.FC = () => {
               <JournalMatchingPage />
             </>
           } />
+          <Route path="/document-orchestrator" element={
+            <>
+              <SEOHead 
+                title="Document Analysis Orchestrator | Gaply"
+                description="Run chunk-by-chunk manuscript analysis with strict JSON output and publication chance estimation."
+                keywords="document analysis orchestrator, publication chance estimator, journal guidelines compliance, academic AI analysis"
+              />
+              <DocumentOrchestratorPage />
+            </>
+          } />
+          <Route path="/final-orchestrator" element={
+            <>
+              <SEOHead 
+                title="Final Analysis Suite | Gaply"
+                description="Upload manuscript files, add journal links, and generate a clean report with Gaply chat support."
+                keywords="final analysis suite, manuscript upload, journal submission assistant, gaply chat"
+              />
+              <ManuscriptOrchestratorPage />
+            </>
+          } />
+          <Route path="/statistical-research" element={
+            <>
+              <SEOHead 
+                title="Statistical Research Orchestrator | Gaply"
+                description="Advanced statistical analysis orchestrator for research. Upload datasets, get test recommendations, interpretations, and comprehensive HTML reports."
+                keywords="statistical analysis, research orchestrator, statistical tests, data analysis, research methodology"
+              />
+              <StatisticalResearchOrchestratorPage />
+            </>
+          } />
           <Route path="/features" element={
             <>
               <SEOHead 
@@ -384,7 +417,7 @@ const AppContent: React.FC = () => {
                 description="Upgrade to premium academic research services with advanced thesis writing tools, enhanced AI content detection, priority journal matching, and expert research paper assistance."
                 keywords="premium academic research services, advanced thesis writing, enhanced AI detection, priority journal matching, expert research assistance, premium dissertation editing"
               />
-              <PremiumPage />
+              <EnhancedPremiumPage />
             </>
           } />
           <Route path="/packages" element={
