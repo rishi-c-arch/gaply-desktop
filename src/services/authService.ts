@@ -128,7 +128,10 @@ class AuthService {
           return { success: false, error: 'Invalid server response' };
         }
         if (!response.ok) {
-          if (response.status === 503 && attempt < maxAttempts) {
+          const isRetryable =
+            response.status === 503 ||
+            (response.status === 500 && data.error?.includes('persist refresh token'));
+          if (isRetryable && attempt < maxAttempts) {
             await new Promise((r) => setTimeout(r, retryDelayMs));
             continue;
           }
@@ -196,7 +199,10 @@ class AuthService {
           return { success: false, error: 'Invalid server response' };
         }
         if (!response.ok) {
-          if (response.status === 503 && attempt < maxAttempts) {
+          const isRetryable =
+            response.status === 503 ||
+            (response.status === 500 && data.error?.includes('persist refresh token'));
+          if (isRetryable && attempt < maxAttempts) {
             await new Promise((r) => setTimeout(r, retryDelayMs));
             continue;
           }
