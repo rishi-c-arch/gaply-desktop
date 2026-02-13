@@ -144,7 +144,7 @@ class AuthService {
         }
 
         this.setToken(token);
-        const user = await this.fetchMe();
+        const user = await this.fetchMeWithRetry(3, 1500);
         if (user) {
           localStorage.setItem('user', JSON.stringify(user));
           return { success: true, data: { token, user } };
@@ -209,7 +209,7 @@ class AuthService {
         }
 
         this.setToken(token);
-        const user = await this.fetchMe();
+        const user = await this.fetchMeWithRetry(3, 1500);
         if (user) {
           localStorage.setItem('user', JSON.stringify(user));
           return { success: true, data: { token, user } };
@@ -380,6 +380,18 @@ class AuthService {
       console.error('Fetch user profile error:', error);
       return null;
     }
+  }
+
+  /** Retries fetchMe for cold-start / transient backend issues (503, network). */
+  private async fetchMeWithRetry(maxAttempts: number, delayMs: number): Promise<User | null> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const user = await this.fetchMe();
+      if (user) return user;
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+    return null;
   }
 }
 
