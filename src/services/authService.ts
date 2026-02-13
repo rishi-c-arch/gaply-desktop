@@ -71,11 +71,13 @@ class AuthService {
     return this.token || localStorage.getItem('authToken');
   }
 
-  // Clear authentication data
+  // Clear authentication data (full logout - clears all auth keys for consistency)
   clearAuth() {
     this.token = null;
     localStorage.removeItem('authToken');
+    localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('user_email');
   }
 
   // Get authorization headers

@@ -44,31 +44,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Initialize auth state from localStorage and verify token
+  // Initialize auth state from localStorage and verify token (persistent session)
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        // Check if user is already logged in
-        if (authService.isAuthenticated()) {
-          const currentUser = authService.getCurrentUser();
-          const currentToken = authService.getToken();
-          
-          if (currentUser && currentToken) {
-            setUser(currentUser);
-            setToken(currentToken);
-            
-            // Verify token and refresh user data
-            const verificationResult = await authService.verifyToken();
-            if (verificationResult.success && verificationResult.data) {
-              setUser(verificationResult.data.user);
-              setToken(verificationResult.data.token);
-              
-              // Load subscription data
-              await refreshSubscription();
-            } else {
-              // Token is invalid, clear auth
-              await logout();
-            }
+        const currentToken = authService.getToken();
+        const currentUser = authService.getCurrentUser();
+
+        // If we have a token, try to restore session (even if user data is stale)
+        if (currentToken) {
+          setUser(currentUser);
+          setToken(currentToken);
+
+          // Verify token with backend and refresh user data
+          const verificationResult = await authService.verifyToken();
+          if (verificationResult.success && verificationResult.data) {
+            setUser(verificationResult.data.user);
+            setToken(verificationResult.data.token);
+
+            // Load subscription data
+            await refreshSubscription(verificationResult.data.user);
+          } else {
+            // Token invalid or expired, clear auth
+            await logout();
           }
         }
       } catch (error) {
@@ -91,8 +89,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setUser(result.data.user);
         setToken(result.data.token);
         
-        // Load subscription data
-        await refreshSubscription();
+        // Load subscription data (pass user since state may not have updated yet)
+        await refreshSubscription(result.data.user);
         
         return { success: true };
       } else {
@@ -117,6 +115,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (result.success && result.data) {
         setUser(result.data.user);
         setToken(result.data.token);
+        
+        // Load subscription for new user
+        await refreshSubscription(result.data.user);
         
         return { success: true };
       } else {
@@ -150,9 +151,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.setItem('user', JSON.stringify(updatedUser));
   };
 
-  const refreshSubscription = async () => {
+  const refreshSubscription = async (forUser?: User | null) => {
     try {
-      if (user) {
+      const u = forUser ?? user;
+      if (u) {
         const subscriptionData = await premiumService.getUserSubscription();
         setSubscription(subscriptionData);
       }
