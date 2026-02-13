@@ -14,20 +14,6 @@ interface PackageSelectionProps {
 
 const PLANS = [
   {
-    id: 'PLAN-471',
-    name: 'Gaply Basic',
-    price: '₹471',
-    description: 'Research Gap Finder - Analyze 5 base papers to identify research gaps and opportunities',
-    features: [
-      'Research Gap Finder (1 use)',
-      'Analyze 5 base papers',
-      'Publishable problem statement',
-      'Clear objectives & hypotheses',
-      'Valid for 365 days',
-    ],
-    popular: false,
-  },
-  {
     id: 'PLAN-PREMIUM',
     name: 'Gaply Premium',
     price: '₹2,499',

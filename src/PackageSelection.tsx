@@ -28,20 +28,6 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
 
   const packages = [
     {
-      id: 'basic',
-      name: 'Gaply Basic',
-      price: '₹471.00',
-      description: 'Research Gap Finder - Analyze 5 base papers to identify research gaps and opportunities',
-      features: [
-        'Research Gap Finder (1 use)',
-        'Analyze 5 base papers',
-        'Publishable problem statement',
-        'Clear objectives & hypotheses',
-        'Valid for 365 days'
-      ],
-      popular: false
-    },
-    {
       id: 'plus',
       name: 'Gaply Plus',
       price: '₹1061.00',

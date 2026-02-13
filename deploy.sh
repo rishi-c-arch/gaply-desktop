@@ -1,4 +1,4 @@
 #!/bin/bash
-cd /Users/rishi/Desktop/GAPLY/gaply-react
-npm run build
-npx vercel --prod --yes
+set -e
+cd "$(dirname "$0")"
+npm run deploy
