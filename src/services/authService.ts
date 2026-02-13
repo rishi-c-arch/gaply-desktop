@@ -102,99 +102,139 @@ class AuthService {
     }
   }
 
-  // Register new user
+  // Register new user (retries on 503 for cold-start / transient backend issues)
   async register(credentials: RegisterCredentials): Promise<AuthResponse> {
-    try {
-      const response = await apiFetch('/v1/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: credentials.email,
-          password: credentials.password,
-          first_name: credentials.first_name,
-          last_name: credentials.last_name,
-        }),
-      });
+    const maxAttempts = 3;
+    const retryDelayMs = 1500;
 
-      const { data, error: parseError } = await this.safeParseJson<{ access_token?: string; error?: string }>(response);
-      if (parseError) {
-        return { success: false, error: parseError };
-      }
-      if (!data) {
-        return { success: false, error: 'Invalid server response' };
-      }
-      if (!response.ok) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await apiFetch('/v1/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: credentials.email,
+            password: credentials.password,
+            first_name: credentials.first_name,
+            last_name: credentials.last_name,
+          }),
+        });
+
+        const { data, error: parseError } = await this.safeParseJson<{ access_token?: string; error?: string }>(response);
+        if (parseError) {
+          return { success: false, error: parseError };
+        }
+        if (!data) {
+          return { success: false, error: 'Invalid server response' };
+        }
+        if (!response.ok) {
+          if (response.status === 503 && attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, retryDelayMs));
+            continue;
+          }
+          return {
+            success: false,
+            error: data.error || 'Registration failed',
+          };
+        }
+
+        const token = data.access_token;
+        if (!token) {
+          return { success: false, error: 'Missing access token' };
+        }
+
+        this.setToken(token);
+        const user = await this.fetchMe();
+        if (user) {
+          localStorage.setItem('user', JSON.stringify(user));
+          return { success: true, data: { token, user } };
+        }
+
+        return { success: false, error: 'Failed to load user profile' };
+      } catch (error) {
+        const isTransient =
+          error instanceof Error &&
+          (error.message.includes('fetch') ||
+            error.message.includes('network') ||
+            error.message.includes('Failed to fetch'));
+        if (isTransient && attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, retryDelayMs));
+          continue;
+        }
+        console.error('Registration error:', error);
         return {
           success: false,
-          error: data.error || 'Registration failed',
+          error: error instanceof Error ? error.message : 'Registration failed',
         };
       }
-
-      const token = data.access_token;
-      if (!token) {
-        return { success: false, error: 'Missing access token' };
-      }
-
-      this.setToken(token);
-      const user = await this.fetchMe();
-      if (user) {
-        localStorage.setItem('user', JSON.stringify(user));
-        return { success: true, data: { token, user } };
-      }
-
-      return { success: false, error: 'Failed to load user profile' };
-    } catch (error) {
-      console.error('Registration error:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Registration failed',
-      };
     }
+
+    return { success: false, error: 'Registration failed. Please try again.' };
   }
 
-  // Login user
+  // Login user (retries on 503 for cold-start / transient backend issues)
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
-    try {
-      const response = await apiFetch('/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: credentials.email,
-          password: credentials.password,
-        }),
-      });
+    const maxAttempts = 3;
+    const retryDelayMs = 1500;
 
-      const { data, error: parseError } = await this.safeParseJson<{ access_token?: string; error?: string }>(response);
-      if (parseError) {
-        return { success: false, error: parseError };
-      }
-      if (!data) {
-        return { success: false, error: 'Invalid server response' };
-      }
-      if (!response.ok) {
-        return { success: false, error: data.error || 'Login failed' };
-      }
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await apiFetch('/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: credentials.email,
+            password: credentials.password,
+          }),
+        });
 
-      const token = data.access_token;
-      if (!token) {
-        return { success: false, error: 'Missing access token' };
-      }
+        const { data, error: parseError } = await this.safeParseJson<{ access_token?: string; error?: string }>(response);
+        if (parseError) {
+          return { success: false, error: parseError };
+        }
+        if (!data) {
+          return { success: false, error: 'Invalid server response' };
+        }
+        if (!response.ok) {
+          if (response.status === 503 && attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, retryDelayMs));
+            continue;
+          }
+          return { success: false, error: data.error || 'Login failed' };
+        }
 
-      this.setToken(token);
-      const user = await this.fetchMe();
-      if (user) {
-        localStorage.setItem('user', JSON.stringify(user));
-        return { success: true, data: { token, user } };
-      }
+        const token = data.access_token;
+        if (!token) {
+          return { success: false, error: 'Missing access token' };
+        }
 
-      return { success: false, error: 'Failed to load user profile' };
-    } catch (error) {
-      console.error('Login error:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Login failed',
-      };
+        this.setToken(token);
+        const user = await this.fetchMe();
+        if (user) {
+          localStorage.setItem('user', JSON.stringify(user));
+          return { success: true, data: { token, user } };
+        }
+
+        return { success: false, error: 'Failed to load user profile' };
+      } catch (error) {
+        const isTransient =
+          error instanceof Error &&
+          (error.message.includes('fetch') ||
+            error.message.includes('network') ||
+            error.message.includes('Failed to fetch'));
+        if (isTransient && attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, retryDelayMs));
+          continue;
+        }
+        console.error('Login error:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Login failed',
+        };
+      }
     }
+
+    return { success: false, error: 'Login failed. Please try again.' };
   }
 
   // Logout user
