@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { premiumService } from '../services/premiumService';
 
 declare global {
@@ -31,7 +32,7 @@ const PLANS = [
 
 const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
   const { user, subscription, isAuthenticated, refreshSubscription } = useAuth();
-  const [currentView, setCurrentView] = useState<'plans' | 'account'>('plans');
+  const navigate = useNavigate();
   const [processing, setProcessing] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -130,10 +131,6 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
     }
   };
 
-  const currentPlanName = subscription?.package_name || 'No active plan';
-  const gapFinderRemaining = subscription?.remaining_uses?.gap_finder ?? 0;
-  const deepEvalRemaining = subscription?.remaining_uses?.deep_eval ?? 0;
-
   return (
     <div
       style={{
@@ -206,48 +203,23 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
           </button>
         </div>
 
-        {/* View Toggle */}
+        {/* My Account Link */}
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '30px' }}>
-          <div
+          <button
+            onClick={() => navigate('/dashboard')}
             style={{
-              background: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)',
-              borderRadius: '12px',
-              padding: '4px',
-              display: 'flex',
-              gap: '4px',
+              background: 'transparent',
+              color: accent,
+              border: `1px solid ${accent}`,
+              borderRadius: '16px',
+              padding: '10px 24px',
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer',
             }}
           >
-            <button
-              onClick={() => setCurrentView('plans')}
-              style={{
-                background: currentView === 'plans' ? accent : 'transparent',
-                color: currentView === 'plans' ? 'white' : text,
-                border: 'none',
-                borderRadius: '8px',
-                padding: '8px 20px',
-                fontSize: '14px',
-                fontWeight: '500',
-                cursor: 'pointer',
-              }}
-            >
-              Plans
-            </button>
-            <button
-              onClick={() => setCurrentView('account')}
-              style={{
-                background: currentView === 'account' ? accent : 'transparent',
-                color: currentView === 'account' ? 'white' : text,
-                border: 'none',
-                borderRadius: '8px',
-                padding: '8px 20px',
-                fontSize: '14px',
-                fontWeight: '500',
-                cursor: 'pointer',
-              }}
-            >
-              My Account
-            </button>
-          </div>
+            My Account →
+          </button>
         </div>
 
         {error && (
@@ -266,8 +238,7 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
         )}
 
         {/* Plans View */}
-        {currentView === 'plans' && (
-          <div
+        <div
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
@@ -356,128 +327,6 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
               </div>
             ))}
           </div>
-        )}
-
-        {/* Account View - Current Plan */}
-        {currentView === 'account' && (
-          <div
-            style={{
-              maxWidth: '500px',
-              margin: '0 auto',
-              background: cardBg,
-              borderRadius: '16px',
-              padding: '30px',
-              border: `1px solid ${border}`,
-            }}
-          >
-            <h2 style={{ fontSize: '24px', fontWeight: '600', color: text, margin: '0 0 20px 0' }}>
-              Current Plan
-            </h2>
-            <div
-              style={{
-                background: `${accent}20`,
-                borderRadius: '12px',
-                padding: '20px',
-                marginBottom: '20px',
-                border: `1px solid ${accent}40`,
-              }}
-            >
-              <h3 style={{ fontSize: '18px', fontWeight: '600', color: accent, margin: '0 0 8px 0' }}>
-                {currentPlanName}
-              </h3>
-              {subscription?.expires_at && (
-                <p style={{ fontSize: '14px', color: muted, margin: 0 }}>
-                  Valid until: {new Date(subscription.expires_at).toLocaleDateString()}
-                </p>
-              )}
-            </div>
-
-            <h3 style={{ fontSize: '20px', fontWeight: '600', color: text, margin: '0 0 16px 0' }}>
-              Usage
-            </h3>
-            <div style={{ marginBottom: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ fontSize: '14px', color: text }}>PublishReady (Gap Finder)</span>
-                <span style={{ fontSize: '14px', color: muted }}>{gapFinderRemaining} uses left</span>
-              </div>
-              <div
-                style={{
-                  background: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
-                  borderRadius: '8px',
-                  height: '6px',
-                  overflow: 'hidden',
-                }}
-              >
-                <div
-                  style={{
-                    background: `linear-gradient(90deg, ${accent}, #30D158)`,
-                    height: '100%',
-                    width: `${Math.min(100, (gapFinderRemaining / 2) * 100)}%`,
-                  }}
-                />
-              </div>
-            </div>
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ fontSize: '14px', color: text }}>DataMaestro (Deep Analysis)</span>
-                <span style={{ fontSize: '14px', color: muted }}>{deepEvalRemaining} uses left</span>
-              </div>
-              <div
-                style={{
-                  background: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
-                  borderRadius: '8px',
-                  height: '6px',
-                  overflow: 'hidden',
-                }}
-              >
-                <div
-                  style={{
-                    background: `linear-gradient(90deg, ${accent}, #30D158)`,
-                    height: '100%',
-                    width: `${Math.min(100, deepEvalRemaining * 100)}%`,
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-              <button
-                onClick={() => (window.location.href = '/premium')}
-                style={{
-                  background: accent,
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '12px 20px',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  flex: 1,
-                  minWidth: '120px',
-                }}
-              >
-                View Dashboard
-              </button>
-              <button
-                onClick={() => setCurrentView('plans')}
-                style={{
-                  background: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)',
-                  color: text,
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '12px 20px',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  flex: 1,
-                  minWidth: '120px',
-                }}
-              >
-                Upgrade Package
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Footer */}
         <div

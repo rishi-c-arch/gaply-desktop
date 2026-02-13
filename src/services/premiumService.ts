@@ -225,9 +225,11 @@ class PremiumService {
           },
         };
       } else {
+        const errMsg = data.error || 'Failed to create payment order';
+        const detail = data.detail ? ` (${data.detail})` : '';
         return {
           success: false,
-          error: data.error || 'Failed to create payment order',
+          error: errMsg + detail,
         };
       }
     } catch (error) {
