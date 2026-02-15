@@ -158,7 +158,7 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
           }}
         >
           <button
-            onClick={onClose}
+            onClick={() => { onClose(); navigate('/'); }}
             style={{
               background: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)',
               border: 'none',
@@ -239,94 +239,94 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
 
         {/* Plans View */}
         <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: '20px',
-              maxWidth: '700px',
-              margin: '0 auto 30px',
-            }}
-          >
-            {PLANS.map((pkg) => (
-              <div
-                key={pkg.id}
-                style={{
-                  background: cardBg,
-                  borderRadius: '16px',
-                  padding: '24px',
-                  border: pkg.popular ? `2px solid ${accent}` : `1px solid ${border}`,
-                  position: 'relative',
-                  transition: 'all 0.3s ease',
-                  cursor: processing ? 'not-allowed' : 'pointer',
-                  opacity: processing ? 0.7 : 1,
-                }}
-                onClick={() => !processing && handlePackageSelect(pkg.id)}
-              >
-                {pkg.popular && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '-12px',
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      background: accent,
-                      color: 'white',
-                      padding: '6px 16px',
-                      borderRadius: '16px',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                    }}
-                  >
-                    Most Popular
-                  </div>
-                )}
-
-                <h3 style={{ fontSize: '20px', fontWeight: '600', color: text, margin: '0 0 8px 0' }}>
-                  {pkg.name}
-                </h3>
-                <div style={{ fontSize: '32px', fontWeight: '700', color: accent, margin: '0 0 12px 0' }}>
-                  {pkg.price}
-                </div>
-                <p style={{ fontSize: '14px', color: muted, margin: '0 0 20px 0', lineHeight: 1.4 }}>
-                  {pkg.description}
-                </p>
-                <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0' }}>
-                  {pkg.features.map((feature, i) => (
-                    <li
-                      key={i}
-                      style={{
-                        fontSize: '13px',
-                        color: muted,
-                        margin: '0 0 8px 0',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                      }}
-                    >
-                      <span style={{ color: '#30D158', fontWeight: '600' }}>✓</span>
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  disabled={!!processing}
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: '20px',
+            maxWidth: '700px',
+            margin: '0 auto 30px',
+          }}
+        >
+          {PLANS.map((pkg) => (
+            <div
+              key={pkg.id}
+              style={{
+                background: cardBg,
+                borderRadius: '16px',
+                padding: '24px',
+                border: pkg.popular ? `2px solid ${accent}` : `1px solid ${border}`,
+                position: 'relative',
+                transition: 'all 0.3s ease',
+                cursor: processing ? 'not-allowed' : 'pointer',
+                opacity: processing ? 0.7 : 1,
+              }}
+              onClick={() => !processing && handlePackageSelect(pkg.id)}
+            >
+              {pkg.popular && (
+                <div
                   style={{
-                    width: '100%',
-                    background: pkg.popular ? accent : (isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)'),
-                    color: pkg.popular ? 'white' : text,
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '12px 20px',
-                    fontSize: '14px',
+                    position: 'absolute',
+                    top: '-12px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    background: accent,
+                    color: 'white',
+                    padding: '6px 16px',
+                    borderRadius: '16px',
+                    fontSize: '12px',
                     fontWeight: '600',
-                    cursor: processing ? 'not-allowed' : 'pointer',
                   }}
                 >
-                  {processing === pkg.id ? 'Processing...' : `Get ${pkg.name}`}
-                </button>
+                  Most Popular
+                </div>
+              )}
+
+              <h3 style={{ fontSize: '20px', fontWeight: '600', color: text, margin: '0 0 8px 0' }}>
+                {pkg.name}
+              </h3>
+              <div style={{ fontSize: '32px', fontWeight: '700', color: accent, margin: '0 0 12px 0' }}>
+                {pkg.price}
               </div>
-            ))}
-          </div>
+              <p style={{ fontSize: '14px', color: muted, margin: '0 0 20px 0', lineHeight: 1.4 }}>
+                {pkg.description}
+              </p>
+              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0' }}>
+                {pkg.features.map((feature, i) => (
+                  <li
+                    key={i}
+                    style={{
+                      fontSize: '13px',
+                      color: muted,
+                      margin: '0 0 8px 0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <span style={{ color: '#30D158', fontWeight: '600' }}>✓</span>
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+              <button
+                disabled={!!processing}
+                style={{
+                  width: '100%',
+                  background: pkg.popular ? accent : (isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)'),
+                  color: pkg.popular ? 'white' : text,
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px 20px',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: processing ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {processing === pkg.id ? 'Processing...' : `Get ${pkg.name}`}
+              </button>
+            </div>
+          ))}
+        </div>
 
         {/* Footer */}
         <div
