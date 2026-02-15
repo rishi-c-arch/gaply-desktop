@@ -7,6 +7,17 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        dashboard: {
+          bg: '#0D1117',
+          card: '#161B22',
+          border: '#30363D',
+          accent: '#3B82F6',
+          text: '#FFFFFF',
+          muted: '#8B949E',
+          success: '#22C55E',
+          warning: '#6B7280',
+          danger: '#EF4444',
+        },
         primary: {
           DEFAULT: '#00A3FF',
           50: '#E6F7FF',

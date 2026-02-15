@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { Routes, Route } from 'react-router-dom';
 import './App.css';
 import './hero-animations.css';
@@ -11,7 +12,7 @@ import PremiumFeatures3D from './components/PremiumFeatures3D';
 import QuartileAnalysis3D from './components/QuartileAnalysis3D';
 import PremiumFooter3D from './components/PremiumFooter3D';
 import EnhancedPremiumPage from './components/EnhancedPremiumPage';
-import UserDashboard from './components/UserDashboard';
+import Overview from './pages/Overview';
 import PackageSelection from './components/PackageSelection';
 import LoginPage from './components/LoginPage';
 import SignupPage from './components/SignupPage';
@@ -196,10 +197,7 @@ const AppleHeroSection: React.FC = () => {
 
 // Inner App component that uses useAuth
 const AppContent: React.FC = () => {
-  const [headerTheme, setHeaderTheme] = useState<'light' | 'dark'>(() => {
-    const stored = localStorage.getItem('gaply_theme');
-    return stored === 'light' || stored === 'dark' ? stored : 'dark';
-  });
+  const { theme: headerTheme, toggleTheme: handleToggleTheme } = useTheme();
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
 
   // Call the function to remove the floating orb when the component mounts
@@ -214,15 +212,6 @@ const AppContent: React.FC = () => {
     window.addEventListener('popstate', handleRouteChange);
     return () => window.removeEventListener('popstate', handleRouteChange);
   }, []);
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', headerTheme);
-    localStorage.setItem('gaply_theme', headerTheme);
-  }, [headerTheme]);
-
-  const handleToggleTheme = () => {
-    setHeaderTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
-  };
 
   const handleAuthSuccess = (token: string, userData: any) => {
     window.location.href = '/packages';
@@ -437,7 +426,7 @@ const AppContent: React.FC = () => {
                 description="Manage your Gaply account, view your academic research services, track your thesis writing progress, and access your AI detection and journal matching tools."
                 keywords="Gaply account management, academic research account, thesis writing account, AI detection account, journal matching account, research assistance account"
               />
-              <UserDashboard />
+              <Overview />
             </>
           } />
           <Route path="/my-account" element={
@@ -447,7 +436,7 @@ const AppContent: React.FC = () => {
                 description="Manage your Gaply account, view your academic research services, track your thesis writing progress, and access your AI detection and journal matching tools."
                 keywords="Gaply account management, academic research account, thesis writing account, AI detection account, journal matching account, research assistance account"
               />
-              <UserDashboard />
+              <Overview />
             </>
           } />
           <Route path="/dashboard" element={
@@ -457,7 +446,7 @@ const AppContent: React.FC = () => {
                 description="Access your Gaply dashboard to manage academic research projects, track thesis writing progress, monitor AI detection results, and view journal matching recommendations."
                 keywords="academic research dashboard, thesis writing dashboard, AI detection dashboard, journal matching dashboard, research progress tracking, academic project management"
               />
-              <UserDashboard />
+              <Overview />
             </>
           } />
         </Routes>
@@ -465,11 +454,13 @@ const AppContent: React.FC = () => {
   );
 };
 
-// Main App component that provides AuthProvider
+// Main App component that provides AuthProvider and ThemeProvider
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <AppContent />
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
     </AuthProvider>
   );
 };
