@@ -70,9 +70,10 @@ root.render(
   </React.StrictMode>
 );
 
-// Hide static fallback only when we have visible page content (keeps it if React fails or renders blank)
+// Hide loading/fallback only when we have visible page content (keeps it if React fails or renders blank)
 const hideFallbackWhenReady = () => {
   const el = document.getElementById('static-fallback');
+  const loadingEl = document.getElementById('gaply-loading');
   const root = document.getElementById('root');
   if (!el) return;
   // For /final-orchestrator: require manuscript-page or manuscript-hero (actual content)
@@ -80,7 +81,10 @@ const hideFallbackWhenReady = () => {
   const hasManuscriptContent = root?.querySelector('.manuscript-page, .manuscript-hero, .manuscript-grid');
   const hasGenericContent = root && root.innerHTML.trim().length > 500;
   const shouldHide = isFinalOrchestrator ? !!hasManuscriptContent : (hasGenericContent || (root?.getAttribute('data-app-mounted') === 'true'));
-  if (shouldHide) el.style.display = 'none';
+  if (shouldHide) {
+    el.style.display = 'none';
+    if (loadingEl) loadingEl.style.display = 'none';
+  }
 };
 window.addEventListener('gaply-app-mounted', hideFallbackWhenReady);
 requestAnimationFrame(() => requestAnimationFrame(hideFallbackWhenReady));
