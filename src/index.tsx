@@ -84,23 +84,22 @@ if (path === '/final-orchestrator' || path.startsWith('/final-orchestrator/')) {
   });
 }
 
-// Hide loading/fallback only when we have visible page content (keeps it if React fails or renders blank)
+// Hide loading/fallback when we have visible content (or after timeout to avoid stuck "Loading...")
 const hideFallbackWhenReady = () => {
   const el = document.getElementById('static-fallback');
   const loadingEl = document.getElementById('gaply-loading');
   const root = document.getElementById('root');
   if (!el) return;
   const path = window.location.pathname;
-  // For /final-orchestrator: require manuscript content
   const hasManuscriptContent = root?.querySelector('.manuscript-page, .manuscript-hero, .manuscript-grid');
-  // For homepage: require apple-hero (hero section)
   const hasHomeContent = root?.querySelector('.apple-hero, .apple-hero__title');
-  // For other routes: require substantial content
   const hasGenericContent = root && root.innerHTML.trim().length > 500;
+  const appMounted = root?.getAttribute('data-app-mounted') === 'true';
+  const hasAnyContent = hasManuscriptContent || hasHomeContent || hasGenericContent || (appMounted && root?.children?.length);
   const shouldHide =
-    (path === '/final-orchestrator' && !!hasManuscriptContent) ||
-    (path === '/' && !!hasHomeContent) ||
-    ((path !== '/' && path !== '/final-orchestrator') && (hasGenericContent || !!root?.querySelector('[class]')));
+    (path === '/final-orchestrator' && (!!hasManuscriptContent || appMounted)) ||
+    (path === '/' && (!!hasHomeContent || appMounted)) ||
+    ((path !== '/' && path !== '/final-orchestrator') && (hasGenericContent || !!root?.querySelector('[class]') || appMounted));
   if (shouldHide) {
     el.style.display = 'none';
     if (loadingEl) loadingEl.style.display = 'none';
@@ -108,9 +107,10 @@ const hideFallbackWhenReady = () => {
 };
 window.addEventListener('gaply-app-mounted', hideFallbackWhenReady);
 requestAnimationFrame(() => requestAnimationFrame(hideFallbackWhenReady));
-setTimeout(hideFallbackWhenReady, 500);
+setTimeout(hideFallbackWhenReady, 300);
+setTimeout(hideFallbackWhenReady, 800);
 setTimeout(hideFallbackWhenReady, 1500);
-setTimeout(hideFallbackWhenReady, 4000);
+setTimeout(hideFallbackWhenReady, 2500);
 
 // If you want to start measuring performance in your app, pass a function
 // to log results (for example: reportWebVitals(console.log))

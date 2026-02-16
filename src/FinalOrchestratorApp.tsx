@@ -20,6 +20,10 @@ const FinalOrchestratorRoot: React.FC = () => {
     if (root) {
       root.setAttribute('data-app-mounted', 'true');
       window.dispatchEvent(new CustomEvent('gaply-app-mounted'));
+      // Ensure fallback hides even if check runs before paint
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent('gaply-app-mounted'));
+      });
     }
   }, []);
   return (
