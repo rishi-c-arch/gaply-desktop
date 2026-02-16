@@ -13,7 +13,7 @@ const isLocalhost =
 
 export const API_BASE_URL: string =
   (import.meta as any)?.env?.VITE_API_BASE_URL ||
-  (typeof process !== 'undefined' && (process as any)?.env?.REACT_APP_API_BASE_URL) ||
+  (typeof process !== 'undefined' && ((process as any)?.env?.REACT_APP_API_BASE_URL || (process as any)?.env?.REACT_APP_API_URL)) ||
   (isLocalhost ? 'http://localhost:8080' : FALLBACK_URLS[1]);
 
 export function buildApiUrl(path: string): string {
