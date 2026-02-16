@@ -5,35 +5,35 @@ import './App.css';
 import './hero-animations.css';
 import './hero-new.css';
 import './responsive.css';
-import EnhancedPremiumPage from './components/EnhancedPremiumPage';
-import Overview from './pages/Overview';
-import PackageSelection from './components/PackageSelection';
-import LoginPage from './components/LoginPage';
-import SignupPage from './components/SignupPage';
-import AcademicAIRemoverPage from './components/AcademicAIRemoverPage';
-import PaperSearchPage from './components/PaperSearchPage';
-import JournalMatchingPage from './components/JournalMatchingPage';
-import FeaturesPage from './components/FeaturesPage';
-import CareerPage from './components/CareerPage';
-import HireExpertPage from './components/HireExpertPage';
-import ExpertSearchResultsPage from './components/ExpertSearchResultsPage';
-import PricingSection from './components/PricingSection';
-import PrivacyPolicyPage from './components/PrivacyPolicyPage';
-import TermsOfServicePage from './components/TermsOfServicePage';
-import DocumentOrchestratorPage from './components/DocumentOrchestratorPage';
-import ManuscriptOrchestratorPage from './components/ManuscriptOrchestratorPage';
-import StatisticalResearchOrchestratorPage from './components/StatisticalResearchOrchestratorPage';
-import ContactPage from './components/ContactPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
 
-// Lazy-load Three.js - avoids WebGL on /final-orchestrator, prevents "Context Lost" blank page
+// Lazy-load ALL route components - keeps Three.js OUT of /final-orchestrator chunk (fixes WebGL Context Lost blank page)
 const ThreeJSGlobe = lazy(() => import('./components/ThreeJSGlobe'));
 const HeroToSecondTransition = lazy(() => import('./components/HeroToSecondTransition'));
 const FreeFeatures3D = lazy(() => import('./components/FreeFeatures3D'));
 const PremiumFeatures3D = lazy(() => import('./components/PremiumFeatures3D'));
 const QuartileAnalysis3D = lazy(() => import('./components/QuartileAnalysis3D'));
 const PremiumFooter3D = lazy(() => import('./components/PremiumFooter3D'));
+const EnhancedPremiumPage = lazy(() => import('./components/EnhancedPremiumPage'));
+const Overview = lazy(() => import('./pages/Overview'));
+const PackageSelection = lazy(() => import('./components/PackageSelection'));
+const LoginPage = lazy(() => import('./components/LoginPage'));
+const SignupPage = lazy(() => import('./components/SignupPage'));
+const AcademicAIRemoverPage = lazy(() => import('./components/AcademicAIRemoverPage'));
+const PaperSearchPage = lazy(() => import('./components/PaperSearchPage'));
+const JournalMatchingPage = lazy(() => import('./components/JournalMatchingPage'));
+const FeaturesPage = lazy(() => import('./components/FeaturesPage'));
+const CareerPage = lazy(() => import('./components/CareerPage'));
+const HireExpertPage = lazy(() => import('./components/HireExpertPage'));
+const ExpertSearchResultsPage = lazy(() => import('./components/ExpertSearchResultsPage'));
+const PricingSection = lazy(() => import('./components/PricingSection'));
+const PrivacyPolicyPage = lazy(() => import('./components/PrivacyPolicyPage'));
+const TermsOfServicePage = lazy(() => import('./components/TermsOfServicePage'));
+const DocumentOrchestratorPage = lazy(() => import('./components/DocumentOrchestratorPage'));
+const ManuscriptOrchestratorPage = lazy(() => import('./components/ManuscriptOrchestratorPage'));
+const StatisticalResearchOrchestratorPage = lazy(() => import('./components/StatisticalResearchOrchestratorPage'));
+const ContactPage = lazy(() => import('./components/ContactPage'));
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{ title?: string; description?: string; keywords?: string }> = ({ 
@@ -239,6 +239,7 @@ const AppContent: React.FC = () => {
           background: isFinalOrchestrator ? '#ffffff' : undefined,
         }}
       >
+      <Suspense fallback={<div style={{ padding: 48, textAlign: 'center', color: '#333' }}>Loading…</div>}>
       <Routes>
           <Route path="/" element={
             <Suspense fallback={<div style={{ padding: 48, textAlign: 'center', color: '#333' }}>Loading…</div>}>
@@ -471,6 +472,7 @@ const AppContent: React.FC = () => {
             </>
           } />
         </Routes>
+      </Suspense>
       </div>
     </div>
   );
