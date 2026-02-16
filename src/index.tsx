@@ -6,6 +6,11 @@ import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import reportWebVitals from './reportWebVitals';
 
+// Suppress WebGL context lost - prevents blank page when GPU/context is lost
+if (typeof window !== 'undefined') {
+  window.addEventListener('webglcontextlost', (e) => { e.preventDefault(); }, false);
+}
+
 // Catch uncaught errors and show them (helps debug blank page)
 const showError = (title: string, detail: string) => {
   const root = document.getElementById('root');

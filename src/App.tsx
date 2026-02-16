@@ -1,16 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Suspense, lazy } from 'react';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import './App.css';
 import './hero-animations.css';
 import './hero-new.css';
 import './responsive.css';
-import ThreeJSGlobe from './components/ThreeJSGlobe';
-import HeroToSecondTransition from './components/HeroToSecondTransition';
-import FreeFeatures3D from './components/FreeFeatures3D';
-import PremiumFeatures3D from './components/PremiumFeatures3D';
-import QuartileAnalysis3D from './components/QuartileAnalysis3D';
-import PremiumFooter3D from './components/PremiumFooter3D';
 import EnhancedPremiumPage from './components/EnhancedPremiumPage';
 import Overview from './pages/Overview';
 import PackageSelection from './components/PackageSelection';
@@ -32,6 +26,14 @@ import StatisticalResearchOrchestratorPage from './components/StatisticalResearc
 import ContactPage from './components/ContactPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
+
+// Lazy-load Three.js - avoids WebGL on /final-orchestrator, prevents "Context Lost" blank page
+const ThreeJSGlobe = lazy(() => import('./components/ThreeJSGlobe'));
+const HeroToSecondTransition = lazy(() => import('./components/HeroToSecondTransition'));
+const FreeFeatures3D = lazy(() => import('./components/FreeFeatures3D'));
+const PremiumFeatures3D = lazy(() => import('./components/PremiumFeatures3D'));
+const QuartileAnalysis3D = lazy(() => import('./components/QuartileAnalysis3D'));
+const PremiumFooter3D = lazy(() => import('./components/PremiumFooter3D'));
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{ title?: string; description?: string; keywords?: string }> = ({ 
@@ -239,7 +241,7 @@ const AppContent: React.FC = () => {
       >
       <Routes>
           <Route path="/" element={
-            <>
+            <Suspense fallback={<div style={{ padding: 48, textAlign: 'center', color: '#333' }}>Loading…</div>}>
               <SEOHead 
                 title="Gaply - AI-Powered Academic Research Platform | Thesis Writing, Journal Matching, AI Detection"
                 description="Professional AI-powered academic research platform offering thesis writing help, journal matching, AI content detection, plagiarism checking, dissertation editing, and research paper assistance for PhD students and researchers worldwide."
@@ -251,7 +253,7 @@ const AppContent: React.FC = () => {
               <PremiumFeatures3D />
               <QuartileAnalysis3D />
               <PremiumFooter3D />
-            </>
+            </Suspense>
           } />
           <Route path="/academic-ai-remover" element={
             <>
