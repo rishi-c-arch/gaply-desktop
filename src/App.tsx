@@ -30,6 +30,7 @@ import DocumentOrchestratorPage from './components/DocumentOrchestratorPage';
 import ManuscriptOrchestratorPage from './components/ManuscriptOrchestratorPage';
 import StatisticalResearchOrchestratorPage from './components/StatisticalResearchOrchestratorPage';
 import ContactPage from './components/ContactPage';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
 
 // SEO Component for dynamic meta tags
@@ -271,14 +272,19 @@ const AppContent: React.FC = () => {
             </>
           } />
           <Route path="/final-orchestrator" element={
-            <>
+            <ErrorBoundary fallback={
+              <div style={{ padding: '80px 24px 48px', maxWidth: 600, margin: '0 auto', textAlign: 'center', color: '#1d1d1f' }}>
+                <h1 style={{ fontSize: '24px', marginBottom: 16 }}>Something went wrong</h1>
+                <p style={{ marginBottom: 24, color: '#6e6e73' }}>The page couldn&apos;t load. Try refreshing or <a href="/" style={{ color: '#007AFF' }}>go home</a>.</p>
+              </div>
+            }>
               <SEOHead 
                 title="Final Analysis Suite | Gaply"
                 description="Upload manuscript files, add journal links, and generate a clean report with Gaply chat support."
                 keywords="final analysis suite, manuscript upload, journal submission assistant, gaply chat"
               />
               <ManuscriptOrchestratorPage />
-            </>
+            </ErrorBoundary>
           } />
           <Route path="/statistical-research" element={
             <>
