@@ -212,10 +212,20 @@ const AppContent: React.FC = () => {
   // Hide header for hire-expert, search-results, and final-orchestrator pages
   const shouldShowHeader = currentPath !== '/hire-expert' && currentPath !== '/search-results' && currentPath !== '/final-orchestrator';
 
+  // final-orchestrator needs light background (manuscript-page is white)
+  const isFinalOrchestrator = currentPath === '/final-orchestrator';
+
   return (
     <div className="App">
       {shouldShowHeader && <AppleHeader theme={headerTheme} onToggleTheme={handleToggleTheme} />}
-      <div className="app-content-below-header" style={{ paddingTop: shouldShowHeader ? 56 : 0, minHeight: '100vh' }}>
+      <div
+        className="app-content-below-header"
+        style={{
+          paddingTop: shouldShowHeader ? 56 : 0,
+          minHeight: '100vh',
+          background: isFinalOrchestrator ? '#ffffff' : undefined,
+        }}
+      >
       <Routes>
           <Route path="/" element={
             <>

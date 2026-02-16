@@ -6,9 +6,11 @@ import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import reportWebVitals from './reportWebVitals';
 
-// Remove loading overlay as soon as JS runs (prevents blank if bundle loads)
-const loadingEl = document.getElementById('loading-screen');
-if (loadingEl) loadingEl.remove();
+// Remove loading overlay only after React has painted (prevents blank flash)
+const removeLoadingScreen = () => {
+  const el = document.getElementById('loading-screen');
+  if (el) el.remove();
+};
 
 // Catch uncaught errors and show them (helps debug blank page)
 const showError = (title: string, detail: string) => {
@@ -73,6 +75,13 @@ root.render(
     </ErrorBoundary>
   </React.StrictMode>
 );
+
+// Remove loading screen after React has painted (prevents blank page)
+requestAnimationFrame(() => {
+  requestAnimationFrame(() => removeLoadingScreen());
+});
+// Fallback: remove after 2s in case rAF doesn't fire (e.g. tab in background)
+setTimeout(removeLoadingScreen, 2000);
 
 // If you want to start measuring performance in your app, pass a function
 // to log results (for example: reportWebVitals(console.log))
