@@ -20,7 +20,12 @@ type ChatMessage = {
 
 const ACCEPTED_TYPES = ['.pdf', '.docx', '.txt'];
 
-const ManuscriptOrchestratorPage: React.FC = () => {
+export interface ManuscriptOrchestratorPageProps {
+  /** Called before analysis starts; return false to abort (e.g. premium use check) */
+  onBeforeSubmit?: () => Promise<boolean>;
+}
+
+const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({ onBeforeSubmit }) => {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [pastedText, setPastedText] = useState('');
   const [journalLink, setJournalLink] = useState('');
@@ -54,6 +59,19 @@ const ManuscriptOrchestratorPage: React.FC = () => {
   const canSubmit = useMemo(() => {
     return files.length > 0 || pastedText.trim().length > 0;
   }, [files, pastedText]);
+
+  const firstUpstreamError = useMemo(() => {
+    if (!reportData?.chunks) return null;
+    for (const chunk of reportData.chunks) {
+      const tr = chunk?.task_results;
+      if (!tr) continue;
+      for (const [, task] of Object.entries(tr)) {
+        const t = task as { summary?: string; details?: string };
+        if (t?.summary?.includes('upstream error') && t?.details) return t.details;
+      }
+    }
+    return null;
+  }, [reportData]);
 
   const handleFiles = (fileList: FileList | null) => {
     if (!fileList) return;
@@ -179,6 +197,15 @@ const ManuscriptOrchestratorPage: React.FC = () => {
       return;
     }
 
+    if (onBeforeSubmit) {
+      const ok = await onBeforeSubmit();
+      if (!ok) {
+        setStatus('error');
+        setStatusMessage('Unable to use PublishReady. Please check your premium plan or upgrade.');
+        return;
+      }
+    }
+
     setStatus('processing');
     setStatusMessage('Analyzing manuscript and generating report...');
 
@@ -268,8 +295,8 @@ const ManuscriptOrchestratorPage: React.FC = () => {
             chunk_token_estimate: Math.floor(chunk.text.length / 4),
             journal_guidelines: guidelinesJson || { journal_url: journalLink },
             retrieved_docs: slimRetrievedDocs,
-            tasks: ['guideline_check', 'novelty_check', 'plagiarism_check', 'ai_use_detection', 'suggest_edits'],
-            max_tokens_for_response: 900,
+            tasks: ['guideline_check', 'novelty_check', 'plagiarism_check', 'ai_use_detection', 'suggest_edits', 'writing_quality', 'research_quality'],
+            max_tokens_for_response: 2400,
           };
 
           const res = await apiFetch('/api/ai/document-orchestrator', {
@@ -334,7 +361,11 @@ const ManuscriptOrchestratorPage: React.FC = () => {
         report_id: `report-${Date.now()}`,
         journal_url: journalLink,
         manuscript_link: manuscriptLink || null,
-        chunks: chunkResults,
+        chunks: chunkResults.map((cr: any, i: number) => ({
+          ...cr,
+          chunk_text: chunks[i]?.text || cr.chunk_text,
+          chunk_id: chunks[i]?.id || cr.chunk_id,
+        })),
         publication_chance: pubJson?.result || pubJson,
         referee_review: refereeParsed,
         line_review: lineText,
@@ -557,6 +588,15 @@ const ManuscriptOrchestratorPage: React.FC = () => {
 
       {status === 'complete' && !showGetSetGo && (
         <>
+          {firstUpstreamError && (
+            <section className="upstream-error-banner">
+              <strong>Analysis tasks failed (upstream error).</strong>{' '}
+              <span className="upstream-error-detail">{firstUpstreamError}</span>
+              <p className="upstream-error-hint">
+                Ensure <code>OPENAI_API_KEY</code> is set in the orchestrator <code>.env</code> and the key is valid.
+              </p>
+            </section>
+          )}
           <section className="results-options-section">
             <div className="results-options-grid">
               <button className="result-option-card" onClick={() => setActiveModal('download')}>
@@ -686,6 +726,19 @@ const ManuscriptOrchestratorPage: React.FC = () => {
                   <button className="modal-close" onClick={() => setActiveModal(null)}>×</button>
                 </div>
                 <div className="modal-body-referee">
+                  {refereeData?.error && (
+                    <div className="referee-error-state">
+                      <p className="referee-error-title">Referee review could not be generated</p>
+                      <p className="referee-error-detail">{refereeData.raw || refereeData.error}</p>
+                      <p className="referee-error-hint">Check that OPENAI_API_KEY is set in the orchestrator .env and the API key is valid.</p>
+                    </div>
+                  )}
+                  {!refereeData && (
+                    <div className="referee-error-state">
+                      <p className="referee-error-title">No referee review data</p>
+                      <p className="referee-error-hint">The referee-review API may have failed. Check orchestrator logs for &quot;upstream error&quot; or &quot;OPENAI_API_KEY&quot;.</p>
+                    </div>
+                  )}
                   {refereeData && !refereeData.error && (
                     <div className="referee-cards">
                       <div className="referee-card">

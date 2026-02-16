@@ -608,7 +608,7 @@ export const generateTurnitinStyleReport = (
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Turnitin-Style Report - ${reportData.report_id}</title>
+  <title>Document Analysis Report — Manuscript with Inline Annotations</title>
   <style>
     * {
       margin: 0;
@@ -1133,7 +1133,7 @@ export const downloadTurnitinStyleReport = (
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = filename || `turnitin-style-report-${reportData.report_id}.html`;
+  link.download = filename || `document-analysis-report-${reportData.report_id}.html`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

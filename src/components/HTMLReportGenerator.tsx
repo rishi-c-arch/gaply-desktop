@@ -57,30 +57,55 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
     return `<span style="color: ${color}; font-weight: 600;">${percentage}%</span>`;
   };
 
-  // Generate meaningful section names from chunk text
+  // Use EXACT section name from manuscript (backend or extracted from chunk text)
   const generateSectionName = (chunk: any, index: number): string => {
+    // 1. Prefer section_name from backend (AI-identified from manuscript)
+    const backendSection = chunk.section_name?.trim();
+    if (backendSection) return backendSection;
+
     const chunkText = chunk.chunk_text || chunk.text || '';
     if (!chunkText) return `Section ${index + 1}`;
-    
-    // Extract first line
-    const firstLine = chunkText.split('\n')[0].trim();
-    if (firstLine.length > 0 && firstLine.length < 60) {
-      // Check if it looks like a heading (all caps or capitalized first word)
-      if (firstLine === firstLine.toUpperCase() || /^[A-Z][a-z]+/.test(firstLine)) {
-        const trimmed = firstLine.length > 50 ? firstLine.slice(0, 47) + '...' : firstLine;
-        // Clean up common section indicators
-        return trimmed.replace(/^(Abstract|Introduction|Methods|Methodology|Results|Discussion|Conclusion|References|Appendix)[\s:]*/i, '');
+
+    const lines = chunkText.split('\n').map((l: string) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return `Section ${index + 1}`;
+
+    const firstLine = lines[0];
+
+    // 2. Known section headings (use EXACT text from manuscript)
+    const sectionPattern = /^(ABSTRACT|INTRODUCTION|METHODS|METHODOLOGY|RESULTS|DISCUSSION|CONCLUSION|REFERENCES|APPENDIX|LITERATURE\s+REVIEW|KEYWORDS|ACKNOWLEDGMENTS|DATA\s+AVAILABILITY|AUTHOR\s+CONTRIBUTIONS|FUNDING|CONFLICT\s+OF\s+INTEREST|ETHICS|SUPPLEMENTARY|FIGURE\s+LEGENDS?|TABLES?|NOTES?)([\s:].*)?$/i;
+    const sectionMatch = firstLine.match(sectionPattern);
+    if (sectionMatch) {
+      const name = sectionMatch[1].trim();
+      return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    // 3. Numbered headings: "1. Introduction", "2.1 Methods", "I. Background"
+    const numberedMatch = firstLine.match(/^(\d+(\.\d+)*\.?\s*|[IVX]+\.\s*|[A-Z]\.\s*)(.+)$/);
+    if (numberedMatch && numberedMatch[3].length < 80) {
+      return (numberedMatch[1] + numberedMatch[3]).trim();
+    }
+
+    // 4. All-caps short line (likely heading)
+    if (firstLine === firstLine.toUpperCase() && firstLine.length > 4 && firstLine.length < 100) {
+      return firstLine.length > 60 ? firstLine.slice(0, 57) + '...' : firstLine;
+    }
+
+    // 5. Title case short line (likely heading)
+    if (firstLine.length < 80 && /^[A-Z]/.test(firstLine)) {
+      const words = firstLine.split(/\s+/);
+      const capsCount = words.filter((w: string) => /^[A-Z]/.test(w)).length;
+      if (capsCount >= words.length * 0.5) {
+        return firstLine.length > 60 ? firstLine.slice(0, 57) + '...' : firstLine;
       }
     }
-    
-    // Extract first meaningful sentence
-    const sentences = chunkText.split(/[.!?]\s+/).filter((s: string) => s.trim().length > 20);
+
+    // 6. First meaningful sentence
+    const sentences = chunkText.split(/[.!?]\s+/).filter((s: string) => s.trim().length > 15);
     if (sentences.length > 0) {
       const name = sentences[0].trim();
-      return name.length > 50 ? name.slice(0, 47) + '...' : name;
+      return name.length > 55 ? name.slice(0, 52) + '...' : name;
     }
-    
-    // Fallback to section number
+
     return `Section ${index + 1}`;
   };
 
@@ -96,356 +121,383 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Document Analysis Report - ${reportData.report_id}</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
-      background: linear-gradient(135deg, #1a1a1f 0%, #0f0f14 100%);
-      color: #f5f5f7;
-      line-height: 1.6;
-      padding: 40px 20px;
+      font-family: "Times New Roman", Times, Georgia, serif;
+      font-size: 9pt;
+      line-height: 1.45;
+      color: #1a1a1a;
+      background: #fafaf8;
+      padding: 2cm 1.75cm;
     }
     
     .container {
-      max-width: 1200px;
+      max-width: 21cm;
       margin: 0 auto;
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 24px;
-      padding: 48px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: #ffffff;
+      padding: 2cm;
+      border: 1px solid #d4d4d4;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
     
     .header {
       text-align: center;
-      margin-bottom: 48px;
-      padding-bottom: 32px;
-      border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+      margin-bottom: 2em;
+      padding-bottom: 1.5em;
+      border-bottom: 1pt solid #1a1a1a;
     }
     
     .header h1 {
-      font-size: 2.5rem;
+      font-size: 11pt;
       font-weight: 700;
-      margin-bottom: 12px;
-      background: linear-gradient(135deg, #ffffff 0%, #a0a0a5 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      margin-bottom: 0.4em;
+      color: #1a1a1a;
+      letter-spacing: 0.03em;
     }
     
     .header .subtitle {
-      font-size: 1.1rem;
-      color: rgba(255, 255, 255, 0.7);
-      margin-bottom: 8px;
+      font-size: 8.5pt;
+      color: #444;
+      margin-bottom: 0.2em;
     }
     
     .header .meta {
-      font-size: 0.9rem;
-      color: rgba(255, 255, 255, 0.5);
+      font-size: 8pt;
+      color: #666;
     }
     
     .section {
-      margin-bottom: 48px;
+      margin-bottom: 2em;
     }
     
     .section-title {
-      font-size: 1.75rem;
-      font-weight: 600;
-      margin-bottom: 24px;
-      color: #ffffff;
-      padding-bottom: 12px;
-      border-bottom: 2px solid rgba(255, 255, 255, 0.15);
+      font-size: 9.5pt;
+      font-weight: 700;
+      margin-bottom: 0.75em;
+      color: #1a1a1a;
+      padding-bottom: 0.3em;
+      border-bottom: 1pt solid #1a1a1a;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
     }
     
     .summary-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 20px;
-      margin-bottom: 32px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1em;
+      margin-bottom: 1.5em;
     }
     
     .summary-card {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
-      padding: 24px;
-      transition: transform 0.2s, box-shadow 0.2s;
-    }
-    
-    .summary-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+      background: #f8f8f6;
+      border: 1px solid #e0e0dc;
+      padding: 1em 1.25em;
     }
     
     .summary-card-title {
-      font-size: 0.85rem;
+      font-size: 7pt;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: rgba(255, 255, 255, 0.6);
-      margin-bottom: 12px;
+      letter-spacing: 0.1em;
+      color: #555;
+      margin-bottom: 0.4em;
     }
     
     .summary-card-value {
-      font-size: 2rem;
+      font-size: 12pt;
       font-weight: 700;
-      color: #ffffff;
-      margin-bottom: 8px;
+      color: #1a1a1a;
+      margin-bottom: 0.25em;
     }
     
     .summary-card-desc {
-      font-size: 0.9rem;
-      color: rgba(255, 255, 255, 0.7);
-      line-height: 1.5;
+      font-size: 9pt;
+      color: #555;
+      line-height: 1.4;
     }
     
     .decision-badge {
       display: inline-block;
-      padding: 8px 16px;
-      border-radius: 20px;
-      font-size: 0.9rem;
+      padding: 0.25em 0.6em;
+      font-size: 8pt;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.08em;
       background: ${getRefereeDecisionColor(decision)}22;
       color: ${getRefereeDecisionColor(decision)};
-      border: 1px solid ${getRefereeDecisionColor(decision)}44;
+      border: 1px solid ${getRefereeDecisionColor(decision)};
     }
     
     .score-bar {
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 8px;
-      height: 24px;
-      margin: 8px 0;
+      background: #e8e8e6;
+      height: 18px;
+      margin: 0.5em 0;
       overflow: hidden;
       position: relative;
     }
     
     .score-fill {
       height: 100%;
-      border-radius: 8px;
-      transition: width 0.3s ease;
-      background: linear-gradient(90deg, #34c759 0%, #30d158 100%);
+      background: #2d5a27;
     }
     
-    .score-fill.warning {
-      background: linear-gradient(90deg, #ff9500 0%, #ffaa00 100%);
-    }
-    
-    .score-fill.danger {
-      background: linear-gradient(90deg, #ff3b30 0%, #ff6b6b 100%);
-    }
+    .score-fill.warning { background: #8a6d00; }
+    .score-fill.danger { background: #8b2e2e; }
     
     .score-label {
       position: absolute;
       top: 50%;
-      left: 12px;
+      left: 8px;
       transform: translateY(-50%);
-      font-size: 0.85rem;
+      font-size: 8pt;
       font-weight: 600;
-      color: #ffffff;
+      color: #fff;
     }
     
-    .issues-list {
-      list-style: none;
-      padding: 0;
-    }
+    .issues-list { list-style: none; padding: 0; }
     
     .issue-item {
-      background: rgba(255, 255, 255, 0.05);
-      border-left: 4px solid;
-      border-radius: 8px;
-      padding: 16px 20px;
-      margin-bottom: 16px;
-      transition: background 0.2s;
+      background: #fafaf8;
+      border-left: 3px solid #555;
+      padding: 0.75em 1em;
+      margin-bottom: 0.75em;
     }
     
-    .issue-item:hover {
-      background: rgba(255, 255, 255, 0.08);
-    }
-    
-    .issue-item.major {
-      border-left-color: #ff3b30;
-    }
-    
-    .issue-item.minor {
-      border-left-color: #ff9500;
-    }
+    .issue-item.major { border-left-color: #8b2e2e; }
+    .issue-item.minor { border-left-color: #8a6d00; }
     
     .issue-category {
-      font-size: 0.85rem;
+      font-size: 8pt;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: rgba(255, 255, 255, 0.6);
-      margin-bottom: 8px;
+      letter-spacing: 0.08em;
+      color: #555;
+      margin-bottom: 0.35em;
     }
     
     .issue-evidence {
-      color: rgba(255, 255, 255, 0.8);
-      margin: 8px 0;
+      color: #333;
+      margin: 0.35em 0;
       font-style: italic;
+      font-size: 9.5pt;
     }
     
     .issue-recommendation {
-      color: rgba(255, 255, 255, 0.9);
-      margin-top: 8px;
+      color: #1a1a1a;
+      margin-top: 0.35em;
       font-weight: 500;
+      font-size: 9.5pt;
     }
     
     .chunk-card {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 20px;
+      background: #fafaf8;
+      border: 1px solid #e0e0dc;
+      padding: 1.25em 1.5em;
+      margin-bottom: 1.5em;
     }
     
     .chunk-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      margin-bottom: 1em;
+      padding-bottom: 0.5em;
+      border-bottom: 1px solid #d4d4d4;
     }
     
     .chunk-id {
-      font-size: 0.9rem;
-      color: rgba(255, 255, 255, 0.7);
-      font-weight: 500;
+      font-size: 10pt;
+      color: #1a1a1a;
+      font-weight: 600;
     }
     
     .task-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 16px;
-      margin-top: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1em;
+      margin-top: 1em;
     }
     
     .task-card {
-      background: rgba(0, 0, 0, 0.2);
-      border-radius: 8px;
-      padding: 16px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: #fff;
+      border: 1px solid #e0e0dc;
+      padding: 1em 1.25em;
     }
     
     .task-title {
-      font-size: 0.85rem;
+      font-size: 8pt;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: rgba(255, 255, 255, 0.6);
+      letter-spacing: 0.08em;
+      color: #555;
       margin-bottom: 8px;
     }
     
     .task-status {
       display: inline-block;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 0.75rem;
+      padding: 0.2em 0.5em;
+      font-size: 7pt;
       font-weight: 600;
       text-transform: uppercase;
-      margin-bottom: 8px;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5em;
     }
     
-    .task-status.ok {
-      background: #34c75922;
-      color: #34c759;
+    .task-status.ok, .task-status.passed {
+      background: #e8f0e8;
+      color: #2d5a27;
     }
     
     .task-status.flagged {
-      background: #ff950022;
-      color: #ff9500;
-    }
-    
-    .task-status.passed {
-      background: #34c75922;
-      color: #34c759;
+      background: #f5f0e0;
+      color: #8a6d00;
     }
     
     .task-summary {
-      font-size: 0.9rem;
-      color: rgba(255, 255, 255, 0.8);
-      margin-top: 8px;
+      font-size: 9.5pt;
+      color: #333;
+      margin-top: 0.5em;
       line-height: 1.5;
+    }
+    
+    .task-confidence {
+      margin: 0.5em 0;
+      color: #555;
+      font-size: 8pt;
+    }
+    
+    .task-details, .task-details-list {
+      margin-top: 0.75em;
+      padding-top: 0.75em;
+      border-top: 1px solid #e0e0dc;
+      font-size: 9pt;
+      color: #444;
+      line-height: 1.5;
+    }
+    
+    .task-details-list { list-style: none; padding-left: 0; }
+    
+    .task-details-list li {
+      padding: 0.4em 0;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .line-edit {
+      padding: 0.75em 1em;
+      margin: 0.5em 0;
+      background: #f8f8f6;
+      border-left: 3px solid #8a6d00;
+    }
+    
+    .line-edit-original {
+      color: #8b2e2e;
+      text-decoration: line-through;
+      margin-bottom: 0.25em;
+      font-size: 9pt;
+    }
+    
+    .line-edit-suggested {
+      color: #2d5a27;
+      font-weight: 500;
+      font-size: 9pt;
+    }
+    
+    .line-edit-reason {
+      margin-top: 0.35em;
+      font-size: 8pt;
+      color: #555;
+      font-style: italic;
+    }
+    
+    .section-desc {
+      color: #555;
+      font-size: 9.5pt;
+      margin: -0.5em 0 1em 0;
+      line-height: 1.5;
+    }
+    
+    .chunk-status-badge {
+      padding: 0.2em 0.5em;
+      font-size: 7pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: #e8e8e6;
+      color: #555;
+    }
+    
+    .chunk-status-badge.ok, .chunk-status-badge.passed {
+      background: #e8f0e8;
+      color: #2d5a27;
+    }
+    
+    .more-edits, .more-chunks {
+      text-align: center;
+      color: #666;
+      font-size: 9pt;
+      margin-top: 0.75em;
     }
     
     .methodology-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
-      margin: 24px 0;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 1em;
+      margin: 1.5em 0;
     }
     
     .methodology-item {
       text-align: center;
-      padding: 20px;
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 12px;
+      padding: 1em;
+      background: #f8f8f6;
+      border: 1px solid #e0e0dc;
     }
     
     .methodology-label {
-      font-size: 0.85rem;
-      color: rgba(255, 255, 255, 0.6);
-      margin-bottom: 8px;
+      font-size: 8pt;
+      color: #555;
+      margin-bottom: 0.35em;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
     
     .methodology-score {
-      font-size: 2rem;
+      font-size: 14pt;
       font-weight: 700;
-      color: #34c759;
+      color: #1a1a1a;
     }
     
     table {
       width: 100%;
       border-collapse: collapse;
-      margin: 20px 0;
-      background: rgba(0, 0, 0, 0.2);
-      border-radius: 8px;
-      overflow: hidden;
+      margin: 1em 0;
+      font-size: 9pt;
     }
     
     th, td {
-      padding: 12px 16px;
+      padding: 0.5em 0.75em;
       text-align: left;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid #d4d4d4;
     }
     
     th {
-      background: rgba(255, 255, 255, 0.1);
+      background: #f0f0ee;
       font-weight: 600;
-      color: #ffffff;
+      color: #1a1a1a;
       text-transform: uppercase;
-      font-size: 0.85rem;
-      letter-spacing: 0.5px;
-    }
-    
-    tr:hover {
-      background: rgba(255, 255, 255, 0.05);
+      font-size: 8pt;
+      letter-spacing: 0.05em;
     }
     
     .footer {
       text-align: center;
-      margin-top: 48px;
-      padding-top: 32px;
-      border-top: 2px solid rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.5);
-      font-size: 0.85rem;
+      margin-top: 2em;
+      padding-top: 1.5em;
+      border-top: 1pt solid #1a1a1a;
+      color: #666;
+      font-size: 8pt;
     }
     
     @media print {
-      body {
-        background: white;
-        color: #000;
-      }
-      
-      .container {
-        background: white;
-        box-shadow: none;
-        border: 1px solid #ddd;
-      }
+      body { background: white; padding: 1cm; }
+      .container { box-shadow: none; border: 1px solid #ccc; }
     }
   </style>
 </head>
@@ -455,7 +507,7 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
       <h1>Document Analysis Report</h1>
       <p class="subtitle">${manuscriptTitle || 'Manuscript Evaluation'}</p>
       <p class="meta">Report ID: ${reportData.report_id} | Generated: ${date}</p>
-      ${reportData.journal_url ? `<p class="meta">Journal: <a href="${reportData.journal_url}" style="color: #007AFF;">${reportData.journal_url}</a></p>` : ''}
+      ${reportData.journal_url ? `<p class="meta">Journal: <a href="${reportData.journal_url}" style="color: #1a1a1a; text-decoration: underline;">${reportData.journal_url}</a></p>` : ''}
     </div>
 
     <!-- Executive Summary -->
@@ -511,7 +563,7 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
           </div>
         `).join('')}
       </div>
-      ${refereeData.methodology_rubric.notes ? `<p style="margin-top: 20px; color: rgba(255, 255, 255, 0.7); line-height: 1.6;">${refereeData.methodology_rubric.notes}</p>` : ''}
+      ${refereeData.methodology_rubric.notes ? `<p style="margin-top: 1em; color: #444; font-size: 9.5pt; line-height: 1.5;">${refereeData.methodology_rubric.notes}</p>` : ''}
     </div>
     ` : ''}
 
@@ -537,7 +589,7 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
       <h2 class="section-title">What to Fix</h2>
       <ul style="list-style: none; padding: 0;">
         ${refereeData.what_to_fix.map((fix: string) => `
-          <li style="background: rgba(255, 255, 255, 0.05); padding: 16px; margin-bottom: 12px; border-radius: 8px; border-left: 4px solid #ff9500;">
+          <li style="background: #f8f8f6; padding: 0.75em 1em; margin-bottom: 0.5em; border-left: 3px solid #8a6d00;">
             ${fix}
           </li>
         `).join('')}
@@ -551,7 +603,7 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
       <h2 class="section-title">How to Fix</h2>
       <ul style="list-style: none; padding: 0;">
         ${refereeData.how_to_fix.map((fix: string) => `
-          <li style="background: rgba(255, 255, 255, 0.05); padding: 16px; margin-bottom: 12px; border-radius: 8px; border-left: 4px solid #34c759;">
+          <li style="background: #f8f8f6; padding: 0.75em 1em; margin-bottom: 0.5em; border-left: 3px solid #2d5a27;">
             ${fix}
           </li>
         `).join('')}
@@ -576,8 +628,8 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
           ${refereeData.evidence_table.map((item: any) => `
             <tr>
               <td>${item.claim || ''}</td>
-              <td><span style="text-transform: uppercase; font-size: 0.85rem;">${item.evidence_type || ''}</span></td>
-              <td><span style="padding: 4px 10px; border-radius: 12px; background: ${item.strength === 'strong' ? '#34c75922' : '#ff950022'}; color: ${item.strength === 'strong' ? '#34c759' : '#ff9500'}; font-size: 0.75rem; font-weight: 600;">${item.strength || ''}</span></td>
+              <td><span style="text-transform: uppercase; font-size: 8pt;">${item.evidence_type || ''}</span></td>
+              <td><span style="padding: 0.2em 0.5em; background: ${item.strength === 'strong' ? '#e8f0e8' : '#f5f0e0'}; color: ${item.strength === 'strong' ? '#2d5a27' : '#8a6d00'}; font-size: 7pt; font-weight: 600;">${item.strength || ''}</span></td>
               <td>${item.recommendation || ''}</td>
             </tr>
           `).join('')}
@@ -590,22 +642,51 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
     <!-- Chunk Analysis -->
     <div class="section">
       <h2 class="section-title">Detailed Chunk Analysis</h2>
-      ${reportData.chunks.slice(0, 10).map((chunk: any, idx: number) => {
+      <p class="section-desc">Line-by-line analysis by manuscript section. Each section shows AI use, plagiarism, guidelines, novelty, and suggested edits.</p>
+      ${reportData.chunks.slice(0, 15).map((chunk: any, idx: number) => {
         const sectionName = generateSectionName(chunk, idx);
+        const renderTaskDetails = (taskData: any) => {
+          let detailsHtml = '';
+          const details = taskData.details;
+          if (details) {
+            if (typeof details === 'string') {
+              detailsHtml = `<div class="task-details">${escapeHtml(details)}</div>`;
+            } else if (details.edits && Array.isArray(details.edits)) {
+              detailsHtml = details.edits.slice(0, 5).map((e: any) => `
+                <div class="line-edit">
+                  <div class="line-edit-original">${escapeHtml((e.original_snippet || e.original || '').slice(0, 200))}${(e.original_snippet || e.original || '').length > 200 ? '...' : ''}</div>
+                  <div class="line-edit-suggested">→ ${escapeHtml((e.suggested_snippet || e.suggested || '').slice(0, 200))}${(e.suggested_snippet || e.suggested || '').length > 200 ? '...' : ''}</div>
+                  ${e.explanation ? `<div class="line-edit-reason">${escapeHtml(e.explanation)}</div>` : ''}
+                </div>
+              `).join('');
+              if (details.edits.length > 5) detailsHtml += `<p class="more-edits">+ ${details.edits.length - 5} more edits</p>`;
+              detailsHtml = `<div class="task-details line-edits">${detailsHtml}</div>`;
+            } else if (details.failed_items && Array.isArray(details.failed_items)) {
+              detailsHtml = `<ul class="task-details-list">${details.failed_items.map((i: any) => `<li>${escapeHtml(i.requirement || i.item || String(i))} ${i.suggested_fix ? `— Fix: ${escapeHtml(i.suggested_fix)}` : ''}</li>`).join('')}</ul>`;
+            } else if (details.verbatim_matches && Array.isArray(details.verbatim_matches)) {
+              detailsHtml = details.verbatim_matches.slice(0, 3).map((m: any) => `<div class="match-item">"${escapeHtml((m.phrase || '').slice(0, 80))}..." ${m.source ? `(${escapeHtml(m.source)})` : ''}</div>`).join('');
+              detailsHtml = `<div class="task-details">${detailsHtml}</div>`;
+            } else {
+              detailsHtml = `<div class="task-details">${escapeHtml(JSON.stringify(details).slice(0, 300))}${JSON.stringify(details).length > 300 ? '...' : ''}</div>`;
+            }
+          }
+          return detailsHtml;
+        };
         return `
         <div class="chunk-card">
           <div class="chunk-header">
             <span class="chunk-id">${escapeHtml(sectionName)}</span>
-            <span style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.6);">${chunk.status || 'ok'}</span>
+            <span class="chunk-status-badge ${chunk.status || 'ok'}">${(chunk.status || 'ok').replace(/_/g, ' ')}</span>
           </div>
           ${chunk.task_results ? `
             <div class="task-grid">
               ${Object.entries(chunk.task_results).map(([taskName, taskData]: [string, any]) => `
                 <div class="task-card">
-                  <div class="task-title">${taskName.replace(/_/g, ' ')}</div>
-                  <div class="task-status ${taskData.task_status || 'ok'}">${taskData.task_status || 'ok'}</div>
-                  <div style="margin: 8px 0; color: rgba(255, 255, 255, 0.7); font-size: 0.85rem;">Confidence: ${formatConfidence(taskData.confidence || 0)}</div>
-                  <div class="task-summary">${taskData.summary || ''}</div>
+                  <div class="task-title">${taskName.replace(/_/g, ' ').toUpperCase()}</div>
+                  <div class="task-status ${taskData.task_status || 'ok'}">${(taskData.task_status || 'ok').replace(/_/g, ' ')}</div>
+                  <div class="task-confidence">Confidence: ${formatConfidence(taskData.confidence || 0)}</div>
+                  <div class="task-summary">${escapeHtml(taskData.summary || '')}</div>
+                  ${renderTaskDetails(taskData)}
                 </div>
               `).join('')}
             </div>
@@ -613,13 +694,12 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
         </div>
       `;
       }).join('')}
-      ${reportData.chunks.length > 10 ? `<p style="text-align: center; color: rgba(255, 255, 255, 0.6); margin-top: 20px;">... and ${reportData.chunks.length - 10} more chunks</p>` : ''}
+      ${reportData.chunks.length > 15 ? `<p class="more-chunks">... and ${reportData.chunks.length - 15} more sections</p>` : ''}
     </div>
     ` : ''}
 
     <div class="footer">
-      <p>Generated by Gaply Document Analysis Orchestrator</p>
-      <p>Powered by OpenAI GPT-4.1 | ${date}</p>
+      <p>Document Analysis Report · ${date}</p>
     </div>
   </div>
 </body>
@@ -634,7 +714,7 @@ export const downloadHTMLReport = (reportData: ReportData, filename?: string) =>
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = filename || `gaply-report-${reportData.report_id}.html`;
+  link.download = filename || `document-analysis-report-${reportData.report_id}.html`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
