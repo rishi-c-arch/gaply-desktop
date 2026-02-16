@@ -53,8 +53,7 @@
       "/features",
       "/pricing",
       "/career",
-      "/hire-expert",
-      "/final-orchestrator"
+      "/hire-expert"
     ],
     "minifyHtml": {
       "collapseWhitespace": false,
