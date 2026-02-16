@@ -258,6 +258,12 @@ const FeaturesPage: React.FC = () => {
               }}
               onMouseEnter={() => setHoveredFeature(feature.id)}
               onMouseLeave={() => setHoveredFeature(null)}
+              onClick={() => {
+                if (feature.id === 'publish-ready') navigate('/final-orchestrator');
+                if (feature.id === 'data-maestro') navigate('/statistical-research');
+                if (feature.id === 'paper-search') navigate('/paper-search');
+                if (feature.id === 'journal-matching') navigate('/journal-matching');
+              }}
             >
               {/* Title */}
               <h3 style={{

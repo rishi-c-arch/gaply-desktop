@@ -224,7 +224,7 @@ const UserDashboard: React.FC = () => {
                 </p>
               </div>
               <button
-                onClick={() => navigate('/premium')}
+                onClick={() => navigate(gapFinderRemaining > 0 ? '/final-orchestrator' : '/premium')}
                 style={{
                   width: '100%',
                   background: gapFinderRemaining > 0 ? accent : (isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)'),
@@ -318,7 +318,7 @@ const UserDashboard: React.FC = () => {
                 </p>
               </div>
               <button
-                onClick={() => navigate('/premium')}
+                onClick={() => navigate(deepEvalRemaining > 0 ? '/statistical-research' : '/premium')}
                 style={{
                   width: '100%',
                   background: deepEvalRemaining > 0 ? accentGreen : (isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)'),

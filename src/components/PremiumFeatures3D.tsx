@@ -1,7 +1,9 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import './PremiumFeatures3D.css';
 
 const PremiumFeatures3D: React.FC = () => {
+  const navigate = useNavigate();
   const premiumFeatures = [
     {
       id: 'publishready',
@@ -32,7 +34,24 @@ const PremiumFeatures3D: React.FC = () => {
 
       <div className="premium-features__grid">
         {premiumFeatures.map((item) => (
-          <article key={item.id} className="premium-feature-card">
+          <article
+            key={item.id}
+            className="premium-feature-card"
+            onClick={() => {
+              if (item.id === 'publishready') navigate('/final-orchestrator');
+              if (item.id === 'datamaestro') navigate('/statistical-research');
+            }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                if (item.id === 'publishready') navigate('/final-orchestrator');
+                if (item.id === 'datamaestro') navigate('/statistical-research');
+              }
+            }}
+            style={{ cursor: 'pointer' }}
+          >
             <div className="premium-feature-card__media">
               <div
                 className="premium-feature-card__image"
