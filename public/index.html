@@ -217,10 +217,11 @@
         if (fallback && msg) {
           setTimeout(function() {
             var root = document.getElementById('root');
-            if (fallback.style.display !== 'none' && (!root || root.innerHTML.trim().length < 100)) {
-              msg.innerHTML = 'Taking longer than usual? Try <a href="/">homepage</a> or <a href="javascript:location.reload()">refresh</a>.';
+            var hasContent = root && (root.querySelector('.manuscript-page') || root.innerHTML.trim().length > 200);
+            if (fallback.style.display !== 'none' && !hasContent) {
+              msg.innerHTML = 'Still loading? Try <a href="https://www.gaply.in/final-orchestrator">www.gaply.in</a>, <a href="javascript:location.reload()">refresh</a>, or <a href="/">homepage</a>.';
             }
-          }, 5000);
+          }, 4000);
         }
       })();
     </script>

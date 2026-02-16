@@ -70,20 +70,23 @@ root.render(
   </React.StrictMode>
 );
 
-// Hide static fallback when React app has mounted (keeps it visible if React fails)
+// Hide static fallback only when we have visible page content (keeps it if React fails or renders blank)
 const hideFallbackWhenReady = () => {
   const el = document.getElementById('static-fallback');
   const root = document.getElementById('root');
-  const mounted = root?.getAttribute('data-app-mounted') === 'true';
-  const hasContent = root && root.innerHTML.trim().length > 200;
-  if (el && (mounted || hasContent)) {
-    el.style.display = 'none';
-  }
+  if (!el) return;
+  // For /final-orchestrator: require manuscript-page or manuscript-hero (actual content)
+  const isFinalOrchestrator = window.location.pathname === '/final-orchestrator';
+  const hasManuscriptContent = root?.querySelector('.manuscript-page, .manuscript-hero, .manuscript-grid');
+  const hasGenericContent = root && root.innerHTML.trim().length > 500;
+  const shouldHide = isFinalOrchestrator ? !!hasManuscriptContent : (hasGenericContent || (root?.getAttribute('data-app-mounted') === 'true'));
+  if (shouldHide) el.style.display = 'none';
 };
 window.addEventListener('gaply-app-mounted', hideFallbackWhenReady);
 requestAnimationFrame(() => requestAnimationFrame(hideFallbackWhenReady));
-setTimeout(hideFallbackWhenReady, 800);
-setTimeout(hideFallbackWhenReady, 2500);
+setTimeout(hideFallbackWhenReady, 500);
+setTimeout(hideFallbackWhenReady, 1500);
+setTimeout(hideFallbackWhenReady, 4000);
 
 // If you want to start measuring performance in your app, pass a function
 // to log results (for example: reportWebVitals(console.log))
