@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import './App.css';
 import './hero-animations.css';
 import './hero-new.css';
@@ -198,27 +198,18 @@ const AppleHeroSection: React.FC = () => {
 // Inner App component that uses useAuth
 const AppContent: React.FC = () => {
   const { theme: headerTheme, toggleTheme: handleToggleTheme } = useTheme();
-  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const { pathname: currentPath } = useLocation();
 
-  // Call the function to remove the floating orb when the component mounts
   useEffect(() => {
     removeFloatingOrb();
-    
-    // Listen for route changes
-    const handleRouteChange = () => {
-      setCurrentPath(window.location.pathname);
-    };
-    
-    window.addEventListener('popstate', handleRouteChange);
-    return () => window.removeEventListener('popstate', handleRouteChange);
   }, []);
 
   const handleAuthSuccess = (token: string, userData: any) => {
     window.location.href = '/packages';
   };
 
-  // Hide header for hire-expert and search-results pages
-  const shouldShowHeader = currentPath !== '/hire-expert' && currentPath !== '/search-results';
+  // Hide header for hire-expert, search-results, and final-orchestrator pages
+  const shouldShowHeader = currentPath !== '/hire-expert' && currentPath !== '/search-results' && currentPath !== '/final-orchestrator';
 
   return (
     <div className="App">
