@@ -76,11 +76,17 @@ const hideFallbackWhenReady = () => {
   const loadingEl = document.getElementById('gaply-loading');
   const root = document.getElementById('root');
   if (!el) return;
-  // For /final-orchestrator: require manuscript-page or manuscript-hero (actual content)
-  const isFinalOrchestrator = window.location.pathname === '/final-orchestrator';
+  const path = window.location.pathname;
+  // For /final-orchestrator: require manuscript content
   const hasManuscriptContent = root?.querySelector('.manuscript-page, .manuscript-hero, .manuscript-grid');
+  // For homepage: require apple-hero (hero section)
+  const hasHomeContent = root?.querySelector('.apple-hero, .apple-hero__title');
+  // For other routes: require substantial content
   const hasGenericContent = root && root.innerHTML.trim().length > 500;
-  const shouldHide = isFinalOrchestrator ? !!hasManuscriptContent : (hasGenericContent || (root?.getAttribute('data-app-mounted') === 'true'));
+  const shouldHide =
+    (path === '/final-orchestrator' && !!hasManuscriptContent) ||
+    (path === '/' && !!hasHomeContent) ||
+    ((path !== '/' && path !== '/final-orchestrator') && (hasGenericContent || !!root?.querySelector('[class]')));
   if (shouldHide) {
     el.style.display = 'none';
     if (loadingEl) loadingEl.style.display = 'none';

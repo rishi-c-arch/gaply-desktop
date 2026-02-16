@@ -189,7 +189,9 @@ const AppleHeroSection: React.FC = () => {
           </button>
         </div>
         <div className="apple-hero__globe" aria-hidden="true">
-          <ThreeJSGlobe />
+          <ErrorBoundary fallback={<div style={{ minHeight: 200 }} />}>
+            <ThreeJSGlobe />
+          </ErrorBoundary>
         </div>
       </div>
     </section>
