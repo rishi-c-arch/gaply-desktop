@@ -2,7 +2,6 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import './index.css';
-import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import reportWebVitals from './reportWebVitals';
 
@@ -60,20 +59,30 @@ if (process.env.NODE_ENV === 'development') {
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 );
-root.render(
-  <React.StrictMode>
-    <ErrorBoundary fallback={
-      <div style={{ padding: 48, fontFamily: 'system-ui', maxWidth: 600, margin: '0 auto', color: '#333' }}>
-        <h1 style={{ color: '#c00' }}>Something went wrong</h1>
-        <p><a href="/" style={{ color: '#007AFF' }}>Go home</a></p>
-      </div>
-    }>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </ErrorBoundary>
-  </React.StrictMode>
-);
+
+// Path-based entry: /final-orchestrator loads a minimal bundle with NO Three.js/WebGL
+// (fixes "Context Lost" blank page on mobile/incognito)
+const path = window.location.pathname;
+if (path === '/final-orchestrator' || path.startsWith('/final-orchestrator/')) {
+  import('./FinalOrchestratorApp');
+} else {
+  import('./App').then(({ default: App }) => {
+    root.render(
+      <React.StrictMode>
+        <ErrorBoundary fallback={
+          <div style={{ padding: 48, fontFamily: 'system-ui', maxWidth: 600, margin: '0 auto', color: '#333' }}>
+            <h1 style={{ color: '#c00' }}>Something went wrong</h1>
+            <p><a href="/" style={{ color: '#007AFF' }}>Go home</a></p>
+          </div>
+        }>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+        </ErrorBoundary>
+      </React.StrictMode>
+    );
+  });
+}
 
 // Hide loading/fallback only when we have visible page content (keeps it if React fails or renders blank)
 const hideFallbackWhenReady = () => {
