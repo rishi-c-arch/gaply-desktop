@@ -6,26 +6,26 @@ import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import reportWebVitals from './reportWebVitals';
 
+// Remove loading overlay as soon as JS runs (prevents blank if bundle loads)
+const loadingEl = document.getElementById('loading-screen');
+if (loadingEl) loadingEl.remove();
+
 // Catch uncaught errors and show them (helps debug blank page)
-window.addEventListener('error', (e) => {
+const showError = (title: string, detail: string) => {
   const root = document.getElementById('root');
-  if (root && root.innerHTML.length < 200) {
-    root.innerHTML = `<div style="padding:48px 24px;font-family:system-ui;max-width:600px;margin:0 auto;color:#333">
-      <h1 style="color:#c00">Something went wrong</h1>
-      <pre style="background:#f5f5f5;padding:16px;overflow:auto;font-size:12px">${(e.error && e.error.stack) || e.message}</pre>
-      <p><a href="/" style="color:#007AFF">Go home</a></p>
+  if (root && !root.innerHTML.includes('Something went wrong')) {
+    root.innerHTML = `<div style="padding:48px 24px;font-family:system-ui;max-width:600px;margin:0 auto;color:#333;background:#fff">
+      <h1 style="color:#c00">${title}</h1>
+      <pre style="background:#f5f5f5;padding:16px;overflow:auto;font-size:12px;max-height:300px">${detail}</pre>
+      <p><a href="/" style="color:#007AFF">Go home</a> · <a href="javascript:location.reload()" style="color:#007AFF">Retry</a></p>
     </div>`;
   }
+};
+window.addEventListener('error', (e) => {
+  showError('Something went wrong', (e.error && e.error.stack) || String(e.message));
 });
 window.addEventListener('unhandledrejection', (e) => {
-  const root = document.getElementById('root');
-  if (root && root.innerHTML.length < 200) {
-    root.innerHTML = `<div style="padding:48px 24px;font-family:system-ui;max-width:600px;margin:0 auto;color:#333">
-      <h1 style="color:#c00">Loading error</h1>
-      <pre style="background:#f5f5f5;padding:16px;overflow:auto;font-size:12px">${String(e.reason)}</pre>
-      <p><a href="/" style="color:#007AFF">Go home</a></p>
-    </div>`;
-  }
+  showError('Loading error', String(e.reason));
 });
 
 // Suppress non-critical warnings (source map errors, 403 errors from external resources)

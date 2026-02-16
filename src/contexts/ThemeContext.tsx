@@ -12,13 +12,19 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = localStorage.getItem('gaply_theme');
-    return stored === 'light' || stored === 'dark' ? stored : 'dark';
+    try {
+      const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('gaply_theme') : null;
+      return stored === 'light' || stored === 'dark' ? stored : 'dark';
+    } catch {
+      return 'dark';
+    }
   });
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('gaply_theme', theme);
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem('gaply_theme', theme);
+    } catch { /* ignore */ }
   }, [theme]);
 
   const setTheme = (t: Theme) => setThemeState(t);

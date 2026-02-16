@@ -56,8 +56,11 @@ class AuthService {
   private token: string | null = null;
 
   constructor() {
-    // Initialize token from localStorage
-    this.token = localStorage.getItem('authToken');
+    try {
+      this.token = typeof localStorage !== 'undefined' ? localStorage.getItem('authToken') : null;
+    } catch {
+      this.token = null;
+    }
   }
 
   // Set authentication token

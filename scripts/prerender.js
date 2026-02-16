@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const ROUTES = ['/', '/features', '/pricing', '/career', '/hire-expert']; // Test homepage first to see if it renders
+const ROUTES = ['/', '/features', '/pricing', '/career', '/hire-expert', '/final-orchestrator'];
 const BUILD_DIR = path.join(__dirname, '..', 'build');
 const PORT = process.env.PRERENDER_PORT || 5000;
 const BASE = `http://127.0.0.1:${PORT}`;

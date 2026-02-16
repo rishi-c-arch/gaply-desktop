@@ -175,10 +175,7 @@
     
     <title>Gaply - AI-Powered Academic Research Platform</title>
     <style>
-      /* Fallback visible until React mounts. React replaces #root, so no need to hide. */
-      html.js .static-fallback {
-        display: none;
-      }
+      /* Fallback always visible until React replaces #root. No hiding rule. */
       .static-fallback {
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
         color: #111111;
@@ -206,6 +203,7 @@
   </head>
   <body>
     <noscript>This app works best with JavaScript enabled.</noscript>
+    <div id="loading-screen" style="position:fixed;inset:0;background:#111;color:#fff;display:flex;align-items:center;justify-content:center;z-index:99999;font-family:system-ui;font-size:18px">Loading Gaply…</div>
     <div id="root">
       <main class="static-fallback" role="main">
         <h1>Gaply Academic Research Platform</h1>
