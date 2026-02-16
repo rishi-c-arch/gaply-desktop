@@ -70,6 +70,21 @@ root.render(
   </React.StrictMode>
 );
 
+// Hide static fallback when React app has mounted (keeps it visible if React fails)
+const hideFallbackWhenReady = () => {
+  const el = document.getElementById('static-fallback');
+  const root = document.getElementById('root');
+  const mounted = root?.getAttribute('data-app-mounted') === 'true';
+  const hasContent = root && root.innerHTML.trim().length > 200;
+  if (el && (mounted || hasContent)) {
+    el.style.display = 'none';
+  }
+};
+window.addEventListener('gaply-app-mounted', hideFallbackWhenReady);
+requestAnimationFrame(() => requestAnimationFrame(hideFallbackWhenReady));
+setTimeout(hideFallbackWhenReady, 800);
+setTimeout(hideFallbackWhenReady, 2500);
+
 // If you want to start measuring performance in your app, pass a function
 // to log results (for example: reportWebVitals(console.log))
 // or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals

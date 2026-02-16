@@ -204,24 +204,25 @@
   </head>
   <body>
     <noscript>This app works best with JavaScript enabled.</noscript>
-    <div id="root">
-      <main class="static-fallback" role="main">
-        <h1>Gaply Academic Research Platform</h1>
-        <p>
-          Gaply is an AI-powered academic research platform for thesis writing, journal matching, AI content detection,
-          plagiarism checking, and research paper assistance.
-        </p>
-        <p>
-          Explore premium tools such as PublishReady and DataMaestro, plus free research features like Journal Matching
-          and Paper Search.
-        </p>
-        <ul>
-          <li>Thesis & dissertation guidance</li>
-          <li>Journal matching and paper search</li>
-          <li>AI content detection and editing support</li>
-          <li>Research analysis and reporting</li>
-        </ul>
-      </main>
+    <div id="static-fallback" class="static-fallback" role="main">
+      <h1>Document Analysis Orchestrator</h1>
+      <p id="fallback-msg">Loading Gaply…</p>
+      <p>If this message stays visible, try <a href="/">homepage</a> or <a href="javascript:location.reload()">refresh</a>.</p>
     </div>
+    <div id="root"></div>
+    <script>
+      (function() {
+        var fallback = document.getElementById('static-fallback');
+        var msg = document.getElementById('fallback-msg');
+        if (fallback && msg) {
+          setTimeout(function() {
+            var root = document.getElementById('root');
+            if (fallback.style.display !== 'none' && (!root || root.innerHTML.trim().length < 100)) {
+              msg.innerHTML = 'Taking longer than usual? Try <a href="/">homepage</a> or <a href="javascript:location.reload()">refresh</a>.';
+            }
+          }, 5000);
+        }
+      })();
+    </script>
   </body>
 </html>

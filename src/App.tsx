@@ -205,6 +205,15 @@ const AppContent: React.FC = () => {
     removeFloatingOrb();
   }, []);
 
+  // Signal that React app has mounted (used to hide static fallback)
+  useEffect(() => {
+    const root = document.getElementById('root');
+    if (root) {
+      root.setAttribute('data-app-mounted', 'true');
+      window.dispatchEvent(new CustomEvent('gaply-app-mounted'));
+    }
+  }, []);
+
   const handleAuthSuccess = (token: string, userData: any) => {
     window.location.href = '/packages';
   };

@@ -1,9 +1,11 @@
 // Central API configuration for backend base URL
 // Priority: env var → public env → hardcoded domain
+// Production backend - gaply-backend-gaply is the active Railway deployment
+const PRODUCTION_BACKEND = 'https://gaply-backend-gaply.up.railway.app';
 const FALLBACK_URLS = [
   'http://localhost:8080',
+  PRODUCTION_BACKEND,
   'https://gaply-backend-production.up.railway.app',
-  'https://gaply-backend-gaply.up.railway.app',
   'https://backend.gaply.in',
 ];
 
@@ -11,10 +13,12 @@ const isLocalhost =
   typeof window !== 'undefined' &&
   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
+// CRA uses process.env.REACT_APP_* (inlined at build time). Set in Vercel Dashboard > Settings > Environment Variables.
+const envApiUrl =
+  typeof process !== 'undefined' &&
+  ((process as any)?.env?.REACT_APP_API_BASE_URL || (process as any)?.env?.REACT_APP_API_URL);
 export const API_BASE_URL: string =
-  (import.meta as any)?.env?.VITE_API_BASE_URL ||
-  (typeof process !== 'undefined' && ((process as any)?.env?.REACT_APP_API_BASE_URL || (process as any)?.env?.REACT_APP_API_URL)) ||
-  (isLocalhost ? 'http://localhost:8080' : FALLBACK_URLS[1]);
+  envApiUrl || (isLocalhost ? 'http://localhost:8080' : PRODUCTION_BACKEND);
 
 export function buildApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
