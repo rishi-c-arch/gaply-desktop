@@ -215,6 +215,7 @@ const AppContent: React.FC = () => {
   return (
     <div className="App">
       {shouldShowHeader && <AppleHeader theme={headerTheme} onToggleTheme={handleToggleTheme} />}
+      <div className="app-content-below-header" style={{ paddingTop: shouldShowHeader ? 56 : 0, minHeight: '100vh' }}>
       <Routes>
           <Route path="/" element={
             <>
@@ -447,6 +448,7 @@ const AppContent: React.FC = () => {
             </>
           } />
         </Routes>
+      </div>
     </div>
   );
 };
