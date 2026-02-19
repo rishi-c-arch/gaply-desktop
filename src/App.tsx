@@ -17,6 +17,14 @@ const QuartileAnalysis3D = lazy(() => import('./components/QuartileAnalysis3D'))
 const PremiumFooter3D = lazy(() => import('./components/PremiumFooter3D'));
 const EnhancedPremiumPage = lazy(() => import('./components/EnhancedPremiumPage'));
 const Overview = lazy(() => import('./pages/Overview'));
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
+const UsagePage = lazy(() => import('./pages/UsagePage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const BillingPage = lazy(() => import('./pages/BillingPage'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const HelpCenterPage = lazy(() => import('./pages/HelpCenterPage'));
+const PublishReadyPage = lazy(() => import('./pages/PublishReadyPage'));
+const DataMaestroPage = lazy(() => import('./pages/DataMaestroPage'));
 const PackageSelection = lazy(() => import('./components/PackageSelection'));
 const LoginPage = lazy(() => import('./components/LoginPage'));
 const SignupPage = lazy(() => import('./components/SignupPage'));
@@ -222,8 +230,18 @@ const AppContent: React.FC = () => {
     window.location.href = '/packages';
   };
 
-  // Hide header for hire-expert, search-results, and final-orchestrator pages
-  const shouldShowHeader = currentPath !== '/hire-expert' && currentPath !== '/search-results' && currentPath !== '/final-orchestrator';
+  // Hide marketing header on dashboard/account/auth and certain tool pages
+  const hideHeader =
+    currentPath.startsWith('/dashboard') ||
+    currentPath === '/account' ||
+    currentPath === '/my-account' ||
+    currentPath === '/login' ||
+    currentPath === '/signup' ||
+    currentPath === '/hire-expert' ||
+    currentPath === '/search-results' ||
+    currentPath === '/final-orchestrator';
+
+  const shouldShowHeader = !hideHeader;
 
   // final-orchestrator needs light background (manuscript-page is white)
   const isFinalOrchestrator = currentPath === '/final-orchestrator';
@@ -459,6 +477,86 @@ const AppContent: React.FC = () => {
                 keywords="Gaply account management, academic research account, thesis writing account, AI detection account, journal matching account, research assistance account"
               />
               <Overview />
+            </>
+          } />
+          <Route path="/dashboard/billing" element={
+            <>
+              <SEOHead 
+                title="Billing | Gaply"
+                description="View your billing history and past transactions."
+                keywords="billing, invoices, payments, transaction history"
+              />
+              <BillingPage />
+            </>
+          } />
+          <Route path="/dashboard/profile" element={
+            <>
+              <SEOHead 
+                title="Profile | Gaply"
+                description="Manage your profile, name, profession, and view your performance score."
+                keywords="profile, account, performance, settings"
+              />
+              <ProfilePage />
+            </>
+          } />
+          <Route path="/dashboard/help" element={
+            <>
+              <SEOHead 
+                title="Help Center | Gaply"
+                description="Community Q&A and support. Ask questions and get help from researchers."
+                keywords="help center, support, community, Q&A"
+              />
+              <HelpCenterPage />
+            </>
+          } />
+          <Route path="/dashboard/settings" element={
+            <>
+              <SEOHead 
+                title="Settings | Gaply"
+                description="Manage your account, billing, profile, and get support."
+                keywords="settings, account, billing, profile, support"
+              />
+              <SettingsPage />
+            </>
+          } />
+          <Route path="/dashboard/usage" element={
+            <>
+              <SEOHead 
+                title="Feature Usage Overview | Gaply"
+                description="View your PublishReady and DataMaestro usage metrics."
+                keywords="usage, PublishReady, DataMaestro, feature usage"
+              />
+              <UsagePage />
+            </>
+          } />
+<Route path="/dashboard/projects" element={
+            <>
+              <SEOHead
+                title="Projects | Academic Research - Gaply"
+                description="View your academic research projects and their status."
+                keywords="research projects, academic projects, project management"
+              />
+              <ProjectsPage />
+            </>
+          } />
+          <Route path="/dashboard/publishready" element={
+            <>
+              <SEOHead
+                title="PublishReady Pro | Manuscript Analysis - Gaply"
+                description="Advanced AI-powered manuscript analysis: referee-grade evaluation, publication probability, line-by-line review, and journal guidelines."
+                keywords="PublishReady, manuscript analysis, referee review, publication chance, journal guidelines, plagiarism check, AI detection"
+              />
+              <PublishReadyPage />
+            </>
+          } />
+          <Route path="/dashboard/datamaestro" element={
+            <>
+              <SEOHead
+                title="DataMaestro Pro | Statistical Research - Gaply"
+                description="Statistical Research Orchestrator: upload datasets, get test recommendations, interpretations, and publication-ready HTML reports."
+                keywords="DataMaestro, statistical analysis, research orchestrator, statistical tests, data analysis"
+              />
+              <DataMaestroPage />
             </>
           } />
           <Route path="/dashboard" element={

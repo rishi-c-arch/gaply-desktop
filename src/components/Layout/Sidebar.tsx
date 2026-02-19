@@ -20,9 +20,9 @@ const NAV_ITEMS: Array<{
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, path: '/dashboard' },
   { id: 'publishready', label: 'PublishReady', icon: FileText, path: '/dashboard/publishready', premium: true },
   { id: 'datamaestro', label: 'DataMaestro', icon: BarChart2, path: '/dashboard/datamaestro', premium: true },
-  { id: 'projects', label: 'Projects', icon: Folder, path: '/dashboard' },
-  { id: 'usage', label: 'Usage', icon: Clock, path: '/dashboard' },
-  { id: 'settings', label: 'Settings', icon: Settings, path: '/dashboard' },
+  { id: 'projects', label: 'Projects', icon: Folder, path: '/dashboard/projects' },
+  { id: 'usage', label: 'Usage', icon: Clock, path: '/dashboard/usage' },
+  { id: 'settings', label: 'Settings', icon: Settings, path: '/dashboard/settings' },
 ];
 
 interface SidebarProps {
@@ -43,13 +43,13 @@ const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const location = useLocation();
   const isOverview = location.pathname === '/dashboard' || location.pathname === '/account' || location.pathname === '/my-account';
+  const isProjects = location.pathname === '/dashboard/projects';
+  const isUsage = location.pathname === '/dashboard/usage';
+  const isSettings = location.pathname === '/dashboard/settings';
+  const isPublishready = location.pathname === '/dashboard/publishready';
+  const isDatamaestro = location.pathname === '/dashboard/datamaestro';
 
-  const handleNavClick = (path: string, premium?: boolean) => {
-    if (premium) {
-      // Premium features - coming soon, stay on dashboard for now
-      if (isMobile) onMobileClose();
-      return;
-    }
+  const handleNavClick = (path: string) => {
     navigate(path);
     if (isMobile) onMobileClose();
   };
@@ -114,13 +114,13 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       <nav style={{ flex: 1, padding: '12px 0', marginTop: 8 }}>
         {NAV_ITEMS.map((item) => {
-          const isActive = item.id === 'overview' && isOverview;
+          const isActive = (item.id === 'overview' && isOverview) || (item.id === 'projects' && isProjects) || (item.id === 'usage' && isUsage) || (item.id === 'settings' && isSettings) || (item.id === 'publishready' && isPublishready) || (item.id === 'datamaestro' && isDatamaestro);
           const isPremium = item.premium === true;
           const Icon = item.icon;
           return (
             <button
               key={item.id}
-              onClick={() => handleNavClick(item.path, isPremium)}
+              onClick={() => handleNavClick(item.path)}
               style={{
                 width: '100%',
                 display: 'flex',
@@ -131,14 +131,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                 border: 'none',
                 borderLeft: `3px solid ${isActive ? 'var(--dashboard-accent)' : 'transparent'}`,
                 color: isActive ? 'var(--dashboard-text)' : 'var(--dashboard-text-muted)',
-                cursor: isPremium ? 'default' : 'pointer',
+                cursor: 'pointer',
                 fontSize: 14,
                 fontWeight: 500,
                 textAlign: 'left',
                 transition: 'all 150ms ease',
-                opacity: isPremium ? 0.85 : 1,
+                opacity: 1,
               }}
-              title={isPremium ? 'Coming soon – Premium feature' : undefined}
+              title={isPremium ? 'Pro feature' : undefined}
             >
               <Icon size={20} style={{ flexShrink: 0 }} />
               {!collapsed && (

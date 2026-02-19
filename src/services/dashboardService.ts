@@ -34,6 +34,26 @@ export interface DashboardOverviewState {
   error: string | null;
 }
 
+/** Parse response body as JSON.
+ * For non-OK responses, empty/invalid bodies throw a friendly error.
+ * Callers that want to treat empty 200 responses as \"no data\" should handle that separately.
+ */
+async function parseJsonOrThrow<T>(res: Response, friendlyMessage: string): Promise<T> {
+  const text = await res.text();
+  if (!text || !text.trim()) {
+    if (res.ok) {
+      // Let caller decide how to handle an empty 200 body.
+      throw new Error(`${friendlyMessage} (empty response)`);
+    }
+    throw new Error(`Failed to load (${res.status})`);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(res.ok ? `${friendlyMessage} (invalid response)` : `Failed to load (${res.status})`);
+  }
+}
+
 export async function fetchDashboardOverview(
   token: string | null
 ): Promise<DashboardOverview> {
@@ -46,9 +66,72 @@ export async function fetchDashboardOverview(
       Authorization: `Bearer ${token}`,
     },
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error || `Failed to load dashboard (${res.status})`);
+  const text = await res.text();
+  // Treat an empty successful response as \"no data yet\" instead of a hard error.
+  if ((!text || !text.trim()) && res.ok) {
+    return {
+      success: true,
+      stats: {
+        publishready_used: 0,
+        publishready_total: 0,
+        datamaestro_used: 0,
+        datamaestro_total: 0,
+        total_projects: 0,
+      },
+      chart_data: [],
+      projects: [],
+    };
   }
-  return res.json();
+  let raw: DashboardOverview | { error?: string };
+  try {
+    raw = JSON.parse(text) as DashboardOverview | { error?: string };
+  } catch {
+    throw new Error(res.ok ? 'Dashboard unavailable (invalid response)' : `Failed to load dashboard (${res.status})`);
+  }
+  if (!res.ok) {
+    throw new Error((raw as { error?: string }).error || `Failed to load dashboard (${res.status})`);
+  }
+  return raw as DashboardOverview;
+}
+
+export interface BillingTransactionRow {
+  id: string;
+  date: string;
+  description: string;
+  amount: string;
+  status: string;
+}
+
+export interface BillingResponse {
+  success: boolean;
+  transactions: BillingTransactionRow[];
+}
+
+export async function fetchBillingTransactions(
+  token: string | null
+): Promise<BillingTransactionRow[]> {
+  if (!token) {
+    throw new Error('Authentication required');
+  }
+  const res = await apiFetch('/api/dashboard/billing', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  const text = await res.text();
+  // If backend returns 200 with empty body, treat as \"no transactions yet\".
+  if ((!text || !text.trim()) && res.ok) {
+    return [];
+  }
+  let data: BillingResponse & { error?: string };
+  try {
+    data = JSON.parse(text) as BillingResponse & { error?: string };
+  } catch {
+    throw new Error(res.ok ? 'Billing unavailable (invalid response)' : `Failed to load billing (${res.status})`);
+  }
+  if (!res.ok) {
+    throw new Error(data.error || `Failed to load billing (${res.status})`);
+  }
+  return data.transactions || [];
 }

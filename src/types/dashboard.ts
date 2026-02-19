@@ -40,3 +40,11 @@ export interface ChartDataPoint {
   publishready?: number;
   datamaestro?: number;
 }
+
+export interface BillingTransaction {
+  id: string;
+  date: string;
+  description: string;
+  amount: string;
+  status: 'billed';
+}

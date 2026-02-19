@@ -1,0 +1,27 @@
+/* Overview layout: ensure grid and chart visible on all screens */
+
+.overview-root {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .overview-root {
+    grid-template-columns: 1fr 380px;
+  }
+}
+
+.overview-main {
+  min-width: 0;
+}
+
+.overview-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 24px;
+  margin-bottom: 24px;
+}

@@ -5,11 +5,12 @@ import { useTheme } from '../../contexts/ThemeContext';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
+  pageTitle?: string;
 }
 
 const MOBILE_BREAKPOINT = 768;
 
-const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
+const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, pageTitle }) => {
   const { theme, toggleTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -54,8 +55,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           showMenuButton={isMobile}
           theme={theme}
           onToggleTheme={toggleTheme}
+          pageTitle={pageTitle}
         />
-        <main style={{ flex: 1, padding: 24, overflow: 'auto' }}>
+        <main style={{ flex: 1, padding: 'clamp(12px, 3vw, 24px)', overflow: 'auto', minWidth: 0 }}>
           {children}
         </main>
       </div>

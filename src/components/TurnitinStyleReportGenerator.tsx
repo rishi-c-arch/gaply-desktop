@@ -259,6 +259,60 @@ export const generateTurnitinStyleReport = (
     });
   }
 
+  // Parse line_review (Manuscript with Inline Annotations) and add all segment edits as annotations.
+  // Backend chunks with maxSize=2000, overlap=150 → segment i starts at i*1850 in full text.
+  const segmentStep = 1850;
+  const rawLineReview = reportData.line_review;
+  if (rawLineReview) {
+    try {
+      const lineReview = (typeof rawLineReview === 'string' ? JSON.parse(rawLineReview) : rawLineReview) as { segments?: Array<{ segment_index?: number; edits?: Array<{ type?: string; location?: number[]; original_snippet?: string; suggested_snippet?: string; explanation?: string; severity?: string }>; summary?: string }> };
+      const segments = lineReview?.segments || [];
+      segments.forEach((seg: any) => {
+        const segIdx = typeof seg.segment_index === 'number' ? seg.segment_index : 0;
+        const segmentStartInFull = segIdx * segmentStep;
+        const edits = Array.isArray(seg.edits) ? seg.edits : [];
+        edits.forEach((edit: any) => {
+          const loc = edit.location;
+          if (loc && Array.isArray(loc) && loc.length >= 2) {
+            const [relStart, relEnd] = loc;
+            const absStart = Math.max(0, segmentStartInFull + Number(relStart));
+            const absEnd = Math.min(manuscriptText.length, segmentStartInFull + Number(relEnd));
+            if (absStart < absEnd) {
+              const severity = (edit.severity || edit.type || 'minor').toString().toLowerCase();
+              const annSeverity = severity.includes('critical') ? 'critical' : severity.includes('major') ? 'major' : 'minor';
+              annotations.push({
+                id: `line-${annotationId++}`,
+                start: absStart,
+                end: absEnd,
+                text: edit.original_snippet || manuscriptText.slice(absStart, absEnd) || '',
+                type: 'edit',
+                severity: annSeverity as 'critical' | 'major' | 'minor' | 'info',
+                comment: edit.explanation || seg.summary || 'Suggested edit',
+                suggestion: edit.suggested_snippet || '',
+                confidence: 0.92
+              });
+            }
+          } else if (edit.original_snippet || edit.explanation) {
+            const chunkMid = segmentStartInFull + 500;
+            annotations.push({
+              id: `line-${annotationId++}`,
+              start: Math.max(0, chunkMid - 40),
+              end: Math.min(manuscriptText.length, chunkMid + 40),
+              text: edit.original_snippet || manuscriptText.slice(Math.max(0, chunkMid - 40), Math.min(manuscriptText.length, chunkMid + 40)) || '',
+              type: 'edit',
+              severity: (edit.severity === 'critical' || edit.severity === 'major') ? (edit.severity as 'critical' | 'major') : 'minor',
+              comment: edit.explanation || seg.summary || 'Suggested edit',
+              suggestion: edit.suggested_snippet || '',
+              confidence: 0.9
+            });
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('Failed to parse line_review for annotations:', e);
+    }
+  }
+
   // Sort annotations by start position
   annotations.sort((a, b) => a.start - b.start);
 

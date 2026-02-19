@@ -1,0 +1,114 @@
+/* Dashboard header – responsive for all screens (Apple-style composition) */
+
+.dashboard-header {
+  height: 56px;
+  min-height: 56px;
+  background: var(--dashboard-header-bg);
+  border-bottom: 1px solid var(--dashboard-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-left: clamp(12px, 4vw, 24px);
+  padding-right: clamp(12px, 4vw, 24px);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  flex-shrink: 0;
+}
+
+.dashboard-header__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.dashboard-header__menu-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dashboard-header__home-icon {
+  flex-shrink: 0;
+}
+
+.dashboard-header__title {
+  font-size: clamp(16px, 4vw, 20px);
+  font-weight: 600;
+  color: var(--dashboard-text);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.dashboard-header__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.dashboard-header__theme-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--dashboard-sidebar-active-bg);
+  border: 1px solid var(--dashboard-border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: var(--dashboard-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.dashboard-header__theme-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Small phones: hide theme text, icon only – keeps composition clean */
+@media (max-width: 380px) {
+  .dashboard-header__theme-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .dashboard-header__theme-btn {
+    padding: 8px;
+    min-width: 40px;
+    justify-content: center;
+  }
+}
+
+/* Very narrow: reduce horizontal gap so nothing wraps */
+@media (max-width: 320px) {
+  .dashboard-header {
+    padding-left: 10px;
+    padding-right: 10px;
+    gap: 8px;
+  }
+
+  .dashboard-header__left {
+    gap: 6px;
+  }
+}

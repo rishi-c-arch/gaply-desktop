@@ -26,6 +26,7 @@ interface AuthContextType {
   login: (credentials: { email: string; password: string }) => Promise<{ success: boolean; error?: string }>;
   register: (credentials: { email: string; password: string; first_name: string; last_name: string }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
+  deleteAccount: () => Promise<{ success: boolean; error?: string }>;
   updateUser: (user: User) => void;
   refreshSubscription: () => Promise<void>;
   canUseFeature: (featureType: 'gap_finder' | 'deep_eval') => Promise<{ canUse: boolean; remainingUses: number; error?: string }>;
@@ -146,6 +147,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const deleteAccount = async (): Promise<{ success: boolean; error?: string }> => {
+    const result = await authService.deleteAccount();
+    setUser(null);
+    setToken(null);
+    setSubscription(null);
+    return result;
+  };
+
   const updateUser = (updatedUser: User) => {
     setUser(updatedUser);
     localStorage.setItem('user', JSON.stringify(updatedUser));
@@ -185,6 +194,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     login,
     register,
     logout,
+    deleteAccount,
     updateUser,
     refreshSubscription,
     canUseFeature,

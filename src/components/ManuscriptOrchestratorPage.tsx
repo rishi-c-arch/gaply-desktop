@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useCallback } from 'react';
 import SEO from './SEO';
 import { apiFetch } from '../api/config';
 import MarkdownRenderer from './MarkdownRenderer';
 import { downloadHTMLReport } from './HTMLReportGenerator';
 import { downloadTurnitinStyleReport } from './TurnitinStyleReportGenerator';
+import { playHumanTTS } from '../utils/humanTTS';
 import './ManuscriptOrchestratorPage.css';
 
 type UploadFile = {
@@ -19,6 +20,151 @@ type ChatMessage = {
 };
 
 const ACCEPTED_TYPES = ['.pdf', '.docx', '.txt'];
+
+function AudioStoryModal({
+  reportContext,
+  manuscriptText,
+  journalLink,
+  reportData,
+  onClose,
+}: {
+  reportContext: string;
+  manuscriptText: string;
+  journalLink: string;
+  reportData: any;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [scriptEn, setScriptEn] = useState('');
+  const [scriptHi, setScriptHi] = useState('');
+  const [lang, setLang] = useState<'en' | 'hi'>('en');
+  const [playing, setPlaying] = useState(false);
+  const [error, setError] = useState('');
+  const ttsControllerRef = useRef<{ stop: () => void } | null>(null);
+
+  const generate = useCallback(async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const res = await apiFetch('/api/ai/audio-story', {
+        method: 'POST',
+        body: JSON.stringify({
+          report_context: reportContext,
+          manuscript_text: (manuscriptText || '').slice(0, 12000),
+          journal_url: journalLink,
+          report_data: reportData,
+        }),
+      });
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        // non-JSON response (e.g. HTML 404); fall through
+      }
+      if (!res.ok) {
+        setError(
+          (data && (data.error || data.message)) ||
+          `Audio story request failed (${res.status}). Please try again.`
+        );
+        return;
+      }
+      setScriptEn(data?.script_en || data?.script || '');
+      setScriptHi(data?.script_hi || '');
+    } catch (e: any) {
+      setError(e?.message || 'Failed to generate audio story.');
+    } finally {
+      setLoading(false);
+    }
+  }, [reportContext, manuscriptText, journalLink, reportData]);
+
+  const play = useCallback(() => {
+    const script = lang === 'hi' ? scriptHi : scriptEn;
+    if (!script.trim()) return;
+    setError('');
+    if (ttsControllerRef.current) {
+      ttsControllerRef.current.stop();
+      ttsControllerRef.current = null;
+    }
+    setPlaying(true);
+    playHumanTTS(script, {
+      voice: 'nova',
+      apiFetch,
+      onEnd: () => {
+        ttsControllerRef.current = null;
+        setPlaying(false);
+      },
+      onError: (err) => {
+        setError(err);
+        setPlaying(false);
+      },
+    }).then((ctrl) => {
+      ttsControllerRef.current = ctrl;
+    });
+  }, [lang, scriptEn, scriptHi]);
+
+  const stop = useCallback(() => {
+    if (ttsControllerRef.current) {
+      ttsControllerRef.current.stop();
+      ttsControllerRef.current = null;
+    }
+    setPlaying(false);
+  }, []);
+
+  const script = lang === 'hi' ? scriptHi : scriptEn;
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content referee-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div className="modal-header">
+          <div>
+            <h2>Listen to Analysis</h2>
+            <p className="modal-subtitle">What’s lacking, how to improve, and publication chances — in simple language</p>
+          </div>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body-referee" style={{ padding: 20 }}>
+          {error && <p style={{ color: '#d70015', marginBottom: 12 }}>{error}</p>}
+          {!scriptEn && !scriptHi && !loading && (
+            <button className="primary" onClick={generate} style={{ marginBottom: 12 }}>
+              Generate audio story
+            </button>
+          )}
+          {loading && <p style={{ color: '#6e6e73' }}>Generating deep analysis narrative…</p>}
+          {(scriptEn || scriptHi) && (
+            <>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                <button
+                  className={lang === 'en' ? 'primary' : 'secondary'}
+                  onClick={() => setLang('en')}
+                >
+                  English
+                </button>
+                <button
+                  className={lang === 'hi' ? 'primary' : 'secondary'}
+                  onClick={() => setLang('hi')}
+                >
+                  हिंदी
+                </button>
+              </div>
+              <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 12, fontSize: 14, lineHeight: 1.6 }}>
+                {script || '(No script for this language)'}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {!playing ? (
+                  <button className="primary" onClick={play} disabled={!script.trim()}>
+                    Play
+                  </button>
+                ) : (
+                  <button className="secondary" onClick={stop}>Stop</button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export interface ManuscriptOrchestratorPageProps {
   /** Called before analysis starts; return false to abort (e.g. premium use check) */
@@ -43,7 +189,8 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
   const [refereeExpanded, setRefereeExpanded] = useState(false);
   const [showGetSetGo, setShowGetSetGo] = useState(false);
-  const [activeModal, setActiveModal] = useState<'download' | 'chat' | 'referee' | null>(null);
+  const [activeModal, setActiveModal] = useState<'download' | 'chat' | 'audio-story' | 'citation-check' | null>(null);
+  const [citationCheck, setCitationCheck] = useState<any>(null);
   const refereeData = useMemo(() => {
     if (!refereeReview) return null;
     try {
@@ -55,6 +202,10 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const chatTTSControllerRef = useRef<{ stop: () => void } | null>(null);
 
   const canSubmit = useMemo(() => {
     return files.length > 0 || pastedText.trim().length > 0;
@@ -100,6 +251,11 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
     setStatus('idle');
     setStatusMessage('Ready for upload.');
     setResultPayload('');
+    setReportContext('');
+    setReportData(null);
+    setRefereeReview('');
+    setLineReview('');
+    setCitationCheck(null);
     setChatMessages([]);
     setChatInput('');
     setProcessingChunks([]);
@@ -222,9 +378,16 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
           body: formData,
           headers: {},
         });
-        const uploadJson = await uploadRes.json();
+        const uploadText = await uploadRes.text();
+        let uploadJson: any = {};
+        try {
+          uploadJson = uploadText ? JSON.parse(uploadText) : {};
+        } catch {
+          uploadJson = { error: uploadRes.status === 503 ? 'Upload service is temporarily unavailable.' : 'Upload failed.' };
+        }
         if (!uploadRes.ok) {
-          throw new Error(uploadJson?.error || 'Upload failed.');
+          const msg = uploadJson?.error || (uploadRes.status === 503 ? 'Upload service is temporarily unavailable. Try again or paste your text below.' : 'Upload failed.');
+          throw new Error(msg);
         }
         sourceText = uploadJson.extracted_text || '';
         if (!sourceText) {
@@ -331,23 +494,55 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
         journal_guidelines: guidelinesJson,
         retrieved_docs: retrievedDocs,
       };
-      const [pubText, refereeText, lineText] = await Promise.all([
+      const [pubText, refereeText, lineText, citationText] = await Promise.all([
         apiFetch('/api/ai/publication-chance', {
           method: 'POST',
           body: JSON.stringify(publicationPayload),
-        }).then((res) => res.text()),
+        }).then(async (res) => {
+          const t = await res.text();
+          if (!res.ok) return JSON.stringify({ error: t || `HTTP ${res.status}` });
+          return t;
+        }),
         apiFetch('/api/ai/referee-review', {
           method: 'POST',
           body: JSON.stringify(refereePayload),
-        }).then((res) => res.text()),
+        }).then(async (res) => {
+          const t = await res.text();
+          if (!res.ok) return JSON.stringify({ error: t || `Referee review failed (${res.status})`, status: res.status });
+          return t;
+        }),
         apiFetch('/api/ai/line-review', {
           method: 'POST',
           body: JSON.stringify({ manuscript_text: sourceText }),
-        }).then((res) => res.text()),
+        }).then(async (res) => {
+          const t = await res.text();
+          if (!res.ok) return JSON.stringify({ error: t || `Line review failed (${res.status})`, status: res.status });
+          return t;
+        }),
+        apiFetch('/api/ai/citation-reference-check', {
+          method: 'POST',
+          body: JSON.stringify({
+            manuscript_text: sourceText,
+            journal_url: journalLink,
+            journal_guidelines: guidelinesJson,
+          }),
+        }).then(async (res) => {
+          const t = await res.text();
+          if (!res.ok) return JSON.stringify({ error: t || `Citation check failed (${res.status})` });
+          return t;
+        }),
       ]);
       const pubJson = JSON.parse(pubText);
       setRefereeReview(refereeText);
       setLineReview(lineText);
+      let citationParsed: any = null;
+      try {
+        citationParsed = typeof citationText === 'string' && citationText.startsWith('{') ? JSON.parse(citationText) : { error: citationText || 'Invalid response' };
+        setCitationCheck(citationParsed);
+      } catch {
+        citationParsed = { error: citationText || 'Citation check failed' };
+        setCitationCheck(citationParsed);
+      }
 
       let refereeParsed: any = refereeText;
       try {
@@ -369,6 +564,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
         publication_chance: pubJson?.result || pubJson,
         referee_review: refereeParsed,
         line_review: lineText,
+        citation_reference_check: citationParsed,
       };
 
       const reportString = JSON.stringify(report, null, 2);
@@ -413,14 +609,13 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
       const res = await apiFetch('/api/ai/chat', {
         method: 'POST',
         body: JSON.stringify({
-          messages: [
-            { role: 'user', content: trimmed },
-          ],
+          messages: [{ role: 'user', content: trimmed }],
           report_context: reportContext,
           journal_url: journalLink,
-          manuscript_text: manuscriptText ? manuscriptText.slice(0, 2000) : '', // First 2000 chars for context
-          max_tokens: 800,
+          manuscript_text: manuscriptText ? manuscriptText.slice(0, 8000) : '',
+          max_tokens: 2000,
           temperature: 0.7,
+          reasoning_effort: 'high',
         }),
       });
       const data = await res.json();
@@ -446,6 +641,69 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
     }
   };
 
+  const toggleRecording = useCallback(() => {
+    const win = typeof window !== 'undefined' ? window : null;
+    const SpeechRecognition = win ? (win as any).SpeechRecognition || (win as any).webkitSpeechRecognition : null;
+    if (!SpeechRecognition) {
+      alert('Voice input is not supported in this browser. Try Chrome or Edge.');
+      return;
+    }
+    if (isRecording) {
+      try {
+        if (recognitionRef.current) recognitionRef.current.stop();
+      } catch (_) {}
+      recognitionRef.current = null;
+      setIsRecording(false);
+      return;
+    }
+    const rec = new SpeechRecognition();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = 'en-IN';
+    let final = '';
+    rec.onresult = (e: any) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) final += r[0].transcript;
+      }
+      if (final) setChatInput((prev) => (prev ? prev + ' ' + final : final));
+    };
+    rec.onerror = () => setIsRecording(false);
+    rec.onend = () => { recognitionRef.current = null; setIsRecording(false); };
+    recognitionRef.current = rec;
+    rec.start();
+    setIsRecording(true);
+  }, [isRecording]);
+
+  const speakMessage = useCallback((text: string, id: string) => {
+    const plain = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!plain) return;
+    if (chatTTSControllerRef.current) {
+      chatTTSControllerRef.current.stop();
+      chatTTSControllerRef.current = null;
+    }
+    setSpeakingId(id);
+    playHumanTTS(plain, {
+      voice: 'nova',
+      apiFetch,
+      onEnd: () => {
+        chatTTSControllerRef.current = null;
+        setSpeakingId(null);
+      },
+      onError: () => setSpeakingId(null),
+    }).then((ctrl) => {
+      chatTTSControllerRef.current = ctrl;
+    });
+  }, []);
+
+  const stopSpeaking = useCallback(() => {
+    if (chatTTSControllerRef.current) {
+      chatTTSControllerRef.current.stop();
+      chatTTSControllerRef.current = null;
+    }
+    setSpeakingId(null);
+  }, []);
+
   return (
     <div className="manuscript-page">
       <SEO
@@ -453,6 +711,13 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
         description="Upload your manuscript, submit journal links, and receive a full analysis report with chat-based guidance."
         keywords="document analysis, journal submission, publication chance, academic AI assistant"
       />
+
+      {status === 'error' && (
+        <section className="manuscript-hero" style={{ background: 'rgba(215,0,21,0.08)', border: '1px solid #d70015', borderRadius: 12, padding: 16, margin: '16px 0' }}>
+          <p style={{ margin: 0, color: '#d70015', fontWeight: 600 }}>{statusMessage}</p>
+          <p style={{ margin: '8px 0 0 0', fontSize: 14, color: '#666' }}>You can try again, use pasted text instead, or contact support if the problem continues.</p>
+        </section>
+      )}
 
       {status === 'idle' && (
         <section className="manuscript-hero">
@@ -514,7 +779,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
         </section>
       )}
 
-      {status === 'idle' && (
+      {(status === 'idle' || status === 'error') && (
         <section className="manuscript-grid">
           <div className="panel upload-panel">
             <h2>Upload Manuscript</h2>
@@ -602,17 +867,22 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
               <button className="result-option-card" onClick={() => setActiveModal('download')}>
                 <div className="option-icon">⬇</div>
                 <h3>Download the Report</h3>
-                <p>Access all reports and download options</p>
+                <p>Document Analysis Report — Manuscript Evaluation</p>
               </button>
               <button className="result-option-card" onClick={() => setActiveModal('chat')}>
                 <div className="option-icon">💭</div>
                 <h3>Chat with Gaply</h3>
-                <p>Get interactive guidance and answers</p>
+                <p>Talk or type — get detailed, context-aware corrections</p>
               </button>
-              <button className="result-option-card" onClick={() => setActiveModal('referee')}>
-                <div className="option-icon">✓</div>
-                <h3>Referee-Style Review</h3>
-                <p>Deep evaluation aligned with journal feedback norms</p>
+              <button className="result-option-card" onClick={() => setActiveModal('audio-story')}>
+                <div className="option-icon">🎧</div>
+                <h3>Listen to Analysis</h3>
+                <p>What’s lacking, how to improve, and publication chances</p>
+              </button>
+              <button className="result-option-card" onClick={() => setActiveModal('citation-check')}>
+                <div className="option-icon">📚</div>
+                <h3>References & Citation Check</h3>
+                <p>Style, authenticity, and journal compliance</p>
               </button>
             </div>
           </section>
@@ -627,51 +897,105 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
                 </div>
                 <div className="modal-body-download">
                   <div className="download-actions-grid">
-                    <button className="download-action-btn" onClick={() => window.open(journalLink || 'https://example.com/journal', '_blank')}>
-                      <span className="download-icon">🔗</span>
-                      <span className="download-text">Open Journal Link</span>
-                    </button>
-                    {manuscriptLink && (
-                      <button className="download-action-btn" onClick={() => window.open(manuscriptLink, '_blank')}>
+                    {reportData && (
+                      <button
+                        className="download-action-btn primary"
+                        onClick={() => {
+                          try {
+                            downloadHTMLReport(reportData);
+                          } catch (err) {
+                            console.error('Failed to generate summary report:', err);
+                            alert('Failed to generate summary report. Please try again.');
+                          }
+                        }}
+                      >
                         <span className="download-icon">📄</span>
-                        <span className="download-text">Open Manuscript Link</span>
+                        <span className="download-text">Download Summary Report</span>
                       </button>
                     )}
-                    {reportData && (
-                      <>
-                        <button 
-                          className="download-action-btn primary" 
-                          onClick={() => {
-                            try {
-                              downloadHTMLReport(reportData);
-                            } catch (err) {
-                              console.error('Failed to generate HTML report:', err);
-                              alert('Failed to generate HTML report. Please try again.');
-                            }
-                          }}
-                        >
-                          <span className="download-icon">📥</span>
-                          <span className="download-text">Download Summary Report</span>
-                        </button>
-                        {manuscriptText && (
-                          <button 
-                            className="download-action-btn primary" 
-                            onClick={() => {
-                              try {
-                                downloadTurnitinStyleReport(reportData, manuscriptText);
-                              } catch (err) {
-                                console.error('Failed to generate Turnitin-style report:', err);
-                                alert('Failed to generate Turnitin-style report. Please try again.');
-                              }
-                            }}
-                          >
-                            <span className="download-icon">📄</span>
-                            <span className="download-text">Download Interactive Analysis Report</span>
-                          </button>
-                        )}
-                      </>
-                    )}
+                    {/* Advanced: interactive line-by-line report (hidden by default per user preference)
+                    {reportData && manuscriptText && (
+                      <button
+                        className="download-action-btn"
+                        onClick={() => {
+                          try {
+                            downloadTurnitinStyleReport(reportData, manuscriptText);
+                          } catch (err) {
+                            console.error('Failed to generate interactive report:', err);
+                            alert('Failed to generate interactive report. Please try again.');
+                          }
+                        }}
+                      >
+                        <span className="download-icon">🖊️</span>
+                        <span className="download-text">Download Interactive Line-by-Line Report</span>
+                      </button>
+                    )} */}
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Citation Check Modal */}
+          {activeModal === 'citation-check' && citationCheck && (
+            <div className="modal-overlay" onClick={() => setActiveModal(null)}>
+              <div className="modal-content referee-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+                <div className="modal-header">
+                  <div>
+                    <h2>References & Citation Check</h2>
+                    <p className="modal-subtitle">Style, authenticity, and journal compliance</p>
+                  </div>
+                  <button className="modal-close" onClick={() => setActiveModal(null)}>×</button>
+                </div>
+                <div className="modal-body-referee" style={{ padding: 20, maxHeight: '80vh', overflowY: 'auto' }}>
+                  {citationCheck.error ? (
+                    <p style={{ color: '#d70015' }}>{citationCheck.error}</p>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+                        <span><strong>Style detected:</strong> {citationCheck.reference_style_detected || '—'} ({citationCheck.style_confidence || '—'})</span>
+                        {citationCheck.journal_required_style && <span><strong>Journal requires:</strong> {citationCheck.journal_required_style}</span>}
+                        <span><strong>Journal compliance:</strong> <span style={{ color: citationCheck.journal_compliance === 'compliant' ? '#34c759' : citationCheck.journal_compliance === 'non_compliant' ? '#d70015' : '#6e6e73' }}>{citationCheck.journal_compliance || 'unknown'}</span></span>
+                      </div>
+                      {citationCheck.summary && <p style={{ marginBottom: 16, lineHeight: 1.6 }}>{citationCheck.summary}</p>}
+                      {Array.isArray(citationCheck.journal_violations) && citationCheck.journal_violations.length > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                          <h4 style={{ marginBottom: 8 }}>Journal violations</h4>
+                          <ul style={{ paddingLeft: 20, margin: 0 }}>
+                            {citationCheck.journal_violations.map((v: string, i: number) => <li key={i}>{v}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      {Array.isArray(citationCheck.references) && citationCheck.references.length > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                          <h4 style={{ marginBottom: 8 }}>References ({citationCheck.references.length})</h4>
+                          <div style={{ fontSize: 13, overflowX: 'auto' }}>
+                            {citationCheck.references.slice(0, 30).map((ref: any, i: number) => (
+                              <div key={i} style={{ marginBottom: 10, padding: 10, background: ref.status !== 'correct' ? 'rgba(255,59,48,0.08)' : '#fafafa', borderRadius: 8, borderLeft: `3px solid ${ref.status === 'correct' ? '#34c759' : ref.status === 'suspicious' ? '#ff9500' : '#d70015'}` }}>
+                                <div><strong>[{ref.ref_id}]</strong> {ref.raw_string || `${ref.authors || ''} (${ref.year || ''}). ${ref.title || ''}`}</div>
+                                <div style={{ color: '#6e6e73', marginTop: 4 }}>Status: {ref.status || '—'} {Array.isArray(ref.issues) && ref.issues.length > 0 && `— ${ref.issues.join('; ')}`}</div>
+                              </div>
+                            ))}
+                            {citationCheck.references.length > 30 && <p style={{ color: '#6e6e73' }}>… and {citationCheck.references.length - 30} more</p>}
+                          </div>
+                        </div>
+                      )}
+                      {Array.isArray(citationCheck.in_text_citations) && citationCheck.in_text_citations.length > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                          <h4 style={{ marginBottom: 8 }}>In-text citations ({citationCheck.in_text_citations.length})</h4>
+                          <div style={{ fontSize: 12 }}>
+                            {citationCheck.in_text_citations.slice(0, 15).map((c: any, i: number) => (
+                              <div key={i} style={{ marginBottom: 6 }}><span style={{ color: c.status !== 'correct' ? '#d70015' : undefined }}>[{c.cite_id}]</span> {c.pattern} → refs {Array.isArray(c.linked_ref_ids) ? c.linked_ref_ids.join(', ') : '—'} {c.status !== 'correct' && `(${c.status})`}</div>
+                            ))}
+                            {citationCheck.in_text_citations.length > 15 && <p style={{ color: '#6e6e73' }}>… and {citationCheck.in_text_citations.length - 15} more</p>}
+                          </div>
+                        </div>
+                      )}
+                      {Array.isArray(citationCheck.orphan_references) && citationCheck.orphan_references.length > 0 && (
+                        <p style={{ color: '#ff9500' }}><strong>Orphan references (not cited in text):</strong> {citationCheck.orphan_references.join(', ')}</p>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -691,7 +1015,21 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
                       <div key={message.id} className={`chat-message ${message.role}`}>
                         <div className="bubble">
                           {message.role === 'assistant' ? (
-                            <MarkdownRenderer content={message.text} />
+                            <>
+                              <MarkdownRenderer content={message.text} />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                                <button
+                                  type="button"
+                                  className="chat-audio-btn"
+                                  onClick={() => speakingId === message.id ? stopSpeaking() : speakMessage(message.text, message.id)}
+                                  title={speakingId === message.id ? 'Stop' : 'Listen'}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, fontSize: 18 }}
+                                >
+                                  {speakingId === message.id ? '⏹' : '🔊'}
+                                </button>
+                                {speakingId === message.id && <span style={{ fontSize: 12, color: '#6e6e73' }}>Playing…</span>}
+                              </div>
+                            </>
                           ) : (
                             <p>{message.text}</p>
                           )}
@@ -701,11 +1039,20 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
                     ))}
                   </div>
                   <div className="chat-input">
+                    <button
+                      type="button"
+                      className={`chat-mic-btn ${isRecording ? 'recording' : ''}`}
+                      onClick={toggleRecording}
+                      title={isRecording ? 'Stop recording' : 'Voice input'}
+                      style={{ background: isRecording ? '#d70015' : 'transparent', border: '1px solid #d2d2d7', borderRadius: 8, cursor: 'pointer', padding: '8px 12px', fontSize: 18 }}
+                    >
+                      🎤
+                    </button>
                     <input
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
                       onKeyPress={(e) => e.key === 'Enter' && sendChat()}
-                      placeholder="Ask Gaply about revisions, methods, or journal fit..."
+                      placeholder="Ask Gaply about revisions, methods, or journal fit... (or use mic)"
                     />
                     <button onClick={sendChat}>Send</button>
                   </div>
@@ -714,108 +1061,15 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
             </div>
           )}
 
-          {/* Referee Review Modal */}
-          {activeModal === 'referee' && (
-            <div className="modal-overlay" onClick={() => setActiveModal(null)}>
-              <div className="modal-content referee-modal" onClick={(e) => e.stopPropagation()}>
-                <div className="modal-header">
-                  <div>
-                    <h2>Referee-Style Review</h2>
-                    <p className="modal-subtitle">Deep evaluation aligned with journal feedback norms</p>
-                  </div>
-                  <button className="modal-close" onClick={() => setActiveModal(null)}>×</button>
-                </div>
-                <div className="modal-body-referee">
-                  {refereeData?.error && (
-                    <div className="referee-error-state">
-                      <p className="referee-error-title">Referee review could not be generated</p>
-                      <p className="referee-error-detail">{refereeData.raw || refereeData.error}</p>
-                      <p className="referee-error-hint">Check that OPENAI_API_KEY is set in the orchestrator .env and the API key is valid.</p>
-                    </div>
-                  )}
-                  {!refereeData && (
-                    <div className="referee-error-state">
-                      <p className="referee-error-title">No referee review data</p>
-                      <p className="referee-error-hint">The referee-review API may have failed. Check orchestrator logs for &quot;upstream error&quot; or &quot;OPENAI_API_KEY&quot;.</p>
-                    </div>
-                  )}
-                  {refereeData && !refereeData.error && (
-                    <div className="referee-cards">
-                      <div className="referee-card">
-                        <h3>Methodology Rubric</h3>
-                        <div className="score-grid">
-                          {refereeData.methodology_rubric && (
-                            <>
-                              <span>Design</span>
-                              <strong>{refereeData.methodology_rubric.design_clarity ?? '-'}</strong>
-                              <span>Data Quality</span>
-                              <strong>{refereeData.methodology_rubric.data_quality ?? '-'}</strong>
-                              <span>Analysis Rigor</span>
-                              <strong>{refereeData.methodology_rubric.analysis_rigor ?? '-'}</strong>
-                              <span>Validity</span>
-                              <strong>{refereeData.methodology_rubric.validity_threats ?? '-'}</strong>
-                              <span>Reproducibility</span>
-                              <strong>{refereeData.methodology_rubric.reproducibility ?? '-'}</strong>
-                            </>
-                          )}
-                        </div>
-                        {refereeData.methodology_rubric?.notes && (
-                          <p className="muted">{refereeData.methodology_rubric.notes}</p>
-                        )}
-                      </div>
-                      <div className="referee-card">
-                        <h3>Citation Freshness</h3>
-                        <div className="metric-row">
-                          <span>Recent (≥ {refereeData.citation_freshness?.cutoff_year ?? 2020})</span>
-                          <strong>{refereeData.citation_freshness?.recent_citations_pct ?? 0}%</strong>
-                        </div>
-                        <div className="mini-list">
-                          {(refereeData.citation_freshness?.older_key_citations || []).slice(0, 5).map((item: any, idx: number) => (
-                            <div key={`old-cite-${idx}`} className="mini-item">
-                              <span>{item.citation || 'Untitled citation'}</span>
-                              <em>{item.year || 'n/a'}</em>
-                            </div>
-                          ))}
-                          {!refereeData.citation_freshness?.older_key_citations?.length && (
-                            <div className="mini-item muted">No older key citations flagged.</div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="referee-card">
-                        <h3>Cross-Section Consistency</h3>
-                        <div className="mini-list">
-                          {(refereeData.cross_section_consistency || []).slice(0, 6).map((item: any, idx: number) => (
-                            <div key={`cons-${idx}`} className="mini-item">
-                              <strong className={`badge ${item.severity || 'minor'}`}>{item.severity || 'minor'}</strong>
-                              <span>{item.sections || 'Sections'}</span>
-                              <em>{item.issue || 'No issue provided'}</em>
-                            </div>
-                          ))}
-                          {!refereeData.cross_section_consistency?.length && (
-                            <div className="mini-item muted">No cross-section conflicts detected.</div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="referee-card">
-                        <h3>Evidence Table</h3>
-                        <div className="mini-list">
-                          {(refereeData.evidence_table || []).slice(0, 6).map((item: any, idx: number) => (
-                            <div key={`evidence-${idx}`} className="mini-item">
-                              <span>{item.claim || 'Claim not specified'}</span>
-                              <em>{item.evidence_type || 'evidence'}</em>
-                              <strong className={`badge ${item.strength || 'moderate'}`}>{item.strength || 'moderate'}</strong>
-                            </div>
-                          ))}
-                          {!refereeData.evidence_table?.length && (
-                            <div className="mini-item muted">No evidence mapping provided.</div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+          {/* Audio Story Modal */}
+          {activeModal === 'audio-story' && (
+            <AudioStoryModal
+              reportContext={reportContext}
+              manuscriptText={manuscriptText}
+              journalLink={journalLink}
+              reportData={reportData}
+              onClose={() => setActiveModal(null)}
+            />
           )}
         </>
       )}

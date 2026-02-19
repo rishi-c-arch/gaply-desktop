@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   AreaChart,
   Area,
@@ -8,25 +8,55 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { Calendar, ChevronDown } from 'lucide-react';
-import { chartData as fallbackChartData } from '../../data/mockData';
+import { Calendar, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ChartDataPoint } from '../../types/dashboard';
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 interface ChartCardProps {
   data?: ChartDataPoint[];
 }
 
 const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
-  const chartData = (data ?? fallbackChartData).map((d) => ({
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const calendarRef = useRef<HTMLDivElement>(null);
+
+  const baseData = data ?? [];
+  const chartData = baseData.map((d, i) => ({
     month: d.month,
     value: d.publishready ?? d.value ?? 0,
     value2: d.datamaestro ?? d.value2 ?? 0,
+    monthIndex: i,
   }));
+
+  const displayData =
+    selectedMonth != null
+      ? chartData.filter((d) => d.monthIndex === selectedMonth)
+      : chartData;
   const maxVal = Math.max(
-    ...chartData.flatMap((d) => [d.value, d.value2]),
+    ...displayData.flatMap((d) => [d.value, d.value2]),
     1
   );
   const yDomain = [0, Math.ceil(maxVal * 1.2) || 2.5];
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (calendarRef.current && !calendarRef.current.contains(e.target as Node)) {
+        setCalendarOpen(false);
+      }
+    };
+    if (calendarOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [calendarOpen]);
+
+  const displayLabel = selectedMonth != null
+    ? `${MONTHS[selectedMonth]} ${selectedYear}`
+    : selectedYear.toString();
+
   return (
     <div
       style={{
@@ -41,29 +71,141 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
         <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--dashboard-text)', margin: 0 }}>
           Feature Usage Overview (PublishReady & DataMaestro)
         </h3>
-        <button
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            background: 'rgba(59, 130, 246, 0.1)',
-            border: '1px solid var(--dashboard-border)',
-            borderRadius: 8,
-            padding: '8px 12px',
-            color: 'var(--dashboard-text-muted)',
-            fontSize: 14,
-            cursor: 'pointer',
-          }}
-        >
-          <Calendar size={16} />
-          Activity
-          <ChevronDown size={16} />
-        </button>
+        <div ref={calendarRef} style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setCalendarOpen((o) => !o)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              background: 'rgba(59, 130, 246, 0.1)',
+              border: '1px solid var(--dashboard-border)',
+              borderRadius: 8,
+              padding: '8px 12px',
+              color: 'var(--dashboard-text)',
+              fontSize: 14,
+              cursor: 'pointer',
+            }}
+          >
+            <Calendar size={16} />
+            {displayLabel}
+            <ChevronDown size={16} style={{ transform: calendarOpen ? 'rotate(180deg)' : 'none', transition: 'transform 150ms ease' }} />
+          </button>
+
+          {calendarOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: 8,
+                background: 'var(--dashboard-card-bg)',
+                border: '1px solid var(--dashboard-border)',
+                borderRadius: 12,
+                boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                padding: 20,
+                minWidth: 280,
+                zIndex: 50,
+              }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--dashboard-text-muted)', marginBottom: 12 }}>
+                Choose period
+              </div>
+
+              {/* Year selector */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 16,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setSelectedYear((y) => y - 1)}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'var(--dashboard-sidebar-active-bg)',
+                    border: '1px solid var(--dashboard-border)',
+                    borderRadius: 8,
+                    color: 'var(--dashboard-text)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--dashboard-text)' }}>{selectedYear}</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedYear((y) => y + 1)}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'var(--dashboard-sidebar-active-bg)',
+                    border: '1px solid var(--dashboard-border)',
+                    borderRadius: 8,
+                    color: 'var(--dashboard-text)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+
+              {/* Month grid */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(4, 1fr)',
+                  gap: 6,
+                }}
+              >
+                {MONTHS.map((month, index) => {
+                  const isSelected = selectedMonth === index;
+                  return (
+                    <button
+                      key={month}
+                      type="button"
+                      onClick={() => setSelectedMonth(isSelected ? null : index)}
+                      style={{
+                        padding: '10px 8px',
+                        fontSize: 12,
+                        fontWeight: 500,
+                        color: isSelected ? '#fff' : 'var(--dashboard-text)',
+                        background: isSelected ? 'var(--dashboard-accent)' : 'var(--dashboard-sidebar-active-bg)',
+                        border: `1px solid ${isSelected ? 'var(--dashboard-accent)' : 'var(--dashboard-border)'}`,
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {month}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div style={{ marginTop: 12, fontSize: 12, color: 'var(--dashboard-text-muted)' }}>
+                {selectedMonth != null
+                  ? `Usage for ${MONTHS[selectedMonth]} ${selectedYear}`
+                  : `Monthly usage for ${selectedYear}`}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      <div style={{ height: 280 }}>
+      <div style={{ width: '100%', minWidth: 0, height: 280, minHeight: 280 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+          <AreaChart data={displayData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
@@ -95,6 +237,8 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
                 color: 'var(--dashboard-text)',
               }}
               labelStyle={{ color: 'var(--dashboard-text-muted)' }}
+              formatter={(value: number | undefined) => [value ?? 0, '']}
+              labelFormatter={(label) => `${label} ${selectedYear}`}
             />
             <Area
               type="monotone"

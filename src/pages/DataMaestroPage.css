@@ -1,0 +1,167 @@
+/* DataMaestro Pro dashboard page */
+
+.datamaestro-page {
+  max-width: 900px;
+  margin: 0 auto;
+  min-width: 0;
+}
+
+.datamaestro-hero {
+  margin-bottom: 40px;
+}
+
+.datamaestro-hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--dashboard-accent);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.datamaestro-hero-title {
+  font-size: clamp(24px, 4vw, 32px);
+  font-weight: 700;
+  color: var(--dashboard-text);
+  margin: 0 0 12px 0;
+}
+
+.datamaestro-hero-tagline {
+  font-size: 16px;
+  color: var(--dashboard-text-muted);
+  line-height: 1.5;
+  margin: 0 0 24px 0;
+}
+
+.datamaestro-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+}
+
+.datamaestro-cta {
+  background: var(--dashboard-accent);
+  color: #fff;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 150ms ease;
+}
+
+.datamaestro-cta:hover {
+  opacity: 0.9;
+}
+
+.datamaestro-cta-secondary {
+  background: var(--dashboard-card-bg);
+  color: var(--dashboard-text);
+  border: 1px solid var(--dashboard-border);
+}
+
+.datamaestro-cta-secondary:hover {
+  background: var(--dashboard-sidebar-active-bg);
+}
+
+.datamaestro-usage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.datamaestro-usage-label {
+  color: var(--dashboard-text-muted);
+}
+
+.datamaestro-usage-value {
+  font-weight: 600;
+  color: var(--dashboard-text);
+}
+
+.datamaestro-usage-muted {
+  color: var(--dashboard-text-muted);
+}
+
+.datamaestro-section {
+  margin-bottom: 40px;
+}
+
+.datamaestro-section-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--dashboard-text);
+  margin: 0 0 8px 0;
+}
+
+.datamaestro-section-desc {
+  font-size: 14px;
+  color: var(--dashboard-text-muted);
+  margin: 0 0 20px 0;
+  line-height: 1.5;
+}
+
+.datamaestro-features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px;
+}
+
+.datamaestro-feature-card {
+  background: var(--dashboard-card-bg);
+  border: 1px solid var(--dashboard-border);
+  border-radius: 12px;
+  padding: 20px;
+  transition: border-color 150ms ease;
+}
+
+.datamaestro-feature-card:hover {
+  border-color: var(--dashboard-accent);
+}
+
+.datamaestro-feature-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--dashboard-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.datamaestro-feature-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--dashboard-text);
+  margin: 0 0 8px 0;
+}
+
+.datamaestro-feature-desc {
+  font-size: 13px;
+  color: var(--dashboard-text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.datamaestro-cta-section {
+  text-align: center;
+  padding: 32px 24px;
+  background: var(--dashboard-card-bg);
+  border: 1px solid var(--dashboard-border);
+  border-radius: 12px;
+}
+
+.datamaestro-cta-text {
+  font-size: 15px;
+  color: var(--dashboard-text-muted);
+  margin: 0 0 20px 0;
+}

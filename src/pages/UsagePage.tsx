@@ -2,14 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/Layout/DashboardLayout';
 import ChartCard from '../components/Dashboard/ChartCard';
-import './Overview.css';
 import StatsCard from '../components/Dashboard/StatsCard';
-import AccountCard from '../components/Dashboard/AccountCard';
 import { fetchDashboardOverview } from '../services/dashboardService';
 import type { ChartDataPoint } from '../types/dashboard';
 import { useAuth } from '../contexts/AuthContext';
 
-const Overview: React.FC = () => {
+const UsagePage: React.FC = () => {
   const { isAuthenticated, user, token } = useAuth();
   const navigate = useNavigate();
   const [overview, setOverview] = useState<Awaited<ReturnType<typeof fetchDashboardOverview>> | null>(null);
@@ -31,7 +29,7 @@ const Overview: React.FC = () => {
     setError(null);
     fetchDashboardOverview(token)
       .then(setOverview)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load dashboard'))
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load usage'))
       .finally(() => setLoading(false));
   }, [token]);
 
@@ -41,15 +39,15 @@ const Overview: React.FC = () => {
 
   if (loading && !overview) {
     return (
-      <DashboardLayout>
-        <div style={{ padding: 48, textAlign: 'center', color: 'var(--dashboard-text-muted)' }}>Loading dashboard…</div>
+      <DashboardLayout pageTitle="Usage">
+        <div style={{ padding: 48, textAlign: 'center', color: 'var(--dashboard-text-muted)' }}>Loading usage…</div>
       </DashboardLayout>
     );
   }
 
   if (error && !overview) {
     return (
-      <DashboardLayout>
+      <DashboardLayout pageTitle="Usage">
         <div style={{ padding: 48, textAlign: 'center', color: 'var(--dashboard-danger)' }}>{error}</div>
       </DashboardLayout>
     );
@@ -65,48 +63,23 @@ const Overview: React.FC = () => {
   }));
 
   const statsCards = [
-    {
-      id: 'publishready',
-      title: 'PublishReady Uses',
-      value: stats ? `${stats.publishready_used}/${stats.publishready_total}` : '0/0',
-      showInfo: true,
-    },
-    {
-      id: 'datamaestro',
-      title: 'DataMaestro Uses',
-      value: stats ? `${stats.datamaestro_used}/${stats.datamaestro_total}` : '0/0',
-      showInfo: true,
-    },
-    {
-      id: 'projects',
-      title: 'Total Projects',
-      value: stats ? String(stats.total_projects) : '0',
-      showInfo: false,
-    },
+    { id: 'publishready', title: 'PublishReady Uses', value: stats ? `${stats.publishready_used}/${stats.publishready_total}` : '0/0', showInfo: true },
+    { id: 'datamaestro', title: 'DataMaestro Uses', value: stats ? `${stats.datamaestro_used}/${stats.datamaestro_total}` : '0/0', showInfo: true },
+    { id: 'projects', title: 'Total Projects', value: stats ? String(stats.total_projects) : '0', showInfo: false },
   ];
 
   return (
-    <DashboardLayout>
-      <div className="overview-root">
-        <div className="overview-main">
-          <ChartCard data={chartData} />
-          <div className="overview-stats">
-            {statsCards.map((card) => (
-              <StatsCard
-                key={card.id}
-                title={card.title}
-                value={card.value}
-                showInfo={card.showInfo}
-              />
-            ))}
-          </div>
-        </div>
-        <div className="overview-main">
-          <AccountCard />
+    <DashboardLayout pageTitle="Usage">
+      <div style={{ maxWidth: 900, margin: '0 auto' }}>
+        <ChartCard data={chartData} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+          {statsCards.map((card) => (
+            <StatsCard key={card.id} title={card.title} value={card.value} showInfo={card.showInfo} />
+          ))}
         </div>
       </div>
     </DashboardLayout>
   );
 };
 
-export default Overview;
+export default UsagePage;

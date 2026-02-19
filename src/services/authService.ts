@@ -263,6 +263,34 @@ class AuthService {
     }
   }
 
+  /** Permanently delete account on backend (soft-delete + revoke tokens), then clear local auth. */
+  async deleteAccount(): Promise<{ success: boolean; error?: string }> {
+    try {
+      const token = this.getToken();
+      if (!token) {
+        return { success: false, error: 'Not authenticated' };
+      }
+      const response = await apiFetch('/v1/auth/me', {
+        method: 'DELETE',
+        headers: this.getAuthHeaders(),
+      });
+      this.clearAuth();
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        const msg = (body as { error?: string }).error || `Failed to delete account (${response.status})`;
+        return { success: false, error: msg };
+      }
+      return { success: true };
+    } catch (error) {
+      console.error('Delete account error:', error);
+      this.clearAuth();
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to delete account',
+      };
+    }
+  }
+
   // Verify token and get user data
   async verifyToken(): Promise<AuthResponse> {
     try {
@@ -295,7 +323,7 @@ class AuthService {
     }
   }
 
-  // Get user subscription summary
+  // Get user subscription summary (handles empty or non-JSON response so dashboard still loads)
   async getUserSubscription(userId: string): Promise<SubscriptionSummary | null> {
     try {
       const response = await apiFetch(`/api/premium-features/usage`, {
@@ -303,12 +331,15 @@ class AuthService {
         headers: this.getAuthHeaders(),
       });
 
-      const data = await response.json();
+      const { data, error: parseError } = await this.safeParseJson<{ success?: boolean; plan?: Record<string, unknown>; usage?: Record<string, unknown> }>(response);
+      if (parseError || !data) {
+        return null;
+      }
       if (response.ok && data.success) {
         return {
-          package_id: data.plan?.code || '',
-          package_name: data.plan?.name || '',
-          purchased_at: data.plan?.purchased_at || '',
+          package_id: (data.plan as { code?: string })?.code || '',
+          package_name: (data.plan as { name?: string })?.name || '',
+          purchased_at: (data.plan as { purchased_at?: string })?.purchased_at || '',
           remaining_uses: data.usage || {},
           status: data.plan ? 'active' : 'none',
         };
@@ -320,7 +351,7 @@ class AuthService {
     }
   }
 
-  // Check feature access
+  // Check feature access (handles empty/invalid JSON so dashboard still loads)
   async checkFeatureAccess(userId: string, featureType: string): Promise<FeatureAccess> {
     try {
       const response = await apiFetch(`/v1/entitlements`, {
@@ -328,12 +359,12 @@ class AuthService {
         headers: this.getAuthHeaders(),
       });
 
-      const data = await response.json();
-      if (!response.ok || !Array.isArray(data)) {
+      const { data, error: parseError } = await this.safeParseJson<unknown>(response);
+      if (parseError || !data || !Array.isArray(data)) {
         return { has_access: false, remaining_uses: 0 };
       }
 
-      const found = data.find((item: any) => item.feature_name === featureType);
+      const found = (data as { feature_name?: string; remaining_uses?: number }[]).find((item) => item.feature_name === featureType);
       const remaining = found?.remaining_uses ?? 0;
       return {
         has_access: remaining > 0,
@@ -383,7 +414,10 @@ class AuthService {
       if (!response.ok) {
         return null;
       }
-      const data = await response.json();
+      const { data, error: parseError } = await this.safeParseJson<User>(response);
+      if (parseError || !data) {
+        return null;
+      }
       return data;
     } catch (error) {
       console.error('Fetch user profile error:', error);

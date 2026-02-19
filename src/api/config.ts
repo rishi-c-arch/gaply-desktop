@@ -1,24 +1,26 @@
 // Central API configuration for backend base URL
-// Priority: env var → public env → hardcoded domain
-// Production backend - gaply-backend-gaply is the active Railway deployment
-const PRODUCTION_BACKEND = 'https://gaply-backend-gaply.up.railway.app';
+// In production we ALWAYS use the hardcoded Railway backend; env vars only affect local dev.
+// This avoids stale Vercel envs accidentally pointing to the wrong backend.
+const PRODUCTION_BACKEND = 'https://gaply-backend-production.up.railway.app';
+// In production only try production URLs; never localhost (avoids confusing ERR_CONNECTION_REFUSED in console).
 const FALLBACK_URLS = [
-  'http://localhost:8080',
   PRODUCTION_BACKEND,
-  'https://gaply-backend-production.up.railway.app',
+  'https://gaply-backend-gaply.up.railway.app',
   'https://backend.gaply.in',
-];
+].filter(u => u !== PRODUCTION_BACKEND);
+const PRODUCTION_URLS = [PRODUCTION_BACKEND, ...FALLBACK_URLS];
 
 const isLocalhost =
   typeof window !== 'undefined' &&
   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-// CRA uses process.env.REACT_APP_* (inlined at build time). Set in Vercel Dashboard > Settings > Environment Variables.
+// CRA uses process.env.REACT_APP_* (inlined at build time). We only respect this on localhost.
 const envApiUrl =
   typeof process !== 'undefined' &&
   ((process as any)?.env?.REACT_APP_API_BASE_URL || (process as any)?.env?.REACT_APP_API_URL);
-export const API_BASE_URL: string =
-  envApiUrl || (isLocalhost ? 'http://localhost:8080' : PRODUCTION_BACKEND);
+export const API_BASE_URL: string = isLocalhost
+  ? (envApiUrl || 'http://localhost:8080')
+  : PRODUCTION_BACKEND;
 
 export function buildApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -33,12 +35,12 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
     ...(init?.headers || {}),
   };
 
-  // Try primary, then fallback
+  // Try primary, then fallback (production: only production URLs; dev: localhost first)
   const urlsToTry = input.startsWith('http')
     ? [path]
     : (isLocalhost
         ? [API_BASE_URL]
-        : [API_BASE_URL, ...FALLBACK_URLS.filter(u => u !== API_BASE_URL)]
+        : PRODUCTION_URLS
       ).map(base => `${base}${input.startsWith('/') ? input : `/${input}`}`);
   let lastError: any;
   for (const url of urlsToTry) {

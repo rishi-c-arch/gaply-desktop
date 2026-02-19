@@ -1,14 +1,12 @@
 import React from 'react';
 import { ArrowRight, ArrowDown } from 'lucide-react';
-import { projects as fallbackProjects } from '../../data/mockData';
 import type { Project } from '../../types/dashboard';
 
 interface ProjectsTableProps {
   projects?: Project[];
 }
 
-const ProjectsTable: React.FC<ProjectsTableProps> = ({ projects: projectsProp }) => {
-  const projects = projectsProp ?? fallbackProjects;
+const ProjectsTable: React.FC<ProjectsTableProps> = ({ projects = [] }) => {
   return (
     <div
       style={{
@@ -66,7 +64,14 @@ const ProjectsTable: React.FC<ProjectsTableProps> = ({ projects: projectsProp })
           </tr>
         </thead>
         <tbody>
-          {projects.map((project) => (
+          {projects.length === 0 ? (
+            <tr>
+              <td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'var(--dashboard-text-muted)', fontSize: 14 }}>
+                No projects yet
+              </td>
+            </tr>
+          ) : (
+          projects.map((project) => (
             <tr
               key={project.id}
               style={{
@@ -113,7 +118,7 @@ const ProjectsTable: React.FC<ProjectsTableProps> = ({ projects: projectsProp })
                 <ArrowRight size={16} color="var(--dashboard-text-muted)" />
               </td>
             </tr>
-          ))}
+          )))}
         </tbody>
       </table>
     </div>
