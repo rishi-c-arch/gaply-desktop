@@ -63,10 +63,11 @@ function AudioStoryModal({
         // non-JSON response (e.g. HTML 404); fall through
       }
       if (!res.ok) {
-        setError(
-          (data && (data.error || data.message)) ||
-          `Audio story request failed (${res.status}). Please try again.`
-        );
+        const friendly =
+          res.status === 502 || res.status === 503
+            ? `Orchestrator temporarily unavailable (${res.status}). Ensure the orchestrator is deployed and ORCHESTRATOR_URL is set on the backend.`
+            : (data && (data.error || data.message)) || `Audio story request failed (${res.status}). Please try again.`;
+        setError(typeof friendly === 'string' && friendly.length > 400 ? 'Orchestrator temporarily unavailable. Please try again.' : friendly);
         return;
       }
       setScriptEn(data?.script_en || data?.script || '');
@@ -528,7 +529,12 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
           }),
         }).then(async (res) => {
           const t = await res.text();
-          if (!res.ok) return JSON.stringify({ error: t || `Citation check failed (${res.status})` });
+          if (!res.ok) {
+            const msg = res.status === 502 || res.status === 503
+              ? `Citation check service temporarily unavailable (${res.status}). Ensure the orchestrator is deployed and ORCHESTRATOR_URL is set on the backend.`
+              : (t && t.length < 300 ? t : `Citation check failed (${res.status}). Try again.`);
+            return JSON.stringify({ error: msg });
+          }
           return t;
         }),
       ]);
@@ -537,10 +543,17 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
       setLineReview(lineText);
       let citationParsed: any = null;
       try {
-        citationParsed = typeof citationText === 'string' && citationText.startsWith('{') ? JSON.parse(citationText) : { error: citationText || 'Invalid response' };
+        if (typeof citationText === 'string' && citationText.trim().startsWith('{')) {
+          citationParsed = JSON.parse(citationText);
+          if (citationParsed && citationParsed.error && (citationParsed.error.length > 400 || citationParsed.error.includes('<'))) {
+            citationParsed.error = 'Citation check service temporarily unavailable. Please try again.';
+          }
+        } else {
+          citationParsed = { error: citationText && citationText.length < 200 ? citationText : 'Citation check service temporarily unavailable. Please try again.' };
+        }
         setCitationCheck(citationParsed);
       } catch {
-        citationParsed = { error: citationText || 'Citation check failed' };
+        citationParsed = { error: 'Citation check service temporarily unavailable. Please try again.' };
         setCitationCheck(citationParsed);
       }
 

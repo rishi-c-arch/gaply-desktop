@@ -643,7 +643,7 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
     <div class="section">
       <h2 class="section-title">Detailed Chunk Analysis</h2>
       <p class="section-desc">Line-by-line analysis by manuscript section. Each section shows AI use, plagiarism, guidelines, novelty, and suggested edits.</p>
-      ${reportData.chunks.slice(0, 15).map((chunk: any, idx: number) => {
+      ${reportData.chunks.map((chunk: any, idx: number) => {
         const sectionName = generateSectionName(chunk, idx);
         const renderTaskDetails = (taskData: any) => {
           let detailsHtml = '';
@@ -652,14 +652,13 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
             if (typeof details === 'string') {
               detailsHtml = `<div class="task-details">${escapeHtml(details)}</div>`;
             } else if (details.edits && Array.isArray(details.edits)) {
-              detailsHtml = details.edits.slice(0, 5).map((e: any) => `
+              detailsHtml = details.edits.map((e: any) => `
                 <div class="line-edit">
-                  <div class="line-edit-original">${escapeHtml((e.original_snippet || e.original || '').slice(0, 200))}${(e.original_snippet || e.original || '').length > 200 ? '...' : ''}</div>
-                  <div class="line-edit-suggested">→ ${escapeHtml((e.suggested_snippet || e.suggested || '').slice(0, 200))}${(e.suggested_snippet || e.suggested || '').length > 200 ? '...' : ''}</div>
+                  <div class="line-edit-original">${escapeHtml((e.original_snippet || e.original || '').slice(0, 300))}${(e.original_snippet || e.original || '').length > 300 ? '...' : ''}</div>
+                  <div class="line-edit-suggested">→ ${escapeHtml((e.suggested_snippet || e.suggested || '').slice(0, 300))}${(e.suggested_snippet || e.suggested || '').length > 300 ? '...' : ''}</div>
                   ${e.explanation ? `<div class="line-edit-reason">${escapeHtml(e.explanation)}</div>` : ''}
                 </div>
               `).join('');
-              if (details.edits.length > 5) detailsHtml += `<p class="more-edits">+ ${details.edits.length - 5} more edits</p>`;
               detailsHtml = `<div class="task-details line-edits">${detailsHtml}</div>`;
             } else if (details.failed_items && Array.isArray(details.failed_items)) {
               detailsHtml = `<ul class="task-details-list">${details.failed_items.map((i: any) => `<li>${escapeHtml(i.requirement || i.item || String(i))} ${i.suggested_fix ? `— Fix: ${escapeHtml(i.suggested_fix)}` : ''}</li>`).join('')}</ul>`;
@@ -694,7 +693,6 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
         </div>
       `;
       }).join('')}
-      ${reportData.chunks.length > 15 ? `<p class="more-chunks">... and ${reportData.chunks.length - 15} more sections</p>` : ''}
     </div>
     ` : ''}
 
