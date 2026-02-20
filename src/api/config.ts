@@ -60,6 +60,8 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
         const message = String(err?.message || '');
         const transient =
           message.includes('ERR_NETWORK_IO_SUSPENDED') ||
+          message.includes('ERR_NETWORK_CHANGED') ||
+          message.includes('ERR_CONNECTION_RESET') ||
           message.includes('NetworkError') ||
           message.includes('Failed to fetch') ||
           message.includes('aborted');

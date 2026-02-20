@@ -403,7 +403,12 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
       // Store manuscript text for chat context
       setManuscriptText(sourceText);
 
-      const chunks = buildChunks(sourceText);
+      // Limit to 12 sections max to avoid timeouts and 502s on large documents
+      const allChunks = buildChunks(sourceText);
+      const chunks = allChunks.slice(0, 12);
+      if (allChunks.length > 12) {
+        console.log(`Document has ${allChunks.length} sections; analyzing first 12 only.`);
+      }
       
       // Initialize processing chunks with meaningful names
       const chunkNames = chunks.map((chunk, idx) => ({
@@ -429,9 +434,14 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
           }),
         }),
       ]);
+      const safeJson = async (res: Response): Promise<any> => {
+        const t = await res.text();
+        if (!res.ok) return null;
+        try { return t?.trim() ? JSON.parse(t) : null; } catch { return null; }
+      };
       const [guidelinesJson, retrievedJson] = await Promise.all([
-        guidelinesRes.json(),
-        retrievedRes.json(),
+        safeJson(guidelinesRes),
+        safeJson(retrievedRes),
       ]);
       const retrievedDocs = retrievedJson?.retrieved_docs || [];
       const slimRetrievedDocs = retrievedDocs
@@ -440,35 +450,102 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
           ...doc,
           snippet: typeof doc.snippet === 'string' ? doc.snippet.slice(0, 350) : doc.snippet,
         }));
-      setStatusMessage(`Analyzing ${chunks.length} sections with deep review...`);
+      setStatusMessage(`Analyzing ${chunks.length} sections...`);
       const chunkResults = await runWithConcurrency(
         chunks,
-        2,
+        1, // Process one chunk at a time to avoid overloading and 502s
         async (chunk, index) => {
           setCurrentChunkIndex(index);
           setProcessingChunks(prev => prev.map((c, i) => 
             i === index ? { ...c, status: 'processing' } : 
             i < index ? { ...c, status: 'complete' } : c
           ));
-          setStatusMessage(`Analyzing: ${chunkNames[index].name}...`);
+          setStatusMessage(`Analyzing section ${index + 1} of ${chunks.length}: ${chunkNames[index].name}...`);
+          // Trim chunk text to reduce processing time and avoid timeouts
+          const trimmedChunkText = chunk.text.length > 1800 ? chunk.text.slice(0, 1800) : chunk.text;
           const payload = {
             job_id: `job-${Date.now()}`,
             chunk_id: chunk.id,
-            chunk_text: chunk.text,
+            chunk_text: trimmedChunkText,
             chunk_position: chunk.position,
-            chunk_token_estimate: Math.floor(chunk.text.length / 4),
+            chunk_token_estimate: Math.floor(trimmedChunkText.length / 4),
             journal_guidelines: guidelinesJson || { journal_url: journalLink },
-            retrieved_docs: slimRetrievedDocs,
-            tasks: ['guideline_check', 'novelty_check', 'plagiarism_check', 'ai_use_detection', 'suggest_edits', 'writing_quality', 'research_quality'],
-            max_tokens_for_response: 2400,
+            retrieved_docs: slimRetrievedDocs.slice(0, 5), // Fewer docs = faster
+            tasks: ['suggest_edits', 'writing_quality', 'research_quality'], // Core tasks only = faster
+            max_tokens_for_response: 1600,
           };
 
-          const res = await apiFetch('/api/ai/document-orchestrator', {
-            method: 'POST',
-            body: JSON.stringify(payload),
-          });
-          const text = await res.text();
-          const result = JSON.parse(text);
+          const DOC_ORCHESTRATOR_TIMEOUT_MS = 360000; // 6 min per chunk
+          const MAX_ATTEMPTS = 3;
+          const RETRY_DELAY_MS = 4000;
+          let lastErr: Error | null = null;
+          let text = '';
+          let res: Response | null = null;
+          for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            const ac = new AbortController();
+            const timeoutId = setTimeout(() => ac.abort(), DOC_ORCHESTRATOR_TIMEOUT_MS);
+            try {
+              res = await apiFetch('/api/ai/document-orchestrator', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+                signal: ac.signal,
+              });
+              clearTimeout(timeoutId);
+              text = await res.text();
+              if (res.ok) break;
+              if (res.status === 502 || res.status === 503) {
+                lastErr = new Error(`Service unavailable (${res.status})`);
+                if (attempt < MAX_ATTEMPTS) {
+                  setStatusMessage(`Section ${index + 1} temporarily unavailable, retrying (${attempt}/${MAX_ATTEMPTS})...`);
+                  await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+                  continue;
+                }
+              }
+              const msg = res.status === 502 || res.status === 503
+                ? `Analysis service temporarily unavailable (${res.status}). Check that the orchestrator is deployed and ORCHESTRATOR_URL is set on the backend.`
+                : (text && text.length < 200 ? text : `Analysis failed (${res.status}). Try again.`);
+              throw new Error(msg);
+            } catch (err: any) {
+              clearTimeout(timeoutId);
+              lastErr = err;
+              const isRetryable = err?.message?.includes('aborted') || err?.message?.includes('fetch') || err?.message?.includes('502') || err?.message?.includes('503') || err?.message?.includes('network');
+              if (attempt < MAX_ATTEMPTS && isRetryable) {
+                setStatusMessage(`Section ${index + 1} retrying (${attempt}/${MAX_ATTEMPTS})...`);
+                await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+                continue;
+              }
+              // Don't throw - we'll handle it below and return placeholder
+              break;
+            }
+          }
+          let result: any;
+          if (!res?.ok) {
+            // Return placeholder result so analysis can continue with other chunks
+            console.warn(`Section ${index + 1} failed after ${MAX_ATTEMPTS} attempts; using placeholder.`);
+            result = {
+              status: 'partial',
+              section_name: chunkNames[index]?.name || `Section ${index + 1}`,
+              chunk_id: chunk.id,
+              task_results: {
+                suggest_edits: { task_status: 'failed', summary: 'Analysis unavailable for this section.', details: [], confidence: 0 },
+                writing_quality: { task_status: 'failed', summary: 'Analysis unavailable.', details: {}, confidence: 0 },
+                research_quality: { task_status: 'failed', summary: 'Analysis unavailable.', details: {}, confidence: 0 },
+              },
+              warnings: ['Section analysis failed due to service timeout; partial results shown.'],
+            };
+          } else {
+            try {
+              result = text && text.trim() ? JSON.parse(text) : {};
+            } catch {
+              result = {
+                status: 'partial',
+                section_name: chunkNames[index]?.name || `Section ${index + 1}`,
+                chunk_id: chunk.id,
+                task_results: {},
+                warnings: ['Invalid response; partial results shown.'],
+              };
+            }
+          }
           
           // Mark chunk as complete
           setProcessingChunks(prev => prev.map((c, i) => 
@@ -538,7 +615,12 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
           return t;
         }),
       ]);
-      const pubJson = JSON.parse(pubText);
+      let pubJson: any;
+      try {
+        pubJson = (pubText && pubText.trim() && pubText.trim().startsWith('{')) ? JSON.parse(pubText) : { result: {}, error: 'Service unavailable' };
+      } catch {
+        pubJson = { result: {}, error: 'Publication chance service returned invalid data. Try again.' };
+      }
       setRefereeReview(refereeText);
       setLineReview(lineText);
       let citationParsed: any = null;
@@ -601,7 +683,19 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
       ]);
     } catch (err: any) {
       setStatus('error');
-      setStatusMessage(err?.message || 'Processing failed.');
+      const raw = String(err?.message || 'Processing failed.');
+      const isNetwork =
+        raw.includes('ERR_CONNECTION_RESET') ||
+        raw.includes('ERR_NAME_NOT_RESOLVED') ||
+        raw.includes('ERR_NETWORK_IO_SUSPENDED') ||
+        raw.includes('ERR_NETWORK_CHANGED') ||
+        raw.includes('Failed to fetch') ||
+        raw.includes('JSON') ||
+        raw.includes('aborted');
+      const msg = isNetwork
+        ? 'Analysis service unreachable or timed out. Check your connection and that the backend is deployed; try again in a moment.'
+        : raw;
+      setStatusMessage(msg);
     }
   };
 
