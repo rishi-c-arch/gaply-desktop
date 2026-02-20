@@ -403,12 +403,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
       // Store manuscript text for chat context
       setManuscriptText(sourceText);
 
-      // Limit to 12 sections max to avoid timeouts and 502s on large documents
-      const allChunks = buildChunks(sourceText);
-      const chunks = allChunks.slice(0, 12);
-      if (allChunks.length > 12) {
-        console.log(`Document has ${allChunks.length} sections; analyzing first 12 only.`);
-      }
+      const chunks = buildChunks(sourceText);
       
       // Initialize processing chunks with meaningful names
       const chunkNames = chunks.map((chunk, idx) => ({
@@ -461,18 +456,16 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
             i < index ? { ...c, status: 'complete' } : c
           ));
           setStatusMessage(`Analyzing section ${index + 1} of ${chunks.length}: ${chunkNames[index].name}...`);
-          // Trim chunk text to reduce processing time and avoid timeouts
-          const trimmedChunkText = chunk.text.length > 1800 ? chunk.text.slice(0, 1800) : chunk.text;
           const payload = {
             job_id: `job-${Date.now()}`,
             chunk_id: chunk.id,
-            chunk_text: trimmedChunkText,
+            chunk_text: chunk.text,
             chunk_position: chunk.position,
-            chunk_token_estimate: Math.floor(trimmedChunkText.length / 4),
+            chunk_token_estimate: Math.floor(chunk.text.length / 4),
             journal_guidelines: guidelinesJson || { journal_url: journalLink },
-            retrieved_docs: slimRetrievedDocs.slice(0, 5), // Fewer docs = faster
-            tasks: ['suggest_edits', 'writing_quality', 'research_quality'], // Core tasks only = faster
-            max_tokens_for_response: 1600,
+            retrieved_docs: slimRetrievedDocs,
+            tasks: ['guideline_check', 'novelty_check', 'plagiarism_check', 'ai_use_detection', 'suggest_edits', 'writing_quality', 'research_quality'],
+            max_tokens_for_response: 2400,
           };
 
           const DOC_ORCHESTRATOR_TIMEOUT_MS = 360000; // 6 min per chunk
