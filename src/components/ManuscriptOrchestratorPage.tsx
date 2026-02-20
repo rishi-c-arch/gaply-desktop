@@ -501,7 +501,17 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
             } catch (err: any) {
               clearTimeout(timeoutId);
               lastErr = err;
-              const isRetryable = err?.message?.includes('aborted') || err?.message?.includes('fetch') || err?.message?.includes('502') || err?.message?.includes('503') || err?.message?.includes('network');
+              const errMsg = String(err?.message || '').toLowerCase();
+              const isRetryable = 
+                errMsg.includes('aborted') || 
+                errMsg.includes('fetch') || 
+                errMsg.includes('502') || 
+                errMsg.includes('503') || 
+                errMsg.includes('network') ||
+                errMsg.includes('suspended') ||
+                errMsg.includes('reset') ||
+                errMsg.includes('timeout') ||
+                errMsg.includes('failed');
               if (attempt < MAX_ATTEMPTS && isRetryable) {
                 setStatusMessage(`Section ${index + 1} retrying (${attempt}/${MAX_ATTEMPTS})...`);
                 await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
