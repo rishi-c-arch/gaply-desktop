@@ -4,7 +4,7 @@ import { apiFetch } from '../api/config';
 import MarkdownRenderer from './MarkdownRenderer';
 import { downloadHTMLReport } from './HTMLReportGenerator';
 import { downloadTurnitinStyleReport } from './TurnitinStyleReportGenerator';
-import { playHumanTTS } from '../utils/humanTTS';
+import { playHumanTTS, HumanTTSController } from '../utils/humanTTS';
 import './ManuscriptOrchestratorPage.css';
 
 type UploadFile = {
@@ -39,8 +39,9 @@ function AudioStoryModal({
   const [scriptHi, setScriptHi] = useState('');
   const [lang, setLang] = useState<'en' | 'hi'>('en');
   const [playing, setPlaying] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [error, setError] = useState('');
-  const ttsControllerRef = useRef<{ stop: () => void } | null>(null);
+  const ttsControllerRef = useRef<HumanTTSController | null>(null);
 
   const generate = useCallback(async () => {
     setError('');
@@ -79,30 +80,51 @@ function AudioStoryModal({
     }
   }, [reportContext, manuscriptText, journalLink, reportData]);
 
-  const play = useCallback(() => {
+  const playOrResume = useCallback(() => {
     const script = lang === 'hi' ? scriptHi : scriptEn;
     if (!script.trim()) return;
     setError('');
+
+    // Resume if paused
+    if (paused && ttsControllerRef.current) {
+      ttsControllerRef.current.resume();
+      setPlaying(true);
+      setPaused(false);
+      return;
+    }
+
+    // Fresh play
     if (ttsControllerRef.current) {
       ttsControllerRef.current.stop();
       ttsControllerRef.current = null;
     }
     setPlaying(true);
+    setPaused(false);
     playHumanTTS(script, {
-      voice: 'nova',
+      voice: 'alloy',
       apiFetch,
       onEnd: () => {
         ttsControllerRef.current = null;
         setPlaying(false);
+        setPaused(false);
       },
       onError: (err) => {
         setError(err);
         setPlaying(false);
+        setPaused(false);
       },
     }).then((ctrl) => {
       ttsControllerRef.current = ctrl;
     });
-  }, [lang, scriptEn, scriptHi]);
+  }, [lang, scriptEn, scriptHi, paused, apiFetch]);
+
+  const pause = useCallback(() => {
+    if (ttsControllerRef.current) {
+      ttsControllerRef.current.pause();
+      setPlaying(false);
+      setPaused(true);
+    }
+  }, []);
 
   const stop = useCallback(() => {
     if (ttsControllerRef.current) {
@@ -110,6 +132,7 @@ function AudioStoryModal({
       ttsControllerRef.current = null;
     }
     setPlaying(false);
+    setPaused(false);
   }, []);
 
   const script = lang === 'hi' ? scriptHi : scriptEn;
@@ -151,12 +174,22 @@ function AudioStoryModal({
                 {script || '(No script for this language)'}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                {!playing ? (
-                  <button className="primary" onClick={play} disabled={!script.trim()}>
-                    Play
+                <button
+                  className="primary"
+                  onClick={playOrResume}
+                  disabled={!script.trim()}
+                >
+                  {!playing && paused ? 'Resume' : 'Play'}
+                </button>
+                {playing && (
+                  <button className="secondary" onClick={pause}>
+                    Pause
                   </button>
-                ) : (
-                  <button className="secondary" onClick={stop}>Stop</button>
+                )}
+                {(playing || paused) && (
+                  <button className="secondary" onClick={stop}>
+                    Stop
+                  </button>
                 )}
               </div>
             </>
@@ -206,7 +239,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
   const [isRecording, setIsRecording] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
-  const chatTTSControllerRef = useRef<{ stop: () => void } | null>(null);
+  const chatTTSControllerRef = useRef<HumanTTSController | null>(null);
 
   const canSubmit = useMemo(() => {
     return files.length > 0 || pastedText.trim().length > 0;
@@ -501,17 +534,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
             } catch (err: any) {
               clearTimeout(timeoutId);
               lastErr = err;
-              const errMsg = String(err?.message || '').toLowerCase();
-              const isRetryable = 
-                errMsg.includes('aborted') || 
-                errMsg.includes('fetch') || 
-                errMsg.includes('502') || 
-                errMsg.includes('503') || 
-                errMsg.includes('network') ||
-                errMsg.includes('suspended') ||
-                errMsg.includes('reset') ||
-                errMsg.includes('timeout') ||
-                errMsg.includes('failed');
+              const isRetryable = err?.message?.includes('aborted') || err?.message?.includes('fetch') || err?.message?.includes('502') || err?.message?.includes('503') || err?.message?.includes('network');
               if (attempt < MAX_ATTEMPTS && isRetryable) {
                 setStatusMessage(`Section ${index + 1} retrying (${attempt}/${MAX_ATTEMPTS})...`);
                 await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
@@ -794,7 +817,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
     }
     setSpeakingId(id);
     playHumanTTS(plain, {
-      voice: 'nova',
+      voice: 'alloy',
       apiFetch,
       onEnd: () => {
         chatTTSControllerRef.current = null;

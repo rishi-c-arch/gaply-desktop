@@ -25,6 +25,8 @@ function chunkText(text: string): string[] {
 
 export type HumanTTSController = {
   stop: () => void;
+  pause: () => void;
+  resume: () => void;
 };
 
 export async function playHumanTTS(
@@ -39,14 +41,30 @@ export async function playHumanTTS(
   const voice = options.voice || 'nova';
   const chunks = chunkText(text);
   let stopped = false;
+  let paused = false;
   let currentAudio: HTMLAudioElement | null = null;
 
   const stop = () => {
     stopped = true;
+    paused = false;
     if (currentAudio) {
       currentAudio.pause();
       currentAudio.src = '';
       currentAudio = null;
+    }
+  };
+
+  const pause = () => {
+    if (currentAudio && !stopped) {
+      paused = true;
+      currentAudio.pause();
+    }
+  };
+
+  const resume = () => {
+    if (currentAudio && paused && !stopped) {
+      paused = false;
+      void currentAudio.play();
     }
   };
 
@@ -92,5 +110,5 @@ export async function playHumanTTS(
   };
 
   playNext(0);
-  return { stop };
+  return { stop, pause, resume };
 }
