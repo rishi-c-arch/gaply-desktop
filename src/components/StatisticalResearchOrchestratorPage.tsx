@@ -91,6 +91,11 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
   const [questionnaireMetadata, setQuestionnaireMetadata] = useState<{ file_name: string; file_type: string; word_count: number } | null>(null);
   const [isQuestionnaireDragging, setIsQuestionnaireDragging] = useState(false);
 
+  // AI intake assistant state (what to upload / provide before analysis)
+  const [intakeSuggestions, setIntakeSuggestions] = useState<string>('');
+  const [intakeLoading, setIntakeLoading] = useState(false);
+  const [intakeError, setIntakeError] = useState<string | null>(null);
+
   // Calculate descriptive statistics from sample data
   const calculateDescriptiveStats = (data: Record<string, any>[]) => {
     if (data.length === 0) return null;
@@ -245,6 +250,71 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
       setChatMessages([...nextMessages, { role: 'assistant', content: data.response }]);
     } else {
       setChatMessages([...nextMessages, { role: 'assistant', content: 'No response from assistant.' }]);
+    }
+  };
+
+  const handleIntakeAssist = async () => {
+    if (!title.trim() && objectives.every(o => !o.trim())) {
+      setIntakeError('Add at least a research title or one objective first.');
+      return;
+    }
+    setIntakeError(null);
+    setIntakeLoading(true);
+
+    try {
+      const intakeContext = {
+        title: title.trim(),
+        objectives: objectives.filter(o => o.trim()),
+        research_questions: researchQuestions.filter(q => q.trim()),
+        design: design.trim(),
+        sample_size: sampleSize || nRows || '',
+        sampling_method: samplingMethod.trim(),
+        variables: variables.filter(v => v.name.trim()),
+        methodology_notes: methodologyNotes.trim(),
+      };
+
+      const messages = [
+        {
+          role: 'user' as const,
+          content:
+            'You are Gaply DataMaestro intake assistant. Based on this study description (JSON below), tell me exactly what files, data, and details I should upload or type so that you can run a complete, correct statistical analysis. ' +
+            'Group your answer into clear sections like "Core dataset", "Questionnaire & scales", "Sampling & design details", "Variables & coding", and "Other helpful files". ' +
+            'For each item, explain in one short sentence WHY it is needed and HOW it will be used in the analysis. Use simple language.\n\n' +
+            'Study description JSON:\n' +
+            JSON.stringify(intakeContext, null, 2),
+        },
+      ];
+
+      const response = await apiFetch('/api/ai/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          mode: 'statistical_intake',
+          messages,
+          intake_context: JSON.stringify(intakeContext),
+          max_tokens: 900,
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        setIntakeError(
+          errText && errText.length < 400
+            ? errText
+            : 'Could not get suggestions right now. Please try again.',
+        );
+        return;
+      }
+
+      const data = await response.json();
+      if (data?.response) {
+        setIntakeSuggestions(data.response);
+      } else {
+        setIntakeError('No suggestions returned. Please try again.');
+      }
+    } catch (e: any) {
+      setIntakeError(e?.message || 'Failed to get suggestions.');
+    } finally {
+      setIntakeLoading(false);
     }
   };
 
@@ -1154,6 +1224,37 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
                       {questionnaireText.slice(0, 1200)}
                       {questionnaireText.length > 1200 ? '…' : ''}
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* AI Intake Assistant: what to upload / provide */}
+              <div className="sr-form-group">
+                <h3 className="sr-section-title">Not sure what to upload?</h3>
+                <p className="sr-intake-description">
+                  Gaply can read your research title, objectives, and methodology and suggest an exact checklist
+                  of datasets, questionnaires, and details to provide for the best analysis.
+                </p>
+                <button
+                  type="button"
+                  className="sr-button-secondary"
+                  onClick={handleIntakeAssist}
+                  disabled={intakeLoading}
+                >
+                  {intakeLoading ? 'Thinking…' : 'Ask Gaply what to upload'}
+                </button>
+                {intakeError && (
+                  <div className="sr-error-message" style={{ marginTop: 10 }}>
+                    {intakeError}
+                  </div>
+                )}
+                {intakeSuggestions && (
+                  <div className="sr-intake-panel">
+                    <div
+                      className="sr-intake-content"
+                      // Model may return markdown or plain text; render as simple HTML
+                      dangerouslySetInnerHTML={{ __html: intakeSuggestions }}
+                    />
                   </div>
                 )}
               </div>
