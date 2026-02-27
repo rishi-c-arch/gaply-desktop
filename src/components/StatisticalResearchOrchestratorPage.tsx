@@ -95,6 +95,7 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
   const [intakeSuggestions, setIntakeSuggestions] = useState<string>('');
   const [intakeLoading, setIntakeLoading] = useState(false);
   const [intakeError, setIntakeError] = useState<string | null>(null);
+  const [intakeStage, setIntakeStage] = useState<'basic' | 'inputs'>('basic');
 
   // Calculate descriptive statistics from sample data
   const calculateDescriptiveStats = (data: Record<string, any>[]) => {
@@ -308,6 +309,7 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
       const data = await response.json();
       if (data?.response) {
         setIntakeSuggestions(data.response);
+        // Keep user on the same section; they can click "Continue" to open full inputs
       } else {
         setIntakeError('No suggestions returned. Please try again.');
       }
@@ -924,113 +926,118 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
               </div>
 
               {/* Hypotheses */}
-              <div className="sr-form-group">
-                <label className="sr-label">Hypotheses (Optional)</label>
-                {hypotheses.map((hyp, idx) => (
-                  <div key={idx} className="sr-input-group">
+              {intakeStage === 'inputs' && (
+                <>
+                  {/* Hypotheses */}
+                  <div className="sr-form-group">
+                    <label className="sr-label">Hypotheses (Optional)</label>
+                    {hypotheses.map((hyp, idx) => (
+                      <div key={idx} className="sr-input-group">
+                        <input
+                          type="text"
+                          className="sr-input"
+                          value={hyp}
+                          onChange={(e) => updateHypothesis(idx, e.target.value)}
+                          placeholder={`Hypothesis ${idx + 1}`}
+                        />
+                        {hypotheses.length > 1 && (
+                          <button
+                            className="sr-remove-button"
+                            onClick={() => removeHypothesis(idx)}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button className="sr-add-button" onClick={addHypothesis}>
+                      + Add Hypothesis
+                    </button>
+                  </div>
+
+                  {/* Methodology */}
+                  <div className="sr-form-group">
+                    <label className="sr-label">Research Design</label>
                     <input
                       type="text"
                       className="sr-input"
-                      value={hyp}
-                      onChange={(e) => updateHypothesis(idx, e.target.value)}
-                      placeholder={`Hypothesis ${idx + 1}`}
+                      value={design}
+                      onChange={(e) => setDesign(e.target.value)}
+                      placeholder="e.g., Experimental, Observational, Cross-sectional"
                     />
-                    {hypotheses.length > 1 && (
-                      <button
-                        className="sr-remove-button"
-                        onClick={() => removeHypothesis(idx)}
-                      >
-                        ×
-                      </button>
-                    )}
                   </div>
-                ))}
-                <button className="sr-add-button" onClick={addHypothesis}>
-                  + Add Hypothesis
-                </button>
-              </div>
 
-              {/* Methodology */}
-              <div className="sr-form-group">
-                <label className="sr-label">Research Design</label>
-                <input
-                  type="text"
-                  className="sr-input"
-                  value={design}
-                  onChange={(e) => setDesign(e.target.value)}
-                  placeholder="e.g., Experimental, Observational, Cross-sectional"
-                />
-              </div>
-
-              <div className="sr-form-row">
-                <div className="sr-form-group">
-                  <label className="sr-label">Sample Size</label>
-                  <input
-                    type="number"
-                    className="sr-input"
-                    value={sampleSize}
-                    onChange={(e) => setSampleSize(e.target.value ? parseInt(e.target.value) : '')}
-                    placeholder="e.g., 100"
-                  />
-                </div>
-                <div className="sr-form-group">
-                  <label className="sr-label">Sampling Method</label>
-                  <input
-                    type="text"
-                    className="sr-input"
-                    value={samplingMethod}
-                    onChange={(e) => setSamplingMethod(e.target.value)}
-                    placeholder="e.g., Random sampling, Convenience sampling"
-                  />
-                </div>
-              </div>
-
-              {/* Variables */}
-              <div className="sr-form-group">
-                <label className="sr-label">Variables</label>
-                {variables.map((var_, idx) => (
-                  <div key={idx} className="sr-variable-row">
-                    <input
-                      type="text"
-                      className="sr-input"
-                      value={var_.name}
-                      onChange={(e) => updateVariable(idx, 'name', e.target.value)}
-                      placeholder="Variable name"
-                    />
-                    <select
-                      className="sr-select"
-                      value={var_.type}
-                      onChange={(e) => updateVariable(idx, 'type', e.target.value as Variable['type'])}
-                    >
-                      <option value="nominal">Nominal</option>
-                      <option value="ordinal">Ordinal</option>
-                      <option value="interval">Interval</option>
-                      <option value="ratio">Ratio</option>
-                    </select>
-                    <select
-                      className="sr-select"
-                      value={var_.role}
-                      onChange={(e) => updateVariable(idx, 'role', e.target.value as Variable['role'])}
-                    >
-                      <option value="iv">Independent Variable</option>
-                      <option value="dv">Dependent Variable</option>
-                      <option value="covariate">Covariate</option>
-                      <option value="id">ID</option>
-                    </select>
-                    {variables.length > 1 && (
-                      <button
-                        className="sr-remove-button"
-                        onClick={() => removeVariable(idx)}
-                      >
-                        ×
-                      </button>
-                    )}
+                  <div className="sr-form-row">
+                    <div className="sr-form-group">
+                      <label className="sr-label">Sample Size</label>
+                      <input
+                        type="number"
+                        className="sr-input"
+                        value={sampleSize}
+                        onChange={(e) => setSampleSize(e.target.value ? parseInt(e.target.value) : '')}
+                        placeholder="e.g., 100"
+                      />
+                    </div>
+                    <div className="sr-form-group">
+                      <label className="sr-label">Sampling Method</label>
+                      <input
+                        type="text"
+                        className="sr-input"
+                        value={samplingMethod}
+                        onChange={(e) => setSamplingMethod(e.target.value)}
+                        placeholder="e.g., Random sampling, Convenience sampling"
+                      />
+                    </div>
                   </div>
-                ))}
-                <button className="sr-add-button" onClick={addVariable}>
-                  + Add Variable
-                </button>
-              </div>
+
+                  {/* Variables */}
+                  <div className="sr-form-group">
+                    <label className="sr-label">Variables</label>
+                    {variables.map((var_, idx) => (
+                      <div key={idx} className="sr-variable-row">
+                        <input
+                          type="text"
+                          className="sr-input"
+                          value={var_.name}
+                          onChange={(e) => updateVariable(idx, 'name', e.target.value)}
+                          placeholder="Variable name"
+                        />
+                        <select
+                          className="sr-select"
+                          value={var_.type}
+                          onChange={(e) => updateVariable(idx, 'type', e.target.value as Variable['type'])}
+                        >
+                          <option value="nominal">Nominal</option>
+                          <option value="ordinal">Ordinal</option>
+                          <option value="interval">Interval</option>
+                          <option value="ratio">Ratio</option>
+                        </select>
+                        <select
+                          className="sr-select"
+                          value={var_.role}
+                          onChange={(e) => updateVariable(idx, 'role', e.target.value as Variable['role'])}
+                        >
+                          <option value="iv">Independent Variable</option>
+                          <option value="dv">Dependent Variable</option>
+                          <option value="covariate">Covariate</option>
+                          <option value="id">ID</option>
+                        </select>
+                        {variables.length > 1 && (
+                          <button
+                            className="sr-remove-button"
+                            onClick={() => removeVariable(idx)}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button className="sr-add-button" onClick={addVariable}>
+                      + Add Variable
+                    </button>
+                  </div>
+                </>
+              )}
 
               {/* File Upload Section */}
               <div className="sr-form-group">
@@ -1259,77 +1266,80 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Dataset Summary */}
-              <div className="sr-form-group">
-                <h3 className="sr-section-title">Dataset Summary</h3>
-                <div className="sr-form-row">
+              {/* Dataset Summary, sample preview, and test modules only after intake stage */}
+              {intakeStage === 'inputs' && (
+                <>
+                  {/* Dataset Summary */}
                   <div className="sr-form-group">
-                    <label className="sr-label">Number of Rows</label>
-                    <input
-                      type="number"
-                      className="sr-input"
-                      value={nRows}
-                      onChange={(e) => setNRows(e.target.value ? parseInt(e.target.value) : '')}
-                      placeholder="e.g., 1000"
-                      disabled={parsingFile}
-                    />
+                    <h3 className="sr-section-title">Dataset Summary</h3>
+                    <div className="sr-form-row">
+                      <div className="sr-form-group">
+                        <label className="sr-label">Number of Rows</label>
+                        <input
+                          type="number"
+                          className="sr-input"
+                          value={nRows}
+                          onChange={(e) => setNRows(e.target.value ? parseInt(e.target.value) : '')}
+                          placeholder="e.g., 1000"
+                          disabled={parsingFile}
+                        />
+                      </div>
+                      <div className="sr-form-group">
+                        <label className="sr-label">Number of Columns</label>
+                        <input
+                          type="number"
+                          className="sr-input"
+                          value={nColumns}
+                          onChange={(e) => setNColumns(e.target.value ? parseInt(e.target.value) : '')}
+                          placeholder="e.g., 10"
+                          disabled={parsingFile}
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div className="sr-form-group">
-                    <label className="sr-label">Number of Columns</label>
-                    <input
-                      type="number"
-                      className="sr-input"
-                      value={nColumns}
-                      onChange={(e) => setNColumns(e.target.value ? parseInt(e.target.value) : '')}
-                      placeholder="e.g., 10"
-                      disabled={parsingFile}
-                    />
-                  </div>
-                </div>
-              </div>
 
-              {/* Sample Data Preview */}
-              {sampleRows.length > 0 && (
-                <div className="sr-form-group">
-                  <h4 className="sr-preview-title">Sample Data Preview (First 5 rows)</h4>
-                  <div className="sr-preview-table-container">
-                    <table className="sr-preview-table">
-                      <thead>
-                        <tr>
-                          {Object.keys(sampleRows[0] || {}).map((key) => (
-                            <th key={key}>{key}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sampleRows.slice(0, 5).map((row, idx) => (
-                          <tr key={idx}>
-                            {Object.values(row).map((val, vIdx) => (
-                              <td key={vIdx}>{String(val)}</td>
+                  {/* Sample Data Preview */}
+                  {sampleRows.length > 0 && (
+                    <div className="sr-form-group">
+                      <h4 className="sr-preview-title">Sample Data Preview (First 5 rows)</h4>
+                      <div className="sr-preview-table-container">
+                        <table className="sr-preview-table">
+                          <thead>
+                            <tr>
+                              {Object.keys(sampleRows[0] || {}).map((key) => (
+                                <th key={key}>{key}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sampleRows.slice(0, 5).map((row, idx) => (
+                              <tr key={idx}>
+                                {Object.values(row).map((val, vIdx) => (
+                                  <td key={vIdx}>{String(val)}</td>
+                                ))}
+                              </tr>
                             ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
 
-              {/* Test Modules */}
-              <div className="sr-form-group">
-                <h3 className="sr-section-title">Test Modules (Choose or Auto)</h3>
-                <label className="sr-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={autoSelectTests}
-                    onChange={() => setAutoSelectTests(!autoSelectTests)}
-                    className="sr-checkbox"
-                  />
-                  <span className="sr-checkbox-text">Auto-select best tests (Gaply)</span>
-                </label>
-                {!autoSelectTests && (
-                  <div className="sr-modules-grid" style={{ marginTop: '12px' }}>
-                    {[
+                  {/* Test Modules */}
+                  <div className="sr-form-group">
+                    <h3 className="sr-section-title">Test Modules (Choose or Auto)</h3>
+                    <label className="sr-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={autoSelectTests}
+                        onChange={() => setAutoSelectTests(!autoSelectTests)}
+                        className="sr-checkbox"
+                      />
+                      <span className="sr-checkbox-text">Auto-select best tests (Gaply)</span>
+                    </label>
+                    {!autoSelectTests && (
+                      <div className="sr-modules-grid" style={{ marginTop: '12px' }}>
+                        {[
                       {
                         key: 'data_preparation',
                         label: '1. Data Preparation & Screening',
@@ -1447,6 +1457,8 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
                   </div>
                 )}
               </div>
+                </>
+              )}
 
               {error && (
                 <div className="sr-error-message">
