@@ -6,7 +6,6 @@
     <link rel="shortcut icon" href="%PUBLIC_URL%/logo.jpeg" />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo.jpeg" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta name="theme-color" content="#000000" />
     <meta name="description" content="AI-powered academic research platform for thesis writing, journal matching, AI content detection, plagiarism checking, and research paper assistance. Professional dissertation editing, SPSS analysis help, and academic writing support." />
     
@@ -164,6 +163,17 @@
     <!-- Favicon -->
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
     
+    <!-- PWA: iOS install support -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Gaply" />
+    <link rel="apple-touch-startup-image" href="%PUBLIC_URL%/logo512.png" />
+    
+    <!-- PWA: Windows tile -->
+    <meta name="msapplication-TileImage" content="%PUBLIC_URL%/logo192.png" />
+    <meta name="msapplication-TileColor" content="#000000" />
+    <meta name="msapplication-config" content="none" />
+    
     <!-- Additional Meta Tags for Academic Focus -->
     <meta name="subject" content="Academic Research, Thesis Writing, Journal Matching, AI Detection, Plagiarism Checking" />
     <meta name="topic" content="Academic Research Platform" />
@@ -175,9 +185,13 @@
     <meta name="audience" content="Academic Community" />
     
     <title>Gaply - AI-Powered Academic Research Platform</title>
+    <script>
+      document.documentElement.classList.add('js');
+    </script>
     <style>
-      html, body { margin: 0; padding: 0; background: #ffffff; color: #111111; min-height: 100vh; }
-      /* Fallback always visible until React replaces #root. No hiding rule. */
+      html.js .static-fallback {
+        display: none;
+      }
       .static-fallback {
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
         color: #111111;
@@ -203,32 +217,26 @@
       }
     </style>
   </head>
-  <body style="background:#f8f9fa">
-    <!-- Visible immediately - if you see this, our HTML loaded -->
-    <div id="gaply-loading" style="padding:32px 24px;font-family:system-ui;color:#1a1a1a;background:#fff;min-height:80px;border-bottom:1px solid #eee;font-size:18px;">
-      <strong>Gaply</strong> — Loading…
-    </div>
+  <body>
     <noscript>This app works best with JavaScript enabled.</noscript>
-    <div id="static-fallback" class="static-fallback" role="main">
-      <h1>Document Analysis Orchestrator</h1>
-      <p id="fallback-msg">Loading Gaply…</p>
-      <p>If this message stays visible, try <a href="/">homepage</a> or <a href="javascript:location.reload()">refresh</a>.</p>
+    <div id="root">
+      <main class="static-fallback" role="main">
+        <h1>Gaply Academic Research Platform</h1>
+        <p>
+          Gaply is an AI-powered academic research platform for thesis writing, journal matching, AI content detection,
+          plagiarism checking, and research paper assistance.
+        </p>
+        <p>
+          Explore premium tools such as PublishReady and DataMaestro, plus free research features like Journal Matching
+          and Paper Search.
+        </p>
+        <ul>
+          <li>Thesis & dissertation guidance</li>
+          <li>Journal matching and paper search</li>
+          <li>AI content detection and editing support</li>
+          <li>Research analysis and reporting</li>
+        </ul>
+      </main>
     </div>
-    <div id="root"></div>
-    <script>
-      (function() {
-        var fallback = document.getElementById('static-fallback');
-        var msg = document.getElementById('fallback-msg');
-        if (fallback && msg) {
-          setTimeout(function() {
-            var root = document.getElementById('root');
-            var hasContent = root && (root.querySelector('.manuscript-page') || root.innerHTML.trim().length > 200);
-            if (fallback.style.display !== 'none' && !hasContent) {
-              msg.innerHTML = 'Still loading? Try <a href="https://www.gaply.in/final-orchestrator">www.gaply.in</a>, <a href="javascript:location.reload()">refresh</a>, or <a href="/">homepage</a>.';
-            }
-          }, 4000);
-        }
-      })();
-    </script>
   </body>
 </html>

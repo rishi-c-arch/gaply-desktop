@@ -1,47 +1,40 @@
-import React, { useEffect, Suspense, lazy } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route } from 'react-router-dom';
 import './App.css';
 import './hero-animations.css';
 import './hero-new.css';
 import './responsive.css';
-import { ErrorBoundary } from './components/ErrorBoundary';
+import ThreeJSGlobe from './components/ThreeJSGlobe';
+import HeroToSecondTransition from './components/HeroToSecondTransition';
+import FreeFeatures3D from './components/FreeFeatures3D';
+import PremiumFeatures3D from './components/PremiumFeatures3D';
+import QuartileAnalysis3D from './components/QuartileAnalysis3D';
+import PremiumFooter3D from './components/PremiumFooter3D';
+import EnhancedPremiumPage from './components/EnhancedPremiumPage';
+import Overview from './pages/Overview';
+import ProjectsPage from './pages/ProjectsPage';
+import UsagePage from './pages/UsagePage';
+import SettingsPage from './pages/SettingsPage';
+import PackageSelection from './components/PackageSelection';
+import LoginPage from './components/LoginPage';
+import SignupPage from './components/SignupPage';
+import AcademicAIRemoverPage from './components/AcademicAIRemoverPage';
+import PaperSearchPage from './components/PaperSearchPage';
+import JournalMatchingPage from './components/JournalMatchingPage';
+import FeaturesPage from './components/FeaturesPage';
+import CareerPage from './components/CareerPage';
+import HireExpertPage from './components/HireExpertPage';
+import ExpertSearchResultsPage from './components/ExpertSearchResultsPage';
+import PricingSection from './components/PricingSection';
+import PrivacyPolicyPage from './components/PrivacyPolicyPage';
+import TermsOfServicePage from './components/TermsOfServicePage';
+import DocumentOrchestratorPage from './components/DocumentOrchestratorPage';
+import ManuscriptOrchestratorPage from './components/ManuscriptOrchestratorPage';
+import StatisticalResearchOrchestratorPage from './components/StatisticalResearchOrchestratorPage';
+import DataMaestroProPage from './components/DataMaestroProPage';
+import ContactPage from './components/ContactPage';
 import { AuthProvider } from './contexts/AuthContext';
-
-// Lazy-load ALL route components - keeps Three.js OUT of /final-orchestrator chunk (fixes WebGL Context Lost blank page)
-const ThreeJSGlobe = lazy(() => import('./components/ThreeJSGlobe'));
-const HeroToSecondTransition = lazy(() => import('./components/HeroToSecondTransition'));
-const FreeFeatures3D = lazy(() => import('./components/FreeFeatures3D'));
-const PremiumFeatures3D = lazy(() => import('./components/PremiumFeatures3D'));
-const QuartileAnalysis3D = lazy(() => import('./components/QuartileAnalysis3D'));
-const PremiumFooter3D = lazy(() => import('./components/PremiumFooter3D'));
-const EnhancedPremiumPage = lazy(() => import('./components/EnhancedPremiumPage'));
-const Overview = lazy(() => import('./pages/Overview'));
-const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
-const UsagePage = lazy(() => import('./pages/UsagePage'));
-const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-const BillingPage = lazy(() => import('./pages/BillingPage'));
-const ProfilePage = lazy(() => import('./pages/ProfilePage'));
-const HelpCenterPage = lazy(() => import('./pages/HelpCenterPage'));
-const PublishReadyPage = lazy(() => import('./pages/PublishReadyPage'));
-const DataMaestroPage = lazy(() => import('./pages/DataMaestroPage'));
-const PackageSelection = lazy(() => import('./components/PackageSelection'));
-const LoginPage = lazy(() => import('./components/LoginPage'));
-const SignupPage = lazy(() => import('./components/SignupPage'));
-const AcademicAIRemoverPage = lazy(() => import('./components/AcademicAIRemoverPage'));
-const PaperSearchPage = lazy(() => import('./components/PaperSearchPage'));
-const JournalMatchingPage = lazy(() => import('./components/JournalMatchingPage'));
-const FeaturesPage = lazy(() => import('./components/FeaturesPage'));
-const CareerPage = lazy(() => import('./components/CareerPage'));
-const HireExpertPage = lazy(() => import('./components/HireExpertPage'));
-const ExpertSearchResultsPage = lazy(() => import('./components/ExpertSearchResultsPage'));
-const PricingSection = lazy(() => import('./components/PricingSection'));
-const PrivacyPolicyPage = lazy(() => import('./components/PrivacyPolicyPage'));
-const TermsOfServicePage = lazy(() => import('./components/TermsOfServicePage'));
-const DocumentOrchestratorPage = lazy(() => import('./components/DocumentOrchestratorPage'));
-const ManuscriptOrchestratorPage = lazy(() => import('./components/ManuscriptOrchestratorPage'));
-const StatisticalResearchOrchestratorPage = lazy(() => import('./components/StatisticalResearchOrchestratorPage'));
-const ContactPage = lazy(() => import('./components/ContactPage'));
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{ title?: string; description?: string; keywords?: string }> = ({ 
@@ -199,9 +192,7 @@ const AppleHeroSection: React.FC = () => {
           </button>
         </div>
         <div className="apple-hero__globe" aria-hidden="true">
-          <ErrorBoundary fallback={<div style={{ minHeight: 200 }} />}>
-            <ThreeJSGlobe />
-          </ErrorBoundary>
+          <ThreeJSGlobe />
         </div>
       </div>
     </section>
@@ -211,56 +202,34 @@ const AppleHeroSection: React.FC = () => {
 // Inner App component that uses useAuth
 const AppContent: React.FC = () => {
   const { theme: headerTheme, toggleTheme: handleToggleTheme } = useTheme();
-  const { pathname: currentPath } = useLocation();
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
 
+  // Call the function to remove the floating orb when the component mounts
   useEffect(() => {
     removeFloatingOrb();
-  }, []);
-
-  // Signal that React app has mounted (used to hide static fallback)
-  useEffect(() => {
-    const root = document.getElementById('root');
-    if (root) {
-      root.setAttribute('data-app-mounted', 'true');
-      window.dispatchEvent(new CustomEvent('gaply-app-mounted'));
-    }
+    
+    // Listen for route changes
+    const handleRouteChange = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    
+    window.addEventListener('popstate', handleRouteChange);
+    return () => window.removeEventListener('popstate', handleRouteChange);
   }, []);
 
   const handleAuthSuccess = (token: string, userData: any) => {
     window.location.href = '/packages';
   };
 
-  // Hide marketing header on dashboard/account/auth and certain tool pages
-  const hideHeader =
-    currentPath.startsWith('/dashboard') ||
-    currentPath === '/account' ||
-    currentPath === '/my-account' ||
-    currentPath === '/login' ||
-    currentPath === '/signup' ||
-    currentPath === '/hire-expert' ||
-    currentPath === '/search-results' ||
-    currentPath === '/final-orchestrator';
-
-  const shouldShowHeader = !hideHeader;
-
-  // final-orchestrator needs light background (manuscript-page is white)
-  const isFinalOrchestrator = currentPath === '/final-orchestrator';
+  // Hide header for hire-expert and search-results pages
+  const shouldShowHeader = currentPath !== '/hire-expert' && currentPath !== '/search-results';
 
   return (
     <div className="App">
       {shouldShowHeader && <AppleHeader theme={headerTheme} onToggleTheme={handleToggleTheme} />}
-      <div
-        className="app-content-below-header"
-        style={{
-          paddingTop: shouldShowHeader ? 56 : 0,
-          minHeight: '100vh',
-          background: isFinalOrchestrator ? '#ffffff' : undefined,
-        }}
-      >
-      <Suspense fallback={<div style={{ padding: 48, textAlign: 'center', color: '#333' }}>Loading…</div>}>
       <Routes>
           <Route path="/" element={
-            <Suspense fallback={<div style={{ padding: 48, textAlign: 'center', color: '#333' }}>Loading…</div>}>
+            <>
               <SEOHead 
                 title="Gaply - AI-Powered Academic Research Platform | Thesis Writing, Journal Matching, AI Detection"
                 description="Professional AI-powered academic research platform offering thesis writing help, journal matching, AI content detection, plagiarism checking, dissertation editing, and research paper assistance for PhD students and researchers worldwide."
@@ -272,7 +241,7 @@ const AppContent: React.FC = () => {
               <PremiumFeatures3D />
               <QuartileAnalysis3D />
               <PremiumFooter3D />
-            </Suspense>
+            </>
           } />
           <Route path="/academic-ai-remover" element={
             <>
@@ -315,19 +284,14 @@ const AppContent: React.FC = () => {
             </>
           } />
           <Route path="/final-orchestrator" element={
-            <ErrorBoundary fallback={
-              <div style={{ padding: '80px 24px 48px', maxWidth: 600, margin: '0 auto', textAlign: 'center', color: '#1d1d1f' }}>
-                <h1 style={{ fontSize: '24px', marginBottom: 16 }}>Something went wrong</h1>
-                <p style={{ marginBottom: 24, color: '#6e6e73' }}>The page couldn&apos;t load. Try refreshing or <a href="/" style={{ color: '#007AFF' }}>go home</a>.</p>
-              </div>
-            }>
+            <>
               <SEOHead 
                 title="Final Analysis Suite | Gaply"
                 description="Upload manuscript files, add journal links, and generate a clean report with Gaply chat support."
                 keywords="final analysis suite, manuscript upload, journal submission assistant, gaply chat"
               />
               <ManuscriptOrchestratorPage />
-            </ErrorBoundary>
+            </>
           } />
           <Route path="/statistical-research" element={
             <>
@@ -337,6 +301,16 @@ const AppContent: React.FC = () => {
                 keywords="statistical analysis, research orchestrator, statistical tests, data analysis, research methodology"
               />
               <StatisticalResearchOrchestratorPage />
+            </>
+          } />
+          <Route path="/datamaestro-pro" element={
+            <>
+              <SEOHead 
+                title="DataMaestro Pro - AI Statistical Analysis | Gaply"
+                description="AI-powered statistical analysis for academic research. Upload datasets, get smart test recommendations, publication-ready results with tables, charts, and downloadable reports."
+                keywords="DataMaestro Pro, statistical analysis, AI research analysis, SPSS alternative, data analysis, academic research tool"
+              />
+              <DataMaestroProPage />
             </>
           } />
           <Route path="/features" element={
@@ -479,44 +453,24 @@ const AppContent: React.FC = () => {
               <Overview />
             </>
           } />
-          <Route path="/dashboard/billing" element={
+          <Route path="/dashboard" element={
             <>
               <SEOHead 
-                title="Billing | Gaply"
-                description="View your billing history and past transactions."
-                keywords="billing, invoices, payments, transaction history"
+                title="Dashboard | Academic Research Tools & Progress Tracking - Gaply"
+                description="Access your Gaply dashboard to manage academic research projects, track thesis writing progress, monitor AI detection results, and view journal matching recommendations."
+                keywords="academic research dashboard, thesis writing dashboard, AI detection dashboard, journal matching dashboard, research progress tracking, academic project management"
               />
-              <BillingPage />
+              <Overview />
             </>
           } />
-          <Route path="/dashboard/profile" element={
+          <Route path="/dashboard/projects" element={
             <>
               <SEOHead 
-                title="Profile | Gaply"
-                description="Manage your profile, name, profession, and view your performance score."
-                keywords="profile, account, performance, settings"
+                title="Projects | Academic Research - Gaply"
+                description="View your academic research projects and their status."
+                keywords="research projects, academic projects, project management"
               />
-              <ProfilePage />
-            </>
-          } />
-          <Route path="/dashboard/help" element={
-            <>
-              <SEOHead 
-                title="Help Center | Gaply"
-                description="Community Q&A and support. Ask questions and get help from researchers."
-                keywords="help center, support, community, Q&A"
-              />
-              <HelpCenterPage />
-            </>
-          } />
-          <Route path="/dashboard/settings" element={
-            <>
-              <SEOHead 
-                title="Settings | Gaply"
-                description="Manage your account, billing, profile, and get support."
-                keywords="settings, account, billing, profile, support"
-              />
-              <SettingsPage />
+              <ProjectsPage />
             </>
           } />
           <Route path="/dashboard/usage" element={
@@ -529,49 +483,17 @@ const AppContent: React.FC = () => {
               <UsagePage />
             </>
           } />
-<Route path="/dashboard/projects" element={
-            <>
-              <SEOHead
-                title="Projects | Academic Research - Gaply"
-                description="View your academic research projects and their status."
-                keywords="research projects, academic projects, project management"
-              />
-              <ProjectsPage />
-            </>
-          } />
-          <Route path="/dashboard/publishready" element={
-            <>
-              <SEOHead
-                title="PublishReady Pro | Manuscript Analysis - Gaply"
-                description="Advanced AI-powered manuscript analysis: referee-grade evaluation, publication probability, line-by-line review, and journal guidelines."
-                keywords="PublishReady, manuscript analysis, referee review, publication chance, journal guidelines, plagiarism check, AI detection"
-              />
-              <PublishReadyPage />
-            </>
-          } />
-          <Route path="/dashboard/datamaestro" element={
-            <>
-              <SEOHead
-                title="DataMaestro Pro | Statistical Research - Gaply"
-                description="Statistical Research Orchestrator: upload datasets, get test recommendations, interpretations, and publication-ready HTML reports."
-                keywords="DataMaestro, statistical analysis, research orchestrator, statistical tests, data analysis"
-              />
-              <DataMaestroPage />
-            </>
-          } />
-          <Route path="/dashboard" element={
+          <Route path="/dashboard/settings" element={
             <>
               <SEOHead 
-                title="Dashboard | Academic Research Tools & Progress Tracking - Gaply"
-                description="Access your Gaply dashboard to manage academic research projects, track thesis writing progress, monitor AI detection results, and view journal matching recommendations."
-                keywords="academic research dashboard, thesis writing dashboard, AI detection dashboard, journal matching dashboard, research progress tracking, academic project management"
+                title="Settings | Gaply"
+                description="Manage your account, billing, profile, and get support."
+                keywords="settings, account, billing, profile, support"
               />
-              <Overview />
+              <SettingsPage />
             </>
           } />
         </Routes>
-      </Suspense>
-      </div>
     </div>
   );
 };

@@ -37,10 +37,13 @@ Disallow: /admin/
 Disallow: /private/
 Disallow: /api/
 Disallow: /_next/
-Disallow: /static/
+
+# Allow static assets (CRA serves CSS/JS from /static/)
+Allow: /static/
 
 # Allow access to important files
 Allow: /favicon.ico
 Allow: /robots.txt
 Allow: /sitemap.xml
 Allow: /manifest.json
+Allow: /service-worker.js
