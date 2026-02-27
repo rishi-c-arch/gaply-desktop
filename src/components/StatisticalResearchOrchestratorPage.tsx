@@ -38,6 +38,173 @@ type AnalysisOutput = {
   plot_url: string | null;
 };
 
+// Full taxonomy of analysis tools (Universal, Quantitative, Qualitative, Mixed, Computational, Domain, Causal, Advanced, Reporting).
+// Backend may implement a subset; unknown keys are sent as selected_modules and can be ignored or mapped.
+const TEST_MODULES_BY_CATEGORY: { category: string; modules: { key: string; label: string; desc: string }[] }[] = [
+  {
+    category: 'Core analyses',
+    modules: [
+      { key: 'data_preparation', label: 'Data Preparation & Screening', desc: 'Data cleaning, missing value analysis, outlier detection, transformations, coding & recoding, reverse coding, scale scores.' },
+      { key: 'descriptive_stats', label: 'Descriptive Statistics', desc: 'Frequency, percentage, mean, median, mode, min/max, range, variance, SD, IQR, skewness, kurtosis, cross-tabs.' },
+      { key: 'assumption_tests', label: 'Assumption Testing', desc: 'Shapiro–Wilk, KS, Anderson–Darling, Q–Q, histogram, Levene, Bartlett, Box’s M, scatter, Durbin–Watson.' },
+      { key: 'reliability', label: 'Reliability Analysis', desc: 'Cronbach’s alpha, McDonald’s omega, split-half, composite reliability, item-total, alpha if deleted.' },
+      { key: 'validity', label: 'Validity Analysis', desc: 'CVI, EFA, CFA, AVE, Fornell–Larcker, HTMT ratio.' },
+      { key: 'parametric_tests', label: 'Parametric Tests', desc: 'One-sample, independent, paired t-tests; one-way/two-way/repeated ANOVA; MANOVA/MANCOVA/ANCOVA; post-hoc.' },
+      { key: 'non_parametric_tests', label: 'Non-Parametric Tests', desc: 'Mann–Whitney, Wilcoxon, Kruskal–Wallis, Friedman, Chi-Square, Fisher’s Exact, McNemar.' },
+      { key: 'association', label: 'Association & Relationship', desc: 'Pearson, Spearman, Kendall’s tau, point-biserial, partial, Cohen’s kappa, Fleiss’ kappa, ICC.' },
+      { key: 'regression', label: 'Regression Analysis', desc: 'Simple/multiple linear, logistic, hierarchical, stepwise, polynomial, ridge, lasso, diagnostics.' },
+      { key: 'mediation', label: 'Mediation & Moderation', desc: 'Baron & Kenny, bootstrapped mediation, moderation, moderated mediation, PROCESS-style.' },
+      { key: 'sem', label: 'SEM / Path Analysis', desc: 'CB-SEM, PLS-SEM, measurement/structural models, fit indices (χ², RMSEA, CFI, TLI, SRMR).' },
+      { key: 'multivariate', label: 'Multivariate Analysis', desc: 'PCA, factor analysis, discriminant, canonical correlation, cluster analysis, MDS.' },
+      { key: 'time_series', label: 'Time Series & Longitudinal', desc: 'Trend, seasonal decomposition, ACF/PACF, ARIMA/SARIMA, panel data.' },
+      { key: 'survival', label: 'Survival & Event Analysis', desc: 'Kaplan–Meier, log-rank, Cox proportional hazards.' },
+      { key: 'experimental', label: 'Experimental / Design-Based', desc: 'RCT analysis, pre/post design, factorial, Latin square, mixed-design ANOVA.' },
+      { key: 'effect_power', label: 'Effect Size & Power', desc: 'Cohen’s d, eta squared, partial eta squared, odds ratio, relative risk, power analysis.' },
+      { key: 'ml_analytics', label: 'ML & Advanced Analytics', desc: 'Classification, regression trees, neural networks, clustering, feature importance.' },
+      { key: 'qual_mixed', label: 'Qualitative / Mixed Methods', desc: 'Thematic, content analysis, grounded theory coding, sentiment, NVivo/Atlas.ti metrics.' },
+      { key: 'domain_addons', label: 'Domain-Specific Add-ons', desc: 'SERVQUAL, balanced scorecard, IRT/Rasch, legal text analysis, DOE/response surface.' },
+      { key: 'reporting_integrity', label: 'Reporting & Integrity Checks', desc: 'Assumption verification, diagnostics, robustness, sensitivity, reproducibility.' },
+    ],
+  },
+  {
+    category: 'Universal / study-level',
+    modules: [
+      { key: 'literature_review', label: 'Literature / systematic review', desc: 'Map prior work, gaps, and theoretical framing.' },
+      { key: 'protocol_prereg', label: 'Protocol design & pre-registration', desc: 'Define hypotheses, methods, and analysis plan before data collection.' },
+      { key: 'power_analysis', label: 'Sample size / power analysis', desc: 'Calculate needed sample to detect effects.' },
+      { key: 'ethics_irb', label: 'Ethics & IRB review', desc: 'Assess participant risk, consent, data handling.' },
+      { key: 'data_cleaning_preprocessing', label: 'Data cleaning & preprocessing', desc: 'Remove errors, recode variables, standardize formats.' },
+      { key: 'missing_data_imputation', label: 'Missing data analysis & imputation', desc: 'Assess missingness mechanism and impute (e.g., multiple imputation).' },
+      { key: 'eda', label: 'Exploratory data analysis (EDA)', desc: 'Visualize distributions, detect outliers, check assumptions.' },
+      { key: 'sensitivity_robustness', label: 'Sensitivity / robustness checks', desc: 'Test whether results hold under alternate specifications.' },
+      { key: 'model_diagnostics', label: 'Model diagnostics & validation', desc: 'Residuals, multicollinearity, heteroskedasticity, calibration.' },
+      { key: 'multiple_comparisons', label: 'Multiple comparisons correction', desc: 'Control false discovery (e.g., Bonferroni, FDR).' },
+      { key: 'reproducibility', label: 'Reproducibility checks & replication', desc: 'Share code/data, rerun analyses, reproduce results.' },
+      { key: 'reporting_visualization', label: 'Reporting & visualization', desc: 'Tables, plots, reproducible reports (e.g., R Markdown).' },
+      { key: 'data_management_metadata', label: 'Data management & metadata', desc: 'Document datasets, variable definitions, provenance.' },
+    ],
+  },
+  {
+    category: 'Quantitative statistical',
+    modules: [
+      { key: 't_tests_nonparametric', label: 't-tests & nonparametric equivalents', desc: 'Compare two groups (Mann–Whitney, Wilcoxon).' },
+      { key: 'anova_manova', label: 'ANOVA / MANOVA', desc: 'Compare means across >2 groups; multivariate outcomes.' },
+      { key: 'regression_family', label: 'Regression (linear, logistic, Poisson, etc.)', desc: 'Model relationships between predictors and outcomes.' },
+      { key: 'glm', label: 'Generalized linear models (GLM)', desc: 'Flexible regression family for various data types.' },
+      { key: 'mixed_multilevel', label: 'Mixed-effects / multilevel models', desc: 'Nested or hierarchical data (e.g., students within schools).' },
+      { key: 'time_series_arima', label: 'Time-series analysis', desc: 'ARIMA, seasonal decomposition, forecasting.' },
+      { key: 'panel_longitudinal', label: 'Panel data / longitudinal analysis', desc: 'Fixed/random effects, growth curve models.' },
+      { key: 'survival_time_to_event', label: 'Survival / time-to-event analysis', desc: 'Kaplan–Meier, Cox proportional hazards.' },
+      { key: 'factor_pca', label: 'Factor analysis & PCA', desc: 'Reduce dimensionality, find latent constructs.' },
+      { key: 'sem_latent', label: 'Structural equation modeling (SEM)', desc: 'Complex causal and latent-variable models.' },
+      { key: 'latent_class_profile', label: 'Latent class / latent profile analysis', desc: 'Identify unobserved subgroups.' },
+      { key: 'cluster_analysis', label: 'Cluster analysis', desc: 'k-means, hierarchical clustering for grouping observations.' },
+      { key: 'bayesian', label: 'Bayesian analysis', desc: 'Posterior estimation, hierarchical Bayesian models.' },
+      { key: 'bootstrap_permutation', label: 'Bootstrap & permutation tests', desc: 'Nonparametric inference and CI estimation.' },
+      { key: 'meta_analysis', label: 'Meta-analysis & meta-regression', desc: 'Pool effect sizes across studies.' },
+      { key: 'econometric_causal', label: 'Econometric causal methods', desc: 'IV, difference-in-differences (DiD), regression discontinuity (RDD).' },
+      { key: 'propensity_score', label: 'Propensity score methods', desc: 'Matching, weighting for observational causal inference.' },
+      { key: 'power_curves_posthoc', label: 'Power curves & post-hoc power analysis', desc: 'Assess detectable effect sizes.' },
+    ],
+  },
+  {
+    category: 'Qualitative analyses',
+    modules: [
+      { key: 'thematic_analysis', label: 'Thematic analysis', desc: 'Identify themes across interview/focus-group data.' },
+      { key: 'grounded_theory', label: 'Grounded theory', desc: 'Iterative coding to generate theory from data.' },
+      { key: 'content_analysis', label: 'Content analysis (quantitative/qualitative)', desc: 'Code texts for frequency and meaning.' },
+      { key: 'discourse_analysis', label: 'Discourse analysis', desc: 'Study language use, power, and ideology in texts.' },
+      { key: 'narrative_analysis', label: 'Narrative analysis', desc: 'Analyze stories and individual accounts.' },
+      { key: 'framework_analysis', label: 'Framework analysis', desc: 'Matrix-based method for applied qualitative projects.' },
+      { key: 'phenomenological', label: 'Phenomenological analysis', desc: 'Describe lived experiences and meanings.' },
+      { key: 'qca', label: 'Qualitative comparative analysis (QCA)', desc: 'Set-theoretic method bridging qual & quant.' },
+      { key: 'codebook_intercoder', label: 'Codebook development & intercoder reliability', desc: 'Create codes and measure coder agreement (e.g., Krippendorff’s α).' },
+    ],
+  },
+  {
+    category: 'Mixed-methods',
+    modules: [
+      { key: 'convergent_parallel', label: 'Convergent parallel design analysis', desc: 'Analyze qual & quant separately then integrate.' },
+      { key: 'explanatory_sequential', label: 'Explanatory sequential analysis', desc: 'Use qualitative to explain quantitative results (or vice versa).' },
+      { key: 'triangulation', label: 'Triangulation', desc: 'Cross-validate findings from multiple methods.' },
+    ],
+  },
+  {
+    category: 'Computational & data-science',
+    modules: [
+      { key: 'ml_supervised', label: 'Machine learning (supervised)', desc: 'Classification/regression: random forest, XGBoost, SVM.' },
+      { key: 'ml_unsupervised', label: 'Machine learning (unsupervised)', desc: 'Clustering, dimensionality reduction, anomaly detection.' },
+      { key: 'deep_learning', label: 'Deep learning / neural networks', desc: 'Image, audio, or complex tabular/text modeling.' },
+      { key: 'nlp', label: 'Natural language processing (NLP)', desc: 'Tokenization, topic modeling (LDA), transformer models.' },
+      { key: 'topic_modeling_semantic', label: 'Topic modeling & semantic analysis', desc: 'Discover themes across large corpora.' },
+      { key: 'sentiment_analysis', label: 'Sentiment analysis', desc: 'Measure opinion polarity in text data.' },
+      { key: 'network_sna', label: 'Network / social network analysis (SNA)', desc: 'Nodes/edges metrics, community detection, centrality.' },
+      { key: 'graph_analysis', label: 'Graph analysis & link prediction', desc: 'Study relational structures.' },
+      { key: 'abm', label: 'Agent-based modeling (ABM)', desc: 'Simulate interactions of autonomous agents.' },
+      { key: 'simulation_monte_carlo', label: 'Simulation & Monte Carlo studies', desc: 'Evaluate estimators, system behavior under scenarios.' },
+      { key: 'image_video_vision', label: 'Image/video analysis (computer vision)', desc: 'Object detection, segmentation, feature extraction.' },
+      { key: 'spatial_geospatial', label: 'Spatial / geospatial analysis', desc: 'GIS mapping, spatial statistics, hotspot analysis.' },
+      { key: 'hpc_parallel', label: 'High-performance & parallel computing', desc: 'Big-data workflows, distributed processing.' },
+    ],
+  },
+  {
+    category: 'Domain-specific (selected)',
+    modules: [
+      { key: 'domain_economics', label: 'Economics', desc: 'Time-series econometrics, CGE models, input–output, production functions, DiD.' },
+      { key: 'domain_psychology', label: 'Psychology', desc: 'Psychometrics, IRT/Rasch, CFA, experimental ANOVA.' },
+      { key: 'domain_education', label: 'Education', desc: 'Item analysis, DIF, multilevel growth models, programme evaluation.' },
+      { key: 'domain_medicine_ph', label: 'Medicine & Public Health', desc: 'RCT analysis, ITT, subgroup analysis, meta-analysis, ROC.' },
+      { key: 'domain_epidemiology', label: 'Epidemiology', desc: 'Incidence/prevalence, case–control, cohort survival, outbreak modeling.' },
+      { key: 'domain_biology_genomics', label: 'Biology / Genomics', desc: 'Differential gene expression, sequence alignment, phylogenetic inference, GWAS.' },
+      { key: 'domain_neuroscience', label: 'Neuroscience', desc: 'fMRI preprocessing, GLM for brain imaging, connectivity, EEG spectral analysis.' },
+      { key: 'domain_environmental', label: 'Environmental Science', desc: 'Climate trends, species distribution, remote sensing, water quality modeling.' },
+      { key: 'domain_geography_urban', label: 'Geography / Urban Planning', desc: 'Spatial econometrics, accessibility, transport simulation, land-use change.' },
+      { key: 'domain_engineering', label: 'Engineering', desc: 'FEA, CFD, reliability analysis, system identification.' },
+      { key: 'domain_cs_se', label: 'Computer Science / SE', desc: 'Algorithmic complexity, software metrics, A/B testing.' },
+      { key: 'domain_law', label: 'Law & Legal Studies', desc: 'Doctrinal analysis, comparative legal, case-citation networks, policy impact.' },
+      { key: 'domain_business', label: 'Business & Management', desc: 'Case-study synthesis, PLS-SEM, conjoint analysis, customer segmentation.' },
+      { key: 'domain_marketing', label: 'Marketing', desc: 'Marketing-mix modeling, conjoint, choice modeling, sentiment/trend analysis.' },
+      { key: 'domain_finance', label: 'Finance', desc: 'Event study, GARCH, VaR, portfolio optimization.' },
+      { key: 'domain_linguistics', label: 'Linguistics', desc: 'Phonetic/phonological analysis, corpus linguistics, syntactic parsing.' },
+      { key: 'domain_anthropology', label: 'Anthropology', desc: 'Ethnographic coding, kinship/network mapping, material culture analysis.' },
+      { key: 'domain_agriculture', label: 'Agriculture / Field Trials', desc: 'RCBD, split-plot ANOVA, agronomic modeling.' },
+      { key: 'domain_materials_chemistry', label: 'Materials / Chemistry', desc: 'Spectral deconvolution, crystallographic analysis, kinetics, DFT.' },
+    ],
+  },
+  {
+    category: 'Causal inference & experimental designs',
+    modules: [
+      { key: 'rct', label: 'Randomized controlled trials (RCTs)', desc: 'Gold standard for causal claims.' },
+      { key: 'factorial_fractional', label: 'Factorial & fractional factorial designs', desc: 'Test multiple factors / interactions.' },
+      { key: 'quasi_experimental', label: 'Quasi-experimental designs', desc: 'DiD, RDD, synthetic controls.' },
+      { key: 'instrumental_variables', label: 'Instrumental variables (IV)', desc: 'Handle endogeneity.' },
+      { key: 'mediation_moderation', label: 'Mediation & moderation analysis', desc: 'Probe indirect and conditional effects.' },
+    ],
+  },
+  {
+    category: 'Advanced & specialized',
+    modules: [
+      { key: 'latent_growth_curve', label: 'Latent growth curve modeling', desc: 'Model trajectories over time.' },
+      { key: 'dynamic_structural', label: 'Dynamic structural models', desc: 'Economics/behavioral dynamics.' },
+      { key: 'multistate_markov', label: 'Multistate models / Markov models', desc: 'Systems with transitions (e.g., health states).' },
+      { key: 'tda', label: 'Topological data analysis (TDA)', desc: 'Study shape of data (advanced).' },
+      { key: 'sparse_regularization', label: 'Sparse modeling & regularization', desc: 'LASSO, Ridge for high-dimensional predictors.' },
+      { key: 'causal_discovery', label: 'Causal discovery algorithms', desc: 'Learn causal graphs from data (e.g., PC algorithm).' },
+    ],
+  },
+  {
+    category: 'Reporting & quality assurance',
+    modules: [
+      { key: 'prisma', label: 'PRISMA for systematic reviews', desc: 'Reporting standard for reviews.' },
+      { key: 'consort', label: 'CONSORT for clinical trials', desc: 'Reporting checklist for RCTs.' },
+      { key: 'strobe_coreq_tripod', label: 'STROBE, COREQ, TRIPOD', desc: 'Reporting standards for observational/qualitative/prediction studies.' },
+      { key: 'risk_of_bias', label: 'Risk of bias assessment', desc: 'Evaluate study-level bias (Cochrane tools).' },
+      { key: 'cost_effectiveness', label: 'Cost-effectiveness / health economics', desc: 'QALYs, ICERs.' },
+      { key: 'policy_cost_benefit', label: 'Policy impact & cost–benefit analysis', desc: 'Estimate social/economic impacts.' },
+    ],
+  },
+];
+
 const StatisticalResearchOrchestratorPage: React.FC = () => {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -761,7 +928,10 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-          throw new Error(errorData.error || `Server error: ${response.status}`);
+          const msg = response.status === 503
+            ? (errorData.error || 'DataMaestro analysis service is not configured. Your admin should set STATISTICAL_ORCHESTRATOR_URL on the backend and deploy the statistical orchestrator. Use OPENAI_MODEL=code-gpt-5.2-codex on that service for best results.')
+            : (errorData.error || `Server error: ${response.status}`);
+          throw new Error(msg);
         }
 
         if (progressInterval) clearInterval(progressInterval);
@@ -1264,6 +1434,24 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
                     />
                   </div>
                 )}
+                {intakeStage === 'basic' && (
+                  <div className="sr-form-row" style={{ marginTop: 16, gap: 12, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="sr-button-primary"
+                      onClick={() => setIntakeStage('inputs')}
+                    >
+                      Continue to upload & run analysis
+                    </button>
+                    <button
+                      type="button"
+                      className="sr-button-secondary"
+                      onClick={() => setIntakeStage('inputs')}
+                    >
+                      Configure manually
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Dataset Summary, sample preview, and test modules only after intake stage */}
@@ -1338,124 +1526,30 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
                       <span className="sr-checkbox-text">Auto-select best tests (Gaply)</span>
                     </label>
                     {!autoSelectTests && (
-                      <div className="sr-modules-grid" style={{ marginTop: '12px' }}>
-                        {[
-                      {
-                        key: 'data_preparation',
-                        label: '1. Data Preparation & Screening',
-                        desc: 'Data cleaning, missing value analysis, outlier detection, transformations, coding & recoding, reverse coding, scale scores.',
-                      },
-                      {
-                        key: 'descriptive_stats',
-                        label: '2. Descriptive Statistics',
-                        desc: 'Frequency, percentage, mean, median, mode, min/max, range, variance, SD, IQR, skewness, kurtosis, cross-tabs.',
-                      },
-                      {
-                        key: 'assumption_tests',
-                        label: '3. Assumption Testing',
-                        desc: 'Shapiro–Wilk, KS, Anderson–Darling, Q–Q, histogram, Levene, Bartlett, Box’s M, scatter, Durbin–Watson.',
-                      },
-                      {
-                        key: 'reliability',
-                        label: '4. Reliability Analysis',
-                        desc: 'Cronbach’s alpha, McDonald’s omega, split-half, composite reliability, item-total, alpha if deleted.',
-                      },
-                      {
-                        key: 'validity',
-                        label: '5. Validity Analysis',
-                        desc: 'CVI, EFA, CFA, AVE, Fornell–Larcker, HTMT ratio.',
-                      },
-                      {
-                        key: 'parametric_tests',
-                        label: '6. Parametric Tests',
-                        desc: 'One-sample, independent, paired t-tests; one-way/two-way/repeated ANOVA; MANOVA/MANCOVA/ANCOVA; post-hoc.',
-                      },
-                      {
-                        key: 'non_parametric_tests',
-                        label: '7. Non-Parametric Tests',
-                        desc: 'Mann–Whitney, Wilcoxon, Kruskal–Wallis, Friedman, Chi-Square, Fisher’s Exact, McNemar.',
-                      },
-                      {
-                        key: 'association',
-                        label: '8. Association & Relationship',
-                        desc: 'Pearson, Spearman, Kendall’s tau, point-biserial, partial, Cohen’s kappa, Fleiss’ kappa, ICC.',
-                      },
-                      {
-                        key: 'regression',
-                        label: '9. Regression Analysis',
-                        desc: 'Simple/multiple linear, logistic, hierarchical, stepwise, polynomial, ridge, lasso, diagnostics.',
-                      },
-                      {
-                        key: 'mediation',
-                        label: '10. Mediation & Moderation',
-                        desc: 'Baron & Kenny, bootstrapped mediation, moderation, moderated mediation, PROCESS-style.',
-                      },
-                      {
-                        key: 'sem',
-                        label: '11. SEM / Path Analysis',
-                        desc: 'CB-SEM, PLS-SEM, measurement/structural models, fit indices (χ², RMSEA, CFI, TLI, SRMR).',
-                      },
-                      {
-                        key: 'multivariate',
-                        label: '12. Multivariate Analysis',
-                        desc: 'PCA, factor analysis, discriminant, canonical correlation, cluster analysis, MDS.',
-                      },
-                      {
-                        key: 'time_series',
-                        label: '13. Time Series & Longitudinal',
-                        desc: 'Trend, seasonal decomposition, ACF/PACF, ARIMA/SARIMA, panel data.',
-                      },
-                      {
-                        key: 'survival',
-                        label: '14. Survival & Event Analysis',
-                        desc: 'Kaplan–Meier, log-rank, Cox proportional hazards.',
-                      },
-                      {
-                        key: 'experimental',
-                        label: '15. Experimental / Design-Based',
-                        desc: 'RCT analysis, pre/post design, factorial, Latin square, mixed-design ANOVA.',
-                      },
-                      {
-                        key: 'effect_power',
-                        label: '16. Effect Size & Power',
-                        desc: 'Cohen’s d, eta squared, partial eta squared, odds ratio, relative risk, power analysis.',
-                      },
-                      {
-                        key: 'ml_analytics',
-                        label: '17. ML & Advanced Analytics',
-                        desc: 'Classification, regression trees, neural networks, clustering, feature importance.',
-                      },
-                      {
-                        key: 'qual_mixed',
-                        label: '18. Qualitative / Mixed Methods',
-                        desc: 'Thematic, content analysis, grounded theory coding, sentiment, NVivo/Atlas.ti metrics.',
-                      },
-                      {
-                        key: 'domain_addons',
-                        label: '19. Domain-Specific Add-ons',
-                        desc: 'SERVQUAL, balanced scorecard, IRT/Rasch, legal text analysis, DOE/response surface.',
-                      },
-                      {
-                        key: 'reporting_integrity',
-                        label: '20. Reporting & Integrity Checks',
-                        desc: 'Assumption verification, diagnostics, robustness, sensitivity, reproducibility.',
-                      },
-                    ].map((m) => (
-                      <label key={m.key} className="sr-checkbox-label sr-module-item">
-                        <input
-                          type="checkbox"
-                          checked={selectedModules.includes(m.key)}
-                          onChange={() => toggleModule(m.key)}
-                          className="sr-checkbox"
-                        />
-                        <span className="sr-checkbox-text">
-                          {m.label}
-                          <span className="sr-checkbox-desc">{m.desc}</span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                )}
+                      <div style={{ marginTop: '12px' }}>
+                        {TEST_MODULES_BY_CATEGORY.map(({ category, modules }) => (
+                          <div key={category} style={{ marginBottom: 20 }}>
+                            <h4 className="sr-section-title" style={{ fontSize: '0.95rem', marginBottom: 8, color: 'var(--sr-text-secondary, #64748b)' }}>{category}</h4>
+                            <div className="sr-modules-grid">
+                              {modules.map((m) => (
+                                <label key={m.key} className="sr-checkbox-label sr-module-item">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedModules.includes(m.key)}
+                                    onChange={() => toggleModule(m.key)}
+                                    className="sr-checkbox"
+                                  />
+                                  <span className="sr-checkbox-text">
+                                    {m.label}
+                                    <span className="sr-checkbox-desc">{m.desc}</span>
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
               </div>
                 </>
               )}
