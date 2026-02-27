@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import SEO from './SEO';
 import { apiFetch } from '../api/config';
+import { enhanceFormalReportHTML } from '../utils/formalResearchReportEnhance';
 import * as XLSX from 'xlsx';
 import './StatisticalResearchOrchestratorPage.css';
 
@@ -263,6 +264,20 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
   const [intakeLoading, setIntakeLoading] = useState(false);
   const [intakeError, setIntakeError] = useState<string | null>(null);
   const [intakeStage, setIntakeStage] = useState<'basic' | 'inputs'>('basic');
+
+  // Formal international research report styling + auto-charts from tables
+  const enhancedExecutiveReport = useMemo(() => {
+    const raw = result?.executive_summary_report || result?.html_report;
+    return raw ? enhanceFormalReportHTML(raw, title || 'Executive Summary') : '';
+  }, [result?.executive_summary_report, result?.html_report, title]);
+  const enhancedResultsReport = useMemo(() => {
+    const raw = result?.results_chapter_report || result?.html_report;
+    return raw ? enhanceFormalReportHTML(raw, title || 'Results Chapter') : '';
+  }, [result?.results_chapter_report, result?.html_report, title]);
+  const enhancedFullReport = useMemo(() => {
+    const raw = result?.html_report;
+    return raw ? enhanceFormalReportHTML(raw, title || 'Research Report') : '';
+  }, [result?.html_report, title]);
 
   // Calculate descriptive statistics from sample data
   const calculateDescriptiveStats = (data: Record<string, any>[]) => {
@@ -909,6 +924,14 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
         tasks: tasks.length > 0 ? tasks : ['recommend_tests', 'explain_what_why_how', 'generate_html_report'],
         max_tokens_for_response: maxTokens || 8000,
         selected_modules: autoSelectTests ? [] : selectedModules,
+        report_instructions: {
+          style: 'formal_international_research',
+          depth: 'very_deep',
+          require_figures: true,
+          figure_types: ['bar', 'line', 'distribution', 'scatter', 'grouped_bar'],
+          table_and_figure_captions: true,
+          apa_format: true,
+        },
       };
 
       // Add parsed tables and file metadata if file was uploaded
@@ -1712,20 +1735,22 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
                     <h3>Complete HTML Report</h3>
                     <div className="sr-html-report">
                       <iframe
-                        srcDoc={result.html_report}
+                        srcDoc={enhancedFullReport}
                         title="Statistical Analysis Report"
                         className="sr-report-iframe"
+                        style={{width: '100%', minHeight: '800px', border: 'none', borderRadius: '12px'}}
                       />
                     </div>
                     <button
                       className="sr-button-secondary"
                       onClick={() => {
-                        const blob = new Blob([result.html_report], { type: 'text/html' });
+                        const blob = new Blob([enhancedFullReport], { type: 'text/html' });
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = url;
                         a.download = `${title.replace(/\s+/g, '_')}_report.html`;
                         a.click();
+                        URL.revokeObjectURL(url);
                       }}
                     >
                       Download HTML Report
@@ -1789,8 +1814,7 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
                         className="sr-button-primary"
                         style={{padding: '10px 20px', fontSize: '13px', fontWeight: '600'}}
                         onClick={() => {
-                          const html = result.executive_summary_report || result.html_report;
-                          const blob = new Blob([html], { type: 'text/html' });
+                          const blob = new Blob([enhancedExecutiveReport], { type: 'text/html' });
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement('a');
                           a.href = url;
@@ -1804,7 +1828,7 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
                     </div>
                     <div className="sr-html-report">
                       <iframe
-                        srcDoc={result.executive_summary_report || result.html_report}
+                        srcDoc={enhancedExecutiveReport}
                         title="Executive Summary Report"
                         className="sr-report-iframe"
                         style={{width: '100%', minHeight: '800px', border: 'none', borderRadius: '12px'}}
@@ -1826,8 +1850,7 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
                         className="sr-button-primary"
                         style={{padding: '10px 20px', fontSize: '13px', fontWeight: '600'}}
                         onClick={() => {
-                          const html = result.results_chapter_report || result.html_report;
-                          const blob = new Blob([html], { type: 'text/html' });
+                          const blob = new Blob([enhancedResultsReport], { type: 'text/html' });
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement('a');
                           a.href = url;
@@ -1841,7 +1864,7 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
                     </div>
                     <div className="sr-html-report">
                       <iframe
-                        srcDoc={result.results_chapter_report || result.html_report}
+                        srcDoc={enhancedResultsReport}
                         title="Results Chapter Report"
                         className="sr-report-iframe"
                         style={{width: '100%', minHeight: '800px', border: 'none', borderRadius: '12px'}}
