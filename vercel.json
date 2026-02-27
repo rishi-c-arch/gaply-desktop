@@ -40,12 +40,11 @@
         },
         {
           "key": "Cross-Origin-Opener-Policy",
-          "value": "same-origin"
+          "value": "same-origin-allow-popups"
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.googletagmanager.com https://www.google-analytics.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https://gaply-backend-production.up.railway.app https://gaply-backend-gaply.up.railway.app https://api.razorpay.com https://www.google-analytics.com https://api.openalex.org https://api.semanticscholar.org https://api.crossref.org https://export.arxiv.org; frame-src https://api.razorpay.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests"
-        },
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.googletagmanager.com https://www.google-analytics.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' https: wss:; frame-src https://api.razorpay.com; worker-src 'self' blob:; manifest-src 'self'"
         {
           "key": "Cache-Control",
           "value": "public, max-age=0, must-revalidate"
