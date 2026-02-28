@@ -16,6 +16,7 @@ import Overview from './pages/Overview';
 import ProjectsPage from './pages/ProjectsPage';
 import UsagePage from './pages/UsagePage';
 import SettingsPage from './pages/SettingsPage';
+import DashboardLayout from './components/Layout/DashboardLayout';
 import PackageSelection from './components/PackageSelection';
 import LoginPage from './components/LoginPage';
 import SignupPage from './components/SignupPage';
@@ -461,6 +462,18 @@ const AppContent: React.FC = () => {
                 keywords="academic research dashboard, thesis writing dashboard, AI detection dashboard, journal matching dashboard, research progress tracking, academic project management"
               />
               <Overview />
+            </>
+          } />
+          <Route path="/dashboard/publishready" element={
+            <>
+              <SEOHead 
+                title="PublishReady | Document Analysis Orchestrator - Gaply"
+                description="Run chunk-by-chunk manuscript analysis with strict JSON output and publication chance estimation."
+                keywords="document analysis orchestrator, publication chance estimator, journal guidelines compliance, academic AI analysis, PublishReady"
+              />
+              <DashboardLayout pageTitle="PublishReady">
+                <DocumentOrchestratorPage />
+              </DashboardLayout>
             </>
           } />
           <Route path="/dashboard/projects" element={
