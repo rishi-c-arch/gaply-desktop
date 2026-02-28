@@ -297,19 +297,29 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
     setRefereeExpanded(false);
   };
 
-  // Generate meaningful chunk names from text
+  // Detect if content is raw PDF/binary so we never render it in the UI
+  const isLikelyBinaryOrCorrupted = (text: string): boolean => {
+    if (!text || text.length < 50) return false;
+    const sample = text.slice(0, 4000);
+    if (/\/FlateDecode|\/Length\s+\d+|%PDF|<<\s*\/Filter/.test(sample)) return true;
+    const printable = (sample.match(/[\x20-\x7E\r\n\t]/g) || []).length;
+    return printable / sample.length < 0.7;
+  };
+
+  // Generate meaningful chunk names; never show binary/corrupted content in UI
   const generateChunkName = (text: string, index: number): string => {
+    if (!text || isLikelyBinaryOrCorrupted(text)) return `Section ${index + 1}`;
     const firstLine = text.split('\n')[0].trim();
     if (firstLine.length > 0 && firstLine.length < 60) {
-      // Check if it looks like a heading
+      if (/[^\x20-\x7E\r\n\t]/.test(firstLine)) return `Section ${index + 1}`;
       if (firstLine === firstLine.toUpperCase() || /^[A-Z][a-z]+/.test(firstLine)) {
         return firstLine.length > 50 ? firstLine.slice(0, 47) + '...' : firstLine;
       }
     }
-    // Extract first meaningful sentence
     const sentences = text.split(/[.!?]\s+/).filter(s => s.trim().length > 20);
     if (sentences.length > 0) {
       const name = sentences[0].trim();
+      if (/[^\x20-\x7E\r\n\t]/.test(name)) return `Section ${index + 1}`;
       return name.length > 50 ? name.slice(0, 47) + '...' : name;
     }
     return `Section ${index + 1}`;
@@ -426,6 +436,11 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
         sourceText = uploadJson.extracted_text || '';
         if (!sourceText) {
           throw new Error('No text extracted from upload. Try pasting text.');
+        }
+        if (isLikelyBinaryOrCorrupted(sourceText)) {
+          throw new Error(
+            'The uploaded file did not produce readable text (possible PDF extraction issue). Please paste your manuscript text below instead, or try a different file.'
+          );
         }
       }
 
