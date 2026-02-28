@@ -287,7 +287,17 @@ const AppContent: React.FC = () => {
           <Route path="/final-orchestrator" element={
             <>
               <SEOHead 
-                title="Final Analysis Suite | Gaply"
+                title="Document Analysis Orchestrator | PublishReady - Gaply"
+                description="Run chunk-level analysis with strict JSON output and publication chance estimation. Uses gaply-orchestrator for full manuscript analysis."
+                keywords="document analysis orchestrator, publication chance, PublishReady, gaply-orchestrator, journal guidelines"
+              />
+              <DocumentOrchestratorPage />
+            </>
+          } />
+          <Route path="/manuscript-upload" element={
+            <>
+              <SEOHead 
+                title="Upload Manuscript | Final Analysis Suite - Gaply"
                 description="Upload manuscript files, add journal links, and generate a clean report with Gaply chat support."
                 keywords="final analysis suite, manuscript upload, journal submission assistant, gaply chat"
               />
