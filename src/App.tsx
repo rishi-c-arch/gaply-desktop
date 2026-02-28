@@ -477,12 +477,12 @@ const AppContent: React.FC = () => {
           <Route path="/dashboard/publishready" element={
             <>
               <SEOHead 
-                title="PublishReady | Document Analysis Orchestrator - Gaply"
-                description="Run chunk-by-chunk manuscript analysis with strict JSON output and publication chance estimation."
-                keywords="document analysis orchestrator, publication chance estimator, journal guidelines compliance, academic AI analysis, PublishReady"
+                title="PublishReady | Upload Manuscript & Full Analysis - Gaply"
+                description="Upload your manuscript (PDF, DOCX, TXT), add journal link, and run full analysis with referee-style review, report, and chat. Uses gaply-orchestrator."
+                keywords="PublishReady, manuscript upload, document analysis, publication chance, referee review, gaply-orchestrator"
               />
               <DashboardLayout pageTitle="PublishReady">
-                <DocumentOrchestratorPage />
+                <ManuscriptOrchestratorPage />
               </DashboardLayout>
             </>
           } />
