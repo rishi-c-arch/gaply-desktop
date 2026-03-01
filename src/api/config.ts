@@ -30,8 +30,10 @@ export function buildApiUrl(path: string): string {
 export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
   const path = input.startsWith('http') ? input : buildApiUrl(input);
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
+  const authToken = typeof localStorage !== 'undefined' ? localStorage.getItem('authToken') : null;
   const headers: HeadersInit = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...(init?.headers || {}),
   };
 

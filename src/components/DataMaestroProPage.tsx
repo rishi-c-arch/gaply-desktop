@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import SEO from './SEO';
 import { apiFetch } from '../api/config';
+import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import './DataMaestroProPage.css';
 
@@ -26,6 +27,7 @@ const ANALYSIS_MODULES = [
 ];
 
 const DataMaestroProPage: React.FC = () => {
+  const { token } = useAuth();
   const [step, setStep] = useState(1);
   const [sessionId, setSessionId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -56,7 +58,21 @@ const DataMaestroProPage: React.FC = () => {
     if (!title.trim()) { setError('Please enter a research title'); return; }
     const validObj = objectives.filter(o => o.trim());
     if (validObj.length === 0) { setError('Please enter at least one objective'); return; }
-    setLoading(true); setError(null); setProgress(0); setProgressMsg('Analyzing your research context...');
+    if (!token) { setError('Please log in to use DataMaestro.'); return; }
+    setLoading(true); setError(null); setProgress(0); setProgressMsg('Checking your plan...');
+    try {
+      const consumeRes = await apiFetch('/api/dashboard/consume-datamaestro', { method: 'POST' });
+      if (!consumeRes.ok) {
+        setError(consumeRes.status === 403 ? 'No remaining DataMaestro uses. Please upgrade your plan.' : 'Unable to start. Please try again.');
+        setLoading(false);
+        return;
+      }
+    } catch {
+      setError('Unable to start. Please try again.');
+      setLoading(false);
+      return;
+    }
+    setProgressMsg('Analyzing your research context...');
     const interval = setInterval(() => setProgress(p => Math.min(p + Math.random() * 8, 90)), 400);
     try {
       const res = await apiFetch('/api/datamaestro/setup', { method: 'POST', body: JSON.stringify({ title: title.trim(), objectives: validObj, methodology, research_area: researchArea }) });

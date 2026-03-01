@@ -16,6 +16,7 @@ import Overview from './pages/Overview';
 import ProjectsPage from './pages/ProjectsPage';
 import UsagePage from './pages/UsagePage';
 import SettingsPage from './pages/SettingsPage';
+import BillingPage from './pages/BillingPage';
 import DashboardLayout from './components/Layout/DashboardLayout';
 import PackageSelection from './components/PackageSelection';
 import LoginPage from './components/LoginPage';
@@ -514,6 +515,16 @@ const AppContent: React.FC = () => {
                 keywords="settings, account, billing, profile, support"
               />
               <SettingsPage />
+            </>
+          } />
+          <Route path="/dashboard/billing" element={
+            <>
+              <SEOHead 
+                title="Billing | Gaply"
+                description="View your billing history and recent transactions."
+                keywords="billing, transactions, subscription, payments"
+              />
+              <BillingPage />
             </>
           } />
         </Routes>

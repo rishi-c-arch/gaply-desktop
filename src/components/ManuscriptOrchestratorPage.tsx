@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useRef, useCallback } from 'react';
 import SEO from './SEO';
 import { apiFetch } from '../api/config';
+import { useAuth } from '../contexts/AuthContext';
 import MarkdownRenderer from './MarkdownRenderer';
 import { downloadHTMLReport } from './HTMLReportGenerator';
 import { downloadTurnitinStyleReport } from './TurnitinStyleReportGenerator';
@@ -206,6 +207,7 @@ export interface ManuscriptOrchestratorPageProps {
 }
 
 const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({ onBeforeSubmit }) => {
+  const { token } = useAuth();
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [pastedText, setPastedText] = useState('');
   const [journalLink, setJournalLink] = useState('');
@@ -394,6 +396,23 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
     if (!canSubmit) {
       setStatus('error');
       setStatusMessage('Please upload a file or paste text.');
+      return;
+    }
+
+    if (!token) {
+      setStatus('error');
+      setStatusMessage('Please log in to use PublishReady.');
+      return;
+    }
+
+    const consumeRes = await apiFetch('/api/dashboard/consume-publishready', { method: 'POST' });
+    if (!consumeRes.ok) {
+      setStatus('error');
+      setStatusMessage(
+        consumeRes.status === 403
+          ? 'No remaining PublishReady uses. Please upgrade your plan.'
+          : 'Unable to start analysis. Please try again.'
+      );
       return;
     }
 
