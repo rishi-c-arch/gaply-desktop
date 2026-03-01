@@ -10,14 +10,15 @@ interface StatsCardProps {
 const StatsCard: React.FC<StatsCardProps> = ({ title, value, showInfo }) => {
   return (
     <div
+      className="dashboard-card"
       style={{
         background: 'var(--dashboard-card-bg)',
         borderRadius: 12,
         border: '1px solid var(--dashboard-border)',
-        padding: 20,
+        padding: 24,
         flex: 1,
         minWidth: 0,
-        transition: 'all 150ms ease',
+        transition: 'border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>

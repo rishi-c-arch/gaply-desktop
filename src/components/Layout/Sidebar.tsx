@@ -42,17 +42,12 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const isOverview = location.pathname === '/dashboard' || location.pathname === '/account' || location.pathname === '/my-account';
-  const isProjects = location.pathname === '/dashboard/projects';
-  const isUsage = location.pathname === '/dashboard/usage';
-  const isSettings = location.pathname === '/dashboard/settings';
-
   const handleNavClick = (path: string, _premium?: boolean) => {
     navigate(path);
     if (isMobile) onMobileClose();
   };
 
-  const width = isMobile ? 240 : (collapsed ? 64 : 240);
+  const width = isMobile ? 260 : (collapsed ? 64 : 260);
 
   return (
     <aside
@@ -112,7 +107,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       <nav style={{ flex: 1, padding: '12px 0', marginTop: 8 }}>
         {NAV_ITEMS.map((item) => {
-          const isActive = (item.id === 'overview' && isOverview) || (item.id === 'projects' && isProjects) || (item.id === 'usage' && isUsage) || (item.id === 'settings' && isSettings);
+          const isActive = location.pathname === item.path || (item.id === 'overview' && (location.pathname === '/account' || location.pathname === '/my-account'));
           const isPremium = item.premium === true;
           const Icon = item.icon;
           return (

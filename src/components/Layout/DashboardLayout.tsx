@@ -26,11 +26,11 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, pageTitle }
     return () => window.removeEventListener('resize', handler);
   }, []);
 
-  const sidebarWidth = isMobile ? 0 : (collapsed ? 64 : 240);
+  const sidebarWidth = isMobile ? 0 : (collapsed ? 64 : 260);
   const showSidebarOverlay = isMobile && mobileMenuOpen;
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--dashboard-bg)' }}>
+    <div className="dashboard-premium-wrapper" style={{ display: 'flex', minHeight: '100vh', background: 'var(--dashboard-bg)' }}>
       {showSidebarOverlay && (
         <div
           onClick={() => setMobileMenuOpen(false)}

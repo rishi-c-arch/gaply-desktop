@@ -59,12 +59,14 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
 
   return (
     <div
+      className="dashboard-card"
       style={{
         background: 'var(--dashboard-card-bg)',
         borderRadius: 12,
         border: '1px solid var(--dashboard-border)',
         padding: 24,
         marginBottom: 24,
+        transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
