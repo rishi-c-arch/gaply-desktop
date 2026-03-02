@@ -1,9 +1,11 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import '../styles/variables.css';
 import '../styles/animations.css';
 import '../styles/free-features-new.css';
 
 export default function FreeFeatures() {
+  const navigate = useNavigate();
   return (
     <section className="free2-section" aria-labelledby="free2-heading">
       {/* Giant 02 index background */}
@@ -66,7 +68,7 @@ export default function FreeFeatures() {
 
             <div className="free2-card-footer">
               <span className="free2-module-label">MODULE_01</span>
-              <button className="free2-interaction" type="button" aria-label="Open Paper Search">
+              <button className="free2-interaction" type="button" aria-label="Open Paper Search" onClick={() => navigate('/paper-search')}>
                 <span className="material-symbols-outlined free2-interaction-icon">arrow_forward</span>
               </button>
             </div>
@@ -97,7 +99,7 @@ export default function FreeFeatures() {
 
             <div className="free2-card-footer">
               <span className="free2-module-label">MODULE_02</span>
-              <button className="free2-interaction" type="button" aria-label="Open Journal Match">
+              <button className="free2-interaction" type="button" aria-label="Open Journal Match" onClick={() => navigate('/journal-matching')}>
                 <span className="material-symbols-outlined free2-interaction-icon">arrow_forward</span>
               </button>
             </div>

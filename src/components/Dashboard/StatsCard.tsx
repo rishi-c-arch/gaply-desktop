@@ -12,17 +12,17 @@ const StatsCard: React.FC<StatsCardProps> = ({ title, value, showInfo }) => {
     <div
       className="dashboard-card"
       style={{
-        background: 'var(--dashboard-card-bg)',
-        borderRadius: 12,
-        border: '1px solid var(--dashboard-border)',
+        background: '#020617',
+        borderRadius: 16,
+        border: '1px solid rgba(30, 64, 175, 0.4)',
         padding: 24,
         flex: 1,
         minWidth: 0,
-        transition: 'border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease',
+        boxShadow: '0 16px 40px rgba(15,23,42,0.7)',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontSize: 14, color: 'var(--dashboard-text-muted)', fontWeight: 500 }}>{title}</span>
+        <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 500 }}>{title}</span>
         {showInfo && (
           <button
             style={{
@@ -30,7 +30,7 @@ const StatsCard: React.FC<StatsCardProps> = ({ title, value, showInfo }) => {
               border: 'none',
               cursor: 'pointer',
               padding: 4,
-              color: 'var(--dashboard-text-muted)',
+              color: '#9ca3af',
             }}
             title="Info"
           >
@@ -38,7 +38,7 @@ const StatsCard: React.FC<StatsCardProps> = ({ title, value, showInfo }) => {
           </button>
         )}
       </div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--dashboard-text)' }}>{value}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, color: '#e5e7eb' }}>{value}</div>
     </div>
   );
 };

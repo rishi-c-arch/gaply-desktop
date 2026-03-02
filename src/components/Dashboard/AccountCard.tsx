@@ -131,13 +131,13 @@ const AccountCard: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <div
         style={{
-          background: 'var(--dashboard-card-bg)',
-          borderRadius: 12,
-          border: '1px solid var(--dashboard-border)',
+          background: '#020617',
+          borderRadius: 16,
+          border: '1px solid rgba(30, 64, 175, 0.4)',
           padding: 24,
         }}
       >
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--dashboard-text)', margin: '0 0 16px 0' }}>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: '#e5e7eb', margin: '0 0 16px 0' }}>
           Your Account
         </h3>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -160,7 +160,7 @@ const AccountCard: React.FC = () => {
                 Permanently delete your account and all data?
               </span>
             </div>
-            <p style={{ fontSize: 12, color: 'var(--dashboard-text-muted)', margin: '0 0 12px 0' }}>
+            <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 12px 0' }}>
               Your email, password, and all account data will be removed from our systems. This cannot be undone.
             </p>
             {error && (
@@ -175,9 +175,9 @@ const AccountCard: React.FC = () => {
                   padding: '8px 16px',
                   fontSize: 13,
                   fontWeight: 500,
-                  color: 'var(--dashboard-text)',
-                  background: 'var(--dashboard-sidebar-active-bg)',
-                  border: '1px solid var(--dashboard-border)',
+                  color: '#e5e7eb',
+                  background: '#020617',
+                  border: '1px solid rgba(30, 64, 175, 0.6)',
                   borderRadius: 8,
                   cursor: deleting ? 'not-allowed' : 'pointer',
                 }}
@@ -212,10 +212,10 @@ const AccountCard: React.FC = () => {
             width: '100%',
             marginTop: confirmDelete ? 0 : 16,
             padding: '12px 16px',
-            background: confirmDelete ? 'var(--dashboard-sidebar-active-bg)' : 'var(--dashboard-danger)',
-            border: `1px solid ${confirmDelete ? 'var(--dashboard-border)' : 'transparent'}`,
+            background: confirmDelete ? '#020617' : '#ef4444',
+            border: `1px solid ${confirmDelete ? 'rgba(30,64,175,0.6)' : 'transparent'}`,
             borderRadius: 8,
-            color: confirmDelete ? 'var(--dashboard-text)' : '#FFFFFF',
+            color: confirmDelete ? '#e5e7eb' : '#FFFFFF',
             fontSize: 14,
             fontWeight: 600,
             cursor: deleting ? 'not-allowed' : 'pointer',
@@ -228,13 +228,13 @@ const AccountCard: React.FC = () => {
 
       <div
         style={{
-          background: 'var(--dashboard-card-bg)',
-          borderRadius: 12,
-          border: '1px solid var(--dashboard-border)',
+          background: '#020617',
+          borderRadius: 16,
+          border: '1px solid rgba(30, 64, 175, 0.4)',
           padding: 24,
         }}
       >
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--dashboard-text)', margin: '0 0 16px 0' }}>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: '#e5e7eb', margin: '0 0 16px 0' }}>
           Customer Support
         </h3>
         <div style={{ display: 'flex', flexDirection: 'column' }}>

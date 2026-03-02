@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { searchPapers } from '../api/freeFeatures';
 import './PaperSearchPage.css';
 
 interface SearchResult {
@@ -18,43 +19,61 @@ const PaperSearchPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchSource, setSearchSource] = useState<'backend' | 'fallback'>('backend');
 
-  // Enhanced search function with multiple academic databases
+  // Search: backend first (Gaply API), fallback to direct external APIs
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setIsSearching(true);
     setSearchResults([]);
 
     try {
-      // Search multiple academic databases
+      // 1. Try backend (gaply-enhanced-backend /api/search)
+      const backendResp = await searchPapers(searchQuery, { perPage: 15 });
+      if (backendResp?.results?.length) {
+        const mapped: SearchResult[] = backendResp.results.map((r) => ({
+          title: r.title || 'Untitled',
+          authors: Array.isArray(r.authors) ? r.authors.join(', ') : String(r.authors || 'Unknown Authors'),
+          abstract: r.abstract || 'No abstract available',
+          source: r.source_providers?.[0] || r.venue || 'Gaply',
+          url: r.open_url || r.pdf_url || (r.doi ? `https://doi.org/${r.doi}` : '#'),
+          year: r.year ? String(r.year) : '',
+          doi: r.doi,
+          citations: r.citation_count,
+        }));
+        setSearchResults(mapped.slice(0, 15));
+        setSearchSource('backend');
+        setIsSearching(false);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend search failed, using fallback:', err);
+    }
+
+    // 2. Fallback: direct external APIs
+    try {
       const searchPromises = [
         searchArXiv(searchQuery),
         searchCrossRef(searchQuery),
         searchOpenAlex(searchQuery),
-        searchSemanticScholar(searchQuery)
+        searchSemanticScholar(searchQuery),
       ];
-
       const allResults = await Promise.allSettled(searchPromises);
       const combinedResults: SearchResult[] = [];
-
       allResults.forEach((result) => {
         if (result.status === 'fulfilled' && result.value) {
           combinedResults.push(...result.value);
         }
       });
-
-      // Remove duplicates and limit to top 15 results
       const uniqueResults = combinedResults
-        .filter((result, index, self) => 
-          index === self.findIndex(r => r.title === result.title)
-        )
+        .filter((result, index, self) => index === self.findIndex((r) => r.title === result.title))
         .slice(0, 15);
-
       setSearchResults(uniqueResults);
+      setSearchSource('fallback');
     } catch (error) {
       console.error('Search error:', error);
-      // Fallback to mock results if all APIs fail
       setSearchResults(generateMockResults(searchQuery));
+      setSearchSource('fallback');
     }
 
     setIsSearching(false);
@@ -284,7 +303,7 @@ const PaperSearchPage: React.FC = () => {
                 color: 'var(--muted-text)',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
               }}>
-                Powered by arXiv, CrossRef, OpenAlex & Semantic Scholar
+                {searchSource === 'backend' ? 'Powered by Gaply Backend' : 'Powered by arXiv, CrossRef, OpenAlex & Semantic Scholar'}
               </div>
             </div>
 

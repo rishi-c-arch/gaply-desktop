@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { recommendJournals } from '../api/freeFeatures';
 import './JournalMatchingPage.css';
 
 interface JournalResult {
@@ -353,86 +354,77 @@ const JournalMatchingPage: React.FC = () => {
     };
   };
 
-  // Enhanced journal matching function
+  const [matchSource, setMatchSource] = useState<'backend' | 'fallback'>('backend');
+
+  // Journal matching: backend first (Gaply API), fallback to local database
   const handleMatch = async () => {
     if (!jmTitle.trim() || !jmAbstract.trim()) {
-      // Show sample results for demonstration
-      const sampleResults = [
-        {
-          journal: 'International Organization',
-          publisher: 'Cambridge University Press',
-          quartile: 'Q1',
-          impactFactor: 4.8,
-          acceptanceRate: '12%',
-          domain: 'Political Science & International Relations',
-          submissionUrl: 'https://www.cambridge.org/core/journals/international-organization/information/author-instructions',
-          guidelinesUrl: 'https://www.cambridge.org/core/journals/international-organization/information/author-instructions',
-          scope: 'International relations, global governance, political economy',
-          indexing: ['SSCI', 'Scopus'],
-          openAccess: false,
-          processingTime: '4-8 months',
-          articleProcessingCharge: 'N/A'
-        },
-        {
-          journal: 'American Political Science Review',
-          publisher: 'Cambridge University Press',
-          quartile: 'Q1',
-          impactFactor: 4.2,
-          acceptanceRate: '8%',
-          domain: 'Political Science & International Relations',
-          submissionUrl: 'https://www.cambridge.org/core/journals/american-political-science-review/information/author-instructions',
-          guidelinesUrl: 'https://www.cambridge.org/core/journals/american-political-science-review/information/author-instructions',
-          scope: 'Political science theory, comparative politics, international relations',
-          indexing: ['SSCI', 'Scopus'],
-          openAccess: false,
-          processingTime: '6-12 months',
-          articleProcessingCharge: 'N/A'
-        }
-      ];
-      setJournalResults(sampleResults);
-      setDomainAnalysis({
-        primaryDomain: 'Political Science & International Relations',
-        secondaryDomains: ['Social Sciences'],
-        keywords: ['diplomacy', 'international', 'china', 'southeast asia'],
-        methodology: 'Quantitative',
-        researchType: 'Research Article'
-      });
+      setJournalResults([]);
+      setDomainAnalysis(null);
       return;
     }
 
     setIsMatching(true);
 
     try {
-      // Analyze domain
+      // 1. Try backend (gaply-enhanced-backend POST /api/recommend-journals)
+      const resp = await recommendJournals({
+        title: jmTitle,
+        abstract: jmAbstract,
+        filters: { limit: 10 },
+      });
+      if (resp?.recommendations?.length) {
+        const analysis = analyzeDomain(jmTitle, jmAbstract);
+        setDomainAnalysis(analysis);
+        const mapped: JournalResult[] = resp.recommendations.map((r) => {
+          const quartileVal = r.quartiles ? Object.values(r.quartiles)[0] : 'Q2';
+          const apc = r.apc_usd != null ? `$${r.apc_usd}` : 'N/A';
+          return {
+            journal: r.name,
+            publisher: r.publisher || '—',
+            quartile: quartileVal || 'Q2',
+            impactFactor: r.sjr_value ?? 0,
+            acceptanceRate: '—',
+            domain: r.subject_matches?.join(', ') || 'Multidisciplinary',
+            submissionUrl: r.submission_url || r.homepage || '#',
+            guidelinesUrl: r.submission_url || r.homepage || '#',
+            scope: r.aims_scope_snippet || 'Academic journal',
+            indexing: r.subject_matches?.length ? r.subject_matches : ['Scopus'],
+            openAccess: r.open_access,
+            processingTime: '—',
+            articleProcessingCharge: apc,
+          };
+        });
+        setJournalResults(mapped);
+        setMatchSource('backend');
+        setIsMatching(false);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend journal match failed, using fallback:', err);
+    }
+
+    // 2. Fallback: local domain-based matching
+    try {
       const analysis = analyzeDomain(jmTitle, jmAbstract);
       setDomainAnalysis(analysis);
-
-      // Get relevant journals from database
       const relevantJournals: JournalResult[] = [];
-      
-      // Primary domain journals
       if (journalDatabase[analysis.primaryDomain as keyof typeof journalDatabase]) {
         relevantJournals.push(...journalDatabase[analysis.primaryDomain as keyof typeof journalDatabase]);
       }
-
-      // Secondary domain journals (limited)
-      analysis.secondaryDomains.forEach(domain => {
+      analysis.secondaryDomains.forEach((domain) => {
         if (journalDatabase[domain as keyof typeof journalDatabase]) {
           relevantJournals.push(...journalDatabase[domain as keyof typeof journalDatabase].slice(0, 2));
         }
       });
-
-      // Sort by impact factor and relevance
       const sortedJournals = relevantJournals
         .sort((a, b) => b.impactFactor - a.impactFactor)
         .slice(0, 8);
-
       setJournalResults(sortedJournals);
-
+      setMatchSource('fallback');
     } catch (error) {
       console.error('Journal matching error:', error);
-      // Fallback to sample results
-      const fallbackResults = [
+      setJournalResults([
         {
           journal: 'PLOS ONE',
           publisher: 'PLOS',
@@ -446,10 +438,10 @@ const JournalMatchingPage: React.FC = () => {
           indexing: ['SCI', 'SCIE', 'Scopus'],
           openAccess: true,
           processingTime: '2-4 months',
-          articleProcessingCharge: '$1,695'
-        }
-      ];
-      setJournalResults(fallbackResults);
+          articleProcessingCharge: '$1,695',
+        },
+      ]);
+      setMatchSource('fallback');
     }
 
     setIsMatching(false);
@@ -545,7 +537,7 @@ const JournalMatchingPage: React.FC = () => {
                 color: 'var(--muted-text)',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
               }}>
-                Sorted by Impact Factor
+                {matchSource === 'backend' ? 'Powered by Gaply Backend' : 'Sorted by Impact Factor'}
               </div>
             </div>
 

@@ -61,16 +61,16 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
     <div
       className="dashboard-card"
       style={{
-        background: 'var(--dashboard-card-bg)',
-        borderRadius: 12,
-        border: '1px solid var(--dashboard-border)',
+        background: '#020617',
+        borderRadius: 16,
+        border: '1px solid rgba(30, 64, 175, 0.4)',
         padding: 24,
         marginBottom: 24,
-        transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+        boxShadow: '0 18px 45px rgba(15, 23, 42, 0.65)',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--dashboard-text)', margin: 0 }}>
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: '#e5e7eb', margin: 0 }}>
           Feature Usage Overview (PublishReady & DataMaestro)
         </h3>
         <div ref={calendarRef} style={{ position: 'relative' }}>
@@ -81,11 +81,11 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              background: 'rgba(59, 130, 246, 0.1)',
-              border: '1px solid var(--dashboard-border)',
+              background: 'rgba(59, 130, 246, 0.14)',
+              border: '1px solid rgba(30, 64, 175, 0.5)',
               borderRadius: 8,
               padding: '8px 12px',
-              color: 'var(--dashboard-text)',
+              color: '#e5e7eb',
               fontSize: 14,
               cursor: 'pointer',
             }}
@@ -102,16 +102,16 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
                 top: '100%',
                 right: 0,
                 marginTop: 8,
-                background: 'var(--dashboard-card-bg)',
-                border: '1px solid var(--dashboard-border)',
-                borderRadius: 12,
-                boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                background: '#020617',
+                border: '1px solid rgba(30, 64, 175, 0.5)',
+                borderRadius: 14,
+                boxShadow: '0 18px 45px rgba(15,23,42,0.85)',
                 padding: 20,
                 minWidth: 280,
                 zIndex: 50,
               }}
             >
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--dashboard-text-muted)', marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#9ca3af', marginBottom: 12 }}>
                 Choose period
               </div>
 
@@ -182,9 +182,9 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
                         padding: '10px 8px',
                         fontSize: 12,
                         fontWeight: 500,
-                        color: isSelected ? '#fff' : 'var(--dashboard-text)',
-                        background: isSelected ? 'var(--dashboard-accent)' : 'var(--dashboard-sidebar-active-bg)',
-                        border: `1px solid ${isSelected ? 'var(--dashboard-accent)' : 'var(--dashboard-border)'}`,
+                        color: isSelected ? '#f9fafb' : '#e5e7eb',
+                        background: isSelected ? '#3b82f6' : 'rgba(15,23,42,0.9)',
+                        border: `1px solid ${isSelected ? '#3b82f6' : 'rgba(30,64,175,0.6)'}`,
                         borderRadius: 8,
                         cursor: 'pointer',
                       }}
@@ -195,7 +195,7 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
                 })}
               </div>
 
-              <div style={{ marginTop: 12, fontSize: 12, color: 'var(--dashboard-text-muted)' }}>
+              <div style={{ marginTop: 12, fontSize: 12, color: '#9ca3af' }}>
                 {selectedMonth != null
                   ? `Usage for ${MONTHS[selectedMonth]} ${selectedYear}`
                   : `Monthly usage for ${selectedYear}`}
@@ -218,27 +218,27 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
                 <stop offset="95%" stopColor="#6B7280" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--dashboard-chart-grid)" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(51,65,85,0.7)" vertical={false} />
             <XAxis
               dataKey="month"
               axisLine={false}
               tickLine={false}
-              tick={{ fill: 'var(--dashboard-text-muted)', fontSize: 12 }}
+              tick={{ fill: '#9ca3af', fontSize: 12 }}
             />
             <YAxis
               domain={yDomain}
               axisLine={false}
               tickLine={false}
-              tick={{ fill: 'var(--dashboard-text-muted)', fontSize: 12 }}
+              tick={{ fill: '#9ca3af', fontSize: 12 }}
             />
             <Tooltip
               contentStyle={{
-                background: 'var(--dashboard-card-bg)',
-                border: '1px solid var(--dashboard-border)',
+                background: '#020617',
+                border: '1px solid rgba(30,64,175,0.6)',
                 borderRadius: 8,
-                color: 'var(--dashboard-text)',
+                color: '#e5e7eb',
               }}
-              labelStyle={{ color: 'var(--dashboard-text-muted)' }}
+              labelStyle={{ color: '#9ca3af' }}
               formatter={(value: number | undefined) => [value ?? 0, '']}
               labelFormatter={(label) => `${label} ${selectedYear}`}
             />
