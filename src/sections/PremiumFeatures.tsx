@@ -1,9 +1,29 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import '../styles/variables.css';
 import '../styles/animations.css';
 import '../styles/premium-features-new.css';
 
 export default function PremiumFeatures() {
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+
+  const goToPublishReady = () => {
+    if (isAuthenticated) {
+      navigate('/dashboard/publishready');
+    } else {
+      navigate('/login?redirect=/dashboard/publishready');
+    }
+  };
+
+  const goToDataMaestro = () => {
+    if (isAuthenticated) {
+      navigate('/dashboard/datamaestro');
+    } else {
+      navigate('/login?redirect=/dashboard/datamaestro');
+    }
+  };
   return (
     <section className="premium2-section" aria-labelledby="premium2-heading">
       {/* Background grid + fractal glow */}
@@ -63,7 +83,7 @@ export default function PremiumFeatures() {
                 <span className="premium2-avatar premium2-avatar--1" />
                 <span className="premium2-avatar premium2-avatar--2" />
               </div>
-              <button type="button" className="premium2-circle-btn" aria-label="Open DataMaestro">
+              <button type="button" className="premium2-circle-btn" aria-label="Open DataMaestro" onClick={goToDataMaestro}>
                 <span className="material-symbols-outlined">arrow_forward</span>
               </button>
             </div>
@@ -110,7 +130,7 @@ export default function PremiumFeatures() {
 
             <div className="premium2-card-footer premium2-card-footer--main">
               <span className="premium2-module-label">Module_01</span>
-              <button type="button" className="premium2-cta-btn" aria-label="Open PublishReady">
+              <button type="button" className="premium2-cta-btn" aria-label="Open PublishReady" onClick={goToPublishReady}>
                 <span className="material-symbols-outlined premium2-cta-icon">arrow_forward</span>
               </button>
             </div>

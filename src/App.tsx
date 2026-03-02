@@ -38,6 +38,7 @@ import StatisticalResearchOrchestratorPage from './components/StatisticalResearc
 import DataMaestroProPage from './components/DataMaestroProPage';
 import ContactPage from './components/ContactPage';
 import { AuthProvider } from './contexts/AuthContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{ title?: string; description?: string; keywords?: string }> = ({ 
@@ -380,8 +381,8 @@ const AppContent: React.FC = () => {
     removeFloatingOrb();
   }, []);
 
-  const handleAuthSuccess = (token: string, userData: any) => {
-    window.location.href = '/packages';
+  const handleAuthSuccess = (token: string, userData: any, redirect?: string) => {
+    window.location.href = redirect || '/packages';
   };
 
   return (
@@ -475,14 +476,16 @@ const AppContent: React.FC = () => {
             </>
           } />
           <Route path="/datamaestro-pro" element={
-            <>
-              <SEOHead 
-                title="DataMaestro Pro - AI Statistical Analysis | Gaply"
-                description="AI-powered statistical analysis for academic research. Upload datasets, get smart test recommendations, publication-ready results with tables, charts, and downloadable reports."
-                keywords="DataMaestro Pro, statistical analysis, AI research analysis, SPSS alternative, data analysis, academic research tool"
-              />
-              <DataMaestroProPage />
-            </>
+            <ProtectedRoute>
+              <>
+                <SEOHead 
+                  title="DataMaestro Pro - AI Statistical Analysis | Gaply"
+                  description="AI-powered statistical analysis for academic research. Upload datasets, get smart test recommendations, publication-ready results with tables, charts, and downloadable reports."
+                  keywords="DataMaestro Pro, statistical analysis, AI research analysis, SPSS alternative, data analysis, academic research tool"
+                />
+                <DataMaestroProPage />
+              </>
+            </ProtectedRoute>
           } />
           <Route path="/features" element={
             <>
@@ -625,14 +628,16 @@ const AppContent: React.FC = () => {
             </>
           } />
           <Route path="/dashboard" element={
-            <>
-              <SEOHead 
-                title="Dashboard | Academic Research Tools & Progress Tracking - Gaply"
-                description="Access your Gaply dashboard to manage academic research projects, track thesis writing progress, monitor AI detection results, and view journal matching recommendations."
-                keywords="academic research dashboard, thesis writing dashboard, AI detection dashboard, journal matching dashboard, research progress tracking, academic project management"
-              />
-              <Overview />
-            </>
+            <ProtectedRoute>
+              <>
+                <SEOHead 
+                  title="Dashboard | Academic Research Tools & Progress Tracking - Gaply"
+                  description="Access your Gaply dashboard to manage academic research projects, track thesis writing progress, monitor AI detection results, and view journal matching recommendations."
+                  keywords="academic research dashboard, thesis writing dashboard, AI detection dashboard, journal matching dashboard, research progress tracking, academic project management"
+                />
+                <Overview />
+              </>
+            </ProtectedRoute>
           } />
           {/* Local-only dashboard preview without auth redirect */}
           <Route path="/dashboard-preview" element={
@@ -646,56 +651,80 @@ const AppContent: React.FC = () => {
             </>
           } />
           <Route path="/dashboard/publishready" element={
-            <>
-              <SEOHead 
-                title="PublishReady | Upload Manuscript & Full Analysis - Gaply"
-                description="Upload your manuscript (PDF, DOCX, TXT), add journal link, and run full analysis with referee-style review, report, and chat. Uses gaply-orchestrator."
-                keywords="PublishReady, manuscript upload, document analysis, publication chance, referee review, gaply-orchestrator"
-              />
-              <DashboardLayout pageTitle="PublishReady">
-                <ManuscriptOrchestratorPage />
-              </DashboardLayout>
-            </>
+            <ProtectedRoute>
+              <>
+                <SEOHead 
+                  title="PublishReady | Upload Manuscript & Full Analysis - Gaply"
+                  description="Upload your manuscript (PDF, DOCX, TXT), add journal link, and run full analysis with referee-style review, report, and chat. Uses gaply-orchestrator."
+                  keywords="PublishReady, manuscript upload, document analysis, publication chance, referee review, gaply-orchestrator"
+                />
+                <DashboardLayout pageTitle="PublishReady">
+                  <ManuscriptOrchestratorPage />
+                </DashboardLayout>
+              </>
+            </ProtectedRoute>
+          } />
+          <Route path="/dashboard/datamaestro" element={
+            <ProtectedRoute>
+              <>
+                <SEOHead 
+                  title="DataMaestro | AI Statistical Analysis - Gaply"
+                  description="AI-powered statistical analysis for academic research. Upload datasets, get smart test recommendations, publication-ready results with tables, charts, and downloadable reports."
+                  keywords="DataMaestro, statistical analysis, AI research analysis, SPSS alternative, data analysis, academic research tool"
+                />
+                <DashboardLayout pageTitle="DataMaestro">
+                  <DataMaestroProPage />
+                </DashboardLayout>
+              </>
+            </ProtectedRoute>
           } />
           <Route path="/dashboard/projects" element={
-            <>
-              <SEOHead 
-                title="Projects | Academic Research - Gaply"
-                description="View your academic research projects and their status."
-                keywords="research projects, academic projects, project management"
-              />
-              <ProjectsPage />
-            </>
+            <ProtectedRoute>
+              <>
+                <SEOHead 
+                  title="Projects | Academic Research - Gaply"
+                  description="View your academic research projects and their status."
+                  keywords="research projects, academic projects, project management"
+                />
+                <ProjectsPage />
+              </>
+            </ProtectedRoute>
           } />
           <Route path="/dashboard/usage" element={
-            <>
-              <SEOHead 
-                title="Feature Usage Overview | Gaply"
-                description="View your PublishReady and DataMaestro usage metrics."
-                keywords="usage, PublishReady, DataMaestro, feature usage"
-              />
-              <UsagePage />
-            </>
+            <ProtectedRoute>
+              <>
+                <SEOHead 
+                  title="Feature Usage Overview | Gaply"
+                  description="View your PublishReady and DataMaestro usage metrics."
+                  keywords="usage, PublishReady, DataMaestro, feature usage"
+                />
+                <UsagePage />
+              </>
+            </ProtectedRoute>
           } />
           <Route path="/dashboard/settings" element={
-            <>
-              <SEOHead 
-                title="Settings | Gaply"
-                description="Manage your account, billing, profile, and get support."
-                keywords="settings, account, billing, profile, support"
-              />
-              <SettingsPage />
-            </>
+            <ProtectedRoute>
+              <>
+                <SEOHead 
+                  title="Settings | Gaply"
+                  description="Manage your account, billing, profile, and get support."
+                  keywords="settings, account, billing, profile, support"
+                />
+                <SettingsPage />
+              </>
+            </ProtectedRoute>
           } />
           <Route path="/dashboard/billing" element={
-            <>
-              <SEOHead 
-                title="Billing | Gaply"
-                description="View your billing history and recent transactions."
-                keywords="billing, transactions, subscription, payments"
-              />
-              <BillingPage />
-            </>
+            <ProtectedRoute>
+              <>
+                <SEOHead 
+                  title="Billing | Gaply"
+                  description="View your billing history and recent transactions."
+                  keywords="billing, transactions, subscription, payments"
+                />
+                <BillingPage />
+              </>
+            </ProtectedRoute>
           } />
         </Routes>
     </div>

@@ -19,7 +19,7 @@ const NAV_ITEMS: Array<{
 }> = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, path: '/dashboard' },
   { id: 'publishready', label: 'PublishReady', icon: FileText, path: '/dashboard/publishready', premium: true },
-  { id: 'datamaestro', label: 'DataMaestro', icon: BarChart2, path: '/datamaestro-pro', premium: true },
+  { id: 'datamaestro', label: 'DataMaestro', icon: BarChart2, path: '/dashboard/datamaestro', premium: true },
   { id: 'projects', label: 'Projects', icon: Folder, path: '/dashboard/projects' },
   { id: 'usage', label: 'Usage', icon: Clock, path: '/dashboard/usage' },
   { id: 'settings', label: 'Settings', icon: Settings, path: '/dashboard/settings' },
@@ -124,14 +124,13 @@ const Sidebar: React.FC<SidebarProps> = ({
                 border: 'none',
                 borderLeft: `3px solid ${isActive ? 'var(--dashboard-accent)' : 'transparent'}`,
                 color: isActive ? 'var(--dashboard-text)' : 'var(--dashboard-text-muted)',
-                cursor: isPremium ? 'default' : 'pointer',
+                cursor: 'pointer',
                 fontSize: 14,
                 fontWeight: 500,
                 textAlign: 'left',
                 transition: 'all 150ms ease',
-                opacity: isPremium ? 0.85 : 1,
+                opacity: 1,
               }}
-              title={isPremium ? 'Coming soon – Premium feature' : undefined}
             >
               <Icon size={20} style={{ flexShrink: 0 }} />
               {!collapsed && (

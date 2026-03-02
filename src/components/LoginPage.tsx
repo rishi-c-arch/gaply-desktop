@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { authService } from '../services/authService';
 
 interface LoginPageProps {
-  onLoginSuccess: (token: string, user: any) => void;
+  onLoginSuccess: (token: string, user: any, redirect?: string) => void;
   onSwitchToSignup: () => void;
 }
 
@@ -118,6 +119,9 @@ const LoginForm3D: React.FC<{
 };
 
 const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup }) => {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirect = searchParams.get('redirect') || undefined;
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -152,7 +156,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
         localStorage.setItem('user', JSON.stringify(response.data.user));
         localStorage.setItem('user_email', response.data.user.email);
         
-        onLoginSuccess(response.data.token, response.data.user);
+        onLoginSuccess(response.data.token, response.data.user, redirect);
       } else {
         throw new Error(response.error || 'Login failed');
       }
@@ -417,7 +421,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
               Don't have an account?
             </p>
             <button
-              onClick={onSwitchToSignup}
+              onClick={() => (redirect ? navigate(`/signup?redirect=${encodeURIComponent(redirect)}`) : onSwitchToSignup())}
               style={{
                 background: 'transparent',
                 color: 'var(--accent-blue)',
