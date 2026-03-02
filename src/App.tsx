@@ -371,7 +371,9 @@ const AppContent: React.FC = () => {
     isExactHome ||
     location.pathname.startsWith('/dashboard') ||
     location.pathname === '/hire-expert' ||
-    location.pathname === '/search-results';
+    location.pathname === '/search-results' ||
+    location.pathname === '/paper-search' ||
+    location.pathname === '/journal-matching';
 
   // Call the function to remove the floating orb when the component mounts
   useEffect(() => {
