@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Menu, Sun, Moon } from 'lucide-react';
+import { Home, Menu } from 'lucide-react';
 
 import './Header.css';
 
@@ -35,10 +35,10 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, showMenuButton = false, th
             type="button"
             onClick={onToggleTheme}
             className="dashboard-header__theme-btn"
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
-            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-            <span className="dashboard-header__theme-label">
-              {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+            <span className="dashboard-header__theme-emoji" aria-hidden="true">
+              {theme === 'dark' ? '☀️' : '🌙'}
             </span>
           </button>
         )}

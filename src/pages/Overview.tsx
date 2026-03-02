@@ -17,12 +17,6 @@ const Overview: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated || !user) {
-      navigate('/login');
-    }
-  }, [isAuthenticated, user, navigate]);
-
-  useEffect(() => {
     if (!token) {
       setLoading(false);
       return;
@@ -34,10 +28,6 @@ const Overview: React.FC = () => {
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load dashboard'))
       .finally(() => setLoading(false));
   }, [token]);
-
-  if (!isAuthenticated || !user) {
-    return null;
-  }
 
   if (loading && !overview) {
     return (
@@ -87,6 +77,15 @@ const Overview: React.FC = () => {
 
   return (
     <DashboardLayout>
+      <div className="overview-page">
+        <header className="overview-page-header">
+          <div className="overview-page-header__left">
+            <p className="overview-page-tag">System Analytics</p>
+            <h1 className="overview-page-title">Feature Usage Overview</h1>
+            <p className="overview-page-subtitle">PublishReady &amp; DataMaestro activity metrics</p>
+          </div>
+        </header>
+      </div>
       <div className="overview-root">
         <div className="overview-main">
           <ChartCard data={chartData} />

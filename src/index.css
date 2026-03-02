@@ -1,4 +1,5 @@
 @import './tailwind.css';
+@import './dashboard-theme.css';
 
 /* Smooth scrolling for entire website */
 html {

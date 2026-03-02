@@ -369,6 +369,7 @@ const AppContent: React.FC = () => {
   const isExactHome = useMatch({ path: '/', end: true });
   const isHideHeaderPath =
     isExactHome ||
+    location.pathname.startsWith('/dashboard') ||
     location.pathname === '/hire-expert' ||
     location.pathname === '/search-results';
 
@@ -627,6 +628,17 @@ const AppContent: React.FC = () => {
                 title="Dashboard | Academic Research Tools & Progress Tracking - Gaply"
                 description="Access your Gaply dashboard to manage academic research projects, track thesis writing progress, monitor AI detection results, and view journal matching recommendations."
                 keywords="academic research dashboard, thesis writing dashboard, AI detection dashboard, journal matching dashboard, research progress tracking, academic project management"
+              />
+              <Overview />
+            </>
+          } />
+          {/* Local-only dashboard preview without auth redirect */}
+          <Route path="/dashboard-preview" element={
+            <>
+              <SEOHead 
+                title="Dashboard Preview | Gaply"
+                description="Local preview of the Feature Usage Overview dashboard layout."
+                keywords="dashboard preview, feature usage overview, gaply"
               />
               <Overview />
             </>

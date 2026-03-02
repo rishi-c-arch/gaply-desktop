@@ -1,0 +1,32 @@
+/* Dashboard design tokens – light & dark, used by DashboardLayout/Overview/ChartCard */
+
+/* Default (dark) dashboard theme */
+[data-theme='dark'] {
+  --dashboard-bg: #050712;
+  --dashboard-header-bg: rgba(10, 15, 25, 0.98);
+  --dashboard-sidebar-bg: #020617;
+  --dashboard-sidebar-active-bg: rgba(15, 23, 42, 0.8);
+  --dashboard-card-bg: rgba(15, 23, 42, 0.96);
+  --dashboard-border: rgba(30, 64, 175, 0.45);
+  --dashboard-text: #e5e7eb;
+  --dashboard-text-muted: #9ca3af;
+  --dashboard-chart-grid: rgba(51, 65, 85, 0.6);
+  --dashboard-accent: #ec5b13;
+  --dashboard-danger: #ef4444;
+}
+
+/* Light dashboard theme – iridescent background like Figma reference */
+[data-theme='light'] {
+  --dashboard-bg: radial-gradient(circle at top left, #e0f2fe 0, #f9fafb 35%, #f5f3ff 80%);
+  --dashboard-header-bg: rgba(255, 255, 255, 0.9);
+  --dashboard-sidebar-bg: #ffffff;
+  --dashboard-sidebar-active-bg: rgba(249, 250, 251, 0.9);
+  --dashboard-card-bg: #ffffff;
+  --dashboard-border: rgba(226, 232, 240, 1);
+  --dashboard-text: #111827;
+  --dashboard-text-muted: #6b7280;
+  --dashboard-chart-grid: rgba(226, 232, 240, 1);
+  --dashboard-accent: #ec5b13;
+  --dashboard-danger: #dc2626;
+}
+

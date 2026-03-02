@@ -1,3 +1,49 @@
+/* Overview dashboard – matches Figma-style hero for Feature Usage Overview */
+
+.overview-page {
+  max-width: 1400px;
+  margin: 0 auto 24px;
+  padding: 0 8px;
+}
+
+.overview-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  padding: 18px 0 20px;
+}
+
+.overview-page-header__left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.overview-page-tag {
+  font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #ec5b13;
+  margin: 0;
+}
+
+.overview-page-title {
+  font-size: clamp(22px, 3vw, 28px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin: 0;
+  color: var(--dashboard-text, #111827);
+}
+
+.overview-page-subtitle {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dashboard-text-muted, #6b7280);
+}
+
 /* Overview layout: ensure grid and chart visible on all screens */
 
 .overview-root {
@@ -5,7 +51,7 @@
   grid-template-columns: 1fr;
   gap: 24px;
   max-width: 1400px;
-  margin: 0 auto;
+  margin: 0 auto 24px;
   min-width: 0;
 }
 
