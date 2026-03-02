@@ -23,7 +23,6 @@ export default function PremiumFeatures() {
           <div className="premium2-left-content">
             <div className="premium2-eyebrow">
               <span className="premium2-eyebrow-dot" />
-              <span className="premium2-eyebrow-label">Gaply Interface</span>
             </div>
 
             <h2 id="premium2-heading" className="premium2-heading">

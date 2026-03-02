@@ -115,10 +115,24 @@ body.light .premium2-card-body {
   color: #6b7280;
 }
 
+body.light .premium2-chip--light {
+  background: #ffffff;
+  color: #111827;
+  border-color: #d1d5db;
+}
+
 body.light .premium2-metric {
   background: rgba(255, 255, 255, 0.96);
   border-color: #e5e7eb;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+body.light .premium2-metric-value {
+  color: #111827;
+}
+
+body.light .premium2-metric-label {
+  color: #4b5563;
 }
 
 .premium2-inner {

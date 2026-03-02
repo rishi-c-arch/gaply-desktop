@@ -83,7 +83,8 @@
 
 .apple-hero {
   position: relative;
-  height: 100vh; /* Ensure hero fully fits viewport */
+  min-height: 100vh;
+  height: auto;
   background: var(--hero-bg);
   display: flex;
   flex-direction: column;
@@ -103,8 +104,8 @@
 /* On very small viewports, allow hero to grow so content is not clipped */
 @media (max-height: 680px) {
   .apple-hero {
-    height: auto;
     min-height: 100vh;
+    height: auto;
   }
 
   .hero-main {
