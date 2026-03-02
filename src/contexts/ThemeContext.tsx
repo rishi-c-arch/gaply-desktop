@@ -22,13 +22,29 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
+    if (typeof document !== 'undefined') {
+      if (theme === 'light') document.body.classList.add('light');
+      else document.body.classList.remove('light');
+    }
     try {
       if (typeof localStorage !== 'undefined') localStorage.setItem('gaply_theme', theme);
     } catch { /* ignore */ }
   }, [theme]);
 
-  const setTheme = (t: Theme) => setThemeState(t);
-  const toggleTheme = () => setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  const setTheme = (t: Theme) => {
+    if (typeof document !== 'undefined') document.body.classList.add('theme-transitioning');
+    setThemeState(t);
+    setTimeout(() => {
+      if (typeof document !== 'undefined') document.body.classList.remove('theme-transitioning');
+    }, 600);
+  };
+  const toggleTheme = () => {
+    if (typeof document !== 'undefined') document.body.classList.add('theme-transitioning');
+    setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
+    setTimeout(() => {
+      if (typeof document !== 'undefined') document.body.classList.remove('theme-transitioning');
+    }, 600);
+  };
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>

@@ -1,0 +1,67 @@
+/* Gaply Design System - Premium medical/research SaaS
+   Supports light AND dark theme. DO NOT change existing --section-bg etc. used by Hero. */
+
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #0f0f1a;
+  --bg-card: rgba(255, 255, 255, 0.04);
+  --border-glow: rgba(139, 92, 246, 0.3);
+  --accent-purple: #8b5cf6;
+  --accent-violet: #7c3aed;
+  --accent-pink: #c084fc;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --gradient-hero-section: linear-gradient(135deg, #0a0a0f 0%, #1a0a2e 50%, #0d0d1f 100%);
+  --glow-purple: 0 0 40px rgba(139, 92, 246, 0.15);
+  --font-heading: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+[data-theme="light"] {
+  --bg-primary: #fafafa;
+  --bg-secondary: #f0f0ff;
+  --bg-card: rgba(139, 92, 246, 0.04);
+  --border-glow: rgba(139, 92, 246, 0.2);
+  --accent-purple: #8b5cf6;
+  --accent-violet: #7c3aed;
+  --accent-pink: #c084fc;
+  --text-primary: #0f0f1a;
+  --text-secondary: #475569;
+  --gradient-hero-section: linear-gradient(135deg, #fafafa 0%, #f0e8ff 50%, #fafafa 100%);
+  --glow-purple: 0 0 40px rgba(139, 92, 246, 0.08);
+}
+
+/* Theme transitioning - smooth Stitch-like morph */
+body.theme-transitioning,
+body.theme-transitioning * {
+  transition: background-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Stitch-style noise overlay (fixed, non-blocking) */
+.noise-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+/* Stitch-style noise overlay (fixed, non-blocking) */
+.noise-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}

@@ -1,15 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Link, useLocation, useMatch } from 'react-router-dom';
 import './App.css';
+import './styles/variables.css';
 import './hero-animations.css';
 import './hero-new.css';
 import './responsive.css';
 import ThreeJSGlobe from './components/ThreeJSGlobe';
 import HeroToSecondTransition from './components/HeroToSecondTransition';
-import FreeFeatures3D from './components/FreeFeatures3D';
-import PremiumFeatures3D from './components/PremiumFeatures3D';
-import QuartileAnalysis3D from './components/QuartileAnalysis3D';
+import FreeFeatures from './sections/FreeFeatures';
+import PremiumFeatures from './sections/PremiumFeatures';
+import JournalQuartile from './sections/JournalQuartile';
 import PremiumFooter3D from './components/PremiumFooter3D';
 import EnhancedPremiumPage from './components/EnhancedPremiumPage';
 import Overview from './pages/Overview';
@@ -174,29 +175,189 @@ const AppleHeader: React.FC<{ theme: 'light' | 'dark'; onToggleTheme: () => void
   );
 };
 
-// Apple-style Hero Section
+// Left-side hero options (replaces header on home): figma-style vertical nav
+const HERO_OPTIONS = [
+  { label: 'Features', href: '/features' },
+  { label: 'Pricing', href: '/pricing' },
+  { label: 'Careers', href: '/career' },
+  { label: 'Hire an expert', href: '/hire-expert' },
+];
+
+// Apple-style Hero Section (Figma-inspired hero; no header on home)
 const AppleHeroSection: React.FC = () => {
+  const { theme, toggleTheme } = useTheme();
+  const isDark = theme === 'dark';
+  const location = useLocation();
+  const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+  const activeSidebarIndex = React.useMemo(() => {
+    const idx = HERO_OPTIONS.findIndex((opt) => opt.href === location.pathname);
+    return idx === -1 ? 0 : idx;
+  }, [location.pathname]);
+
   return (
-    <section className="apple-hero">
-      <div className="apple-hero__inner">
-        <div className="apple-hero__content">
-          <h1 className="apple-hero__title">
-            <span>Academic Research</span>
-            <span className="apple-hero__title-line">Platform</span>
-          </h1>
+    <section className="apple-hero apple-hero--no-header hero-section-stitch">
+      <nav className="hero-top-nav hero-top-nav--relative" aria-label="Primary">
+        <div className="hero-top-nav__left">
+          <Link className="hero-top-nav__logo" to="/">
+            Gaply
+          </Link>
+          <div className="hero-top-nav__menu-wrap">
+            <button
+              className="hero-top-nav__menu"
+              type="button"
+              aria-haspopup="true"
+              aria-expanded={isMenuOpen}
+              onClick={() => setIsMenuOpen((open) => !open)}
+            >
+              <span className="hero-top-nav__menu-icon" />
+              <span>Menu</span>
+            </button>
+            {isMenuOpen && (
+              <div className="hero-menu-dropdown" role="menu">
+                {HERO_OPTIONS.map((opt) => (
+                  <Link
+                    key={opt.href}
+                    to={opt.href}
+                    className="hero-menu-dropdown__item"
+                    role="menuitem"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    {opt.label}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="hero-top-nav__right">
           <button
-            className="apple-hero__cta"
-            onClick={() => {
-              window.location.href = '/login';
-            }}
+            type="button"
+            className="hero-icon-btn"
+            aria-label="Toggle theme"
+            onClick={toggleTheme}
           >
-            Get Premium
+            <span className="material-symbols-outlined hero-nav-icon" aria-hidden="true">
+              {isDark ? 'light_mode' : 'dark_mode'}
+            </span>
+          </button>
+          <button type="button" className="hero-icon-btn" aria-label="Search">
+            <span className="material-symbols-outlined hero-nav-icon hero-nav-icon--xl" aria-hidden="true">search</span>
+          </button>
+          <button type="button" className="hero-icon-btn hero-icon-btn--volume" aria-label="Sound">
+            <span className="material-symbols-outlined hero-nav-icon" aria-hidden="true">volume_up</span>
           </button>
         </div>
-        <div className="apple-hero__globe" aria-hidden="true">
-          <ThreeJSGlobe />
+      </nav>
+
+      <div className="hero-radial hero-radial--dark" aria-hidden="true" />
+      <div className="hero-radial hero-radial--light" aria-hidden="true" />
+
+      <main className="hero-main">
+      <div className="hero-grid">
+        <nav className="hero-sidebar" aria-label="Section navigation">
+          <div className="hero-sidebar__line" />
+          <div
+            className="hero-sidebar__dot"
+            aria-hidden="true"
+            style={{ transform: `translateY(${activeSidebarIndex * 56}px)` }}
+          />
+          {HERO_OPTIONS.map((opt, i) => (
+            <Link
+              key={opt.href}
+              to={opt.href}
+              className={`hero-sidebar__link ${
+                i === activeSidebarIndex ? 'hero-sidebar__link--active' : ''
+              }`}
+            >
+              {opt.label}
+            </Link>
+          ))}
+        </nav>
+
+        <div className="hero-content-col">
+          <div className="hero-eyebrow">
+            <span className="hero-eyebrow__label">RESEARCH INTELLIGENCE</span>
+            <span className="hero-eyebrow__divider" />
+          </div>
+          <h1 className="hero-heading">
+            <span className="hero-heading__line">Academic</span>
+            <span className="hero-heading__line hero-heading__line--gradient">Research Platform</span>
+          </h1>
+          <p className="hero-body">
+            Gaply is your personal Research Guide. So don&apos;t put off publication for later.
+            Think about your impact factor today.
+          </p>
+          <div className="hero-cta-row">
+            <button
+              className="hero-cta-primary"
+              onClick={() => {
+                window.location.href = '/login';
+              }}
+            >
+              <span>Start Analysis</span>
+              <span className="hero-cta-primary__icon" aria-hidden="true">→</span>
+            </button>
+            <button
+              className="hero-cta-secondary"
+              onClick={() => {
+                window.location.href = '/features';
+              }}
+            >
+              <span className="material-symbols-outlined hero-cta-play" aria-hidden="true">play_circle</span>
+              <span>Watch Demo</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="hero-visual-col">
+          <div className="hero-visual-wrap">
+            <div className="hero-blur-orb" aria-hidden="true" />
+
+            {/* Large DNA background layer */}
+            <div className="hero-dna-layer" aria-hidden="true">
+              <img
+                className="hero-dna-overlay"
+                alt="DNA spiral"
+                src="https://lh3.googleusercontent.com/aida-public/AB6AXuAiPX4n1bGN32XXi6Oglrn-qVkS29j0osQxjswIn2oIqbxAmi-5Yps0mrG6mtC68m3ydc03_0fv-Y9eF9CJetfcsCGhY5zxaw6h7N06x3b12D96rnlyMXpz-dqIKrCZDn_C9AinqWkoS4KdRj11laXXbj8nf1NTPh3-pTHTHJJ5kHGA4IH0Mx1lCtv9HPKV5_j3VoRib1J5cdsai6cCZCVzsyeMprweKjkol9OKf9bT0lSPBFOenbK31ZsruKpvFZefizNVMTkADns"
+              />
+            </div>
+
+            {/* Small 3D globe chip floating above DNA */}
+            <div className="hero-globe-chip" aria-hidden="true">
+              <ThreeJSGlobe />
+            </div>
+          </div>
+
+          <div className="hero-scroll-hint" aria-hidden="true">
+            <span className="hero-scroll-hint__line" />
+            <span className="hero-scroll-hint__text">SCROLL</span>
+          </div>
         </div>
       </div>
+
+      <div className="hero-bottom-card">
+        <div className="hero-bottom-card__number">01</div>
+        <div className="hero-bottom-card__grid">
+          <div className="hero-bottom-card__left">
+            <div className="hero-bottom-card__live-row">
+              <span className="hero-bottom-card__dot" />
+              <span className="hero-bottom-card__live-label">Live Data</span>
+            </div>
+            <h3 className="hero-bottom-card__title">
+              Global Citation
+              <br />
+              Network Analysis
+            </h3>
+          </div>
+          <div className="hero-bottom-card__right">
+            <p>
+              Real-time visualization of cross-disciplinary connections. Track the evolution
+              of your research impact across global institutions.
+            </p>
+          </div>
+        </div>
+      </div>
+      </main>
     </section>
   );
 };
@@ -204,44 +365,39 @@ const AppleHeroSection: React.FC = () => {
 // Inner App component that uses useAuth
 const AppContent: React.FC = () => {
   const { theme: headerTheme, toggleTheme: handleToggleTheme } = useTheme();
-  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const location = useLocation();
+  const isExactHome = useMatch({ path: '/', end: true });
+  const isHideHeaderPath =
+    isExactHome ||
+    location.pathname === '/hire-expert' ||
+    location.pathname === '/search-results';
 
   // Call the function to remove the floating orb when the component mounts
   useEffect(() => {
     removeFloatingOrb();
-    
-    // Listen for route changes
-    const handleRouteChange = () => {
-      setCurrentPath(window.location.pathname);
-    };
-    
-    window.addEventListener('popstate', handleRouteChange);
-    return () => window.removeEventListener('popstate', handleRouteChange);
   }, []);
 
   const handleAuthSuccess = (token: string, userData: any) => {
     window.location.href = '/packages';
   };
 
-  // Hide header for hire-expert and search-results pages
-  const shouldShowHeader = currentPath !== '/hire-expert' && currentPath !== '/search-results';
-
   return (
-    <div className="App">
-      {shouldShowHeader && <AppleHeader theme={headerTheme} onToggleTheme={handleToggleTheme} />}
+    <div className="App" data-home={isExactHome ? 'true' : undefined}>
+      <div className="noise-bg" aria-hidden="true" />
+      {!isHideHeaderPath && <AppleHeader theme={headerTheme} onToggleTheme={handleToggleTheme} />}
       <Routes>
           <Route path="/" element={
             <>
               <SEOHead 
                 title="Gaply - AI-Powered Academic Research Platform | Thesis Writing, Journal Matching, AI Detection"
                 description="Professional AI-powered academic research platform offering thesis writing help, journal matching, AI content detection, plagiarism checking, dissertation editing, and research paper assistance for PhD students and researchers worldwide."
-                keywords="AI content remover for research papers, free AI detector and editor for PhD thesis, AI writing detection tool for academic writing, detect AI plagiarism in research paper, AI paraphrase detector academic, plagiarism checking service for thesis, best plagiarism checker for research papers, remove plagiarism from dissertation, academic text originality checker, help with thesis writing and formatting, dissertation writing service online, PhD thesis writing help, master's thesis editing service, dissertation proofreading and formatting, thesis structure and formatting guidelines, doctoral dissertation consultation, academic thesis writing assistance, research paper writing service, research paper evaluation help, academic paper writing assistance, scientific writing support online, research methodology help, literature review writing service, best site for research guidance, how to write a research proposal, funding proposal writing help, journal finder for Scopus, Elsevier journal suggestion tool, SCI journal recommendation service, find journal for my paper, journal submission assistance service, how to submit paper to journal, conference paper preparation help, conference presentation coaching, publish paper in IEEE journal, academic proofreading and editing service, research paper editing service, thesis proofreading help, professional dissertation editor, edit academic paper online, grammar check for scholarly writing, academic copyediting service, SPSS statistical analysis help, data analysis service for researchers, statistical analysis assistance for thesis, SPSS tutorial for dissertation, data interpretation help for research, quantitative analysis support for PhD, statistics help for academic research"
+                keywords="AI content remover for research papers, free AI detector and editor for PhD thesis, AI writing detection tool for academic writing, detect AI plagiarism in research paper, AI paraphrase detector academic, plagiarism checking service for thesis, best plagiarism checker for research papers, remove plagiarism from dissertation, academic text originality checker, help with thesis writing and formatting, dissertation writing service online, PhD thesis writing help, master's thesis editing service, dissertation proofreading and formatting, thesis structure and formatting guidelines, doctoral dissertation consultation, academic thesis writing assistance, research paper writing service, research paper evaluation help, academic paper writing assistance, scientific writing support online, research methodology help, literature review writing service, best site for research guidance, how to write a research proposal, funding proposal writing help, journal finder for Scopus, Elsevier journal suggestion tool, SCI journal recommendation service, find journal for my paper, journal submission assistance service, how to submit paper to journal, conference presentation coaching, publish paper in IEEE journal, academic proofreading and editing service, research paper editing service, thesis proofreading help, professional dissertation editor, edit academic paper online, grammar check for scholarly writing, academic copyediting service, SPSS statistical analysis help, data analysis service for researchers, statistical analysis assistance for thesis, SPSS tutorial for dissertation, data interpretation help for research, quantitative analysis support for PhD, statistics help for academic research"
               />
               <AppleHeroSection />
               <HeroToSecondTransition />
-              <FreeFeatures3D />
-              <PremiumFeatures3D />
-              <QuartileAnalysis3D />
+              <FreeFeatures />
+              <PremiumFeatures />
+              <JournalQuartile />
               <PremiumFooter3D />
             </>
           } />

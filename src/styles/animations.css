@@ -1,0 +1,88 @@
+/* Scroll entrance: cards animate in with stagger. Use with useIntersectionObserver + .in-view */
+
+.section-card-entrance {
+  opacity: 0;
+  transform: translateX(60px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.section-card-entrance.in-view {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Stagger delays - apply to children, e.g. .section-cards-stagger .section-card-entrance:nth-child(1) */
+.section-cards-stagger .section-card-entrance:nth-child(1) { transition-delay: 0ms; }
+.section-cards-stagger .section-card-entrance:nth-child(2) { transition-delay: 100ms; }
+.section-cards-stagger .section-card-entrance:nth-child(3) { transition-delay: 200ms; }
+.section-cards-stagger .section-card-entrance:nth-child(4) { transition-delay: 300ms; }
+.section-cards-stagger .section-card-entrance:nth-child(5) { transition-delay: 400ms; }
+.section-cards-stagger .section-card-entrance:nth-child(6) { transition-delay: 500ms; }
+
+/* Fade up for chart cards (Section 3) */
+.section-fade-up {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.section-fade-up.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.section-fade-up-stagger .section-fade-up:nth-child(1) { transition-delay: 0ms; }
+.section-fade-up-stagger .section-fade-up:nth-child(2) { transition-delay: 150ms; }
+.section-fade-up-stagger .section-fade-up:nth-child(3) { transition-delay: 300ms; }
+.section-fade-up-stagger .section-fade-up:nth-child(4) { transition-delay: 450ms; }
+
+/* Premium badge shimmer */
+@keyframes shimmer-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.premium-badge-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.2) 50%,
+    transparent 100%
+  );
+  animation: shimmer-sweep 3s ease-in-out infinite;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* Stitch-style float for free feature cards */
+@keyframes float-card-1 {
+  0%, 100% { transform: translateY(0) rotate(2deg); }
+  50% { transform: translateY(-10px) rotate(2deg); }
+}
+@keyframes float-card-2 {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-10px) rotate(-2deg); }
+}
+
+/* Premium cards: float with rotation preserved */
+@keyframes float-premium-6 {
+  0%, 100% { transform: translateY(0) rotate(6deg); }
+  50% { transform: translateY(-12px) rotate(6deg); }
+}
+@keyframes float-premium-3 {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(-12px) rotate(-3deg); }
+}
+@keyframes float-premium-4 {
+  0%, 100% { transform: translateY(0) rotate(4deg); }
+  50% { transform: translateY(-12px) rotate(4deg); }
+}
+@keyframes float-premium-5 {
+  0%, 100% { transform: translateY(0) rotate(-5deg); }
+  50% { transform: translateY(-12px) rotate(-5deg); }
+}

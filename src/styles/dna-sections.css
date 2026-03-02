@@ -1,0 +1,343 @@
+/* DNA Sections - Premium scientific aesthetic */
+:root {
+  --dna-indigo: #6366F1;
+  --dna-violet: #8B5CF6;
+  --dna-cyan: #06B6D4;
+  --dna-gold: #F59E0B;
+  --dna-amber: #D97706;
+  --dna-q1: #10B981;
+  --dna-q2: #3B82F6;
+  --dna-q3: #F97316;
+  --dna-q4: #6B7280;
+  --dna-bg-dark: #0F0F1A;
+  --dna-card-bg: rgba(255, 255, 255, 0.03);
+  --dna-card-border: rgba(255, 255, 255, 0.08);
+}
+
+/* Section 1: Free Features - 40% helix left, 60% content right */
+.dna-section-free {
+  min-height: 80vh;
+  background: var(--section-bg, #0a0a12);
+  padding: clamp(56px, 6vw, 90px) clamp(20px, 5vw, 48px);
+  color: var(--section-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+
+.dna-section-free .section-container {
+  display: grid;
+  grid-template-columns: 40% 60%;
+  gap: 60px;
+  align-items: center;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.dna-section-free .dna-helix-wrap--left {
+  min-height: 500px;
+}
+
+.dna-section-free .section-content {
+  padding: 0 24px;
+}
+
+.dna-section-free .section-heading {
+  font-size: clamp(1.6rem, 4.2vw, 3.4rem);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  margin: 0 0 16px;
+  color: var(--section-text);
+  line-height: 1.15;
+}
+
+.dna-section-free .free-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #10B981, #059669);
+  color: white;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 32px;
+}
+
+.dna-section-free .feature-card {
+  background: var(--dna-card-bg);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--dna-card-border);
+  border-radius: 16px;
+  padding: 24px;
+  transition: all 0.3s ease;
+  will-change: transform;
+}
+
+.dna-section-free .feature-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 20px 40px rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.dna-section-free .feature-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Section 2: Premium Features - 60% content left, 40% helix right */
+.dna-section-premium {
+  min-height: 85vh;
+  background: var(--section-bg, #0a0a12);
+  padding: clamp(64px, 8vw, 100px) clamp(20px, 6vw, 48px);
+  color: var(--section-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+
+.dna-section-premium .section-container {
+  display: grid;
+  grid-template-columns: 60% 40%;
+  gap: 60px;
+  align-items: center;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.dna-section-premium .dna-helix-wrap--right {
+  min-height: 600px;
+}
+
+.dna-section-premium .section-heading {
+  font-size: clamp(1.6rem, 4.2vw, 3.4rem);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  margin: 0 0 16px;
+  color: var(--section-text);
+  line-height: 1.15;
+}
+
+.dna-section-premium .premium-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #F59E0B, #D97706);
+  color: white;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 28px;
+}
+
+.dna-section-premium .premium-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 32px;
+}
+
+.dna-section-premium .premium-card {
+  background: var(--dna-card-bg);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--dna-card-border);
+  border-radius: 16px;
+  padding: 28px;
+  transition: all 0.3s ease;
+  will-change: transform;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dna-section-premium .premium-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 20px 40px rgba(245, 158, 11, 0.25);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.dna-section-premium .get-premium-btn {
+  background: linear-gradient(135deg, #F59E0B, #D97706);
+  color: white;
+  padding: 14px 32px;
+  border-radius: 12px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+  letter-spacing: 0.02em;
+}
+
+.dna-section-premium .get-premium-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(245, 158, 11, 0.4);
+}
+
+/* Section 3: Quartile Analysis */
+.dna-section-quartile {
+  min-height: 80vh;
+  background: var(--section-bg, #0a0a12);
+  padding: clamp(72px, 10vw, 120px) clamp(16px, 5vw, 48px);
+  color: var(--section-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+
+.dna-section-quartile .dna-helix-wrap--background {
+  z-index: 0;
+  opacity: 0.15;
+  pointer-events: none;
+}
+
+.dna-section-quartile .section-heading {
+  font-size: clamp(1.6rem, 4.2vw, 3.2rem);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  margin: 0 0 8px;
+  color: var(--section-text);
+  line-height: 1.15;
+}
+
+.dna-section-quartile .section-inner {
+  position: relative;
+  z-index: 1;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.dna-section-quartile .quartile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  margin: 40px 0 32px;
+}
+
+.dna-section-quartile .quartile-card {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 32px 24px;
+  text-align: center;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.dna-section-quartile .quartile-card:hover {
+  transform: scale(1.05);
+}
+
+.dna-section-quartile .quartile-card.q1 {
+  border-color: var(--dna-q1);
+  box-shadow: 0 0 30px rgba(16, 185, 129, 0.2);
+}
+.dna-section-quartile .quartile-card.q1:hover {
+  box-shadow: 0 0 50px rgba(16, 185, 129, 0.4);
+}
+
+.dna-section-quartile .quartile-card.q2 {
+  border-color: var(--dna-q2);
+  box-shadow: 0 0 30px rgba(59, 130, 246, 0.2);
+}
+.dna-section-quartile .quartile-card.q2:hover {
+  box-shadow: 0 0 50px rgba(59, 130, 246, 0.4);
+}
+
+.dna-section-quartile .quartile-card.q3 {
+  border-color: var(--dna-q3);
+  box-shadow: 0 0 30px rgba(249, 115, 22, 0.2);
+}
+.dna-section-quartile .quartile-card.q3:hover {
+  box-shadow: 0 0 50px rgba(249, 115, 22, 0.4);
+}
+
+.dna-section-quartile .quartile-card.q4 {
+  border-color: var(--dna-q4);
+  box-shadow: 0 0 30px rgba(107, 114, 128, 0.2);
+}
+.dna-section-quartile .quartile-card.q4:hover {
+  box-shadow: 0 0 50px rgba(107, 114, 128, 0.4);
+}
+
+.dna-section-quartile .quartile-label {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--section-text);
+}
+
+.dna-section-quartile .quartile-stars {
+  color: #FBBF24;
+  font-size: 18px;
+  margin-bottom: 8px;
+  letter-spacing: 2px;
+}
+
+.dna-section-quartile .quartile-range {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.9;
+  margin-bottom: 4px;
+}
+
+.dna-section-quartile .quartile-desc {
+  font-size: 13px;
+  opacity: 0.85;
+  line-height: 1.4;
+}
+
+/* Responsive */
+@media (max-width: 1199px) {
+  .dna-section-free .section-container,
+  .dna-section-premium .section-container {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+
+  .dna-section-free .dna-helix-wrap--left,
+  .dna-section-premium .dna-helix-wrap--right {
+    height: 300px;
+    order: -1;
+    width: 100%;
+  }
+
+  .dna-section-premium .section-container .section-content {
+    order: 0;
+  }
+}
+
+@media (max-width: 767px) {
+  .dna-section-free .section-container,
+  .dna-section-premium .section-container {
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .dna-section-free .dna-helix-wrap--left,
+  .dna-section-premium .dna-helix-wrap--right {
+    position: absolute;
+    opacity: 0.1;
+    z-index: -1;
+    height: 400px;
+    width: 100%;
+  }
+
+  .dna-section-premium .premium-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dna-section-quartile .quartile-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dna-section-free .feature-card,
+  .dna-section-premium .premium-card,
+  .dna-section-quartile .quartile-card {
+    transition: none;
+  }
+}

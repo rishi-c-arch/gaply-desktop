@@ -1,69 +1,151 @@
-import React from 'react';
-import './QuartileAnalysis3D.css';
+import React, { useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import DNAHelix3D from './DNAHelix3D';
+import { useInView } from '../hooks/useInView';
+import { getParticleCount } from '../hooks/useMediaQuery';
+import '../styles/dna-sections.css';
 
-const buildConicGradient = (data: number[], colors: string[]) => {
-  const total = data.reduce((sum, v) => sum + v, 0) || 1;
-  let acc = 0;
-  const stops = data.map((value, idx) => {
-    const start = (acc / total) * 100;
-    acc += value;
-    const end = (acc / total) * 100;
-    const color = colors[idx % colors.length];
-    return `${color} ${start.toFixed(2)}% ${end.toFixed(2)}%`;
-  });
-  return `conic-gradient(${stops.join(', ')})`;
-};
+const quartiles = [
+  {
+    q: 'q1',
+    label: 'Q1',
+    stars: 5,
+    range: 'Top 25%',
+    description: 'Highest impact journals in your field',
+  },
+  {
+    q: 'q2',
+    label: 'Q2',
+    stars: 4,
+    range: '25-50%',
+    description: 'Above average impact journals',
+  },
+  {
+    q: 'q3',
+    label: 'Q3',
+    stars: 3,
+    range: '50-75%',
+    description: 'Average impact journals',
+  },
+  {
+    q: 'q4',
+    label: 'Q4',
+    stars: 2,
+    range: '75-100%',
+    description: 'Emerging or specialized journals',
+  },
+];
 
 const QuartileAnalysis3D: React.FC = () => {
-  // Premium grayscale palettes (Apple-style, neutral)
-  const colorSchemes = {
-    q1: ['#f5f5f5', '#e6e6e6', '#d6d6d6', '#c7c7c7'],
-    q2: ['#ffffff', '#efefef', '#dedede', '#cdcdcd', '#bdbdbd'],
-    q3: ['#ededed', '#dcdcdc', '#cbcbcb', '#bababa', '#a9a9a9'],
-    q4: ['#f0f0f0', '#dfdfdf', '#cecece', '#bdbdbd']
-  };
-
-  const quartileData = {
-    q1: [25, 25, 25, 25],
-    q2: [20, 20, 20, 20, 20],
-    q3: [20, 20, 20, 20, 20],
-    q4: [25, 25, 25, 25]
-  };
+  const navigate = useNavigate();
+  const sectionRef = useRef<HTMLElement>(null);
+  const inView = useInView(sectionRef, { threshold: 0.1 });
+  const particleCount = getParticleCount();
 
   return (
-    <section className="qa-section" aria-label="Journal Quartile Analysis">
-      <div className="qa-divider" />
-
-      <header className="qa-header">
-        <h2>Journal Quartile Analysis</h2>
-        <div className="qa-header-accent" />
-      </header>
-
-      <div className="qa-grid">
-        {[
-          { quartile: 'q1', title: 'Q1', colors: colorSchemes.q1, data: quartileData.q1 },
-          { quartile: 'q2', title: 'Q2', colors: colorSchemes.q2, data: quartileData.q2 },
-          { quartile: 'q3', title: 'Q3', colors: colorSchemes.q3, data: quartileData.q3 },
-          { quartile: 'q4', title: 'Q4', colors: colorSchemes.q4, data: quartileData.q4 }
-        ].map((item) => (
+    <section
+      ref={sectionRef}
+      className="dna-section-quartile"
+      aria-labelledby="quartile-heading"
+    >
+      <DNAHelix3D
+        position="background"
+        colors={{
+          strand1: '#6366F1',
+          strand2: '#8B5CF6',
+          particles: '#FFFFFF',
+        }}
+        geometry={{
+          radius: 6,
+          height: 800,
+          turns: 2,
+          tubeRadius: 0.08,
+        }}
+        particles={{
+          count: 50,
+          size: 0.04,
+          glowIntensity: 0.3,
+        }}
+        animation={{
+          autoRotate: true,
+          rotationSpeed: 0.002,
+          particleOrbit: false,
+        }}
+        opacity={0.15}
+        inView={inView}
+        particleCountOverride={particleCount}
+      />
+      <div className="section-inner">
+        <h2 id="quartile-heading" className="section-heading" style={{ textAlign: 'center', marginBottom: 12 }}>
+          Journal Quartile Analysis
+        </h2>
+        <div
+          style={{
+            width: 80,
+            height: 2,
+            background: 'linear-gradient(90deg, transparent, rgba(99,102,241,0.6), transparent)',
+            margin: '0 auto 24px',
+            opacity: 0.8,
+          }}
+        />
+        <div className="quartile-grid">
+          {quartiles.map((item) => (
+            <article
+              key={item.q}
+              className={`quartile-card ${item.q}`}
+              tabIndex={0}
+              aria-label={`${item.label} quartile: ${item.range}`}
+            >
+              <div className="quartile-label">{item.label}</div>
+              <div className="quartile-stars" aria-hidden>
+                {'★'.repeat(item.stars)}
+              </div>
+              <div className="quartile-range">{item.range}</div>
+              <p className="quartile-desc">{item.description}</p>
+            </article>
+          ))}
+        </div>
+        <p
+          style={{
+            textAlign: 'center',
+            maxWidth: 560,
+            margin: '0 auto 28px',
+            fontSize: '1rem',
+            lineHeight: 1.6,
+            opacity: 0.9,
+          }}
+        >
+          Understand journal rankings with our comprehensive quartile analysis tool. Make informed
+          decisions about where to publish your research.
+        </p>
+        <div style={{ textAlign: 'center' }}>
           <button
-            key={item.quartile}
-            className="qa-card"
-            onClick={() => window.open(`/reports/journal-${item.quartile}-analysis.html`, '_blank')}
-            aria-label={`Open ${item.title} journal analysis`}
+            type="button"
+            onClick={() => navigate('/journal-matching')}
+            aria-label="Analyze journal quartiles"
+            style={{
+              background: 'linear-gradient(135deg, #6366F1, #8B5CF6)',
+              color: 'white',
+              padding: '14px 32px',
+              borderRadius: 12,
+              fontWeight: 600,
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 10px 30px rgba(99, 102, 241, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
           >
-            <div className="qa-card-glow" />
-            <div className="qa-card-body">
-              <div className="qa-card-title">{item.title}</div>
-              <div
-                className="qa-chart-wrap"
-                style={{ '--qa-ring-gradient': buildConicGradient(item.data, item.colors) } as React.CSSProperties}
-                aria-hidden="true"
-              />
-            </div>
-            <div className="qa-card-border" />
+            Analyze Journal
           </button>
-        ))}
+        </div>
       </div>
     </section>
   );
