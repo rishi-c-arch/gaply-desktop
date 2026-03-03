@@ -1,49 +1,11 @@
+# Gaply - robots.txt for search engines
+# https://www.gaply.in
+
 User-agent: *
 Allow: /
 
-# Sitemap
+# Sitemap location
 Sitemap: https://www.gaply.in/sitemap.xml
 
-# Crawl-delay for respectful crawling
-Crawl-delay: 1
-
-# Allow all search engines
-User-agent: Googlebot
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
-User-agent: Slurp
-Allow: /
-
-User-agent: DuckDuckBot
-Allow: /
-
-User-agent: Baiduspider
-Allow: /
-
-User-agent: YandexBot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
-
-User-agent: Twitterbot
-Allow: /
-
-# Block access to admin and private areas
-Disallow: /admin/
-Disallow: /private/
-Disallow: /api/
-Disallow: /_next/
-
-# Allow static assets (CRA serves CSS/JS from /static/)
-Allow: /static/
-
-# Allow access to important files
-Allow: /favicon.ico
-Allow: /robots.txt
-Allow: /sitemap.xml
-Allow: /manifest.json
-Allow: /service-worker.js
+# Crawl-delay is NOT standard; most crawlers ignore it.
+# Google and Bing do not support crawl-delay.
