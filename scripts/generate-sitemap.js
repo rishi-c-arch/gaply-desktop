@@ -12,6 +12,12 @@ const ROUTES = [
   '/academic-ai-remover',
   '/paper-search',
   '/journal-matching',
+  '/blog',
+  '/blog/how-to-write-research-paper-step-by-step',
+  '/blog/phd-research-proposal-to-publication',
+  '/blog/turning-thesis-into-published-research',
+  '/blog/crafting-research-questions-objectives-hypotheses',
+  '/blog/reporting-findings-research-paper-best-practices',
   '/login',
   '/signup'
 ];

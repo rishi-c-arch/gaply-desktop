@@ -38,6 +38,8 @@ import StatisticalResearchOrchestratorPage from './components/StatisticalResearc
 import DataMaestroProPage from './components/DataMaestroProPage';
 import JournalVerifyPage from './components/JournalVerifyPage';
 import ContactPage from './components/ContactPage';
+import BlogPage from './pages/BlogPage';
+import BlogPostPage from './pages/BlogPostPage';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -372,6 +374,7 @@ const AppContent: React.FC = () => {
   const isHideHeaderPath =
     isExactHome ||
     location.pathname.startsWith('/dashboard') ||
+    location.pathname.startsWith('/blog') ||
     location.pathname === '/hire-expert' ||
     location.pathname === '/search-results' ||
     location.pathname === '/paper-search' ||
@@ -518,6 +521,17 @@ const AppContent: React.FC = () => {
               <ContactPage />
             </>
           } />
+          <Route path="/blog" element={
+            <>
+              <SEOHead
+                title="Blog | Research Writing & Academic Publishing Insights - Gaply"
+                description="Expert insights on research paper writing, PhD thesis guidance, journal matching, and academic publishing. Tips from researchers and editors."
+                keywords="research paper writing blog, thesis writing tips, journal matching, academic publishing, PhD research, research objectives, findings research paper"
+              />
+              <BlogPage />
+            </>
+          } />
+          <Route path="/blog/:slug" element={<BlogPostPage />} />
           <Route path="/privacy" element={
             <>
               <SEOHead

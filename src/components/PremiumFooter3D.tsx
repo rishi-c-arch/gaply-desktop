@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import './PremiumFooter3D.css';
 
 const PremiumFooter3D: React.FC = () => {
@@ -22,6 +23,7 @@ const PremiumFooter3D: React.FC = () => {
     {
       title: 'Resources',
       links: [
+        { label: 'Blog', href: '/blog' },
         { label: 'Support', href: '#support' },
         { label: 'Privacy Policy', href: '/privacy' },
         { label: 'Terms of Service', href: '/terms' },
@@ -50,9 +52,15 @@ const PremiumFooter3D: React.FC = () => {
                 <ul className="premium-footer__links">
                   {column.links.map((link) => (
                     <li key={link.label}>
-                      <a href={link.href} className="premium-footer__link">
-                        {link.label}
-                      </a>
+                      {link.href.startsWith('/') && !link.href.startsWith('//') ? (
+                        <Link to={link.href} className="premium-footer__link">
+                          {link.label}
+                        </Link>
+                      ) : (
+                        <a href={link.href} className="premium-footer__link">
+                          {link.label}
+                        </a>
+                      )}
                     </li>
                   ))}
                 </ul>
