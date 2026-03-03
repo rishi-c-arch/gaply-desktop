@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { buildApiUrl } from '../api/config';
+import PaymentSuccessOverlay from './PaymentSuccessOverlay';
 
 interface PlanConfig {
   id: string;
@@ -25,6 +26,7 @@ const PremiumPage: React.FC = () => {
   const [userPlan, setUserPlan] = useState<UserPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
 
   const plans: PlanConfig[] = [
     {
@@ -231,7 +233,7 @@ const PremiumPage: React.FC = () => {
       const data = await response.json();
       
       if (data.success) {
-        alert('Payment successful! Your premium features are now active.');
+        setPaymentSuccess(true);
         await checkUserPlan();
       } else {
         alert('Payment verification failed: ' + data.error);
@@ -547,6 +549,14 @@ const PremiumPage: React.FC = () => {
           <p>All plans include 30-day money-back guarantee.</p>
         </div>
       </div>
+
+      <PaymentSuccessOverlay
+        show={paymentSuccess}
+        title="Payment Successful!"
+        message="Enjoy your premium features."
+        onAutoDismiss={() => setPaymentSuccess(false)}
+        autoDismissMs={4500}
+      />
     </div>
   );
 };

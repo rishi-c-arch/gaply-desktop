@@ -7,6 +7,7 @@ import {
   ChevronsLeft,
   FileText,
   BarChart2,
+  ShieldCheck,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -20,6 +21,7 @@ const NAV_ITEMS: Array<{
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, path: '/dashboard' },
   { id: 'publishready', label: 'PublishReady', icon: FileText, path: '/dashboard/publishready', premium: true },
   { id: 'datamaestro', label: 'DataMaestro', icon: BarChart2, path: '/dashboard/datamaestro', premium: true },
+  { id: 'journal-verify', label: 'Journal Verification', icon: ShieldCheck, path: '/dashboard/journal-verify', premium: true },
   { id: 'projects', label: 'Projects', icon: Folder, path: '/dashboard/projects' },
   { id: 'usage', label: 'Usage', icon: Clock, path: '/dashboard/usage' },
   { id: 'settings', label: 'Settings', icon: Settings, path: '/dashboard/settings' },

@@ -36,6 +36,7 @@ import DocumentOrchestratorPage from './components/DocumentOrchestratorPage';
 import ManuscriptOrchestratorPage from './components/ManuscriptOrchestratorPage';
 import StatisticalResearchOrchestratorPage from './components/StatisticalResearchOrchestratorPage';
 import DataMaestroProPage from './components/DataMaestroProPage';
+import JournalVerifyPage from './components/JournalVerifyPage';
 import ContactPage from './components/ContactPage';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -674,6 +675,20 @@ const AppContent: React.FC = () => {
                 />
                 <DashboardLayout pageTitle="DataMaestro">
                   <DataMaestroProPage />
+                </DashboardLayout>
+              </>
+            </ProtectedRoute>
+          } />
+          <Route path="/dashboard/journal-verify" element={
+            <ProtectedRoute>
+              <>
+                <SEOHead 
+                  title="Verify Journal Authenticity | Journal Check - Gaply"
+                  description="AI-powered journal verification. Enter a journal URL or DOI to detect if it's real or predatory. Get detailed authenticity reports with key parameters."
+                  keywords="journal verification, predatory journal detection, journal authenticity check, DOI verification, research journal validation"
+                />
+                <DashboardLayout pageTitle="Journal Verification">
+                  <JournalVerifyPage />
                 </DashboardLayout>
               </>
             </ProtectedRoute>

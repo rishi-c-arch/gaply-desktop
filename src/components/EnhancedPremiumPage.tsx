@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { premiumService, PlanConfig } from '../services/premiumService';
+import PaymentSuccessOverlay from './PaymentSuccessOverlay';
 
 declare global {
   interface Window {
@@ -9,11 +10,12 @@ declare global {
 }
 
 const EnhancedPremiumPage: React.FC = () => {
-  const { user, subscription, isAuthenticated, logout } = useAuth();
+  const { user, subscription, isAuthenticated, logout, refreshSubscription } = useAuth();
   const [plans, setPlans] = useState<PlanConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
 
   useEffect(() => {
     loadPlans();
@@ -124,15 +126,18 @@ const EnhancedPremiumPage: React.FC = () => {
           );
 
           if (verifyResult.success) {
-            alert('Payment successful! Your premium features are now active.');
-            // Refresh the page or update UI
-            window.location.reload();
+            setError('');
+            setPaymentSuccess(true);
+            await refreshSubscription();
+            await loadPlans();
           } else {
-            alert('Payment verification failed. Please contact support.');
+            setError(verifyResult.error || 'Payment verification failed. Please contact support.');
           }
         } catch (error) {
           console.error('Payment verification error:', error);
-          alert('Payment verification failed. Please contact support.');
+          setError('Payment verification failed. Please contact support.');
+        } finally {
+          setProcessing(null);
         }
       },
       modal: {
@@ -691,6 +696,14 @@ const EnhancedPremiumPage: React.FC = () => {
           }
         `
       }} />
+
+      <PaymentSuccessOverlay
+        show={paymentSuccess}
+        title="Payment Successful!"
+        message="Enjoy your premium features."
+        onAutoDismiss={() => setPaymentSuccess(false)}
+        autoDismissMs={4500}
+      />
     </div>
   );
 };

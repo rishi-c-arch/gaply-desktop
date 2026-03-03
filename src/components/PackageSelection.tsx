@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { premiumService } from '../services/premiumService';
+import PaymentSuccessOverlay from './PaymentSuccessOverlay';
 
 declare global {
   interface Window {
@@ -31,10 +32,11 @@ const PLANS = [
 ];
 
 const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
-  const { user, subscription, isAuthenticated, refreshSubscription } = useAuth();
+  const { user, isAuthenticated, refreshSubscription } = useAuth();
   const navigate = useNavigate();
   const [processing, setProcessing] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const stored = localStorage.getItem('gaply_theme');
     return stored === 'light' || stored === 'dark' ? stored : 'dark';
@@ -98,9 +100,9 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
                 response.razorpay_signature
               );
               if (verifyResult.success) {
+                setError('');
+                setPaymentSuccess(true);
                 await refreshSubscription();
-                alert('Payment successful! Your premium features are now active.');
-                window.location.reload();
               } else {
                 setError(verifyResult.error || 'Payment verification failed');
               }
@@ -345,6 +347,17 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
           </p>
         </div>
       </div>
+
+      <PaymentSuccessOverlay
+        show={paymentSuccess}
+        title="Payment Successful!"
+        message="Enjoy your premium features."
+        onAutoDismiss={() => {
+          setPaymentSuccess(false);
+          window.location.reload();
+        }}
+        autoDismissMs={4500}
+      />
     </div>
   );
 };

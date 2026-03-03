@@ -222,6 +222,11 @@
 
 .jqa-cta {
   text-align: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
 }
 
 .jqa-btn {
@@ -244,6 +249,18 @@
 .jqa-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.4);
+}
+
+.jqa-btn-secondary {
+  background: transparent;
+  color: #374151;
+  border: 2px solid #d1d5db;
+  box-shadow: none;
+}
+
+.jqa-btn-secondary:hover {
+  background: rgba(55, 65, 81, 0.08);
+  border-color: #9ca3af;
 }
 
 /* Dark theme */
@@ -294,6 +311,17 @@ body:not(.light) .jqa-btn {
   color: #000000;
   border-color: rgba(250, 250, 250, 0.9);
   box-shadow: 0 16px 45px rgba(0, 0, 0, 0.85);
+}
+
+body:not(.light) .jqa-btn-secondary {
+  background: transparent;
+  color: #e5e7eb;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+body:not(.light) .jqa-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 /* Responsive layout */

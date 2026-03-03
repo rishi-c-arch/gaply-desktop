@@ -65,6 +65,7 @@ const UsagePage: React.FC = () => {
   const statsCards = [
     { id: 'publishready', title: 'PublishReady Uses', value: stats ? `${stats.publishready_used}/${stats.publishready_total}` : '0/0', showInfo: true },
     { id: 'datamaestro', title: 'DataMaestro Uses', value: stats ? `${stats.datamaestro_used}/${stats.datamaestro_total}` : '0/0', showInfo: true },
+    { id: 'journal_check', title: 'Journal Verification Uses', value: stats ? `${stats.journal_check_used || 0}/${stats.journal_check_total || 0}` : '0/0', showInfo: true },
     { id: 'projects', title: 'Total Projects', value: stats ? String(stats.total_projects) : '0', showInfo: false },
   ];
 

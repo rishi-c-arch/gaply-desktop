@@ -144,11 +144,19 @@ export default function JournalQuartile() {
         <div className="jqa-cta">
           <button
             type="button"
-            onClick={() => navigate('/journal-matching')}
+            onClick={() => navigate('/dashboard/journal-verify')}
             className="jqa-btn"
-            aria-label="Analyze journal quartiles"
+            aria-label="Verify journal authenticity"
           >
-            Analyze Journal
+            Verify Your Journal is Real
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/journal-matching')}
+            className="jqa-btn jqa-btn-secondary"
+            aria-label="Find matching journals"
+          >
+            Find Matching Journals
           </button>
         </div>
       </div>

@@ -5,6 +5,8 @@ export interface DashboardStats {
   publishready_total: number;
   datamaestro_used: number;
   datamaestro_total: number;
+  journal_check_used: number;
+  journal_check_total: number;
   total_projects: number;
 }
 
@@ -12,6 +14,7 @@ export interface ChartMonth {
   month: string;
   publishready: number;
   datamaestro: number;
+  journal_check?: number;
 }
 
 export interface DashboardProject {
@@ -76,6 +79,8 @@ export async function fetchDashboardOverview(
         publishready_total: 0,
         datamaestro_used: 0,
         datamaestro_total: 0,
+        journal_check_used: 0,
+        journal_check_total: 0,
         total_projects: 0,
       },
       chart_data: [],
