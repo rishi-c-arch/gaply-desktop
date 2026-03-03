@@ -20,6 +20,13 @@ type QuartileConfig = {
   segments: QuartileSegment[];
 };
 
+const QUARTILE_GUIDE_URLS: Record<string, string> = {
+  q1: '/quartile-guides/q1-guide.html',
+  q2: '/quartile-guides/q2-q3-guide.html',
+  q3: '/quartile-guides/q2-q3-guide.html',
+  q4: '/quartile-guides/q4-guide.html',
+};
+
 const QUARTILES: QuartileConfig[] = [
   {
     id: 'q1',
@@ -121,7 +128,19 @@ export default function JournalQuartile() {
               className={`jqa-card jqa-card--${item.id} ${inView ? 'jqa-card--visible' : ''}`}
               style={{ transitionDelay: `${index * 80}ms` }}
               tabIndex={0}
-              aria-label={`${item.label} – ${item.subtitle}`}
+              role="button"
+              aria-label={`${item.label} – ${item.subtitle}. Click to open guide.`}
+              onClick={() => {
+                const url = QUARTILE_GUIDE_URLS[item.id];
+                if (url) window.open(url, '_blank', 'noopener,noreferrer');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  const url = QUARTILE_GUIDE_URLS[item.id];
+                  if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                }
+              }}
             >
               <div className="jqa-card-label">{item.label}</div>
 
@@ -145,18 +164,10 @@ export default function JournalQuartile() {
           <button
             type="button"
             onClick={() => navigate('/dashboard/journal-verify')}
-            className="jqa-btn"
+            className="jqa-btn jqa-btn-premium"
             aria-label="Verify journal authenticity"
           >
             Verify Your Journal is Real
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/journal-matching')}
-            className="jqa-btn jqa-btn-secondary"
-            aria-label="Find matching journals"
-          >
-            Find Matching Journals
           </button>
         </div>
       </div>

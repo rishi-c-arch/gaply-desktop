@@ -23,3 +23,8 @@ yarn-debug.log*
 yarn-error.log*
 .vercel
 .env*.local
+
+# Generated quartile guides (created at build time)
+/public/quartile-guides/q1-guide.html
+/public/quartile-guides/q2-q3-guide.html
+/public/quartile-guides/q4-guide.html
