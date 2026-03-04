@@ -38,6 +38,8 @@ import StatisticalResearchOrchestratorPage from './components/StatisticalResearc
 import DataMaestroProPage from './components/DataMaestroProPage';
 import JournalVerifyPage from './components/JournalVerifyPage';
 import ContactPage from './components/ContactPage';
+import DownloadsPage from './components/DownloadsPage';
+import DownloadPopUp from './components/DownloadPopUp';
 import BlogPage from './pages/BlogPage';
 import BlogPostPage from './pages/BlogPostPage';
 import { AuthProvider } from './contexts/AuthContext';
@@ -145,6 +147,7 @@ const AppleHeader: React.FC<{ theme: 'light' | 'dark'; onToggleTheme: () => void
           {[
             { label: 'Features', href: '/features' },
             { label: 'Pricing', href: '/pricing' },
+            { label: 'Download', href: '/download' },
             { label: 'Careers', href: '/career' },
             { label: 'Contact', href: '/contact' },
           ].map((l) => (
@@ -183,6 +186,7 @@ const AppleHeader: React.FC<{ theme: 'light' | 'dark'; onToggleTheme: () => void
 const HERO_OPTIONS = [
   { label: 'Features', href: '/features' },
   { label: 'Pricing', href: '/pricing' },
+  { label: 'Download', href: '/download' },
   { label: 'Careers', href: '/career' },
   { label: 'Hire an expert', href: '/hire-expert' },
 ];
@@ -511,6 +515,16 @@ const AppContent: React.FC = () => {
               <PricingSection />
             </>
           } />
+          <Route path="/download" element={
+            <>
+              <SEOHead
+                title="Download Gaply Desktop | Mac & Windows - Gaply"
+                description="Download Gaply desktop app for Mac (Apple Silicon & Intel) and Windows. Same features as the web app — research paper writing, thesis help, journal matching."
+                keywords="download Gaply, Gaply desktop app, Mac app, Windows app, research platform download"
+              />
+              <DownloadsPage />
+            </>
+          } />
           <Route path="/contact" element={
             <>
               <SEOHead 
@@ -756,6 +770,7 @@ const AppContent: React.FC = () => {
             </ProtectedRoute>
           } />
         </Routes>
+        <DownloadPopUp />
     </div>
   );
 };
