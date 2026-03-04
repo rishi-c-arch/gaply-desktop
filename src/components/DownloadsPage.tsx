@@ -11,16 +11,12 @@ const DownloadsPage: React.FC = () => {
       title: 'Mac (Apple Silicon)',
       subtitle: 'M1, M2, M3, M4',
       href: DOWNLOAD_LINKS.macArm64,
-      icon: '🍎',
-      file: 'Gaply-mac-arm64.dmg',
     },
     {
       id: 'windows',
       title: 'Windows',
       subtitle: 'Windows 10 & 11',
       href: DOWNLOAD_LINKS.windows,
-      icon: '🪟',
-      file: 'Gaply-windows.exe',
     },
   ];
 
@@ -82,38 +78,38 @@ const DownloadsPage: React.FC = () => {
       {/* Main content */}
       <div
         style={{
-          maxWidth: '800px',
+          maxWidth: '720px',
           margin: '0 auto',
           padding: '60px 24px 80px',
         }}
       >
         <h2
           style={{
-            fontSize: 'clamp(32px, 5vw, 48px)',
-            fontWeight: '700',
+            fontSize: 'clamp(28px, 4vw, 40px)',
+            fontWeight: '600',
             letterSpacing: '-0.03em',
-            marginBottom: '16px',
-            lineHeight: 1.1,
+            marginBottom: '12px',
+            lineHeight: 1.2,
           }}
         >
           Download Gaply Desktop
         </h2>
         <p
           style={{
-            fontSize: '18px',
-            color: 'rgba(255, 255, 255, 0.7)',
+            fontSize: '16px',
+            color: 'rgba(255, 255, 255, 0.65)',
             lineHeight: 1.6,
-            marginBottom: '48px',
+            marginBottom: '40px',
           }}
         >
-          Use Gaply on your Mac or Windows laptop. Same features, same experience — works offline after the first load.
+          Same features as the web app — works offline after the first load.
         </p>
 
         <div
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '20px',
+            gap: '16px',
           }}
         >
           {downloads.map((d) => (
@@ -125,40 +121,40 @@ const DownloadsPage: React.FC = () => {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '24px',
-                padding: '24px 28px',
-                background: 'rgba(255, 255, 255, 0.05)',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
-                borderRadius: '16px',
+                justifyContent: 'space-between',
+                gap: '20px',
+                padding: '20px 24px',
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '12px',
                 textDecoration: 'none',
                 color: '#fff',
                 transition: 'all 0.2s ease',
               }}
               onMouseOver={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.07)';
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.18)';
               }}
               onMouseOut={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)';
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
               }}
             >
-              <span style={{ fontSize: '40px' }}>{d.icon}</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '18px', fontWeight: '600', marginBottom: '4px' }}>
+              <div>
+                <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '2px' }}>
                   {d.title}
                 </div>
-                <div style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.6)' }}>
+                <div style={{ fontSize: '13px', color: 'rgba(255, 255, 255, 0.5)' }}>
                   {d.subtitle}
                 </div>
               </div>
               <span
                 style={{
-                  padding: '10px 20px',
-                  background: 'rgba(0, 122, 255, 0.2)',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  fontWeight: '600',
+                  padding: '8px 16px',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  fontWeight: '500',
                 }}
               >
                 Download
@@ -167,9 +163,52 @@ const DownloadsPage: React.FC = () => {
           ))}
         </div>
 
-        <p
+        {/* Security notice */}
+        <div
           style={{
             marginTop: '40px',
+            padding: '24px',
+            background: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '12px',
+          }}
+        >
+          <div
+            style={{
+              fontSize: '14px',
+              fontWeight: '600',
+              marginBottom: '12px',
+              color: 'rgba(255, 255, 255, 0.9)',
+            }}
+          >
+            If your system shows a security warning
+          </div>
+          <p
+            style={{
+              fontSize: '14px',
+              color: 'rgba(255, 255, 255, 0.6)',
+              lineHeight: 1.7,
+              marginBottom: '16px',
+            }}
+          >
+            Gaply is a new, unfunded venture. We haven&apos;t yet paid for official code signing certificates, so Mac and Windows may show a warning when you first run the app. The app is safe — you can trust it. We&apos;re working to add proper signing in a future update.
+          </p>
+          <div
+            style={{
+              fontSize: '13px',
+              color: 'rgba(255, 255, 255, 0.55)',
+              lineHeight: 1.8,
+            }}
+          >
+            <strong style={{ color: 'rgba(255, 255, 255, 0.75)' }}>Mac:</strong> Right-click the app → Open → Open again.
+            <br />
+            <strong style={{ color: 'rgba(255, 255, 255, 0.75)' }}>Windows:</strong> Click &quot;More info&quot; → &quot;Run anyway&quot;.
+          </div>
+        </div>
+
+        <p
+          style={{
+            marginTop: '32px',
             fontSize: '14px',
             color: 'rgba(255, 255, 255, 0.5)',
             lineHeight: 1.6,
@@ -184,9 +223,9 @@ const DownloadsPage: React.FC = () => {
           rel="noopener noreferrer"
           style={{
             display: 'inline-block',
-            marginTop: '24px',
+            marginTop: '20px',
             fontSize: '14px',
-            color: 'rgba(255, 255, 255, 0.6)',
+            color: 'rgba(255, 255, 255, 0.55)',
             textDecoration: 'underline',
           }}
         >

@@ -133,7 +133,7 @@ const DownloadPopUp: React.FC = () => {
                 marginBottom: 16,
               }}
             >
-              <span>🖥️</span> Desktop app available
+              Desktop app available
             </div>
             <h2
               id="download-popup-title"
@@ -165,6 +165,7 @@ const DownloadPopUp: React.FC = () => {
               style={{
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'space-between',
                 gap: 14,
                 padding: '14px 18px',
                 background: 'rgba(255,255,255,0.08)',
@@ -177,7 +178,6 @@ const DownloadPopUp: React.FC = () => {
                 textAlign: 'left',
               }}
             >
-              <span style={{ fontSize: 24 }}>🍎</span>
               <span>Mac (Apple Silicon)</span>
             </button>
             <button
@@ -185,6 +185,7 @@ const DownloadPopUp: React.FC = () => {
               style={{
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'space-between',
                 gap: 14,
                 padding: '14px 18px',
                 background: 'rgba(255,255,255,0.08)',
@@ -197,7 +198,6 @@ const DownloadPopUp: React.FC = () => {
                 textAlign: 'left',
               }}
             >
-              <span style={{ fontSize: 24 }}>🪟</span>
               <span>Windows</span>
             </button>
           </div>
