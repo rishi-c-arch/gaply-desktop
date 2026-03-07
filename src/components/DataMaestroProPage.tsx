@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import SEO from './SEO';
 import { apiFetch } from '../api/config';
+import { createReport } from '../services/dashboardService';
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import './DataMaestroProPage.css';
@@ -110,6 +111,8 @@ const DataMaestroProPage: React.FC = () => {
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Analysis failed'); }
       const data = await res.json();
       setAnalysisResult(data.analysis || {}); setProgress(100); setProgressMsg('Analysis complete!');
+      const sourceName = title?.trim() || parsedData?.file_name || 'DataMaestro project';
+      createReport(token, sourceName, 'datamaestro');
       setTimeout(() => setStep(4), 400);
     } catch (err: any) { setError(err.message || 'Analysis failed'); setStep(2); } finally { clearInterval(pInt); clearInterval(mInt); setLoading(false); }
   };

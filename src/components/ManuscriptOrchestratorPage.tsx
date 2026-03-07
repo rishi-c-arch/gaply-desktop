@@ -4,6 +4,7 @@ import { apiFetch } from '../api/config';
 import { useAuth } from '../contexts/AuthContext';
 import MarkdownRenderer from './MarkdownRenderer';
 import { downloadHTMLReport, downloadReportAsPDF } from './HTMLReportGenerator';
+import { createReport } from '../services/dashboardService';
 import { playHumanTTS, HumanTTSController } from '../utils/humanTTS';
 import './ManuscriptOrchestratorPage.css';
 
@@ -734,6 +735,8 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
       setReportData(report);
 
       setShowGetSetGo(true);
+      const sourceName = usePastedText ? 'Pasted manuscript' : (files[0]?.file?.name || 'Manuscript');
+      createReport(token, sourceName, 'publishready');
       setTimeout(() => {
         setShowGetSetGo(false);
         setStatus('complete');

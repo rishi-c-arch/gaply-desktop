@@ -120,3 +120,24 @@ export async function fetchBillingTransactions(
   }
   return data.transactions || [];
 }
+
+/** Create a report record for Recent Projects when PublishReady or DataMaestro completes. Fire-and-forget; does not throw. */
+export async function createReport(
+  token: string | null,
+  sourceName: string,
+  sourceType?: 'publishready' | 'datamaestro'
+): Promise<void> {
+  if (!token || !sourceName?.trim()) return;
+  try {
+    await apiFetch('/api/dashboard/report', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        source_name: sourceName.trim().slice(0, 500),
+        source_type: sourceType || undefined,
+      }),
+    });
+  } catch {
+    /* fire-and-forget; do not surface to user */
+  }
+}
