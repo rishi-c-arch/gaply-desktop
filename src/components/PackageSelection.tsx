@@ -18,7 +18,7 @@ const PLANS = [
   {
     id: 'PLAN-PREMIUM',
     name: 'Gaply Premium',
-    price: '₹2,499',
+    price: '₹4,999',
     description: 'PublishReady + DataMaestro bundled access with priority-quality outputs',
     features: [
       'PublishReady (2 uses)',

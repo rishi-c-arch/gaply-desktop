@@ -33,16 +33,18 @@ export async function playHumanTTS(
   text: string,
   options: {
     voice?: string;
+    jobId?: string;
     onEnd?: () => void;
     onError?: (err: string) => void;
     apiFetch: (input: string, init?: RequestInit) => Promise<Response>;
   }
 ): Promise<HumanTTSController> {
-  const voice = options.voice || 'nova';
+  const voice = options.voice || 'shimmer';
   const chunks = chunkText(text);
   let stopped = false;
   let paused = false;
   let currentAudio: HTMLAudioElement | null = null;
+  let currentChunkIndex = 0;
 
   const stop = () => {
     stopped = true;
@@ -55,16 +57,20 @@ export async function playHumanTTS(
   };
 
   const pause = () => {
-    if (currentAudio && !stopped) {
+    if (!stopped && (currentAudio || currentChunkIndex < chunks.length)) {
       paused = true;
-      currentAudio.pause();
+      if (currentAudio) currentAudio.pause();
     }
   };
 
   const resume = () => {
-    if (currentAudio && paused && !stopped) {
+    if (paused && !stopped) {
       paused = false;
-      void currentAudio.play();
+      if (currentAudio) {
+        void currentAudio.play();
+      } else {
+        playNext(currentChunkIndex);
+      }
     }
   };
 
@@ -73,9 +79,14 @@ export async function playHumanTTS(
       options.onEnd?.();
       return;
     }
+    if (paused) return;
+    currentChunkIndex = index;
     try {
+      const headers: Record<string, string> = {};
+      if (options.jobId) headers['X-Gaply-Job-Id'] = options.jobId;
       const res = await options.apiFetch('/api/ai/tts', {
         method: 'POST',
+        headers,
         body: JSON.stringify({ text: chunks[index], voice }),
       });
       if (!res.ok) {
@@ -91,14 +102,17 @@ export async function playHumanTTS(
       audio.onended = () => {
         URL.revokeObjectURL(url);
         currentAudio = null;
+        currentChunkIndex = index + 1;
         if (stopped) {
           options.onEnd?.();
           return;
         }
+        if (paused) return;
         playNext(index + 1);
       };
       audio.onerror = () => {
         URL.revokeObjectURL(url);
+        currentAudio = null;
         options.onError?.('Playback failed');
         options.onEnd?.();
       };

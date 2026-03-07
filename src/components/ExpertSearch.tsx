@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { expertSearchAPI, getMockSearchResults, ExpertDomain, ExpertProfile, SearchResponse } from '../services/expertSearchAPI';
+import { expertSearchAPI, ExpertDomain, ExpertProfile } from '../services/expertSearchAPI';
 
 interface ExpertSearchProps {
   onExpertSelect?: (expert: ExpertProfile) => void;
@@ -63,6 +63,7 @@ const ExpertSearch: React.FC<ExpertSearchProps> = ({ onExpertSelect, onDomainSel
     navigate(`/search-results?q=${encodeURIComponent(domain.name)}`);
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleExpertClick = (expert: ExpertProfile) => {
     if (onExpertSelect) {
       onExpertSelect(expert);

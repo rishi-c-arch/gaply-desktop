@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { expertSearchAPI, ExpertProfile, ExpertDomain, SearchResponse } from '../services/expertSearchAPI';
-import ExpertSearch from './ExpertSearch';
 import HireRequestDialog from './HireRequestDialog';
 
 const ExpertSearchResultsPage: React.FC = () => {

@@ -7,9 +7,9 @@ const PricingSection: React.FC = () => {
 
   const plans = [
     {
-      id: "premium-2499",
+      id: "premium-4999",
       name: "Gaply Premium",
-      price: "₹2,499",
+      price: "₹4,999",
       description: "PublishReady + DataMaestro bundled access with priority-quality outputs.",
       features: [
         "PublishReady (2 uses)",

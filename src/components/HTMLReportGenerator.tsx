@@ -46,6 +46,7 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
     return '#ff3b30';
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const formatSectionScore = (score: number) => {
     const color = score >= 80 ? '#34c759' : score >= 60 ? '#ff9500' : '#ff3b30';
     return `<span style="color: ${color}; font-weight: 600;">${score}/100</span>`;
@@ -321,6 +322,10 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
       background: #fff;
       border: 1px solid #e0e0dc;
       padding: 1em 1.25em;
+      min-width: 0;
+      overflow-wrap: break-word;
+      word-wrap: break-word;
+      word-break: break-word;
     }
     
     .task-title {
@@ -371,6 +376,10 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
       font-size: 9pt;
       color: #444;
       line-height: 1.5;
+      overflow-wrap: break-word;
+      word-wrap: break-word;
+      word-break: break-word;
+      max-width: 100%;
     }
     
     .task-details-list { list-style: none; padding-left: 0; }
@@ -378,6 +387,12 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
     .task-details-list li {
       padding: 0.4em 0;
       border-bottom: 1px solid #eee;
+    }
+    
+    .similar-doc-item, .match-item {
+      padding: 0.5em 0;
+      border-bottom: 1px solid #eee;
+      font-size: 9pt;
     }
     
     .line-edit {
@@ -498,6 +513,8 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
     @media print {
       body { background: white; padding: 1cm; }
       .container { box-shadow: none; border: 1px solid #ccc; }
+      .task-card, .task-details, .task-summary { break-inside: avoid; }
+      a { color: #1a1a1a; }
     }
   </style>
 </head>
@@ -665,6 +682,25 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
             } else if (details.verbatim_matches && Array.isArray(details.verbatim_matches)) {
               detailsHtml = details.verbatim_matches.slice(0, 3).map((m: any) => `<div class="match-item">"${escapeHtml((m.phrase || '').slice(0, 80))}..." ${m.source ? `(${escapeHtml(m.source)})` : ''}</div>`).join('');
               detailsHtml = `<div class="task-details">${detailsHtml}</div>`;
+            } else if (details.similar_documents && Array.isArray(details.similar_documents)) {
+              detailsHtml = details.similar_documents.slice(0, 5).map((doc: any) => {
+                const title = (doc.title || '').slice(0, 120) + ((doc.title || '').length > 120 ? '...' : '');
+                const overlap = doc.overlap_type || doc.overlap || '';
+                const url = doc.url || '';
+                return `<div class="similar-doc-item"><strong>${escapeHtml(title)}</strong>${overlap ? ` — ${escapeHtml(overlap)}` : ''}${url ? ` <a href="${escapeHtml(url)}" target="_blank" rel="noopener">View</a>` : ''}</div>`;
+              }).join('');
+              detailsHtml = `<div class="task-details similar-docs">${detailsHtml}</div>`;
+            } else if (Array.isArray(details) && details.length > 0 && typeof details[0] === 'object') {
+              detailsHtml = details.slice(0, 5).map((item: any) => {
+                const expl = item.explanation || item.explanation_text || '';
+                const src = item.source_title || item.source || '';
+                const matchType = item.match_type || item.matchType || '';
+                const parts = [expl, src, matchType].filter(Boolean).map((p: string) => escapeHtml(String(p).slice(0, 150)));
+                return `<div class="match-item">${parts.join(' — ')}</div>`;
+              }).join('');
+              detailsHtml = `<div class="task-details">${detailsHtml}</div>`;
+            } else if (details.indicators && Array.isArray(details.indicators)) {
+              detailsHtml = `<ul class="task-details-list">${details.indicators.map((i: string) => `<li>${escapeHtml(String(i))}</li>`).join('')}</ul>`;
             } else {
               detailsHtml = `<div class="task-details">${escapeHtml(JSON.stringify(details).slice(0, 300))}${JSON.stringify(details).length > 300 ? '...' : ''}</div>`;
             }
@@ -717,4 +753,21 @@ export const downloadHTMLReport = (reportData: ReportData, filename?: string) =>
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+};
+
+/** Opens report in new window and triggers print dialog (user can "Save as PDF") */
+export const downloadReportAsPDF = (reportData: ReportData, manuscriptTitle?: string) => {
+  const html = generateHTMLReport(reportData, manuscriptTitle);
+  const win = window.open('', '_blank');
+  if (!win) {
+    alert('Please allow pop-ups to download the report as PDF.');
+    return;
+  }
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => {
+    win.print();
+    win.onafterprint = () => win.close();
+  }, 500);
 };

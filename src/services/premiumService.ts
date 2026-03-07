@@ -1,4 +1,4 @@
-import { API_BASE_URL, apiFetch } from '../api/config';
+import { apiFetch } from '../api/config';
 import { authService } from './authService';
 
 export interface PlanConfig {
@@ -162,7 +162,7 @@ class PremiumService {
         id: "PLAN-PREMIUM",
         name: "Gaply Premium",
         description: "PublishReady + DataMaestro bundled access with priority-quality outputs",
-        price: 2499,
+        price: 4999,
         currency: "INR",
         features: {
           gap_finder: {

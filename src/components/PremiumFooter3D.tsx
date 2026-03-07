@@ -9,6 +9,7 @@ const PremiumFooter3D: React.FC = () => {
       links: [
         { label: 'Features', href: '/features' },
         { label: 'Pricing', href: '/pricing' },
+        { label: 'Download', href: '/download' },
         { label: 'Journal Matching', href: '/journal-matching' },
         { label: 'Paper Search', href: '/paper-search' },
       ],

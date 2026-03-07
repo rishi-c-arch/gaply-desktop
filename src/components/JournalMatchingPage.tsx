@@ -33,7 +33,7 @@ const JournalMatchingPage: React.FC = () => {
   const [jmAbstract, setJmAbstract] = useState('');
   const [journalResults, setJournalResults] = useState<JournalResult[]>([]);
   const [isMatching, setIsMatching] = useState(false);
-  const [domainAnalysis, setDomainAnalysis] = useState<DomainAnalysis | null>(null);
+  const [, setDomainAnalysis] = useState<DomainAnalysis | null>(null);
 
   // Comprehensive journal database by domain
   const journalDatabase = {

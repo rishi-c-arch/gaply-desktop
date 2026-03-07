@@ -27,11 +27,25 @@ export function buildApiUrl(path: string): string {
   return `${API_BASE_URL}${normalizedPath}`;
 }
 
+async function doFetch(
+  url: string,
+  headers: HeadersInit,
+  init?: RequestInit,
+): Promise<Response> {
+  const fetchOptions: RequestInit = {
+    ...init,
+    headers,
+    mode: 'cors',
+    signal: init?.signal,
+  };
+  return fetch(url, fetchOptions);
+}
+
 export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
   const path = input.startsWith('http') ? input : buildApiUrl(input);
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
-  const authToken = typeof localStorage !== 'undefined' ? localStorage.getItem('authToken') : null;
-  const headers: HeadersInit = {
+  let authToken = typeof localStorage !== 'undefined' ? localStorage.getItem('authToken') : null;
+  let headers: HeadersInit = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...(init?.headers || {}),
@@ -48,14 +62,19 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
   for (const url of urlsToTry) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        // Use the signal from init if provided (for timeout control)
-        const fetchOptions: RequestInit = { 
-          ...init, 
-          headers, 
-          mode: 'cors',
-          signal: init?.signal, // Preserve abort signal for timeout
-        };
-        const res = await fetch(url, fetchOptions);
+        const res = await doFetch(url, headers, init);
+        if (res.status === 401 && authToken) {
+          const { authService } = await import('../services/authService');
+          const newToken = await authService.refreshAccessToken();
+          if (newToken) {
+            headers = {
+              ...headers,
+              Authorization: `Bearer ${newToken}`,
+            };
+            const retryRes = await doFetch(url, headers, init);
+            if (retryRes.ok || retryRes.status >= 400) return retryRes;
+          }
+        }
         if (res.ok || res.status >= 400) return res; // return even 4xx/5xx to caller
       } catch (err: any) {
         lastError = err;

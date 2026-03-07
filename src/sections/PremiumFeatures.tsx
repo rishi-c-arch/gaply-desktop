@@ -151,7 +151,7 @@ export default function PremiumFeatures() {
         <span className="premium2-bullet premium2-bullet--dim" />
       </div>
       <div className="premium2-system-ready" aria-hidden="true">
-        // SYSTEM_READY
+        {'// SYSTEM_READY'}
       </div>
     </section>
   );

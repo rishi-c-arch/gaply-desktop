@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { expertSearchAPI } from '../services/expertSearchAPI';
 
 interface ExpertProfile {
   id: number;
@@ -83,7 +82,7 @@ const HireRequestDialog: React.FC<HireRequestDialogProps> = ({ expert, isOpen, o
     }
     if (!formData.phoneNumber) {
       newErrors.phoneNumber = 'Phone number is required';
-    } else if (!/^[\+]?[1-9][\d]{0,15}$/.test(formData.phoneNumber.replace(/[\s\-\(\)]/g, ''))) {
+    } else if (!/^[+]?[1-9][\d]{0,15}$/.test(formData.phoneNumber.replace(/[\s\-+()]/g, ''))) {
       newErrors.phoneNumber = 'Please enter a valid phone number';
     }
     if (!formData.email) {

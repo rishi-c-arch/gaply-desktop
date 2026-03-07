@@ -43,7 +43,8 @@ const AcademicAIRemoverPage: React.FC = () => {
     }
   };
 
-  // Old client-side processing (fallback/legacy)
+  // Old client-side processing (fallback/legacy) - kept for potential future use
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleParaphraseClientSide = () => {
     if (!removerText.trim()) return;
     setIsProcessing(true);

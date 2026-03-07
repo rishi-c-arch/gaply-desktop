@@ -37,26 +37,6 @@ export interface DashboardOverviewState {
   error: string | null;
 }
 
-/** Parse response body as JSON.
- * For non-OK responses, empty/invalid bodies throw a friendly error.
- * Callers that want to treat empty 200 responses as \"no data\" should handle that separately.
- */
-async function parseJsonOrThrow<T>(res: Response, friendlyMessage: string): Promise<T> {
-  const text = await res.text();
-  if (!text || !text.trim()) {
-    if (res.ok) {
-      // Let caller decide how to handle an empty 200 body.
-      throw new Error(`${friendlyMessage} (empty response)`);
-    }
-    throw new Error(`Failed to load (${res.status})`);
-  }
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new Error(res.ok ? `${friendlyMessage} (invalid response)` : `Failed to load (${res.status})`);
-  }
-}
-
 export async function fetchDashboardOverview(
   token: string | null
 ): Promise<DashboardOverview> {

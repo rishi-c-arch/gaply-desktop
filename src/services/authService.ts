@@ -78,9 +78,47 @@ class AuthService {
   clearAuth() {
     this.token = null;
     localStorage.removeItem('authToken');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('user_email');
+  }
+
+  setRefreshToken(refreshToken: string) {
+    try {
+      localStorage.setItem('refreshToken', refreshToken);
+    } catch {
+      // ignore
+    }
+  }
+
+  getRefreshToken(): string | null {
+    try {
+      return localStorage.getItem('refreshToken');
+    } catch {
+      return null;
+    }
+  }
+
+  /** Refresh access token using refresh_token. Returns new token or null on failure. Uses raw fetch to avoid circular dep with apiFetch. */
+  async refreshAccessToken(): Promise<string | null> {
+    const refreshToken = this.getRefreshToken();
+    if (!refreshToken) return null;
+    try {
+      const { buildApiUrl } = await import('../api/config');
+      const res = await fetch(`${buildApiUrl('/v1/auth/refresh')}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.access_token) return null;
+      this.setToken(data.access_token);
+      if (data.refresh_token) this.setRefreshToken(data.refresh_token);
+      return data.access_token;
+    } catch {
+      return null;
+    }
   }
 
   // Get authorization headers
@@ -150,6 +188,9 @@ class AuthService {
         }
 
         this.setToken(token);
+        if ((data as { refresh_token?: string }).refresh_token) {
+          this.setRefreshToken((data as { refresh_token: string }).refresh_token);
+        }
         const user = await this.fetchMeWithRetry(3, 1500);
         if (user) {
           localStorage.setItem('user', JSON.stringify(user));
@@ -218,6 +259,9 @@ class AuthService {
         }
 
         this.setToken(token);
+        if ((data as { refresh_token?: string }).refresh_token) {
+          this.setRefreshToken((data as { refresh_token: string }).refresh_token);
+        }
         const user = await this.fetchMeWithRetry(3, 1500);
         if (user) {
           localStorage.setItem('user', JSON.stringify(user));

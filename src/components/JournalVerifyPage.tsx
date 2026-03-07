@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../api/config';
 import { useAuth } from '../contexts/AuthContext';
@@ -38,15 +38,7 @@ const JournalVerifyPage: React.FC = () => {
   const [syncLoading, setSyncLoading] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
 
-  useEffect(() => {
-    if (!isAuthenticated || !user) {
-      navigate('/login');
-      return;
-    }
-    checkJournalCheckAccess();
-  }, [isAuthenticated, user, navigate]);
-
-  const checkJournalCheckAccess = async () => {
+  const checkJournalCheckAccess = useCallback(async () => {
     if (!user) return;
     try {
       const access = await authService.checkFeatureAccess(user.id, 'journal_check');
@@ -54,7 +46,15 @@ const JournalVerifyPage: React.FC = () => {
     } catch {
       setRemainingUses(0);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) {
+      navigate('/login');
+      return;
+    }
+    checkJournalCheckAccess();
+  }, [isAuthenticated, user, navigate, checkJournalCheckAccess]);
 
   const handleSyncPayment = async () => {
     if (!token) return;

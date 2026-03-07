@@ -3,8 +3,7 @@ import SEO from './SEO';
 import { apiFetch } from '../api/config';
 import { useAuth } from '../contexts/AuthContext';
 import MarkdownRenderer from './MarkdownRenderer';
-import { downloadHTMLReport } from './HTMLReportGenerator';
-import { downloadTurnitinStyleReport } from './TurnitinStyleReportGenerator';
+import { downloadHTMLReport, downloadReportAsPDF } from './HTMLReportGenerator';
 import { playHumanTTS, HumanTTSController } from '../utils/humanTTS';
 import './ManuscriptOrchestratorPage.css';
 
@@ -27,12 +26,14 @@ function AudioStoryModal({
   manuscriptText,
   journalLink,
   reportData,
+  analysisJobId,
   onClose,
 }: {
   reportContext: string;
   manuscriptText: string;
   journalLink: string;
   reportData: any;
+  analysisJobId: string;
   onClose: () => void;
 }) {
   const [loading, setLoading] = useState(false);
@@ -48,8 +49,10 @@ function AudioStoryModal({
     setError('');
     setLoading(true);
     try {
+      const aiHeaders = analysisJobId ? { 'X-Gaply-Job-Id': analysisJobId } : {};
       const res = await apiFetch('/api/ai/audio-story', {
         method: 'POST',
+        headers: aiHeaders,
         body: JSON.stringify({
           report_context: reportContext,
           manuscript_text: (manuscriptText || '').slice(0, 12000),
@@ -66,9 +69,11 @@ function AudioStoryModal({
       }
       if (!res.ok) {
         const friendly =
-          res.status === 502 || res.status === 503
-            ? `Orchestrator temporarily unavailable (${res.status}). Ensure the orchestrator is deployed and ORCHESTRATOR_URL is set on the backend.`
-            : (data && (data.error || data.message)) || `Audio story request failed (${res.status}). Please try again.`;
+          res.status === 401
+            ? 'Session expired. Please log out and log in again.'
+            : res.status === 502 || res.status === 503
+              ? `Orchestrator temporarily unavailable (${res.status}). Ensure the orchestrator is deployed and ORCHESTRATOR_URL is set on the backend.`
+              : (data && (data.error || data.message)) || `Audio story request failed (${res.status}). Please try again.`;
         setError(typeof friendly === 'string' && friendly.length > 400 ? 'Orchestrator temporarily unavailable. Please try again.' : friendly);
         return;
       }
@@ -79,7 +84,7 @@ function AudioStoryModal({
     } finally {
       setLoading(false);
     }
-  }, [reportContext, manuscriptText, journalLink, reportData]);
+  }, [reportContext, manuscriptText, journalLink, reportData, analysisJobId]);
 
   const playOrResume = useCallback(() => {
     const script = lang === 'hi' ? scriptHi : scriptEn;
@@ -102,8 +107,9 @@ function AudioStoryModal({
     setPlaying(true);
     setPaused(false);
     playHumanTTS(script, {
-      voice: 'alloy',
+      voice: 'shimmer',
       apiFetch,
+      jobId: analysisJobId,
       onEnd: () => {
         ttsControllerRef.current = null;
         setPlaying(false);
@@ -117,7 +123,8 @@ function AudioStoryModal({
     }).then((ctrl) => {
       ttsControllerRef.current = ctrl;
     });
-  }, [lang, scriptEn, scriptHi, paused, apiFetch]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- apiFetch is stable from config
+  }, [lang, scriptEn, scriptHi, paused, analysisJobId]);
 
   const pause = useCallback(() => {
     if (ttsControllerRef.current) {
@@ -215,27 +222,19 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
   const [usePastedText, setUsePastedText] = useState(false);
   const [status, setStatus] = useState<'idle' | 'processing' | 'complete' | 'error'>('idle');
   const [statusMessage, setStatusMessage] = useState('Ready for upload.');
-  const [resultPayload, setResultPayload] = useState<string>('');
+  const [, setResultPayload] = useState<string>('');
   const [reportContext, setReportContext] = useState<string>('');
   const [reportData, setReportData] = useState<any>(null);
-  const [refereeReview, setRefereeReview] = useState<string>('');
-  const [lineReview, setLineReview] = useState<string>('');
+  const [, setRefereeReview] = useState<string>('');
+  const [, setLineReview] = useState<string>('');
   const [manuscriptText, setManuscriptText] = useState<string>('');
   const [processingChunks, setProcessingChunks] = useState<{id: string; name: string; status: 'pending' | 'processing' | 'complete'}[]>([]);
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
-  const [refereeExpanded, setRefereeExpanded] = useState(false);
+  const [, setRefereeExpanded] = useState(false);
   const [showGetSetGo, setShowGetSetGo] = useState(false);
   const [activeModal, setActiveModal] = useState<'download' | 'chat' | 'audio-story' | 'citation-check' | null>(null);
   const [citationCheck, setCitationCheck] = useState<any>(null);
-  const refereeData = useMemo(() => {
-    if (!refereeReview) return null;
-    try {
-      return JSON.parse(refereeReview);
-    } catch (err) {
-      return null;
-    }
-  }, [refereeReview]);
-
+  const [analysisJobId, setAnalysisJobId] = useState<string>('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -246,19 +245,6 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
   const canSubmit = useMemo(() => {
     return files.length > 0 || pastedText.trim().length > 0;
   }, [files, pastedText]);
-
-  const firstUpstreamError = useMemo(() => {
-    if (!reportData?.chunks) return null;
-    for (const chunk of reportData.chunks) {
-      const tr = chunk?.task_results;
-      if (!tr) continue;
-      for (const [, task] of Object.entries(tr)) {
-        const t = task as { summary?: string; details?: string };
-        if (t?.summary?.includes('upstream error') && t?.details) return t.details;
-      }
-    }
-    return null;
-  }, [reportData]);
 
   const handleFiles = (fileList: FileList | null) => {
     if (!fileList) return;
@@ -415,6 +401,13 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
       );
       return;
     }
+    let consumptionToken = '';
+    try {
+      const consumeJson = await consumeRes.json();
+      consumptionToken = consumeJson?.consumption_token || '';
+    } catch {
+      /* ignore */
+    }
 
     if (onBeforeSubmit) {
       const ok = await onBeforeSubmit();
@@ -470,6 +463,11 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
       // Store manuscript text for chat context
       setManuscriptText(sourceText);
 
+      const jobId = `job-${Date.now()}`;
+      setAnalysisJobId(jobId);
+      const aiHeaders: Record<string, string> = { 'X-Gaply-Job-Id': jobId };
+      if (consumptionToken) aiHeaders['X-Consumption-Token'] = consumptionToken;
+
       const chunks = buildChunks(sourceText);
       
       // Initialize processing chunks with meaningful names
@@ -484,11 +482,13 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
       setStatusMessage('Fetching journal guidelines and research context...');
       const [guidelinesRes, retrievedRes] = await Promise.all([
         apiFetch('/api/ai/guidelines', {
+          headers: aiHeaders,
           method: 'POST',
           body: JSON.stringify({ journal_url: journalLink }),
         }),
         apiFetch('/api/ai/retrieved-docs', {
           method: 'POST',
+          headers: aiHeaders,
           body: JSON.stringify({
             query: '',
             manuscript_text: sourceText,
@@ -524,7 +524,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
           ));
           setStatusMessage(`Analyzing section ${index + 1} of ${chunks.length}: ${chunkNames[index].name}...`);
           const payload = {
-            job_id: `job-${Date.now()}`,
+            job_id: jobId,
             chunk_id: chunk.id,
             chunk_text: chunk.text,
             chunk_position: chunk.position,
@@ -535,10 +535,8 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
             max_tokens_for_response: 2400,
           };
 
-          const DOC_ORCHESTRATOR_TIMEOUT_MS = 360000; // 6 min per chunk
-          const MAX_ATTEMPTS = 3;
-          const RETRY_DELAY_MS = 4000;
-          let lastErr: Error | null = null;
+          const DOC_ORCHESTRATOR_TIMEOUT_MS = 600000; // 10 min per chunk (Railway max ~15 min)
+          const MAX_ATTEMPTS = 5;
           let text = '';
           let res: Response | null = null;
           for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -547,6 +545,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
             try {
               res = await apiFetch('/api/ai/document-orchestrator', {
                 method: 'POST',
+                headers: aiHeaders,
                 body: JSON.stringify(payload),
                 signal: ac.signal,
               });
@@ -554,10 +553,12 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
               text = await res.text();
               if (res.ok) break;
               if (res.status === 502 || res.status === 503) {
-                lastErr = new Error(`Service unavailable (${res.status})`);
                 if (attempt < MAX_ATTEMPTS) {
-                  setStatusMessage(`Section ${index + 1} temporarily unavailable, retrying (${attempt}/${MAX_ATTEMPTS})...`);
-                  await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+                  const backoffMs = index === 0
+                    ? Math.min(8000 * attempt, 60000)
+                    : Math.min(4000 * Math.pow(2, attempt - 1), 30000);
+                  setStatusMessage(`Section ${index + 1} temporarily unavailable, retrying (${attempt}/${MAX_ATTEMPTS}) in ${backoffMs / 1000}s...`);
+                  await new Promise((r) => setTimeout(r, backoffMs));
                   continue;
                 }
               }
@@ -567,14 +568,15 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
               throw new Error(msg);
             } catch (err: any) {
               clearTimeout(timeoutId);
-              lastErr = err;
               const isRetryable = err?.message?.includes('aborted') || err?.message?.includes('fetch') || err?.message?.includes('502') || err?.message?.includes('503') || err?.message?.includes('network');
               if (attempt < MAX_ATTEMPTS && isRetryable) {
-                setStatusMessage(`Section ${index + 1} retrying (${attempt}/${MAX_ATTEMPTS})...`);
-                await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+                const backoffMs = index === 0
+                  ? Math.min(8000 * attempt, 60000)
+                  : Math.min(4000 * Math.pow(2, attempt - 1), 30000);
+                setStatusMessage(`Section ${index + 1} retrying (${attempt}/${MAX_ATTEMPTS}) in ${backoffMs / 1000}s...`);
+                await new Promise((r) => setTimeout(r, backoffMs));
                 continue;
               }
-              // Don't throw - we'll handle it below and return placeholder
               break;
             }
           }
@@ -635,6 +637,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
       const [pubText, refereeText, lineText, citationText] = await Promise.all([
         apiFetch('/api/ai/publication-chance', {
           method: 'POST',
+          headers: aiHeaders,
           body: JSON.stringify(publicationPayload),
         }).then(async (res) => {
           const t = await res.text();
@@ -643,6 +646,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
         }),
         apiFetch('/api/ai/referee-review', {
           method: 'POST',
+          headers: aiHeaders,
           body: JSON.stringify(refereePayload),
         }).then(async (res) => {
           const t = await res.text();
@@ -651,6 +655,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
         }),
         apiFetch('/api/ai/line-review', {
           method: 'POST',
+          headers: aiHeaders,
           body: JSON.stringify({ manuscript_text: sourceText }),
         }).then(async (res) => {
           const t = await res.text();
@@ -659,6 +664,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
         }),
         apiFetch('/api/ai/citation-reference-check', {
           method: 'POST',
+          headers: aiHeaders,
           body: JSON.stringify({
             manuscript_text: sourceText,
             journal_url: journalLink,
@@ -773,8 +779,10 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
     setChatInput('');
 
     try {
+      const chatHeaders = analysisJobId ? { 'X-Gaply-Job-Id': analysisJobId } : {};
       const res = await apiFetch('/api/ai/chat', {
         method: 'POST',
+        headers: chatHeaders,
         body: JSON.stringify({
           messages: [{ role: 'user', content: trimmed }],
           report_context: reportContext,
@@ -785,13 +793,20 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
           reasoning_effort: 'high',
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      let reply = data?.response || data?.message;
+      if (!res.ok) {
+        reply = res.status === 401
+          ? 'Session expired. Please log out and log in again to continue chatting.'
+          : (data?.error || data?.message || `Request failed (${res.status}). Please try again.`);
+      }
+      if (!reply) reply = 'No response received. Please try again.';
       setChatMessages((prev) => [
         ...prev,
         {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
-          text: data?.response || 'No response received.',
+          text: reply,
           timestamp: new Date().toLocaleTimeString(),
         },
       ]);
@@ -851,7 +866,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
     }
     setSpeakingId(id);
     playHumanTTS(plain, {
-      voice: 'alloy',
+      voice: 'shimmer',
       apiFetch,
       onEnd: () => {
         chatTTSControllerRef.current = null;
@@ -1020,15 +1035,6 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
 
       {status === 'complete' && !showGetSetGo && (
         <>
-          {firstUpstreamError && (
-            <section className="upstream-error-banner">
-              <strong>Analysis tasks failed (upstream error).</strong>{' '}
-              <span className="upstream-error-detail">{firstUpstreamError}</span>
-              <p className="upstream-error-hint">
-                Ensure <code>OPENAI_API_KEY</code> is set in the orchestrator <code>.env</code> and the key is valid.
-              </p>
-            </section>
-          )}
           <section className="results-options-section">
             <div className="results-options-grid">
               <button className="result-option-card" onClick={() => setActiveModal('download')}>
@@ -1065,20 +1071,36 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
                 <div className="modal-body-download">
                   <div className="download-actions-grid">
                     {reportData && (
-                      <button
-                        className="download-action-btn primary"
-                        onClick={() => {
-                          try {
-                            downloadHTMLReport(reportData);
-                          } catch (err) {
-                            console.error('Failed to generate summary report:', err);
-                            alert('Failed to generate summary report. Please try again.');
-                          }
-                        }}
-                      >
-                        <span className="download-icon">📄</span>
-                        <span className="download-text">Download Summary Report</span>
-                      </button>
+                      <>
+                        <button
+                          className="download-action-btn primary"
+                          onClick={() => {
+                            try {
+                              downloadHTMLReport(reportData);
+                            } catch (err) {
+                              console.error('Failed to generate summary report:', err);
+                              alert('Failed to generate summary report. Please try again.');
+                            }
+                          }}
+                        >
+                          <span className="download-icon">📄</span>
+                          <span className="download-text">Download Summary Report (HTML)</span>
+                        </button>
+                        <button
+                          className="download-action-btn"
+                          onClick={() => {
+                            try {
+                              downloadReportAsPDF(reportData);
+                            } catch (err) {
+                              console.error('Failed to open PDF print:', err);
+                              alert('Failed to open print dialog. Please try the HTML download and print from your browser.');
+                            }
+                          }}
+                        >
+                          <span className="download-icon">📕</span>
+                          <span className="download-text">Download as PDF</span>
+                        </button>
+                      </>
                     )}
                     {/* Advanced: interactive line-by-line report (hidden by default per user preference)
                     {reportData && manuscriptText && (
@@ -1235,6 +1257,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
               manuscriptText={manuscriptText}
               journalLink={journalLink}
               reportData={reportData}
+              analysisJobId={analysisJobId}
               onClose={() => setActiveModal(null)}
             />
           )}

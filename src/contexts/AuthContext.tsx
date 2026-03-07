@@ -79,6 +79,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
 
     initializeAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run only on mount to restore session
   }, []);
 
   const login = async (credentials: { email: string; password: string }): Promise<{ success: boolean; error?: string }> => {

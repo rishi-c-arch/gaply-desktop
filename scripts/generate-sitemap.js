@@ -7,6 +7,7 @@ const ROUTES = [
   '/',
   '/features',
   '/pricing',
+  '/download',
   '/career',
   '/hire-expert',
   '/academic-ai-remover',

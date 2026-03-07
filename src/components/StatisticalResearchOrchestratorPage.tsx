@@ -236,7 +236,7 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
   const [sampleRows, setSampleRows] = useState<Record<string, any>[]>([]);
   const [analysisOutputs, setAnalysisOutputs] = useState<AnalysisOutput[]>([]);
   const [tasks, setTasks] = useState<string[]>(['recommend_tests', 'explain_what_why_how', 'interpret_results', 'generate_html_report']);
-  const [maxTokens, setMaxTokens] = useState(4000);
+  const [maxTokens] = useState(4000);
   const [autoSelectTests, setAutoSelectTests] = useState(true);
   const [selectedModules, setSelectedModules] = useState<string[]>([
     'data_preparation',
@@ -280,6 +280,7 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
   }, [result?.html_report, title]);
 
   // Calculate descriptive statistics from sample data
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const calculateDescriptiveStats = (data: Record<string, any>[]) => {
     if (data.length === 0) return null;
     
@@ -384,6 +385,7 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
     setVariables(variables.filter((_, i) => i !== index));
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const toggleTask = (task: string) => {
     if (tasks.includes(task)) {
       setTasks(tasks.filter(t => t !== task));
@@ -521,9 +523,6 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
 
     try {
       const fileExtension = file.name.split('.').pop()?.toLowerCase();
-      const fileType = fileExtension === 'xls' || fileExtension === 'xlsx' ? 'xlsx' : 
-                      fileExtension === 'tsv' ? 'tsv' : 
-                      fileExtension || 'txt';
 
       if (fileExtension === 'csv' || fileExtension === 'tsv' || fileExtension === 'txt') {
         await parseCSVFile(file, fileExtension === 'tsv');

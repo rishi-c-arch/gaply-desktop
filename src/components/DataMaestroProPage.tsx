@@ -59,24 +59,15 @@ const DataMaestroProPage: React.FC = () => {
     const validObj = objectives.filter(o => o.trim());
     if (validObj.length === 0) { setError('Please enter at least one objective'); return; }
     if (!token) { setError('Please log in to use DataMaestro.'); return; }
-    setLoading(true); setError(null); setProgress(0); setProgressMsg('Checking your plan...');
-    try {
-      const consumeRes = await apiFetch('/api/dashboard/consume-datamaestro', { method: 'POST' });
-      if (!consumeRes.ok) {
-        setError(consumeRes.status === 403 ? 'No remaining DataMaestro uses. Please upgrade your plan.' : 'Unable to start. Please try again.');
-        setLoading(false);
-        return;
-      }
-    } catch {
-      setError('Unable to start. Please try again.');
-      setLoading(false);
-      return;
-    }
-    setProgressMsg('Analyzing your research context...');
+    setLoading(true); setError(null); setProgress(0); setProgressMsg('Analyzing your research context...');
     const interval = setInterval(() => setProgress(p => Math.min(p + Math.random() * 8, 90)), 400);
     try {
       const res = await apiFetch('/api/datamaestro/setup', { method: 'POST', body: JSON.stringify({ title: title.trim(), objectives: validObj, methodology, research_area: researchArea }) });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Setup failed'); }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        const msg = res.status === 403 ? 'No remaining DataMaestro uses. Please upgrade your plan.' : (e.error || 'Setup failed');
+        throw new Error(msg);
+      }
       const data = await res.json();
       setSessionId(data.session_id);
       const setup = data.setup || {};
@@ -143,13 +134,13 @@ const DataMaestroProPage: React.FC = () => {
       const chartType = fig.type === 'grouped_bar' || fig.type === 'stacked_bar' || fig.type === 'horizontal_bar' ? 'bar' : (fig.type || 'bar');
       const bgColors = fig.data.datasets[0].backgroundColor || colors.slice(0, fig.data.labels.length);
       const datasetsJS = fig.data.datasets.map((ds: any, di: number) => `{label:"${ds.label || ''}",data:${JSON.stringify(ds.data)},backgroundColor:${JSON.stringify(Array.isArray(bgColors) ? bgColors : colors)},borderColor:"${colors[di % colors.length]}",borderWidth:${chartType === 'line' || chartType === 'scatter' ? 2 : 0},fill:false,tension:0.3}`).join(',');
-      return `<div class="figure-container"><h3 class="figure-title">${fig.title || `Figure ${idx + 1}`}</h3><canvas id="${canvasId}" width="700" height="350"></canvas>${fig.description ? `<p class="figure-desc">${fig.description}</p>` : ''}${fig.apa_note ? `<p class="figure-note">${fig.apa_note}</p>` : ''}<script>new Chart(document.getElementById('${canvasId}'),{type:'${chartType}',data:{labels:${JSON.stringify(fig.data.labels)},datasets:[${datasetsJS}]},options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{size:12}}},title:{display:false}},scales:{y:{beginAtZero:true,grid:{color:'#e2e8f0'}},x:{grid:{display:false}}}${fig.type === 'horizontal_bar' ? ",indexAxis:'y'" : ''}}});<\/script></div>`;
+      return `<div class="figure-container"><h3 class="figure-title">${fig.title || `Figure ${idx + 1}`}</h3><canvas id="${canvasId}" width="700" height="350"></canvas>${fig.description ? `<p class="figure-desc">${fig.description}</p>` : ''}${fig.apa_note ? `<p class="figure-note">${fig.apa_note}</p>` : ''}<script>new Chart(document.getElementById('${canvasId}'),{type:'${chartType}',data:{labels:${JSON.stringify(fig.data.labels)},datasets:[${datasetsJS}]},options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{size:12}}},title:{display:false}},scales:{y:{beginAtZero:true,grid:{color:'#e2e8f0'}},x:{grid:{display:false}}}${fig.type === 'horizontal_bar' ? ",indexAxis:'y'" : ''}}});</script></div>`;
     }).join('');
   };
 
   const downloadReport = (type: 'results' | 'methodology') => {
     const r = analysisResult; if (!r) return;
-    const chartjsCDN = '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"><\/script>';
+    const chartjsCDN = '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>';
     const css = `<style>
 *{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI','Inter',system-ui,sans-serif;max-width:960px;margin:0 auto;padding:52px 44px;color:#1a1a2e;line-height:1.8;background:#fff}
 h1{font-size:28px;font-weight:700;color:#0f172a;border-bottom:3px solid #2563eb;padding-bottom:16px;margin-bottom:10px}

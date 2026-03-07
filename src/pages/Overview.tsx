@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/Layout/DashboardLayout';
 import ChartCard from '../components/Dashboard/ChartCard';
 import './Overview.css';
@@ -10,8 +9,7 @@ import type { ChartDataPoint } from '../types/dashboard';
 import { useAuth } from '../contexts/AuthContext';
 
 const Overview: React.FC = () => {
-  const { isAuthenticated, user, token } = useAuth();
-  const navigate = useNavigate();
+  const { token } = useAuth();
   const [overview, setOverview] = useState<Awaited<ReturnType<typeof fetchDashboardOverview>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
