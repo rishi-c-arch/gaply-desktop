@@ -49,10 +49,10 @@ function AudioStoryModal({
     setError('');
     setLoading(true);
     try {
-      const aiHeaders = analysisJobId ? { 'X-Gaply-Job-Id': analysisJobId } : {};
+      const aiHeaders: Record<string, string> = analysisJobId ? { 'X-Gaply-Job-Id': analysisJobId } : {};
       const res = await apiFetch('/api/ai/audio-story', {
         method: 'POST',
-        headers: aiHeaders,
+        headers: Object.keys(aiHeaders).length ? aiHeaders : undefined,
         body: JSON.stringify({
           report_context: reportContext,
           manuscript_text: (manuscriptText || '').slice(0, 12000),
@@ -779,10 +779,10 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
     setChatInput('');
 
     try {
-      const chatHeaders = analysisJobId ? { 'X-Gaply-Job-Id': analysisJobId } : {};
+      const chatHeaders: Record<string, string> = analysisJobId ? { 'X-Gaply-Job-Id': analysisJobId } : {};
       const res = await apiFetch('/api/ai/chat', {
         method: 'POST',
-        headers: chatHeaders,
+        headers: Object.keys(chatHeaders).length ? chatHeaders : undefined,
         body: JSON.stringify({
           messages: [{ role: 'user', content: trimmed }],
           report_context: reportContext,
