@@ -263,7 +263,22 @@ ul,ol{margin:10px 0;padding-left:24px}li{margin:5px 0;font-size:14px}
             <button className="dm-add-btn" onClick={() => setObjectives([...objectives, ''])}>+ Add Objective</button>
           </div>
           <div className="dm-card"><h3>Research Methodology</h3><textarea className="dm-textarea" placeholder="e.g., Quantitative survey-based study..." value={methodology} onChange={e => setMethodology(e.target.value)} /></div>
-          <div className="dm-card"><h3>Research Area</h3><input className="dm-input" placeholder="e.g., Education, Psychology, Business..." value={researchArea} onChange={e => setResearchArea(e.target.value)} /></div>
+          <div className="dm-card">
+            <h3>Research Area / Domain <span className="dm-hint">(drives domain-specific analyses)</span></h3>
+            <input
+              className="dm-input"
+              placeholder="e.g., Finance, Econometrics, Psychometrics, Biostatistics, Education, Psychology, Environmental Science, Machine Learning..."
+              value={researchArea}
+              onChange={e => setResearchArea(e.target.value)}
+              list="dm-domain-suggestions"
+            />
+            <datalist id="dm-domain-suggestions">
+              {['Finance & Investment', 'Econometrics', 'Machine Learning', 'Biostatistics', 'Psychometrics', 'Education', 'Psychology', 'Social Sciences', 'Environmental Science', 'Operations Research', 'Spatial Analysis', 'NLP / Text Analytics', 'Neuroscience', 'Industrial Engineering', 'Survey Research'].map(d => (
+                <option key={d} value={d} />
+              ))}
+            </datalist>
+            <p className="dm-field-hint">Gaply AI maps this to domain-specific methods (e.g., VAR for macro, Cox PH for survival, Cronbach's α for psychometrics)</p>
+          </div>
           <div className="dm-footer-actions">
             <button className="dm-btn dm-btn-secondary" onClick={() => setStep(1)}>Back</button>
             <button className="dm-btn dm-btn-primary" onClick={handleSetup} disabled={loading}>{loading ? 'Analyzing...' : 'Generate Analysis Plan'}</button>
@@ -277,8 +292,39 @@ ul,ol{margin:10px 0;padding-left:24px}li{margin:5px 0;font-size:14px}
         <div className="dm-form-container">
           <h1 className="dm-form-title">Analysis Configuration</h1>
           <p className="dm-form-subtitle">Review AI suggestions, upload data, and configure analysis modules.</p>
-          {aiSetup?.methodology_assessment && (<div className="dm-ai-card"><h4>AI Assessment</h4><p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14 }}>Design: {aiSetup.methodology_assessment.design_type}</p>{aiSetup.methodology_assessment.suggestions?.map((s: string, i: number) => <div className="dm-ai-tag recommended" key={i}>{s}</div>)}</div>)}
-          {aiSetup?.recommended_tests && (<div className="dm-ai-card"><h4>Recommended Tests</h4><div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{(aiSetup.recommended_tests as RecommendedTest[]).map((t, i) => <div className={`dm-ai-tag ${t.priority}`} key={i} title={t.reason}>{t.test_name}</div>)}</div></div>)}
+          {aiSetup?.methodology_assessment && (
+            <div className="dm-ai-card">
+              <h4>AI Assessment</h4>
+              {(aiSetup.inferred_domain || aiSetup.secondary_domains?.length) && (
+                <div className="dm-domain-badges">
+                  {aiSetup.inferred_domain && <span className="dm-domain-badge primary">{aiSetup.inferred_domain}</span>}
+                  {(aiSetup.secondary_domains as string[])?.map((d: string, i: number) => <span key={i} className="dm-domain-badge secondary">{d}</span>)}
+                </div>
+              )}
+              <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14 }}>Design: {aiSetup.methodology_assessment.design_type}</p>
+              {aiSetup.methodology_assessment.suggestions?.map((s: string, i: number) => <div className="dm-ai-tag recommended" key={i}>{s}</div>)}
+            </div>
+          )}
+          {(aiSetup?.recommended_tests?.length || aiSetup?.domain_specific_analyses?.length) && (
+            <div className="dm-ai-card dm-recommended-section">
+              <h4>Recommended Analyses (Gaply AI will perform these)</h4>
+              <div className="dm-analysis-grid">
+                {(aiSetup.recommended_tests as RecommendedTest[])?.map((t, i) => (
+                  <div className={`dm-analysis-chip ${t.priority}`} key={`rt-${i}`} title={t.reason}>
+                    <span className="dm-analysis-name">{t.test_name}</span>
+                    {t.reason && <span className="dm-analysis-reason">{t.reason}</span>}
+                  </div>
+                ))}
+                {(aiSetup.domain_specific_analyses as { method: string; domain: string; purpose: string }[])?.map((d, i) => (
+                  <div className="dm-analysis-chip domain_specific" key={`ds-${i}`} title={d.purpose}>
+                    <span className="dm-analysis-name">{d.method}</span>
+                    <span className="dm-analysis-domain">{d.domain}</span>
+                    {d.purpose && <span className="dm-analysis-reason">{d.purpose}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="dm-card"><h3>Hypotheses</h3>{hypotheses.map((h, i) => (<div className="dm-list-item" key={i}><input className="dm-input" value={h.text} onChange={e => { const n = [...hypotheses]; n[i] = { ...n[i], text: e.target.value }; setHypotheses(n); }} /><button className="dm-remove-btn" onClick={() => setHypotheses(hypotheses.filter((_, j) => j !== i))}>x</button></div>))}<button className="dm-add-btn" onClick={() => setHypotheses([...hypotheses, { id: `H${hypotheses.length + 1}`, text: '', type: 'directional', test_suggestion: '' }])}>+ Add Hypothesis</button></div>
           <div className="dm-card"><h3>Variables</h3>{variables.map((v, i) => (<div className="dm-var-row" key={i}><input className="dm-input" placeholder="Name" value={v.name} onChange={e => { const n = [...variables]; n[i] = { ...n[i], name: e.target.value }; setVariables(n); }} /><select className="dm-select" value={v.type} onChange={e => { const n = [...variables]; n[i] = { ...n[i], type: e.target.value }; setVariables(n); }}><option value="nominal">Nominal</option><option value="ordinal">Ordinal</option><option value="interval">Interval</option><option value="ratio">Ratio</option></select><select className="dm-select" value={v.role} onChange={e => { const n = [...variables]; n[i] = { ...n[i], role: e.target.value }; setVariables(n); }}><option value="iv">Independent</option><option value="dv">Dependent</option><option value="covariate">Covariate</option><option value="mediator">Mediator</option><option value="moderator">Moderator</option></select><button className="dm-remove-btn" onClick={() => setVariables(variables.filter((_, j) => j !== i))}>x</button></div>))}<button className="dm-add-btn" onClick={() => setVariables([...variables, { name: '', type: 'nominal', role: 'iv', description: '' }])}>+ Add Variable</button></div>
           <div className="dm-card"><h3>Upload Dataset</h3><div className={`dm-upload-zone ${isDragging ? 'dragging' : ''}`} onClick={() => fileInputRef.current?.click()} onDragOver={e => { e.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={onDrop}><p style={{ fontSize: 28, marginBottom: 8, color: 'rgba(255,255,255,0.2)' }}>+</p><p><strong>Drop file here</strong> or click to browse</p><p style={{ fontSize: 13 }}>CSV, XLS, XLSX, PDF, DOCX, TXT, JSON</p></div><input ref={fileInputRef} type="file" accept=".csv,.xls,.xlsx,.tsv,.txt,.json,.pdf,.docx" style={{ display: 'none' }} onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />{uploadedFile && <div className="dm-file-info"><span className="file-name">{uploadedFile.name}</span><span className="file-size">{(uploadedFile.size / 1024).toFixed(1)} KB</span>{parsedData?.n_rows > 0 && <span style={{ color: '#86efac', fontSize: 13 }}>{parsedData.n_rows} rows, {parsedData.n_columns} cols</span>}</div>}</div>
