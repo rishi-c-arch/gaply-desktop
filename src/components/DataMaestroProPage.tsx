@@ -10,7 +10,7 @@ type Variable = { name: string; type: string; role: string; description: string 
 type Hypothesis = { id: string; text: string; type: string; test_suggestion: string };
 type RecommendedTest = { test_id: string; test_name: string; category: string; reason: string; priority: string };
 
-const ANALYSIS_MODULES = [
+const UNIVERSAL_MODULES = [
   { id: 'data_preparation', label: 'Data Preparation' },
   { id: 'descriptive_stats', label: 'Descriptive Statistics' },
   { id: 'normality_tests', label: 'Normality & Assumptions' },
@@ -26,6 +26,79 @@ const ANALYSIS_MODULES = [
   { id: 'mediation', label: 'Mediation / Moderation' },
   { id: 'sem', label: 'SEM / Path Analysis' },
 ];
+
+/** Domain-specific analysis modules — shown when Research Area matches */
+const DOMAIN_MODULES: Record<string, { id: string; label: string }[]> = {
+  Neuroscience: [
+    { id: 'glm_fmri', label: 'GLM for fMRI (task activation)' },
+    { id: 'ica', label: 'Independent Component Analysis (ICA)' },
+    { id: 'dcm', label: 'Dynamic Causal Modeling (DCM)' },
+    { id: 'source_localization', label: 'Source Localization (MNE/Beamforming)' },
+    { id: 'connectivity_analysis', label: 'Connectivity Analysis (Granger, PDC, DTF)' },
+    { id: 'vbm', label: 'Voxel-Based Morphometry (VBM)' },
+    { id: 'tbss', label: 'Tract-Based Spatial Statistics (TBSS)' },
+    { id: 'dti', label: 'Diffusion Tensor Imaging (DTI)' },
+    { id: 'connectome_mapping', label: 'Connectome Mapping' },
+  ],
+  Finance: [
+    { id: 'arima_garch', label: 'ARIMA-GARCH' },
+    { id: 'monte_carlo_var', label: 'Monte Carlo / VaR' },
+    { id: 'cointegration', label: 'Cointegration (Johansen)' },
+    { id: 'mean_variance', label: 'Mean-Variance (Markowitz)' },
+    { id: 'risk_parity', label: 'Risk Parity' },
+    { id: 'realized_volatility', label: 'Realized Volatility' },
+  ],
+  Econometrics: [
+    { id: 'var_vecm', label: 'VAR / VECM' },
+    { id: 'panel_gmm', label: 'Panel GMM (Arellano-Bond)' },
+    { id: 'did', label: 'Difference-in-Differences (DiD)' },
+    { id: 'rdd', label: 'Regression Discontinuity (RD)' },
+    { id: 'quantile_regression', label: 'Quantile Regression' },
+    { id: 'spatial_econometrics', label: 'Spatial Econometrics' },
+  ],
+  Biostatistics: [
+    { id: 'kaplan_meier', label: 'Kaplan-Meier' },
+    { id: 'cox_ph', label: 'Cox Proportional Hazards' },
+    { id: 'competing_risks', label: 'Competing Risks Analysis' },
+    { id: 'multiplicity_correction', label: 'Multiplicity Correction (FWER/FDR)' },
+    { id: 'sir_seir', label: 'SIR/SEIR Models' },
+  ],
+  Psychometrics: [
+    { id: 'cronbach_alpha', label: "Cronbach's α" },
+    { id: 'cfa', label: 'Confirmatory Factor Analysis (CFA)' },
+    { id: 'sem', label: 'Structural Equation Modeling (SEM)' },
+    { id: 'rasch', label: 'Rasch Model' },
+    { id: 'irt_2pl_3pl', label: 'IRT (2PL/3PL)' },
+    { id: 'latent_class', label: 'Latent Class Analysis' },
+  ],
+  'Machine Learning': [
+    { id: 'xgboost', label: 'XGBoost / Gradient Boosting' },
+    { id: 'random_forest', label: 'Random Forests' },
+    { id: 'svm', label: 'Support Vector Machines' },
+    { id: 'kmeans', label: 'K-Means / Clustering' },
+    { id: 'tsne_umap', label: 't-SNE / UMAP' },
+  ],
+  'Signal Processing': [
+    { id: 'fft', label: 'FFT / Spectral Analysis' },
+    { id: 'wavelet', label: 'Wavelet Transform' },
+    { id: 'stft', label: 'Short-Time Fourier Transform' },
+    { id: 'hilbert_huang', label: 'Hilbert-Huang Transform' },
+  ],
+};
+
+function inferDomain(researchArea: string, inferredDomain?: string): string | null {
+  const text = `${(researchArea || '').toLowerCase()} ${(inferredDomain || '').toLowerCase()}`;
+  if (/neuro|fmri|eeg|meg|brain|imaging|connectome|vbm|tbss|dti/i.test(text)) return 'Neuroscience';
+  if (/finance|investment|portfolio|var|volatility|garch|option/i.test(text)) return 'Finance';
+  if (/econometr|var|vecm|panel|did|rdd|gmm/i.test(text)) return 'Econometrics';
+  if (/survival|kaplan|cox|epidemio|clinical trial/i.test(text)) return 'Biostatistics';
+  if (/psychometr|rasch|irt|cronbach|factor|sem|cfa/i.test(text)) return 'Psychometrics';
+  if (/machine learn|ml|xgboost|random forest|svm|cluster/i.test(text)) return 'Machine Learning';
+  if (/signal|fft|wavelet|spectral|stft/i.test(text)) return 'Signal Processing';
+  const known = Object.keys(DOMAIN_MODULES);
+  const fromInferred = known.find(k => inferredDomain && inferredDomain.toLowerCase().includes(k.toLowerCase()));
+  return fromInferred || null;
+}
 
 const DataMaestroProPage: React.FC = () => {
   const { token } = useAuth();
@@ -74,9 +147,13 @@ const DataMaestroProPage: React.FC = () => {
       const setup = data.setup || {};
       if (setup.hypotheses) setHypotheses(setup.hypotheses);
       if (setup.variables) setVariables(setup.variables);
+      const domain = inferDomain(researchArea, setup.inferred_domain);
+      const domainModIds = domain && DOMAIN_MODULES[domain] ? DOMAIN_MODULES[domain].map(m => m.id) : [];
       if (setup.recommended_tests) {
         const autoMods = (setup.recommended_tests as RecommendedTest[]).filter(t => t.priority === 'required' || t.priority === 'recommended').map(t => t.category).filter((v, i, a) => a.indexOf(v) === i);
-        setSelectedModules(autoMods.length > 0 ? autoMods : ['descriptive_stats', 'parametric_tests', 'regression', 'correlation']);
+        let mods = autoMods.length > 0 ? autoMods : ['descriptive_stats', 'parametric_tests', 'regression', 'correlation'];
+        if (setup.domain_specific_analyses?.length && domainModIds.length) mods = [...new Set([...mods, ...domainModIds])];
+        setSelectedModules(mods);
       }
       setAiSetup(setup); setStep(2);
     } catch (err: any) { setError(err.message || 'Failed to analyze'); } finally { clearInterval(interval); setLoading(false); setProgress(0); }
@@ -329,7 +406,7 @@ ul,ol{margin:10px 0;padding-left:24px}li{margin:5px 0;font-size:14px}
           <div className="dm-card"><h3>Variables</h3>{variables.map((v, i) => (<div className="dm-var-row" key={i}><input className="dm-input" placeholder="Name" value={v.name} onChange={e => { const n = [...variables]; n[i] = { ...n[i], name: e.target.value }; setVariables(n); }} /><select className="dm-select" value={v.type} onChange={e => { const n = [...variables]; n[i] = { ...n[i], type: e.target.value }; setVariables(n); }}><option value="nominal">Nominal</option><option value="ordinal">Ordinal</option><option value="interval">Interval</option><option value="ratio">Ratio</option></select><select className="dm-select" value={v.role} onChange={e => { const n = [...variables]; n[i] = { ...n[i], role: e.target.value }; setVariables(n); }}><option value="iv">Independent</option><option value="dv">Dependent</option><option value="covariate">Covariate</option><option value="mediator">Mediator</option><option value="moderator">Moderator</option></select><button className="dm-remove-btn" onClick={() => setVariables(variables.filter((_, j) => j !== i))}>x</button></div>))}<button className="dm-add-btn" onClick={() => setVariables([...variables, { name: '', type: 'nominal', role: 'iv', description: '' }])}>+ Add Variable</button></div>
           <div className="dm-card"><h3>Upload Dataset</h3><div className={`dm-upload-zone ${isDragging ? 'dragging' : ''}`} onClick={() => fileInputRef.current?.click()} onDragOver={e => { e.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={onDrop}><p style={{ fontSize: 28, marginBottom: 8, color: 'rgba(255,255,255,0.2)' }}>+</p><p><strong>Drop file here</strong> or click to browse</p><p style={{ fontSize: 13 }}>CSV, XLS, XLSX, PDF, DOCX, TXT, JSON</p></div><input ref={fileInputRef} type="file" accept=".csv,.xls,.xlsx,.tsv,.txt,.json,.pdf,.docx" style={{ display: 'none' }} onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />{uploadedFile && <div className="dm-file-info"><span className="file-name">{uploadedFile.name}</span><span className="file-size">{(uploadedFile.size / 1024).toFixed(1)} KB</span>{parsedData?.n_rows > 0 && <span style={{ color: '#86efac', fontSize: 13 }}>{parsedData.n_rows} rows, {parsedData.n_columns} cols</span>}</div>}</div>
           <div className="dm-card"><h3>Questionnaire / Instrument</h3><textarea className="dm-textarea" placeholder="Paste questionnaire items or instrument description..." value={questionnaireText} onChange={e => setQuestionnaireText(e.target.value)} style={{ minHeight: 80 }} /></div>
-          <div className="dm-card"><h3>Analysis Modules</h3><div className="dm-toggle-row"><span style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>Auto-select optimal tests</span><button className={`dm-toggle ${autoSelect ? 'on' : ''}`} onClick={() => setAutoSelect(!autoSelect)} /></div>{!autoSelect && <div className="dm-module-grid">{ANALYSIS_MODULES.map(m => <div key={m.id} className={`dm-module-chip ${selectedModules.includes(m.id) ? 'selected' : ''}`} onClick={() => setSelectedModules(prev => prev.includes(m.id) ? prev.filter(x => x !== m.id) : [...prev, m.id])}><div className="dm-module-check">{selectedModules.includes(m.id) ? '✓' : ''}</div><span>{m.label}</span></div>)}</div>}</div>
+          <div className="dm-card"><h3>Analysis Modules</h3><div className="dm-toggle-row"><span style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>Auto-select optimal tests</span><button className={`dm-toggle ${autoSelect ? 'on' : ''}`} onClick={() => setAutoSelect(!autoSelect)} /></div>{!autoSelect && (() => { const domain = inferDomain(researchArea, aiSetup?.inferred_domain); const domainMods = domain && DOMAIN_MODULES[domain] ? DOMAIN_MODULES[domain] : []; const allModules = domainMods.length ? [{ id: '_universal', label: 'Universal (baseline)' }, ...UNIVERSAL_MODULES, { id: '_domain', label: `${domain} (domain-specific)` }, ...domainMods] : UNIVERSAL_MODULES; return <div className="dm-module-grid"><div className="dm-module-section-label" style={{ gridColumn: '1 / -1', fontSize: 12, color: 'rgba(255,255,255,0.5)', marginBottom: 4 }}>{domain ? `${domain} domain detected — select domain-specific methods below` : 'Select analysis modules'}</div>{allModules.filter(m => !m.id.startsWith('_')).map(m => <div key={m.id} className={`dm-module-chip ${domainMods.some(d => d.id === m.id) ? 'domain-specific' : ''} ${selectedModules.includes(m.id) ? 'selected' : ''}`} onClick={() => setSelectedModules(prev => prev.includes(m.id) ? prev.filter(x => x !== m.id) : [...prev, m.id])}><div className="dm-module-check">{selectedModules.includes(m.id) ? '✓' : ''}</div><span>{m.label}</span></div>)}</div>; })()}</div>}</div>
           <div className="dm-footer-actions"><button className="dm-btn dm-btn-secondary" onClick={() => (setStep as any)(1.5)}>Back</button><button className="dm-btn dm-btn-primary" onClick={handleAnalyze}>Run Analysis</button></div>
         </div>
       )}

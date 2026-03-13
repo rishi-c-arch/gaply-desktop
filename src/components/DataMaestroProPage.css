@@ -344,6 +344,19 @@
 .dm-module-chip:hover {
   border-color: rgba(255,255,255,0.2);
 }
+.dm-module-chip.domain-specific {
+  border-color: rgba(139,92,246,0.25);
+  background: rgba(139,92,246,0.06);
+}
+.dm-module-chip.domain-specific.selected {
+  background: rgba(139,92,246,0.15);
+  border-color: rgba(139,92,246,0.5);
+  color: #c4b5fd;
+}
+.dm-module-chip.domain-specific.selected .dm-module-check {
+  background: #8b5cf6;
+  border-color: #8b5cf6;
+}
 .dm-module-check {
   width: 20px;
   height: 20px;
