@@ -251,14 +251,22 @@ ul,ol{margin:10px 0;padding-left:24px}li{margin:5px 0;font-size:14px}
     if (type === 'results') {
       html += `<h1>Data Analysis &amp; Results Report</h1><div class="meta"><strong>Research:</strong> ${title}<br/><strong>Date:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}<br/><strong>Analyses Performed:</strong> ${r.analyses_performed?.length || 0} statistical tests</div>`;
       if (r.executive_summary) html += `<h2>1. Executive Summary</h2><p>${r.executive_summary}</p>`;
-      if (r.descriptive_statistics?.table_html) html += `<h2>2. Descriptive Statistics</h2>${r.descriptive_statistics.summary ? `<p>${r.descriptive_statistics.summary}</p>` : ''}${r.descriptive_statistics.table_html}`;
+      if (r.descriptive_statistics?.table_html) {
+        html += `<h2>2. Descriptive Statistics</h2>${r.descriptive_statistics.summary ? `<p>${r.descriptive_statistics.summary}</p>` : ''}${r.descriptive_statistics.table_html}`;
+        if (r.descriptive_statistics.figures?.length) html += generateChartJS(r.descriptive_statistics.figures);
+      }
       if (r.results_chapter?.sections) {
         let secNum = 3;
         if (r.results_chapter.introduction) html += `<h2>${secNum}. Results</h2><p>${r.results_chapter.introduction}</p>`;
         r.results_chapter.sections.forEach((s: any) => {
           html += `<h3>${s.heading}</h3><div>${s.content || ''}</div>`;
-          if (s.tables) s.tables.forEach((t: string) => { html += t; });
-          if (s.figures) html += generateChartJS(s.figures);
+          const tables = s.tables || [];
+          const figures = s.figures || [];
+          tables.forEach((t: string, ti: number) => {
+            html += t;
+            if (figures[ti]) html += generateChartJS([figures[ti]]);
+          });
+          if (figures.length > tables.length) html += generateChartJS(figures.slice(tables.length));
         });
       }
       if (r.analyses_performed) {
@@ -268,6 +276,7 @@ ul,ol{margin:10px 0;padding-left:24px}li{margin:5px 0;font-size:14px}
           if (a.why_this_test) html += `<p><em>${a.why_this_test}</em></p>`;
           if (a.assumptions_checked?.length) { html += `<p><strong>Assumptions:</strong> ${a.assumptions_checked.map((ac: any) => `${ac.assumption}: ${ac.result}${ac.detail ? ` (${ac.detail})` : ''}`).join('; ')}</p>`; }
           if (a.result_table_html) html += a.result_table_html;
+          if (a.figures?.length) html += generateChartJS(a.figures);
           if (a.interpretation) html += `<div class="interpretation"><strong>Interpretation:</strong> ${a.interpretation}</div>`;
           if (a.finding_paragraph) html += `<div class="finding">${a.finding_paragraph}</div>`;
         });
