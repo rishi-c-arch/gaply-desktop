@@ -205,8 +205,8 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
         </div>
       </div>
 
-      <div style={{ width: '100%', minWidth: 0, height: 280, minHeight: 280 }}>
-        <ResponsiveContainer width="100%" height="100%">
+      <div style={{ width: '100%', minWidth: 160, height: 280, minHeight: 160 }}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={160} minHeight={160} debounce={50}>
           <AreaChart data={displayData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">

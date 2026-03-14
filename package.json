@@ -27,7 +27,7 @@
     "recharts": "^3.7.0",
     "three": "^0.180.0",
     "typescript": "^4.9.5",
-    "vercel": "^50.28.0",
+    "vercel": "^50.32.5",
     "web-vitals": "^2.1.4",
     "xlsx": "^0.18.5"
   },

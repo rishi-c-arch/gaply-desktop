@@ -61,6 +61,9 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
   };
 
   const renderInlineMarkdown = (text: string): React.ReactNode => {
+    // Handle LaTeX: $$...$$ block first, then $...$ inline (formulas from AI)
+    text = text.replace(/\$\$([^$]+)\$\$/g, '<div class="md-formula-block"><code>$1</code></div>');
+    text = text.replace(/\$([^$]+)\$/g, '<code class="md-inline-code md-formula">$1</code>');
     // Handle bold **text**
     text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     // Handle italic *text* (simplified - avoid conflicts)

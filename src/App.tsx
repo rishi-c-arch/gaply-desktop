@@ -37,6 +37,7 @@ import ManuscriptOrchestratorPage from './components/ManuscriptOrchestratorPage'
 import StatisticalResearchOrchestratorPage from './components/StatisticalResearchOrchestratorPage';
 import DataMaestroProPage from './components/DataMaestroProPage';
 import JournalVerifyPage from './components/JournalVerifyPage';
+import ResearchDeepAnalysisPage from './components/ResearchDeepAnalysisPage';
 import ContactPage from './components/ContactPage';
 import DownloadsPage from './components/DownloadsPage';
 import DownloadPopUp from './components/DownloadPopUp';
@@ -717,6 +718,20 @@ const AppContent: React.FC = () => {
                 />
                 <DashboardLayout pageTitle="Journal Verification">
                   <JournalVerifyPage />
+                </DashboardLayout>
+              </>
+            </ProtectedRoute>
+          } />
+          <Route path="/dashboard/research-deep-analysis" element={
+            <ProtectedRoute>
+              <>
+                <SEOHead 
+                  title="Research Deep Analysis | Gaply"
+                  description="Upload 3 research papers for comprehensive analysis. Identify research gaps, methodologies, publication opportunities, and get formal downloadable reports."
+                  keywords="research deep analysis, literature gap, research papers, publication suggestions, methodology analysis"
+                />
+                <DashboardLayout pageTitle="Research Deep Analysis">
+                  <ResearchDeepAnalysisPage />
                 </DashboardLayout>
               </>
             </ProtectedRoute>

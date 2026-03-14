@@ -455,10 +455,38 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
             'The uploaded file did not produce readable text (possible PDF extraction issue). Please paste your manuscript text below instead, or try a different file.'
           );
         }
+      } else if (manuscriptLink.trim()) {
+        setStatusMessage('Fetching manuscript from link...');
+        const fetchHeaders: Record<string, string> = {};
+        if (consumptionToken) fetchHeaders['X-Consumption-Token'] = consumptionToken;
+        const fetchRes = await apiFetch('/api/ai/fetch-document-from-url', {
+          method: 'POST',
+          headers: fetchHeaders,
+          body: JSON.stringify({ url: manuscriptLink.trim() }),
+        });
+        const fetchText = await fetchRes.text();
+        let fetchJson: any = {};
+        try {
+          fetchJson = fetchText ? JSON.parse(fetchText) : {};
+        } catch {
+          fetchJson = { error: 'Failed to fetch manuscript from link.' };
+        }
+        if (!fetchRes.ok || fetchJson.error) {
+          throw new Error(
+            fetchJson.error || 'Could not fetch manuscript from that link. Try uploading the file or pasting text instead. Supported: direct PDF URLs, arXiv, and most HTML pages.'
+          );
+        }
+        sourceText = fetchJson.extracted_text || '';
+        if (!sourceText || sourceText.length < 100) {
+          throw new Error('Could not extract enough text from the link. Try uploading the file or pasting text.');
+        }
+        if (isLikelyBinaryOrCorrupted(sourceText)) {
+          throw new Error('The link did not produce readable text. Try uploading the file or pasting text.');
+        }
       }
 
       if (!sourceText) {
-        throw new Error('Please upload a file or paste manuscript text.');
+        throw new Error('Please upload a file, paste manuscript text, or provide a manuscript link (PDF or article URL).');
       }
 
       // Store manuscript text for chat context
@@ -481,12 +509,15 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
       setCurrentChunkIndex(0);
       
       setStatusMessage('Fetching journal guidelines and research context...');
+      const guidelinesPromise = journalLink.trim()
+        ? apiFetch('/api/ai/guidelines', {
+            headers: aiHeaders,
+            method: 'POST',
+            body: JSON.stringify({ journal_url: journalLink.trim() }),
+          })
+        : Promise.resolve(new Response('{}', { status: 200 }));
       const [guidelinesRes, retrievedRes] = await Promise.all([
-        apiFetch('/api/ai/guidelines', {
-          headers: aiHeaders,
-          method: 'POST',
-          body: JSON.stringify({ journal_url: journalLink }),
-        }),
+        guidelinesPromise,
         apiFetch('/api/ai/retrieved-docs', {
           method: 'POST',
           headers: aiHeaders,
@@ -508,10 +539,10 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
       ]);
       const retrievedDocs = retrievedJson?.retrieved_docs || [];
       const slimRetrievedDocs = retrievedDocs
-        .slice(0, 20)
+        .slice(0, 35)
         .map((doc: any) => ({
           ...doc,
-          snippet: typeof doc.snippet === 'string' ? doc.snippet.slice(0, 350) : doc.snippet,
+          snippet: typeof doc.snippet === 'string' ? doc.snippet.slice(0, 500) : doc.snippet,
         }));
       setStatusMessage(`Analyzing ${chunks.length} sections...`);
       const chunkResults = await runWithConcurrency(
@@ -523,7 +554,11 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
             i === index ? { ...c, status: 'processing' } : 
             i < index ? { ...c, status: 'complete' } : c
           ));
-          setStatusMessage(`Analyzing section ${index + 1} of ${chunks.length}: ${chunkNames[index].name}...`);
+          setStatusMessage(
+            index === 0
+              ? `Analyzing section 1 of ${chunks.length}… (first section may take 5–10 min; please wait)`
+              : `Analyzing section ${index + 1} of ${chunks.length}: ${chunkNames[index].name}…`
+          );
           const payload = {
             job_id: jobId,
             chunk_id: chunk.id,
@@ -532,7 +567,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
             chunk_token_estimate: Math.floor(chunk.text.length / 4),
             journal_guidelines: guidelinesJson || { journal_url: journalLink },
             retrieved_docs: slimRetrievedDocs,
-            tasks: ['guideline_check', 'novelty_check', 'plagiarism_check', 'ai_use_detection', 'suggest_edits', 'writing_quality', 'research_quality'],
+            tasks: ['guideline_check', 'novelty_check', 'ai_use_detection', 'suggest_edits', 'writing_quality', 'research_quality'],
             max_tokens_for_response: 2400,
           };
 
@@ -718,6 +753,7 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
         report_id: `report-${Date.now()}`,
         journal_url: journalLink,
         manuscript_link: manuscriptLink || null,
+        retrieved_docs: retrievedDocs,
         chunks: chunkResults.map((cr: any, i: number) => ({
           ...cr,
           chunk_text: chunks[i]?.text || cr.chunk_text,
@@ -790,8 +826,9 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
           messages: [{ role: 'user', content: trimmed }],
           report_context: reportContext,
           journal_url: journalLink,
-          manuscript_text: manuscriptText ? manuscriptText.slice(0, 8000) : '',
-          max_tokens: 2000,
+          manuscript_text: manuscriptText ? manuscriptText.slice(0, 12000) : '',
+          retrieved_docs: reportData?.retrieved_docs || [],
+          max_tokens: 3000,
           temperature: 0.7,
           reasoning_effort: 'high',
         }),
@@ -1018,11 +1055,11 @@ const ManuscriptOrchestratorPage: React.FC<ManuscriptOrchestratorPageProps> = ({
                 placeholder="https://journal-website.com"
                 style={{ color: '#1d1d1f' }}
               />
-              <label className="field-label">Manuscript Link (optional)</label>
+              <label className="field-label">Manuscript Link (optional — use instead of upload)</label>
               <input
                 value={manuscriptLink}
                 onChange={(e) => setManuscriptLink(e.target.value)}
-                placeholder="https://drive.google.com/..."
+                placeholder="https://arxiv.org/pdf/... or direct PDF/article URL"
                 style={{ color: '#1d1d1f' }}
               />
             </div>

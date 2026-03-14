@@ -21,6 +21,34 @@ const escapeHtml = (text: string): string => {
   return text.replace(/[&<>"']/g, (m) => map[m]);
 };
 
+// Convert object details (e.g. research_quality, writing_quality) to readable bullet list instead of raw JSON
+const formatDetailsAsReadable = (details: Record<string, unknown>): string => {
+  const items: string[] = [];
+  for (const [key, val] of Object.entries(details)) {
+    if (val == null || key === 'suggest_edits' || key === 'edits') continue;
+    const label = key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    if (typeof val === 'string') {
+      items.push(`<li><strong>${escapeHtml(label)}:</strong> ${escapeHtml(val)}</li>`);
+    } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+      const sub = (val as Record<string, unknown>);
+      const parts: string[] = [];
+      if (typeof sub.assessment === 'string') parts.push(`Assessment: ${sub.assessment}`);
+      if (typeof sub.evidence === 'string') parts.push(`Evidence: ${sub.evidence}`);
+      if (typeof sub.suggestion === 'string') parts.push(`Suggestion: ${sub.suggestion}`);
+      if (parts.length) {
+        items.push(`<li><strong>${escapeHtml(label)}:</strong> ${escapeHtml(parts.join('. '))}</li>`);
+      } else {
+        const flat = Object.entries(sub)
+          .filter(([, v]) => v != null && typeof v === 'string')
+          .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`)
+          .join('. ');
+        if (flat) items.push(`<li><strong>${escapeHtml(label)}:</strong> ${escapeHtml(flat)}</li>`);
+      }
+    }
+  }
+  return items.length ? `<ul class="task-details-list">${items.join('')}</ul>` : '';
+};
+
 export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: string): string => {
   const date = new Date().toLocaleDateString('en-US', { 
     year: 'numeric', 
@@ -659,7 +687,7 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
     <!-- Chunk Analysis -->
     <div class="section">
       <h2 class="section-title">Detailed Chunk Analysis</h2>
-      <p class="section-desc">Line-by-line analysis by manuscript section. Each section shows AI use, plagiarism, guidelines, novelty, and suggested edits.</p>
+      <p class="section-desc">Line-by-line analysis by manuscript section. Each section shows research quality, writing quality, AI use, guidelines, novelty, and suggested edits.</p>
       ${reportData.chunks.map((chunk: any, idx: number) => {
         const sectionName = generateSectionName(chunk, idx);
         const renderTaskDetails = (taskData: any) => {
@@ -667,7 +695,16 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
           const details = taskData.details;
           if (details) {
             if (typeof details === 'string') {
-              detailsHtml = `<div class="task-details">${escapeHtml(details)}</div>`;
+              try {
+                const parsed = JSON.parse(details);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                  detailsHtml = formatDetailsAsReadable(parsed);
+                } else {
+                  detailsHtml = `<div class="task-details">${escapeHtml(details)}</div>`;
+                }
+              } catch {
+                detailsHtml = `<div class="task-details">${escapeHtml(details)}</div>`;
+              }
             } else if (details.edits && Array.isArray(details.edits)) {
               detailsHtml = details.edits.map((e: any) => `
                 <div class="line-edit">
@@ -700,7 +737,10 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
               }).join('');
               detailsHtml = `<div class="task-details">${detailsHtml}</div>`;
             } else if (details.indicators && Array.isArray(details.indicators)) {
-              detailsHtml = `<ul class="task-details-list">${details.indicators.map((i: string) => `<li>${escapeHtml(String(i))}</li>`).join('')}</ul>`;
+              detailsHtml = `<div class="task-details"><ul class="task-details-list">${details.indicators.map((i: string) => `<li>${escapeHtml(String(i))}</li>`).join('')}</ul></div>`;
+            } else if (typeof details === 'object' && details !== null && !Array.isArray(details)) {
+              const readable = formatDetailsAsReadable(details as Record<string, unknown>);
+              detailsHtml = readable ? `<div class="task-details">${readable}</div>` : `<div class="task-details">${escapeHtml(JSON.stringify(details).slice(0, 300))}${JSON.stringify(details).length > 300 ? '...' : ''}</div>`;
             } else {
               detailsHtml = `<div class="task-details">${escapeHtml(JSON.stringify(details).slice(0, 300))}${JSON.stringify(details).length > 300 ? '...' : ''}</div>`;
             }
@@ -715,7 +755,9 @@ export const generateHTMLReport = (reportData: ReportData, manuscriptTitle?: str
           </div>
           ${chunk.task_results ? `
             <div class="task-grid">
-              ${Object.entries(chunk.task_results).map(([taskName, taskData]: [string, any]) => `
+              ${Object.entries(chunk.task_results)
+                .filter(([taskName]) => taskName !== 'plagiarism_check')
+                .map(([taskName, taskData]: [string, any]) => `
                 <div class="task-card">
                   <div class="task-title">${taskName.replace(/_/g, ' ').toUpperCase()}</div>
                   <div class="task-status ${taskData.task_status || 'ok'}">${(taskData.task_status || 'ok').replace(/_/g, ' ')}</div>
