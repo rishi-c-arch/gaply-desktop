@@ -241,176 +241,129 @@
   text-align: center;
 }
 
-.rda-results {
-  max-width: 900px;
+/* Report Ready — no results on screen, cards only */
+.rda-report-ready {
+  max-width: 960px;
   margin: 0 auto;
-  padding: 40px 24px 80px;
+  padding: 48px 24px 80px;
 }
 
-.rda-results-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 16px;
+.rda-report-ready-header {
+  text-align: center;
+  margin-bottom: 40px;
+  position: relative;
+}
+
+.rda-report-ready-header h2 {
+  font-size: clamp(32px, 5vw, 48px);
+  font-weight: 700;
+  margin: 0 0 12px;
+  background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.rda-report-ready-sub {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 18px;
+  margin: 0 0 24px;
+}
+
+.rda-btn-ghost {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.rda-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+
+.rda-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
   margin-bottom: 32px;
 }
 
-.rda-results-header h2 {
-  font-size: 28px;
-  font-weight: 700;
-  margin: 0;
-}
-
-.rda-actions {
-  display: flex;
-  gap: 12px;
-}
-
-.rda-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 24px;
-}
-
-.rda-tab {
-  padding: 10px 20px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 14px;
-  font-weight: 500;
+.rda-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 28px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: left;
+  position: relative;
 }
 
-.rda-tab:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+.rda-card:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(59, 130, 246, 0.3);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
 }
 
-.rda-tab.active {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: rgba(59, 130, 246, 0.5);
-  color: #fff;
+.rda-card-muted {
+  opacity: 0.7;
+  cursor: default;
 }
 
-.rda-summary-section,
-.rda-section {
-  margin-bottom: 36px;
-  padding: 24px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+.rda-card-muted:hover {
+  transform: none;
 }
 
-.rda-summary-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.rda-card-icon {
+  font-size: 36px;
   margin-bottom: 16px;
 }
 
-.rda-summary-header h3,
-.rda-section h3 {
+.rda-card h3 {
   font-size: 20px;
   font-weight: 600;
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   color: #fff;
 }
 
-.rda-audio-btn {
-  padding: 8px 16px;
-  border-radius: 8px;
-  background: rgba(59, 130, 246, 0.2);
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  color: #93c5fd;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.rda-audio-btn:hover {
-  background: rgba(59, 130, 246, 0.3);
-}
-
-.rda-summary-content {
-  color: rgba(255, 255, 255, 0.85);
-  line-height: 1.7;
-  font-size: 16px;
-  white-space: pre-wrap;
-}
-
-.rda-list {
-  list-style: none;
-  padding: 0;
+.rda-card p {
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.6;
   margin: 0;
 }
 
-.rda-list li {
-  padding: 12px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.85);
-  line-height: 1.6;
+.rda-card-chat {
+  grid-column: span 1;
 }
 
-.rda-list li:last-child {
-  border-bottom: none;
+.rda-card-chat.expanded {
+  grid-column: 1 / -1;
 }
 
-.rda-list.rda-numbered {
-  list-style: decimal;
-  padding-left: 24px;
+.rda-chat-inline {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.rda-list.rda-numbered li {
-  margin-bottom: 8px;
-}
-
-.rda-badge-sm {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  background: rgba(59, 130, 246, 0.2);
-  color: #93c5fd;
-}
-
-.rda-meta {
-  display: block;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-  margin-top: 4px;
-}
-
-.rda-sublist {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.6);
-  margin-top: 6px;
-  padding-left: 16px;
-}
-
-.rda-reason {
-  margin: 8px 0 0;
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.rda-chat-section {
-  margin-top: 40px;
+.rda-chat-empty {
   padding: 24px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 12px;
+  margin-bottom: 16px;
 }
 
-.rda-chat-section h3 {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0 0 20px;
+.rda-chat-empty p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.rda-chat-hint {
+  font-size: 13px !important;
+  color: rgba(255, 255, 255, 0.45) !important;
+  font-style: italic;
 }
 
 .rda-chat-messages {
@@ -470,4 +423,91 @@
 
 .rda-chat-input:focus {
   border-color: rgba(59, 130, 246, 0.5);
+}
+
+.rda-chat-send {
+  padding: 14px 24px;
+}
+
+.rda-chat-collapse {
+  margin-top: 12px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rda-chat-collapse:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.rda-audio-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.rda-audio-tab {
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.rda-audio-tab:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.rda-audio-tab.active {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #fff;
+}
+
+.rda-audio-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+}
+
+.rda-audio-label {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.rda-audio-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.rda-audio-play {
+  padding: 10px 20px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.rda-audio-play:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+.rda-audio-duration {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
 }
