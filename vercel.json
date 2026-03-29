@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "installCommand": "NODE_ENV=development rm -rf node_modules build .cache && npm ci --no-audit --no-fund",
+  "installCommand": "NODE_ENV=development NPM_CONFIG_PRODUCTION=false rm -rf node_modules build .cache && npm ci --no-audit --no-fund",
   "buildCommand": "node scripts/cra-build.js",
   "outputDirectory": "build",
   "rewrites": [
@@ -10,6 +10,7 @@
     }
   ],
   "env": {
+    "VERCEL_FORCE_NO_BUILD_CACHE": "1",
     "DISABLE_ESLINT_PLUGIN": "true",
     "GENERATE_SOURCEMAP": "false",
     "SKIP_PREFLIGHT_CHECK": "true",
