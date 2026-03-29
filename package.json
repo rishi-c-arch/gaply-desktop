@@ -27,7 +27,6 @@
     "recharts": "^3.7.0",
     "three": "^0.180.0",
     "typescript": "^4.9.5",
-    "vercel": "^50.32.5",
     "web-vitals": "^2.1.4",
     "xlsx": "^0.18.5"
   },
@@ -39,8 +38,8 @@
   "scripts": {
     "start": "GENERATE_SOURCEMAP=false react-scripts start",
     "convert-quartile-guides": "node scripts/convert-quartile-guides.js",
-    "build": "CI=false GENERATE_SOURCEMAP=false react-scripts build",
-    "build:prod": "CI=false GENERATE_SOURCEMAP=false react-scripts build",
+    "build": "node scripts/cra-build.js",
+    "build:prod": "node scripts/cra-build.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "prerender": "node scripts/prerender.js",
@@ -86,5 +85,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
