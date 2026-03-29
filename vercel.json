@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "installCommand": "rm -rf node_modules && npm ci --no-audit --no-fund",
   "buildCommand": "node scripts/cra-build.js",
   "outputDirectory": "build",
   "rewrites": [

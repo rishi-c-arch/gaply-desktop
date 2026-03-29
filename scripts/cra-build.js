@@ -8,6 +8,11 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+process.on('uncaughtException', (err) => {
+  console.error('[cra-build] uncaughtException:', err);
+  process.exit(1);
+});
+
 const root = path.join(__dirname, '..');
 const pkg = path.join(root, 'package.json');
 const rsPkg = path.join(root, 'node_modules', 'react-scripts', 'package.json');
@@ -43,8 +48,9 @@ if (!fs.existsSync(rsPkg)) {
 
 const env = { ...process.env };
 delete env.CI;
-if (!env.GENERATE_SOURCEMAP) env.GENERATE_SOURCEMAP = 'false';
-if (!env.DISABLE_ESLINT_PLUGIN) env.DISABLE_ESLINT_PLUGIN = 'true';
+env.GENERATE_SOURCEMAP = 'false';
+env.DISABLE_ESLINT_PLUGIN = 'true';
+env.SKIP_PREFLIGHT_CHECK = 'true';
 // Avoid duplicating / mangling NODE_OPTIONS from the platform
 if (!env.NODE_OPTIONS || !String(env.NODE_OPTIONS).includes('max-old-space-size')) {
   env.NODE_OPTIONS = [env.NODE_OPTIONS, '--max-old-space-size=6144'].filter(Boolean).join(' ').trim();
