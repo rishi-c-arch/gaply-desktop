@@ -3,6 +3,7 @@ import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { Routes, Route, Link, useLocation, useMatch } from 'react-router-dom';
 import './App.css';
 import './styles/variables.css';
+import './styles/dashboard-hud.css';
 import './hero-animations.css';
 import './hero-new.css';
 import './responsive.css';
@@ -30,6 +31,8 @@ import CareerPage from './components/CareerPage';
 import HireExpertPage from './components/HireExpertPage';
 import ExpertSearchResultsPage from './components/ExpertSearchResultsPage';
 import PricingSection from './components/PricingSection';
+import PremiumProCheckout from './components/PremiumProCheckout';
+import { PremiumFeatureGuard } from './components/PremiumFeatureGuard';
 import PrivacyPolicyPage from './components/PrivacyPolicyPage';
 import TermsOfServicePage from './components/TermsOfServicePage';
 import DocumentOrchestratorPage from './components/DocumentOrchestratorPage';
@@ -39,6 +42,9 @@ import DataMaestroProPage from './components/DataMaestroProPage';
 import JournalVerifyPage from './components/JournalVerifyPage';
 import ResearchDeepAnalysisPage from './components/ResearchDeepAnalysisPage';
 import ContactPage from './components/ContactPage';
+import WatchDemoPage from './components/WatchDemoPage';
+import SupportPage from './components/SupportPage';
+import ConferencesIndiaPage from './features/conferences-india/ConferencesIndiaPage';
 import DownloadsPage from './components/DownloadsPage';
 import DownloadPopUp from './components/DownloadPopUp';
 import BlogPage from './pages/BlogPage';
@@ -136,14 +142,12 @@ const removeFloatingOrb = () => {
 // Apple-style Header Component
 const AppleHeader: React.FC<{ theme: 'light' | 'dark'; onToggleTheme: () => void }> = ({ theme, onToggleTheme }) => {
   const isDark = theme === 'dark';
-  const textShadow = isDark ? '0 1px 2px rgba(0,0,0,0.25)' : '0 1px 2px rgba(0,0,0,0.12)';
-
   return (
     <header className="apple-header">
       <div className="apple-header__content">
-        <div className="apple-header__logo" style={{ color: 'var(--header-text)', textShadow }}>
-          Gaply
-        </div>
+        <a href="/" className="apple-header__logo" style={{ display: 'flex', alignItems: 'center', fontSize: 18, fontWeight: 600, letterSpacing: '0.05em', color: 'inherit', textDecoration: 'none' }}>
+          GAPLY
+        </a>
         <nav className="apple-header__nav" aria-label="Primary">
           {[
             { label: 'Features', href: '/features' },
@@ -207,8 +211,8 @@ const AppleHeroSection: React.FC = () => {
     <section className="apple-hero apple-hero--no-header hero-section-stitch">
       <nav className="hero-top-nav hero-top-nav--relative" aria-label="Primary">
         <div className="hero-top-nav__left">
-          <Link className="hero-top-nav__logo" to="/">
-            Gaply
+          <Link className="hero-top-nav__logo" to="/" style={{ display: 'flex', alignItems: 'center', fontSize: 18, fontWeight: 600, letterSpacing: '0.05em', color: 'inherit', textDecoration: 'none' }}>
+            GAPLY
           </Link>
           <div className="hero-top-nav__menu-wrap">
             <button
@@ -309,7 +313,7 @@ const AppleHeroSection: React.FC = () => {
             <button
               className="hero-cta-secondary"
               onClick={() => {
-                window.location.href = '/features';
+                window.location.href = '/watch-demo';
               }}
             >
               <span className="material-symbols-outlined hero-cta-play" aria-hidden="true">play_circle</span>
@@ -391,7 +395,11 @@ const AppContent: React.FC = () => {
   }, []);
 
   const handleAuthSuccess = (token: string, userData: any, redirect?: string) => {
-    window.location.href = redirect || '/packages';
+    // Only allow same-origin paths to prevent open redirect
+    const safePath = redirect && redirect.startsWith('/') && !redirect.startsWith('//') && !redirect.includes(':')
+      ? redirect
+      : '/packages';
+    window.location.href = safePath;
   };
 
   return (
@@ -506,6 +514,16 @@ const AppContent: React.FC = () => {
               <FeaturesPage />
             </>
           } />
+          <Route path="/watch-demo" element={
+            <>
+              <SEOHead 
+                title="Watch Demo | Video Tutorials - Gaply"
+                description="Watch step-by-step video tutorials for Gaply. Learn Introduction to Gaply, Free Features, PublishReady, DataMaestro Pro, Journal Verification, and Research Deep Analysis."
+                keywords="Gaply demo, Gaply tutorial, video tutorial, PublishReady demo, DataMaestro demo, journal matching tutorial, research platform demo"
+              />
+              <WatchDemoPage />
+            </>
+          } />
           <Route path="/pricing" element={
             <>
               <SEOHead 
@@ -515,6 +533,11 @@ const AppContent: React.FC = () => {
               />
               <PricingSection />
             </>
+          } />
+          <Route path="/checkout/premium-pro" element={
+            <ProtectedRoute>
+              <PremiumProCheckout />
+            </ProtectedRoute>
           } />
           <Route path="/download" element={
             <>
@@ -526,14 +549,34 @@ const AppContent: React.FC = () => {
               <DownloadsPage />
             </>
           } />
-          <Route path="/contact" element={
+<Route path="/contact" element={
             <>
-              <SEOHead 
+              <SEOHead
                 title="Contact Gaply | Academic Research Support & Expert Consultation"
                 description="Get in touch with Gaply's academic research experts. Contact us for thesis writing help, journal matching, research paper editing, AI content detection, and statistical analysis support."
                 keywords="contact Gaply, academic research support, thesis writing help contact, journal matching support, research paper editing contact, AI content detection support"
               />
               <ContactPage />
+            </>
+          } />
+          <Route path="/support" element={
+            <>
+              <SEOHead
+                title="Support | Get Help - Gaply"
+                description="Get instant support from Gaply. Chat on WhatsApp (+91 6387144799), email us, or watch video tutorials. We're here to help with thesis writing, journal matching, PublishReady, DataMaestro, and more."
+                keywords="Gaply support, WhatsApp support, thesis help, research support, PublishReady help, DataMaestro support, academic research help"
+              />
+              <SupportPage />
+            </>
+          } />
+          <Route path="/conferences-india" element={
+            <>
+              <SEOHead
+                title="Tech Conferences in India | Free List - Gaply"
+                description="Browse a community-curated list of tech conferences in India. Free resource for researchers and developers. Data sourced from open GitHub lists."
+                keywords="tech conferences India, developer conferences India, academic tech events India, conference list India, Gaply"
+              />
+              <ConferencesIndiaPage />
             </>
           } />
           <Route path="/blog" element={
@@ -638,24 +681,28 @@ const AppContent: React.FC = () => {
             </>
           } />
           <Route path="/account" element={
-            <>
-              <SEOHead 
-                title="My Account | Manage Your Academic Research Services - Gaply"
-                description="Manage your Gaply account, view your academic research services, track your thesis writing progress, and access your AI detection and journal matching tools."
-                keywords="Gaply account management, academic research account, thesis writing account, AI detection account, journal matching account, research assistance account"
-              />
-              <Overview />
-            </>
+            <ProtectedRoute>
+              <>
+                <SEOHead 
+                  title="My Account | Manage Your Academic Research Services - Gaply"
+                  description="Manage your Gaply account, view your academic research services, track your thesis writing progress, and access your AI detection and journal matching tools."
+                  keywords="Gaply account management, academic research account, thesis writing account, AI detection account, journal matching account, research assistance account"
+                />
+                <Overview />
+              </>
+            </ProtectedRoute>
           } />
           <Route path="/my-account" element={
-            <>
-              <SEOHead 
-                title="My Account | Manage Your Academic Research Services - Gaply"
-                description="Manage your Gaply account, view your academic research services, track your thesis writing progress, and access your AI detection and journal matching tools."
-                keywords="Gaply account management, academic research account, thesis writing account, AI detection account, journal matching account, research assistance account"
-              />
-              <Overview />
-            </>
+            <ProtectedRoute>
+              <>
+                <SEOHead 
+                  title="My Account | Manage Your Academic Research Services - Gaply"
+                  description="Manage your Gaply account, view your academic research services, track your thesis writing progress, and access your AI detection and journal matching tools."
+                  keywords="Gaply account management, academic research account, thesis writing account, AI detection account, journal matching account, research assistance account"
+                />
+                <Overview />
+              </>
+            </ProtectedRoute>
           } />
           <Route path="/dashboard" element={
             <ProtectedRoute>
@@ -682,58 +729,66 @@ const AppContent: React.FC = () => {
           } />
           <Route path="/dashboard/publishready" element={
             <ProtectedRoute>
-              <>
-                <SEOHead 
-                  title="PublishReady | Upload Manuscript & Full Analysis - Gaply"
-                  description="Upload your manuscript (PDF, DOCX, TXT), add journal link, and run full analysis with referee-style review, report, and chat. Uses gaply-orchestrator."
-                  keywords="PublishReady, manuscript upload, document analysis, publication chance, referee review, gaply-orchestrator"
-                />
-                <DashboardLayout pageTitle="PublishReady">
-                  <ManuscriptOrchestratorPage />
-                </DashboardLayout>
-              </>
+              <PremiumFeatureGuard featureKey="publish_ready_pro">
+                <>
+                  <SEOHead 
+                    title="PublishReady | Upload Manuscript & Full Analysis - Gaply"
+                    description="Upload your manuscript (PDF, DOCX, TXT), add journal link, and run full analysis with referee-style review, report, and chat. Uses gaply-orchestrator."
+                    keywords="PublishReady, manuscript upload, document analysis, publication chance, referee review, gaply-orchestrator"
+                  />
+                  <DashboardLayout pageTitle="PublishReady">
+                    <ManuscriptOrchestratorPage />
+                  </DashboardLayout>
+                </>
+              </PremiumFeatureGuard>
             </ProtectedRoute>
           } />
           <Route path="/dashboard/datamaestro" element={
             <ProtectedRoute>
-              <>
-                <SEOHead 
-                  title="DataMaestro | AI Statistical Analysis - Gaply"
-                  description="AI-powered statistical analysis for academic research. Upload datasets, get smart test recommendations, publication-ready results with tables, charts, and downloadable reports."
-                  keywords="DataMaestro, statistical analysis, AI research analysis, SPSS alternative, data analysis, academic research tool"
-                />
-                <DashboardLayout pageTitle="DataMaestro">
-                  <DataMaestroProPage />
-                </DashboardLayout>
-              </>
+              <PremiumFeatureGuard featureKey="data_maestro_pro">
+                <>
+                  <SEOHead 
+                    title="DataMaestro | AI Statistical Analysis - Gaply"
+                    description="AI-powered statistical analysis for academic research. Upload datasets, get smart test recommendations, publication-ready results with tables, charts, and downloadable reports."
+                    keywords="DataMaestro, statistical analysis, AI research analysis, SPSS alternative, data analysis, academic research tool"
+                  />
+                  <DashboardLayout pageTitle="DataMaestro">
+                    <DataMaestroProPage />
+                  </DashboardLayout>
+                </>
+              </PremiumFeatureGuard>
             </ProtectedRoute>
           } />
           <Route path="/dashboard/journal-verify" element={
             <ProtectedRoute>
-              <>
-                <SEOHead 
-                  title="Verify Journal Authenticity | Journal Check - Gaply"
-                  description="AI-powered journal verification. Enter a journal URL or DOI to detect if it's real or predatory. Get detailed authenticity reports with key parameters."
-                  keywords="journal verification, predatory journal detection, journal authenticity check, DOI verification, research journal validation"
-                />
-                <DashboardLayout pageTitle="Journal Verification">
-                  <JournalVerifyPage />
-                </DashboardLayout>
-              </>
+              <PremiumFeatureGuard featureKey="journal_verification_pro">
+                <>
+                  <SEOHead 
+                    title="Verify Journal Authenticity | Journal Check - Gaply"
+                    description="AI-powered journal verification. Enter a journal URL or DOI to detect if it's real or predatory. Get detailed authenticity reports with key parameters."
+                    keywords="journal verification, predatory journal detection, journal authenticity check, DOI verification, research journal validation"
+                  />
+                  <DashboardLayout pageTitle="Journal Verification">
+                    <JournalVerifyPage />
+                  </DashboardLayout>
+                </>
+              </PremiumFeatureGuard>
             </ProtectedRoute>
           } />
           <Route path="/dashboard/research-deep-analysis" element={
             <ProtectedRoute>
-              <>
-                <SEOHead 
-                  title="Research Deep Analysis | Gaply"
-                  description="Upload 3 research papers for comprehensive analysis. Identify research gaps, methodologies, publication opportunities, and get formal downloadable reports."
-                  keywords="research deep analysis, literature gap, research papers, publication suggestions, methodology analysis"
-                />
-                <DashboardLayout pageTitle="Research Deep Analysis">
-                  <ResearchDeepAnalysisPage />
-                </DashboardLayout>
-              </>
+              <PremiumFeatureGuard featureKey="research_deep_analysis_pro">
+                <>
+                  <SEOHead 
+                    title="Research Deep Analysis | Gaply"
+                    description="Upload 3 research papers for comprehensive analysis. Identify research gaps, methodologies, publication opportunities, and get formal downloadable reports."
+                    keywords="research deep analysis, literature gap, research papers, publication suggestions, methodology analysis"
+                  />
+                  <DashboardLayout pageTitle="Research Deep Analysis">
+                    <ResearchDeepAnalysisPage />
+                  </DashboardLayout>
+                </>
+              </PremiumFeatureGuard>
             </ProtectedRoute>
           } />
           <Route path="/dashboard/projects" element={

@@ -104,6 +104,36 @@ export default function FreeFeatures() {
               </button>
             </div>
           </article>
+
+          {/* Card 3 – Indian tech conferences (community list) */}
+          <article className="free2-card free2-card--tertiary">
+            <div className="free2-card-header">
+              <span className="free2-chip free2-chip--amber">Open data</span>
+              <span className="material-symbols-outlined free2-card-icon">radar</span>
+            </div>
+            <h3 className="free2-card-title free2-card-title--muted">Conference radar</h3>
+            <p className="free2-card-body free2-card-body--muted">
+              Tech conferences in India — curated from a public community list. Free to browse; verify dates before you travel.
+            </p>
+
+            <div className="free2-conf-preview" aria-hidden="true">
+              <span className="free2-conf-pill">India</span>
+              <span className="free2-conf-pill">Tech</span>
+              <span className="free2-conf-pill">CFP-friendly</span>
+            </div>
+
+            <div className="free2-card-footer">
+              <span className="free2-module-label">MODULE_03</span>
+              <button
+                className="free2-interaction"
+                type="button"
+                aria-label="Open conference radar"
+                onClick={() => navigate('/conferences-india')}
+              >
+                <span className="material-symbols-outlined free2-interaction-icon">arrow_forward</span>
+              </button>
+            </div>
+          </article>
         </div>
       </div>
 
