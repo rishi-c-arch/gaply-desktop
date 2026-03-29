@@ -92,6 +92,44 @@
   align-items: center;
 }
 
+.ci-page__field-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-right: -4px;
+}
+
+.ci-page__select {
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--bg-card, rgba(255, 255, 255, 0.04));
+  color: inherit;
+  font-size: 14px;
+  min-width: min(220px, 100%);
+  cursor: pointer;
+}
+
+.ci-page[data-theme='light'] .ci-page__select {
+  border-color: rgba(0, 0, 0, 0.1);
+  background: #fff;
+}
+
+.ci-page__count {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  width: 100%;
+  flex-basis: 100%;
+}
+
+@media (min-width: 720px) {
+  .ci-page__count {
+    width: auto;
+    flex-basis: auto;
+    margin-left: auto;
+  }
+}
+
 .ci-page__search {
   flex: 1;
   min-width: 200px;
@@ -159,6 +197,23 @@
 
 .ci-card__title a:hover {
   color: var(--accent-purple);
+}
+
+.ci-card__discipline {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.22);
+}
+
+.ci-page[data-theme='light'] .ci-card__discipline {
+  background: rgba(139, 92, 246, 0.08);
 }
 
 .ci-card__row {

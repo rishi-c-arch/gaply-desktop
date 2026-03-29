@@ -7,6 +7,8 @@ export interface ConferenceIndia {
   description: string;
   scholarship: string;
   year: number;
+  discipline?: string;
+  is_upcoming: boolean;
   source: string;
 }
 

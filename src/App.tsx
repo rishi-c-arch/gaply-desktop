@@ -572,9 +572,9 @@ const AppContent: React.FC = () => {
           <Route path="/conferences-india" element={
             <>
               <SEOHead
-                title="Tech Conferences in India | Free List - Gaply"
-                description="Browse a community-curated list of tech conferences in India. Free resource for researchers and developers. Data sourced from open GitHub lists."
-                keywords="tech conferences India, developer conferences India, academic tech events India, conference list India, Gaply"
+                title="Research Conferences in India | All Disciplines - Gaply"
+                description="Upcoming and recent academic conferences in India across STEM, medicine, social sciences, humanities, law, and multidisciplinary science. Curated from official sites—verify every event."
+                keywords="research conferences India, academic conferences India, science congress India, humanities conferences India, medical conferences India, social science India, PhD events India, Gaply"
               />
               <ConferencesIndiaPage />
             </>
