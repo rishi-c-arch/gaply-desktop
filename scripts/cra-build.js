@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Runs react-scripts build with CI unset (Vercel sets CI=true and CRA turns warnings into errors).
- * Buffers webpack output so the real error appears in Vercel "Build" output (not only "exited with 1").
+ * Uses stdio: 'inherit' so webpack can stream freely. Piped spawnSync + maxBuffer kills large CRA builds
+ * (ERR_CHILD_PROCESS_STD_MAX_BUFFER) right after "Creating an optimized production build...".
  */
 const { spawnSync } = require('child_process');
 const fs = require('fs');
@@ -57,14 +58,10 @@ try {
 }
 
 const r = spawnSync(process.execPath, [cli, 'build'], {
+  stdio: 'inherit',
   env,
   cwd: root,
-  encoding: 'utf8',
-  maxBuffer: 64 * 1024 * 1024,
 });
-
-if (r.stdout) process.stdout.write(r.stdout);
-if (r.stderr) process.stderr.write(r.stderr);
 
 if (r.error) {
   console.error('cra-build: failed to spawn react-scripts:', r.error.message);
