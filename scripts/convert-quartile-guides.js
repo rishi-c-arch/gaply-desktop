@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * Converts quartile guide docx files to HTML with gaply.in watermark.
- * Run: node scripts/convert-quartile-guides.js
+ * Run locally when .docx sources change: npm run convert-quartile-guides
  * Output: public/quartile-guides/q1-guide.html, q2-q3-guide.html, q4-guide.html
+ * (Committed to git; production/Vercel build does not run this — avoids mammoth on CI.)
  */
 
 const fs = require('fs');
