@@ -51,9 +51,12 @@ delete env.CI;
 env.GENERATE_SOURCEMAP = 'false';
 env.DISABLE_ESLINT_PLUGIN = 'true';
 env.SKIP_PREFLIGHT_CHECK = 'true';
-// Avoid duplicating / mangling NODE_OPTIONS from the platform
+// Vercel build VMs are 8 GB RAM; a 6 GB Node heap can push total RSS over limit and get SIGKILL (exit 137).
+const heapMb =
+  process.env.CRA_BUILD_MAX_OLD_SPACE_SIZE ||
+  (process.env.VERCEL === '1' ? '4096' : '6144');
 if (!env.NODE_OPTIONS || !String(env.NODE_OPTIONS).includes('max-old-space-size')) {
-  env.NODE_OPTIONS = [env.NODE_OPTIONS, '--max-old-space-size=6144'].filter(Boolean).join(' ').trim();
+  env.NODE_OPTIONS = [env.NODE_OPTIONS, `--max-old-space-size=${heapMb}`].filter(Boolean).join(' ').trim();
 }
 
 let cli;

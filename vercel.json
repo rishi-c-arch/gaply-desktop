@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "installCommand": "rm -rf node_modules build .cache && npm ci --no-audit --no-fund",
+  "installCommand": "NODE_ENV=development rm -rf node_modules build .cache && npm ci --no-audit --no-fund",
   "buildCommand": "node scripts/cra-build.js",
   "outputDirectory": "build",
   "rewrites": [
