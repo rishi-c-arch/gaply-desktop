@@ -7,6 +7,8 @@ const { spawnSync } = require('child_process');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
+// Helpful first line in Vercel “Build Logs” if the job still fails
+console.error('[cra-build]', process.version, root);
 const env = { ...process.env };
 delete env.CI;
 if (!env.GENERATE_SOURCEMAP) {
@@ -27,4 +29,8 @@ const r = spawnSync(process.execPath, [cli, 'build'], {
   cwd: root,
 });
 
+if (r.error) {
+  console.error('cra-build: failed to spawn react-scripts:', r.error.message);
+  process.exit(1);
+}
 process.exit(r.status === null ? 1 : r.status);

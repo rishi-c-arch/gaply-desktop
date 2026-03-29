@@ -1,7 +1,6 @@
 {
   "version": 2,
-  "installCommand": "npm ci",
-  "buildCommand": "npm run build:prod",
+  "buildCommand": "node scripts/cra-build.js",
   "outputDirectory": "build",
   "rewrites": [
     {
@@ -12,6 +11,7 @@
   "env": {
     "DISABLE_ESLINT_PLUGIN": "true",
     "GENERATE_SOURCEMAP": "false",
+    "SKIP_PREFLIGHT_CHECK": "true",
     "NODE_OPTIONS": "--max-old-space-size=6144",
     "REACT_APP_API_URL": "https://gaply-backend-production.up.railway.app",
     "REACT_APP_ENVIRONMENT": "production"
