@@ -1,0 +1,412 @@
+/* Scoped: citation generator only (gaply-cite-* prefix) */
+.gaply-cite-page {
+  min-height: 100vh;
+  position: relative;
+  color: var(--text-primary, #f1f5f9);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  padding-top: 80px;
+  padding-bottom: 64px;
+}
+
+.gaply-cite-page[data-theme='light'] {
+  color: var(--text-primary, #0f0f1a);
+}
+
+.gaply-cite-page__noise {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.gaply-cite-page__bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: var(--bg-primary, #0a0a0f);
+  transition: background 0.5s ease;
+}
+
+.gaply-cite-page[data-theme='light'] .gaply-cite-page__bg {
+  background: var(--bg-primary, #fafafa);
+}
+
+.gaply-cite-page__inner {
+  position: relative;
+  z-index: 1;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.gaply-cite-page__hero {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.gaply-cite-page__badge {
+  display: inline-block;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent-purple, #8b5cf6);
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.28);
+  border-radius: 100px;
+  margin-bottom: 14px;
+}
+
+.gaply-cite-page__title {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0 0 10px;
+  line-height: 1.15;
+}
+
+.gaply-cite-page__subtitle {
+  margin: 0 auto;
+  max-width: 720px;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  opacity: 0.85;
+}
+
+.gaply-cite-page__tabs {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.gaply-cite-page__tab {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.35);
+  color: inherit;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.gaply-cite-page[data-theme='light'] .gaply-cite-page__tab {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.gaply-cite-page__tab--on {
+  border-color: rgba(139, 92, 246, 0.55);
+  background: rgba(139, 92, 246, 0.18);
+}
+
+.gaply-cite-page__subtabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.gaply-cite-page__subtabs button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.65;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.gaply-cite-page__subtabs button.gaply-cite-page__subtab--on {
+  opacity: 1;
+  background: rgba(139, 92, 246, 0.15);
+}
+
+.gaply-cite-page__error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fecaca;
+  padding: 12px 14px;
+  border-radius: 10px;
+  margin-bottom: 14px;
+  font-size: 0.9rem;
+}
+
+.gaply-cite-page[data-theme='light'] .gaply-cite-page__error {
+  color: #991b1b;
+}
+
+.gaply-cite-page__panel {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 18px;
+}
+
+.gaply-cite-page[data-theme='light'] .gaply-cite-page__panel {
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(15, 23, 42, 0.08);
+}
+
+.gaply-cite-page__panel--tools {
+  padding: 16px 20px;
+}
+
+.gaply-cite-page__grid3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.gaply-cite-page__field label,
+.gaply-cite-page__label-block {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+  opacity: 0.85;
+}
+
+.gaply-cite-page__field input,
+.gaply-cite-page__field select,
+.gaply-cite-page__input {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+
+.gaply-cite-page[data-theme='light'] .gaply-cite-page__field input,
+.gaply-cite-page[data-theme='light'] .gaply-cite-page__field select,
+.gaply-cite-page[data-theme='light'] .gaply-cite-page__input {
+  background: #fff;
+  color: #0f172a;
+}
+
+.gaply-cite-page__textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  resize: vertical;
+  margin-bottom: 10px;
+}
+
+.gaply-cite-page[data-theme='light'] .gaply-cite-page__textarea {
+  background: #fff;
+  color: #0f172a;
+}
+
+.gaply-cite-page__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  margin-right: 8px;
+  margin-top: 4px;
+}
+
+.gaply-cite-page__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.gaply-cite-page__btn--ghost {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  color: inherit;
+}
+
+.gaply-cite-page__btn--mini {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.gaply-cite-page__row2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .gaply-cite-page__row2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.gaply-cite-page__manual .gaply-cite-page__field {
+  margin-bottom: 8px;
+}
+
+.gaply-cite-page__drop {
+  width: 100%;
+}
+
+.gaply-cite-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.gaply-cite-page__h2 {
+  font-size: 1.05rem;
+  margin: 0 0 12px;
+}
+
+.gaply-cite-page__muted {
+  font-size: 0.88rem;
+  opacity: 0.75;
+  margin: 0 0 10px;
+}
+
+.gaply-cite-page__code {
+  font-size: 0.8em;
+}
+
+.gaply-cite-page__preview {
+  margin-bottom: 14px;
+}
+
+.gaply-cite-page__preview-label {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+
+.gaply-cite-page__preview code {
+  display: block;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.gaply-cite-page[data-theme='light'] .gaply-cite-page__preview code {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.gaply-cite-bibliography {
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.gaply-cite-page[data-theme='light'] .gaply-cite-bibliography {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.gaply-cite-bibliography .csl-entry {
+  margin-bottom: 0.75em;
+}
+
+.gaply-cite-page__pre {
+  max-height: 360px;
+  overflow: auto;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.22);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.gaply-cite-page[data-theme='light'] .gaply-cite-page__pre {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.gaply-cite-page__libtools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.gaply-cite-page__libtools input,
+.gaply-cite-page__libtools select {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(0, 0, 0, 0.2);
+  color: inherit;
+  font-size: 0.85rem;
+}
+
+.gaply-cite-page[data-theme='light'] .gaply-cite-page__libtools input,
+.gaply-cite-page[data-theme='light'] .gaply-cite-page__libtools select {
+  background: #fff;
+  color: #0f172a;
+}
+
+.gaply-cite-page__liblist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gaply-cite-page__libitem {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.gaply-cite-page__libmain {
+  flex: 1;
+  min-width: 0;
+}
+
+.gaply-cite-page__libmain strong {
+  display: block;
+  font-size: 0.92rem;
+  margin-bottom: 4px;
+}
+
+.gaply-cite-page__libactions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}

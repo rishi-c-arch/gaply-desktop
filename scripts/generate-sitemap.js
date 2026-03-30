@@ -11,6 +11,7 @@ const ROUTES = [
   '/watch-demo',
   '/support',
   '/conferences-india',
+  '/citation-generator',
   '/career',
   '/hire-expert',
   '/academic-ai-remover',

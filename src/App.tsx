@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { Routes, Route, Link, useLocation, useMatch } from 'react-router-dom';
 import './App.css';
@@ -45,6 +45,7 @@ import ContactPage from './components/ContactPage';
 import WatchDemoPage from './components/WatchDemoPage';
 import SupportPage from './components/SupportPage';
 import ConferencesIndiaPage from './features/conferences-india/ConferencesIndiaPage';
+const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
 import DownloadsPage from './components/DownloadsPage';
 import DownloadPopUp from './components/DownloadPopUp';
 import BlogPage from './pages/BlogPage';
@@ -578,6 +579,18 @@ const AppContent: React.FC = () => {
                 keywords="research conferences India, academic conferences India, science congress India, humanities conferences India, medical conferences India, social science India, PhD events India, Gaply"
               />
               <ConferencesIndiaPage />
+            </>
+          } />
+          <Route path="/citation-generator" element={
+            <>
+              <SEOHead
+                title="Free Citation Generator & Reference Converter | Gaply"
+                description="Free APA, Vancouver, and Harvard citations in your browser. Look up DOI, ISBN, PubMed; convert BibTeX, RIS, CSL-JSON, and EndNote XML. No payment, no account—saved lists stay on your device only."
+                keywords="free citation generator, BibTeX converter, RIS to APA, reference converter, DOI citation, Vancouver citation, academic references, Gaply"
+              />
+              <Suspense fallback={<div className="App" style={{ minHeight: '50vh', padding: '2rem', textAlign: 'center' }}>Loading…</div>}>
+                <CitationGeneratorPage />
+              </Suspense>
             </>
           } />
           <Route path="/blog" element={
