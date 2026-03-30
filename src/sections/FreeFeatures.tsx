@@ -134,6 +134,42 @@ export default function FreeFeatures() {
               </button>
             </div>
           </article>
+
+          {/* Card 4 – Conference Finder → /conferences-india */}
+          <article className="free2-card free2-card--quaternary">
+            <div className="free2-card-header">
+              <span className="free2-chip free2-chip--emerald">Free resource</span>
+              <span className="material-symbols-outlined free2-card-icon">event_available</span>
+            </div>
+            <h3 className="free2-card-title">Conference Finder</h3>
+            <p className="free2-card-body">
+              Research conferences in India—upcoming and recent events across STEM, medicine, social sciences, and more.
+              Filter by field, search by city or name. Always verify dates on the organizer&apos;s site.
+            </p>
+
+            <div className="free2-conf-preview" aria-hidden="true">
+              <div className="free2-conf-row">
+                <span className="free2-conf-dot" />
+                <span>ISCBC-2026 · Life sciences</span>
+              </div>
+              <div className="free2-conf-row free2-conf-row--dim">
+                <span className="free2-conf-dot free2-conf-dot--muted" />
+                <span>Delhi · Jan 2026</span>
+              </div>
+            </div>
+
+            <div className="free2-card-footer">
+              <span className="free2-module-label">MODULE_04</span>
+              <button
+                className="free2-interaction"
+                type="button"
+                aria-label="Open Conference Finder"
+                onClick={() => navigate('/conferences-india')}
+              >
+                <span className="material-symbols-outlined free2-interaction-icon">arrow_forward</span>
+              </button>
+            </div>
+          </article>
         </div>
       </div>
 

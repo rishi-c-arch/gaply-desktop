@@ -148,6 +148,25 @@ body.light .free2-cite-line--dim {
   color: #9ca3af;
 }
 
+body.light .free2-chip--emerald {
+  background: rgba(209, 250, 229, 0.95);
+  border-color: rgba(5, 150, 105, 0.45);
+  color: #065f46;
+}
+
+body.light .free2-conf-preview {
+  background: rgba(236, 253, 245, 0.9);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+body.light .free2-conf-row {
+  color: #047857;
+}
+
+body.light .free2-conf-row--dim {
+  color: #6b7280;
+}
+
 body.light .free2-card-icon {
   color: #6b7280;
 }
@@ -321,7 +340,7 @@ body.light .free2-particle {
 /* Right column cards */
 .free2-right {
   position: relative;
-  min-height: 520px;
+  min-height: 600px;
   perspective: 1000px;
 }
 
@@ -384,6 +403,71 @@ body.light .free2-particle {
 .free2-card--tertiary:hover {
   z-index: 4;
   opacity: 1;
+}
+
+.free2-card--quaternary {
+  position: absolute;
+  bottom: 0;
+  left: 2%;
+  width: min(300px, 88%);
+  transform: scale(0.9) translateZ(3px);
+  z-index: 2;
+  opacity: 0.9;
+}
+
+.free2-card--quaternary::before {
+  background: radial-gradient(circle at top left, rgba(16, 185, 129, 0.22), transparent 55%);
+}
+
+.free2-card--quaternary:hover {
+  z-index: 5;
+  opacity: 1;
+}
+
+.free2-chip--emerald {
+  background: rgba(6, 78, 59, 0.88);
+  border-color: rgba(52, 211, 153, 0.55);
+  color: #a7f3d0;
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.25);
+}
+
+.free2-conf-preview {
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 22px;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.free2-conf-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #a7f3d0;
+  line-height: 1.35;
+}
+
+.free2-conf-row--dim {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.free2-conf-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.7);
+  flex-shrink: 0;
+}
+
+.free2-conf-dot--muted {
+  background: #4b5563;
+  box-shadow: none;
 }
 
 .free2-chip--violet {
@@ -738,11 +822,13 @@ body.light .free2-particle {
 
   .free2-card--primary,
   .free2-card--secondary,
-  .free2-card--tertiary {
+  .free2-card--tertiary,
+  .free2-card--quaternary {
     position: relative;
     top: 0;
     right: 0;
     left: 0;
+    bottom: auto;
     width: 100%;
     margin-bottom: 20px;
     transform: none;
