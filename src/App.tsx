@@ -387,7 +387,8 @@ const AppContent: React.FC = () => {
     location.pathname === '/hire-expert' ||
     location.pathname === '/search-results' ||
     location.pathname === '/paper-search' ||
-    location.pathname === '/journal-matching';
+    location.pathname === '/journal-matching' ||
+    location.pathname === '/conferences-india';
 
   // Call the function to remove the floating orb when the component mounts
   useEffect(() => {
