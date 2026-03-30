@@ -129,6 +129,25 @@ body.light .free2-chip--cyan {
   color: #1e3a8a;
 }
 
+body.light .free2-chip--violet {
+  background: rgba(237, 233, 254, 0.95);
+  border-color: rgba(124, 58, 237, 0.45);
+  color: #5b21b6;
+}
+
+body.light .free2-cite-preview {
+  background: rgba(250, 245, 255, 0.92);
+  border-color: rgba(167, 139, 250, 0.4);
+}
+
+body.light .free2-cite-line {
+  color: #6d28d9;
+}
+
+body.light .free2-cite-line--dim {
+  color: #9ca3af;
+}
+
 body.light .free2-card-icon {
   color: #6b7280;
 }
@@ -302,7 +321,7 @@ body.light .free2-particle {
 /* Right column cards */
 .free2-right {
   position: relative;
-  min-height: 620px;
+  min-height: 520px;
   perspective: 1000px;
 }
 
@@ -350,54 +369,63 @@ body.light .free2-particle {
 
 .free2-card--tertiary {
   position: absolute;
-  top: 28%;
+  top: 14%;
   left: 0;
-  width: min(300px, 88%);
-  transform: scale(0.94) translateZ(4px);
+  width: min(288px, 86%);
+  transform: scale(0.9) translateZ(4px);
   z-index: 1;
-  opacity: 0.95;
+  opacity: 0.9;
 }
 
 .free2-card--tertiary::before {
-  background: radial-gradient(circle at top left, rgba(251, 191, 36, 0.18), transparent 55%);
+  background: radial-gradient(circle at top left, rgba(139, 92, 246, 0.24), transparent 55%);
 }
 
-.free2-chip--amber {
-  background: rgba(120, 53, 15, 0.5);
-  border-color: rgba(251, 191, 36, 0.55);
-  color: #fde68a;
-  box-shadow: 0 0 14px rgba(251, 191, 36, 0.2);
+.free2-card--tertiary:hover {
+  z-index: 4;
+  opacity: 1;
 }
 
-body.light .free2-chip--amber {
-  background: rgba(254, 243, 199, 0.95);
-  border-color: rgba(245, 158, 11, 0.55);
-  color: #92400e;
+.free2-chip--violet {
+  background: rgba(49, 46, 129, 0.85);
+  border-color: rgba(167, 139, 250, 0.55);
+  color: #e9d5ff;
+  box-shadow: 0 0 14px rgba(139, 92, 246, 0.28);
 }
 
-.free2-conf-preview {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.free2-cite-preview {
+  position: relative;
+  border-radius: 12px;
+  padding: 12px 14px;
   margin-bottom: 22px;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.free2-conf-pill {
+.free2-cite-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(0, 0, 0, 0.45);
-  color: #d1d5db;
+  color: #c4b5fd;
+  line-height: 1.4;
 }
 
-body.light .free2-conf-pill {
-  background: rgba(15, 23, 42, 0.05);
-  border-color: rgba(148, 163, 184, 0.5);
-  color: #4b5563;
+.free2-cite-line--dim {
+  color: #6b7280;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.free2-cite-line--short {
+  height: 6px;
+  width: 72%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(76, 29, 149, 0.5), rgba(124, 58, 237, 0.35));
+  animation: free2-shimmer 2s linear infinite;
+  background-size: 200% 100%;
 }
 
 .free2-card:hover {
@@ -718,6 +746,7 @@ body.light .free2-conf-pill {
     width: 100%;
     margin-bottom: 20px;
     transform: none;
+    opacity: 1;
   }
 }
 

@@ -105,21 +105,21 @@ export default function FreeFeatures() {
             </div>
           </article>
 
-          {/* Card 3 – Indian tech conferences (community list) */}
+          {/* Card 3 – Citation generator (100% free, browser-only) */}
           <article className="free2-card free2-card--tertiary">
             <div className="free2-card-header">
-              <span className="free2-chip free2-chip--amber">Open data</span>
-              <span className="material-symbols-outlined free2-card-icon">radar</span>
+              <span className="free2-chip free2-chip--violet">No sign-in</span>
+              <span className="material-symbols-outlined free2-card-icon">format_quote</span>
             </div>
-            <h3 className="free2-card-title free2-card-title--muted">Conference radar</h3>
-            <p className="free2-card-body free2-card-body--muted">
-              Tech conferences in India — curated from a public community list. Free to browse; verify dates before you travel.
+            <h3 className="free2-card-title">Citation Generator</h3>
+            <p className="free2-card-body">
+              APA, Vancouver &amp; Harvard in your browser. DOI, ISBN, PubMed lookup, BibTeX / RIS / JSON converter—saved lists stay on your device.
             </p>
 
-            <div className="free2-conf-preview" aria-hidden="true">
-              <span className="free2-conf-pill">India</span>
-              <span className="free2-conf-pill">Tech</span>
-              <span className="free2-conf-pill">CFP-friendly</span>
+            <div className="free2-cite-preview" aria-hidden="true">
+              <div className="free2-cite-line">(Author et al., 2024)</div>
+              <div className="free2-cite-line free2-cite-line--dim">References</div>
+              <div className="free2-cite-line free2-cite-line--short" />
             </div>
 
             <div className="free2-card-footer">
@@ -127,8 +127,8 @@ export default function FreeFeatures() {
               <button
                 className="free2-interaction"
                 type="button"
-                aria-label="Open conference radar"
-                onClick={() => navigate('/conferences-india')}
+                aria-label="Open Citation Generator"
+                onClick={() => navigate('/citation-generator')}
               >
                 <span className="material-symbols-outlined free2-interaction-icon">arrow_forward</span>
               </button>
