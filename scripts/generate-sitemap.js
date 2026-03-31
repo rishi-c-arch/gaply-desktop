@@ -10,6 +10,7 @@ const ROUTES = [
   '/download',
   '/watch-demo',
   '/support',
+  '/research-hub',
   '/conferences-india',
   '/citation-generator',
   '/career',

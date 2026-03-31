@@ -10,6 +10,7 @@ import './responsive.css';
 import ThreeJSGlobe from './components/ThreeJSGlobe';
 import HeroToSecondTransition from './components/HeroToSecondTransition';
 import FreeFeatures from './sections/FreeFeatures';
+import ResearchHubHeroEntry from './sections/ResearchHubHeroEntry';
 import PremiumFeatures from './sections/PremiumFeatures';
 import JournalQuartile from './sections/JournalQuartile';
 import PremiumFooter3D from './components/PremiumFooter3D';
@@ -44,6 +45,7 @@ import ResearchDeepAnalysisPage from './components/ResearchDeepAnalysisPage';
 import ContactPage from './components/ContactPage';
 import WatchDemoPage from './components/WatchDemoPage';
 import SupportPage from './components/SupportPage';
+import ResearchHubPage from './pages/ResearchHubPage';
 import ConferencesIndiaPage from './features/conferences-india/ConferencesIndiaPage';
 const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
 import DownloadsPage from './components/DownloadsPage';
@@ -191,6 +193,7 @@ const AppleHeader: React.FC<{ theme: 'light' | 'dark'; onToggleTheme: () => void
 // Left-side hero options (replaces header on home): figma-style vertical nav
 const HERO_OPTIONS = [
   { label: 'Features', href: '/features' },
+  { label: 'Research Hub', href: '/research-hub' },
   { label: 'Pricing', href: '/pricing' },
   { label: 'Download', href: '/download' },
   { label: 'Careers', href: '/career' },
@@ -321,6 +324,7 @@ const AppleHeroSection: React.FC = () => {
               <span>Watch Demo</span>
             </button>
           </div>
+          <ResearchHubHeroEntry />
         </div>
 
         <div className="hero-visual-col">
@@ -569,6 +573,16 @@ const AppContent: React.FC = () => {
                 keywords="Gaply support, WhatsApp support, thesis help, research support, PublishReady help, DataMaestro support, academic research help"
               />
               <SupportPage />
+            </>
+          } />
+          <Route path="/research-hub" element={
+            <>
+              <SEOHead
+                title="ResearchHub | Co-authors & Researcher Discovery - Gaply"
+                description="Find co-authors and collaborators on Gaply ResearchHub. Researcher profiles, discovery feed, connection requests, direct messages, and domain-based discovery for PhDs and faculty."
+                keywords="research collaboration, find co-author, PhD collaboration, researcher network, academic networking, ResearchHub, Gaply"
+              />
+              <ResearchHubPage />
             </>
           } />
           <Route path="/conferences-india" element={
