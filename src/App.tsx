@@ -13,6 +13,7 @@ import FreeFeatures from './sections/FreeFeatures';
 import ResearchHubHeroEntry from './sections/ResearchHubHeroEntry';
 import PremiumFeatures from './sections/PremiumFeatures';
 import JournalQuartile from './sections/JournalQuartile';
+import CoResearchAuthorFinder from './sections/CoResearchAuthorFinder';
 import PremiumFooter3D from './components/PremiumFooter3D';
 import EnhancedPremiumPage from './components/EnhancedPremiumPage';
 import Overview from './pages/Overview';
@@ -425,6 +426,7 @@ const AppContent: React.FC = () => {
               <FreeFeatures />
               <PremiumFeatures />
               <JournalQuartile />
+              <CoResearchAuthorFinder />
               <PremiumFooter3D />
             </>
           } />
