@@ -1,298 +1,98 @@
-/* Co-Research Author Finder — 3D research-social gallery, B&W portraits, dark + light */
+/* Co-Research Author Finder — extends Discover Free Features (free2-*) with RH accents + photo wells */
 
-/* journal-quartile sets .jqa-section { overflow: hidden } which clips 3D transforms + portraits */
-section.jqa-section.craf-section {
-  overflow: visible;
+.craf2-section .free2-index-text {
+  color: rgba(139, 92, 246, 0.09);
 }
 
-.craf-section {
-  position: relative;
-  isolation: isolate;
+body.light .craf2-section .free2-index-text {
+  color: rgba(91, 33, 182, 0.06);
 }
 
-.craf-noise {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.04;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+.craf2-section .free2-status-row {
+  color: #c4b5fd;
 }
 
-.craf-mesh {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background:
-    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(99, 102, 241, 0.14), transparent 55%),
-    radial-gradient(ellipse 60% 45% at 15% 60%, rgba(139, 92, 246, 0.1), transparent 50%),
-    radial-gradient(ellipse 55% 40% at 88% 55%, rgba(59, 130, 246, 0.08), transparent 50%);
+.craf2-section .free2-status-dot {
+  background: #a78bfa;
+  box-shadow: 0 0 12px rgba(167, 139, 250, 0.85);
 }
 
-.craf-inner {
-  position: relative;
-  z-index: 1;
+.craf2-section .free2-status-line {
+  background: rgba(91, 33, 182, 0.55);
 }
 
-.craf-eyebrow {
-  margin: 0 0 10px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: #6366f1;
+body.light .craf2-section .free2-status-row {
+  color: #6d28d9;
 }
 
-body.light .craf-eyebrow {
-  color: #4f46e5;
+body.light .craf2-section .free2-status-dot {
+  background: #7c3aed;
+  box-shadow: 0 0 12px rgba(124, 58, 237, 0.55);
 }
 
-.craf-title {
-  background: linear-gradient(120deg, #e2e8f0 0%, #ffffff 40%, #c7d2fe 100%);
+body.light .craf2-section .free2-status-line {
+  background: rgba(196, 181, 253, 0.9);
+}
+
+.craf2-section .free2-heading-highlight {
+  background: linear-gradient(to right, #e9d5ff, #c4b5fd 35%, #f5f3ff);
   -webkit-background-clip: text;
-  background-clip: text;
   -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-body.light .craf-title {
-  background: linear-gradient(120deg, #0f172a 0%, #334155 45%, #4f46e5 100%);
+body.light .craf2-section .free2-heading-highlight {
+  background: linear-gradient(to right, #4c1d95, #7c3aed 45%, #312e81);
   -webkit-background-clip: text;
-  background-clip: text;
   -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-.craf-header--compact {
-  margin-bottom: 8px;
-}
-
-/* --- 3D stage --- */
-.craf-stage {
-  perspective: 1400px;
-  perspective-origin: 50% 45%;
-  padding: clamp(28px, 6vw, 56px) 0 clamp(40px, 7vw, 72px);
-  overflow: visible;
-  min-height: min(52vw, 280px);
-}
-
-.craf-pivot {
+/* B&W portrait slot — same footprint as free2-search-preview */
+.craf2-photo {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  transform-style: preserve-3d;
-}
-
-.craf-orbit {
-  display: flex;
-  flex-wrap: nowrap;
-  justify-content: center;
-  align-items: flex-end;
-  gap: clamp(8px, 2vw, 20px);
-  transform-style: preserve-3d;
-  /* gentler tilt so faces stay visible after overflow fix */
-  transform: rotateX(8deg) translateZ(0);
-  animation: craf-orbit-breathe 10s ease-in-out infinite;
-}
-
-@keyframes craf-orbit-breathe {
-  0%,
-  100% {
-    transform: rotateX(8deg) translateZ(0) translateY(0);
-  }
-  50% {
-    transform: rotateX(6deg) translateZ(0) translateY(-6px);
-  }
-}
-
-.craf-portrait {
-  position: relative;
-  margin: 0;
-  width: clamp(100px, 18vw, 148px);
-  flex-shrink: 0;
-  transform-style: preserve-3d;
-  transform: rotateY(calc(-22deg + var(--craf-i, 0) * 14deg))
-    translateZ(calc(28px + var(--craf-i, 0) * 8px)) translateY(calc(var(--craf-i, 0) * -4px));
-  transition:
-    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.45s ease;
-  animation: craf-card-float 5.5s ease-in-out infinite;
-  animation-delay: calc(var(--craf-i, 0) * 0.35s);
-}
-
-@keyframes craf-card-float {
-  0%,
-  100% {
-    transform: rotateY(calc(-22deg + var(--craf-i, 0) * 14deg))
-      translateZ(calc(28px + var(--craf-i, 0) * 8px)) translateY(calc(var(--craf-i, 0) * -4px));
-  }
-  50% {
-    transform: rotateY(calc(-22deg + var(--craf-i, 0) * 14deg))
-      translateZ(calc(36px + var(--craf-i, 0) * 10px)) translateY(calc(var(--craf-i, 0) * -4px - 10px));
-  }
-}
-
-.craf-portrait:hover {
-  transform: rotateY(calc(-18deg + var(--craf-i, 0) * 12deg))
-    translateZ(calc(72px + var(--craf-i, 0) * 12px)) translateY(-16px) scale(1.04);
-  z-index: 4;
-  animation-play-state: paused;
-}
-
-.craf-portrait__frame {
-  position: relative;
-  border-radius: 14px;
+  border-radius: 12px;
+  margin-bottom: 22px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.28);
   overflow: hidden;
-  aspect-ratio: 3 / 4;
-  transform: translateZ(0);
-  box-shadow:
-    0 24px 48px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(255, 255, 255, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  aspect-ratio: 4 / 3;
 }
 
-body.light .craf-portrait__frame {
-  box-shadow:
-    0 20px 40px rgba(15, 23, 42, 0.18),
-    0 0 0 1px rgba(15, 23, 42, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-.craf-portrait__img {
+.craf2-photo img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
-  filter: grayscale(1) contrast(1.08) brightness(0.92);
+  filter: grayscale(1) contrast(1.08) brightness(0.94);
   transform: scale(1.02);
-  transition: filter 0.4s ease, transform 0.5s ease;
+  transition: filter 0.35s ease, transform 0.4s ease;
 }
 
-body.light .craf-portrait__img {
+.free2-card:hover .craf2-photo img {
+  filter: grayscale(0.88) contrast(1.1) brightness(1);
+  transform: scale(1.04);
+}
+
+body.light .craf2-photo {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(148, 163, 184, 0.45);
+}
+
+body.light .craf2-photo img {
   filter: grayscale(1) contrast(1.05) brightness(1.02);
 }
 
-.craf-portrait:hover .craf-portrait__img {
-  filter: grayscale(0.85) contrast(1.1) brightness(1);
-  transform: scale(1.06);
+body.light .free2-card:hover .craf2-photo img {
+  filter: grayscale(0.8) contrast(1.06) brightness(1.03);
 }
 
-body.light .craf-portrait:hover .craf-portrait__img {
-  filter: grayscale(0.75) contrast(1.08) brightness(1.03);
+.craf2-section .free2-card:hover {
+  border-color: rgba(167, 139, 250, 0.55);
+  box-shadow: 0 25px 70px rgba(49, 46, 129, 0.45);
 }
 
-.craf-portrait__sheen {
-  position: absolute;
-  inset: 0;
-  border-radius: 14px;
-  pointer-events: none;
-  background: linear-gradient(
-    125deg,
-    transparent 0%,
-    transparent 40%,
-    rgba(255, 255, 255, 0.07) 48%,
-    transparent 56%,
-    transparent 100%
-  );
-  mix-blend-mode: soft-light;
-}
-
-.craf-pedestal {
-  margin-top: -12px;
-  width: min(92%, 520px);
-  height: 28px;
-  border-radius: 50%;
-  transform: rotateX(78deg) translateZ(-40px);
-  background: radial-gradient(ellipse at center, rgba(99, 102, 241, 0.35), transparent 72%);
-  filter: blur(8px);
-  opacity: 0.85;
-}
-
-body.light .craf-pedestal {
-  background: radial-gradient(ellipse at center, rgba(99, 102, 241, 0.22), transparent 72%);
-}
-
-.craf-cta-wrap {
-  margin-top: 8px;
-}
-
-a.jqa-btn.craf-cta-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  text-decoration: none;
-}
-
-a.jqa-btn.craf-cta-link:hover {
-  transform: translateY(-2px);
-}
-
-/* Section glow overrides (journal quartile base) */
-.craf-section::before {
-  background: rgba(129, 140, 248, 0.28);
-}
-
-.craf-section::after {
-  background: rgba(167, 139, 250, 0.24);
-}
-
-body.light .craf-section::before {
-  background: rgba(199, 210, 254, 0.55);
-}
-
-body.light .craf-section::after {
-  background: rgba(221, 214, 254, 0.45);
-}
-
-body:not(.light) .craf-section::before {
-  background: rgba(99, 102, 241, 0.2);
-}
-
-body:not(.light) .craf-section::after {
-  background: rgba(139, 92, 246, 0.14);
-}
-
-@media (max-width: 640px) {
-  .craf-orbit {
-    flex-wrap: wrap;
-    max-width: 340px;
-    transform: rotateX(6deg);
-    gap: 12px;
-  }
-
-  .craf-portrait {
-    width: calc(50% - 14px);
-    max-width: 140px;
-    transform: rotateY(0deg) translateZ(20px) translateY(0);
-    animation: none;
-  }
-
-  .craf-portrait:hover {
-    transform: translateY(-8px) scale(1.03) translateZ(30px);
-  }
-
-  @keyframes craf-orbit-breathe {
-    0%,
-    100% {
-      transform: rotateX(6deg) translateY(0);
-    }
-    50% {
-      transform: rotateX(6deg) translateY(-4px);
-    }
-  }
-
-  .craf-pedestal {
-    display: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .craf-orbit,
-  .craf-portrait {
-    animation: none;
-  }
-
-  .craf-portrait:hover {
-    transform: rotateY(calc(-22deg + var(--craf-i, 0) * 14deg)) translateZ(40px);
-  }
+body.light .craf2-section .free2-card:hover {
+  border-color: rgba(124, 58, 237, 0.4);
+  box-shadow: 0 28px 70px rgba(91, 33, 182, 0.12);
 }
