@@ -1,5 +1,10 @@
 /* Co-Research Author Finder — 3D research-social gallery, B&W portraits, dark + light */
 
+/* journal-quartile sets .jqa-section { overflow: hidden } which clips 3D transforms + portraits */
+section.jqa-section.craf-section {
+  overflow: visible;
+}
+
 .craf-section {
   position: relative;
   isolation: isolate;
@@ -64,9 +69,10 @@ body.light .craf-title {
 /* --- 3D stage --- */
 .craf-stage {
   perspective: 1400px;
-  perspective-origin: 50% 40%;
-  padding: clamp(24px, 5vw, 48px) 0 clamp(32px, 6vw, 56px);
+  perspective-origin: 50% 45%;
+  padding: clamp(28px, 6vw, 56px) 0 clamp(40px, 7vw, 72px);
   overflow: visible;
+  min-height: min(52vw, 280px);
 }
 
 .craf-pivot {
@@ -84,17 +90,18 @@ body.light .craf-title {
   align-items: flex-end;
   gap: clamp(8px, 2vw, 20px);
   transform-style: preserve-3d;
-  transform: rotateX(12deg) translateZ(0);
+  /* gentler tilt so faces stay visible after overflow fix */
+  transform: rotateX(8deg) translateZ(0);
   animation: craf-orbit-breathe 10s ease-in-out infinite;
 }
 
 @keyframes craf-orbit-breathe {
   0%,
   100% {
-    transform: rotateX(12deg) translateZ(0) translateY(0);
+    transform: rotateX(8deg) translateZ(0) translateY(0);
   }
   50% {
-    transform: rotateX(10deg) translateZ(0) translateY(-6px);
+    transform: rotateX(6deg) translateZ(0) translateY(-6px);
   }
 }
 
