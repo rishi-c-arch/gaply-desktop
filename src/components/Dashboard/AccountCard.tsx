@@ -130,14 +130,16 @@ const AccountCard: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <div
+        className="glass-panel hud-border"
         style={{
-          background: '#020617',
-          borderRadius: 16,
-          border: '1px solid rgba(30, 64, 175, 0.4)',
+          background: 'var(--dashboard-glass)',
+          backdropFilter: 'blur(12px)',
+          borderRadius: 4,
+          border: '1px solid var(--dashboard-glass-border)',
           padding: 24,
         }}
       >
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: '#e5e7eb', margin: '0 0 16px 0' }}>
+        <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--dashboard-text)', margin: '0 0 16px 0', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
           Your Account
         </h3>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -227,14 +229,16 @@ const AccountCard: React.FC = () => {
       </div>
 
       <div
+        className="glass-panel hud-border"
         style={{
-          background: '#020617',
-          borderRadius: 16,
-          border: '1px solid rgba(30, 64, 175, 0.4)',
+          background: 'var(--dashboard-glass)',
+          backdropFilter: 'blur(12px)',
+          borderRadius: 4,
+          border: '1px solid var(--dashboard-glass-border)',
           padding: 24,
         }}
       >
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: '#e5e7eb', margin: '0 0 16px 0' }}>
+        <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--dashboard-text)', margin: '0 0 16px 0', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
           Customer Support
         </h3>
         <div style={{ display: 'flex', flexDirection: 'column' }}>

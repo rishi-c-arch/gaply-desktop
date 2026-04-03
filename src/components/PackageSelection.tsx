@@ -16,18 +16,21 @@ interface PackageSelectionProps {
 
 const PLANS = [
   {
-    id: 'PLAN-PREMIUM',
-    name: 'Gaply Premium',
-    price: '₹4,999',
-    description: 'PublishReady + DataMaestro bundled access with priority-quality outputs',
+    id: 'premium-pro',
+    name: 'Premium Pro',
+    price: '₹7,999',
+    description: 'One-time payment. Lifetime credits for all Pro features.',
     features: [
-      'PublishReady (2 uses)',
-      'DataMaestro (1 use)',
-      'Unlimited chat with Gaply.AI in both features',
-      'Priority evaluation queue',
-      'Valid for 365 days',
+      '1× PublishReady Pro — Full AI manuscript preparation',
+      '1× DataMaestro Pro — Advanced data analysis & visualization',
+      '5× Journal Verification Pro — Predatory journal detection',
+      '1× Research Deep Analysis Pro — Comprehensive research breakdown',
+      'Priority processing',
+      'Downloadable reports',
+      'Lifetime access to purchased credits',
     ],
     popular: true,
+    checkoutRoute: '/checkout/premium-pro',
   },
 ];
 
@@ -54,7 +57,7 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
   const border = isLight ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.1)';
   const accent = '#007AFF';
 
-  const handlePackageSelect = async (planId: string) => {
+  const handlePackageSelect = async (pkg: { id: string; checkoutRoute?: string }) => {
     if (!isAuthenticated || !user) {
       setError('Please log in to purchase a plan');
       window.location.href = '/login';
@@ -67,11 +70,16 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
       return;
     }
 
+    if (pkg.checkoutRoute) {
+      navigate(pkg.checkoutRoute);
+      return;
+    }
+
     try {
-      setProcessing(planId);
+      setProcessing(pkg.id);
       setError('');
 
-      const orderResult = await premiumService.createPaymentOrder(planId);
+      const orderResult = await premiumService.createPaymentOrder(pkg.id);
       if (!orderResult.success || !orderResult.data) {
         setError(orderResult.error || 'Failed to create payment order');
         return;
@@ -262,7 +270,7 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
                 cursor: processing ? 'not-allowed' : 'pointer',
                 opacity: processing ? 0.7 : 1,
               }}
-              onClick={() => !processing && handlePackageSelect(pkg.id)}
+              onClick={() => !processing && handlePackageSelect(pkg)}
             >
               {pkg.popular && (
                 <div
@@ -339,9 +347,6 @@ const PackageSelection: React.FC<PackageSelectionProps> = ({ onClose }) => {
             borderTop: `1px solid ${border}`,
           }}
         >
-          <p style={{ fontSize: '12px', color: muted, margin: '0 0 4px 0' }}>
-            All plans include 30-day money-back guarantee
-          </p>
           <p style={{ fontSize: '12px', color: muted, margin: 0 }}>
             Need help choosing? Contact our support team
           </p>

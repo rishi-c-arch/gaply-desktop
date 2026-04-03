@@ -120,3 +120,70 @@
   font-size: 0.95rem;
   line-height: 1.5;
 }
+
+/* Full slide deck: scroll-synced navigation, all text remains in DOM for crawlers */
+.ethical-ai-deck-main {
+  padding-bottom: 88px;
+}
+
+.ethical-ai-slide-body {
+  font-size: clamp(0.95rem, 2.2vw, 1.05rem);
+  color: var(--section-text);
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ethical-ai-deck-toolbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1001;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px 20px;
+  padding: 12px 16px;
+  background: var(--header-bg);
+  border-top: 1px solid var(--header-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.ethical-ai-deck-toolbar button {
+  background: var(--toggle-bg);
+  color: var(--app-text);
+  padding: 8px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--toggle-border);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.ethical-ai-deck-toolbar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ethical-ai-deck-counter {
+  font-size: 0.9rem;
+  color: var(--muted-text);
+  min-width: 120px;
+  text-align: center;
+}
+
+.ethical-ai-toc details {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.ethical-ai-toc summary {
+  cursor: pointer;
+  font-weight: 600;
+}

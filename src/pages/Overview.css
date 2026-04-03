@@ -1,4 +1,4 @@
-/* Overview dashboard – matches Figma-style hero for Feature Usage Overview */
+/* Overview dashboard – HUD design (Figma) */
 
 .overview-page {
   max-width: 1400px;
@@ -6,46 +6,194 @@
   padding: 0 8px;
 }
 
-.overview-page-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-  padding: 18px 0 20px;
+.overview-hud {
+  font-family: 'Space Grotesk', sans-serif;
 }
 
-.overview-page-header__left {
+/* HUD Stats Row */
+.overview-hud-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--dashboard-border);
+  background: var(--dashboard-bg);
+  margin: 0 0 24px 0;
+  padding: 0;
+}
+
+@media (max-width: 900px) {
+  .overview-hud-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 500px) {
+  .overview-hud-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+.overview-hud-stat {
+  padding: 24px;
+  border-right: 1px solid var(--dashboard-border);
   display: flex;
   flex-direction: column;
   gap: 4px;
+  position: relative;
 }
 
-.overview-page-tag {
-  font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace);
-  font-size: 11px;
-  letter-spacing: 0.18em;
+.overview-hud-stat:last-child {
+  border-right: none;
+}
+
+@media (max-width: 900px) {
+  .overview-hud-stat:nth-child(2n) {
+    border-right: none;
+  }
+}
+
+.overview-hud-stat-label {
+  font-size: 10px;
   text-transform: uppercase;
-  color: #ec5b13;
-  margin: 0;
+  letter-spacing: 0.05em;
+  color: var(--dashboard-text-muted);
 }
 
-.overview-page-title {
-  font-size: clamp(22px, 3vw, 28px);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  margin: 0;
-  color: var(--dashboard-text, #111827);
+.overview-hud-stat-value-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-top: 4px;
 }
 
-.overview-page-subtitle {
-  margin: 2px 0 0;
-  font-size: 13px;
+.overview-hud-stat-value {
+  font-size: 28px;
+  font-weight: 300;
+  color: var(--dashboard-text);
+}
+
+.overview-hud-stat-primary {
+  color: var(--dashboard-accent);
+}
+
+.overview-hud-stat-unit {
+  font-size: 14px;
+  margin-left: 4px;
+  color: var(--dashboard-text-muted);
+}
+
+.overview-hud-stat-badge {
+  font-size: 10px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  padding: 2px 6px;
+  color: var(--dashboard-accent-emerald);
+}
+
+.overview-hud-stat-icon {
+  font-size: 14px !important;
+  color: var(--dashboard-accent-emerald) !important;
+}
+
+.overview-hud-stat-meta {
+  font-size: 10px;
+  color: var(--dashboard-text-muted);
+}
+
+.overview-hud-stat-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  margin-top: 16px;
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.overview-hud-stat-bar-fill {
+  height: 100%;
+  background: var(--dashboard-accent);
+  box-shadow: 0 0 10px var(--dashboard-accent);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.overview-hud-stat-dots {
+  display: flex;
+  gap: 4px;
+  margin-top: 16px;
+}
+
+.overview-hud-stat-dot {
+  flex: 1;
+  height: 4px;
+  background: var(--dashboard-border);
+  border-radius: 2px;
+}
+
+.overview-hud-stat-dot.active {
+  background: var(--dashboard-accent-emerald);
+  box-shadow: 0 0 5px var(--dashboard-accent-emerald);
+}
+
+.overview-hud-stat-pulse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.overview-hud-stat-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dashboard-accent-emerald);
+  animation: pulse 2s infinite;
+}
+
+.overview-hud-stat-pulse-label {
+  font-size: 10px;
   font-weight: 500;
-  color: var(--dashboard-text-muted, #6b7280);
+  text-transform: uppercase;
+  color: var(--dashboard-text-muted);
 }
 
-/* Overview layout: ensure grid and chart visible on all screens */
+.overview-hud-stat-highlight {
+  background: var(--dashboard-sidebar-active-bg);
+}
 
+.overview-hud-stat-label-primary {
+  color: var(--dashboard-accent);
+  font-weight: 700;
+}
+
+.overview-hud-stat-peak {
+  font-size: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--dashboard-border-hover);
+  color: var(--dashboard-accent);
+}
+
+.overview-hud-stat-chart {
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  height: 16px;
+  margin-top: 16px;
+}
+
+.overview-hud-stat-chart-bar {
+  flex: 1;
+  background: var(--dashboard-accent);
+  border-radius: 2px;
+  min-height: 4px;
+  opacity: 0.6;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Overview layout */
 .overview-root {
   display: grid;
   grid-template-columns: 1fr;

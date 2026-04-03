@@ -5,7 +5,40 @@ import SEO from './SEO';
 const PricingSection: React.FC = () => {
   const navigate = useNavigate();
 
-  const plans = [
+  const plans: Array<{
+    id: string;
+    name: string;
+    price: string;
+    description: string;
+    features: string[];
+    buttonText: string;
+    popular: boolean;
+    color: string;
+    ctaVariant: 'solid' | 'outline';
+    ctaHref: string;
+    note?: string;
+  }> = [
+    {
+      id: "premium-pro",
+      name: "Premium Pro",
+      price: "₹7,999",
+      description: "One-time payment. Lifetime credits for all Pro features.",
+      features: [
+        "1× PublishReady Pro — Full AI manuscript preparation",
+        "1× DataMaestro Pro — Advanced data analysis & visualization",
+        "5× Journal Verification Pro — Predatory journal detection",
+        "1× Research Deep Analysis Pro — Comprehensive research breakdown",
+        "Priority processing",
+        "Downloadable reports",
+        "Lifetime access to purchased credits"
+      ],
+      buttonText: "Get Premium Pro",
+      popular: true,
+      color: "var(--card-bg)",
+      ctaVariant: "solid" as const,
+      ctaHref: "/checkout/premium-pro",
+      note: "Credits never expire. Use them anytime."
+    },
     {
       id: "premium-4999",
       name: "Gaply Premium",
@@ -19,7 +52,7 @@ const PricingSection: React.FC = () => {
         "Valid for 365 days"
       ],
       buttonText: "Get Gaply Premium",
-      popular: true,
+      popular: false,
       color: "var(--card-bg)",
       ctaVariant: "solid" as const,
       ctaHref: "/login"
@@ -285,6 +318,16 @@ const PricingSection: React.FC = () => {
             >
               {plan.buttonText}
             </button>
+            {plan.note && (
+              <p style={{
+                marginTop: '16px',
+                fontSize: '0.9rem',
+                color: 'var(--muted-text)',
+                textAlign: 'center'
+              }}>
+                {plan.note}
+              </p>
+            )}
           </div>
         ))}
       </div>
@@ -353,13 +396,6 @@ const PricingSection: React.FC = () => {
         paddingTop: '40px',
         borderTop: '1px solid var(--divider)'
       }}>
-        <p style={{
-          color: 'var(--muted-text)',
-          fontSize: '1rem',
-          marginBottom: '16px'
-        }}>
-          All plans include 30-day money-back guarantee
-        </p>
         <p style={{
           color: 'var(--muted-text)',
           fontSize: '0.9rem'

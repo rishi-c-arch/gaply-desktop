@@ -1,98 +1,272 @@
-/* Co-Research Author Finder — extends Discover Free Features (free2-*) with RH accents + photo wells */
+/* Co-Research Author Finder — GAPLY watermark, quote, Research./Buddy. (Epilogue), single centered portrait, CTA */
 
-.craf2-section .free2-index-text {
-  color: rgba(139, 92, 246, 0.09);
-}
-
-body.light .craf2-section .free2-index-text {
-  color: rgba(91, 33, 182, 0.06);
-}
-
-.craf2-section .free2-status-row {
-  color: #c4b5fd;
-}
-
-.craf2-section .free2-status-dot {
-  background: #a78bfa;
-  box-shadow: 0 0 12px rgba(167, 139, 250, 0.85);
-}
-
-.craf2-section .free2-status-line {
-  background: rgba(91, 33, 182, 0.55);
-}
-
-body.light .craf2-section .free2-status-row {
-  color: #6d28d9;
-}
-
-body.light .craf2-section .free2-status-dot {
-  background: #7c3aed;
-  box-shadow: 0 0 12px rgba(124, 58, 237, 0.55);
-}
-
-body.light .craf2-section .free2-status-line {
-  background: rgba(196, 181, 253, 0.9);
-}
-
-.craf2-section .free2-heading-highlight {
-  background: linear-gradient(to right, #e9d5ff, #c4b5fd 35%, #f5f3ff);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-body.light .craf2-section .free2-heading-highlight {
-  background: linear-gradient(to right, #4c1d95, #7c3aed 45%, #312e81);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* B&W portrait slot — same footprint as free2-search-preview */
-.craf2-photo {
+.craf-social {
+  --craf-primary: #ff0000;
+  --craf-font-headline: 'Epilogue', system-ui, -apple-system, sans-serif;
+  --craf-font-body: 'Manrope', system-ui, -apple-system, sans-serif;
   position: relative;
-  border-radius: 12px;
-  margin-bottom: 22px;
-  background: rgba(0, 0, 0, 0.72);
-  border: 1px solid rgba(148, 163, 184, 0.28);
   overflow: hidden;
-  aspect-ratio: 4 / 3;
+  padding: 6rem 2rem;
+  background: #000000;
+  color: #ffffff;
+  font-family: var(--craf-font-body);
 }
 
-.craf2-photo img {
+body.light .craf-social {
+  --craf-primary: #dc2626;
+  background: #f4f4f5;
+  color: #0f172a;
+}
+
+.craf-social__watermark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.craf-social__watermark-text {
+  font-family: var(--craf-font-headline);
+  font-size: min(25vw, 22rem);
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  text-transform: uppercase;
+  color: var(--craf-primary);
+  opacity: 0.15;
+}
+
+body.light .craf-social__watermark-text {
+  opacity: 0.08;
+}
+
+.craf-social__inner {
+  position: relative;
+  z-index: 1;
+  max-width: 80rem;
+  margin: 0 auto;
+}
+
+.craf-social__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.craf-social__chevrons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.craf-social__icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.craf-social__icon-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+body.light .craf-social__icon-btn {
+  border-color: rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+}
+
+body.light .craf-social__icon-btn:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.craf-social__icon-btn .material-symbols-outlined {
+  font-size: 1.375rem;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Center column: section kicker + Research./Buddy. + portrait (only here) */
+.craf-social__center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.craf-social__title-stack {
+  margin: 0 0 2.5rem;
+  padding: 0;
+  font: inherit;
+  width: 100%;
+  max-width: 56rem;
+}
+
+.craf-social__title-kicker {
+  display: block;
+  margin-bottom: 1.25rem;
+  font-family: var(--craf-font-headline);
+  font-size: clamp(1.25rem, 3.5vw, 1.75rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+body.light .craf-social__title-kicker {
+  color: #0f172a;
+}
+
+/* Same treatment as former hero "Unlock. Create. Own." — Epilogue black, tight leading */
+.craf-social__buddy-line {
+  display: block;
+  font-family: var(--craf-font-headline);
+  font-size: clamp(3rem, 11vw, 6rem);
+  font-weight: 900;
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+  color: #ffffff;
+}
+
+body.light .craf-social__buddy-line {
+  color: #0f172a;
+}
+
+.craf-social__portrait-center {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+/* Inspirational hero-portrait: red glow, rounded-[40px], slight tilt → straight on hover */
+.craf-social__hero-frame {
+  width: min(100%, 320px);
+  max-width: 100%;
+  aspect-ratio: 320 / 560;
+  max-height: min(70vh, 560px);
+  border-radius: 40px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 50px rgba(255, 0, 0, 0.2);
+  transform: rotate(-2deg);
+  transition: transform 0.5s ease, box-shadow 0.45s ease;
+}
+
+.craf-social__portrait-center:hover .craf-social__hero-frame {
+  transform: rotate(0deg);
+  box-shadow: 0 0 60px rgba(255, 0, 0, 0.3);
+}
+
+body.light .craf-social__hero-frame {
+  box-shadow:
+    0 0 40px rgba(220, 38, 38, 0.14),
+    0 16px 40px rgba(15, 23, 42, 0.08);
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+body.light .craf-social__portrait-center:hover .craf-social__hero-frame {
+  box-shadow:
+    0 0 48px rgba(220, 38, 38, 0.2),
+    0 20px 48px rgba(15, 23, 42, 0.1);
+}
+
+.craf-social__hero-frame img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
-  filter: grayscale(1) contrast(1.08) brightness(0.94);
-  transform: scale(1.02);
-  transition: filter 0.35s ease, transform 0.4s ease;
 }
 
-.free2-card:hover .craf2-photo img {
-  filter: grayscale(0.88) contrast(1.1) brightness(1);
-  transform: scale(1.04);
+.craf-social__foot {
+  display: flex;
+  justify-content: center;
+  margin-top: 2.75rem;
 }
 
-body.light .craf2-photo {
-  background: rgba(15, 23, 42, 0.04);
-  border-color: rgba(148, 163, 184, 0.45);
+.craf-social__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 28px;
+  border-radius: 9999px;
+  font-family: var(--craf-font-body);
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  text-decoration: none;
+  background: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition:
+    background 0.3s ease,
+    border-color 0.3s ease,
+    transform 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
-body.light .craf2-photo img {
-  filter: grayscale(1) contrast(1.05) brightness(1.02);
+.craf-social__cta:hover {
+  background: #141414;
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
 }
 
-body.light .free2-card:hover .craf2-photo img {
-  filter: grayscale(0.8) contrast(1.06) brightness(1.03);
+body.light .craf-social__cta {
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
-.craf2-section .free2-card:hover {
-  border-color: rgba(167, 139, 250, 0.55);
-  box-shadow: 0 25px 70px rgba(49, 46, 129, 0.45);
+body.light .craf-social__cta:hover {
+  background: #fafafa;
+  border-color: rgba(15, 23, 42, 0.18);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.1);
 }
 
-body.light .craf2-section .free2-card:hover {
-  border-color: rgba(124, 58, 237, 0.4);
-  box-shadow: 0 28px 70px rgba(91, 33, 182, 0.12);
+.craf-social__cta-arrow {
+  font-size: 1.1em;
+  line-height: 1;
+  transition: transform 0.3s ease;
+}
+
+.craf-social__cta:hover .craf-social__cta-arrow {
+  transform: translateX(4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .craf-social__hero-frame {
+    transform: none;
+    transition: none;
+  }
+
+  .craf-social__portrait-center:hover .craf-social__hero-frame {
+    transform: none;
+  }
+
+  .craf-social__cta,
+  .craf-social__cta-arrow {
+    transition: none;
+  }
+
+  .craf-social__cta:hover {
+    transform: none;
+  }
+
+  .craf-social__cta:hover .craf-social__cta-arrow {
+    transform: none;
+  }
 }

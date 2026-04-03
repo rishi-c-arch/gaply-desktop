@@ -48,6 +48,8 @@ const Overview: React.FC = () => {
     month: d.month,
     publishready: d.publishready,
     datamaestro: d.datamaestro,
+    journal_check: d.journal_check ?? 0,
+    research_deep: 0,
     value: d.publishready,
     value2: d.datamaestro,
   }));
@@ -75,31 +77,80 @@ const Overview: React.FC = () => {
 
   return (
     <DashboardLayout>
-      <div className="overview-page">
-        <header className="overview-page-header">
-          <div className="overview-page-header__left">
-            <p className="overview-page-tag">System Analytics</p>
-            <h1 className="overview-page-title">Feature Usage Overview</h1>
-            <p className="overview-page-subtitle">PublishReady &amp; DataMaestro activity metrics</p>
-          </div>
-        </header>
-      </div>
-      <div className="overview-root">
-        <div className="overview-main">
-          <ChartCard data={chartData} />
-          <div className="overview-stats">
-            {statsCards.map((card) => (
-              <StatsCard
-                key={card.id}
-                title={card.title}
-                value={card.value}
-                showInfo={card.showInfo}
+      <div className="overview-page overview-hud">
+        {/* HUD Stats Row */}
+        <div className="overview-hud-stats">
+          <div className="overview-hud-stat">
+            <span className="overview-hud-stat-label">Manuscripts Analyzed</span>
+            <div className="overview-hud-stat-value-row">
+              <span className="overview-hud-stat-value overview-hud-stat-primary">
+                {stats ? stats.publishready_used + stats.datamaestro_used : 0}
+                <span className="overview-hud-stat-unit">UNITS</span>
+              </span>
+              <span className="overview-hud-stat-badge">Active</span>
+            </div>
+            <div className="overview-hud-stat-bar">
+              <div
+                className="overview-hud-stat-bar-fill overview-hud-stat-bar-primary"
+                style={{ width: stats ? `${Math.min(100, ((stats.publishready_used + stats.datamaestro_used) / 20) * 100)}%` : '0%' }}
               />
-            ))}
+            </div>
+          </div>
+          <div className="overview-hud-stat">
+            <span className="overview-hud-stat-label">Journal Match Accuracy</span>
+            <div className="overview-hud-stat-value-row">
+              <span className="overview-hud-stat-value">99.8<span className="overview-hud-stat-unit">%</span></span>
+              <span className="material-symbols-outlined overview-hud-stat-icon">trending_up</span>
+            </div>
+            <div className="overview-hud-stat-dots">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className={`overview-hud-stat-dot ${i <= 4 ? 'active' : ''}`} />
+              ))}
+            </div>
+          </div>
+          <div className="overview-hud-stat">
+            <span className="overview-hud-stat-label">Active Researchers</span>
+            <div className="overview-hud-stat-value-row">
+              <span className="overview-hud-stat-value">{stats ? stats.total_projects : 0}</span>
+              <span className="overview-hud-stat-meta">+12 / MIN</span>
+            </div>
+            <div className="overview-hud-stat-pulse">
+              <span className="overview-hud-stat-pulse-dot" />
+              <span className="overview-hud-stat-pulse-label">Active</span>
+            </div>
+          </div>
+          <div className="overview-hud-stat overview-hud-stat-highlight">
+            <span className="overview-hud-stat-label overview-hud-stat-label-primary">Total Data Verified</span>
+            <div className="overview-hud-stat-value-row">
+              <span className="overview-hud-stat-value">85.4<span className="overview-hud-stat-unit">PB</span></span>
+              <span className="overview-hud-stat-peak">PEAK</span>
+            </div>
+            <div className="overview-hud-stat-chart">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="overview-hud-stat-chart-bar" style={{ height: `${20 + i * 15}%` }} />
+              ))}
+            </div>
           </div>
         </div>
-        <div className="overview-main">
-          <AccountCard />
+
+        {/* Content Grid */}
+        <div className="overview-root">
+          <div className="overview-main">
+            <ChartCard data={chartData} />
+            <div className="overview-stats">
+              {statsCards.map((card) => (
+                <StatsCard
+                  key={card.id}
+                  title={card.title}
+                  value={card.value}
+                  showInfo={card.showInfo}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="overview-main">
+            <AccountCard />
+          </div>
         </div>
       </div>
     </DashboardLayout>

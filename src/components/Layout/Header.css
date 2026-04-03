@@ -58,28 +58,7 @@
   flex-shrink: 0;
 }
 
-.dashboard-header__theme-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--dashboard-sidebar-active-bg);
-  border: 1px solid var(--dashboard-border);
-  border-radius: 999px;
-  width: 36px;
-  height: 36px;
-  cursor: pointer;
-  transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
-}
-
-.dashboard-header__theme-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
-}
-
-.dashboard-header__theme-emoji {
-  font-size: 18px;
-  line-height: 1;
-}
+/* Theme toggle uses .theme-toggle from App.css (matches home page) */
 
 /* Very narrow: reduce horizontal gap so nothing wraps */
 @media (max-width: 320px) {

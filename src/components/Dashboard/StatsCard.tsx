@@ -10,19 +10,19 @@ interface StatsCardProps {
 const StatsCard: React.FC<StatsCardProps> = ({ title, value, showInfo }) => {
   return (
     <div
-      className="dashboard-card"
+      className="dashboard-card glass-panel hud-border"
       style={{
-        background: '#020617',
-        borderRadius: 16,
-        border: '1px solid rgba(30, 64, 175, 0.4)',
+        background: 'var(--dashboard-glass)',
+        backdropFilter: 'blur(12px)',
+        borderRadius: 4,
+        border: '1px solid var(--dashboard-glass-border)',
         padding: 24,
         flex: 1,
         minWidth: 0,
-        boxShadow: '0 16px 40px rgba(15,23,42,0.7)',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontSize: 14, color: '#9ca3af', fontWeight: 500 }}>{title}</span>
+        <span style={{ fontSize: 10, color: 'var(--dashboard-text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{title}</span>
         {showInfo && (
           <button
             style={{
@@ -38,7 +38,7 @@ const StatsCard: React.FC<StatsCardProps> = ({ title, value, showInfo }) => {
           </button>
         )}
       </div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: '#e5e7eb' }}>{value}</div>
+      <div style={{ fontSize: 28, fontWeight: 300, color: 'var(--dashboard-text)' }}>{value}</div>
     </div>
   );
 };

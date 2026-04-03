@@ -98,21 +98,24 @@
   --footer-text: #e5e7eb;
   --footer-border: rgba(255,255,255,0.06);
   --footer-seam: linear-gradient(180deg, rgba(250,250,250,0) 0%, rgba(16,16,16,0.10) 45%, rgba(12,12,12,0.25) 70%, rgba(10,10,10,0.45) 100%);
-  /* Dashboard – premium dark (spec: bg-primary 0a0a0a, secondary 141414, sidebar 0f0f0f) */
-  --dashboard-bg: #0a0a0a;
-  --dashboard-sidebar-bg: #0f0f0f;
-  --dashboard-header-bg: #141414;
-  --dashboard-card-bg: #141414;
-  --dashboard-border: #27272a;
-  --dashboard-border-hover: #3f3f46;
-  --dashboard-text: #ffffff;
-  --dashboard-text-muted: #a1a1aa;
-  --dashboard-accent: #3b82f6;
-  --dashboard-success: #22c55e;
+  /* Dashboard – matches home page palette (dark) */
+  --dashboard-bg: var(--app-bg);
+  --dashboard-sidebar-bg: var(--app-bg);
+  --dashboard-header-bg: var(--section-bg);
+  --dashboard-card-bg: var(--card-bg);
+  --dashboard-border: var(--card-border);
+  --dashboard-border-hover: var(--card-border-hover);
+  --dashboard-text: var(--app-text);
+  --dashboard-text-muted: var(--muted-text);
+  --dashboard-accent: #10b981;
+  --dashboard-accent-emerald: #10b981;
+  --dashboard-success: #10b981;
   --dashboard-warning: #f97316;
   --dashboard-danger: #ef4444;
-  --dashboard-sidebar-active-bg: rgba(59, 130, 246, 0.1);
-  --dashboard-chart-grid: #27272a;
+  --dashboard-sidebar-active-bg: var(--badge-bg);
+  --dashboard-chart-grid: var(--divider);
+  --dashboard-glass: var(--card-bg);
+  --dashboard-glass-border: var(--card-border);
 }
 
 /* Dashboard-only card hover (premium spec): no impact on feature pages */
@@ -205,20 +208,24 @@ html[data-theme="light"] {
   --footer-text: #0b0b0b;
   --footer-border: rgba(15, 23, 42, 0.08);
   --footer-seam: linear-gradient(180deg, rgba(255,255,255,0.6) 0%, rgba(242,240,239,0.9) 55%, rgba(236,233,231,1) 100%);
-  /* Dashboard (light) */
-  --dashboard-bg: #F8F9FA;
-  --dashboard-sidebar-bg: #FFFFFF;
-  --dashboard-header-bg: #FFFFFF;
-  --dashboard-card-bg: #FFFFFF;
-  --dashboard-border: rgba(0, 0, 0, 0.08);
-  --dashboard-text: #1a1a1a;
-  --dashboard-text-muted: #6b7280;
-  --dashboard-accent: #3B82F6;
-  --dashboard-success: #22C55E;
-  --dashboard-warning: #6B7280;
-  --dashboard-danger: #EF4444;
-  --dashboard-sidebar-active-bg: rgba(59, 130, 246, 0.1);
-  --dashboard-chart-grid: rgba(0, 0, 0, 0.08);
+  /* Dashboard (light) – matches home page palette */
+  --dashboard-bg: var(--app-bg);
+  --dashboard-sidebar-bg: var(--app-bg);
+  --dashboard-header-bg: var(--section-bg);
+  --dashboard-card-bg: var(--card-bg);
+  --dashboard-border: var(--card-border);
+  --dashboard-border-hover: var(--card-border-hover);
+  --dashboard-text: var(--app-text);
+  --dashboard-text-muted: var(--muted-text);
+  --dashboard-accent: #059669;
+  --dashboard-accent-emerald: #059669;
+  --dashboard-success: #059669;
+  --dashboard-warning: #d97706;
+  --dashboard-danger: #ef4444;
+  --dashboard-sidebar-active-bg: var(--badge-bg);
+  --dashboard-chart-grid: var(--divider);
+  --dashboard-glass: var(--card-bg);
+  --dashboard-glass-border: var(--card-border);
 }
 
 body {

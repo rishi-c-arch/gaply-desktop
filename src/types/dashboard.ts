@@ -39,6 +39,8 @@ export interface ChartDataPoint {
   value2?: number;
   publishready?: number;
   datamaestro?: number;
+  journal_check?: number;
+  research_deep?: number;
 }
 
 export interface BillingTransaction {

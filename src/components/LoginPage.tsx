@@ -149,8 +149,6 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToSignup 
         password: formData.password,
       });
 
-      console.log('Login response:', response); // Debug log
-
       if (response.success && response.data && response.data.token) {
         localStorage.setItem('authToken', response.data.token);
         localStorage.setItem('user', JSON.stringify(response.data.user));

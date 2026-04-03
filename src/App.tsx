@@ -58,6 +58,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
 const ScopusLowApcGuidePage = React.lazy(() => import('./components/seo-guides/ScopusLowApcGuidePage'));
 const FastPublicationIndiaGuidePage = React.lazy(() => import('./components/seo-guides/FastPublicationIndiaGuidePage'));
+const EthicalAiResearchGuidePage = React.lazy(() => import('./components/seo-guides/EthicalAiResearchGuidePage'));
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{ title?: string; description?: string; keywords?: string }> = ({ 
@@ -655,6 +656,18 @@ const AppContent: React.FC = () => {
               />
               <Suspense fallback={<div className="App" style={{ minHeight: '50vh', padding: '2rem', textAlign: 'center' }}>Loading…</div>}>
                 <FastPublicationIndiaGuidePage />
+              </Suspense>
+            </>
+          } />
+          <Route path="/guides/ethical-researcher-guide-ai-academic-writing" element={
+            <>
+              <SEOHead
+                title="Ethical AI in research (2026): detection, Turnitin India, humanizers & literature reviews | Gaply"
+                description="Full slide guide: how AI detection works, why evading Turnitin is the wrong goal, humanizer myths, ChatGPT and Indian universities, and ethical literature review workflows—with every slide in plain text for students and researchers."
+                keywords="how to remove AI detection from research paper 2026, free AI rewriter academic papers bypass Turnitin, best humanizer tools research writing, ChatGPT text pass plagiarism check India, use AI literature review without flagged, ethical AI academic writing, Turnitin AI detection India, academic integrity AI, Gaply"
+              />
+              <Suspense fallback={<div className="App" style={{ minHeight: '50vh', padding: '2rem', textAlign: 'center' }}>Loading…</div>}>
+                <EthicalAiResearchGuidePage />
               </Suspense>
             </>
           } />

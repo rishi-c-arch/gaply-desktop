@@ -1,35 +1,40 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
-import '../sections/ResearchHubSection.css';
+import './ResearchHubPage.css';
 
 const ResearchHubPage: React.FC = () => {
   const { theme } = useTheme();
 
   return (
-    <div className="rh-section" data-theme={theme} style={{ minHeight: '100vh', paddingTop: 100 }}>
-      <div className="rh-section__noise" aria-hidden />
-      <div className="rh-section__glow" aria-hidden />
-      <div className="rh-section__inner">
-        <span className="rh-section__badge">ResearchHub</span>
-        <h1 className="rh-section__title" style={{ fontSize: 'clamp(1.75rem, 4vw, 2.5rem)' }}>
-          <span>Collaboration hub</span>
-        </h1>
-        <p className="rh-section__lead" style={{ maxWidth: 560 }}>
-          We are connecting this space to Supabase-backed profiles, feeds, and messages. If you do not see live features yet,
-          check back soon — schema and APIs are staged for rollout.
-        </p>
-        <ul style={{ margin: '0 0 28px', paddingLeft: 20, color: 'inherit', opacity: 0.85, lineHeight: 1.7 }}>
-          <li>Rich researcher profiles linked to your Gaply account</li>
-          <li>Feed for updates and collaborator calls</li>
-          <li>Connection requests and DMs between researchers</li>
-          <li>Domain-based discovery (AI, neuroscience, climate, …)</li>
-        </ul>
-        <div className="rh-section__cta-row">
-          <Link className="rh-section__cta" to="/">
+    <div className="rh-landing" data-theme={theme}>
+      <div className="rh-landing__noise" aria-hidden />
+      <div className="rh-landing__inner">
+        <p className="rh-landing__soon">Coming soon</p>
+
+        <div className="rh-landing__copy">
+          <p className="rh-landing__lead">
+            A dedicated social layer for researchers. Share your work, invite critique, and keep
+            discussions sharp and on topic. Meet peers worldwide, send connection requests, and
+            message in private when you are ready to go deeper.
+          </p>
+          <p className="rh-landing__lead">
+            Team up on the same projects, line up corporate and government funding together, and
+            grow your network as you ship real science.
+          </p>
+          <ul className="rh-landing__list">
+            <li>Profiles and posts built for papers, methods, and open questions</li>
+            <li>Feeds that surface collaborators and timely calls for input</li>
+            <li>Connection requests and DMs between researchers</li>
+            <li>Shared projects with room for joint grants and partnerships</li>
+          </ul>
+        </div>
+
+        <div className="rh-landing__cta-row">
+          <Link className="rh-landing__cta" to="/">
             Back to home
           </Link>
-          <Link className="rh-section__cta-secondary" to="/login">
+          <Link className="rh-landing__cta-secondary" to="/login">
             Log in
           </Link>
         </div>

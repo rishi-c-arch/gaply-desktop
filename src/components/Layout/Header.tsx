@@ -34,12 +34,10 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, showMenuButton = false, th
           <button
             type="button"
             onClick={onToggleTheme}
-            className="dashboard-header__theme-btn"
+            className="theme-toggle"
             aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
-            <span className="dashboard-header__theme-emoji" aria-hidden="true">
-              {theme === 'dark' ? '☀️' : '🌙'}
-            </span>
+            {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
           </button>
         )}
       </div>

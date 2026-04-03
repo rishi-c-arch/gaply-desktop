@@ -4,32 +4,32 @@
   "description": "AI-powered academic research platform for paper search, journal matching, thesis writing support, plagiarism checking, and research paper assistance.",
   "icons": [
     {
-      "src": "favicon.ico",
+      "src": "gaply-logo.jpg",
       "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
+      "type": "image/jpeg"
     },
     {
-      "src": "logo192.png",
+      "src": "gaply-logo.jpg",
       "sizes": "192x192",
-      "type": "image/png",
+      "type": "image/jpeg",
       "purpose": "any"
     },
     {
-      "src": "logo512.png",
+      "src": "gaply-logo.jpg",
       "sizes": "512x512",
-      "type": "image/png",
+      "type": "image/jpeg",
       "purpose": "any"
     },
     {
-      "src": "logo192.png",
+      "src": "gaply-logo.jpg",
       "sizes": "192x192",
-      "type": "image/png",
+      "type": "image/jpeg",
       "purpose": "maskable"
     },
     {
-      "src": "logo512.png",
+      "src": "gaply-logo.jpg",
       "sizes": "512x512",
-      "type": "image/png",
+      "type": "image/jpeg",
       "purpose": "maskable"
     }
   ],
@@ -51,21 +51,21 @@
       "short_name": "Search",
       "url": "/paper-search",
       "description": "Search academic papers across multiple databases",
-      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+      "icons": [{ "src": "gaply-logo.jpg", "sizes": "192x192" }]
     },
     {
       "name": "Journal Matching",
       "short_name": "Journals",
       "url": "/journal-matching",
       "description": "Find the perfect journal for your research",
-      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+      "icons": [{ "src": "gaply-logo.jpg", "sizes": "192x192" }]
     },
     {
       "name": "AI Paraphraser",
       "short_name": "Paraphrase",
       "url": "/academic-ai-remover",
       "description": "Academic AI content paraphrasing tool",
-      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+      "icons": [{ "src": "gaply-logo.jpg", "sizes": "192x192" }]
     }
   ],
   "screenshots": [

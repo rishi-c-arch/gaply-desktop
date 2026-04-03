@@ -7,11 +7,19 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  Legend,
 } from 'recharts';
 import { Calendar, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ChartDataPoint } from '../../types/dashboard';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const FEATURE_COLORS = {
+  publishready: '#10b981',
+  datamaestro: '#3b82f6',
+  journal_check: '#8b5cf6',
+  research_deep: '#f59e0b',
+};
 
 interface ChartCardProps {
   data?: ChartDataPoint[];
@@ -26,8 +34,10 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
   const baseData = data ?? [];
   const chartData = baseData.map((d, i) => ({
     month: d.month,
-    value: d.publishready ?? d.value ?? 0,
-    value2: d.datamaestro ?? d.value2 ?? 0,
+    PublishReady: d.publishready ?? d.value ?? 0,
+    DataMaestro: d.datamaestro ?? d.value2 ?? 0,
+    'Journal Verification': d.journal_check ?? 0,
+    'Research Deep Analysis': d.research_deep ?? 0,
     monthIndex: i,
   }));
 
@@ -35,10 +45,13 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
     selectedMonth != null
       ? chartData.filter((d) => d.monthIndex === selectedMonth)
       : chartData;
-  const maxVal = Math.max(
-    ...displayData.flatMap((d) => [d.value, d.value2]),
-    1
-  );
+  const allValues = displayData.flatMap((d) => [
+    d.PublishReady,
+    d.DataMaestro,
+    d['Journal Verification'],
+    d['Research Deep Analysis'],
+  ]);
+  const maxVal = Math.max(...allValues, 1);
   const yDomain = [0, Math.ceil(maxVal * 1.2) || 2.5];
 
   useEffect(() => {
@@ -59,20 +72,25 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
 
   return (
     <div
-      className="dashboard-card"
+      className="dashboard-card glass-panel hud-border"
       style={{
-        background: '#020617',
-        borderRadius: 16,
-        border: '1px solid rgba(30, 64, 175, 0.4)',
+        background: 'var(--dashboard-glass)',
+        backdropFilter: 'blur(12px)',
+        borderRadius: 4,
+        border: '1px solid var(--dashboard-glass-border)',
         padding: 24,
         marginBottom: 24,
-        boxShadow: '0 18px 45px rgba(15, 23, 42, 0.65)',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, color: '#e5e7eb', margin: 0 }}>
-          Feature Usage Overview (PublishReady & DataMaestro)
-        </h3>
+        <div>
+          <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--dashboard-text)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            Feature Usage Overview (All 4 Premium Features)
+          </h3>
+          <p style={{ fontSize: 11, color: 'var(--dashboard-text-muted)', margin: '4px 0 0', fontStyle: 'italic' }}>
+            PublishReady · DataMaestro · Journal Verification · Research Deep Analysis
+          </p>
+        </div>
         <div ref={calendarRef} style={{ position: 'relative' }}>
           <button
             type="button"
@@ -81,11 +99,11 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              background: 'rgba(59, 130, 246, 0.14)',
-              border: '1px solid rgba(30, 64, 175, 0.5)',
-              borderRadius: 8,
+              background: 'var(--dashboard-sidebar-active-bg)',
+              border: '1px solid var(--dashboard-border)',
+              borderRadius: 999,
               padding: '8px 12px',
-              color: '#e5e7eb',
+              color: 'var(--dashboard-text)',
               fontSize: 14,
               cursor: 'pointer',
             }}
@@ -102,10 +120,10 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
                 top: '100%',
                 right: 0,
                 marginTop: 8,
-                background: '#020617',
-                border: '1px solid rgba(30, 64, 175, 0.5)',
-                borderRadius: 14,
-                boxShadow: '0 18px 45px rgba(15,23,42,0.85)',
+                background: 'var(--dashboard-bg)',
+                border: '1px solid var(--dashboard-border)',
+                borderRadius: 4,
+                boxShadow: '0 18px 45px rgba(0,0,0,0.4)',
                 padding: 20,
                 minWidth: 280,
                 zIndex: 50,
@@ -205,56 +223,89 @@ const ChartCard: React.FC<ChartCardProps> = ({ data }) => {
         </div>
       </div>
 
-      <div style={{ width: '100%', minWidth: 160, height: 280, minHeight: 160 }}>
-        <ResponsiveContainer width="100%" height="100%" minWidth={160} minHeight={160} debounce={50}>
+      <div style={{ width: '100%', minWidth: 160, height: 320, minHeight: 200 }}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={160} minHeight={200} debounce={50}>
           <AreaChart data={displayData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
             <defs>
-              <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+              <linearGradient id="colorPublishReady" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={FEATURE_COLORS.publishready} stopOpacity={0.35} />
+                <stop offset="95%" stopColor={FEATURE_COLORS.publishready} stopOpacity={0} />
               </linearGradient>
-              <linearGradient id="colorValue2" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#6B7280" stopOpacity={0.2} />
-                <stop offset="95%" stopColor="#6B7280" stopOpacity={0} />
+              <linearGradient id="colorDataMaestro" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={FEATURE_COLORS.datamaestro} stopOpacity={0.35} />
+                <stop offset="95%" stopColor={FEATURE_COLORS.datamaestro} stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="colorJournalVerification" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={FEATURE_COLORS.journal_check} stopOpacity={0.35} />
+                <stop offset="95%" stopColor={FEATURE_COLORS.journal_check} stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="colorResearchDeep" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={FEATURE_COLORS.research_deep} stopOpacity={0.35} />
+                <stop offset="95%" stopColor={FEATURE_COLORS.research_deep} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(51,65,85,0.7)" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--dashboard-chart-grid)" vertical={false} />
             <XAxis
               dataKey="month"
               axisLine={false}
               tickLine={false}
-              tick={{ fill: '#9ca3af', fontSize: 12 }}
+              tick={{ fill: 'var(--dashboard-text-muted)', fontSize: 12 }}
             />
             <YAxis
               domain={yDomain}
               axisLine={false}
               tickLine={false}
-              tick={{ fill: '#9ca3af', fontSize: 12 }}
+              tick={{ fill: 'var(--dashboard-text-muted)', fontSize: 12 }}
             />
             <Tooltip
               contentStyle={{
-                background: '#020617',
-                border: '1px solid rgba(30,64,175,0.6)',
+                background: 'var(--dashboard-bg)',
+                border: '1px solid var(--dashboard-border)',
                 borderRadius: 8,
-                color: '#e5e7eb',
+                color: 'var(--dashboard-text)',
+                padding: '12px 16px',
               }}
-              labelStyle={{ color: '#9ca3af' }}
-              formatter={(value: number | undefined) => [value ?? 0, '']}
+              labelStyle={{ color: 'var(--dashboard-text-muted)', marginBottom: 8 }}
+              formatter={(value: number | undefined, name?: string) => [`${value ?? 0} uses`, name ?? '']}
               labelFormatter={(label) => `${label} ${selectedYear}`}
             />
-            <Area
-              type="monotone"
-              dataKey="value"
-              stroke="#3B82F6"
-              strokeWidth={2}
-              fill="url(#colorValue)"
+            <Legend
+              wrapperStyle={{ paddingTop: 16 }}
+              formatter={(value) => <span style={{ color: 'var(--dashboard-text)', fontSize: 12 }}>{value}</span>}
+              iconType="circle"
+              iconSize={8}
             />
             <Area
               type="monotone"
-              dataKey="value2"
-              stroke="#6B7280"
+              dataKey="PublishReady"
+              name="PublishReady"
+              stroke={FEATURE_COLORS.publishready}
               strokeWidth={2}
-              fill="url(#colorValue2)"
+              fill="url(#colorPublishReady)"
+            />
+            <Area
+              type="monotone"
+              dataKey="DataMaestro"
+              name="DataMaestro"
+              stroke={FEATURE_COLORS.datamaestro}
+              strokeWidth={2}
+              fill="url(#colorDataMaestro)"
+            />
+            <Area
+              type="monotone"
+              dataKey="Journal Verification"
+              name="Journal Verification"
+              stroke={FEATURE_COLORS.journal_check}
+              strokeWidth={2}
+              fill="url(#colorJournalVerification)"
+            />
+            <Area
+              type="monotone"
+              dataKey="Research Deep Analysis"
+              name="Research Deep Analysis"
+              stroke={FEATURE_COLORS.research_deep}
+              strokeWidth={2}
+              fill="url(#colorResearchDeep)"
             />
           </AreaChart>
         </ResponsiveContainer>

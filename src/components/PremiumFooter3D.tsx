@@ -31,6 +31,7 @@ const PremiumFooter3D: React.FC = () => {
         { label: 'Terms of Service', href: '/terms' },
         { label: 'Scopus journals & APC guide', href: '/guides/scopus-indexed-journals-low-apc' },
         { label: 'Fast publication (India)', href: '/guides/fast-publication-scopus-journals-india' },
+        { label: 'Ethical AI guide (slides)', href: '/guides/ethical-researcher-guide-ai-academic-writing' },
       ],
     },
   ];
