@@ -48,13 +48,16 @@ import WatchDemoPage from './components/WatchDemoPage';
 import SupportPage from './components/SupportPage';
 import ResearchHubPage from './pages/ResearchHubPage';
 import ConferencesIndiaPage from './features/conferences-india/ConferencesIndiaPage';
-const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
 import DownloadsPage from './components/DownloadsPage';
 import DownloadPopUp from './components/DownloadPopUp';
 import BlogPage from './pages/BlogPage';
 import BlogPostPage from './pages/BlogPostPage';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
+
+const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
+const ScopusLowApcGuidePage = React.lazy(() => import('./components/seo-guides/ScopusLowApcGuidePage'));
+const FastPublicationIndiaGuidePage = React.lazy(() => import('./components/seo-guides/FastPublicationIndiaGuidePage'));
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{ title?: string; description?: string; keywords?: string }> = ({ 
@@ -394,7 +397,8 @@ const AppContent: React.FC = () => {
     location.pathname === '/search-results' ||
     location.pathname === '/paper-search' ||
     location.pathname === '/journal-matching' ||
-    location.pathname === '/conferences-india';
+    location.pathname === '/conferences-india' ||
+    location.pathname === '/research-hub';
 
   // Call the function to remove the floating orb when the component mounts
   useEffect(() => {
@@ -628,6 +632,30 @@ const AppContent: React.FC = () => {
                 keywords="Gaply privacy policy, data processing, file retention, academic research privacy"
               />
               <PrivacyPolicyPage />
+            </>
+          } />
+          <Route path="/guides/scopus-indexed-journals-low-apc" element={
+            <>
+              <SEOHead
+                title="Scopus indexed journals with low APC (Article Processing Charge) — verification guide | Gaply"
+                description="How to compare Article Processing Charges for Scopus-indexed journals, avoid misleading fee claims, and use our reference directory with official journal links. Always confirm APC on the publisher site."
+                keywords="Scopus indexed journals low APC, article processing charge Scopus, low APC open access journals, hybrid journal APC, Scopus journal fees, verify APC journal, PhD publication cost India, Gaply"
+              />
+              <Suspense fallback={<div className="App" style={{ minHeight: '50vh', padding: '2rem', textAlign: 'center' }}>Loading…</div>}>
+                <ScopusLowApcGuidePage />
+              </Suspense>
+            </>
+          } />
+          <Route path="/guides/fast-publication-scopus-journals-india" element={
+            <>
+              <SEOHead
+                title="Fast publication Scopus journals for researchers in India (by subject) | Gaply"
+                description="Planning PhD or PG thesis timelines in India? Educational guide to realistic peer-review windows, predatory journal avoidance, and a reference list of Scopus-style titles with shorter stated review times—verify every detail officially."
+                keywords="fast publication journals India, quick publication Scopus journals, fast track journals India PhD, engineering fast publication journal India, medical journal fast publication India, Scopus journal review time, thesis deadline journal, Gaply"
+              />
+              <Suspense fallback={<div className="App" style={{ minHeight: '50vh', padding: '2rem', textAlign: 'center' }}>Loading…</div>}>
+                <FastPublicationIndiaGuidePage />
+              </Suspense>
             </>
           } />
           <Route path="/terms" element={

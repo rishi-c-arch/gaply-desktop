@@ -12,7 +12,6 @@ const PremiumFooter3D: React.FC = () => {
         { label: 'Download', href: '/download' },
         { label: 'Journal Matching', href: '/journal-matching' },
         { label: 'Paper Search', href: '/paper-search' },
-        { label: 'Conference radar (India)', href: '/conferences-india' },
       ],
     },
     {
@@ -27,10 +26,11 @@ const PremiumFooter3D: React.FC = () => {
       links: [
         { label: 'Blog', href: '/blog' },
         { label: 'Watch Demo', href: '/watch-demo' },
-        { label: 'Tech conferences (India)', href: '/conferences-india' },
         { label: 'Support', href: '/support' },
         { label: 'Privacy Policy', href: '/privacy' },
         { label: 'Terms of Service', href: '/terms' },
+        { label: 'Scopus journals & APC guide', href: '/guides/scopus-indexed-journals-low-apc' },
+        { label: 'Fast publication (India)', href: '/guides/fast-publication-scopus-journals-india' },
       ],
     },
   ];

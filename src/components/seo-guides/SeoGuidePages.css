@@ -1,0 +1,122 @@
+.seo-guide-root .seo-guide-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: clamp(20px, 4vw, 32px);
+  box-shadow: var(--card-shadow);
+  margin-bottom: clamp(20px, 4vw, 32px);
+}
+
+.seo-guide-root .seo-guide-card h2 {
+  font-size: clamp(1.35rem, 3vw, 1.75rem);
+  margin: 0 0 14px;
+}
+
+.seo-guide-root .seo-guide-card h3 {
+  font-size: clamp(1.15rem, 2.5vw, 1.35rem);
+  margin: 20px 0 10px;
+}
+
+.seo-guide-root .seo-guide-card p,
+.seo-guide-root .seo-guide-card li {
+  font-size: clamp(1rem, 2.4vw, 1.12rem);
+  color: var(--section-text);
+  line-height: 1.75;
+}
+
+.seo-guide-root .seo-guide-card ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.seo-guide-root .seo-guide-card a {
+  color: var(--accent, #3b82f6);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.seo-guide-directory details {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.seo-guide-directory summary {
+  cursor: pointer;
+  padding: 14px 18px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.seo-guide-directory summary::-webkit-details-marker {
+  display: none;
+}
+
+.seo-guide-directory .seo-guide-directory__body {
+  padding: 0 18px 18px;
+  border-top: 1px solid var(--divider, rgba(0, 0, 0, 0.08));
+}
+
+.seo-guide-directory .seo-guide-subblock {
+  margin-top: 18px;
+}
+
+.seo-guide-directory .seo-guide-subblock h3 {
+  font-size: 1.05rem;
+  margin: 0 0 10px;
+}
+
+.seo-guide-directory ul.seo-guide-jlist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.seo-guide-directory li.seo-guide-jitem {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--divider, rgba(0, 0, 0, 0.08));
+  background: var(--content-bg, var(--card-bg));
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.seo-guide-directory .seo-guide-jmeta {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted-text);
+  font-size: 0.88rem;
+}
+
+.seo-guide-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.seo-guide-toc a {
+  font-size: 0.95rem;
+}
+
+.seo-guide-root ul.seo-guide-oalist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.seo-guide-root ul.seo-guide-oalist > li {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--divider, rgba(0, 0, 0, 0.08));
+  background: var(--content-bg, var(--card-bg));
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
