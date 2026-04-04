@@ -250,36 +250,27 @@ details.ethical-ai-topic-acc .ethical-ai-topic-acc__to-slides {
   padding-bottom: 24px;
 }
 
+.ethical-ai-page-shell {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(18px, 3vw, 28px);
+}
+
+.ethical-ai-hero-premium {
+  border: 1px solid var(--divider, rgba(0, 0, 0, 0.06));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+}
+
+body.light .ethical-ai-hero-premium {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, var(--card-bg) 100%);
+}
+
 .ethical-ai-hero-compact {
   padding: clamp(16px, 3vw, 22px) clamp(18px, 3vw, 26px);
 }
 
 .ethical-ai-slide-focus {
   border-color: var(--divider, rgba(0, 0, 0, 0.12));
-}
-
-details.ethical-ai-copy-hint {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--divider, rgba(0, 0, 0, 0.08));
-}
-
-details.ethical-ai-copy-hint summary {
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--muted-text);
-}
-
-.ethical-ai-copy-hint__cmd {
-  margin: 10px 0 0;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: var(--content-bg, rgba(0, 0, 0, 0.04));
-  border: 1px solid var(--divider, rgba(0, 0, 0, 0.08));
-  font-size: 0.82rem;
-  overflow-x: auto;
-  line-height: 1.5;
 }
 
 .ethical-ai-slide-body {
@@ -428,7 +419,7 @@ a.ethical-ai-topic-pill:focus-visible {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 10;
-  min-height: 420px;
+  min-height: min(72vh, 720px);
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid var(--card-border);
@@ -527,7 +518,7 @@ details.ethical-ai-transcript summary {
 }
 
 .ethical-ai-deck-skeleton {
-  min-height: min(52vh, 520px);
+  min-height: min(64vh, 640px);
   border-radius: 16px;
   border: 1px solid var(--card-border);
   background: linear-gradient(
@@ -634,7 +625,7 @@ details.ethical-ai-transcript summary {
   overflow: auto;
   border: 1px solid var(--card-border);
   background: var(--content-bg, #1a1a1f);
-  min-height: min(58vh, 560px);
+  min-height: min(72vh, 720px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -688,10 +679,11 @@ details.ethical-ai-transcript summary {
 }
 
 .ethical-ai-pptx-fallback-note {
-  margin: 0 0 12px;
-  font-size: 0.88rem;
+  margin: 0 0 14px;
+  font-size: 13px;
   line-height: 1.55;
   color: var(--muted-text);
+  max-width: 52rem;
 }
 
 .ethical-ai-topic-accordion {

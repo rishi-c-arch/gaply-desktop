@@ -7,7 +7,7 @@ export interface EthicalAiPptxIframeProps {
   absoluteUrl: string;
 }
 
-/** Fallback when no PDF is deployed: Microsoft / Google wrap the hosted .pptx (cannot drive slide-by-slide from our JS). */
+/** Fallback when no PDF: external viewers load the hosted .pptx. */
 const EthicalAiPptxIframe: React.FC<EthicalAiPptxIframeProps> = ({ absoluteUrl }) => {
   const [viewer, setViewer] = useState<DeckViewer>('office');
 
@@ -25,7 +25,8 @@ const EthicalAiPptxIframe: React.FC<EthicalAiPptxIframeProps> = ({ absoluteUrl }
   return (
     <div className="ethical-ai-pptx-wrap ethical-ai-pptx-wrap--fallback">
       <p className="ethical-ai-pptx-fallback-note">
-        Add a PDF export of the same deck for slide-by-slide controls on this page. Until then, use the viewers below.
+        The deck may take a few seconds to appear. If it stays blank, switch viewer or open in a new tab. You can
+        always download the file below.
       </p>
       <div className="ethical-ai-viewer-tabs" role="tablist" aria-label="Presentation viewer">
         <button
@@ -35,7 +36,7 @@ const EthicalAiPptxIframe: React.FC<EthicalAiPptxIframeProps> = ({ absoluteUrl }
           className={`ethical-ai-viewer-tab${viewer === 'office' ? ' ethical-ai-viewer-tab--active' : ''}`}
           onClick={() => setViewer('office')}
         >
-          Microsoft viewer
+          Microsoft
         </button>
         <button
           type="button"
@@ -44,7 +45,7 @@ const EthicalAiPptxIframe: React.FC<EthicalAiPptxIframeProps> = ({ absoluteUrl }
           className={`ethical-ai-viewer-tab${viewer === 'google' ? ' ethical-ai-viewer-tab--active' : ''}`}
           onClick={() => setViewer('google')}
         >
-          Google viewer
+          Google
         </button>
         <a className="ethical-ai-viewer-open-tab" href={embedSrc} target="_blank" rel="noopener noreferrer">
           Open in new tab
@@ -53,20 +54,20 @@ const EthicalAiPptxIframe: React.FC<EthicalAiPptxIframeProps> = ({ absoluteUrl }
       <div className="ethical-ai-pptx-frame">
         <iframe
           key={viewer}
-          title="The Ethical Researcher’s Guide to AI — presentation"
+          title="The Ethical Researcher’s Guide to AI — slides"
           src={embedSrc}
-          loading="lazy"
+          loading="eager"
           referrerPolicy="no-referrer-when-downgrade"
           allowFullScreen
         />
       </div>
       <p className="ethical-ai-pptx-meta">
         <a href={downloadLocal} download className="ethical-ai-pptx-download">
-          Download .pptx
+          Download presentation (.pptx)
         </a>
         {isLocalhost ? (
           <a href={absoluteUrl} className="ethical-ai-pptx-download" rel="noreferrer">
-            Open production file
+            Production file
           </a>
         ) : null}
       </p>

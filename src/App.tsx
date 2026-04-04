@@ -61,52 +61,70 @@ const FastPublicationIndiaGuidePage = React.lazy(() => import('./components/seo-
 const EthicalAiResearchGuidePage = React.lazy(() => import('./components/seo-guides/EthicalAiResearchGuidePage'));
 
 // SEO Component for dynamic meta tags
-const SEOHead: React.FC<{ title?: string; description?: string; keywords?: string }> = ({ 
-  title = "Gaply - AI-Powered Academic Research Platform | Thesis Writing, Journal Matching, AI Detection", 
-  description = "Professional AI-powered academic research platform offering thesis writing help, journal matching, AI content detection, plagiarism checking, dissertation editing, and research paper assistance for PhD students and researchers worldwide.",
-  keywords = "AI content remover for research papers, free AI detector and editor for PhD thesis, AI writing detection tool for academic writing, detect AI plagiarism in research paper, AI paraphrase detector academic, plagiarism checking service for thesis, best plagiarism checker for research papers, remove plagiarism from dissertation, academic text originality checker, help with thesis writing and formatting, dissertation writing service online, PhD thesis writing help, master's thesis editing service, dissertation proofreading and formatting, thesis structure and formatting guidelines, doctoral dissertation consultation, academic thesis writing assistance, research paper writing service, research paper evaluation help, academic paper writing assistance, scientific writing support online, research methodology help, literature review writing service, best site for research guidance, how to write a research proposal, funding proposal writing help, journal finder for Scopus, Elsevier journal suggestion tool, SCI journal recommendation service, find journal for my paper, journal submission assistance service, how to submit paper to journal, conference paper preparation help, conference presentation coaching, publish paper in IEEE journal, academic proofreading and editing service, research paper editing service, thesis proofreading help, professional dissertation editor, edit academic paper online, grammar check for scholarly writing, academic copyediting service, SPSS statistical analysis help, data analysis service for researchers, statistical analysis assistance for thesis, SPSS tutorial for dissertation, data interpretation help for research, quantitative analysis support for PhD, statistics help for academic research"
+const SEOHead: React.FC<{
+  title?: string;
+  description?: string;
+  keywords?: string;
+  /** Prefer stable URL without query strings when content is the same (e.g. topic pills). */
+  canonicalUrl?: string;
+}> = ({
+  title = 'Gaply - AI-Powered Academic Research Platform | Thesis Writing, Journal Matching, AI Detection',
+  description = 'Professional AI-powered academic research platform offering thesis writing help, journal matching, AI content detection, plagiarism checking, dissertation editing, and research paper assistance for PhD students and researchers worldwide.',
+  keywords = 'AI content remover for research papers, free AI detector and editor for PhD thesis, AI writing detection tool for academic writing, detect AI plagiarism in research paper, AI paraphrase detector academic, plagiarism checking service for thesis, best plagiarism checker for research papers, remove plagiarism from dissertation, academic text originality checker, help with thesis writing and formatting, dissertation writing service online, PhD thesis writing help, master\'s thesis editing service, dissertation proofreading and formatting, thesis structure and formatting guidelines, doctoral dissertation consultation, academic thesis writing assistance, research paper writing service, research paper evaluation help, academic paper writing assistance, scientific writing support online, research methodology help, literature review writing service, best site for research guidance, how to write a research proposal, funding proposal writing help, journal finder for Scopus, Elsevier journal suggestion tool, SCI journal recommendation service, find journal for my paper, journal submission assistance service, how to submit paper to journal, conference paper preparation help, conference presentation coaching, publish paper in IEEE journal, academic proofreading and editing service, research paper editing service, thesis proofreading help, professional dissertation editor, edit academic paper online, grammar check for scholarly writing, academic copyediting service, SPSS statistical analysis help, data analysis service for researchers, statistical analysis assistance for thesis, SPSS tutorial for dissertation, data interpretation help for research, quantitative analysis support for PhD, statistics help for academic research',
+  canonicalUrl,
 }) => {
+  const location = useLocation();
+  const canonical = canonicalUrl ?? `https://www.gaply.in${location.pathname}${location.search}`;
+
   useEffect(() => {
-    // Update document title
     document.title = title;
-    
-    // Update meta description
+
     const metaDescription = document.querySelector('meta[name="description"]');
     if (metaDescription) {
       metaDescription.setAttribute('content', description);
     }
-    
-    // Update meta keywords
+
     const metaKeywords = document.querySelector('meta[name="keywords"]');
     if (metaKeywords) {
       metaKeywords.setAttribute('content', keywords);
     }
-    
-    // Update Open Graph title
+
     const ogTitle = document.querySelector('meta[property="og:title"]');
     if (ogTitle) {
       ogTitle.setAttribute('content', title);
     }
-    
-    // Update Open Graph description
+
     const ogDescription = document.querySelector('meta[property="og:description"]');
     if (ogDescription) {
       ogDescription.setAttribute('content', description);
     }
-    
-    // Update Twitter title
-    const twitterTitle = document.querySelector('meta[property="twitter:title"]');
+
+    const ogUrl = document.querySelector('meta[property="og:url"]');
+    if (ogUrl) {
+      ogUrl.setAttribute('content', canonical);
+    }
+
+    const linkCanonical = document.querySelector('link[rel="canonical"]');
+    if (linkCanonical) {
+      linkCanonical.setAttribute('href', canonical);
+    }
+
+    const twitterTitle = document.querySelector('meta[name="twitter:title"]');
     if (twitterTitle) {
       twitterTitle.setAttribute('content', title);
     }
-    
-    // Update Twitter description
-    const twitterDescription = document.querySelector('meta[property="twitter:description"]');
+
+    const twitterDescription = document.querySelector('meta[name="twitter:description"]');
     if (twitterDescription) {
       twitterDescription.setAttribute('content', description);
     }
-  }, [title, description, keywords]);
-  
+
+    const twitterUrl = document.querySelector('meta[name="twitter:url"]');
+    if (twitterUrl) {
+      twitterUrl.setAttribute('content', canonical);
+    }
+  }, [title, description, keywords, canonical]);
+
   return null;
 };
 
@@ -662,9 +680,10 @@ const AppContent: React.FC = () => {
           <Route path="/guides/ethical-researcher-guide-ai-academic-writing" element={
             <>
               <SEOHead
-                title="Ethical AI in research (2026): detection, Turnitin India, humanizers & literature reviews | Gaply"
-                description="Full slide guide: how AI detection works, why evading Turnitin is the wrong goal, humanizer myths, ChatGPT and Indian universities, and ethical literature review workflows—with every slide in plain text for students and researchers."
-                keywords="how to remove AI detection from research paper 2026, free AI rewriter academic papers bypass Turnitin, best humanizer tools research writing, ChatGPT text pass plagiarism check India, use AI literature review without flagged, ethical AI academic writing, Turnitin AI detection India, academic integrity AI, Gaply"
+                title="The Ethical Researcher's Guide to AI (2026) | Gaply"
+                description="A 28-slide guide to responsible AI in academic writing: how detection tools work, integrity over bypassing Turnitin, humanizer myths, India university checks, and ethical literature reviews. Includes the full deck to read or download."
+                keywords="how to remove AI detection from research paper 2026, free AI rewriter academic papers bypass Turnitin, best humanizer tools research writing, ChatGPT text pass plagiarism check India, use AI literature review without flagged, ethical AI academic writing, Turnitin AI detection India, academic integrity AI, Gaply ethical researcher guide"
+                canonicalUrl="https://www.gaply.in/guides/ethical-researcher-guide-ai-academic-writing"
               />
               <Suspense fallback={<div className="App" style={{ minHeight: '50vh', padding: '2rem', textAlign: 'center' }}>Loading…</div>}>
                 <EthicalAiResearchGuidePage />

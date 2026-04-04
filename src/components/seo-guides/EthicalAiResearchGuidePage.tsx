@@ -7,8 +7,6 @@ import { ETHICAL_AI_GUIDE_TOPICS } from './ethicalAiGuideTopics';
 import deck from '../../data/ethicalAiGuideSlides.json';
 
 const GUIDE_PATH = '/guides/ethical-researcher-guide-ai-academic-writing';
-/** Office Online requires a public HTTPS URL; use production origin on localhost so the viewer works when the file is deployed. */
-const PRODUCTION_ORIGIN = 'https://www.gaply.in';
 
 const PAGE_URL = 'https://www.gaply.in/guides/ethical-researcher-guide-ai-academic-writing';
 const LD_ID = 'ld-json-ethical-ai-guide';
@@ -33,15 +31,15 @@ function FeatureDotList({ items }: { items: string[] }) {
 }
 
 const HERO_FEATURE_LINES = [
-  'Same 28-slide deck for every footer link and topic pill (only the URL topic changes).',
-  'Designed slides: flip through the in-page PDF when it is deployed, or download the .pptx.',
-  'The “Text version” section at the bottom is for search and screen readers, not slide layout.',
+  'One 28-slide presentation for every topic link; only your highlighted topic changes.',
+  'Read the slides on this page, or download the presentation to use offline.',
+  'Optional text-only version at the bottom helps accessibility and search.',
 ];
 
 const PRESENTATION_FEATURE_LINES = [
-  'Use Previous / Next, arrow keys, or swipe when the PDF is on the server.',
-  'Best quality: export the deck from PowerPoint as PDF and deploy it with the site.',
-  'If the PDF is missing, we load Microsoft or Google’s viewer for the .pptx instead.',
+  'Use on-screen controls, arrow keys, or swipe on a phone.',
+  'Download the file anytime if you prefer PowerPoint or Keynote.',
+  'If the inline viewer is slow, try the other tab or open in a new window.',
 ];
 
 const EthicalAiResearchGuidePage: React.FC = () => {
@@ -117,9 +115,9 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           '@type': 'WebPage',
           '@id': `${PAGE_URL}#webpage`,
           url: PAGE_URL,
-          name: 'Ethical research guide: AI detection, Turnitin, humanizers & literature reviews (2026)',
+          name: "The Ethical Researcher's Guide to AI (2026) · Gaply",
           description:
-            'Embedded presentation plus ethical guidance on AI detection limits, Turnitin in India, humanizer myths, and literature reviews without misconduct.',
+            '28-slide guide to responsible AI in academic writing: detection tools, integrity over bypassing checks, humanizer myths, India universities, and ethical literature reviews.',
           isPartOf: { '@type': 'WebSite', name: 'Gaply', url: 'https://www.gaply.in' },
         },
         {
@@ -192,19 +190,19 @@ const EthicalAiResearchGuidePage: React.FC = () => {
 
   return (
     <SeoGuideShell headline={deck.title} subhead={deck.subtitle} variant="feature">
-      <div className="ethical-ai-deck-main">
+      <div className="ethical-ai-deck-main ethical-ai-page-shell">
         <nav className="ethical-ai-sticky-jump" aria-label="On this page">
           <a href="#ethical-ai-deck-anchor">Slides</a>
           <a href="#ethical-ai-topics-anchor">Topics</a>
           <a href="#ethical-ai-transcript-anchor">Text version</a>
         </nav>
 
-        <section className="seo-guide-card ethical-ai-hero-compact ethical-ai-feature-panel">
-          <h2 className="ethical-ai-feature-panel__title">One deck for every search topic</h2>
+        <section className="seo-guide-card ethical-ai-hero-compact ethical-ai-feature-panel ethical-ai-hero-premium">
+          <h2 className="ethical-ai-feature-panel__title">How this guide works</h2>
           <p className="ethical-ai-feature-panel__sub">{deck.sourceNote}</p>
           <p className="ethical-ai-feature-panel__desc">
-            Footer links and pills match how people search. The slide presentation is the same each time; only the
-            highlighted topic changes.
+            Common questions about AI detection, Turnitin, and literature reviews lead here. The answers live in one
+            clear slide deck, written for integrity, not shortcuts.
           </p>
           <FeatureDotList items={HERO_FEATURE_LINES} />
           <p className="ethical-ai-feature-panel__links">
@@ -221,39 +219,16 @@ const EthicalAiResearchGuidePage: React.FC = () => {
         >
           <div className="ethical-ai-deck-card__head">
             <h2 id="ethical-ai-embed-heading" className="ethical-ai-feature-panel__title">
-              Presentation
+              The slides
             </h2>
-            <p className="ethical-ai-feature-panel__sub">View slides on this page</p>
+            <p className="ethical-ai-feature-panel__sub">Full presentation, in your browser</p>
             <p className="ethical-ai-feature-panel__desc">
-              When the PDF is live, move through slides with the controls or keyboard. If it is not deployed yet, we
-              load a viewer for the PowerPoint file instead.
+              Scroll to the frame below. The deck loads like a normal document; your browser may show a short loading
+              state while it prepares the slides.
             </p>
             <FeatureDotList items={PRESENTATION_FEATURE_LINES} />
           </div>
           <EthicalAiDeckExperience />
-          <details className="ethical-ai-copy-hint">
-            <summary>Hosting the files (Terminal)</summary>
-            <p style={{ margin: '12px 0 0', fontSize: '0.9rem', lineHeight: 1.65, color: 'var(--section-text)' }}>
-              <strong>Best on-page experience:</strong> in PowerPoint use <strong>File → Export → PDF</strong>, then from{' '}
-              <code>~/Desktop/GAPLY/gaply-react-frontend</code> run <code>npm run copy-ethical-pdf</code> (or copy to{' '}
-              <code>public/guides/ethical-researcher-guide-ai-2026.pdf</code>).
-            </p>
-            <p style={{ margin: '10px 0 0', fontSize: '0.9rem', lineHeight: 1.65, color: 'var(--section-text)' }}>
-              <strong>.pptx</strong> for download / Microsoft viewer: <code>npm run copy-ethical-pptx</code> or:
-            </p>
-            <pre className="ethical-ai-copy-hint__cmd">
-              cd ~/Desktop/GAPLY/gaply-react-frontend{'\n'}
-              npm run copy-ethical-pptx
-            </pre>
-            <pre className="ethical-ai-copy-hint__cmd">
-              {`node ~/Desktop/GAPLY/gaply-react-frontend/scripts/copy-ethical-ppt-to-public.js "$HOME/Desktop/The Ethical Researcher's Guide to AI (2).pptx"`}
-            </pre>
-            <p style={{ margin: '8px 0 0', fontSize: '0.9rem', lineHeight: 1.65, color: 'var(--section-text)' }}>
-              Optional env: <code>REACT_APP_ETHICAL_AI_PDF_URL</code>, <code>REACT_APP_ETHICAL_AI_PPTX_URL</code> in{' '}
-              <code>.env.local</code>. On localhost, embeds resolve against {PRODUCTION_ORIGIN} so files must be
-              deployed there or set via env.
-            </p>
-          </details>
         </section>
 
         <nav className="ethical-ai-topic-pills" aria-label="Search topics" id="ethical-ai-topics-anchor">
