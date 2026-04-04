@@ -108,9 +108,33 @@ const EthicalAiResearchGuidePage: React.FC = () => {
   }, [total]);
 
   useEffect(() => {
+    const topicUrls = ETHICAL_AI_GUIDE_TOPICS.map(
+      (t) => `${PAGE_URL}?topic=${encodeURIComponent(t.slug)}`
+    );
+    const keywordsStr = ETHICAL_AI_GUIDE_TOPICS.map((t) => t.label).join(', ');
+    const dateModified = new Date().toISOString().split('T')[0];
+
     const faqLd = {
       '@context': 'https://schema.org',
       '@graph': [
+        {
+          '@type': 'BreadcrumbList',
+          '@id': `${PAGE_URL}#breadcrumb`,
+          itemListElement: [
+            {
+              '@type': 'ListItem',
+              position: 1,
+              name: 'Home',
+              item: 'https://www.gaply.in/',
+            },
+            {
+              '@type': 'ListItem',
+              position: 2,
+              name: "Ethical researcher's guide to AI",
+              item: PAGE_URL,
+            },
+          ],
+        },
         {
           '@type': 'WebPage',
           '@id': `${PAGE_URL}#webpage`,
@@ -118,7 +142,39 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           name: "The Ethical Researcher's Guide to AI (2026) · Gaply",
           description:
             '28-slide guide to responsible AI in academic writing: detection tools, integrity over bypassing checks, humanizer myths, India universities, and ethical literature reviews.',
-          isPartOf: { '@type': 'WebSite', name: 'Gaply', url: 'https://www.gaply.in' },
+          inLanguage: 'en',
+          dateModified,
+          keywords: keywordsStr,
+          isPartOf: {
+            '@type': 'WebSite',
+            '@id': 'https://www.gaply.in/#website',
+            name: 'Gaply',
+            url: 'https://www.gaply.in',
+          },
+          publisher: {
+            '@type': 'Organization',
+            name: 'Gaply',
+            url: 'https://www.gaply.in',
+          },
+          mainEntity: { '@id': `${PAGE_URL}#faq` },
+          significantLink: topicUrls,
+          about: ETHICAL_AI_GUIDE_TOPICS.map((t) => ({
+            '@type': 'Thing',
+            name: t.label,
+            description: t.intro,
+          })),
+        },
+        {
+          '@type': 'ItemList',
+          '@id': `${PAGE_URL}#topic-list`,
+          name: 'Topics covered in this guide',
+          numberOfItems: ETHICAL_AI_GUIDE_TOPICS.length,
+          itemListElement: ETHICAL_AI_GUIDE_TOPICS.map((t, i) => ({
+            '@type': 'ListItem',
+            position: i + 1,
+            name: t.label,
+            item: `${PAGE_URL}?topic=${encodeURIComponent(t.slug)}`,
+          })),
         },
         {
           '@type': 'FAQPage',

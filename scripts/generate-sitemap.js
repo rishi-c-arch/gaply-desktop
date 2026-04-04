@@ -40,7 +40,7 @@ const ENTRIES = [
   { path: '/privacy', priority: '0.5', changefreq: 'yearly' },
   { path: '/guides/scopus-indexed-journals-low-apc', priority: '0.72', changefreq: 'monthly' },
   { path: '/guides/fast-publication-scopus-journals-india', priority: '0.72', changefreq: 'monthly' },
-  { path: '/guides/ethical-researcher-guide-ai-academic-writing', priority: '0.72', changefreq: 'monthly' },
+  { path: '/guides/ethical-researcher-guide-ai-academic-writing', priority: '0.82', changefreq: 'weekly' },
   { path: '/terms', priority: '0.5', changefreq: 'yearly' },
   { path: '/login', priority: '0.55', changefreq: 'monthly' },
   { path: '/signup', priority: '0.55', changefreq: 'monthly' },
