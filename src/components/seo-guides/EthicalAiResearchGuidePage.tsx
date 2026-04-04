@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom';
 import SeoGuideShell from './SeoGuideShell';
 import { ETHICAL_AI_SLIDE_TITLES } from './ethicalAiSlideTitles';
-import { ETHICAL_AI_GUIDE_TOPICS, ETHICAL_AI_PPTX_PATH } from './ethicalAiGuideTopics';
+import EthicalAiDeckExperience from './EthicalAiDeckExperience';
+import { ETHICAL_AI_GUIDE_TOPICS } from './ethicalAiGuideTopics';
 import deck from '../../data/ethicalAiGuideSlides.json';
 
 const GUIDE_PATH = '/guides/ethical-researcher-guide-ai-academic-writing';
@@ -16,101 +17,6 @@ interface SlideRow {
   slide: number;
   id: string;
   body: string;
-}
-
-type DeckViewer = 'office' | 'google';
-
-function PptxDeckEmbed({ pptxPath }: { pptxPath: string }) {
-  const [viewer, setViewer] = useState<DeckViewer>('office');
-  const [absoluteUrl, setAbsoluteUrl] = useState('');
-
-  useEffect(() => {
-    const fromEnv = process.env.REACT_APP_ETHICAL_AI_PPTX_URL?.trim();
-    if (fromEnv) {
-      setAbsoluteUrl(fromEnv);
-      return;
-    }
-    const host = window.location.hostname;
-    const useProd =
-      host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local');
-    const origin = useProd ? PRODUCTION_ORIGIN : window.location.origin;
-    setAbsoluteUrl(`${origin}${pptxPath}`);
-  }, [pptxPath]);
-
-  const embedSrc = absoluteUrl
-    ? viewer === 'office'
-      ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(absoluteUrl)}`
-      : `https://docs.google.com/viewer?url=${encodeURIComponent(absoluteUrl)}&embedded=true`
-    : '';
-
-  const downloadLocal =
-    typeof window !== 'undefined' ? `${window.location.origin}${pptxPath}` : pptxPath;
-  const isLocalhost =
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-  return (
-    <div className="ethical-ai-pptx-wrap">
-      <div className="ethical-ai-viewer-tabs" role="tablist" aria-label="Presentation viewer">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={viewer === 'office'}
-          className={`ethical-ai-viewer-tab${viewer === 'office' ? ' ethical-ai-viewer-tab--active' : ''}`}
-          onClick={() => setViewer('office')}
-        >
-          Microsoft viewer
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={viewer === 'google'}
-          className={`ethical-ai-viewer-tab${viewer === 'google' ? ' ethical-ai-viewer-tab--active' : ''}`}
-          onClick={() => setViewer('google')}
-        >
-          Google viewer
-        </button>
-        {embedSrc ? (
-          <a
-            className="ethical-ai-viewer-open-tab"
-            href={embedSrc}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Open full presentation (new tab)
-          </a>
-        ) : null}
-      </div>
-      <div className="ethical-ai-pptx-frame">
-        {embedSrc ? (
-          <iframe
-            key={viewer}
-            title="The Ethical Researcher’s Guide to AI — presentation"
-            src={embedSrc}
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-            allowFullScreen
-          />
-        ) : (
-          <div className="ethical-ai-pptx-placeholder">Loading presentation…</div>
-        )}
-      </div>
-      <p className="ethical-ai-pptx-meta">
-        <a href={downloadLocal} download className="ethical-ai-pptx-download">
-          Download .pptx
-        </a>
-        {isLocalhost ? (
-          <a href={`${PRODUCTION_ORIGIN}${pptxPath}`} className="ethical-ai-pptx-download" rel="noreferrer">
-            Download from production
-          </a>
-        ) : null}
-        <span className="ethical-ai-pptx-hint">
-          Blank frame? Add the file to <code>public/guides/ethical-researcher-guide-ai-2026.pptx</code> on your machine,
-          or set <code>REACT_APP_ETHICAL_AI_PPTX_URL</code> to a public HTTPS link. Try both viewers above.
-        </span>
-      </p>
-    </div>
-  );
 }
 
 const EthicalAiResearchGuidePage: React.FC = () => {
@@ -127,6 +33,14 @@ const EthicalAiResearchGuidePage: React.FC = () => {
     requestAnimationFrame(() =>
       deckEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     );
+  }, [topicSlug]);
+
+  useEffect(() => {
+    if (!topicSlug) return;
+    const topicEl = document.getElementById(`ethical-ai-topic-${topicSlug}`) as HTMLDetailsElement | null;
+    requestAnimationFrame(() => {
+      if (topicEl) topicEl.open = true;
+    });
   }, [topicSlug]);
 
   const titleFor = useCallback(
@@ -257,10 +171,16 @@ const EthicalAiResearchGuidePage: React.FC = () => {
       subhead={deck.subtitle}
     >
       <div className="ethical-ai-deck-main">
+        <nav className="ethical-ai-sticky-jump" aria-label="On this page">
+          <a href="#ethical-ai-deck-anchor">Slides</a>
+          <a href="#ethical-ai-topics-anchor">Topics</a>
+          <a href="#ethical-ai-transcript-anchor">Text version</a>
+        </nav>
+
         <section className="seo-guide-card ethical-ai-hero-compact">
           <p style={{ margin: 0, lineHeight: 1.65 }}>
-            <cite>The Ethical Researcher&apos;s Guide to AI</cite> (2026)—same slides for every topic below.
-            Footer links and pills match common searches; the deck is identical each time. {deck.sourceNote}{' '}
+            <cite>The Ethical Researcher&apos;s Guide to AI</cite> (2026). Same deck for every search topic below.{' '}
+            {deck.sourceNote}{' '}
             <Link to="/academic-ai-remover">Academic AI review</Link> ·{' '}
             <Link to="/journal-matching">Journal matching</Link>.
           </p>
@@ -268,41 +188,43 @@ const EthicalAiResearchGuidePage: React.FC = () => {
 
         <section
           id="ethical-ai-deck-anchor"
-          className="seo-guide-card ethical-ai-slide-focus"
+          className="seo-guide-card ethical-ai-slide-focus ethical-ai-deck-card"
           aria-labelledby="ethical-ai-embed-heading"
         >
-          <h2 id="ethical-ai-embed-heading">Slide presentation</h2>
-          <p style={{ marginTop: 0, color: 'var(--muted-text)', fontSize: '0.9rem' }}>
-            Your <strong>designed slides</strong> (layout, theme, images) show only in the embedded viewer above—or use
-            &quot;Open full presentation&quot;. The collapsible section at the bottom is plain text for search and
-            accessibility, not a pixel-perfect copy of PowerPoint. On localhost the embed uses {PRODUCTION_ORIGIN}.
-          </p>
-          <PptxDeckEmbed pptxPath={ETHICAL_AI_PPTX_PATH} />
+          <div className="ethical-ai-deck-card__head">
+            <h2 id="ethical-ai-embed-heading">Presentation</h2>
+            <p className="ethical-ai-deck-card__lede">
+              Flip through slides here (PDF). For pixel-perfect PowerPoint editing, download the .pptx. The section
+              &quot;Text version&quot; is plain text for search and screen readers only.
+            </p>
+          </div>
+          <EthicalAiDeckExperience />
           <details className="ethical-ai-copy-hint">
-            <summary>Slides look blank? Add the .pptx once (use your Terminal)</summary>
+            <summary>Hosting the files (Terminal)</summary>
             <p style={{ margin: '12px 0 0', fontSize: '0.9rem', lineHeight: 1.65, color: 'var(--section-text)' }}>
-              Run these from <strong>Terminal</strong>. Your project lives under <strong>Desktop/GAPLY</strong> — not in
-              your home folder — so <code>cd gaply-react-frontend</code> alone will fail until you are in the right place.
+              <strong>Best on-page experience:</strong> in PowerPoint use <strong>File → Export → PDF</strong>, then from{' '}
+              <code>~/Desktop/GAPLY/gaply-react-frontend</code> run <code>npm run copy-ethical-pdf</code> (or copy to{' '}
+              <code>public/guides/ethical-researcher-guide-ai-2026.pdf</code>).
+            </p>
+            <p style={{ margin: '10px 0 0', fontSize: '0.9rem', lineHeight: 1.65, color: 'var(--section-text)' }}>
+              <strong>.pptx</strong> for download / Microsoft viewer: <code>npm run copy-ethical-pptx</code> or:
             </p>
             <pre className="ethical-ai-copy-hint__cmd">
               cd ~/Desktop/GAPLY/gaply-react-frontend{'\n'}
               npm run copy-ethical-pptx
             </pre>
-            <p style={{ margin: '10px 0 0', fontSize: '0.9rem', lineHeight: 1.65, color: 'var(--section-text)' }}>
-              Or run this <strong>from any directory</strong> (uses full paths):
-            </p>
             <pre className="ethical-ai-copy-hint__cmd">
               {`node ~/Desktop/GAPLY/gaply-react-frontend/scripts/copy-ethical-ppt-to-public.js "$HOME/Desktop/The Ethical Researcher's Guide to AI (2).pptx"`}
             </pre>
             <p style={{ margin: '8px 0 0', fontSize: '0.9rem', lineHeight: 1.65, color: 'var(--section-text)' }}>
-              If GAPLY is not on your Desktop, replace <code>~/Desktop/GAPLY</code> with your real folder. That copies the
-              deck to <code>public/guides/ethical-researcher-guide-ai-2026.pptx</code>. Or drag the file there manually.
-              Optional: <code>REACT_APP_ETHICAL_AI_PPTX_URL</code> in <code>.env.local</code> for a hosted URL.
+              Optional env: <code>REACT_APP_ETHICAL_AI_PDF_URL</code>, <code>REACT_APP_ETHICAL_AI_PPTX_URL</code> in{' '}
+              <code>.env.local</code>. On localhost, embeds resolve against {PRODUCTION_ORIGIN} so files must be
+              deployed there or set via env.
             </p>
           </details>
         </section>
 
-        <nav className="ethical-ai-topic-pills" aria-label="Search topics">
+        <nav className="ethical-ai-topic-pills" aria-label="Search topics" id="ethical-ai-topics-anchor">
           {ETHICAL_AI_GUIDE_TOPICS.map((t) => {
             const active = topicSlug === t.slug;
             return (
@@ -322,19 +244,30 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           ) : null}
         </nav>
 
-        {ETHICAL_AI_GUIDE_TOPICS.map((t) => (
-          <section
-            key={t.slug}
-            id={`ethical-ai-topic-${t.slug}`}
-            className="seo-guide-card"
-            aria-labelledby={`ethical-ai-seo-h-${t.slug}`}
-          >
-            <h2 id={`ethical-ai-seo-h-${t.slug}`}>{t.label}</h2>
-            <p style={{ marginBottom: 0 }}>{t.intro}</p>
-          </section>
-        ))}
+        <div className="ethical-ai-topic-accordion" role="region" aria-label="Topic summaries">
+          {ETHICAL_AI_GUIDE_TOPICS.map((t) => (
+            <details
+              key={t.slug}
+              name="ethical-ai-topic"
+              id={`ethical-ai-topic-${t.slug}`}
+              className="ethical-ai-topic-acc"
+            >
+              <summary className="ethical-ai-topic-acc__summary">
+                <h2 className="ethical-ai-topic-acc__h" id={`ethical-ai-seo-h-${t.slug}`}>
+                  {t.label}
+                </h2>
+              </summary>
+              <div className="ethical-ai-topic-acc__body">
+                <p>{t.intro}</p>
+                <a href="#ethical-ai-deck-anchor" className="ethical-ai-topic-acc__to-slides">
+                  View slides above
+                </a>
+              </div>
+            </details>
+          ))}
+        </div>
 
-        <details className="ethical-ai-transcript">
+        <details className="ethical-ai-transcript" id="ethical-ai-transcript-anchor">
           <summary>Full text transcript (all slides — for search &amp; accessibility)</summary>
 
           <div className="ethical-ai-deck-toolbar" role="toolbar" aria-label="Transcript slide navigation">
