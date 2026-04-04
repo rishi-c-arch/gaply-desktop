@@ -52,7 +52,8 @@
     "smoke-test": "node scripts/smoke-test.js",
     "postbuild": "npm run generate-sitemap && node scripts/copy-final-orchestrator.js",
     "preview": "npx serve -s build -l 3000",
-    "deploy": "npm run build && npx vercel --prod --yes"
+    "deploy": "npm run build && npx vercel --prod --yes",
+    "copy-ethical-pptx": "node scripts/copy-ethical-ppt-to-public.js"
   },
   "reactSnap": {
     "include": [

@@ -123,7 +123,39 @@
 
 /* Full slide deck: scroll-synced navigation, all text remains in DOM for crawlers */
 .ethical-ai-deck-main {
-  padding-bottom: 88px;
+  padding-bottom: 24px;
+}
+
+.ethical-ai-hero-compact {
+  padding: clamp(16px, 3vw, 22px) clamp(18px, 3vw, 26px);
+}
+
+.ethical-ai-slide-focus {
+  border-color: var(--divider, rgba(0, 0, 0, 0.12));
+}
+
+details.ethical-ai-copy-hint {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--divider, rgba(0, 0, 0, 0.08));
+}
+
+details.ethical-ai-copy-hint summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted-text);
+}
+
+.ethical-ai-copy-hint__cmd {
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--content-bg, rgba(0, 0, 0, 0.04));
+  border: 1px solid var(--divider, rgba(0, 0, 0, 0.08));
+  font-size: 0.82rem;
+  overflow-x: auto;
+  line-height: 1.5;
 }
 
 .ethical-ai-slide-body {
@@ -186,4 +218,143 @@
 .ethical-ai-toc summary {
   cursor: pointer;
   font-weight: 600;
+}
+
+.ethical-ai-topic-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 24px;
+  align-items: flex-start;
+}
+
+a.ethical-ai-topic-pill {
+  display: inline-block;
+  text-decoration: none;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--app-text);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  max-width: 100%;
+  text-align: left;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+a.ethical-ai-topic-pill:hover,
+a.ethical-ai-topic-pill:focus-visible {
+  border-color: var(--button-border-hover, var(--toggle-border));
+  background: var(--content-bg, var(--card-bg));
+}
+
+.ethical-ai-topic-pill--active {
+  border-color: var(--accent, #3b82f6);
+  box-shadow: 0 0 0 1px var(--accent, #3b82f6);
+}
+
+.ethical-ai-topic-pill--clear {
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.ethical-ai-pptx-wrap {
+  margin-top: 12px;
+}
+
+.ethical-ai-viewer-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ethical-ai-viewer-tab {
+  background: var(--toggle-bg);
+  color: var(--app-text);
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--toggle-border);
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.ethical-ai-viewer-tab--active {
+  border-color: var(--accent, #3b82f6);
+  box-shadow: 0 0 0 1px var(--accent, #3b82f6);
+}
+
+.ethical-ai-pptx-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  min-height: 420px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--card-border);
+  background: var(--content-bg, #0f0f12);
+}
+
+.ethical-ai-pptx-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.ethical-ai-pptx-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  inset: 0;
+  color: var(--muted-text);
+  font-size: 0.95rem;
+}
+
+.ethical-ai-pptx-meta {
+  margin: 12px 0 0;
+  font-size: 0.88rem;
+  color: var(--muted-text);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: baseline;
+}
+
+.ethical-ai-pptx-download {
+  font-weight: 600;
+}
+
+.ethical-ai-pptx-hint {
+  flex: 1;
+  min-width: 200px;
+}
+
+details.ethical-ai-transcript {
+  margin-top: 8px;
+}
+
+details.ethical-ai-transcript summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 12px 0;
+}
+
+.ethical-ai-transcript-slide {
+  margin-top: 12px;
+}
+
+.ethical-ai-deck-toolbar.ethical-ai-deck-toolbar--transcript {
+  position: relative;
+  bottom: auto;
+  left: auto;
+  right: auto;
+  z-index: 1;
+  margin: 12px 0 16px;
+  border-radius: 12px;
+  border-top: 1px solid var(--divider, rgba(0, 0, 0, 0.08));
 }

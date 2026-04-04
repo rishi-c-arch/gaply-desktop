@@ -31,7 +31,31 @@ const PremiumFooter3D: React.FC = () => {
         { label: 'Terms of Service', href: '/terms' },
         { label: 'Scopus journals & APC guide', href: '/guides/scopus-indexed-journals-low-apc' },
         { label: 'Fast publication (India)', href: '/guides/fast-publication-scopus-journals-india' },
-        { label: 'Ethical AI guide (slides)', href: '/guides/ethical-researcher-guide-ai-academic-writing' },
+      ],
+    },
+    {
+      title: 'Ethical AI guide',
+      links: [
+        {
+          label: 'How to remove AI detection from research paper 2026',
+          href: '/guides/ethical-researcher-guide-ai-academic-writing?topic=ai-detection-2026',
+        },
+        {
+          label: 'Free AI rewriter for academic papers to bypass Turnitin',
+          href: '/guides/ethical-researcher-guide-ai-academic-writing?topic=rewriter-bypass-turnitin',
+        },
+        {
+          label: 'Best humanizer tools for research writing',
+          href: '/guides/ethical-researcher-guide-ai-academic-writing?topic=humanizer-tools',
+        },
+        {
+          label: 'Does ChatGPT text pass university plagiarism checks in India?',
+          href: '/guides/ethical-researcher-guide-ai-academic-writing?topic=chatgpt-plagiarism-india',
+        },
+        {
+          label: 'How to use AI for literature review without being flagged',
+          href: '/guides/ethical-researcher-guide-ai-academic-writing?topic=literature-review-flagged',
+        },
       ],
     },
   ];

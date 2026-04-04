@@ -1,8 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import SeoGuideShell from './SeoGuideShell';
 import { ETHICAL_AI_SLIDE_TITLES } from './ethicalAiSlideTitles';
+import { ETHICAL_AI_GUIDE_TOPICS, ETHICAL_AI_PPTX_PATH } from './ethicalAiGuideTopics';
 import deck from '../../data/ethicalAiGuideSlides.json';
+
+const GUIDE_PATH = '/guides/ethical-researcher-guide-ai-academic-writing';
+/** Office Online requires a public HTTPS URL; use production origin on localhost so the viewer works when the file is deployed. */
+const PRODUCTION_ORIGIN = 'https://www.gaply.in';
 
 const PAGE_URL = 'https://www.gaply.in/guides/ethical-researcher-guide-ai-academic-writing';
 const LD_ID = 'ld-json-ethical-ai-guide';
@@ -13,23 +18,121 @@ interface SlideRow {
   body: string;
 }
 
+type DeckViewer = 'office' | 'google';
+
+function PptxDeckEmbed({ pptxPath }: { pptxPath: string }) {
+  const [viewer, setViewer] = useState<DeckViewer>('office');
+  const [absoluteUrl, setAbsoluteUrl] = useState('');
+
+  useEffect(() => {
+    const fromEnv = process.env.REACT_APP_ETHICAL_AI_PPTX_URL?.trim();
+    if (fromEnv) {
+      setAbsoluteUrl(fromEnv);
+      return;
+    }
+    const host = window.location.hostname;
+    const useProd =
+      host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local');
+    const origin = useProd ? PRODUCTION_ORIGIN : window.location.origin;
+    setAbsoluteUrl(`${origin}${pptxPath}`);
+  }, [pptxPath]);
+
+  const embedSrc = absoluteUrl
+    ? viewer === 'office'
+      ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(absoluteUrl)}`
+      : `https://docs.google.com/viewer?url=${encodeURIComponent(absoluteUrl)}&embedded=true`
+    : '';
+
+  const downloadLocal =
+    typeof window !== 'undefined' ? `${window.location.origin}${pptxPath}` : pptxPath;
+  const isLocalhost =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  return (
+    <div className="ethical-ai-pptx-wrap">
+      <div className="ethical-ai-viewer-tabs" role="tablist" aria-label="Presentation viewer">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewer === 'office'}
+          className={`ethical-ai-viewer-tab${viewer === 'office' ? ' ethical-ai-viewer-tab--active' : ''}`}
+          onClick={() => setViewer('office')}
+        >
+          Microsoft viewer
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewer === 'google'}
+          className={`ethical-ai-viewer-tab${viewer === 'google' ? ' ethical-ai-viewer-tab--active' : ''}`}
+          onClick={() => setViewer('google')}
+        >
+          Google viewer
+        </button>
+      </div>
+      <div className="ethical-ai-pptx-frame">
+        {embedSrc ? (
+          <iframe
+            key={viewer}
+            title="The Ethical Researcher’s Guide to AI — presentation"
+            src={embedSrc}
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+            allowFullScreen
+          />
+        ) : (
+          <div className="ethical-ai-pptx-placeholder">Loading presentation…</div>
+        )}
+      </div>
+      <p className="ethical-ai-pptx-meta">
+        <a href={downloadLocal} download className="ethical-ai-pptx-download">
+          Download .pptx
+        </a>
+        {isLocalhost ? (
+          <a href={`${PRODUCTION_ORIGIN}${pptxPath}`} className="ethical-ai-pptx-download" rel="noreferrer">
+            Download from production
+          </a>
+        ) : null}
+        <span className="ethical-ai-pptx-hint">
+          Blank frame? Add the file to <code>public/guides/ethical-researcher-guide-ai-2026.pptx</code> on your machine,
+          or set <code>REACT_APP_ETHICAL_AI_PPTX_URL</code> to a public HTTPS link. Try both viewers above.
+        </span>
+      </p>
+    </div>
+  );
+}
+
 const EthicalAiResearchGuidePage: React.FC = () => {
   const slides = deck.slides as SlideRow[];
   const total = slides.length;
+  const [searchParams] = useSearchParams();
+  const topicSlug = searchParams.get('topic') || '';
   const [activeSlide, setActiveSlide] = useState(1);
   const sectionRefs = useRef<(HTMLElement | null)[]>([]);
+
+  useEffect(() => {
+    if (!topicSlug) return;
+    const deckEl = document.getElementById('ethical-ai-deck-anchor');
+    requestAnimationFrame(() =>
+      deckEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    );
+  }, [topicSlug]);
 
   const titleFor = useCallback(
     (index: number) => ETHICAL_AI_SLIDE_TITLES[index] ?? `Slide ${index + 1}`,
     []
   );
 
-  const scrollToSlide = useCallback((n: number) => {
-    const clamped = Math.min(Math.max(1, n), total);
-    const el = document.getElementById(`ethical-ai-slide-${clamped}`);
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    setActiveSlide(clamped);
-  }, [total]);
+  const scrollToSlide = useCallback(
+    (n: number) => {
+      const clamped = Math.min(Math.max(1, n), total);
+      const el = document.getElementById(`ethical-ai-slide-${clamped}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setActiveSlide(clamped);
+    },
+    [total]
+  );
 
   useEffect(() => {
     const els = sectionRefs.current.filter(Boolean) as HTMLElement[];
@@ -67,7 +170,7 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           url: PAGE_URL,
           name: 'Ethical research guide: AI detection, Turnitin, humanizers & literature reviews (2026)',
           description:
-            'Full slide-based guide for researchers on ethical AI use in academic writing, AI detection limits, Turnitin in India, humanizer myths, and literature reviews without misconduct.',
+            'Embedded presentation plus ethical guidance on AI detection limits, Turnitin in India, humanizer myths, and literature reviews without misconduct.',
           isPartOf: { '@type': 'WebSite', name: 'Gaply', url: 'https://www.gaply.in' },
         },
         {
@@ -144,92 +247,147 @@ const EthicalAiResearchGuidePage: React.FC = () => {
       subhead={deck.subtitle}
     >
       <div className="ethical-ai-deck-main">
-        <section className="seo-guide-card">
-          <h2>Keywords researchers search for—and an ethical answer</h2>
-          <p>
-            Many people search for{' '}
-            <strong>how to remove AI detection from a research paper in 2026</strong>,{' '}
-            <strong>free AI rewriters to bypass Turnitin</strong>,{' '}
-            <strong>best humanizer tools</strong>, whether{' '}
-            <strong>ChatGPT text passes plagiarism checks in India</strong>, and{' '}
-            <strong>how to use AI for a literature review without being flagged</strong>. This page
-            addresses those queries directly: the responsible path is transparency, your own
-            intellectual contribution, and institutional policy—not evasion.
-          </p>
-          <p>
-            Below is the full text of the slide deck <cite>The Ethical Researcher&apos;s Guide to AI</cite>{' '}
-            (Botanical Research Series, 2026 edition), adapted for the web so search engines and readers
-            can access every slide. {deck.sourceNote}
-          </p>
-          <p style={{ marginBottom: 0 }}>
-            For tools that help you review drafting integrity on your own work, see{' '}
-            <Link to="/academic-ai-remover">Academic AI review</Link> and{' '}
-            <Link to="/journal-matching">journal matching</Link>—always alongside your university&apos;s
-            rules.
+        <section className="seo-guide-card ethical-ai-hero-compact">
+          <p style={{ margin: 0, lineHeight: 1.65 }}>
+            <cite>The Ethical Researcher&apos;s Guide to AI</cite> (2026)—same slides for every topic below.
+            Footer links and pills match common searches; the deck is identical each time. {deck.sourceNote}{' '}
+            <Link to="/academic-ai-remover">Academic AI review</Link> ·{' '}
+            <Link to="/journal-matching">Journal matching</Link>.
           </p>
         </section>
 
-        <nav className="ethical-ai-toc" aria-label="Slide list">
-          <details open>
-            <summary>All slides (jump to any section)</summary>
-            <ol style={{ margin: '12px 0 0', paddingLeft: '1.25rem', lineHeight: 1.8 }}>
-              {tocItems.map((item) => (
-                <li key={item.n}>
-                  <a href={item.href}>{item.label}</a>
-                </li>
-              ))}
-            </ol>
+        <section
+          id="ethical-ai-deck-anchor"
+          className="seo-guide-card ethical-ai-slide-focus"
+          aria-labelledby="ethical-ai-embed-heading"
+        >
+          <h2 id="ethical-ai-embed-heading">Slide presentation</h2>
+          <p style={{ marginTop: 0, color: 'var(--muted-text)', fontSize: '0.9rem' }}>
+            Embedded PowerPoint. On localhost the embed uses {PRODUCTION_ORIGIN} so it matches production; use
+            &quot;Download&quot; or switch viewer if needed.
+          </p>
+          <PptxDeckEmbed pptxPath={ETHICAL_AI_PPTX_PATH} />
+          <details className="ethical-ai-copy-hint">
+            <summary>Slides look blank? Add the .pptx once (use your Terminal)</summary>
+            <p style={{ margin: '12px 0 0', fontSize: '0.9rem', lineHeight: 1.65, color: 'var(--section-text)' }}>
+              Run these from <strong>Terminal</strong>. Your project lives under <strong>Desktop/GAPLY</strong> — not in
+              your home folder — so <code>cd gaply-react-frontend</code> alone will fail until you are in the right place.
+            </p>
+            <pre className="ethical-ai-copy-hint__cmd">
+              cd ~/Desktop/GAPLY/gaply-react-frontend{'\n'}
+              npm run copy-ethical-pptx
+            </pre>
+            <p style={{ margin: '10px 0 0', fontSize: '0.9rem', lineHeight: 1.65, color: 'var(--section-text)' }}>
+              Or run this <strong>from any directory</strong> (uses full paths):
+            </p>
+            <pre className="ethical-ai-copy-hint__cmd">
+              {`node ~/Desktop/GAPLY/gaply-react-frontend/scripts/copy-ethical-ppt-to-public.js "$HOME/Downloads/The Ethical Researcher's Guide to AI (1).pptx"`}
+            </pre>
+            <p style={{ margin: '8px 0 0', fontSize: '0.9rem', lineHeight: 1.65, color: 'var(--section-text)' }}>
+              If GAPLY is not on your Desktop, replace <code>~/Desktop/GAPLY</code> with your real folder. That copies the
+              deck to <code>public/guides/ethical-researcher-guide-ai-2026.pptx</code>. Or drag the file there manually.
+              Optional: <code>REACT_APP_ETHICAL_AI_PPTX_URL</code> in <code>.env.local</code> for a hosted URL.
+            </p>
           </details>
-        </nav>
+        </section>
 
-        <article>
-          {slides.map((s, i) => {
-            const heading = titleFor(i);
-            const body =
-              s.body.trim() ||
-              'This slide in the original presentation is primarily visual. Use the previous and next slides for the same chapter—the written guidance is covered in surrounding sections.';
-
+        <nav className="ethical-ai-topic-pills" aria-label="Search topics">
+          {ETHICAL_AI_GUIDE_TOPICS.map((t) => {
+            const active = topicSlug === t.slug;
             return (
-              <section
-                key={s.id}
-                id={`ethical-ai-slide-${s.slide}`}
-                className="seo-guide-card"
-                aria-labelledby={`ethical-ai-h-${s.slide}`}
-                ref={(el) => {
-                  sectionRefs.current[i] = el;
-                }}
+              <Link
+                key={t.slug}
+                to={`${GUIDE_PATH}?topic=${encodeURIComponent(t.slug)}`}
+                className={`ethical-ai-topic-pill${active ? ' ethical-ai-topic-pill--active' : ''}`}
               >
-                <p style={{ fontSize: '0.85rem', color: 'var(--muted-text)', marginBottom: 8 }}>
-                  Slide {s.slide} of {total}
-                </p>
-                <h2 id={`ethical-ai-h-${s.slide}`} style={{ fontSize: 'clamp(1.2rem, 3vw, 1.5rem)' }}>
-                  {heading}
-                </h2>
-                <div className="ethical-ai-slide-body">{body}</div>
-              </section>
+                {t.label}
+              </Link>
             );
           })}
-        </article>
-      </div>
+          {topicSlug ? (
+            <Link to={GUIDE_PATH} className="ethical-ai-topic-pill ethical-ai-topic-pill--clear">
+              Clear topic
+            </Link>
+          ) : null}
+        </nav>
 
-      <div className="ethical-ai-deck-toolbar" role="toolbar" aria-label="Slide navigation">
-        <button
-          type="button"
-          disabled={activeSlide <= 1}
-          onClick={() => scrollToSlide(activeSlide - 1)}
-        >
-          Previous slide
-        </button>
-        <span className="ethical-ai-deck-counter" aria-live="polite">
-          Slide {activeSlide} / {total}
-        </span>
-        <button
-          type="button"
-          disabled={activeSlide >= total}
-          onClick={() => scrollToSlide(activeSlide + 1)}
-        >
-          Next slide
-        </button>
+        {ETHICAL_AI_GUIDE_TOPICS.map((t) => (
+          <section
+            key={t.slug}
+            id={`ethical-ai-topic-${t.slug}`}
+            className="seo-guide-card"
+            aria-labelledby={`ethical-ai-seo-h-${t.slug}`}
+          >
+            <h2 id={`ethical-ai-seo-h-${t.slug}`}>{t.label}</h2>
+            <p style={{ marginBottom: 0 }}>{t.intro}</p>
+          </section>
+        ))}
+
+        <details className="ethical-ai-transcript">
+          <summary>Full text transcript (all slides — for search &amp; accessibility)</summary>
+
+          <div className="ethical-ai-deck-toolbar ethical-ai-deck-toolbar--transcript" role="toolbar" aria-label="Transcript slide navigation">
+            <button
+              type="button"
+              disabled={activeSlide <= 1}
+              onClick={() => scrollToSlide(activeSlide - 1)}
+            >
+              Previous slide
+            </button>
+            <span className="ethical-ai-deck-counter" aria-live="polite">
+              Transcript {activeSlide} / {total}
+            </span>
+            <button
+              type="button"
+              disabled={activeSlide >= total}
+              onClick={() => scrollToSlide(activeSlide + 1)}
+            >
+              Next slide
+            </button>
+          </div>
+
+          <nav className="ethical-ai-toc" aria-label="Transcript slide list">
+            <details>
+              <summary>Jump to slide in transcript</summary>
+              <ol style={{ margin: '12px 0 0', paddingLeft: '1.25rem', lineHeight: 1.8 }}>
+                {tocItems.map((item) => (
+                  <li key={item.n}>
+                    <a href={item.href}>{item.label}</a>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          </nav>
+
+          <article>
+            {slides.map((s, i) => {
+              const heading = titleFor(i);
+              const body =
+                s.body.trim() ||
+                'This slide in the original presentation is primarily visual. See surrounding transcript or the embedded deck above.';
+
+              return (
+                <section
+                  key={s.id}
+                  id={`ethical-ai-slide-${s.slide}`}
+                  className="seo-guide-card ethical-ai-transcript-slide"
+                  aria-labelledby={`ethical-ai-h-${s.slide}`}
+                  ref={(el) => {
+                    sectionRefs.current[i] = el;
+                  }}
+                >
+                  <p style={{ fontSize: '0.85rem', color: 'var(--muted-text)', marginBottom: 8 }}>
+                    Slide {s.slide} of {total}
+                  </p>
+                  <h3 id={`ethical-ai-h-${s.slide}`} style={{ fontSize: 'clamp(1.05rem, 2.5vw, 1.35rem)' }}>
+                    {heading}
+                  </h3>
+                  <div className="ethical-ai-slide-body">{body}</div>
+                </section>
+              );
+            })}
+          </article>
+        </details>
       </div>
     </SeoGuideShell>
   );
