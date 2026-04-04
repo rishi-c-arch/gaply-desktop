@@ -3,12 +3,15 @@ import { Link, useSearchParams } from 'react-router-dom';
 import SeoGuideShell from './SeoGuideShell';
 import { ETHICAL_AI_SLIDE_TITLES } from './ethicalAiSlideTitles';
 import EthicalAiDeckExperience from './EthicalAiDeckExperience';
-import { ETHICAL_AI_GUIDE_TOPICS } from './ethicalAiGuideTopics';
+import { ETHICAL_AI_GUIDE_TOPICS, ETHICAL_AI_PDF_PATH, ETHICAL_AI_PPTX_PATH } from './ethicalAiGuideTopics';
 import deck from '../../data/ethicalAiGuideSlides.json';
+import { GAPLY_GLOBAL_FAQ_MAIN_ENTITIES } from '../../seo/gaplyGlobalFaqMainEntity';
+import { ETHICAL_AI_GUIDE_FAQ_MAIN_ENTITIES } from '../../seo/ethicalAiGuideFaqEntities';
 
 const GUIDE_PATH = '/guides/ethical-researcher-guide-ai-academic-writing';
 
 const PAGE_URL = 'https://www.gaply.in/guides/ethical-researcher-guide-ai-academic-writing';
+const SITE_ORIGIN = 'https://www.gaply.in';
 const LD_ID = 'ld-json-ethical-ai-guide';
 
 interface SlideRow {
@@ -113,6 +116,13 @@ const EthicalAiResearchGuidePage: React.FC = () => {
     );
     const keywordsStr = ETHICAL_AI_GUIDE_TOPICS.map((t) => t.label).join(', ');
     const dateModified = new Date().toISOString().split('T')[0];
+    const slideRows = deck.slides as SlideRow[];
+    const slideTranscriptList = slideRows.map((s, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: ETHICAL_AI_SLIDE_TITLES[i] ?? `Slide ${s.slide}`,
+      item: `${PAGE_URL}#ethical-ai-slide-${s.slide}`,
+    }));
 
     const faqLd = {
       '@context': 'https://schema.org',
@@ -125,7 +135,7 @@ const EthicalAiResearchGuidePage: React.FC = () => {
               '@type': 'ListItem',
               position: 1,
               name: 'Home',
-              item: 'https://www.gaply.in/',
+              item: `${SITE_ORIGIN}/`,
             },
             {
               '@type': 'ListItem',
@@ -134,6 +144,45 @@ const EthicalAiResearchGuidePage: React.FC = () => {
               item: PAGE_URL,
             },
           ],
+        },
+        {
+          '@type': 'DigitalDocument',
+          '@id': `${PAGE_URL}#document-pptx`,
+          name: "The Ethical Researcher's Guide to AI — presentation (PowerPoint)",
+          encodingFormat: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          url: `${SITE_ORIGIN}${ETHICAL_AI_PPTX_PATH}`,
+          isAccessibleForFree: true,
+          inLanguage: 'en',
+        },
+        {
+          '@type': 'DigitalDocument',
+          '@id': `${PAGE_URL}#document-pdf`,
+          name: "The Ethical Researcher's Guide to AI — slides (PDF)",
+          encodingFormat: 'application/pdf',
+          url: `${SITE_ORIGIN}${ETHICAL_AI_PDF_PATH}`,
+          isAccessibleForFree: true,
+          inLanguage: 'en',
+        },
+        {
+          '@type': 'LearningResource',
+          '@id': `${PAGE_URL}#learning-resource`,
+          name: deck.title,
+          alternateName: 'Botanical Research Series 2026 — ethical AI in academic writing',
+          description: `${deck.subtitle} ${deck.sourceNote}`,
+          url: PAGE_URL,
+          learningResourceType: 'Presentation',
+          educationalLevel: 'Graduate; research; higher education',
+          teaches: ETHICAL_AI_GUIDE_TOPICS.map((t) => `${t.label}: ${t.intro}`),
+          inLanguage: 'en',
+          isAccessibleForFree: true,
+          dateModified,
+          isPartOf: { '@id': `${PAGE_URL}#webpage` },
+          associatedMedia: [{ '@id': `${PAGE_URL}#document-pptx` }, { '@id': `${PAGE_URL}#document-pdf` }],
+          publisher: {
+            '@type': 'Organization',
+            name: 'Gaply',
+            url: SITE_ORIGIN,
+          },
         },
         {
           '@type': 'WebPage',
@@ -147,22 +196,31 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           keywords: keywordsStr,
           isPartOf: {
             '@type': 'WebSite',
-            '@id': 'https://www.gaply.in/#website',
+            '@id': `${SITE_ORIGIN}/#website`,
             name: 'Gaply',
-            url: 'https://www.gaply.in',
+            url: SITE_ORIGIN,
           },
           publisher: {
             '@type': 'Organization',
             name: 'Gaply',
-            url: 'https://www.gaply.in',
+            url: SITE_ORIGIN,
           },
           mainEntity: { '@id': `${PAGE_URL}#faq` },
+          about: [
+            { '@id': `${PAGE_URL}#learning-resource` },
+            ...ETHICAL_AI_GUIDE_TOPICS.map((t) => ({
+              '@type': 'Thing',
+              name: t.label,
+              description: t.intro,
+            })),
+          ],
+          hasPart: [
+            { '@id': `${PAGE_URL}#learning-resource` },
+            { '@id': `${PAGE_URL}#topic-list` },
+            { '@id': `${PAGE_URL}#slide-transcript` },
+            { '@id': `${PAGE_URL}#faq` },
+          ],
           significantLink: topicUrls,
-          about: ETHICAL_AI_GUIDE_TOPICS.map((t) => ({
-            '@type': 'Thing',
-            name: t.label,
-            description: t.intro,
-          })),
         },
         {
           '@type': 'ItemList',
@@ -177,49 +235,21 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           })),
         },
         {
+          '@type': 'ItemList',
+          '@id': `${PAGE_URL}#slide-transcript`,
+          name: 'Slide-by-slide transcript (headings and in-page anchors)',
+          description:
+            'Ordered list matching the on-page transcript sections; each URL is a fragment on this page for crawlers and accessibility.',
+          numberOfItems: slideTranscriptList.length,
+          itemListElement: slideTranscriptList,
+        },
+        {
           '@type': 'FAQPage',
           '@id': `${PAGE_URL}#faq`,
+          url: PAGE_URL,
           mainEntity: [
-            {
-              '@type': 'Question',
-              name: 'How to remove AI detection from a research paper in 2026?',
-              acceptedAnswer: {
-                '@type': 'Answer',
-                text: 'Trying to hide or remove AI detection signals is the wrong goal for scholarly work. Ethical practice is to write your own analysis, use AI transparently where your institution allows it, disclose assistance, and verify every claim. Detection tools are imperfect but evasion can constitute academic dishonesty.',
-              },
-            },
-            {
-              '@type': 'Question',
-              name: 'Is there a free AI rewriter for academic papers to bypass Turnitin?',
-              acceptedAnswer: {
-                '@type': 'Answer',
-                text: 'Using rewriters or humanizers to bypass Turnitin or similar checks risks academic misconduct. Turnitin and university policies treat undisclosed AI-generated work as a integrity issue. Ethical alternatives include drafting your own text, using AI only for permitted feedback, and following your course policy on disclosure.',
-              },
-            },
-            {
-              '@type': 'Question',
-              name: 'What are the best humanizer tools for research writing?',
-              acceptedAnswer: {
-                '@type': 'Answer',
-                text: 'Tools marketed as AI humanizers or detector bypasses are unreliable and often violate academic integrity rules. Better approaches: write first, use AI as a coach for structure or clarity suggestions you apply yourself, vary your own sentence style, and disclose AI use when required.',
-              },
-            },
-            {
-              '@type': 'Question',
-              name: 'Does ChatGPT text pass university plagiarism checks in India?',
-              acceptedAnswer: {
-                '@type': 'Answer',
-                text: 'Many Indian universities use Turnitin and similar systems with AI detection. ChatGPT-style text can be flagged, and detectors have false positives and limits. The safer question is whether your use follows your institution policy and whether you can disclose and defend your authorship—not whether text passes a detector.',
-              },
-            },
-            {
-              '@type': 'Question',
-              name: 'How to use AI for a literature review without being flagged?',
-              acceptedAnswer: {
-                '@type': 'Answer',
-                text: 'Use AI to discover or organize papers, then read primary sources yourself, verify every citation in a database, synthesize in your own words, and disclose AI assistance if required. AI cannot replace critical reading; relying on summaries alone produces shallow reviews and higher risk.',
-              },
-            },
+            ...GAPLY_GLOBAL_FAQ_MAIN_ENTITIES,
+            ...ETHICAL_AI_GUIDE_FAQ_MAIN_ENTITIES,
           ],
         },
       ],
@@ -246,7 +276,7 @@ const EthicalAiResearchGuidePage: React.FC = () => {
 
   return (
     <SeoGuideShell headline={deck.title} subhead={deck.subtitle} variant="feature">
-      <div className="ethical-ai-deck-main ethical-ai-page-shell">
+      <article className="ethical-ai-deck-main ethical-ai-page-shell">
         <nav className="ethical-ai-sticky-jump" aria-label="On this page">
           <a href="#ethical-ai-deck-anchor">Slides</a>
           <a href="#ethical-ai-topics-anchor">Topics</a>
@@ -287,7 +317,15 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           <EthicalAiDeckExperience />
         </section>
 
-        <nav className="ethical-ai-topic-pills" aria-label="Search topics" id="ethical-ai-topics-anchor">
+        <section
+          id="ethical-ai-topics-anchor"
+          className="ethical-ai-topics-section"
+          aria-labelledby="ethical-ai-topics-nav-label"
+        >
+          <h2 id="ethical-ai-topics-nav-label" className="ethical-ai-sr-heading">
+            Topics and summaries
+          </h2>
+          <nav className="ethical-ai-topic-pills" aria-label="Search topics by question phrase">
           {ETHICAL_AI_GUIDE_TOPICS.map((t) => {
             const active = topicSlug === t.slug;
             return (
@@ -305,9 +343,9 @@ const EthicalAiResearchGuidePage: React.FC = () => {
               Clear topic
             </Link>
           ) : null}
-        </nav>
+          </nav>
 
-        <div className="ethical-ai-topic-accordion" role="region" aria-label="Topic summaries">
+        <div className="ethical-ai-topic-accordion" role="region" aria-labelledby="ethical-ai-topics-nav-label">
           {ETHICAL_AI_GUIDE_TOPICS.map((t) => (
             <details
               key={t.slug}
@@ -329,8 +367,16 @@ const EthicalAiResearchGuidePage: React.FC = () => {
             </details>
           ))}
         </div>
+        </section>
 
-        <details className="ethical-ai-transcript" id="ethical-ai-transcript-anchor">
+        <h2 id="ethical-ai-transcript-heading" className="ethical-ai-sr-heading">
+          Full text transcript — all slides
+        </h2>
+        <details
+          className="ethical-ai-transcript"
+          id="ethical-ai-transcript-anchor"
+          aria-labelledby="ethical-ai-transcript-heading"
+        >
           <summary>Full text transcript (all slides, for search and accessibility)</summary>
 
           <div className="ethical-ai-deck-toolbar" role="toolbar" aria-label="Transcript slide navigation">
@@ -395,7 +441,7 @@ const EthicalAiResearchGuidePage: React.FC = () => {
             })}
           </article>
         </details>
-      </div>
+      </article>
     </SeoGuideShell>
   );
 };

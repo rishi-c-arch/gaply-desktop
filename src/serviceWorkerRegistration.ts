@@ -21,27 +21,34 @@ export function register(): void {
   }
 }
 
+function attachRegistrationHandlers(registration: ServiceWorkerRegistration): void {
+  registration.onupdatefound = () => {
+    const installingWorker = registration.installing;
+    if (!installingWorker) return;
+
+    installingWorker.onstatechange = () => {
+      if (installingWorker.state === 'installed') {
+        if (navigator.serviceWorker.controller) {
+          console.log('New content available; please refresh.');
+        } else {
+          console.log('Content cached for offline use.');
+        }
+      }
+    };
+  };
+}
+
+/** Rich Results Test / some crawlers mock SW and reject with "Rejected"; privacy tools block SW — all optional. */
 function registerValidSW(swUrl: string): void {
   navigator.serviceWorker
     .register(swUrl)
     .then((registration) => {
-      registration.onupdatefound = () => {
-        const installingWorker = registration.installing;
-        if (!installingWorker) return;
-
-        installingWorker.onstatechange = () => {
-          if (installingWorker.state === 'installed') {
-            if (navigator.serviceWorker.controller) {
-              console.log('New content available; please refresh.');
-            } else {
-              console.log('Content cached for offline use.');
-            }
-          }
-        };
-      };
+      attachRegistrationHandlers(registration);
     })
     .catch((error) => {
-      console.error('Error during service worker registration:', error);
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('[service-worker] Registration unavailable (expected in some tools/browsers):', error);
+      }
     });
 }
 
@@ -71,8 +78,8 @@ export function unregister(): void {
       .then((registration) => {
         registration.unregister();
       })
-      .catch((error) => {
-        console.error(error.message);
+      .catch(() => {
+        /* No active registration */
       });
   }
 }

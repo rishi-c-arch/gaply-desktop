@@ -246,6 +246,25 @@ details.ethical-ai-topic-acc .ethical-ai-topic-acc__to-slides {
 }
 
 /* Full slide deck: scroll-synced navigation, all text remains in DOM for crawlers */
+/* Visually hidden headings: document outline + screen readers; no layout change */
+.ethical-ai-sr-heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ethical-ai-topics-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
 .ethical-ai-deck-main {
   padding-bottom: 24px;
 }

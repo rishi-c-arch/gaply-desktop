@@ -54,6 +54,8 @@ import BlogPage from './pages/BlogPage';
 import BlogPostPage from './pages/BlogPostPage';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { GAPLY_GLOBAL_FAQ_MAIN_ENTITIES } from './seo/gaplyGlobalFaqMainEntity';
+import { pathnameUsesOwnFaqJsonLd } from './seo/guidePathsWithOwnFaqJsonLd';
 
 const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
 const ScopusLowApcGuidePage = React.lazy(() => import('./components/seo-guides/ScopusLowApcGuidePage'));
@@ -423,6 +425,27 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     removeFloatingOrb();
   }, []);
+
+  /** One FAQPage per document: guides inject their own; other routes get the global FAQ here (not in index.html) to avoid duplicate FAQPage. */
+  useEffect(() => {
+    const id = 'ld-json-global-faq';
+    if (pathnameUsesOwnFaqJsonLd(location.pathname)) {
+      document.getElementById(id)?.remove();
+      return;
+    }
+    if (document.getElementById(id)) {
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = id;
+    script.type = 'application/ld+json';
+    script.textContent = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: [...GAPLY_GLOBAL_FAQ_MAIN_ENTITIES],
+    });
+    document.head.appendChild(script);
+  }, [location.pathname]);
 
   const handleAuthSuccess = (token: string, userData: any, redirect?: string) => {
     // Only allow same-origin paths to prevent open redirect
