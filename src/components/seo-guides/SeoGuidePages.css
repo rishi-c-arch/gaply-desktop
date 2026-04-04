@@ -166,20 +166,20 @@ details.ethical-ai-copy-hint summary {
   word-break: break-word;
 }
 
+/* In-flow only — never fixed; old fixed toolbar looked like the “real” slide deck. */
 .ethical-ai-deck-toolbar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 1001;
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 12px 20px;
   padding: 12px 16px;
+  margin: 12px 0 16px;
+  border-radius: 12px;
   background: var(--header-bg);
-  border-top: 1px solid var(--header-border);
+  border: 1px solid var(--divider, rgba(0, 0, 0, 0.08));
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
@@ -286,6 +286,20 @@ a.ethical-ai-topic-pill:focus-visible {
   box-shadow: 0 0 0 1px var(--accent, #3b82f6);
 }
 
+.ethical-ai-viewer-open-tab {
+  margin-left: auto;
+  align-self: center;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--accent, #3b82f6);
+  text-decoration: none;
+  padding: 8px 4px;
+}
+
+.ethical-ai-viewer-open-tab:hover {
+  text-decoration: underline;
+}
+
 .ethical-ai-pptx-frame {
   position: relative;
   width: 100%;
@@ -346,15 +360,4 @@ details.ethical-ai-transcript summary {
 
 .ethical-ai-transcript-slide {
   margin-top: 12px;
-}
-
-.ethical-ai-deck-toolbar.ethical-ai-deck-toolbar--transcript {
-  position: relative;
-  bottom: auto;
-  left: auto;
-  right: auto;
-  z-index: 1;
-  margin: 12px 0 16px;
-  border-radius: 12px;
-  border-top: 1px solid var(--divider, rgba(0, 0, 0, 0.08));
 }

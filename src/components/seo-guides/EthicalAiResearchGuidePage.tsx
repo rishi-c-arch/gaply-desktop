@@ -70,6 +70,16 @@ function PptxDeckEmbed({ pptxPath }: { pptxPath: string }) {
         >
           Google viewer
         </button>
+        {embedSrc ? (
+          <a
+            className="ethical-ai-viewer-open-tab"
+            href={embedSrc}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open full presentation (new tab)
+          </a>
+        ) : null}
       </div>
       <div className="ethical-ai-pptx-frame">
         {embedSrc ? (
@@ -263,8 +273,9 @@ const EthicalAiResearchGuidePage: React.FC = () => {
         >
           <h2 id="ethical-ai-embed-heading">Slide presentation</h2>
           <p style={{ marginTop: 0, color: 'var(--muted-text)', fontSize: '0.9rem' }}>
-            Embedded PowerPoint. On localhost the embed uses {PRODUCTION_ORIGIN} so it matches production; use
-            &quot;Download&quot; or switch viewer if needed.
+            Your <strong>designed slides</strong> (layout, theme, images) show only in the embedded viewer above—or use
+            &quot;Open full presentation&quot;. The collapsible section at the bottom is plain text for search and
+            accessibility, not a pixel-perfect copy of PowerPoint. On localhost the embed uses {PRODUCTION_ORIGIN}.
           </p>
           <PptxDeckEmbed pptxPath={ETHICAL_AI_PPTX_PATH} />
           <details className="ethical-ai-copy-hint">
@@ -281,7 +292,7 @@ const EthicalAiResearchGuidePage: React.FC = () => {
               Or run this <strong>from any directory</strong> (uses full paths):
             </p>
             <pre className="ethical-ai-copy-hint__cmd">
-              {`node ~/Desktop/GAPLY/gaply-react-frontend/scripts/copy-ethical-ppt-to-public.js "$HOME/Downloads/The Ethical Researcher's Guide to AI (1).pptx"`}
+              {`node ~/Desktop/GAPLY/gaply-react-frontend/scripts/copy-ethical-ppt-to-public.js "$HOME/Desktop/The Ethical Researcher's Guide to AI (2).pptx"`}
             </pre>
             <p style={{ margin: '8px 0 0', fontSize: '0.9rem', lineHeight: 1.65, color: 'var(--section-text)' }}>
               If GAPLY is not on your Desktop, replace <code>~/Desktop/GAPLY</code> with your real folder. That copies the
@@ -326,7 +337,7 @@ const EthicalAiResearchGuidePage: React.FC = () => {
         <details className="ethical-ai-transcript">
           <summary>Full text transcript (all slides — for search &amp; accessibility)</summary>
 
-          <div className="ethical-ai-deck-toolbar ethical-ai-deck-toolbar--transcript" role="toolbar" aria-label="Transcript slide navigation">
+          <div className="ethical-ai-deck-toolbar" role="toolbar" aria-label="Transcript slide navigation">
             <button
               type="button"
               disabled={activeSlide <= 1}
