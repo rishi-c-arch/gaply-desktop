@@ -12,7 +12,7 @@ export const ETHICAL_AI_GUIDE_TOPICS: EthicalAiGuideTopic[] = [
     slug: 'ai-detection-2026',
     label: 'How to remove AI detection from research paper 2026',
     intro:
-      'The slide deck explains why “removing” detection is the wrong frame: focus on transparent use, your own analysis, and institutional rules—not evasion.',
+      'The slide deck explains why “removing” detection is the wrong frame: focus on transparent use, your own analysis, and institutional rules. Evasion is not the goal.',
   },
   {
     slug: 'rewriter-bypass-turnitin',
@@ -30,13 +30,13 @@ export const ETHICAL_AI_GUIDE_TOPICS: EthicalAiGuideTopic[] = [
     slug: 'chatgpt-plagiarism-india',
     label: 'Does ChatGPT text pass university plagiarism checks in India?',
     intro:
-      'Includes a regional section on Turnitin-style checks and Indian universities—accuracy limits, false positives, and the ethics-over-evasion message.',
+      'Includes a regional section on Turnitin-style checks and Indian universities: accuracy limits, false positives, and the ethics-over-evasion message.',
   },
   {
     slug: 'literature-review-flagged',
     label: 'How to use AI for literature review without being flagged',
     intro:
-      'Slides on using AI to discover and organize sources while you read, verify citations, and synthesize in your own words—so integrity stays intact.',
+      'Slides on using AI to discover and organize sources while you read, verify citations, and synthesize in your own words, so integrity stays intact.',
   },
 ];
 

@@ -6,14 +6,17 @@ interface SeoGuideShellProps {
   headline: string;
   subhead: string;
   children: React.ReactNode;
+  /** Match /features typography: tighter subhead, wider column. */
+  variant?: 'default' | 'feature';
 }
 
-const SeoGuideShell: React.FC<SeoGuideShellProps> = ({ headline, subhead, children }) => {
+const SeoGuideShell: React.FC<SeoGuideShellProps> = ({ headline, subhead, children, variant = 'default' }) => {
   const navigate = useNavigate();
+  const feature = variant === 'feature';
 
   return (
     <div
-      className="seo-guide-root"
+      className={`seo-guide-root${feature ? ' seo-guide-root--feature' : ''}`}
       style={{
         minHeight: '100vh',
         background: 'var(--app-bg)',
@@ -97,31 +100,46 @@ const SeoGuideShell: React.FC<SeoGuideShellProps> = ({ headline, subhead, childr
           paddingRight: 'clamp(16px, 4vw, 40px)',
         }}
       >
-        <div style={{ maxWidth: 960, margin: '0 auto' }}>
+        <div className="seo-guide-inner" style={{ maxWidth: feature ? 1200 : 960, margin: '0 auto' }}>
           <header
-            style={{
-              textAlign: 'center',
-              marginBottom: 'clamp(28px, 6vw, 48px)',
-            }}
+            className={feature ? 'seo-guide-feature-header' : undefined}
+            style={
+              feature
+                ? undefined
+                : {
+                    textAlign: 'center',
+                    marginBottom: 'clamp(28px, 6vw, 48px)',
+                  }
+            }
           >
             <h1
-              style={{
-                fontSize: 'clamp(2rem, 5vw, 3.25rem)',
-                fontWeight: 700,
-                marginBottom: '16px',
-                letterSpacing: '-0.02em',
-                lineHeight: 1.15,
-              }}
+              className={feature ? 'seo-guide-feature-header__title' : undefined}
+              style={
+                feature
+                  ? undefined
+                  : {
+                      fontSize: 'clamp(2rem, 5vw, 3.25rem)',
+                      fontWeight: 700,
+                      marginBottom: '16px',
+                      letterSpacing: '-0.02em',
+                      lineHeight: 1.15,
+                    }
+              }
             >
               {headline}
             </h1>
             <p
-              style={{
-                fontSize: 'clamp(1.05rem, 2.5vw, 1.35rem)',
-                color: 'var(--muted-text)',
-                lineHeight: 1.6,
-                margin: 0,
-              }}
+              className={feature ? 'seo-guide-feature-header__sub' : undefined}
+              style={
+                feature
+                  ? undefined
+                  : {
+                      fontSize: 'clamp(1.05rem, 2.5vw, 1.35rem)',
+                      color: 'var(--muted-text)',
+                      lineHeight: 1.6,
+                      margin: 0,
+                    }
+              }
             >
               {subhead}
             </p>

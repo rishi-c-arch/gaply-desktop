@@ -19,6 +19,31 @@ interface SlideRow {
   body: string;
 }
 
+function FeatureDotList({ items }: { items: string[] }) {
+  return (
+    <div className="ethical-ai-feature-dotlist" role="list">
+      {items.map((text) => (
+        <div key={text} className="ethical-ai-feature-dotlist__row" role="listitem">
+          <span className="ethical-ai-feature-dotlist__dot" aria-hidden />
+          <span>{text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const HERO_FEATURE_LINES = [
+  'Same 28-slide deck for every footer link and topic pill (only the URL topic changes).',
+  'Designed slides: flip through the in-page PDF when it is deployed, or download the .pptx.',
+  'The “Text version” section at the bottom is for search and screen readers, not slide layout.',
+];
+
+const PRESENTATION_FEATURE_LINES = [
+  'Use Previous / Next, arrow keys, or swipe when the PDF is on the server.',
+  'Best quality: export the deck from PowerPoint as PDF and deploy it with the site.',
+  'If the PDF is missing, we load Microsoft or Google’s viewer for the .pptx instead.',
+];
+
 const EthicalAiResearchGuidePage: React.FC = () => {
   const slides = deck.slides as SlideRow[];
   const total = slides.length;
@@ -166,10 +191,7 @@ const EthicalAiResearchGuidePage: React.FC = () => {
   );
 
   return (
-    <SeoGuideShell
-      headline={deck.title}
-      subhead={deck.subtitle}
-    >
+    <SeoGuideShell headline={deck.title} subhead={deck.subtitle} variant="feature">
       <div className="ethical-ai-deck-main">
         <nav className="ethical-ai-sticky-jump" aria-label="On this page">
           <a href="#ethical-ai-deck-anchor">Slides</a>
@@ -177,12 +199,18 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           <a href="#ethical-ai-transcript-anchor">Text version</a>
         </nav>
 
-        <section className="seo-guide-card ethical-ai-hero-compact">
-          <p style={{ margin: 0, lineHeight: 1.65 }}>
-            <cite>The Ethical Researcher&apos;s Guide to AI</cite> (2026). Same deck for every search topic below.{' '}
-            {deck.sourceNote}{' '}
-            <Link to="/academic-ai-remover">Academic AI review</Link> ·{' '}
-            <Link to="/journal-matching">Journal matching</Link>.
+        <section className="seo-guide-card ethical-ai-hero-compact ethical-ai-feature-panel">
+          <h2 className="ethical-ai-feature-panel__title">One deck for every search topic</h2>
+          <p className="ethical-ai-feature-panel__sub">{deck.sourceNote}</p>
+          <p className="ethical-ai-feature-panel__desc">
+            Footer links and pills match how people search. The slide presentation is the same each time; only the
+            highlighted topic changes.
+          </p>
+          <FeatureDotList items={HERO_FEATURE_LINES} />
+          <p className="ethical-ai-feature-panel__links">
+            <Link to="/academic-ai-remover">Academic AI review</Link>
+            <span aria-hidden> · </span>
+            <Link to="/journal-matching">Journal matching</Link>
           </p>
         </section>
 
@@ -192,11 +220,15 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           aria-labelledby="ethical-ai-embed-heading"
         >
           <div className="ethical-ai-deck-card__head">
-            <h2 id="ethical-ai-embed-heading">Presentation</h2>
-            <p className="ethical-ai-deck-card__lede">
-              Flip through slides here (PDF). For pixel-perfect PowerPoint editing, download the .pptx. The section
-              &quot;Text version&quot; is plain text for search and screen readers only.
+            <h2 id="ethical-ai-embed-heading" className="ethical-ai-feature-panel__title">
+              Presentation
+            </h2>
+            <p className="ethical-ai-feature-panel__sub">View slides on this page</p>
+            <p className="ethical-ai-feature-panel__desc">
+              When the PDF is live, move through slides with the controls or keyboard. If it is not deployed yet, we
+              load a viewer for the PowerPoint file instead.
             </p>
+            <FeatureDotList items={PRESENTATION_FEATURE_LINES} />
           </div>
           <EthicalAiDeckExperience />
           <details className="ethical-ai-copy-hint">
@@ -268,7 +300,7 @@ const EthicalAiResearchGuidePage: React.FC = () => {
         </div>
 
         <details className="ethical-ai-transcript" id="ethical-ai-transcript-anchor">
-          <summary>Full text transcript (all slides — for search &amp; accessibility)</summary>
+          <summary>Full text transcript (all slides, for search and accessibility)</summary>
 
           <div className="ethical-ai-deck-toolbar" role="toolbar" aria-label="Transcript slide navigation">
             <button
