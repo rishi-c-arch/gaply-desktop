@@ -1,4 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ETHICAL_AI_MODULE_VISUAL_FALLBACK,
+  ETHICAL_AI_MODULE_VISUAL_PRIMARY,
+} from './ethicalAiModuleVisual';
 import { Link, useSearchParams } from 'react-router-dom';
 import './SeoGuidePages.css';
 import EthicalAiGuideShell from './EthicalAiGuideShell';
@@ -38,12 +42,6 @@ const HERO_FEATURE_LINES = [
   'One 28-slide presentation for every topic link; only your highlighted topic changes.',
   'Read the slides on this page, or download the presentation to use offline.',
   'Optional text-only version at the bottom helps accessibility and search.',
-];
-
-const PRESENTATION_FEATURE_LINES = [
-  'Use on-screen controls, arrow keys, or swipe on a phone.',
-  'Download the file anytime if you prefer PowerPoint or Keynote.',
-  'If the inline viewer is slow, try the other tab or open in a new window.',
 ];
 
 const EthicalAiResearchGuidePage: React.FC = () => {
@@ -168,7 +166,7 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           '@type': 'LearningResource',
           '@id': `${PAGE_URL}#learning-resource`,
           name: deck.title,
-          alternateName: 'Botanical Research Series 2026 — ethical AI in academic writing',
+          alternateName: 'Research Series 2026 — ethical AI in academic writing',
           description: `${deck.subtitle} ${deck.sourceNote}`,
           url: PAGE_URL,
           learningResourceType: 'Presentation',
@@ -277,6 +275,8 @@ const EthicalAiResearchGuidePage: React.FC = () => {
 
   const subtitleParts = useMemo(() => deck.subtitle.split('·').map((s) => s.trim()), [deck.subtitle]);
 
+  const [moduleVisualSrc, setModuleVisualSrc] = useState(ETHICAL_AI_MODULE_VISUAL_PRIMARY);
+
   return (
     <EthicalAiGuideShell headline={deck.title} subhead={deck.subtitle}>
       <article className="ethical-ai-deck-main ethical-ai-page-shell">
@@ -303,48 +303,46 @@ const EthicalAiResearchGuidePage: React.FC = () => {
               <Link to="/journal-matching">Journal matching</Link>
             </p>
           </div>
-          <aside className="ethical-ai-bento__accent" aria-label="About this guide">
-            <div className="ethical-ai-bento__accent-mark" aria-hidden>
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" focusable="false">
-                <path d="M12 3L1 9l4 2.18v6L12 21l7-3.82v-6l2-1.09V17h2V9L12 3zm6.82 6L12 12.72 5.18 9 12 5.28 18.82 9zM17 15.99l-5 2.73-5-2.73v-3.72L12 15l5-2.73v3.72z" />
-              </svg>
+          <div
+            id="ethical-ai-deck-anchor"
+            className="ethical-ai-module-panel"
+            aria-labelledby="ethical-ai-module-heading"
+          >
+            <div className="ethical-ai-module-panel__head">
+              <h2 id="ethical-ai-module-heading" className="ethical-ai-module-panel__title">
+                {subtitleParts[2] ?? deck.subtitle}
+              </h2>
             </div>
-            <p className="ethical-ai-bento__accent-lead">{subtitleParts[2] ?? deck.subtitle}</p>
-            <div className="ethical-ai-bento__accent-foot">
-              <span className="ethical-ai-bento__accent-kicker">Series</span>
-              <span className="ethical-ai-bento__accent-tag">
+            <div className="ethical-ai-module-panel__visual" aria-hidden="true">
+              <img
+                className="ethical-ai-module-panel__img"
+                src={moduleVisualSrc}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                onError={() => setModuleVisualSrc(ETHICAL_AI_MODULE_VISUAL_FALLBACK)}
+              />
+              <div className="ethical-ai-module-panel__visual-veil" />
+            </div>
+            <div className="ethical-ai-module-panel__series">
+              <span className="ethical-ai-module-panel__kicker">Series</span>
+              <span className="ethical-ai-module-panel__series-line">
                 {subtitleParts[0]}
                 {subtitleParts[1] ? ` · ${subtitleParts[1]}` : ''}
               </span>
             </div>
-          </aside>
-        </section>
-
-        <section
-          id="ethical-ai-deck-anchor"
-          className="ethical-ai-deck-section seo-guide-card ethical-ai-slide-focus ethical-ai-deck-card"
-          aria-labelledby="ethical-ai-embed-heading"
-        >
-          <div className="ethical-ai-deck-card__head">
-            <p className="ethical-ai-deck-section__eyebrow">Full presentation, in your browser</p>
-            <h2 id="ethical-ai-embed-heading" className="ethical-ai-feature-panel__title">
-              The slides
-            </h2>
-            <p className="ethical-ai-feature-panel__desc">
-              Scroll to the frame below. The deck loads like a normal document; your browser may show a short loading
-              state while it prepares the slides.
-            </p>
-            <FeatureDotList items={PRESENTATION_FEATURE_LINES} />
+            <div className="ethical-ai-module-panel__deck">
+              <EthicalAiDeckExperience />
+            </div>
           </div>
-          <EthicalAiDeckExperience />
         </section>
 
         <section
           id="ethical-ai-topics-anchor"
-          className="ethical-ai-topics-section"
+          className="ethical-ai-topics-section ethical-ai-topics-stack"
           aria-labelledby="ethical-ai-topics-nav-label"
         >
-          <h2 id="ethical-ai-topics-nav-label" className="ethical-ai-sr-heading">
+          <h2 id="ethical-ai-topics-nav-label" className="ethical-ai-topics-landmark-title">
             Topics and summaries
           </h2>
           <nav className="ethical-ai-topic-pills" aria-label="Search topics by question phrase">
@@ -391,7 +389,7 @@ const EthicalAiResearchGuidePage: React.FC = () => {
         </div>
         </section>
 
-        <h2 id="ethical-ai-transcript-heading" className="ethical-ai-sr-heading">
+        <h2 id="ethical-ai-transcript-heading" className="ethical-ai-transcript-landmark-title">
           Full text transcript — all slides
         </h2>
         <details

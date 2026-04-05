@@ -1,4 +1,4 @@
-/* Botanical / editorial shell — scoped to this guide page only */
+/* Research Series / editorial shell — scoped to this guide page only */
 
 .ethical-ai-guide-root {
   --eag-bg: #fcf9f8;
@@ -410,8 +410,8 @@
 
 @media (min-width: 768px) {
   .ethical-ai-guide-root .ethical-ai-bento {
-    grid-template-columns: 1fr minmax(240px, 32%);
-    align-items: stretch;
+    grid-template-columns: 1fr minmax(300px, 46%);
+    align-items: start;
     gap: 22px;
   }
 }
@@ -424,43 +424,40 @@
   padding: clamp(22px, 4vw, 36px) !important;
 }
 
-.ethical-ai-guide-root .ethical-ai-bento__accent {
+/* Module panel: Figma-style frame + embedded deck (PPTX chrome hidden in this panel only) */
+.ethical-ai-module-panel {
   border-radius: 18px;
-  padding: clamp(22px, 3vw, 28px);
+  padding: clamp(18px, 3vw, 26px);
   background: var(--eag-primary-mid);
   color: var(--eag-on-primary);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 20px;
   box-shadow: 0 16px 40px rgba(1, 38, 31, 0.18);
   border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.ethical-ai-bento__accent-mark {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.1);
   display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--eag-secondary-dim);
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 
-.ethical-ai-bento__accent-lead {
+.ethical-ai-module-panel__head {
+  padding: 0 2px;
+}
+
+.ethical-ai-module-panel__title {
+  font-family: Newsreader, Georgia, serif;
+  font-size: clamp(1.1rem, 2.6vw, 1.42rem);
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0 0 14px;
+  color: rgba(255, 255, 255, 0.97);
+}
+
+.ethical-ai-module-panel__series {
   margin: 0;
-  font-size: 0.95rem;
-  line-height: 1.65;
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.ethical-ai-bento__accent-foot {
-  padding-top: 20px;
+  padding: 12px 4px 4px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-.ethical-ai-bento__accent-kicker {
+.ethical-ai-module-panel__kicker {
   display: block;
   font-size: 0.58rem;
   font-weight: 700;
@@ -470,11 +467,65 @@
   margin-bottom: 6px;
 }
 
-.ethical-ai-bento__accent-tag {
+.ethical-ai-module-panel__series-line {
   font-family: Newsreader, Georgia, serif;
   font-style: italic;
-  font-size: 1rem;
+  font-size: 0.98rem;
   color: var(--eag-on-primary-muted);
+}
+
+.ethical-ai-module-panel__visual {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ethical-ai-module-panel__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  filter: saturate(0.92) contrast(1.02);
+}
+
+.ethical-ai-module-panel__visual-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(1, 38, 31, 0.42) 0%, transparent 55%);
+  pointer-events: none;
+}
+
+.ethical-ai-module-panel__deck {
+  background: var(--eag-white);
+  border-radius: 14px;
+  padding: 10px;
+  border: 1px solid rgba(26, 60, 52, 0.1);
+}
+
+.ethical-ai-module-panel__deck .ethical-ai-pptx-fallback-note,
+.ethical-ai-module-panel__deck .ethical-ai-viewer-tabs,
+.ethical-ai-module-panel__deck .ethical-ai-pptx-meta {
+  display: none !important;
+}
+
+.ethical-ai-module-panel__deck .ethical-ai-pptx-wrap {
+  margin-top: 0;
+}
+
+.ethical-ai-module-panel__deck .ethical-ai-pptx-frame {
+  min-height: min(52vh, 560px);
+  aspect-ratio: 16 / 10;
+}
+
+.ethical-ai-module-panel__deck .ethical-ai-deck-skeleton {
+  min-height: min(48vh, 520px);
+}
+
+.ethical-ai-module-panel__deck .ethical-ai-pdf-stage {
+  min-height: min(52vh, 560px);
 }
 
 .ethical-ai-guide-root .ethical-ai-feature-panel__title {
@@ -504,26 +555,47 @@
   font-weight: 600;
 }
 
-/* Deck section */
-.ethical-ai-guide-root .ethical-ai-deck-section {
-  border-radius: 20px !important;
-  border: 1px solid rgba(26, 60, 52, 0.1) !important;
-  box-shadow: 0 20px 50px rgba(1, 38, 31, 0.08) !important;
-  padding: clamp(20px, 3vw, 28px) !important;
-  background: var(--eag-white) !important;
+/* Topics block below module (Figma-style rhythm) */
+.ethical-ai-topics-stack {
+  margin-top: clamp(8px, 2vw, 16px);
+  padding-top: clamp(32px, 5vw, 52px);
+  border-top: 1px solid rgba(26, 60, 52, 0.1);
 }
 
-.ethical-ai-deck-section__eyebrow {
-  margin: 0;
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--eag-text-muted);
+.ethical-ai-topics-landmark-title {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0 0 clamp(18px, 3vw, 26px);
+  padding: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  border: 0;
+  font-family: Newsreader, Georgia, serif;
+  font-size: clamp(1.55rem, 3.4vw, 2.05rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--eag-primary);
+  line-height: 1.2;
 }
 
-.ethical-ai-guide-root .ethical-ai-deck-section .ethical-ai-feature-panel__title {
-  margin-bottom: 4px;
+.ethical-ai-transcript-landmark-title {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: clamp(28px, 4vw, 40px) 0 clamp(12px, 2vw, 18px);
+  padding: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  border: 0;
+  font-family: Newsreader, Georgia, serif;
+  font-size: clamp(1.35rem, 3vw, 1.75rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--eag-primary);
+  line-height: 1.25;
 }
 
 /* Topic pills */

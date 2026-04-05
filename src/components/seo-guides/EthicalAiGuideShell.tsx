@@ -95,7 +95,7 @@ const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, sub
 
       <nav className="eag-topnav" aria-label="Guide">
         <div className="eag-topnav__inner">
-          <span className="eag-topnav__brand">Botanical Research Series</span>
+          <span className="eag-topnav__brand">Research Series</span>
           <button type="button" className="eag-topnav__cta" onClick={() => navigate('/')}>
             Back to Home
           </button>
@@ -139,7 +139,7 @@ const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, sub
         <header className="eag-hero">
           <div className="eag-hero__text">
             <span className="eag-hero__badge">
-              {subParts[0] ?? 'Botanical Research Series'}
+              {subParts[0] ?? 'Research Series'}
               {subParts[1] ? ` · ${subParts[1]}` : ''}
             </span>
             <h1 className="eag-hero__title">{headline}</h1>
