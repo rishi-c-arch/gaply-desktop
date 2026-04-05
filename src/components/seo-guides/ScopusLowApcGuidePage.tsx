@@ -137,7 +137,7 @@ const ScopusLowApcGuidePage: React.FC = () => {
         label: 'Fast publication — India',
       }}
     >
-      <article>
+      <article className="seo-guide-root">
         <section id="scopus-apc-why" className="seo-guide-card">
           <h2>Why “low APC” needs a careful definition</h2>
           <p>

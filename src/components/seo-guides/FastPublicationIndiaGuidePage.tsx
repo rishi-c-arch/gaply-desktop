@@ -144,7 +144,7 @@ const FastPublicationIndiaGuidePage: React.FC = () => {
         label: 'Scopus & APC guide',
       }}
     >
-      <article>
+      <article className="seo-guide-root">
         <section id="fast-india-context" className="seo-guide-card">
           <h2>Context: why “fast publication” shows up in Indian searches</h2>
           <p>

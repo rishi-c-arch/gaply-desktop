@@ -140,11 +140,6 @@
   outline-offset: 2px;
 }
 
-.eag-topnav__theme svg {
-  display: block;
-  flex-shrink: 0;
-}
-
 .eag-topnav__cta {
   flex-shrink: 0;
   padding: 10px 20px;
@@ -504,6 +499,44 @@
   }
 }
 
+/* Related searches (UGC CARE, APC, fast publication, etc.) */
+.eag-seo-ribbon {
+  max-width: min(1120px, 100%);
+  margin: 0 auto clamp(16px, 3vw, 28px);
+  padding: clamp(16px, 3vw, 22px) clamp(18px, 3vw, 24px);
+  background: var(--eag-surface-high);
+  border: 1px solid rgba(26, 60, 52, 0.08);
+  border-radius: 16px;
+}
+
+.eag-seo-ribbon__title {
+  margin: 0 0 12px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--eag-text-muted);
+}
+
+.eag-seo-ribbon__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.eag-seo-ribbon__item {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--eag-text);
+  padding: 10px 12px;
+  background: var(--eag-white);
+  border-radius: 10px;
+  border: 1px solid rgba(26, 60, 52, 0.06);
+}
+
 /* —— Mobile jump nav: hide on desktop where sidebar exists —— */
 @media (min-width: 1024px) {
   .ethical-ai-guide-root .ethical-ai-sticky-jump {
@@ -608,69 +641,6 @@
 
 .ethical-ai-module-panel__deck .ethical-ai-deck-skeleton {
   min-height: min(48vh, 520px);
-}
-
-.ethical-ai-module-panel__deck .ethical-ai-deck-skeleton--labeled {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: min(36vh, 400px);
-}
-
-.ethical-ai-deck-skeleton__label {
-  position: relative;
-  z-index: 1;
-  font-size: 0.92rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--eag-primary-mid);
-}
-
-.ethical-ai-journal-supplement {
-  margin-top: clamp(28px, 4vw, 48px);
-  padding-top: clamp(28px, 4vw, 44px);
-  border-top: 1px solid rgba(26, 60, 52, 0.1);
-  display: flex;
-  flex-direction: column;
-  gap: clamp(18px, 3vw, 26px);
-}
-
-.ethical-ai-journal-supplement__lede {
-  margin: 0 0 1rem;
-  line-height: 1.7;
-  color: var(--eag-text-muted);
-}
-
-.ethical-ai-journal-supplement__phrase-list {
-  margin: 0;
-  padding-left: 1.35rem;
-  line-height: 1.85;
-  color: var(--eag-text);
-}
-
-.ethical-ai-journal-supplement__phrase-list li {
-  margin-bottom: 0.4rem;
-}
-
-.ethical-ai-journal-supplement__more {
-  margin: 1rem 0 0;
-  font-size: 0.95rem;
-  line-height: 1.6;
-  color: var(--eag-text-muted);
-}
-
-.ethical-ai-journal-supplement .seo-guide-card h2 {
-  font-family: Newsreader, Georgia, serif;
-  margin-top: 0;
-  color: var(--eag-primary);
-}
-
-.ethical-ai-journal-supplement--loading {
-  margin-top: clamp(28px, 4vw, 48px);
-  padding: clamp(20px, 3vw, 28px);
-  text-align: center;
-  font-weight: 600;
-  color: var(--eag-text-muted);
 }
 
 .ethical-ai-module-panel__deck .ethical-ai-pdf-stage {
@@ -867,8 +837,8 @@
   color: var(--eag-on-primary);
 }
 
-/* —— Dark mode (class set on root from ThemeContext + useTheme) —— */
-.ethical-ai-guide-root--theme-dark {
+/* —— Dark mode (syncs with html[data-theme] from ThemeContext) —— */
+html[data-theme='dark'] .ethical-ai-guide-root {
   color-scheme: dark;
   --eag-bg: #0a0f0d;
   --eag-surface: #121a17;
@@ -904,94 +874,101 @@
   --accent: #7dd3c0;
 }
 
-.ethical-ai-guide-root--theme-dark .eag-topnav {
+html[data-theme='dark'] .ethical-ai-guide-root .eag-topnav {
   background: rgba(10, 15, 13, 0.94);
   border-bottom-color: rgba(255, 255, 255, 0.07);
   box-shadow: none;
 }
 
-.ethical-ai-guide-root--theme-dark .eag-topnav__brand {
+html[data-theme='dark'] .ethical-ai-guide-root .eag-topnav__brand {
   color: var(--eag-primary);
 }
 
-.ethical-ai-guide-root--theme-dark .eag-topnav__cta,
-.ethical-ai-guide-root--theme-dark .eag-topnav__theme {
+html[data-theme='dark'] .ethical-ai-guide-root .eag-topnav__cta,
+html[data-theme='dark'] .ethical-ai-guide-root .eag-topnav__theme {
   background: var(--eag-surface-high);
   border-color: rgba(255, 255, 255, 0.12);
   color: var(--eag-primary);
 }
 
-.ethical-ai-guide-root--theme-dark .eag-sidebar {
+html[data-theme='dark'] .ethical-ai-guide-root .eag-sidebar {
   background: var(--eag-surface);
   border-right-color: rgba(255, 255, 255, 0.06);
 }
 
-.ethical-ai-guide-root--theme-dark .eag-sidebar__link--active {
+html[data-theme='dark'] .ethical-ai-guide-root .eag-sidebar__link--active {
   background: var(--eag-white);
   color: var(--eag-primary);
 }
 
-.ethical-ai-guide-root--theme-dark .eag-hero__title {
+html[data-theme='dark'] .ethical-ai-guide-root .eag-hero__title {
   color: var(--eag-primary);
 }
 
-.ethical-ai-guide-root--theme-dark .eag-hero__sphere-glow {
+html[data-theme='dark'] .ethical-ai-guide-root .eag-hero__sphere-glow {
   background: radial-gradient(circle, rgba(125, 211, 192, 0.35) 0%, transparent 68%);
 }
 
-.ethical-ai-guide-root--theme-dark .eag-hero__sphere-orbit {
+html[data-theme='dark'] .ethical-ai-guide-root .eag-hero__sphere-orbit {
   box-shadow:
     0 32px 64px rgba(0, 0, 0, 0.55),
     inset -14px -22px 40px rgba(0, 0, 0, 0.35),
     inset 8px 12px 24px rgba(255, 255, 255, 0.06);
 }
 
-.ethical-ai-guide-root--theme-dark .eag-hero__sphere-ball {
+html[data-theme='dark'] .ethical-ai-guide-root .eag-hero__sphere-ball {
   border-color: rgba(255, 255, 255, 0.12);
 }
 
-.ethical-ai-guide-root--theme-dark .ethical-ai-module-panel {
+html[data-theme='dark'] .ethical-ai-guide-root .ethical-ai-module-panel {
   background: linear-gradient(165deg, #1a2e28 0%, #152420 100%);
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-.ethical-ai-guide-root--theme-dark .ethical-ai-module-panel__deck {
+html[data-theme='dark'] .ethical-ai-guide-root .ethical-ai-module-panel__deck {
   background: #0d1311;
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-.ethical-ai-guide-root--theme-dark .ethical-ai-bento__main {
+html[data-theme='dark'] .ethical-ai-guide-root .ethical-ai-bento__main {
   background: var(--eag-surface) !important;
   border-color: rgba(255, 255, 255, 0.08) !important;
 }
 
-.ethical-ai-guide-root--theme-dark .ethical-ai-topics-landmark-title,
-.ethical-ai-guide-root--theme-dark .ethical-ai-transcript-landmark-title,
-.ethical-ai-guide-root--theme-dark .ethical-ai-feature-panel__title,
-.ethical-ai-guide-root--theme-dark .ethical-ai-topic-acc__h {
+html[data-theme='dark'] .ethical-ai-guide-root .ethical-ai-topics-landmark-title,
+html[data-theme='dark'] .ethical-ai-guide-root .ethical-ai-transcript-landmark-title,
+html[data-theme='dark'] .ethical-ai-guide-root .ethical-ai-feature-panel__title,
+html[data-theme='dark'] .ethical-ai-guide-root .ethical-ai-topic-acc__h {
   color: var(--eag-primary);
 }
 
-.ethical-ai-guide-root--theme-dark .ethical-ai-topics-stack {
+html[data-theme='dark'] .ethical-ai-guide-root .ethical-ai-topics-stack {
   border-top-color: rgba(255, 255, 255, 0.1);
 }
 
-.ethical-ai-guide-root--theme-dark .ethical-ai-topic-pill {
+html[data-theme='dark'] .ethical-ai-guide-root .ethical-ai-topic-pill {
   background: var(--eag-white);
   border-color: rgba(255, 255, 255, 0.1);
   color: var(--eag-text);
 }
 
-.ethical-ai-guide-root--theme-dark .ethical-ai-sticky-jump a {
+html[data-theme='dark'] .ethical-ai-guide-root .ethical-ai-sticky-jump a {
   background: var(--eag-white);
   border-color: rgba(255, 255, 255, 0.1);
   color: var(--eag-text);
 }
 
-.ethical-ai-guide-root--theme-dark .ethical-ai-journal-supplement {
-  border-top-color: rgba(255, 255, 255, 0.1);
+html[data-theme='dark'] .ethical-ai-guide-root .eag-seo-ribbon {
+  background: var(--eag-surface-high);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
-.ethical-ai-guide-root--theme-dark .ethical-ai-deck-skeleton__label {
-  color: var(--eag-primary);
+html[data-theme='dark'] .ethical-ai-guide-root .eag-seo-ribbon__title {
+  color: var(--eag-text-muted);
+}
+
+html[data-theme='dark'] .ethical-ai-guide-root .eag-seo-ribbon__item {
+  background: var(--eag-white);
+  color: var(--eag-text);
+  border-color: rgba(255, 255, 255, 0.08);
 }

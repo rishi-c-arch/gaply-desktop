@@ -1,8 +1,12 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useTheme } from '../../contexts/ThemeContext';
 import './GaplyResearchGuideShell.css';
+import { researchSeriesHeroSphereUrl } from './researchSeriesHeroSphereUrl';
 
 const FONT_LINK_ID = 'gaply-research-guide-fonts';
+const HERO_IMG_FALLBACK =
+  'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=900&q=80';
 
 export type ResearchGuideNavItem = { href: string; label: string };
 
@@ -32,6 +36,8 @@ const GaplyResearchGuideShell: React.FC<GaplyResearchGuideShellProps> = ({
   children,
 }) => {
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
+  const [heroSrc, setHeroSrc] = useState(() => researchSeriesHeroSphereUrl());
 
   useEffect(() => {
     if (!document.getElementById(FONT_LINK_ID)) {
@@ -53,9 +59,28 @@ const GaplyResearchGuideShell: React.FC<GaplyResearchGuideShellProps> = ({
       <nav className="grg-topnav" aria-label="Guide">
         <div className="grg-topnav__inner">
           <span className="grg-topnav__brand">Research Series</span>
-          <button type="button" className="grg-topnav__cta" onClick={() => navigate('/')}>
-            Back to Home
-          </button>
+          <div className="grg-topnav__right">
+            <button
+              type="button"
+              className="grg-topnav__theme"
+              onClick={() => toggleTheme()}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            >
+              {theme === 'dark' ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5h2v3h-2V2zm0 19h2v3h-2v-3zM2 11h3v2H2v-2zm17 0h3v2h-3v-2zM4.2 4.9l2.1 2.1-1.4 1.4L2.8 6.3 4.2 4.9zm12.5 12.5 2.1 2.1-1.4 1.4-2.1-2.1 1.4-1.4zm0-14L19.2 5l-1.4 1.4-2.1-2.1L16.7 3.3zm-12.5 12.5L5.6 19l-1.4-1.4 2.1-2.1 1.4 1.4z" />
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <path d="M21 14.5A7.5 7.5 0 0 1 9.5 3 7.5 7.5 0 1 0 21 14.5z" />
+                </svg>
+              )}
+            </button>
+            <button type="button" className="grg-topnav__cta" onClick={() => navigate('/')}>
+              Back to Home
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -99,15 +124,24 @@ const GaplyResearchGuideShell: React.FC<GaplyResearchGuideShellProps> = ({
               <h1 className="grg-hero__title">{headline}</h1>
               <p className="grg-hero__sub">{subhead}</p>
             </div>
-            <div className="grg-hero__visual" aria-hidden="true">
-              <img
-                className="grg-hero__img"
-                src="https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=900&q=80"
-                alt=""
-                loading="lazy"
-                decoding="async"
-              />
-              <div className="grg-hero__veil" />
+            <div className="grg-hero__sphere-col" aria-hidden="true">
+              <div className="grg-hero__sphere-glow" />
+              <div className="grg-hero__sphere-scene">
+                <div className="grg-hero__sphere-orbit">
+                  <div className="grg-hero__sphere-ball">
+                    <img
+                      className="grg-hero__sphere-img"
+                      src={heroSrc}
+                      alt=""
+                      width={640}
+                      height={640}
+                      loading="eager"
+                      decoding="async"
+                      onError={() => setHeroSrc(HERO_IMG_FALLBACK)}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </header>

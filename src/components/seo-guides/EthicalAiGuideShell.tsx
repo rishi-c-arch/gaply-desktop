@@ -1,16 +1,19 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { BookMarked, Moon, Sun } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
-import ethicalAiHeroSphere from '../../assets/guides/ethical-ai-hero-sphere.png';
 import { ETHICAL_AI_PDF_PATH } from './ethicalAiGuideTopics';
+import { researchSeriesHeroSphereUrl } from './researchSeriesHeroSphereUrl';
 import './EthicalAiGuideShell.css';
 
 const FONT_LINK_ID = 'ethical-ai-guide-fonts';
+const HERO_IMG_FALLBACK =
+  'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=900&q=80';
 
 interface EthicalAiGuideShellProps {
   headline: string;
   subhead: string;
+  /** Optional “Related searches” ribbon below the hero (SEO / discoverability). */
+  seoSearchPhrases?: readonly string[];
   children: React.ReactNode;
 }
 
@@ -73,9 +76,15 @@ function IconHelp() {
   );
 }
 
-const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, subhead, children }) => {
+const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({
+  headline,
+  subhead,
+  seoSearchPhrases,
+  children,
+}) => {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
+  const [heroSrc, setHeroSrc] = useState(() => researchSeriesHeroSphereUrl());
 
   useEffect(() => {
     if (!document.getElementById(FONT_LINK_ID)) {
@@ -92,9 +101,7 @@ const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, sub
   const sidebarMeta = subParts[1] ?? subhead;
 
   return (
-    <div
-      className={`ethical-ai-guide-root${theme === 'dark' ? ' ethical-ai-guide-root--theme-dark' : ''}`}
-    >
+    <div className="ethical-ai-guide-root">
       <a href="#ethical-ai-guide-main" className="ethical-ai-guide-skip">
         Skip to guide content
       </a>
@@ -111,9 +118,13 @@ const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, sub
               title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
             >
               {theme === 'dark' ? (
-                <Sun size={20} strokeWidth={2} aria-hidden focusable="false" />
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5h2v3h-2V2zm0 19h2v3h-2v-3zM2 11h3v2H2v-2zm17 0h3v2h-3v-2zM4.2 4.9l2.1 2.1-1.4 1.4L2.8 6.3 4.2 4.9zm12.5 12.5 2.1 2.1-1.4 1.4-2.1-2.1 1.4-1.4zm0-14L19.2 5l-1.4 1.4-2.1-2.1L16.7 3.3zm-12.5 12.5L5.6 19l-1.4-1.4 2.1-2.1 1.4 1.4z" />
+                </svg>
               ) : (
-                <Moon size={20} strokeWidth={2} aria-hidden focusable="false" />
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <path d="M21 14.5A7.5 7.5 0 0 1 9.5 3 7.5 7.5 0 1 0 21 14.5z" />
+                </svg>
               )}
             </button>
             <button type="button" className="eag-topnav__cta" onClick={() => navigate('/')}>
@@ -136,10 +147,6 @@ const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, sub
           <a className="eag-sidebar__link" href="#ethical-ai-topics-anchor">
             <IconTopics />
             <span>Topics</span>
-          </a>
-          <a className="eag-sidebar__link" href="#ethical-ai-journal-discovery-supplement">
-            <BookMarked className="eag-icon" width={22} height={22} aria-hidden strokeWidth={2} />
-            <span>Journal search</span>
           </a>
           <a className="eag-sidebar__link" href="#ethical-ai-transcript-anchor">
             <IconArticle />
@@ -177,18 +184,34 @@ const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, sub
                 <div className="eag-hero__sphere-ball">
                   <img
                     className="eag-hero__sphere-img"
-                    src={ethicalAiHeroSphere}
+                    src={heroSrc}
                     alt=""
                     width={640}
                     height={640}
                     loading="eager"
                     decoding="async"
+                    onError={() => setHeroSrc(HERO_IMG_FALLBACK)}
                   />
                 </div>
               </div>
             </div>
           </div>
         </header>
+
+        {seoSearchPhrases && seoSearchPhrases.length > 0 ? (
+          <section className="eag-seo-ribbon" aria-labelledby="eag-seo-ribbon-h">
+            <h2 id="eag-seo-ribbon-h" className="eag-seo-ribbon__title">
+              Related searches this guide supports
+            </h2>
+            <ul className="eag-seo-ribbon__list">
+              {seoSearchPhrases.map((phrase) => (
+                <li key={phrase} className="eag-seo-ribbon__item">
+                  {phrase}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <div className="eag-main__inner">{children}</div>
       </main>

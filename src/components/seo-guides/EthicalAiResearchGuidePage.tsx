@@ -1,4 +1,4 @@
-import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import './SeoGuidePages.css';
 import EthicalAiGuideShell from './EthicalAiGuideShell';
@@ -8,9 +8,7 @@ import { ETHICAL_AI_GUIDE_TOPICS, ETHICAL_AI_PDF_PATH, ETHICAL_AI_PPTX_PATH } fr
 import deck from '../../data/ethicalAiGuideSlides.json';
 import { GAPLY_GLOBAL_FAQ_MAIN_ENTITIES } from '../../seo/gaplyGlobalFaqMainEntity';
 import { ETHICAL_AI_GUIDE_FAQ_MAIN_ENTITIES } from '../../seo/ethicalAiGuideFaqEntities';
-import { researchGuideKeywordsJoined } from '../../seo/researchGuideSeoPhrases';
-
-const EthicalAiJournalDiscoverySupplement = React.lazy(() => import('./EthicalAiJournalDiscoverySupplement'));
+import { RESEARCH_GUIDE_SEO_PHRASES } from '../../seo/researchGuideSeoPhrases';
 
 const GUIDE_PATH = '/guides/ethical-researcher-guide-ai-academic-writing';
 
@@ -112,10 +110,7 @@ const EthicalAiResearchGuidePage: React.FC = () => {
     const topicUrls = ETHICAL_AI_GUIDE_TOPICS.map(
       (t) => `${PAGE_URL}?topic=${encodeURIComponent(t.slug)}`
     );
-    const keywordsStr = [
-      ...ETHICAL_AI_GUIDE_TOPICS.map((t) => t.label),
-      researchGuideKeywordsJoined(),
-    ].join(', ');
+    const keywordsStr = ETHICAL_AI_GUIDE_TOPICS.map((t) => t.label).join(', ');
     const dateModified = new Date().toISOString().split('T')[0];
     const slideRows = deck.slides as SlideRow[];
     const slideTranscriptList = slideRows.map((s, i) => ({
@@ -218,7 +213,6 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           hasPart: [
             { '@id': `${PAGE_URL}#learning-resource` },
             { '@id': `${PAGE_URL}#topic-list` },
-            { '@id': `${PAGE_URL}#journal-discovery-supplement` },
             { '@id': `${PAGE_URL}#slide-transcript` },
             { '@id': `${PAGE_URL}#faq` },
           ],
@@ -244,13 +238,6 @@ const EthicalAiResearchGuidePage: React.FC = () => {
             'Ordered list matching the on-page transcript sections; each URL is a fragment on this page for crawlers and accessibility.',
           numberOfItems: slideTranscriptList.length,
           itemListElement: slideTranscriptList,
-        },
-        {
-          '@type': 'WebPageElement',
-          '@id': `${PAGE_URL}#journal-discovery-supplement`,
-          name: 'Related searches: journals, APC, UGC CARE, quartiles, predatory journals',
-          url: `${PAGE_URL}#ethical-ai-journal-discovery-supplement`,
-          isPartOf: { '@id': `${PAGE_URL}#webpage` },
         },
         {
           '@type': 'FAQPage',
@@ -286,12 +273,11 @@ const EthicalAiResearchGuidePage: React.FC = () => {
   const subtitleParts = useMemo(() => deck.subtitle.split('·').map((s) => s.trim()), [deck.subtitle]);
 
   return (
-    <EthicalAiGuideShell headline={deck.title} subhead={deck.subtitle}>
+    <EthicalAiGuideShell headline={deck.title} subhead={deck.subtitle} seoSearchPhrases={RESEARCH_GUIDE_SEO_PHRASES}>
       <article className="ethical-ai-deck-main ethical-ai-page-shell">
         <nav className="ethical-ai-sticky-jump" aria-label="On this page">
           <a href="#ethical-ai-deck-anchor">Slides</a>
           <a href="#ethical-ai-topics-anchor">Topics</a>
-          <a href="#ethical-ai-journal-discovery-supplement">Journal search</a>
           <a href="#ethical-ai-transcript-anchor">Text version</a>
         </nav>
 
@@ -386,20 +372,6 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           ))}
         </div>
         </section>
-
-        <Suspense
-          fallback={
-            <div
-              className="ethical-ai-journal-supplement ethical-ai-journal-supplement--loading seo-guide-card"
-              role="status"
-              aria-live="polite"
-            >
-              Loading journal reference section…
-            </div>
-          }
-        >
-          <EthicalAiJournalDiscoverySupplement />
-        </Suspense>
 
         <h2 id="ethical-ai-transcript-heading" className="ethical-ai-transcript-landmark-title">
           Full text transcript — all slides
