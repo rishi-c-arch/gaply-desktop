@@ -1,11 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { authService } from '../services/authService';
 
 interface SignupPageProps {
-  onSignupSuccess: (token: string, user: any) => void;
+  onSignupSuccess: (token: string, user: any, redirect?: string) => void;
   onSwitchToLogin: () => void;
 }
 
@@ -174,6 +175,18 @@ const SignupForm3D: React.FC<{
 };
 
 const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogin }) => {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const postAuthRedirect = searchParams.get('redirect') || undefined;
+
+  const goToLogin = useCallback(() => {
+    if (postAuthRedirect) {
+      navigate(`/login?redirect=${encodeURIComponent(postAuthRedirect)}`);
+      return;
+    }
+    onSwitchToLogin();
+  }, [navigate, postAuthRedirect, onSwitchToLogin]);
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -224,7 +237,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
         localStorage.setItem('authToken', response.data.token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
         localStorage.setItem('user_email', response.data.user.email);
-        onSignupSuccess(response.data.token, response.data.user);
+        onSignupSuccess(response.data.token, response.data.user, postAuthRedirect);
       } else {
         throw new Error(response.error || 'Registration failed');
       }
@@ -579,7 +592,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
                 {error.includes('already exists') && (
                   <button 
                     type="button"
-                    onClick={onSwitchToLogin}
+                    onClick={goToLogin}
                     style={{
                       background: 'transparent',
                       color: 'var(--accent-blue)',
@@ -659,7 +672,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignupSuccess, onSwitchToLogi
               Already have an account?
             </p>
             <button
-              onClick={onSwitchToLogin}
+              onClick={goToLogin}
               style={{
                 background: 'transparent',
                 color: 'var(--accent-blue)',

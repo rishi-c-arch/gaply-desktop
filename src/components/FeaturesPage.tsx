@@ -1,13 +1,24 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import SEO from './SEO';
 
 const FEATURES_PAGE_URL = 'https://www.gaply.in/features';
 
 const FeaturesPage: React.FC = () => {
   const navigate = useNavigate();
+  const { isAuthenticated, isLoading } = useAuth();
   const [activeSection, setActiveSection] = useState<'free' | 'premium'>('free');
   const [hoveredFeature, setHoveredFeature] = useState<string | null>(null);
+
+  /** Premium dashboard routes: send guests straight to login/signup with return URL (no silent bounce). */
+  const openPremiumPath = (path: string) => {
+    if (!isLoading && !isAuthenticated) {
+      navigate(`/login?redirect=${encodeURIComponent(path)}`);
+      return;
+    }
+    navigate(path);
+  };
 
   // Free Features Data
   const freeFeatures = [
@@ -401,14 +412,14 @@ const FeaturesPage: React.FC = () => {
               onMouseEnter={() => setHoveredFeature(feature.id)}
               onMouseLeave={() => setHoveredFeature(null)}
               onClick={() => {
-                if (feature.id === 'publish-ready') navigate('/dashboard/publishready');
-                if (feature.id === 'data-maestro') navigate('/dashboard/datamaestro');
+                if (feature.id === 'publish-ready') openPremiumPath('/dashboard/publishready');
+                if (feature.id === 'data-maestro') openPremiumPath('/dashboard/datamaestro');
                 if (feature.id === 'paper-search') navigate('/paper-search');
                 if (feature.id === 'journal-matching') navigate('/journal-matching');
                 if (feature.id === 'citation-generator') navigate('/citation-generator');
                 if (feature.id === 'conference-finder') navigate('/conferences-india');
-                if (feature.id === 'journal-verification') navigate('/dashboard/journal-verify');
-                if (feature.id === 'research-deep-analysis') navigate('/dashboard/research-deep-analysis');
+                if (feature.id === 'journal-verification') openPremiumPath('/dashboard/journal-verify');
+                if (feature.id === 'research-deep-analysis') openPremiumPath('/dashboard/research-deep-analysis');
               }}
             >
               <meta itemProp="applicationCategory" content="EducationalApplication" />
