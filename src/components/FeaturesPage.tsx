@@ -166,9 +166,9 @@ const FeaturesPage: React.FC = () => {
       case 'research-deep-analysis':
         return 'https://www.gaply.in/dashboard/research-deep-analysis';
       case 'publish-ready':
-        return 'https://www.gaply.in/final-orchestrator';
+        return 'https://www.gaply.in/dashboard/publishready';
       case 'data-maestro':
-        return 'https://www.gaply.in/statistical-research';
+        return 'https://www.gaply.in/dashboard/datamaestro';
       default:
         return FEATURES_PAGE_URL;
     }
@@ -401,8 +401,8 @@ const FeaturesPage: React.FC = () => {
               onMouseEnter={() => setHoveredFeature(feature.id)}
               onMouseLeave={() => setHoveredFeature(null)}
               onClick={() => {
-                if (feature.id === 'publish-ready') navigate('/final-orchestrator');
-                if (feature.id === 'data-maestro') navigate('/statistical-research');
+                if (feature.id === 'publish-ready') navigate('/dashboard/publishready');
+                if (feature.id === 'data-maestro') navigate('/dashboard/datamaestro');
                 if (feature.id === 'paper-search') navigate('/paper-search');
                 if (feature.id === 'journal-matching') navigate('/journal-matching');
                 if (feature.id === 'citation-generator') navigate('/citation-generator');
