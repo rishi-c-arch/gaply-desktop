@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SEO from './SEO';
 
+const FEATURES_PAGE_URL = 'https://www.gaply.in/features';
+
 const FeaturesPage: React.FC = () => {
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState<'free' | 'premium'>('free');
@@ -38,6 +40,38 @@ const FeaturesPage: React.FC = () => {
       ],
       color: 'rgba(255, 149, 0, 0.1)',
       borderColor: 'rgba(255, 149, 0, 0.3)'
+    },
+    {
+      id: 'citation-generator',
+      title: 'Citation Generator',
+      subtitle: 'APA, Vancouver & Harvard · DOI, ISBN & PubMed',
+      description:
+        'APA, Vancouver & Harvard in your browser. DOI, ISBN, PubMed lookup, BibTeX / RIS / JSON converter—saved lists stay on your device.',
+      features: [
+        'APA, Vancouver, and Harvard reference styles in your browser',
+        'Metadata lookup by DOI, ISBN, or PubMed ID',
+        'Convert and export BibTeX, RIS, CSL-JSON, and related formats',
+        'Saved citation lists remain on your device (privacy-first)',
+        'Free core workflows without a paywall for standard use'
+      ],
+      color: 'rgba(10, 132, 255, 0.1)',
+      borderColor: 'rgba(10, 132, 255, 0.3)'
+    },
+    {
+      id: 'conference-finder',
+      title: 'Conference Finder',
+      subtitle: 'Research conferences in India by field and city',
+      description:
+        'Research conferences in India—upcoming and recent events across STEM, medicine, social sciences, and more. Filter by field, search by city or name. Always verify dates on the organizer\'s site.',
+      features: [
+        'Curated academic and research conferences held in India',
+        'STEM, medicine, social sciences, humanities, law, and multidisciplinary tracks',
+        'Filter by subject area and search by city or conference name',
+        'Upcoming and recent events with emphasis on official sources',
+        'Verify every date, venue, and CFP on the organizer’s website'
+      ],
+      color: 'rgba(175, 82, 222, 0.1)',
+      borderColor: 'rgba(175, 82, 222, 0.3)'
     }
   ];
 
@@ -89,6 +123,46 @@ const FeaturesPage: React.FC = () => {
     }
   ];
 
+  const freeFeaturesStructuredData = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'WebPage',
+        '@id': `${FEATURES_PAGE_URL}#webpage`,
+        url: FEATURES_PAGE_URL,
+        name: 'Gaply Features — Academic research tools',
+        description:
+          'Discover Gaply free and premium features: literature search, journal matching, citation generator, India conference finder, PublishReady, and DataMaestro.'
+      },
+      {
+        '@type': 'ItemList',
+        name: 'Gaply free academic research features',
+        description:
+          'Free tools for researchers: paper search, journal matching, citation generator (APA, Vancouver, Harvard), and India conference discovery.',
+        numberOfItems: freeFeatures.length,
+        itemListElement: freeFeatures.map((f, i) => ({
+          '@type': 'ListItem',
+          position: i + 1,
+          item: {
+            '@type': 'WebApplication',
+            name: f.title,
+            description: `${f.subtitle} ${f.description}`,
+            url:
+              f.id === 'paper-search'
+                ? 'https://www.gaply.in/paper-search'
+                : f.id === 'journal-matching'
+                  ? 'https://www.gaply.in/journal-matching'
+                  : f.id === 'citation-generator'
+                    ? 'https://www.gaply.in/citation-generator'
+                    : f.id === 'conference-finder'
+                      ? 'https://www.gaply.in/conferences-india'
+                      : FEATURES_PAGE_URL
+          }
+        }))
+      }
+    ]
+  };
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -97,10 +171,15 @@ const FeaturesPage: React.FC = () => {
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif',
       paddingTop: '80px'
     }}>
-      <SEO 
-        title="Gaply Features - AI Content Detection, Thesis Writing Help & Research Support Tools"
-        description="Explore Gaply's comprehensive academic research features including AI content detection, thesis writing help, journal matching, research paper editing, plagiarism checking, and statistical analysis support for PhD students and researchers."
-        keywords="academic research features, AI content detection tools, thesis writing help, journal matching service, research paper editing, plagiarism checker, statistical analysis help, academic writing tools, research methodology guidance, literature review help, conference paper preparation, dissertation writing assistance, PhD thesis support, academic proofreading, Scopus journal finder"
+      <SEO
+        title="Gaply Features — Paper Search, Journal Matching, Citation Generator & India Conferences"
+        description="Free and premium academic tools: research paper search (arXiv, CrossRef, OpenAlex), AI journal matching, free citation generator with APA Vancouver Harvard and DOI ISBN PubMed lookup plus BibTeX RIS JSON export, and research conferences in India by field and city. Premium: PublishReady and DataMaestro for publication readiness and statistical reporting."
+        keywords="Gaply features, free citation generator APA Vancouver Harvard, DOI citation lookup, PubMed citation, BibTeX converter, RIS to APA, academic references browser, research conferences India, academic conferences India STEM medicine, journal matching tool, research paper search OpenAlex CrossRef, PhD research tools, academic writing India"
+        canonical={FEATURES_PAGE_URL}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(freeFeaturesStructuredData) }}
       />
       {/* Header */}
       <div style={{
@@ -232,20 +311,24 @@ const FeaturesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Features Grid */}
+      {/* Features Grid — semantic articles for SEO; layout unchanged */}
       <div style={{
         padding: '0 clamp(16px, 4vw, 40px) 120px',
         maxWidth: '1200px',
         margin: '0 auto'
       }}>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-          gap: '24px'
-        }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: '24px'
+          }}
+        >
           {(activeSection === 'free' ? freeFeatures : premiumFeatures).map((feature) => (
-            <div
+            <article
               key={feature.id}
+              itemScope
+              itemType="https://schema.org/SoftwareApplication"
               style={{
                 background: 'var(--card-bg)',
                 borderRadius: '16px',
@@ -263,8 +346,12 @@ const FeaturesPage: React.FC = () => {
                 if (feature.id === 'data-maestro') navigate('/statistical-research');
                 if (feature.id === 'paper-search') navigate('/paper-search');
                 if (feature.id === 'journal-matching') navigate('/journal-matching');
+                if (feature.id === 'citation-generator') navigate('/citation-generator');
+                if (feature.id === 'conference-finder') navigate('/conferences-india');
               }}
             >
+              <meta itemProp="applicationCategory" content="EducationalApplication" />
+              <meta itemProp="operatingSystem" content="Web" />
               {/* Title */}
               <h3 style={{
                 fontSize: '20px',
@@ -274,7 +361,7 @@ const FeaturesPage: React.FC = () => {
                 letterSpacing: '-0.01em',
                 lineHeight: '1.3'
               }}>
-                {feature.title}
+                <span itemProp="name">{feature.title}</span>
               </h3>
 
               {/* Subtitle */}
@@ -285,7 +372,7 @@ const FeaturesPage: React.FC = () => {
                 fontWeight: '400',
                 lineHeight: '1.4'
               }}>
-                {feature.subtitle}
+                <span itemProp="alternateName">{feature.subtitle}</span>
               </p>
 
               {/* Description */}
@@ -295,7 +382,7 @@ const FeaturesPage: React.FC = () => {
                 marginBottom: '20px',
                 lineHeight: '1.5'
               }}>
-                {feature.description}
+                <span itemProp="description">{feature.description}</span>
               </p>
 
               {/* Features List */}
@@ -348,7 +435,7 @@ const FeaturesPage: React.FC = () => {
                 pointerEvents: 'none',
                 borderRadius: '16px'
               }} />
-            </div>
+            </article>
           ))}
         </div>
       </div>
