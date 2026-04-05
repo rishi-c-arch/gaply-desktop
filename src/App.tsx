@@ -56,6 +56,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { GAPLY_GLOBAL_FAQ_MAIN_ENTITIES } from './seo/gaplyGlobalFaqMainEntity';
 import { pathnameUsesOwnFaqJsonLd } from './seo/guidePathsWithOwnFaqJsonLd';
+import { researchGuideKeywordsJoined } from './seo/researchGuideSeoPhrases';
 
 const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
 const ScopusLowApcGuidePage = React.lazy(() => import('./components/seo-guides/ScopusLowApcGuidePage'));
@@ -681,7 +682,7 @@ const AppContent: React.FC = () => {
               <SEOHead
                 title="Scopus indexed journals with low APC (Article Processing Charge) — verification guide | Gaply"
                 description="How to compare Article Processing Charges for Scopus-indexed journals, avoid misleading fee claims, and use our reference directory with official journal links. Always confirm APC on the publisher site."
-                keywords="Scopus indexed journals low APC, article processing charge Scopus, low APC open access journals, hybrid journal APC, Scopus journal fees, verify APC journal, PhD publication cost India, Gaply"
+                keywords={`Scopus indexed journals low APC, article processing charge Scopus, low APC open access journals, hybrid journal APC, Scopus journal fees, verify APC journal, PhD publication cost India, Gaply, ${researchGuideKeywordsJoined()}`}
               />
               <Suspense fallback={<div className="App" style={{ minHeight: '50vh', padding: '2rem', textAlign: 'center' }}>Loading…</div>}>
                 <ScopusLowApcGuidePage />
@@ -693,7 +694,7 @@ const AppContent: React.FC = () => {
               <SEOHead
                 title="Fast publication Scopus journals for researchers in India (by subject) | Gaply"
                 description="Planning PhD or PG thesis timelines in India? Educational guide to realistic peer-review windows, predatory journal avoidance, and a reference list of Scopus-style titles with shorter stated review times—verify every detail officially."
-                keywords="fast publication journals India, quick publication Scopus journals, fast track journals India PhD, engineering fast publication journal India, medical journal fast publication India, Scopus journal review time, thesis deadline journal, Gaply"
+                keywords={`fast publication journals India, quick publication Scopus journals, fast track journals India PhD, engineering fast publication journal India, medical journal fast publication India, Scopus journal review time, thesis deadline journal, Gaply, ${researchGuideKeywordsJoined()}`}
               />
               <Suspense fallback={<div className="App" style={{ minHeight: '50vh', padding: '2rem', textAlign: 'center' }}>Loading…</div>}>
                 <FastPublicationIndiaGuidePage />

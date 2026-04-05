@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import SeoGuideShell from './SeoGuideShell';
+import './SeoGuidePages.css';
+import GaplyResearchGuideShell from './GaplyResearchGuideShell';
 import JournalDirectorySection from './JournalDirectorySection';
 import { publisherOftenEmphasizesOA, type ScopusJournal } from './scopusGuideHelpers';
 import scopusDirectory from '../../data/scopusDirectory.json';
+import { RESEARCH_GUIDE_SEO_PHRASES, researchGuideKeywordsJoined } from '../../seo/researchGuideSeoPhrases';
 
 const PAGE_URL = 'https://www.gaply.in/guides/scopus-indexed-journals-low-apc';
 const LD_ID = 'ld-json-scopus-low-apc-guide';
@@ -17,9 +19,23 @@ const ScopusLowApcGuidePage: React.FC = () => {
   );
 
   useEffect(() => {
+    const keywords = researchGuideKeywordsJoined();
     const faqLd = {
       '@context': 'https://schema.org',
       '@graph': [
+        {
+          '@type': 'BreadcrumbList',
+          '@id': `${PAGE_URL}#breadcrumb`,
+          itemListElement: [
+            { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.gaply.in/' },
+            {
+              '@type': 'ListItem',
+              position: 2,
+              name: 'Scopus journals and APC guide',
+              item: PAGE_URL,
+            },
+          ],
+        },
         {
           '@type': 'WebPage',
           '@id': `${PAGE_URL}#webpage`,
@@ -27,11 +43,14 @@ const ScopusLowApcGuidePage: React.FC = () => {
           name: 'Scopus-indexed journals and Article Processing Charges (APC): how to find lower-fee options',
           description:
             'Educational guide for researchers: Scopus indexing, hybrid vs open access, APC verification, and a reference directory of journal titles with official links.',
+          keywords,
+          inLanguage: 'en',
           isPartOf: { '@type': 'WebSite', name: 'Gaply', url: 'https://www.gaply.in' },
         },
         {
           '@type': 'FAQPage',
           '@id': `${PAGE_URL}#faq`,
+          url: PAGE_URL,
           mainEntity: [
             {
               '@type': 'Question',
@@ -57,6 +76,30 @@ const ScopusLowApcGuidePage: React.FC = () => {
                 text: 'No. It is a static reference list compiled for educational navigation. Indexing status, timelines, and fees must be verified with Scopus and the publisher at the time you submit.',
               },
             },
+            {
+              '@type': 'Question',
+              name: 'Where can I find the latest UGC CARE List Group I and II PDF for 2026?',
+              acceptedAnswer: {
+                '@type': 'Answer',
+                text: 'The University Grants Commission (India) publishes official CARE lists and updates on its website. Download the current PDF from the UGC directly and verify each journal against the live list. This Gaply guide does not host government PDFs.',
+              },
+            },
+            {
+              '@type': 'Question',
+              name: 'How does journal quartile analysis (Q1 vs Q2) relate to PhD thesis submission?',
+              acceptedAnswer: {
+                '@type': 'Answer',
+                text: 'Quartiles summarize citation-based groupings and depend on the database and subject category. Universities set their own acceptable journal tiers for theses. Follow your institution’s doctoral regulations and verify outlets in official databases rather than informal lists alone.',
+              },
+            },
+            {
+              '@type': 'Question',
+              name: 'How can UGC guidelines help identify predatory journals?',
+              acceptedAnswer: {
+                '@type': 'Answer',
+                text: 'UGC and university notices warn against deceptive publishers. Treat unrealistic fast-publication guarantees, opaque peer review, and unverifiable indexing claims as red flags. Always confirm Scopus status and publisher legitimacy on official sites before you submit or pay fees.',
+              },
+            },
           ],
         },
       ],
@@ -73,48 +116,64 @@ const ScopusLowApcGuidePage: React.FC = () => {
     };
   }, []);
 
+  const sidebarNav = [
+    { href: '#scopus-apc-why', label: 'Why “low APC”' },
+    { href: '#scopus-apc-smarter', label: 'Lower-cost routes' },
+    { href: '#scopus-apc-oa-list', label: 'OA emphasis list' },
+    { href: '#full-apc-dir-h', label: 'Full directory' },
+  ];
+
   return (
-    <SeoGuideShell
+    <GaplyResearchGuideShell
+      heroBadge="Verification-first · APC directory"
       headline="Scopus-indexed journals and lower Article Processing Charges (APC)"
       subhead="A practical, verification-first guide for researchers—plus a reference directory with official journal links."
+      sidebarTitle="Scopus & APC guide"
+      sidebarMeta="Reference directory · verify on publisher sites"
+      sidebarNav={sidebarNav}
+      seoSearchPhrases={RESEARCH_GUIDE_SEO_PHRASES}
+      siblingGuide={{
+        to: '/guides/fast-publication-scopus-journals-india',
+        label: 'Fast publication — India',
+      }}
     >
       <article>
-        <section className="seo-guide-card">
+        <section id="scopus-apc-why" className="seo-guide-card">
           <h2>Why “low APC” needs a careful definition</h2>
           <p>
             Researchers often search for <strong>Scopus indexed journals with low APC</strong> when planning
-            open-access publication. Scopus itself does not set fees; publishers and individual journals do,
-            and those numbers change with policies, waivers, and hybrid (subscription + optional OA) models.
+            open-access publication. Scopus itself does not set fees; publishers and individual journals do, and those
+            numbers change with policies, waivers, and hybrid (subscription + optional OA) models.
           </p>
           <p>
-            This page does <strong>not</strong> claim specific dollar amounts for any title. Use the official
-            journal site for APC, hybrid options, and any institutional discounts. Treat any static list—including
-            ours—as a <strong>navigation aid</strong>, not a fee quote.
+            This page does <strong>not</strong> claim specific dollar amounts for any title. Use the official journal
+            site for APC, hybrid options, and any institutional discounts. Treat any static list—including ours—as a{' '}
+            <strong>navigation aid</strong>, not a fee quote.
           </p>
         </section>
 
-        <section className="seo-guide-card">
+        <section id="scopus-apc-smarter" className="seo-guide-card">
           <h2>Smarter ways to narrow lower-cost or transparent APC routes</h2>
           <ul>
             <li>
-              <strong>Confirm OA model:</strong> fully OA, hybrid, or subscription-only—each affects whether you
-              pay an APC at all.
+              <strong>Confirm OA model:</strong> fully OA, hybrid, or subscription-only—each affects whether you pay an
+              APC at all.
             </li>
             <li>
-              <strong>Check waivers:</strong> many publishers list waivers or discounts for authors in certain
-              countries or with documented need.
+              <strong>Check waivers:</strong> many publishers list waivers or discounts for authors in certain countries
+              or with documented need.
             </li>
             <li>
-              <strong>Compare society vs commercial brands:</strong> society journals sometimes offer different
-              pricing or bundled membership benefits.
+              <strong>Compare society vs commercial brands:</strong> society journals sometimes offer different pricing or
+              bundled membership benefits.
             </li>
             <li>
-              <strong>Institutional agreements:</strong> your library may have transformative or OA agreements
-              that reduce net author cost.
+              <strong>Institutional agreements:</strong> your library may have transformative or OA agreements that reduce
+              net author cost.
             </li>
             <li>
-              <strong>Stay alert for predatory offers:</strong> unrealistically fast guarantees or unclear indexing
-              claims are red flags—always cross-check Scopus and the publisher.
+              <strong>Stay alert for predatory offers:</strong> unrealistically fast guarantees or unclear indexing claims
+              are red flags—always cross-check Scopus and the publisher.
             </li>
           </ul>
           <p style={{ marginBottom: 0 }}>
@@ -123,12 +182,12 @@ const ScopusLowApcGuidePage: React.FC = () => {
           </p>
         </section>
 
-        <section className="seo-guide-card">
+        <section id="scopus-apc-oa-list" className="seo-guide-card">
           <h2>Reference titles: publishers that often publish APC details prominently</h2>
           <p>
             The subset below is drawn from the same reference directory and only flags{' '}
-            <strong>publishers that commonly operate fully OA journals or clearly documented APC pages</strong>. It
-            is <strong>not</strong> a ranking by fee and <strong>not</strong> financial advice—always confirm on the
+            <strong>publishers that commonly operate fully OA journals or clearly documented APC pages</strong>. It is{' '}
+            <strong>not</strong> a ranking by fee and <strong>not</strong> financial advice—always confirm on the
             official site.
           </p>
           <ul className="seo-guide-oalist">
@@ -163,7 +222,7 @@ const ScopusLowApcGuidePage: React.FC = () => {
           }
         />
       </article>
-    </SeoGuideShell>
+    </GaplyResearchGuideShell>
   );
 };
 
