@@ -1,9 +1,11 @@
 import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useTheme } from '../../contexts/ThemeContext';
 import { ETHICAL_AI_PDF_PATH } from './ethicalAiGuideTopics';
 import './EthicalAiGuideShell.css';
 
 const FONT_LINK_ID = 'ethical-ai-guide-fonts';
+const ETHICAL_HERO_SPHERE_SRC = `${process.env.PUBLIC_URL}/guides/ethical-ai-hero-sphere.png`;
 
 interface EthicalAiGuideShellProps {
   headline: string;
@@ -72,6 +74,7 @@ function IconHelp() {
 
 const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, subhead, children }) => {
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     if (!document.getElementById(FONT_LINK_ID)) {
@@ -96,9 +99,28 @@ const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, sub
       <nav className="eag-topnav" aria-label="Guide">
         <div className="eag-topnav__inner">
           <span className="eag-topnav__brand">Research Series</span>
-          <button type="button" className="eag-topnav__cta" onClick={() => navigate('/')}>
-            Back to Home
-          </button>
+          <div className="eag-topnav__right">
+            <button
+              type="button"
+              className="eag-topnav__theme"
+              onClick={() => toggleTheme()}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            >
+              {theme === 'dark' ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5h2v3h-2V2zm0 19h2v3h-2v-3zM2 11h3v2H2v-2zm17 0h3v2h-3v-2zM4.2 4.9l2.1 2.1-1.4 1.4L2.8 6.3 4.2 4.9zm12.5 12.5 2.1 2.1-1.4 1.4-2.1-2.1 1.4-1.4zm0-14L19.2 5l-1.4 1.4-2.1-2.1L16.7 3.3zm-12.5 12.5L5.6 19l-1.4-1.4 2.1-2.1 1.4 1.4z" />
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <path d="M21 14.5A7.5 7.5 0 0 1 9.5 3 7.5 7.5 0 1 0 21 14.5z" />
+                </svg>
+              )}
+            </button>
+            <button type="button" className="eag-topnav__cta" onClick={() => navigate('/')}>
+              Back to Home
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -145,15 +167,23 @@ const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, sub
             <h1 className="eag-hero__title">{headline}</h1>
             <p className="eag-hero__sub">{subhead}</p>
           </div>
-          <div className="eag-hero__visual" aria-hidden="true">
-            <img
-              className="eag-hero__img"
-              src="https://images.unsplash.com/photo-1598511728269-cb1d0cacfba4?auto=format&fit=crop&w=900&q=80"
-              alt=""
-              loading="lazy"
-              decoding="async"
-            />
-            <div className="eag-hero__veil" />
+          <div className="eag-hero__sphere-col" aria-hidden="true">
+            <div className="eag-hero__sphere-glow" />
+            <div className="eag-hero__sphere-scene">
+              <div className="eag-hero__sphere-orbit">
+                <div className="eag-hero__sphere-ball">
+                  <img
+                    className="eag-hero__sphere-img"
+                    src={ETHICAL_HERO_SPHERE_SRC}
+                    alt=""
+                    width={640}
+                    height={640}
+                    loading="eager"
+                    decoding="async"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </header>
 

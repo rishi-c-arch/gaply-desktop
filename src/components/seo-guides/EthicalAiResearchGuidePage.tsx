@@ -1,8 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ETHICAL_AI_MODULE_VISUAL_FALLBACK,
-  ETHICAL_AI_MODULE_VISUAL_PRIMARY,
-} from './ethicalAiModuleVisual';
 import { Link, useSearchParams } from 'react-router-dom';
 import './SeoGuidePages.css';
 import EthicalAiGuideShell from './EthicalAiGuideShell';
@@ -275,8 +271,6 @@ const EthicalAiResearchGuidePage: React.FC = () => {
 
   const subtitleParts = useMemo(() => deck.subtitle.split('·').map((s) => s.trim()), [deck.subtitle]);
 
-  const [moduleVisualSrc, setModuleVisualSrc] = useState(ETHICAL_AI_MODULE_VISUAL_PRIMARY);
-
   return (
     <EthicalAiGuideShell headline={deck.title} subhead={deck.subtitle}>
       <article className="ethical-ai-deck-main ethical-ai-page-shell">
@@ -312,17 +306,6 @@ const EthicalAiResearchGuidePage: React.FC = () => {
               <h2 id="ethical-ai-module-heading" className="ethical-ai-module-panel__title">
                 {subtitleParts[2] ?? deck.subtitle}
               </h2>
-            </div>
-            <div className="ethical-ai-module-panel__visual" aria-hidden="true">
-              <img
-                className="ethical-ai-module-panel__img"
-                src={moduleVisualSrc}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                onError={() => setModuleVisualSrc(ETHICAL_AI_MODULE_VISUAL_FALLBACK)}
-              />
-              <div className="ethical-ai-module-panel__visual-veil" />
             </div>
             <div className="ethical-ai-module-panel__series">
               <span className="ethical-ai-module-panel__kicker">Series</span>
