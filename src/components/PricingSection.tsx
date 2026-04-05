@@ -40,24 +40,6 @@ const PricingSection: React.FC = () => {
       note: "Credits never expire. Use them anytime."
     },
     {
-      id: "premium-4999",
-      name: "Gaply Premium",
-      price: "₹4,999",
-      description: "PublishReady + DataMaestro bundled access with priority-quality outputs.",
-      features: [
-        "PublishReady (2 uses)",
-        "DataMaestro (1 use)",
-        "Unlimited chat with Gaply.AI in both features",
-        "Priority evaluation queue",
-        "Valid for 365 days"
-      ],
-      buttonText: "Get Gaply Premium",
-      popular: false,
-      color: "var(--card-bg)",
-      ctaVariant: "solid" as const,
-      ctaHref: "/login"
-    },
-    {
       id: "enterprise",
       name: "Gaply Enterprise",
       price: "Quotation basis",
