@@ -45,17 +45,27 @@ const EthicalAiDeckExperience: React.FC = () => {
     };
   }, [urls?.pdfUrl]);
 
+  const skeleton = (
+    <div
+      className="ethical-ai-deck-skeleton ethical-ai-deck-skeleton--labeled"
+      aria-busy="true"
+      role="status"
+    >
+      <span className="ethical-ai-deck-skeleton__label">Loading slides…</span>
+    </div>
+  );
+
   if (!urls) {
-    return <div className="ethical-ai-deck-skeleton" aria-busy="true" />;
+    return skeleton;
   }
 
   if (mode === 'checking') {
-    return <div className="ethical-ai-deck-skeleton" aria-busy="true" />;
+    return skeleton;
   }
 
   if (mode === 'pdf') {
     return (
-      <Suspense fallback={<div className="ethical-ai-deck-skeleton" aria-busy="true" />}>
+      <Suspense fallback={skeleton}>
         <EthicalAiPdfDeck fileUrl={urls.pdfUrl} onUnavailable={() => setMode('pptx')} />
       </Suspense>
     );

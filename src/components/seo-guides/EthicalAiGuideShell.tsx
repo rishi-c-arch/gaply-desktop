@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { BookMarked, Moon, Sun } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
+import ethicalAiHeroSphere from '../../assets/guides/ethical-ai-hero-sphere.png';
 import { ETHICAL_AI_PDF_PATH } from './ethicalAiGuideTopics';
 import './EthicalAiGuideShell.css';
 
 const FONT_LINK_ID = 'ethical-ai-guide-fonts';
-const ETHICAL_HERO_SPHERE_SRC = `${process.env.PUBLIC_URL}/guides/ethical-ai-hero-sphere.png`;
 
 interface EthicalAiGuideShellProps {
   headline: string;
@@ -91,7 +92,9 @@ const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, sub
   const sidebarMeta = subParts[1] ?? subhead;
 
   return (
-    <div className="ethical-ai-guide-root">
+    <div
+      className={`ethical-ai-guide-root${theme === 'dark' ? ' ethical-ai-guide-root--theme-dark' : ''}`}
+    >
       <a href="#ethical-ai-guide-main" className="ethical-ai-guide-skip">
         Skip to guide content
       </a>
@@ -108,13 +111,9 @@ const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, sub
               title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
             >
               {theme === 'dark' ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                  <path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5h2v3h-2V2zm0 19h2v3h-2v-3zM2 11h3v2H2v-2zm17 0h3v2h-3v-2zM4.2 4.9l2.1 2.1-1.4 1.4L2.8 6.3 4.2 4.9zm12.5 12.5 2.1 2.1-1.4 1.4-2.1-2.1 1.4-1.4zm0-14L19.2 5l-1.4 1.4-2.1-2.1L16.7 3.3zm-12.5 12.5L5.6 19l-1.4-1.4 2.1-2.1 1.4 1.4z" />
-                </svg>
+                <Sun size={20} strokeWidth={2} aria-hidden focusable="false" />
               ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                  <path d="M21 14.5A7.5 7.5 0 0 1 9.5 3 7.5 7.5 0 1 0 21 14.5z" />
-                </svg>
+                <Moon size={20} strokeWidth={2} aria-hidden focusable="false" />
               )}
             </button>
             <button type="button" className="eag-topnav__cta" onClick={() => navigate('/')}>
@@ -137,6 +136,10 @@ const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, sub
           <a className="eag-sidebar__link" href="#ethical-ai-topics-anchor">
             <IconTopics />
             <span>Topics</span>
+          </a>
+          <a className="eag-sidebar__link" href="#ethical-ai-journal-discovery-supplement">
+            <BookMarked className="eag-icon" width={22} height={22} aria-hidden strokeWidth={2} />
+            <span>Journal search</span>
           </a>
           <a className="eag-sidebar__link" href="#ethical-ai-transcript-anchor">
             <IconArticle />
@@ -174,7 +177,7 @@ const EthicalAiGuideShell: React.FC<EthicalAiGuideShellProps> = ({ headline, sub
                 <div className="eag-hero__sphere-ball">
                   <img
                     className="eag-hero__sphere-img"
-                    src={ETHICAL_HERO_SPHERE_SRC}
+                    src={ethicalAiHeroSphere}
                     alt=""
                     width={640}
                     height={640}
