@@ -149,12 +149,15 @@
   line-height: 1.5;
 }
 
-strong {
+/* Scoped — global strong/em here broke light pages (e.g. SEO guides: white on white). */
+.md-content strong,
+.md-paragraph strong {
   font-weight: 600;
   color: #ffffff;
 }
 
-em {
+.md-content em,
+.md-paragraph em {
   font-style: italic;
   color: rgba(255, 255, 255, 0.9);
 }

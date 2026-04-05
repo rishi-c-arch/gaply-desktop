@@ -33,38 +33,24 @@ const JournalDirectorySection: React.FC<JournalDirectorySectionProps> = ({
             </h2>
             <p className="grg-ref-hub__kicker">Categorization of {journals.length} verified titles</p>
           </header>
-          <div className="grg-ref-hub__grid">
-            {(() => {
-              const [featName, featMap] = grouped[0];
-              const featN = countTitlesInCategory(featMap);
-              const featAnchor = `${sectionIdPrefix}-${slugifySegment(featName)}`;
-              const minis = grouped.slice(1, 5);
+          <nav className="grg-ref-hub__all-grid" aria-label="Browse subjects">
+            {grouped.map(([cat, sm]) => {
+              const n = countTitlesInCategory(sm);
+              const catAnchor = `${sectionIdPrefix}-${slugifySegment(cat)}`;
               return (
-                <>
-                  <a className="grg-ref-hub__featured" href={`#${featAnchor}`}>
-                    <span className="grg-ref-hub__featured-name">{featName}</span>
-                    <span className="grg-ref-hub__featured-desc">
-                      Verified titles grouped by subcategory below—always confirm APC, indexing, and timelines on each
-                      official journal site.
-                    </span>
-                    <span className="grg-ref-hub__featured-count" aria-hidden>
-                      {featN}
-                    </span>
-                    <span className="grg-ref-hub__featured-cta">Explore category</span>
-                  </a>
-                  <div className="grg-ref-hub__minis">
-                    {minis.map(([cat, sm]) => (
-                      <a key={cat} className="grg-ref-hub__mini" href={`#${sectionIdPrefix}-${slugifySegment(cat)}`}>
-                        <span className="grg-ref-hub__mini-name">{cat}</span>
-                        <span className="grg-ref-hub__mini-n">{countTitlesInCategory(sm)} journals</span>
-                      </a>
-                    ))}
-                  </div>
-                </>
+                <a key={cat} className="grg-ref-hub__cat-tile" href={`#${catAnchor}`}>
+                  <span className="grg-ref-hub__cat-tile-name">{cat}</span>
+                  <span className="grg-ref-hub__cat-tile-n">
+                    {n} {n === 1 ? 'title' : 'titles'}
+                  </span>
+                </a>
               );
-            })()}
-          </div>
-          <p className="grg-ref-hub__footnote">Use the accordions below for the complete list and outbound links.</p>
+            })}
+          </nav>
+          <p className="grg-ref-hub__footnote">
+            Open a subject below for subcategories, ISSNs, and official journal links—always verify live on the
+            publisher site.
+          </p>
         </div>
       ) : null}
 
