@@ -68,7 +68,7 @@ const FeaturesPage: React.FC = () => {
         'STEM, medicine, social sciences, humanities, law, and multidisciplinary tracks',
         'Filter by subject area and search by city or conference name',
         'Upcoming and recent events with emphasis on official sources',
-        'Verify every date, venue, and CFP on the organizer’s website'
+        "Verify every date, venue, and CFP on the organizer's website"
       ],
       color: 'rgba(175, 82, 222, 0.1)',
       borderColor: 'rgba(175, 82, 222, 0.3)'
