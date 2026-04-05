@@ -78,23 +78,55 @@ const FeaturesPage: React.FC = () => {
   // Premium Features Data
   const premiumFeatures = [
     {
+      id: 'journal-verification',
+      title: 'Journal Verification',
+      subtitle: 'Know if your target journal is real or risky before you submit',
+      description:
+        'Verify the journal you are targeting for publication against legitimacy signals—indexing claims, publisher patterns, and predatory red flags—so you can decide with confidence (always confirm on official sites).',
+      features: [
+        'Structured checks to distinguish credible journals from misleading or predatory offers',
+        'Ideal before paying APCs, agreeing to fast-track claims, or committing your manuscript',
+        'Built for funded labs, unfunded scholars, and individual PhD researchers alike',
+        'Chat with Gaply to interpret results and plan your next verification step',
+        'Optional audio overview of key checks (English and Hindi)',
+        'Complements Gaply journal matching: verify the exact title you intend to submit to',
+        'Export-friendly notes you can share with supervisors or committees'
+      ],
+      color: 'rgba(255, 179, 64, 0.12)',
+      borderColor: 'rgba(255, 179, 64, 0.35)'
+    },
+    {
+      id: 'research-deep-analysis',
+      title: 'Research Deep Analysis',
+      subtitle: 'Research gaps, problem statements, and viable directions',
+      description:
+        'Surface research gaps you can pursue as a funded, unfunded, or solo researcher—with a clear problem statement, articulated gap, plausible working title, and methodology direction you can refine with Gaply.',
+      features: [
+        'Gap-led framing for non-funded, funded, and independent researchers',
+        'Structured outputs: problem statement, research gap, and expected contribution',
+        'Suggested working title and methodology direction aligned to your domain',
+        'Chat with Gaply to stress-test scope, novelty, and feasibility',
+        'Audio story walkthrough of the analysis (English and Hindi)',
+        'Use early in a thesis, grant, or paper planning cycle',
+        'Iterative refinement: tighten claims before you invest in data collection'
+      ],
+      color: 'rgba(94, 92, 230, 0.12)',
+      borderColor: 'rgba(94, 92, 230, 0.35)'
+    },
+    {
       id: 'publish-ready',
       title: 'PublishReady',
-      subtitle: 'Journal-fit evaluation in minutes',
-      description: 'Plain-language checks that compare your manuscript to journal rules and return a publication-likelihood score with prioritized fixes.',
+      subtitle: 'Refine. Optimize. Succeed.',
+      description:
+        'The definitive algorithmic companion for manuscript perfection: align your draft with your target journal, see how publication-ready you are, and fix issues with prioritized guidance—plus Chat with Gaply and audio summaries in English and Hindi.',
       features: [
-        'Clear, trustable, instant evaluation from journal guidelines + DOI/CrossRef checks',
-        'Upload manuscript (PDF/DOCX/TXT) + paste journal guideline link',
-        'Compliance checks: structure, word limits, section order, figure/table rules',
-        'Reference validation and formatting (APA/IEEE/etc.)',
-        'Formatting + submission checklist with pass/fail items',
-        'Plagiarism & similarity signals with exact-match highlights',
-        'AI-use detection signal with transparent rationale',
-        'Novelty estimate vs. similar papers',
-        'Line-by-line edits with rewrite suggestions',
-        'Annotated report + shareable PDF',
-        'Interactive chat for clarifications, examples, and step-by-step fixes',
-        '3 steps: choose journal -> upload manuscript -> review & fix'
+        'Manuscript vs journal expectations: structure, limits, figures, tables, and references',
+        'Signals for publication fit and what to fix first (guidelines + integrity checks)',
+        'Similarity and AI-use insights with transparent, reviewer-friendly context',
+        'Chat with Gaply for clarifications, rewrites, and submission strategy',
+        'Audio story of your evaluation report (English and Hindi)',
+        'Annotated outputs you can share with co-authors or mentors',
+        'Three-step flow: pick journal, upload manuscript, review and refine'
       ],
       color: 'rgba(90, 200, 250, 0.1)',
       borderColor: 'rgba(90, 200, 250, 0.3)'
@@ -102,28 +134,47 @@ const FeaturesPage: React.FC = () => {
     {
       id: 'data-maestro',
       title: 'DataMaestro',
-      subtitle: 'Academic-grade analysis, fast and clear',
-      description: 'Upload data, describe your study, and receive a chapter-style report with tables, figures, formulas, and plain-English interpretations.',
+      subtitle: 'Domain-correct analysis—your tests or Gaply-recommended',
+      description:
+        'Run rigorous statistical analysis across domains: supply your title, hypotheses, objectives, methodology, and field—then choose analyses manually or let Gaply recommend appropriate tests. Chapter-style results help supervisors verify that student research is analytically sound.',
       features: [
-        'Upload CSV/XLS/XLSX/TSV/PDF tables/DOCX datasets',
-        'Enter title, objectives, hypotheses, methodology, variables',
-        'Auto-select or manually choose tests (t-tests, ANOVA, regression, SEM, time-series)',
-        'Publication-style chapters: Methods -> Results -> Interpretation -> Conclusion',
-        'Professional tables & labeled figures, export-ready',
-        'LaTeX formulas included for methods and reports',
-        'Plain-language explanations for every result',
-        'Interactive Q&A tied to specific tables/plots',
-        'One-click re-run after edits or data fixes',
-        'Outputs: executive summary, full chapter write-up, stats tables, high-quality figures',
-        'Best for PhD students, supervisors, research groups, non-coders',
-        'Honest note: guidance is reliable, final interpretation stays with you'
+        'Upload tabular or document data; describe design, variables, and hypotheses',
+        'Manual test selection or Gaply-suggested analyses matched to your research story',
+        'Publication-style Methods, Results, interpretation, tables, figures, and LaTeX',
+        'Plain-language explanations so mentors can sanity-check conclusions',
+        'Chat with Gaply tied to tables, plots, and methodological choices',
+        'One-click re-run after cleaning data or revising hypotheses',
+        'Honest guardrails: guidance is strong; final scientific judgment stays with you'
       ],
       color: 'rgba(255, 45, 85, 0.1)',
       borderColor: 'rgba(255, 45, 85, 0.3)'
     }
   ];
 
-  const freeFeaturesStructuredData = {
+  function featureListItemUrl(id: string): string {
+    switch (id) {
+      case 'paper-search':
+        return 'https://www.gaply.in/paper-search';
+      case 'journal-matching':
+        return 'https://www.gaply.in/journal-matching';
+      case 'citation-generator':
+        return 'https://www.gaply.in/citation-generator';
+      case 'conference-finder':
+        return 'https://www.gaply.in/conferences-india';
+      case 'journal-verification':
+        return 'https://www.gaply.in/dashboard/journal-verify';
+      case 'research-deep-analysis':
+        return 'https://www.gaply.in/dashboard/research-deep-analysis';
+      case 'publish-ready':
+        return 'https://www.gaply.in/final-orchestrator';
+      case 'data-maestro':
+        return 'https://www.gaply.in/statistical-research';
+      default:
+        return FEATURES_PAGE_URL;
+    }
+  }
+
+  const featuresPageStructuredData = {
     '@context': 'https://schema.org',
     '@graph': [
       {
@@ -132,7 +183,7 @@ const FeaturesPage: React.FC = () => {
         url: FEATURES_PAGE_URL,
         name: 'Gaply Features — Academic research tools',
         description:
-          'Discover Gaply free and premium features: literature search, journal matching, citation generator, India conference finder, PublishReady, and DataMaestro.'
+          'Gaply free and premium tools: paper search, journal matching, citation generator, India conferences, journal verification, research gap analysis, PublishReady manuscript readiness, and DataMaestro statistical analysis—with Chat with Gaply and audio in English and Hindi on premium flows.'
       },
       {
         '@type': 'ItemList',
@@ -147,16 +198,24 @@ const FeaturesPage: React.FC = () => {
             '@type': 'WebApplication',
             name: f.title,
             description: `${f.subtitle} ${f.description}`,
-            url:
-              f.id === 'paper-search'
-                ? 'https://www.gaply.in/paper-search'
-                : f.id === 'journal-matching'
-                  ? 'https://www.gaply.in/journal-matching'
-                  : f.id === 'citation-generator'
-                    ? 'https://www.gaply.in/citation-generator'
-                    : f.id === 'conference-finder'
-                      ? 'https://www.gaply.in/conferences-india'
-                      : FEATURES_PAGE_URL
+            url: featureListItemUrl(f.id)
+          }
+        }))
+      },
+      {
+        '@type': 'ItemList',
+        name: 'Gaply premium academic research features',
+        description:
+          'Premium verification, research gap discovery, PublishReady journal-fit evaluation, and DataMaestro analysis—with conversational and audio support.',
+        numberOfItems: premiumFeatures.length,
+        itemListElement: premiumFeatures.map((f, i) => ({
+          '@type': 'ListItem',
+          position: i + 1,
+          item: {
+            '@type': 'WebApplication',
+            name: f.title,
+            description: `${f.subtitle} ${f.description}`,
+            url: featureListItemUrl(f.id)
           }
         }))
       }
@@ -172,14 +231,14 @@ const FeaturesPage: React.FC = () => {
       paddingTop: '80px'
     }}>
       <SEO
-        title="Gaply Features — Paper Search, Journal Matching, Citation Generator & India Conferences"
-        description="Free and premium academic tools: research paper search (arXiv, CrossRef, OpenAlex), AI journal matching, free citation generator with APA Vancouver Harvard and DOI ISBN PubMed lookup plus BibTeX RIS JSON export, and research conferences in India by field and city. Premium: PublishReady and DataMaestro for publication readiness and statistical reporting."
-        keywords="Gaply features, free citation generator APA Vancouver Harvard, DOI citation lookup, PubMed citation, BibTeX converter, RIS to APA, academic references browser, research conferences India, academic conferences India STEM medicine, journal matching tool, research paper search OpenAlex CrossRef, PhD research tools, academic writing India"
+        title="Gaply Features — Journal Verification, Research Gap Analysis, PublishReady, DataMaestro & Free Tools"
+        description="Gaply features for researchers: free paper search, journal matching, APA/Vancouver/Harvard citation generator, India conference finder. Premium: journal verification (real vs predatory signals), Research Deep Analysis for gaps and problem statements, PublishReady manuscript refinement with journal-fit insight, DataMaestro statistics with manual or AI-chosen tests. Chat with Gaply and audio summaries (English, Hindi) on premium experiences."
+        keywords="Gaply features, predatory journal check, journal verification tool, research gap analysis, problem statement generator PhD, PublishReady manuscript review, journal publication likelihood, DataMaestro statistical analysis, Chat with Gaply, research audio Hindi English, free citation generator, research conferences India, journal matching, academic research platform India"
         canonical={FEATURES_PAGE_URL}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(freeFeaturesStructuredData) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(featuresPageStructuredData) }}
       />
       {/* Header */}
       <div style={{
@@ -348,6 +407,8 @@ const FeaturesPage: React.FC = () => {
                 if (feature.id === 'journal-matching') navigate('/journal-matching');
                 if (feature.id === 'citation-generator') navigate('/citation-generator');
                 if (feature.id === 'conference-finder') navigate('/conferences-india');
+                if (feature.id === 'journal-verification') navigate('/dashboard/journal-verify');
+                if (feature.id === 'research-deep-analysis') navigate('/dashboard/research-deep-analysis');
               }}
             >
               <meta itemProp="applicationCategory" content="EducationalApplication" />
