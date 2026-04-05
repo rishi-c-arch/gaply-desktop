@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import SeoGuideShell from './SeoGuideShell';
+import './SeoGuidePages.css';
+import EthicalAiGuideShell from './EthicalAiGuideShell';
 import { ETHICAL_AI_SLIDE_TITLES } from './ethicalAiSlideTitles';
 import EthicalAiDeckExperience from './EthicalAiDeckExperience';
 import { ETHICAL_AI_GUIDE_TOPICS, ETHICAL_AI_PDF_PATH, ETHICAL_AI_PPTX_PATH } from './ethicalAiGuideTopics';
@@ -274,8 +275,10 @@ const EthicalAiResearchGuidePage: React.FC = () => {
     [slides, titleFor]
   );
 
+  const subtitleParts = useMemo(() => deck.subtitle.split('·').map((s) => s.trim()), [deck.subtitle]);
+
   return (
-    <SeoGuideShell headline={deck.title} subhead={deck.subtitle} variant="feature">
+    <EthicalAiGuideShell headline={deck.title} subhead={deck.subtitle}>
       <article className="ethical-ai-deck-main ethical-ai-page-shell">
         <nav className="ethical-ai-sticky-jump" aria-label="On this page">
           <a href="#ethical-ai-deck-anchor">Slides</a>
@@ -283,31 +286,50 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           <a href="#ethical-ai-transcript-anchor">Text version</a>
         </nav>
 
-        <section className="seo-guide-card ethical-ai-hero-compact ethical-ai-feature-panel ethical-ai-hero-premium">
-          <h2 className="ethical-ai-feature-panel__title">How this guide works</h2>
-          <p className="ethical-ai-feature-panel__sub">{deck.sourceNote}</p>
-          <p className="ethical-ai-feature-panel__desc">
-            Common questions about AI detection, Turnitin, and literature reviews lead here. The answers live in one
-            clear slide deck, written for integrity, not shortcuts.
-          </p>
-          <FeatureDotList items={HERO_FEATURE_LINES} />
-          <p className="ethical-ai-feature-panel__links">
-            <Link to="/academic-ai-remover">Academic AI review</Link>
-            <span aria-hidden> · </span>
-            <Link to="/journal-matching">Journal matching</Link>
-          </p>
+        <section className="ethical-ai-bento" aria-labelledby="ethical-how-heading">
+          <div className="ethical-ai-bento__main seo-guide-card ethical-ai-hero-compact ethical-ai-feature-panel ethical-ai-hero-premium">
+            <h2 id="ethical-how-heading" className="ethical-ai-feature-panel__title">
+              How this guide works
+            </h2>
+            <p className="ethical-ai-feature-panel__sub">{deck.sourceNote}</p>
+            <p className="ethical-ai-feature-panel__desc">
+              Common questions about AI detection, Turnitin, and literature reviews lead here. The answers live in one
+              clear slide deck, written for integrity, not shortcuts.
+            </p>
+            <FeatureDotList items={HERO_FEATURE_LINES} />
+            <p className="ethical-ai-feature-panel__links">
+              <Link to="/academic-ai-remover">Academic AI review</Link>
+              <span aria-hidden> · </span>
+              <Link to="/journal-matching">Journal matching</Link>
+            </p>
+          </div>
+          <aside className="ethical-ai-bento__accent" aria-label="About this guide">
+            <div className="ethical-ai-bento__accent-mark" aria-hidden>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" focusable="false">
+                <path d="M12 3L1 9l4 2.18v6L12 21l7-3.82v-6l2-1.09V17h2V9L12 3zm6.82 6L12 12.72 5.18 9 12 5.28 18.82 9zM17 15.99l-5 2.73-5-2.73v-3.72L12 15l5-2.73v3.72z" />
+              </svg>
+            </div>
+            <p className="ethical-ai-bento__accent-lead">{subtitleParts[2] ?? deck.subtitle}</p>
+            <div className="ethical-ai-bento__accent-foot">
+              <span className="ethical-ai-bento__accent-kicker">Series</span>
+              <span className="ethical-ai-bento__accent-tag">
+                {subtitleParts[0]}
+                {subtitleParts[1] ? ` · ${subtitleParts[1]}` : ''}
+              </span>
+            </div>
+          </aside>
         </section>
 
         <section
           id="ethical-ai-deck-anchor"
-          className="seo-guide-card ethical-ai-slide-focus ethical-ai-deck-card"
+          className="ethical-ai-deck-section seo-guide-card ethical-ai-slide-focus ethical-ai-deck-card"
           aria-labelledby="ethical-ai-embed-heading"
         >
           <div className="ethical-ai-deck-card__head">
+            <p className="ethical-ai-deck-section__eyebrow">Full presentation, in your browser</p>
             <h2 id="ethical-ai-embed-heading" className="ethical-ai-feature-panel__title">
               The slides
             </h2>
-            <p className="ethical-ai-feature-panel__sub">Full presentation, in your browser</p>
             <p className="ethical-ai-feature-panel__desc">
               Scroll to the frame below. The deck loads like a normal document; your browser may show a short loading
               state while it prepares the slides.
@@ -442,7 +464,7 @@ const EthicalAiResearchGuidePage: React.FC = () => {
           </article>
         </details>
       </article>
-    </SeoGuideShell>
+    </EthicalAiGuideShell>
   );
 };
 
