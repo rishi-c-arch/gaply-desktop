@@ -57,6 +57,9 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { GAPLY_GLOBAL_FAQ_MAIN_ENTITIES } from './seo/gaplyGlobalFaqMainEntity';
 import { pathnameUsesOwnFaqJsonLd } from './seo/guidePathsWithOwnFaqJsonLd';
 import { researchGuideKeywordsJoined } from './seo/researchGuideSeoPhrases';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { GtagRouteListener } from './analytics/GtagRouteListener';
+import { OfflineHintBanner } from './components/OfflineHintBanner';
 
 const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
 const ScopusLowApcGuidePage = React.lazy(() => import('./components/seo-guides/ScopusLowApcGuidePage'));
@@ -458,6 +461,8 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="App" data-home={isExactHome ? 'true' : undefined}>
+      <GtagRouteListener />
+      <OfflineHintBanner />
       <div className="noise-bg" aria-hidden="true" />
       {!isHideHeaderPath && <AppleHeader theme={headerTheme} onToggleTheme={handleToggleTheme} />}
       <Routes>
@@ -964,7 +969,9 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <ThemeProvider>
-        <AppContent />
+        <AppErrorBoundary>
+          <AppContent />
+        </AppErrorBoundary>
       </ThemeProvider>
     </AuthProvider>
   );

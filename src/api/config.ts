@@ -27,18 +27,41 @@ export function buildApiUrl(path: string): string {
   return `${API_BASE_URL}${normalizedPath}`;
 }
 
+/** Optional client timeout (ms). Unset or 0 = disabled. Skipped when `init.signal` is passed (e.g. uploads/AbortController). */
+function getApiFetchTimeoutMs(): number {
+  const raw = (process as any)?.env?.REACT_APP_API_FETCH_TIMEOUT_MS;
+  if (raw == null || raw === '') return 0;
+  const n = parseInt(String(raw), 10);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(n, 3_600_000);
+}
+
 async function doFetch(
   url: string,
   headers: HeadersInit,
   init?: RequestInit,
 ): Promise<Response> {
-  const fetchOptions: RequestInit = {
-    ...init,
-    headers,
-    mode: 'cors',
-    signal: init?.signal,
-  };
-  return fetch(url, fetchOptions);
+  const timeoutMs = getApiFetchTimeoutMs();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let mergedInit = init;
+
+  if (timeoutMs > 0 && !init?.signal) {
+    const timeoutController = new AbortController();
+    timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
+    mergedInit = { ...init, signal: timeoutController.signal };
+  }
+
+  try {
+    const fetchOptions: RequestInit = {
+      ...mergedInit,
+      headers,
+      mode: 'cors',
+      signal: mergedInit?.signal,
+    };
+    return await fetch(url, fetchOptions);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
