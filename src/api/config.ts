@@ -29,7 +29,9 @@ export function buildApiUrl(path: string): string {
 
 /** Optional client timeout (ms). Unset or 0 = disabled. Skipped when `init.signal` is passed (e.g. uploads/AbortController). */
 function getApiFetchTimeoutMs(): number {
-  const raw = (process as any)?.env?.REACT_APP_API_FETCH_TIMEOUT_MS;
+  // Browsers have no `process`; optional chaining does NOT catch ReferenceError on bare `process`.
+  if (typeof process === 'undefined') return 0;
+  const raw = (process as { env?: Record<string, string | undefined> }).env?.REACT_APP_API_FETCH_TIMEOUT_MS;
   if (raw == null || raw === '') return 0;
   const n = parseInt(String(raw), 10);
   if (!Number.isFinite(n) || n <= 0) return 0;
