@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gaply-cache-v1';
+const CACHE_NAME = 'gaply-cache-v2';
 const OFFLINE_URL = '/';
 
 const PRECACHE_URLS = [
