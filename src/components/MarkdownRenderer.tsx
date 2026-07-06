@@ -1,4 +1,5 @@
 import React from 'react';
+import sanitizeHtml from '../utils/sanitizeHtml';
 import './MarkdownRenderer.css';
 
 interface MarkdownRendererProps {
@@ -71,7 +72,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
     // Handle code `code`
     text = text.replace(/`([^`]+)`/g, '<code class="md-inline-code">$1</code>');
     
-    return <span dangerouslySetInnerHTML={{ __html: text }} />;
+    return <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(text) }} />;
   };
 
   lines.forEach((line, index) => {

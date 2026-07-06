@@ -1,10 +1,25 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, HashRouter } from 'react-router-dom';
+import './fonts';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 import * as serviceWorkerRegistration from './serviceWorkerRegistration';
+import isTauri from './utils/isTauri';
+
+// Tauri: history-API routing doesn't survive the custom protocol, so the
+// desktop build uses HashRouter. Full-page navigations elsewhere in the app
+// (window.location.href = '/login') land on a path URL — convert it to the
+// equivalent hash route before React mounts.
+if (isTauri) {
+  const { pathname, search } = window.location;
+  if (pathname !== '/' && pathname !== '/index.html' && !window.location.hash) {
+    window.location.replace(`/#${pathname}${search}`);
+  }
+}
+
+const Router = isTauri ? HashRouter : BrowserRouter;
 
 // Suppress non-critical warnings (source map errors, 403 errors from external resources)
 if (process.env.NODE_ENV === 'development') {
@@ -39,12 +54,18 @@ const root = ReactDOM.createRoot(
 );
 root.render(
   <React.StrictMode>
-    <BrowserRouter>
+    <Router>
       <App />
-    </BrowserRouter>
+    </Router>
   </React.StrictMode>
 );
 
 reportWebVitals();
 
-serviceWorkerRegistration.register();
+// Service workers are unsupported/unreliable on Tauri's custom protocol and
+// would cache stale desktop builds — web only.
+if (isTauri) {
+  serviceWorkerRegistration.unregister();
+} else {
+  serviceWorkerRegistration.register();
+}

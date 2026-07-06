@@ -25,3 +25,7 @@ yarn-error.log*
 .env*.local
 
 # Quartile HTML is committed; regenerate locally: npm run convert-quartile-guides
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/schemas/

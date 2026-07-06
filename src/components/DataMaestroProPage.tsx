@@ -3,6 +3,7 @@ import SEO from './SEO';
 import { apiFetch } from '../api/config';
 import { createReport } from '../services/dashboardService';
 import { useAuth } from '../contexts/AuthContext';
+import sanitizeHtml from '../utils/sanitizeHtml';
 import * as XLSX from 'xlsx';
 import './DataMaestroProPage.css';
 
@@ -498,7 +499,7 @@ ul,ol{margin:10px 0;padding-left:24px}li{margin:5px 0;font-size:14px}
                   <div key={i} className={`dm-chat-msg ${m.role}`}>
                     {m.role === 'assistant' && <div className="dm-chat-avatar">G</div>}
                     <div className="dm-chat-bubble">
-                      {m.role === 'assistant' ? <div dangerouslySetInnerHTML={{ __html: formatAssistantMsg(m.content) }} /> : m.content}
+                      {m.role === 'assistant' ? <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(formatAssistantMsg(m.content)) }} /> : m.content}
                     </div>
                   </div>
                 ))}

@@ -8,6 +8,7 @@ import './hero-animations.css';
 import './hero-new.css';
 import './responsive.css';
 import ThreeJSGlobe from './components/ThreeJSGlobe';
+import heroDnaImage from './assets/hero-dna.png';
 import HeroToSecondTransition from './components/HeroToSecondTransition';
 import FreeFeatures from './sections/FreeFeatures';
 import ResearchHubHeroEntry from './sections/ResearchHubHeroEntry';
@@ -365,7 +366,7 @@ const AppleHeroSection: React.FC = () => {
               <img
                 className="hero-dna-overlay"
                 alt="DNA spiral"
-                src="https://lh3.googleusercontent.com/aida-public/AB6AXuAiPX4n1bGN32XXi6Oglrn-qVkS29j0osQxjswIn2oIqbxAmi-5Yps0mrG6mtC68m3ydc03_0fv-Y9eF9CJetfcsCGhY5zxaw6h7N06x3b12D96rnlyMXpz-dqIKrCZDn_C9AinqWkoS4KdRj11laXXbj8nf1NTPh3-pTHTHJJ5kHGA4IH0Mx1lCtv9HPKV5_j3VoRib1J5cdsai6cCZCVzsyeMprweKjkol9OKf9bT0lSPBFOenbK31ZsruKpvFZefizNVMTkADns"
+                src={heroDnaImage}
               />
             </div>
 

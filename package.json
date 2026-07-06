@@ -8,8 +8,16 @@
     "@citation-js/plugin-csl": "^0.7.22",
     "@citation-js/plugin-doi": "^0.7.21",
     "@citation-js/plugin-ris": "^0.7.21",
+    "@fontsource/epilogue": "^5.2.8",
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/manrope": "^5.2.8",
+    "@fontsource/orbitron": "^5.2.8",
+    "@fontsource/space-grotesk": "^5.2.10",
     "@react-three/drei": "^10.7.6",
     "@react-three/fiber": "^9.3.0",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-fs": "^2.5.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
@@ -21,10 +29,12 @@
     "@types/react-dom": "^19.2.0",
     "@types/react-router-dom": "^5.3.3",
     "@types/three": "^0.180.0",
+    "dompurify": "^3.4.11",
     "express": "^5.1.0",
     "gsap": "^3.13.0",
     "lenis": "^1.3.11",
     "lucide-react": "^0.564.0",
+    "material-symbols": "^0.45.5",
     "pdfjs-dist": "^4.8.69",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -38,6 +48,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "mammoth": "^1.11.0",
     "puppeteer": "^21.0.0",
     "react-snap": "^1.23.0"
@@ -56,7 +67,10 @@
     "preview": "npx serve -s build -l 3000",
     "deploy": "npm run build && npx vercel --prod --yes",
     "copy-ethical-pptx": "node scripts/copy-ethical-ppt-to-public.js",
-    "copy-ethical-pdf": "node scripts/copy-ethical-pdf-to-public.js"
+    "copy-ethical-pdf": "node scripts/copy-ethical-pdf-to-public.js",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "reactSnap": {
     "include": [

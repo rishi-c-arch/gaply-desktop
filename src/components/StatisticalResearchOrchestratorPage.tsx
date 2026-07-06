@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import SEO from './SEO';
 import { apiFetch } from '../api/config';
 import { enhanceFormalReportHTML } from '../utils/formalResearchReportEnhance';
+import sanitizeHtml from '../utils/sanitizeHtml';
 import * as XLSX from 'xlsx';
 import './StatisticalResearchOrchestratorPage.css';
 
@@ -1452,7 +1453,7 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
                     <div
                       className="sr-intake-content"
                       // Model may return markdown or plain text; render as simple HTML
-                      dangerouslySetInnerHTML={{ __html: intakeSuggestions }}
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(intakeSuggestions) }}
                     />
                   </div>
                 )}
@@ -1885,7 +1886,7 @@ const StatisticalResearchOrchestratorPage: React.FC = () => {
                             {msg.role === 'assistant' ? (
                               <div
                                 className="sr-chat-content"
-                                dangerouslySetInnerHTML={{ __html: msg.content }}
+                                dangerouslySetInnerHTML={{ __html: sanitizeHtml(msg.content) }}
                               />
                             ) : (
                               msg.content

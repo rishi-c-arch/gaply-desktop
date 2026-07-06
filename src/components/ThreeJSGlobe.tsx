@@ -116,8 +116,9 @@ const ThreeJSGlobe: React.FC = () => {
           minPolarAngle={Math.PI / 2.2}
         />
         
-        {/* High-quality Environment */}
-        <Environment preset="studio" background={false} />
+        {/* High-quality Environment — bundled HDR (same file as drei's "studio"
+            preset) so the globe renders offline / inside Tauri without CDN access */}
+        <Environment files={`${process.env.PUBLIC_URL}/hdr/studio_small_03_1k.hdr`} background={false} />
       </Canvas>
     </div>
   );
