@@ -24,7 +24,8 @@ pub fn run() {
             logging::init(&config.log_filter);
 
             let db = Arc::new(Database::open(&config.db_path)?);
-            app.manage(AppState::new(config, db.clone(), db));
+            let embedder = Arc::new(gaply_core::embed::HashEmbedder);
+            app.manage(AppState::new(config, db.clone(), db, embedder));
 
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "gaply desktop started");
             Ok(())
@@ -37,6 +38,7 @@ pub fn run() {
             commands::db_init,
             commands::db_migrate,
             commands::db_health,
+            commands::rag_search,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

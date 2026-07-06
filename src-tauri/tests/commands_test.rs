@@ -46,11 +46,16 @@ impl ProjectStore for MockStore {
     }
 }
 
-fn test_app() -> (tauri::App<tauri::test::MockRuntime>, Arc<MockStore>) {
+fn test_app() -> (tauri::App<tauri::test::MockRuntime>, Arc<MockStore>, Arc<Database>) {
     let store = Arc::new(MockStore::default());
-    // embedded in-memory DB for the db_* commands; project commands use the mock
+    // embedded in-memory DB for the db_*/rag commands; project commands use the mock
     let db = Arc::new(Database::in_memory().expect("in-memory db"));
-    let state = AppState::new(AppConfig::new("/tmp/unused-in-tests.db"), db, store.clone());
+    let state = AppState::new(
+        AppConfig::new("/tmp/unused-in-tests.db"),
+        db.clone(),
+        store.clone(),
+        Arc::new(gaply_core::embed::HashEmbedder),
+    );
     let app = mock_builder()
         .manage(state)
         .invoke_handler(tauri::generate_handler![
@@ -61,10 +66,11 @@ fn test_app() -> (tauri::App<tauri::test::MockRuntime>, Arc<MockStore>) {
             commands::db_init,
             commands::db_migrate,
             commands::db_health,
+            commands::rag_search,
         ])
         .build(mock_context(noop_assets()))
         .expect("failed to build mock app");
-    (app, store)
+    (app, store, db)
 }
 
 fn invoke(
@@ -91,7 +97,7 @@ fn invoke(
 
 #[test]
 fn create_project_roundtrip_through_ipc() {
-    let (app, store) = test_app();
+    let (app, store, _db) = test_app();
     let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .expect("failed to create test webview");
@@ -125,7 +131,7 @@ fn create_project_roundtrip_through_ipc() {
 
 #[test]
 fn db_commands_report_migrated_healthy_database() {
-    let (app, _store) = test_app();
+    let (app, _store, _db) = test_app();
     let webview = WebviewWindowBuilder::new(&app, "db", Default::default())
         .build()
         .expect("failed to create test webview");
@@ -154,7 +160,7 @@ fn db_commands_report_migrated_healthy_database() {
 
 #[test]
 fn validation_error_crosses_ipc_with_stable_shape() {
-    let (app, _store) = test_app();
+    let (app, _store, _db) = test_app();
     let webview = WebviewWindowBuilder::new(&app, "err", Default::default())
         .build()
         .expect("failed to create test webview");
@@ -164,4 +170,46 @@ fn validation_error_crosses_ipc_with_stable_shape() {
 
     assert_eq!(err["code"], "validation");
     assert_eq!(err["message"], "project name must not be empty");
+}
+
+#[test]
+fn rag_search_returns_provenance_through_ipc() {
+    let (app, _store, db) = test_app();
+    let webview = WebviewWindowBuilder::new(&app, "rag", Default::default())
+        .build()
+        .expect("failed to create test webview");
+
+    // ingest one clean document directly through the core pipeline
+    let embedder = gaply_core::embed::HashEmbedder;
+    gaply_core::rag::ingest_document(
+        &db,
+        &embedder,
+        &gaply_core::rag::RawDocument {
+            source_type: gaply_core::rag::SourceType::JournalGuideline,
+            title: "Lancet Author Guidelines".into(),
+            source_url: "https://lancet.example/authors".into(),
+            fetched_at: 1_760_000_000,
+            content: "Authors must supply structured abstracts and declare all conflicts of \
+                      interest. References follow the numbered Vancouver citation style."
+                .into(),
+        },
+    )
+    .expect("ingest should succeed");
+
+    let hits: serde_json::Value = invoke(
+        &webview,
+        "rag_search",
+        serde_json::json!({ "query": "vancouver citation style", "topK": 3 }),
+    )
+    .expect("rag_search should succeed")
+    .deserialize()
+    .unwrap();
+
+    let first = &hits.as_array().expect("array of hits")[0];
+    assert_eq!(first["title"], "Lancet Author Guidelines");
+    assert_eq!(first["source_type"], "journal_guideline");
+    assert_eq!(first["source_url"], "https://lancet.example/authors");
+    assert_eq!(first["fetched_at"], 1_760_000_000);
+    assert_eq!(first["checksum"].as_str().unwrap().len(), 64);
+    assert!(first["content"].as_str().unwrap().contains("Vancouver"));
 }

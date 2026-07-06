@@ -144,6 +144,37 @@ pub const MIGRATIONS: &[Migration] = &[
             DROP TABLE episodic_memory;
         ",
     },
+    Migration {
+        version: 6,
+        name: "rag_documents",
+        up: "
+            CREATE TABLE documents (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_type       TEXT NOT NULL,
+                title             TEXT NOT NULL,
+                source_url        TEXT NOT NULL DEFAULT '',
+                fetched_at        INTEGER NOT NULL,
+                checksum          TEXT NOT NULL UNIQUE,
+                status            TEXT NOT NULL,
+                quarantine_reason TEXT,
+                created_at        INTEGER NOT NULL
+            );
+            CREATE TABLE chunks (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                seq         INTEGER NOT NULL,
+                content     TEXT NOT NULL,
+                token_count INTEGER NOT NULL,
+                created_at  INTEGER NOT NULL,
+                UNIQUE (document_id, seq)
+            );
+            CREATE INDEX idx_chunks_document ON chunks(document_id);
+        ",
+        down: "
+            DROP TABLE chunks;
+            DROP TABLE documents;
+        ",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -246,6 +277,8 @@ mod tests {
             "embeddings",
             "episodic_memory",
             "cache",
+            "documents",
+            "chunks",
         ] {
             assert!(tables.iter().any(|t| t == expected), "missing table {expected}: {tables:?}");
         }
@@ -278,9 +311,12 @@ mod tests {
     fn partial_down_keeps_earlier_versions() {
         let mut conn = test_connection();
         migrate_up(&mut conn).unwrap();
-        // roll back embeddings + memory/cache, keep knowledge base and below
+        // roll back rag + memory/cache + embeddings, keep knowledge base and below
         let reverted = migrate_down(&mut conn, 3).unwrap();
-        assert_eq!(reverted, vec!["episodic_memory_and_cache", "embeddings_vec0"]);
+        assert_eq!(
+            reverted,
+            vec!["rag_documents", "episodic_memory_and_cache", "embeddings_vec0"]
+        );
         assert_eq!(current_version(&conn).unwrap(), 3);
 
         let tables = table_names(&conn);

@@ -7,6 +7,7 @@ use tauri::State;
 
 use gaply_core::db::{DbHealth, DbInitReport, MigrationReport};
 use gaply_core::projects::{self, Project};
+use gaply_core::rag::{self, RagHit};
 use gaply_core::GaplyError;
 
 use crate::state::AppState;
@@ -62,4 +63,21 @@ pub fn db_migrate(state: State<'_, AppState>) -> Result<MigrationReport, GaplyEr
 #[tracing::instrument(skip(state))]
 pub fn db_health(state: State<'_, AppState>) -> Result<DbHealth, GaplyError> {
     state.db.health()
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn rag_search(
+    state: State<'_, AppState>,
+    query: String,
+    top_k: Option<usize>,
+    source_filter: Option<String>,
+) -> Result<Vec<RagHit>, GaplyError> {
+    rag::search(
+        &state.db,
+        state.embedder.as_ref(),
+        &query,
+        top_k.unwrap_or(8).min(64),
+        source_filter.as_deref(),
+    )
 }

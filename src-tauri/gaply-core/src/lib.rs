@@ -4,12 +4,17 @@
 //! lives here. The Tauri layer only adapts these functions to IPC.
 
 pub mod cache;
+pub mod chunk;
 pub mod config;
 pub mod db;
+pub mod embed;
 pub mod error;
 pub mod memory;
 pub mod migrations;
+pub mod perplexity;
 pub mod projects;
+pub mod rag;
+pub mod sanitize;
 pub mod vector;
 
 pub use config::AppConfig;
