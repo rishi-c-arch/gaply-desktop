@@ -41,6 +41,7 @@ pub fn run() {
             commands::rag_search,
             commands::extract_manuscript,
             commands::validate_manuscript,
+            commands::detect_ai,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

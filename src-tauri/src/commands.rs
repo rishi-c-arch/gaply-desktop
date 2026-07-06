@@ -5,6 +5,7 @@
 use serde::Serialize;
 use tauri::State;
 
+use gaply_core::ai_detect::{self, AiDetectionReport, HeuristicModel};
 use gaply_core::db::{DbHealth, DbInitReport, MigrationReport};
 use gaply_core::extract::{self, docparse, ExtractionResult};
 use gaply_core::projects::{self, Project};
@@ -107,6 +108,19 @@ pub fn validate_manuscript(
     let report = validate::validate(&extraction);
     validate::store_validation(&state.db, manuscript_id, Some(store.extraction_id), &report)?;
     Ok(report)
+}
+
+/// Offline AI-text detection: parse → extract → per-section perplexity /
+/// burstiness scoring. Returns a report that is an explicit statistical
+/// signal (never proof — see the mandatory disclaimer field). No network,
+/// no LLM call. Uses the interim heuristic scorer until GPT-2 is wired.
+#[tauri::command]
+#[tracing::instrument]
+pub fn detect_ai(path: String) -> Result<AiDetectionReport, GaplyError> {
+    let text = docparse::parse_path(std::path::Path::new(&path))?;
+    let extraction = extract::extract_from_text(&text);
+    let model = HeuristicModel::gpt2_like();
+    Ok(ai_detect::detect_extraction(&model, &extraction))
 }
 
 #[tauri::command]

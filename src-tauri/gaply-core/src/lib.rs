@@ -3,6 +3,7 @@
 //! Rule: anything that could run in a CLI, a server, or a different shell
 //! lives here. The Tauri layer only adapts these functions to IPC.
 
+pub mod ai_detect;
 pub mod cache;
 pub mod chunk;
 pub mod config;
