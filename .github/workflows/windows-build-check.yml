@@ -36,6 +36,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # This workflow builds/tests the Tauri desktop project, which lives under
+      # src-tauri/. That directory is NOT present on every ref (e.g. main, before
+      # the desktop work is merged). Detect it up front so the Tauri-specific
+      # steps skip cleanly with a clear message instead of failing with a cryptic
+      # "The directory name is invalid" when `working-directory: src-tauri` points
+      # at a path that doesn't exist. Dispatch this workflow against a ref that
+      # contains src-tauri/ (the desktop branch) to actually run the build.
+      - name: Detect Tauri project
+        id: detect_tauri
+        shell: bash
+        run: |
+          if [ -d "src-tauri" ] && [ -f "src-tauri/tauri.conf.json" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "Tauri project detected on this ref — build/test steps will run."
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Tauri project not present::Tauri project not present on this ref - skipped. (src-tauri/ not found; dispatch against the desktop branch to build.)"
+          fi
+
       # WebView2 Runtime ships preinstalled on the windows-latest runner image,
       # and the MSVC toolchain (needed to build the Tauri Windows binary) is
       # present too — so no extra Tauri prerequisite install is required here.
@@ -43,6 +62,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust build
+        if: steps.detect_tauri.outputs.present == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -78,15 +98,18 @@ jobs:
       # the app crate's Tauri IPC tests), including the Windows Credential
       # Manager keyring backend, which a macOS cross-compile check cannot cover.
       - name: Run Rust test suite (gaply_core + app)
+        if: steps.detect_tauri.outputs.present == 'true'
         working-directory: src-tauri
         run: cargo test --workspace
 
       # Produces the real Windows installers (bundle.targets = "all" → MSI + NSIS).
       # beforeBuildCommand builds the CRA frontend first.
       - name: Build Tauri Windows app
+        if: steps.detect_tauri.outputs.present == 'true'
         run: npm run tauri build
 
       - name: Upload Windows installer(s)
+        if: steps.detect_tauri.outputs.present == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gaply-windows-installer
@@ -95,3 +118,14 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: warn
           retention-days: 14
+
+      # Visible confirmation in the step list when this ref has no Tauri project,
+      # so a run against e.g. main reads as an intentional skip, not a silent pass.
+      - name: Tauri build/test skipped (no src-tauri on this ref)
+        if: steps.detect_tauri.outputs.present == 'false'
+        shell: bash
+        run: |
+          echo "Tauri project not present on this ref - skipped."
+          echo "src-tauri/ was not found in the checkout, so the Rust test suite,"
+          echo "the Tauri Windows build, and the installer upload were all skipped."
+          echo "Dispatch this workflow against the desktop branch to run the full build."
