@@ -8,6 +8,7 @@ use tauri::State;
 use gaply_core::ai_detect::{self, AiDetectionReport, HeuristicModel};
 use gaply_core::db::{DbHealth, DbInitReport, MigrationReport};
 use gaply_core::extract::{self, docparse, ExtractionResult};
+use gaply_core::plagiarism::{PlagiarismReport, PlagiarismSession};
 use gaply_core::projects::{self, Project};
 use gaply_core::rag::{self, RagHit};
 use gaply_core::validate::{self, StatsValidityReport};
@@ -114,6 +115,22 @@ pub fn validate_manuscript(
 /// burstiness scoring. Returns a report that is an explicit statistical
 /// signal (never proof — see the mandatory disclaimer field). No network,
 /// no LLM call. Uses the interim heuristic scorer until GPT-2 is wired.
+/// Offline plagiarism / semantic-similarity check. Parses the manuscript,
+/// embeds its chunks into a PER-SESSION ISOLATED store (never the shared
+/// corpus), and compares against the shared corpus and against itself.
+/// Returns matched spans with similarity scores and source provenance.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn check_plagiarism(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<PlagiarismReport, GaplyError> {
+    let text = docparse::parse_path(std::path::Path::new(&path))?;
+    let mut session = PlagiarismSession::new()?;
+    session.ingest_manuscript(state.embedder.as_ref(), &text)?;
+    session.report(&state.db, None)
+}
+
 #[tauri::command]
 #[tracing::instrument]
 pub fn detect_ai(path: String) -> Result<AiDetectionReport, GaplyError> {

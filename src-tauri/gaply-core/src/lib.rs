@@ -14,6 +14,7 @@ pub mod extract;
 pub mod memory;
 pub mod migrations;
 pub mod perplexity;
+pub mod plagiarism;
 pub mod projects;
 pub mod rag;
 pub mod sanitize;

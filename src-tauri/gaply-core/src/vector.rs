@@ -49,6 +49,23 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
+    /// Fetch a stored embedding vector by its vec0 rowid, so callers can
+    /// compute an exact cosine score independent of the KNN distance metric.
+    pub fn fetch_embedding(&self, rowid: i64) -> Result<Option<Vec<f32>>, GaplyError> {
+        use rusqlite::OptionalExtension;
+        let conn = self.conn()?;
+        let blob: Option<Vec<u8>> = conn
+            .query_row("SELECT embedding FROM embeddings WHERE rowid = ?1", params![rowid], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        Ok(blob.map(|b| {
+            b.chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect()
+        }))
+    }
+
     /// K-nearest-neighbour search; results ordered by ascending distance.
     #[tracing::instrument(skip(self, query))]
     pub fn knn_embeddings(&self, query: &[f32], k: usize) -> Result<Vec<KnnMatch>, GaplyError> {
