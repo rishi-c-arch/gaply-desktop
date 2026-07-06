@@ -48,13 +48,31 @@ jobs:
           workspaces: src-tauri
 
       - name: Install Node.js
+        # Node 22.x to match package.json "engines": { "node": "22.x" }.
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
 
       - name: Install frontend dependencies
-        run: npm install
+        # Fail fast instead of silently hanging for 45+ minutes if a postinstall
+        # binary download stalls again.
+        timeout-minutes: 10
+        # `npm ci` is deterministic (installs package-lock.json exactly) and the
+        # right choice for CI. `--omit=optional` skips pdfjs-dist's OPTIONAL
+        # `canvas` dep, whose node-gyp/Cairo native build hangs on Windows and is
+        # never needed here (the browser build doesn't use the Node canvas binding).
+        #
+        # The Chromium downloads are the real culprit: puppeteer (direct devDep,
+        # v21) plus two legacy puppeteer@1.20 copies pulled in by react-snap /
+        # minimalcss each fetch a full Chromium at postinstall — the old revisions
+        # stall for tens of minutes with no progress output. This job only runs
+        # `cargo test` + `npm run tauri build`, which never launch a browser, so we
+        # skip every Chromium download (both the modern and legacy env-var names).
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
+        run: npm ci --omit=optional
 
       # Runs natively on Windows — all 135 tests (gaply_core unit + golden +
       # the app crate's Tauri IPC tests), including the Windows Credential
