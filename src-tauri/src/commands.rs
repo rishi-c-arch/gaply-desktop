@@ -9,6 +9,7 @@ use gaply_core::db::{DbHealth, DbInitReport, MigrationReport};
 use gaply_core::extract::{self, docparse, ExtractionResult};
 use gaply_core::projects::{self, Project};
 use gaply_core::rag::{self, RagHit};
+use gaply_core::validate::{self, StatsValidityReport};
 use gaply_core::GaplyError;
 
 use crate::state::AppState;
@@ -84,6 +85,28 @@ pub fn extract_manuscript(
     let manuscript_id = state.db.create_manuscript(&manuscript_title, "", "")?;
     extract::persist::store_extraction(&state.db, manuscript_id, &result)?;
     Ok(result)
+}
+
+/// Full offline analysis pipeline: parse → extract → deterministically
+/// validate. Stores the extraction and the validation findings (severity
+/// CRITICAL/MAJOR), and returns the validity report. No network, no LLM.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn validate_manuscript(
+    state: State<'_, AppState>,
+    path: String,
+    title: Option<String>,
+) -> Result<StatsValidityReport, GaplyError> {
+    let text = docparse::parse_path(std::path::Path::new(&path))?;
+    let extraction = extract::extract_from_text(&text);
+    let manuscript_title = title
+        .or_else(|| extraction.title.clone())
+        .unwrap_or_else(|| "Untitled manuscript".to_string());
+    let manuscript_id = state.db.create_manuscript(&manuscript_title, "", "")?;
+    let store = extract::persist::store_extraction(&state.db, manuscript_id, &extraction)?;
+    let report = validate::validate(&extraction);
+    validate::store_validation(&state.db, manuscript_id, Some(store.extraction_id), &report)?;
+    Ok(report)
 }
 
 #[tauri::command]

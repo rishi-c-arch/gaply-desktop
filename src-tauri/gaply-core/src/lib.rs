@@ -16,6 +16,7 @@ pub mod perplexity;
 pub mod projects;
 pub mod rag;
 pub mod sanitize;
+pub mod validate;
 pub mod vector;
 
 pub use config::AppConfig;

@@ -20,7 +20,7 @@ pub use stats::{Stat, StatClaim};
 
 /// A location within the parsed document: which section, and which paragraph
 /// (0-based) inside that section.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Location {
     pub section: SectionKind,
     pub paragraph: usize,
