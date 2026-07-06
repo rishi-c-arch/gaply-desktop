@@ -17,6 +17,7 @@ pub mod perplexity;
 pub mod plagiarism;
 pub mod projects;
 pub mod rag;
+pub mod ratelimit;
 pub mod sanitize;
 pub mod validate;
 pub mod vector;
