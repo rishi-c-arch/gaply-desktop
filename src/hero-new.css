@@ -848,13 +848,18 @@ body.light .hero-scroll-hint__text {
 
 /* DNA image – large hero presence (Stitch-style), right-aligned so globe stays visible */
 .hero-dna-overlay {
-  width: 140%;
-  height: 140%;
+  /* Size via width/height instead of transform: scale() — WKWebView rasterizes
+     the layer at layout size, so a scale transform upscales a low-res raster
+     and blurs the image. Layout-size enlargement rasterizes at full resolution.
+     301% = previous 140% box × scale(2.15); translateX(30.5%) of this box
+     equals the previous scale(2.15) translateX(8%) offset. */
+  width: 301%;
+  height: 301%;
   max-width: none;
   max-height: none;
   object-fit: contain;
   object-position: 100% 50%;
-  transform: scale(2.15) translateX(8%);
+  transform: translateX(30.5%);
   mask-image: linear-gradient(to right, transparent 0%, black 25%, black 75%, transparent 100%);
   -webkit-mask-image: linear-gradient(to right, transparent 0%, black 25%, black 75%, transparent 100%);
   filter: hue-rotate(140deg) saturate(2.2) brightness(1.5) drop-shadow(0 0 12px rgba(0, 255, 255, 0.5));
