@@ -3,7 +3,7 @@ import SEO from './SEO';
 import { apiFetch } from '../api/config';
 import { enhanceFormalReportHTML } from '../utils/formalResearchReportEnhance';
 import sanitizeHtml from '../utils/sanitizeHtml';
-import * as XLSX from 'xlsx';
+import * as XLSX from '@e965/xlsx';
 import './StatisticalResearchOrchestratorPage.css';
 
 type Variable = {

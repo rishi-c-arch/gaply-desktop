@@ -76,13 +76,26 @@ export const showUserNotification = (message, type = 'info') => {
   // Create notification element
   const notification = document.createElement('div');
   notification.className = `api-notification api-notification--${type}`;
-  notification.innerHTML = `
-    <div class="notification-content">
-      <span class="notification-icon">${getNotificationIcon(type)}</span>
-      <span class="notification-message">${message}</span>
-      <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
-    </div>
-  `;
+  // Build with textContent so `message` (which can carry API-response text,
+  // e.g. error.response.data.message) is never interpreted as HTML — XSS-safe.
+  const content = document.createElement('div');
+  content.className = 'notification-content';
+
+  const icon = document.createElement('span');
+  icon.className = 'notification-icon';
+  icon.textContent = getNotificationIcon(type);
+
+  const messageEl = document.createElement('span');
+  messageEl.className = 'notification-message';
+  messageEl.textContent = message;
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'notification-close';
+  closeBtn.textContent = '×';
+  closeBtn.addEventListener('click', () => notification.remove());
+
+  content.append(icon, messageEl, closeBtn);
+  notification.appendChild(content);
   
   // Add styles
   notification.style.cssText = `
@@ -133,12 +146,15 @@ const getNotificationColor = (type) => {
 export const showLoading = (element, message = 'Loading...') => {
   if (!element) return;
   
-  element.innerHTML = `
-    <div class="loading-spinner">
-      <div class="spinner"></div>
-      <p>${message}</p>
-    </div>
-  `;
+  // textContent keeps `message` inert (no HTML interpretation) — XSS-safe.
+  const wrap = document.createElement('div');
+  wrap.className = 'loading-spinner';
+  const spinner = document.createElement('div');
+  spinner.className = 'spinner';
+  const text = document.createElement('p');
+  text.textContent = message;
+  wrap.append(spinner, text);
+  element.replaceChildren(wrap);
   
   // Add spinner styles if not already added
   if (!document.querySelector('#spinner-styles')) {

@@ -159,13 +159,20 @@ const showChartError = (ctx, message) => {
   const canvas = ctx.canvas;
   const parent = canvas.parentElement;
   
-  parent.innerHTML = `
-    <div class="chart-error">
-      <div class="error-icon">📊</div>
-      <p>${message}</p>
-      <button onclick="location.reload()" class="retry-button">Retry</button>
-    </div>
-  `;
+  // textContent keeps `message` inert (no HTML interpretation) — XSS-safe.
+  const wrap = document.createElement('div');
+  wrap.className = 'chart-error';
+  const icon = document.createElement('div');
+  icon.className = 'error-icon';
+  icon.textContent = '📊';
+  const text = document.createElement('p');
+  text.textContent = message;
+  const retry = document.createElement('button');
+  retry.className = 'retry-button';
+  retry.textContent = 'Retry';
+  retry.addEventListener('click', () => location.reload());
+  wrap.append(icon, text, retry);
+  parent.replaceChildren(wrap);
   
   // Add error styles
   const style = document.createElement('style');

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
+import { sanitizeHtml } from '../../utils/sanitizeHtml';
 import './CitationGeneratorPage.css';
 import {
   detectInputFormat,
@@ -607,7 +608,7 @@ const CitationGeneratorPage: React.FC = () => {
                   </div>
                   <div
                     className="gaply-cite-page__preview gaply-cite-page__preview--bib gaply-cite-bibliography"
-                    dangerouslySetInnerHTML={{ __html: bibHtml || '<p>—</p>' }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(bibHtml || '<p>—</p>') }}
                   />
                 </>
               )}

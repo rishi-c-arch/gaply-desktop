@@ -4,7 +4,7 @@ import { apiFetch } from '../api/config';
 import { createReport } from '../services/dashboardService';
 import { useAuth } from '../contexts/AuthContext';
 import sanitizeHtml from '../utils/sanitizeHtml';
-import * as XLSX from 'xlsx';
+import * as XLSX from '@e965/xlsx';
 import './DataMaestroProPage.css';
 
 type Variable = { name: string; type: string; role: string; description: string };

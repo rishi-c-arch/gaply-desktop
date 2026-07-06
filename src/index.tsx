@@ -8,6 +8,13 @@ import reportWebVitals from './reportWebVitals';
 import * as serviceWorkerRegistration from './serviceWorkerRegistration';
 import isTauri from './utils/isTauri';
 
+// Defense-in-depth against prototype pollution: freeze Object.prototype so a
+// malicious payload (e.g. from an uploaded spreadsheet parsed by SheetJS)
+// cannot inject shared properties onto every object. Runs after module imports
+// have initialized, so it only blocks runtime writes — legitimate library
+// setup at import time is unaffected.
+Object.freeze(Object.prototype);
+
 // Tauri: history-API routing doesn't survive the custom protocol, so the
 // desktop build uses HashRouter. Full-page navigations elsewhere in the app
 // (window.location.href = '/login') land on a path URL — convert it to the

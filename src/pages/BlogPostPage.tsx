@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { BLOG_POSTS } from '../data/blogPosts';
 import SEOHead from '../components/SEOHead';
+import { sanitizeHtml } from '../utils/sanitizeHtml';
 import './BlogPostPage.css';
 
 const BlogPostPage: React.FC = () => {
@@ -60,7 +61,7 @@ const BlogPostPage: React.FC = () => {
         <div className="blog-post-page__intro">{post.intro}</div>
         <div
           className="blog-post-page__content"
-          dangerouslySetInnerHTML={{ __html: post.content }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(post.content) }}
         />
         <footer className="blog-post-page__footer">
           <p><strong>{post.author}</strong> — {post.authorBio}</p>

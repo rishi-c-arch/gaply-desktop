@@ -8,6 +8,7 @@
     "@citation-js/plugin-csl": "^0.7.22",
     "@citation-js/plugin-doi": "^0.7.21",
     "@citation-js/plugin-ris": "^0.7.21",
+    "@e965/xlsx": "^0.20.3",
     "@fontsource/epilogue": "^5.2.8",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/manrope": "^5.2.8",
@@ -39,16 +40,16 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-pdf": "^9.2.1",
-    "react-router-dom": "^7.9.4",
+    "react-router-dom": "^7.18.1",
     "react-scripts": "5.0.1",
     "recharts": "^3.7.0",
     "three": "^0.180.0",
     "typescript": "^4.9.5",
-    "web-vitals": "^2.1.4",
-    "xlsx": "^0.18.5"
+    "web-vitals": "^2.1.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
+    "eslint-plugin-security": "^1.7.1",
     "mammoth": "^1.11.0",
     "puppeteer": "^21.0.0",
     "react-snap": "^1.23.0"
@@ -73,7 +74,10 @@
     "tauri:build": "tauri build",
     "check:secrets": "node scripts/check-no-secrets.js",
     "test:secret-scan": "node scripts/test-secret-scanner.js",
-    "check:all": "npm run check:secrets && npm run test:secret-scan"
+    "lint:security": "eslint --no-eslintrc --rulesdir scripts/eslint-rules --config .eslintrc.security.cjs --ext .ts,.tsx,.js,.jsx src",
+    "test:security-lint": "node scripts/test-react-security-lint.js",
+    "check:audit": "npm audit --omit=dev --audit-level=high",
+    "check:all": "node scripts/check-all.js"
   },
   "reactSnap": {
     "include": [
