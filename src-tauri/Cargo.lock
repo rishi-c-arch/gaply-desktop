@@ -1320,6 +1320,8 @@ dependencies = [
 name = "gaply_core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "hmac",
  "keyring",
  "pdf-extract",
  "quick-xml 0.36.2",
