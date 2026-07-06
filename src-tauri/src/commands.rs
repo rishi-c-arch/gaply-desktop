@@ -6,6 +6,7 @@ use serde::Serialize;
 use tauri::State;
 
 use gaply_core::db::{DbHealth, DbInitReport, MigrationReport};
+use gaply_core::extract::{self, docparse, ExtractionResult};
 use gaply_core::projects::{self, Project};
 use gaply_core::rag::{self, RagHit};
 use gaply_core::GaplyError;
@@ -63,6 +64,26 @@ pub fn db_migrate(state: State<'_, AppState>) -> Result<MigrationReport, GaplyEr
 #[tracing::instrument(skip(state))]
 pub fn db_health(state: State<'_, AppState>) -> Result<DbHealth, GaplyError> {
     state.db.health()
+}
+
+/// Parse a manuscript file (PDF/DOCX/TXT), extract its structure and claims,
+/// store the result, and return the typed `ExtractionResult`. Pure offline:
+/// the file is read from the local disk and never leaves the machine.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn extract_manuscript(
+    state: State<'_, AppState>,
+    path: String,
+    title: Option<String>,
+) -> Result<ExtractionResult, GaplyError> {
+    let text = docparse::parse_path(std::path::Path::new(&path))?;
+    let result = extract::extract_from_text(&text);
+    let manuscript_title = title
+        .or_else(|| result.title.clone())
+        .unwrap_or_else(|| "Untitled manuscript".to_string());
+    let manuscript_id = state.db.create_manuscript(&manuscript_title, "", "")?;
+    extract::persist::store_extraction(&state.db, manuscript_id, &result)?;
+    Ok(result)
 }
 
 #[tauri::command]

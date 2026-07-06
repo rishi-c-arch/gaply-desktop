@@ -154,6 +154,34 @@ impl Database {
         Ok(MigrationReport { from_version, to_version, applied })
     }
 
+    /// Create a manuscript row and return its id. Manuscripts own the
+    /// `extractions`/`findings` produced by the Extraction Agent.
+    pub fn create_manuscript(
+        &self,
+        title: &str,
+        authors: &str,
+        abstract_: &str,
+    ) -> Result<i64, GaplyError> {
+        if title.trim().is_empty() {
+            return Err(GaplyError::Validation("manuscript title must not be empty".into()));
+        }
+        let now = crate::now_epoch();
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT INTO manuscripts (title, authors, abstract, status, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'extracted', ?4, ?4)",
+            params![title.trim(), authors, abstract_, now],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Row count for a known table. `table` must be a trusted identifier
+    /// (it is interpolated into SQL), so this is intended for tests and
+    /// internal diagnostics, not for user-supplied names.
+    pub fn count_rows(&self, table: &str) -> Result<i64, GaplyError> {
+        Ok(self.conn()?.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))?)
+    }
+
     pub fn health(&self) -> Result<DbHealth, GaplyError> {
         let conn = self.conn()?;
         let ping_ok: bool = conn.query_row("SELECT 1", [], |_| Ok(true)).unwrap_or(false);

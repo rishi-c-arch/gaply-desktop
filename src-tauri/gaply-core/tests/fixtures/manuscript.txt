@@ -1,0 +1,37 @@
+Sleep Duration and Working Memory in Healthy Adults
+
+Maria L. Okafor, David Chen, Priya Raman
+
+Abstract
+We examined whether extended sleep improves working-memory performance. In a
+randomized controlled trial (n = 96), participants who slept nine hours
+outperformed a control group (p < 0.001, 95% CI: 2.1 to 4.8). Prior work has
+been mixed (Kim, 2018; Alvarez & Novak, 2021).
+
+Introduction
+Working memory is central to reasoning. Earlier studies suggested a link
+between sleep and cognition, but effect sizes varied widely. Okafor et al.
+(2019) reported a moderate effect, whereas Delgado (2017) found none.
+
+Methods
+Ninety-six healthy adults were randomized into two groups (n = 96). We used an
+independent t-test to compare group means and a one-way ANOVA to assess dose
+response across three sleep durations. Categorical outcomes were analyzed with
+a chi-square test.
+
+Results
+Table 1 reports the primary outcomes. The extended-sleep group scored higher on
+the n-back task (p < 0.001, 95% CI: 2.1 to 4.8). A secondary analysis showed a
+dose effect (p = 0.02). These findings replicate Okafor et al. (2019).
+
+Discussion
+Our results support a causal role for sleep in working memory. The effect was
+robust across analyses, consistent with earlier reports (Alvarez & Novak, 2021).
+
+Conclusion
+Extended sleep improves working memory in healthy adults.
+
+References
+Kim, S. (2018). Sleep and attention across the lifespan. Journal of Cognitive Neuroscience, 30(4), 512-528. https://doi.org/10.1162/jocn.2018.00412
+Alvarez, R., & Novak, T. (2021). Rest and recall: a meta-analysis. Psychological Bulletin, 147(2), 100-130.
+Okafor, M., Chen, D., & Raman, P. (2019). Sleep extension and cognition. Sleep Research, 8(1), 22-39. https://doi.org/10.1016/j.sleepr.2019.01.003

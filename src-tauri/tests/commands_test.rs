@@ -67,6 +67,7 @@ fn test_app() -> (tauri::App<tauri::test::MockRuntime>, Arc<MockStore>, Arc<Data
             commands::db_migrate,
             commands::db_health,
             commands::rag_search,
+            commands::extract_manuscript,
         ])
         .build(mock_context(noop_assets()))
         .expect("failed to build mock app");
@@ -170,6 +171,48 @@ fn validation_error_crosses_ipc_with_stable_shape() {
 
     assert_eq!(err["code"], "validation");
     assert_eq!(err["message"], "project name must not be empty");
+}
+
+#[test]
+fn extract_manuscript_parses_stores_and_returns_result() {
+    let (app, _store, db) = test_app();
+    let webview = WebviewWindowBuilder::new(&app, "extract", Default::default())
+        .build()
+        .expect("failed to create test webview");
+
+    // write a small manuscript to a temp file for the command to read
+    let path = std::env::temp_dir().join(format!("gaply-extract-{}.txt", std::process::id()));
+    std::fs::write(
+        &path,
+        "A Trial\n\nAbstract\nA randomized trial (n = 80) found an effect (p < 0.01).\n\n\
+         Methods\nWe used a paired t-test.\n\nReferences\n\
+         Doe, J. (2022). A paper with no doi. Journal, 1(1), 1-2.\n",
+    )
+    .unwrap();
+
+    let result: serde_json::Value = invoke(
+        &webview,
+        "extract_manuscript",
+        serde_json::json!({ "path": path.to_str().unwrap() }),
+    )
+    .expect("extract_manuscript should succeed")
+    .deserialize()
+    .unwrap();
+
+    assert_eq!(result["title"], "A Trial");
+    let stats = result["statistics"].as_array().unwrap();
+    assert!(stats.iter().any(|s| s["kind"] == "p_value"));
+    assert!(stats.iter().any(|s| s["kind"] == "sample_size"));
+    assert!(stats.iter().any(|s| s["kind"] == "test" && s["name"] == "t-test"));
+
+    // persisted: one extraction row + findings written to the real DB
+    assert_eq!(db.count_rows("extractions").unwrap(), 1);
+    assert!(
+        db.count_rows("findings").unwrap() >= 3,
+        "expected stat + missing-doi findings"
+    );
+
+    let _ = std::fs::remove_file(&path);
 }
 
 #[test]

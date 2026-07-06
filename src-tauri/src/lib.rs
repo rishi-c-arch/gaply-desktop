@@ -39,6 +39,7 @@ pub fn run() {
             commands::db_migrate,
             commands::db_health,
             commands::rag_search,
+            commands::extract_manuscript,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

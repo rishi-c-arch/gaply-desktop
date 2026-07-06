@@ -9,6 +9,7 @@ pub mod config;
 pub mod db;
 pub mod embed;
 pub mod error;
+pub mod extract;
 pub mod memory;
 pub mod migrations;
 pub mod perplexity;
