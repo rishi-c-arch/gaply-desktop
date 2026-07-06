@@ -19,6 +19,7 @@ pub mod projects;
 pub mod rag;
 pub mod ratelimit;
 pub mod sanitize;
+pub mod secrets;
 pub mod validate;
 pub mod vector;
 

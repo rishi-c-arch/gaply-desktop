@@ -70,7 +70,10 @@
     "copy-ethical-pdf": "node scripts/copy-ethical-pdf-to-public.js",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "check:secrets": "node scripts/check-no-secrets.js",
+    "test:secret-scan": "node scripts/test-secret-scanner.js",
+    "check:all": "npm run check:secrets && npm run test:secret-scan"
   },
   "reactSnap": {
     "include": [

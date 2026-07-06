@@ -24,6 +24,9 @@ pub enum GaplyError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("keychain error: {0}")]
+    Keychain(String),
+
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -38,6 +41,7 @@ impl GaplyError {
             GaplyError::Database(_) => "database",
             GaplyError::Config(_) => "config",
             GaplyError::Io(_) => "io",
+            GaplyError::Keychain(_) => "keychain",
             GaplyError::Internal(_) => "internal",
         }
     }

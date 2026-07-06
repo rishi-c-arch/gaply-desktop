@@ -19,3 +19,6 @@ pdf-extract = "0.7"
 zip = "2.2"
 quick-xml = "0.36"
 serde_json = "1.0"
+# OS keychain access. apple-native = macOS Keychain (Security framework);
+# add windows-native / sync-secret-service when building for those platforms.
+keyring = { version = "3", features = ["apple-native"] }

@@ -11,6 +11,7 @@ use gaply_core::extract::{self, docparse, ExtractionResult};
 use gaply_core::plagiarism::{PlagiarismReport, PlagiarismSession};
 use gaply_core::projects::{self, Project};
 use gaply_core::rag::{self, RagHit};
+use gaply_core::secrets;
 use gaply_core::validate::{self, StatsValidityReport};
 use gaply_core::GaplyError;
 
@@ -129,6 +130,33 @@ pub fn check_plagiarism(
     let mut session = PlagiarismSession::new()?;
     session.ingest_manuscript(state.embedder.as_ref(), &text)?;
     session.report(&state.db, None)
+}
+
+// --- Secret handling ---------------------------------------------------------
+// API keys live only in the OS keychain, accessed by the Rust core. The
+// frontend may store, check, or delete a key the user typed, but there is NO
+// command to read a raw key back — external calls that need it are made from
+// the core, never from React.
+
+/// Store an API key (or any secret) the user entered, in the OS keychain.
+#[tauri::command]
+#[tracing::instrument(skip(value))]
+pub fn store_secret(name: String, value: String) -> Result<(), GaplyError> {
+    secrets::store_secret(&name, &value)
+}
+
+/// Whether a named secret exists (presence only — never the value).
+#[tauri::command]
+#[tracing::instrument]
+pub fn has_secret(name: String) -> Result<bool, GaplyError> {
+    secrets::has_secret(&name)
+}
+
+/// Delete a named secret from the OS keychain.
+#[tauri::command]
+#[tracing::instrument]
+pub fn delete_secret(name: String) -> Result<(), GaplyError> {
+    secrets::delete_secret(&name)
 }
 
 #[tauri::command]
