@@ -19,6 +19,22 @@ pdf-extract = "0.7"
 zip = "2.2"
 quick-xml = "0.36"
 serde_json = "1.0"
-# OS keychain access. apple-native = macOS Keychain (Security framework);
-# add windows-native / sync-secret-service when building for those platforms.
+
+# OS keychain access via the keyring crate, configured per platform so each
+# target pulls only its own native backend:
+#   macOS   → apple-native      (Security framework / login Keychain)
+#   Windows → windows-native    (Windows Credential Manager)
+#   Linux   → sync-secret-service + crypto-rust (freedesktop Secret Service;
+#             crypto-rust keeps the session crypto pure-Rust — no OpenSSL).
+#             Linux BUILDS additionally need the system libdbus (apt:
+#             libdbus-1-dev + pkg-config); at RUNTIME a Secret Service daemon
+#             (gnome-keyring / KWallet) must be running — its absence is
+#             surfaced as a clear GaplyError, never a panic.
+[target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }

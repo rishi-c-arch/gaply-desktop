@@ -1,5 +1,17 @@
-//! Secure secret storage via the OS keychain (macOS Keychain on this
-//! platform, through the `keyring` crate).
+//! Secure secret storage via the OS keychain, through the `keyring` crate.
+//!
+//! Cross-platform: the same code runs on all three desktop targets, with
+//! keyring abstracting the native backend (configured per platform in
+//! Cargo.toml):
+//!   * macOS   — login Keychain (Security framework)
+//!   * Windows — Windows Credential Manager
+//!   * Linux   — freedesktop Secret Service (gnome-keyring / KWallet)
+//!
+//! No platform-specific code is required for the happy path. The only
+//! practical difference is that the Linux Secret Service needs a running
+//! keyring daemon; when it is absent (some minimal distros, headless CI) the
+//! store is unreachable — that is surfaced as a clear [`GaplyError::Keychain`]
+//! with a hint, never a panic (see [`map_keyring_err`]).
 //!
 //! # Security rule
 //!
@@ -25,7 +37,23 @@ fn entry(name: &str) -> Result<Entry, GaplyError> {
     if name.trim().is_empty() {
         return Err(GaplyError::Validation("secret name must not be empty".into()));
     }
-    Entry::new(SERVICE, name).map_err(|e| GaplyError::Keychain(e.to_string()))
+    Entry::new(SERVICE, name).map_err(map_keyring_err)
+}
+
+/// Map a keyring error to a clear [`GaplyError`], never a panic. The
+/// "store unreachable" cases (notably a Linux Secret Service with no running
+/// daemon) get an actionable hint.
+fn map_keyring_err(e: keyring::Error) -> GaplyError {
+    match e {
+        keyring::Error::NoStorageAccess(inner) => GaplyError::Keychain(format!(
+            "OS credential store is not accessible: {inner}. On Linux a Secret Service \
+             daemon (e.g. gnome-keyring or KWallet) must be running."
+        )),
+        keyring::Error::PlatformFailure(inner) => {
+            GaplyError::Keychain(format!("OS credential store failure: {inner}"))
+        }
+        other => GaplyError::Keychain(other.to_string()),
+    }
 }
 
 /// Store (or overwrite) a named secret in the OS keychain.
@@ -34,9 +62,7 @@ pub fn store_secret(name: &str, value: &str) -> Result<(), GaplyError> {
     if value.is_empty() {
         return Err(GaplyError::Validation("secret value must not be empty".into()));
     }
-    entry(name)?
-        .set_password(value)
-        .map_err(|e| GaplyError::Keychain(e.to_string()))?;
+    entry(name)?.set_password(value).map_err(map_keyring_err)?;
     // never log the value
     tracing::info!("secret stored");
     Ok(())
@@ -52,7 +78,7 @@ pub fn get_secret(name: &str) -> Result<String, GaplyError> {
         Err(keyring::Error::NoEntry) => {
             Err(GaplyError::NotFound { entity: "secret", id: name.to_string() })
         }
-        Err(e) => Err(GaplyError::Keychain(e.to_string())),
+        Err(e) => Err(map_keyring_err(e)),
     }
 }
 
@@ -63,7 +89,7 @@ pub fn has_secret(name: &str) -> Result<bool, GaplyError> {
     match entry(name)?.get_password() {
         Ok(_) => Ok(true),
         Err(keyring::Error::NoEntry) => Ok(false),
-        Err(e) => Err(GaplyError::Keychain(e.to_string())),
+        Err(e) => Err(map_keyring_err(e)),
     }
 }
 
@@ -75,7 +101,7 @@ pub fn delete_secret(name: &str) -> Result<(), GaplyError> {
         Err(keyring::Error::NoEntry) => {
             Err(GaplyError::NotFound { entity: "secret", id: name.to_string() })
         }
-        Err(e) => Err(GaplyError::Keychain(e.to_string())),
+        Err(e) => Err(map_keyring_err(e)),
     }
 }
 
