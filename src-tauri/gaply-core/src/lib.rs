@@ -23,6 +23,7 @@ pub mod refverify;
 pub mod sanitize;
 pub mod secrets;
 pub mod validate;
+pub mod verify_agent;
 pub mod vector;
 
 pub use config::AppConfig;
