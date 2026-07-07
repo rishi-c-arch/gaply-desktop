@@ -1,0 +1,211 @@
+// F7 — single-agent check screens. Mocked bridges/clients, no real Tauri, no
+// network. Each screen renders its agent's output through the F6 viewer.
+import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { GaplySessionProvider } from '../session/SessionProvider';
+import type { AuthService } from '../../services/supabase';
+import PlagiarismCheckPage from './PlagiarismCheckPage';
+import AiCheckPage from './AiCheckPage';
+import StatsCheckPage from './StatsCheckPage';
+import { makeMockCheckBridge } from './checkBridge';
+import { MockCopyleaksClient } from './copyleaks';
+import {
+  plagiarismToReport,
+  aiToReport,
+  validationToReport,
+} from './adapters';
+import {
+  AiDetectionReport,
+  PlagiarismReport,
+  StatsValidityReport,
+} from './agentTypes';
+
+vi.mock('../../design-system/GaplyGlobe', () => ({
+  GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
+}));
+
+afterEach(cleanup);
+
+const RAW_MANUSCRIPT_SENTINEL = 'SECRET_MANUSCRIPT_BODY_DO_NOT_LEAK';
+
+function auth(session: any = null): AuthService {
+  return {
+    signUp: vi.fn(), signIn: vi.fn(), signInWithOAuth: vi.fn(), signOut: vi.fn(),
+    getSession: vi.fn().mockResolvedValue({ session, offline: session === null }),
+    onAuthStateChange: (cb: any) => { cb(session); return () => {}; },
+  } as any;
+}
+
+/* -------------------------------- fixtures ------------------------------- */
+
+const PLAG: PlagiarismReport = {
+  chunk_count: 12,
+  threshold: 0.8,
+  corpus_matches: [
+    {
+      manuscript_chunk_seq: 3,
+      manuscript_excerpt: 'sleep supports memory consolidation',
+      similarity: 0.91,
+      source: { kind: 'corpus', document_id: 1, chunk_id: 9, title: 'Prior Review 2019', source_url: 'https://x', source_type: 'journal', excerpt: '...' },
+    },
+  ],
+  self_matches: [
+    { manuscript_chunk_seq: 7, manuscript_excerpt: 'as noted above', similarity: 0.99, source: { kind: 'self_manuscript', other_chunk_seq: 2, excerpt: '...' } },
+  ],
+  note: 'Per-session isolated store; shared corpus read-only.',
+};
+
+const AI: AiDetectionReport = {
+  model: 'HeuristicModel',
+  overall_mean_perplexity: 42.1,
+  overall_burstiness: 3.2,
+  signal: 'leans_ai_like',
+  confidence: 'low',
+  disclaimer: 'This is a statistical signal, not proof of misconduct.',
+  sections: [
+    { section: 'discussion', sentence_count: 12, mean_perplexity: 21.0, burstiness: 1.1, signal: 'leans_ai_like', uncertainty: 'Low confidence; short section.' },
+    { section: 'methods', sentence_count: 8, mean_perplexity: 55.0, burstiness: 6.0, signal: 'leans_human_like', uncertainty: 'Low confidence.' },
+  ],
+};
+
+const STATS_FAIL: StatsValidityReport = {
+  passed: false,
+  checks: [],
+  flags: [
+    { rule: 'missing_effect_size', severity: 'MAJOR', location: { section: 'results', paragraph: 2 }, explanation: 'p-value without an effect size.' },
+    { rule: 'test_group_mismatch', severity: 'CRITICAL', location: { section: 'methods', paragraph: 1 }, explanation: 't-test used for 3+ groups.' },
+  ],
+};
+
+function renderScreen(node: React.ReactElement, session: any = null) {
+  return render(
+    <MemoryRouter>
+      <GaplySessionProvider authService={auth(session)}>{node}</GaplySessionProvider>
+    </MemoryRouter>
+  );
+}
+
+async function runFile(name = 'paper.pdf') {
+  fireEvent.change(await screen.findByTestId('file-input'), {
+    target: { files: [new File(['x'], name, { type: 'application/pdf' })] },
+  });
+  await screen.findByTestId('selected-name');
+  fireEvent.click(screen.getByTestId('run-check'));
+  await screen.findByTestId('check-report');
+}
+
+/* ------------------------------ each renders ----------------------------- */
+
+describe('Plagiarism Check', () => {
+  it('renders similarity, matched spans and match type from the agent', async () => {
+    const bridge = makeMockCheckBridge({ plagiarism: PLAG });
+    renderScreen(<PlagiarismCheckPage bridge={bridge} />);
+    await runFile();
+    // match type + similarity surface as findings (self=99% internal dup, corpus=91%)
+    expect(screen.getAllByText(/internal duplication/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/91% similarity/)).toBeTruthy();
+    // scoped tabs only (Overview + Plagiarism), not Statistics/AI Risk
+    expect(screen.getByTestId('tab-Plagiarism')).toBeTruthy();
+    expect(screen.queryByTestId('tab-Statistics')).toBeNull();
+  });
+});
+
+describe('AI Check', () => {
+  it('renders per-section risk AND always shows the mandatory disclaimer', async () => {
+    const bridge = makeMockCheckBridge({ ai: AI });
+    renderScreen(<AiCheckPage bridge={bridge} />);
+    await runFile();
+    expect(screen.getByTestId('report-disclaimer').textContent).toMatch(/not proof of misconduct/i);
+    // every AI finding is the amber "AI-assessed" tier
+    for (const b of screen.getAllByText('AI-assessed, moderate confidence')) {
+      expect(b).toBeTruthy();
+    }
+  });
+});
+
+describe('Statistical Analysis Check', () => {
+  it('labels findings as mathematically certain (green)', async () => {
+    const bridge = makeMockCheckBridge({ validation: STATS_FAIL });
+    renderScreen(<StatsCheckPage bridge={bridge} />);
+    await runFile();
+    // certainty label present on the findings
+    expect(screen.getAllByText('mathematically certain').length).toBeGreaterThanOrEqual(1);
+    // critical rule sorts first
+    expect(screen.getByTestId('finding-0').getAttribute('data-tier')).toBe('mathematically_certain');
+  });
+});
+
+/* --------------------------- adapters (pure) ----------------------------- */
+
+describe('adapters keep certainty tiers honest', () => {
+  it('validation → mathematically_certain, ai/plagiarism → ai_assessed_moderate', () => {
+    expect(validationToReport(STATS_FAIL).findings.every((f) => f.tier === 'mathematically_certain')).toBe(true);
+    expect(aiToReport(AI).findings.every((f) => f.tier === 'ai_assessed_moderate')).toBe(true);
+    expect(plagiarismToReport(PLAG).findings.every((f) => f.tier === 'ai_assessed_moderate')).toBe(true);
+    // AI disclaimer is carried verbatim
+    expect(aiToReport(AI).disclaimer).toBe(AI.disclaimer);
+    // every finding has provenance
+    for (const rep of [validationToReport(STATS_FAIL), aiToReport(AI), plagiarismToReport(PLAG)]) {
+      expect(rep.findings.every((f) => f.provenance.length > 0)).toBe(true);
+    }
+  });
+});
+
+/* --------------------------- Copyleaks seam ------------------------------ */
+
+describe('Copyleaks deep-check seam', () => {
+  it('is mockable and its payload contains NO raw manuscript text', async () => {
+    const client = new MockCopyleaksClient();
+    renderScreen(<PlagiarismCheckPage copyleaks={client} bridge={makeMockCheckBridge({ plagiarism: PLAG })} />, {
+      user: { id: 'u1', email: 'a@b.c' },
+    });
+    fireEvent.click(await screen.findByTestId('run-deep'));
+    await screen.findByTestId('deep-result');
+
+    expect(client.requests).toHaveLength(1);
+    const req = client.requests[0];
+    // reference + options + consent only — never the manuscript body
+    expect(req.manuscriptRef).toBeTruthy();
+    expect(req.consent).toBe(true);
+    const serialized = JSON.stringify(req);
+    expect(serialized).not.toContain(RAW_MANUSCRIPT_SENTINEL);
+    expect(serialized).not.toMatch(/manuscriptText|body|fullText|content/i);
+  });
+
+  it('signed-out users cannot run the deep check (paid/online)', async () => {
+    renderScreen(<PlagiarismCheckPage bridge={makeMockCheckBridge({ plagiarism: PLAG })} />, null);
+    await screen.findByTestId('plagiarism-check');
+    expect(screen.queryByTestId('run-deep')).toBeNull();
+    expect(screen.getByText(/Sign in to enable the deep check/i)).toBeTruthy();
+  });
+});
+
+/* --------------------- local checks make zero network -------------------- */
+
+describe('locality: local checks carry no manuscript over the network', () => {
+  it('a local run makes no fetch/XHR and hands the bridge only a path', async () => {
+    const fetchSpy = vi.fn();
+    const origFetch = global.fetch;
+    (global as any).fetch = fetchSpy;
+    const xhrOpen = vi.spyOn(XMLHttpRequest.prototype, 'open');
+    const handed: string[] = [];
+    const bridge = makeMockCheckBridge({ ai: AI, onCall: (_cmd, path) => handed.push(path) });
+
+    renderScreen(<AiCheckPage bridge={bridge} />);
+    fireEvent.change(await screen.findByTestId('file-input'), {
+      target: { files: [new File(['x'], `${RAW_MANUSCRIPT_SENTINEL}.pdf`, { type: 'application/pdf' })] },
+    });
+    await screen.findByTestId('selected-name');
+    fireEvent.click(screen.getByTestId('run-check'));
+    await screen.findByTestId('check-report');
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(xhrOpen).not.toHaveBeenCalled();
+    expect(handed).toHaveLength(1); // only a path string was handed over
+    global.fetch = origFetch;
+    xhrOpen.mockRestore();
+  });
+});

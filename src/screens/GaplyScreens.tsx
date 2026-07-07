@@ -13,6 +13,9 @@ import OnboardingPage from './onboarding/OnboardingPage';
 import HomeDashboardPage from './home/HomeDashboardPage';
 import AnalysisTheaterPage from './analysis/AnalysisTheaterPage';
 import ReportViewerPage from './report/ReportViewerPage';
+import PlagiarismCheckPage from './checks/PlagiarismCheckPage';
+import AiCheckPage from './checks/AiCheckPage';
+import StatsCheckPage from './checks/StatsCheckPage';
 
 export const AuthRoute: React.FC = () => (
   <GaplySessionProvider>
@@ -47,5 +50,22 @@ export const UploadRoute: React.FC = () => (
 export const ReportRoute: React.FC = () => (
   <GaplySessionProvider>
     <ReportViewerPage />
+  </GaplySessionProvider>
+);
+
+/** Single-agent check screens (F7) — all FREE-OFFLINE (local, on-device). */
+export const PlagiarismCheckRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <PlagiarismCheckPage />
+  </GaplySessionProvider>
+);
+export const AiCheckRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <AiCheckPage />
+  </GaplySessionProvider>
+);
+export const StatsCheckRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <StatsCheckPage />
   </GaplySessionProvider>
 );

@@ -42,6 +42,13 @@ export interface ReportViewerPageProps {
   manuscriptSections?: { section: string; text: string }[];
   /** Paid PublishReady also gets the Reviewer Letter tab (F10). */
   isPaid?: boolean;
+  /** Restrict the tab set — the single-agent F7 screens scope the viewer to
+   *  just their agent (e.g. ['Overview', 'Plagiarism']). */
+  tabs?: ReportTab[];
+  /** Optional header title override (e.g. "Plagiarism Check"). */
+  title?: string;
+  /** Render inside a caller-provided shell instead of the full AppShell. */
+  bare?: boolean;
 }
 
 function statusForSection(findings: Finding[], section: string): BadgeStatus | 'neutral' {
@@ -56,16 +63,19 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
   report = SAMPLE_REPORT,
   manuscriptSections = SAMPLE_MANUSCRIPT_SECTIONS,
   isPaid = false,
+  tabs: tabsProp,
+  title = 'Integrity report',
+  bare = false,
 }) => {
   const { session } = useGaplySession();
   const { toast } = useToast();
   const ordered = useMemo(() => sortFindings(report.findings), [report.findings]);
-  const [tab, setTab] = useState<ReportTab>('Overview');
+  const tabs = tabsProp ?? (isPaid ? [...REPORT_TABS, 'Reviewer Letter' as ReportTab] : REPORT_TABS);
+  const [tab, setTab] = useState<ReportTab>(tabs[0] ?? 'Overview');
   const [selectedId, setSelectedId] = useState<number>(0); // index into `ordered`
   const [activeSection, setActiveSection] = useState<string>(manuscriptSections[0]?.section ?? '');
 
   const selected = ordered[selectedId];
-  const tabs = isPaid ? [...REPORT_TABS, 'Reviewer Letter' as ReportTab] : REPORT_TABS;
 
   const selectFinding = (f: Finding) => {
     const idx = ordered.indexOf(f);
@@ -73,36 +83,21 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
     if (f.section) setActiveSection(f.section);
   };
 
-  return (
-    <div className="gds-root" style={{ height: '100vh' }} data-testid="report-viewer">
-      <AppShell
-        rail={
-          <NavRail
-            items={[
-              { id: 'home', label: 'Home', icon: '◫', onSelect: () => (window.location.hash = '#/app') },
-              { id: 'report', label: 'Report', icon: '✓' },
-            ]}
-            activeId="report"
-            brand={<GaplyGlobe scale="mark" />}
-          />
-        }
-        header={
-          <HeaderBar title="Integrity report">
-            <Badge status={report.verdict === 'pass' ? 'certain' : 'flagged'}>{report.verdict}</Badge>
-            <Button
-              variant="secondary"
-              data-testid="export-pdf"
-              onClick={() => {
-                void downloadReportPdf(report, 'gaply-integrity-report.pdf')
-                  .then(() => toast('Report exported as PDF', 'certain'))
-                  .catch(() => toast('PDF export failed', 'flagged'));
-              }}
-            >
-              Export PDF
-            </Button>
-          </HeaderBar>
-        }
-      >
+  const exportButton = (
+    <Button
+      variant="secondary"
+      data-testid="export-pdf"
+      onClick={() => {
+        void downloadReportPdf(report, 'gaply-integrity-report.pdf')
+          .then(() => toast('Report exported as PDF', 'certain'))
+          .catch(() => toast('PDF export failed', 'flagged'));
+      }}
+    >
+      Export PDF
+    </Button>
+  );
+
+  const reportBody = (
         <div className="gds-report">
           {/* top tabs */}
           <div className="gds-report__tabs" role="tablist" data-testid="report-tabs">
@@ -216,6 +211,41 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
             </Panel>
           </ThreePanelWorkspace>
         </div>
+  );
+
+  // bare: the caller supplies the gds-root + shell (F7 single-agent screens
+  // embed the scoped viewer inside their own CheckScreen scaffold).
+  if (bare) {
+    return (
+      <>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>{exportButton}</div>
+        {reportBody}
+        {!session && <span style={{ display: 'none' }} data-testid="offline-ok" />}
+      </>
+    );
+  }
+
+  return (
+    <div className="gds-root" style={{ height: '100vh' }} data-testid="report-viewer">
+      <AppShell
+        rail={
+          <NavRail
+            items={[
+              { id: 'home', label: 'Home', icon: '◫', onSelect: () => (window.location.hash = '#/app') },
+              { id: 'report', label: 'Report', icon: '✓' },
+            ]}
+            activeId="report"
+            brand={<GaplyGlobe scale="mark" />}
+          />
+        }
+        header={
+          <HeaderBar title={title}>
+            <Badge status={report.verdict === 'pass' ? 'certain' : 'flagged'}>{report.verdict}</Badge>
+            {exportButton}
+          </HeaderBar>
+        }
+      >
+        {reportBody}
       </AppShell>
       {!session && <span style={{ display: 'none' }} data-testid="offline-ok" />}
     </div>
