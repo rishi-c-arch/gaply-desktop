@@ -82,6 +82,7 @@ const GaplyJournalRoute = React.lazy(() => import('./screens/GaplyScreens').then
 const GaplyPublishReadyRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.PublishReadyRoute })));
 const GaplyCopilotRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.CopilotRoute })));
 const GaplyBillingRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.BillingRoute })));
+const GaplyCommunityRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.CommunityRoute })));
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{
@@ -1002,6 +1003,7 @@ const AppContent: React.FC = () => {
           <Route path="/app/publishready" element={<Suspense fallback={null}><GaplyPublishReadyRoute /></Suspense>} />
           <Route path="/app/copilot" element={<Suspense fallback={null}><GaplyCopilotRoute /></Suspense>} />
           <Route path="/app/billing" element={<Suspense fallback={null}><GaplyBillingRoute /></Suspense>} />
+          <Route path="/app/community" element={<Suspense fallback={null}><GaplyCommunityRoute /></Suspense>} />
         </Routes>
         <DownloadPopUp />
     </div>

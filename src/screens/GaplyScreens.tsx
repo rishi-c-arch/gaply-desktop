@@ -21,6 +21,7 @@ import JournalCheckPage from './journal/JournalCheckPage';
 import PublishReadyPage from './publishready/PublishReadyPage';
 import CopilotPage from './copilot/CopilotPage';
 import BillingPage from './subscription/BillingPage';
+import CommunityPage from './community/CommunityPage';
 
 export const AuthRoute: React.FC = () => (
   <GaplySessionProvider>
@@ -108,5 +109,12 @@ export const CopilotRoute: React.FC = () => (
 export const BillingRoute: React.FC = () => (
   <GaplySessionProvider>
     <BillingPage />
+  </GaplySessionProvider>
+);
+
+/** /app/community — Research Co-Author (F13). */
+export const CommunityRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <CommunityPage />
   </GaplySessionProvider>
 );

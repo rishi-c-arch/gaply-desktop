@@ -171,13 +171,23 @@ export function createCommunityService(client: SupabaseClient | null = getSupaba
         .limit(limit);
       return wrap((data ?? null) as CommunityPostRow[] | null, error);
     },
-    async post(channelId: string, userId: string, message: string): Promise<DataResult<CommunityPostRow>> {
+    async post(
+      channelId: string,
+      userId: string,
+      message: string,
+      badge?: { integrity_badge: string; badge_detail: string | null }
+    ): Promise<DataResult<CommunityPostRow>> {
       if (!client) return offline();
-      const { data, error } = await client
-        .from('community_posts')
-        .insert({ channel_id: channelId, user_id: userId, message })
-        .select()
-        .single();
+      // The badge is attached at INSERT (before publish) and is immovable — a
+      // DB trigger blocks changing it afterwards (migration 0003).
+      const row = {
+        channel_id: channelId,
+        user_id: userId,
+        message,
+        integrity_badge: badge?.integrity_badge ?? 'human_written',
+        badge_detail: badge?.badge_detail ?? null,
+      };
+      const { data, error } = await client.from('community_posts').insert(row).select().single();
       return wrap(data as CommunityPostRow | null, error);
     },
   };

@@ -72,10 +72,15 @@ export interface CommunityChannelRow {
   created_at: string;
 }
 
+export type IntegrityBadge = 'human_written' | 'ai_assisted' | 'ai_generated' | 'copied';
+
 export interface CommunityPostRow {
   id: string;
   channel_id: string;
   user_id: string;
   message: string;
+  /** IMMOVABLE integrity badge, attached before publish (F13). */
+  integrity_badge: IntegrityBadge;
+  badge_detail: string | null;
   created_at: string;
 }
