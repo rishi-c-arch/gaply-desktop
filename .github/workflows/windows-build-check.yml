@@ -164,7 +164,10 @@ jobs:
           Write-Host "=== Load attempt (expected to fail at load on Windows) ==="
           & "$exe" --list 2>&1 | Out-Host
           $code = $LASTEXITCODE
-          $hex = ('0x{0:X8}' -f ([uint32]($code -band 0xffffffff)))
+          # Force 64-bit arithmetic: a negative int32 exit code (e.g. -1073741511)
+          # can't cast straight to uint32; mask as int64 first. (0xffffffffL keeps
+          # the AND in Int64 so 0xC0000139 fits.)
+          $hex = ('0x{0:X8}' -f [uint32]([int64]$code -band 0xffffffffL))
           Write-Host "exit code: $code ($hex)  [0xC0000139 == STATUS_ENTRYPOINT_NOT_FOUND]"
           "exit code: $code ($hex)" | Out-File diag\commands_test.exit.txt
 
