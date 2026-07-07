@@ -12,6 +12,8 @@ export interface ProfileRow {
   field: string | null;
   orcid: string | null;
   country: string | null;
+  /** Comma-separated journal names (metadata; onboarding step 2). */
+  target_journals: string | null;
   created_at: string;
 }
 

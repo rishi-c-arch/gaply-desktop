@@ -1,0 +1,127 @@
+/* Gaply — auth + onboarding screens (all scoped under .gds-root). */
+
+.gds-root.gds-auth {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  min-height: 100vh;
+}
+@media (max-width: 900px) {
+  .gds-root.gds-auth { grid-template-columns: 1fr; }
+  .gds-auth__hero { display: none; }
+}
+
+/* ---------- left: globe hero on jet black with violet glow ---------- */
+.gds-auth__hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--g-space-3);
+  padding: var(--g-space-6);
+  background:
+    radial-gradient(ellipse 60% 45% at 50% 42%, rgba(162, 94, 246, 0.22), transparent 70%),
+    var(--g-bg-base);
+  overflow: hidden;
+}
+.gds-auth__hero-globe { width: min(520px, 80%); }
+.gds-auth__tagline {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+.gds-auth__trust {
+  margin: 0;
+  max-width: 420px;
+  text-align: center;
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-sm);
+}
+
+/* ---------- right: glass auth card ---------- */
+.gds-auth__side {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--g-space-4);
+  background: var(--g-bg-layer1);
+  border-left: 1px solid var(--g-border);
+}
+.gds-auth__card { width: min(400px, 100%); display: grid; gap: var(--g-space-2); }
+.gds-auth__field { display: grid; gap: 6px; }
+.gds-auth__label { font-size: var(--g-text-size-xs); color: var(--g-text-3); letter-spacing: 0.04em; text-transform: uppercase; }
+.gds-auth__input {
+  background: var(--g-bg-layer2);
+  border: 1px solid var(--g-border-strong);
+  border-radius: var(--g-radius-button);
+  color: var(--g-text);
+  font: 400 var(--g-text-size-sm) / 1.4 var(--g-font-ui);
+  padding: 10px 12px;
+}
+.gds-auth__input:focus { border-color: var(--g-accent); outline: none; }
+.gds-auth__divider {
+  display: flex;
+  align-items: center;
+  gap: var(--g-space-1);
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-xs);
+}
+.gds-auth__divider::before,
+.gds-auth__divider::after { content: ''; flex: 1; height: 1px; background: var(--g-border); }
+.gds-auth__error { color: var(--g-flagged); font-size: var(--g-text-size-sm); margin: 0; }
+.gds-auth__switch { color: var(--g-text-3); font-size: var(--g-text-size-sm); text-align: center; }
+.gds-auth__switch button {
+  background: none; border: none; color: var(--g-accent); cursor: pointer; font: inherit; padding: 0;
+}
+
+/* ---------- onboarding ---------- */
+.gds-root.gds-onboarding {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--g-space-4);
+  background:
+    radial-gradient(ellipse 50% 35% at 50% 0%, rgba(162, 94, 246, 0.14), transparent 70%),
+    var(--g-bg-base);
+}
+.gds-onboarding__card { width: min(560px, 100%); display: grid; gap: var(--g-space-2); }
+.gds-onboarding__steps { display: flex; gap: 6px; }
+.gds-onboarding__step-dot {
+  height: 4px; flex: 1; border-radius: 999px; background: var(--g-border);
+}
+.gds-onboarding__step-dot[data-active='true'] { background: var(--g-accent); }
+.gds-onboarding__choices { display: grid; gap: var(--g-space-1); }
+.gds-onboarding__choice {
+  text-align: left;
+  padding: var(--g-space-2);
+  background: var(--g-bg-layer2);
+  border: 1px solid var(--g-border-strong);
+  border-radius: var(--g-radius-panel);
+  color: var(--g-text-2);
+  font: 500 var(--g-text-size-sm) / 1.4 var(--g-font-ui);
+  cursor: pointer;
+}
+.gds-onboarding__choice[aria-pressed='true'] {
+  border-color: var(--g-accent);
+  background: color-mix(in srgb, var(--g-accent) 12%, var(--g-bg-layer2));
+  color: var(--g-text);
+}
+.gds-onboarding__row { display: flex; gap: var(--g-space-1); justify-content: space-between; }
+
+/* ---------- offline sign-in nudge (home dashboard) ---------- */
+.gds-signin-nudge {
+  display: flex;
+  align-items: center;
+  gap: var(--g-space-1);
+  padding: 8px 12px;
+  border: 1px solid var(--g-border);
+  border-left: 3px solid var(--g-accent);
+  border-radius: var(--g-radius-button);
+  background: var(--g-bg-layer1);
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-sm);
+}
+.gds-signin-nudge a { color: var(--g-accent); text-decoration: none; }

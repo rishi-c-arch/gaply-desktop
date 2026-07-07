@@ -68,6 +68,10 @@ const FastPublicationIndiaGuidePage = React.lazy(() => import('./components/seo-
 const EthicalAiResearchGuidePage = React.lazy(() => import('./components/seo-guides/EthicalAiResearchGuidePage'));
 // Gaply Design System gallery — dev-only route (see the <Route> guard below).
 const DesignGalleryPage = React.lazy(() => import('./design-system/DesignGalleryPage'));
+// Gaply desktop-app screens (auth / onboarding / home) — one lazy chunk.
+const GaplyAuthRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.AuthRoute })));
+const GaplyOnboardingRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.OnboardingRoute })));
+const GaplyHomeRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.HomeRoute })));
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{
@@ -420,6 +424,9 @@ const AppContent: React.FC = () => {
   const isHideHeaderPath =
     isExactHome ||
     location.pathname === '/design' || // design-system gallery brings its own shell
+    location.pathname === '/auth' || // gaply desktop-app screens bring their own shell
+    location.pathname === '/onboarding' ||
+    location.pathname.startsWith('/app') ||
     location.pathname.startsWith('/dashboard') ||
     location.pathname.startsWith('/blog') ||
     location.pathname === '/hire-expert' ||
@@ -970,6 +977,11 @@ const AppContent: React.FC = () => {
               </Suspense>
             } />
           )}
+          {/* Gaply desktop-app screens (F3): auth is public, onboarding is
+              online-only (guarded inside), /app is free-offline. */}
+          <Route path="/auth" element={<Suspense fallback={null}><GaplyAuthRoute /></Suspense>} />
+          <Route path="/onboarding" element={<Suspense fallback={null}><GaplyOnboardingRoute /></Suspense>} />
+          <Route path="/app" element={<Suspense fallback={null}><GaplyHomeRoute /></Suspense>} />
         </Routes>
         <DownloadPopUp />
     </div>
