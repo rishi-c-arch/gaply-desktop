@@ -234,9 +234,10 @@ pub struct DebateOutcome {
     pub result: ConsensusResult,
 }
 
-/// Run the round-table debate to consensus.
-pub fn run_debate(
-    agents: &mut [Box<dyn SwarmAgent>],
+/// Run the round-table debate to consensus. (Agents may borrow — e.g. the
+/// RevisingVerificationAgent holds a proxy reference — hence the `+ 'a`.)
+pub fn run_debate<'a>(
+    agents: &mut [Box<dyn SwarmAgent + 'a>],
     config: &DebateConfig,
 ) -> Result<DebateOutcome, GaplyError> {
     if agents.is_empty() {
@@ -428,6 +429,9 @@ pub mod adapters {
         }
     }
 }
+
+mod revising;
+pub use revising::RevisingVerificationAgent;
 
 #[cfg(test)]
 mod tests;

@@ -264,6 +264,193 @@ fn five_local_agents_run_fully_offline() {
     assert!(outcome.converged);
 }
 
+// --- peer-informed reconsideration (RevisingVerificationAgent) ----------------------
+
+mod reconsideration {
+    use super::*;
+    use crate::extract::citations::Reference;
+    use crate::refverify::{ExistenceCheck, Provenance, ReferenceVerification, UntrustedText};
+    use crate::verify_agent::{verify_citations, MockProxyClient, Verdict};
+    use serde_json::json;
+
+    /// One reference with real evidence (evidence key ev-c1-0), as in Prompt 17.
+    fn items() -> Vec<(Reference, ReferenceVerification)> {
+        let prov = Provenance {
+            source: "crossref".into(),
+            url: "https://api.crossref.org/works/10.1/abc".into(),
+            fetched_at: 1_000,
+            checksum: "c".repeat(64),
+            from_cache: false,
+        };
+        let reference = Reference {
+            raw: "Doe, J. (2022). A paper. Journal. https://doi.org/10.1/abc".into(),
+            authors: "Doe, J.".into(),
+            year: Some(2022),
+            title: Some("A Study of Things".into()),
+            doi: Some("10.1/abc".into()),
+        };
+        let rv = ReferenceVerification {
+            reference_raw: reference.raw.clone(),
+            exists: Some(ExistenceCheck {
+                source: "crossref",
+                found: true,
+                doi: Some("10.1/abc".into()),
+                title: Some(UntrustedText::new("A Study of Things", prov.clone())),
+                is_retracted_hint: None,
+                provenance: prov.clone(),
+            }),
+            retraction: None,
+            open_access: None,
+            enrichment: None,
+            provenance: vec![prov],
+            warnings: vec![],
+        };
+        vec![(reference, rv)]
+    }
+
+    fn supported_response() -> serde_json::Value {
+        json!({"verdicts": [{
+            "citation_id": "c1", "verdict": "SUPPORTED", "confidence": 0.9,
+            "rationale": "doi and title match", "evidence_refs": ["ev-c1-0"]
+        }]})
+    }
+
+    #[test]
+    fn peer_contradiction_triggers_grounded_reconsideration_to_cautious_verdict() {
+        // Round 2 (reconsideration): the model, seeing the plagiarism finding,
+        // downgrades to UNKNOWN — GROUNDED in a real evidence ref, so the
+        // harness gate confirms it and the revision stands.
+        let proxy = MockProxyClient::returning_sequence(vec![
+            supported_response(),
+            json!({"verdicts": [{
+                "citation_id": "c1", "verdict": "UNKNOWN", "confidence": 0.3,
+                "rationale": "peer similarity finding undermines support; evidence insufficient",
+                "evidence_refs": ["ev-c1-0"]
+            }]}),
+        ]);
+        let items = items();
+        let report = verify_citations(&proxy, &items).unwrap();
+        assert_eq!(report.verdict_for("c1").unwrap().verdict, Verdict::Supported);
+
+        let mut agent = RevisingVerificationAgent::new(&proxy, items, report);
+        let own = agent.opine().unwrap();
+        assert!((own.confidence - 0.9).abs() < 1e-9);
+
+        // Plagiarism contradicts (high-similarity match on a supported passage).
+        let peer = opinion(AgentKind::Plagiarism, ANSWER_CONCERN, 0.92);
+        let revised = agent.revise(&own, &[peer], 1).expect("contradiction must trigger revision");
+
+        // Verdict level: SUPPORTED -> UNKNOWN (more cautious), and it passed the
+        // gate cleanly because it cited provided evidence.
+        let v = agent.report().verdict_for("c1").unwrap();
+        assert_eq!(v.verdict, Verdict::Unknown);
+        assert!(v.gate_flags.is_empty(), "grounded revision must not be flagged: {:?}", v.gate_flags);
+        assert!(revised.confidence < own.confidence, "opinion confidence must drop");
+
+        // Exactly two proxy rounds, and the second is the reconsideration
+        // payload: prior verdicts + peer findings, still structured-only.
+        let payloads = proxy.sent_payloads();
+        assert_eq!(payloads.len(), 2);
+        let wire = serde_json::to_string(&payloads[1]).unwrap();
+        assert!(wire.contains("citation_verification_reconsideration"));
+        assert!(wire.contains("prior_verdicts"));
+        assert!(wire.contains("peer_findings"));
+        assert!(wire.contains("Plagiarism"));
+        assert!(wire.contains("not authority"), "peers must be framed as context, not authority");
+    }
+
+    #[test]
+    fn ungrounded_peer_pressure_revision_is_caught_by_the_gate() {
+        // Variant A: the reconsidered verdict flips to REFUTED citing evidence
+        // we never provided -> gate 1 (potential hallucination).
+        let proxy = MockProxyClient::returning_sequence(vec![
+            supported_response(),
+            json!({"verdicts": [{
+                "citation_id": "c1", "verdict": "REFUTED", "confidence": 0.95,
+                "rationale": "the plagiarism agent said so",
+                "evidence_refs": ["ev-c1-99"]
+            }]}),
+        ]);
+        let items_a = items();
+        let report = verify_citations(&proxy, &items_a).unwrap();
+        let mut agent = RevisingVerificationAgent::new(&proxy, items_a, report);
+        let own = agent.opine().unwrap();
+        agent.revise(&own, &[opinion(AgentKind::Plagiarism, ANSWER_CONCERN, 0.9)], 1);
+        let v = agent.report().verdict_for("c1").unwrap();
+        assert_eq!(v.verdict, Verdict::Unknown, "phantom-evidence flip must not survive");
+        assert!(v.gate_flags.iter().any(|f| f.contains("potential_hallucination")), "{:?}", v.gate_flags);
+
+        // Variant B: the flip cites NO evidence at all — blind deference to the
+        // peer -> gate 3 (revision grounding).
+        let proxy = MockProxyClient::returning_sequence(vec![
+            supported_response(),
+            json!({"verdicts": [{
+                "citation_id": "c1", "verdict": "REFUTED", "confidence": 0.95,
+                "rationale": "peers are confident", "evidence_refs": []
+            }]}),
+        ]);
+        let items_b = items();
+        let report = verify_citations(&proxy, &items_b).unwrap();
+        let mut agent = RevisingVerificationAgent::new(&proxy, items_b, report);
+        let own = agent.opine().unwrap();
+        agent.revise(&own, &[opinion(AgentKind::Plagiarism, ANSWER_CONCERN, 0.9)], 1);
+        let v = agent.report().verdict_for("c1").unwrap();
+        assert_eq!(v.verdict, Verdict::Unknown, "ungrounded flip must not survive");
+        assert!(v.gate_flags.iter().any(|f| f.contains("revision_not_grounded")), "{:?}", v.gate_flags);
+    }
+
+    #[test]
+    fn only_the_verification_agent_reconsiders() {
+        // Design boundary: measurements, not beliefs — a PrecomputedAgent never
+        // revises, however loud the contradiction.
+        let contradiction = vec![opinion(AgentKind::Verification, ANSWER_CONCERN, 0.99)];
+        for kind in [
+            AgentKind::Extraction,
+            AgentKind::ValidationMaths,
+            AgentKind::AiDetection,
+            AgentKind::Plagiarism,
+            AgentKind::Rag,
+        ] {
+            let own = opinion(kind, ANSWER_PASS, 0.9);
+            let mut agent = PrecomputedAgent::new(own.clone());
+            assert!(
+                agent.revise(&own, &contradiction, 1).is_none(),
+                "{kind:?} must never reconsider"
+            );
+        }
+    }
+
+    #[test]
+    fn reconsideration_spends_a_debate_round_within_the_budget() {
+        // In a full debate: round 1 = the reconsideration (a revision), round 2 =
+        // quiet -> converged. One reconsideration max, ceiling respected.
+        let proxy = MockProxyClient::returning_sequence(vec![
+            supported_response(),
+            json!({"verdicts": [{
+                "citation_id": "c1", "verdict": "UNKNOWN", "confidence": 0.3,
+                "rationale": "reconsidered", "evidence_refs": ["ev-c1-0"]
+            }]}),
+        ]);
+        let items = items();
+        let report = verify_citations(&proxy, &items).unwrap();
+        let reviser = RevisingVerificationAgent::new(&proxy, items, report);
+
+        let mut agents: Vec<Box<dyn SwarmAgent + '_>> = vec![
+            Box::new(PrecomputedAgent::new(opinion(AgentKind::Extraction, ANSWER_PASS, 0.9))),
+            Box::new(PrecomputedAgent::new(opinion(AgentKind::Plagiarism, ANSWER_CONCERN, 0.92))),
+            Box::new(reviser),
+        ];
+        let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
+
+        assert!(outcome.rounds_run <= MAX_ROUNDS);
+        assert!(outcome.converged, "one reconsideration then quiet -> converged");
+        assert_eq!(proxy.sent_payloads().len(), 2, "initial call + exactly one reconsideration");
+        // the verification opinion in the outcome reflects the revision
+        let vop = outcome.opinions.iter().find(|o| o.agent == AgentKind::Verification).unwrap();
+        assert!(vop.confidence < 0.9, "revised (more cautious) confidence: {}", vop.confidence);
+    }
+}
+
 // --- end-to-end: all six agents over a sample manuscript ---------------------------
 
 #[test]
