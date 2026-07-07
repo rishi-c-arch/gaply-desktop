@@ -19,6 +19,8 @@ import StatsCheckPage from './checks/StatsCheckPage';
 import CitationManagerPage from './citations/CitationManagerPage';
 import JournalCheckPage from './journal/JournalCheckPage';
 import PublishReadyPage from './publishready/PublishReadyPage';
+import CopilotPage from './copilot/CopilotPage';
+import BillingPage from './subscription/BillingPage';
 
 export const AuthRoute: React.FC = () => (
   <GaplySessionProvider>
@@ -92,5 +94,19 @@ export const JournalCheckRoute: React.FC = () => (
 export const PublishReadyRoute: React.FC = () => (
   <GaplySessionProvider>
     <PublishReadyPage />
+  </GaplySessionProvider>
+);
+
+/** /app/copilot — Research Copilot (F11), premium-gated. */
+export const CopilotRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <CopilotPage />
+  </GaplySessionProvider>
+);
+
+/** /app/billing — Plans & Billing (F12). */
+export const BillingRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <BillingPage />
   </GaplySessionProvider>
 );

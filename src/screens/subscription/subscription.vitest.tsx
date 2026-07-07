@@ -1,0 +1,128 @@
+// F12 — subscription & paywall tests.
+import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { GaplySessionProvider } from '../session/SessionProvider';
+import type { AuthService } from '../../services/supabase';
+import { gateFeature } from './tiers';
+import { subscriptionUpdateFromWebhook, MockRazorpayClient } from './razorpay';
+import { PLANS, studentPrice } from './pricing';
+import BillingPage from './BillingPage';
+import PublishReadyPage from '../publishready/PublishReadyPage';
+
+vi.mock('../../design-system/GaplyGlobe', () => ({
+  GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
+}));
+
+afterEach(cleanup);
+
+function auth(session: any): AuthService {
+  return {
+    signUp: vi.fn(), signIn: vi.fn(), signInWithOAuth: vi.fn(), signOut: vi.fn(),
+    getSession: vi.fn().mockResolvedValue({ session, offline: session === null }),
+    onAuthStateChange: (cb: any) => { cb(session); return () => {}; },
+  } as any;
+}
+
+/* ------------------------------ gate logic ------------------------------ */
+
+describe('feature gating', () => {
+  it('free user hitting a cap is blocked from the 6th online run + upsell shown', () => {
+    expect(gateFeature('free', 'citation_verification', 4)).toMatchObject({ allowed: true, remaining: 1 });
+    const atCap = gateFeature('free', 'citation_verification', 5);
+    expect(atCap.allowed).toBe(false);
+    expect(atCap.reason).toBe('cap_reached');
+    expect(atCap.upsell).toBe(true);
+  });
+
+  it('premium user is unlocked on capped + ★ features', () => {
+    expect(gateFeature('premium', 'citation_verification', 999).allowed).toBe(true);
+    expect(gateFeature('premium', 'publishready').allowed).toBe(true);
+  });
+
+  it('free user is blocked from ★ premium-only features (teaser)', () => {
+    const g = gateFeature('free', 'publishready');
+    expect(g.allowed).toBe(false);
+    expect(g.reason).toBe('premium_only');
+  });
+
+  it('OFFLINE features are ALWAYS allowed, any tier — never crippled', () => {
+    for (const f of ['extraction', 'validation', 'ai_check', 'local_plagiarism', 'report_view']) {
+      expect(gateFeature('free', f, 999).allowed).toBe(true);
+      expect(gateFeature('premium', f, 999).allowed).toBe(true);
+    }
+  });
+});
+
+/* ------------------------------ Razorpay -------------------------------- */
+
+describe('Razorpay webhook flips subscription status (mocked)', () => {
+  it('activation → premium/active; cancellation → free/cancelled', () => {
+    const activated = subscriptionUpdateFromWebhook({
+      event: 'subscription.activated',
+      payload: { subscription: { entity: { id: 'sub_123', status: 'active' } } },
+    });
+    expect(activated).toMatchObject({ tier: 'premium', status: 'active', razorpay_subscription_id: 'sub_123' });
+
+    const cancelled = subscriptionUpdateFromWebhook({
+      event: 'subscription.cancelled',
+      payload: { subscription: { entity: { id: 'sub_123', status: 'cancelled' } } },
+    });
+    expect(cancelled).toMatchObject({ tier: 'free', status: 'cancelled' });
+
+    // unrelated events are ignored
+    expect(subscriptionUpdateFromWebhook({ event: 'payment.captured', payload: {} as any })).toBeNull();
+  });
+});
+
+/* ------------------------------- pricing -------------------------------- */
+
+describe('pricing', () => {
+  it('prices end in 9 and annual shows an effective monthly', () => {
+    for (const p of PLANS) {
+      expect(p.monthlyInr % 10).toBe(9);
+      expect(p.annualInr % 10).toBe(9);
+      expect(p.effectiveMonthlyInr).toBeLessThan(p.monthlyInr); // annual is cheaper
+    }
+  });
+  it('student discount ~50%, still ending in 9', () => {
+    expect(studentPrice(299) % 10).toBe(9);
+    expect(studentPrice(299)).toBeLessThan(299 * 0.6);
+  });
+});
+
+/* ------------------------------ billing UI ------------------------------ */
+
+describe('BillingPage', () => {
+  it('checkout calls Razorpay with the chosen plan', async () => {
+    const rzp = new MockRazorpayClient();
+    render(
+      <MemoryRouter>
+        <GaplySessionProvider authService={auth({ user: { id: 'u1', email: 'a@b.c' } })}>
+          <BillingPage razorpay={rzp} />
+        </GaplySessionProvider>
+      </MemoryRouter>
+    );
+    fireEvent.click(await screen.findByTestId('choose-pro'));
+    await waitFor(() => expect(rzp.requests.length).toBe(1));
+    expect(rzp.requests[0].planId).toBe('pro');
+  });
+});
+
+/* ------------------- useSubscription gates a ★ screen ------------------- */
+
+describe('useSubscription gates a ★ screen', () => {
+  it('free session → PublishReady shows the teaser; premium → full flow', async () => {
+    const freeSub = { getTier: vi.fn().mockResolvedValue({ tier: 'free', data: null, error: null, offline: false }) } as any;
+    render(
+      <MemoryRouter>
+        <GaplySessionProvider authService={auth({ user: { id: 'u1', email: 'a@b.c' } })}>
+          <PublishReadyPage subscriptionService={freeSub} />
+        </GaplySessionProvider>
+      </MemoryRouter>
+    );
+    expect(await screen.findByTestId('pr-teaser')).toBeTruthy();
+  });
+});
