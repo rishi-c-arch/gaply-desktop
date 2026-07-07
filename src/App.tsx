@@ -73,6 +73,7 @@ const GaplyAuthRoute = React.lazy(() => import('./screens/GaplyScreens').then((m
 const GaplyOnboardingRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.OnboardingRoute })));
 const GaplyHomeRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.HomeRoute })));
 const GaplyUploadRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.UploadRoute })));
+const GaplyReportRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.ReportRoute })));
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{
@@ -984,6 +985,7 @@ const AppContent: React.FC = () => {
           <Route path="/onboarding" element={<Suspense fallback={null}><GaplyOnboardingRoute /></Suspense>} />
           <Route path="/app" element={<Suspense fallback={null}><GaplyHomeRoute /></Suspense>} />
           <Route path="/app/upload" element={<Suspense fallback={null}><GaplyUploadRoute /></Suspense>} />
+          <Route path="/app/report" element={<Suspense fallback={null}><GaplyReportRoute /></Suspense>} />
         </Routes>
         <DownloadPopUp />
     </div>

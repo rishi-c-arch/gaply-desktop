@@ -1,0 +1,78 @@
+/* Gaply — report viewer (F6). Scoped under .gds-root. */
+
+.gds-root .gds-report { display: grid; gap: var(--g-space-1); height: 100%; min-height: 0; }
+.gds-root .gds-report__tabs { display: flex; gap: var(--g-space-1); border-bottom: 1px solid var(--g-border); }
+.gds-root .gds-report__tab {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--g-text-3); font: 500 var(--g-text-size-sm)/1 var(--g-font-ui);
+  padding: 10px 12px; cursor: pointer;
+}
+.gds-root .gds-report__tab[aria-selected='true'] { color: var(--g-text); border-bottom-color: var(--g-accent); }
+
+/* outline tree (left) */
+.gds-root .gds-outline { display: grid; gap: 2px; }
+.gds-root .gds-outline__item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px; border-radius: var(--g-radius-button);
+  background: none; border: none; color: var(--g-text-2);
+  font: 500 var(--g-text-size-sm)/1.2 var(--g-font-ui); cursor: pointer; text-align: left; width: 100%;
+}
+.gds-root .gds-outline__item[aria-current='true'] { background: var(--g-bg-layer2); color: var(--g-text); }
+.gds-root .gds-outline__dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--g-border-strong); }
+.gds-root .gds-outline__dot[data-status='certain'] { background: var(--g-certain); }
+.gds-root .gds-outline__dot[data-status='assessed'] { background: var(--g-assessed); }
+.gds-root .gds-outline__dot[data-status='flagged'] { background: var(--g-flagged); }
+
+/* center manuscript + inline highlights */
+.gds-root .gds-manuscript { display: grid; gap: var(--g-space-2); }
+.gds-root .gds-ms-section { display: grid; gap: 6px; }
+.gds-root .gds-ms-section__heading { font-size: var(--g-text-size-xs); letter-spacing: 0.05em; text-transform: uppercase; color: var(--g-text-3); }
+.gds-root .gds-ms-section__body { color: var(--g-text-2); line-height: 1.7; }
+.gds-root .gds-highlight {
+  border: none; padding: 1px 4px; border-radius: 3px; cursor: pointer;
+  font: inherit; color: var(--g-text);
+}
+.gds-root .gds-highlight[data-tier='certain'] { background: color-mix(in srgb, var(--g-certain) 26%, transparent); box-shadow: inset 0 -2px 0 var(--g-certain); }
+.gds-root .gds-highlight[data-tier='assessed'] { background: color-mix(in srgb, var(--g-assessed) 26%, transparent); box-shadow: inset 0 -2px 0 var(--g-assessed); }
+.gds-root .gds-highlight[data-tier='flagged'] { background: color-mix(in srgb, var(--g-flagged) 26%, transparent); box-shadow: inset 0 -2px 0 var(--g-flagged); }
+.gds-root .gds-highlight[aria-current='true'] { outline: 2px solid var(--g-accent); }
+
+/* finding rows (list under a tab) */
+.gds-root .gds-findings { display: grid; gap: var(--g-space-1); }
+.gds-root .gds-finding {
+  display: grid; gap: 6px; padding: var(--g-space-2);
+  border: 1px solid var(--g-border); border-radius: var(--g-radius-panel); background: var(--g-bg-layer2);
+  cursor: pointer; text-align: left; width: 100%;
+}
+.gds-root .gds-finding[aria-current='true'] { border-color: var(--g-accent); }
+.gds-root .gds-finding__head { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.gds-root .gds-finding__title { font-weight: 600; font-size: var(--g-text-size-sm); }
+.gds-root .gds-finding__detail { color: var(--g-text-2); font-size: var(--g-text-size-sm); }
+.gds-root .gds-finding__reconsidered { font-size: var(--g-text-size-xs); color: var(--g-flagged); }
+.gds-root .gds-finding__reconsidered s { color: var(--g-text-3); }
+
+/* inspector (right) */
+.gds-root .gds-inspector { display: grid; gap: var(--g-space-2); }
+.gds-root .gds-inspector__label { font-size: var(--g-text-size-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--g-text-3); }
+.gds-root .gds-provenance { display: grid; gap: 4px; }
+.gds-root .gds-provenance__item {
+  font-family: var(--g-font-mono); font-size: var(--g-text-size-xs); color: var(--g-text-2);
+  background: var(--g-bg-layer2); border: 1px solid var(--g-border); border-radius: var(--g-radius-button); padding: 4px 6px;
+  overflow-wrap: anywhere;
+}
+.gds-root .gds-report__disclaimer {
+  font-size: var(--g-text-size-xs); color: var(--g-assessed);
+  border-left: 2px solid var(--g-assessed); padding-left: 8px; line-height: 1.5;
+}
+
+/* checklist */
+.gds-root .gds-checklist { display: grid; gap: 6px; }
+.gds-root .gds-checklist__item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border: 1px solid var(--g-border); border-radius: var(--g-radius-button); background: var(--g-bg-layer2);
+  font-size: var(--g-text-size-sm);
+}
+.gds-root .gds-checklist__mark { flex: none; font-weight: 700; }
+.gds-root .gds-checklist__mark[data-pass='true'] { color: var(--g-certain); }
+.gds-root .gds-checklist__mark[data-pass='false'] { color: var(--g-flagged); }
+.gds-root .gds-checklist__src { margin-left: auto; }

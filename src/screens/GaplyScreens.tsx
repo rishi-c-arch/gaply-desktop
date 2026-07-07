@@ -12,6 +12,7 @@ import AuthPage from './auth/AuthPage';
 import OnboardingPage from './onboarding/OnboardingPage';
 import HomeDashboardPage from './home/HomeDashboardPage';
 import AnalysisTheaterPage from './analysis/AnalysisTheaterPage';
+import ReportViewerPage from './report/ReportViewerPage';
 
 export const AuthRoute: React.FC = () => (
   <GaplySessionProvider>
@@ -38,5 +39,13 @@ export const HomeRoute: React.FC = () => (
 export const UploadRoute: React.FC = () => (
   <GaplySessionProvider>
     <AnalysisTheaterPage />
+  </GaplySessionProvider>
+);
+
+/** /app/report — FREE-OFFLINE: renders compile_report() output (the same viewer
+ *  is reused by paid PublishReady, which adds the Reviewer Letter tab). */
+export const ReportRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <ReportViewerPage />
   </GaplySessionProvider>
 );
