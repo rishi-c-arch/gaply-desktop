@@ -1,0 +1,160 @@
+# Gaply distribution packaging — Windows installers (MSI/NSIS) + macOS DMG.
+#
+# Same Vercel isolation as windows-build-check.yml: manual dispatch only, never
+# runs on push/PR/schedule, never touches main, never runs a vercel command.
+#
+# SIGNING (honest state):
+#   * Updater-artifact signing (Tauri's own minisign) is FULLY WIRED: add the
+#     generated private key as secret TAURI_SIGNING_PRIVATE_KEY and flip
+#     bundle.createUpdaterArtifacts to true — .sig files + latest.json follow.
+#   * Windows Authenticode + macOS Developer ID signing/notarization activate
+#     automatically WHEN the corresponding secrets exist (see env below);
+#     without them the artifacts build fine but are UNSIGNED — OS installers
+#     will show unidentified-publisher warnings. Certificates cannot be
+#     conjured from CI; see docs/PACKAGING.md for acquiring them.
+
+name: Package Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Which platform(s) to package"
+        type: choice
+        default: windows
+        options: [windows, macos, both]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            enabled_on: "windows both"
+          - os: macos-latest
+            enabled_on: "macos both"
+    runs-on: ${{ matrix.os }}
+    # (job-level `if` cannot see `matrix`, so the platform selection is applied
+    #  per-step via `contains(matrix.enabled_on, inputs.platform)`)
+
+    steps:
+      - name: Skip if platform not selected
+        if: ${{ !contains(matrix.enabled_on, inputs.platform) }}
+        shell: bash
+        run: echo "platform '${{ inputs.platform }}' does not include ${{ matrix.os }} — steps below will skip."
+
+      - name: Checkout
+        if: ${{ contains(matrix.enabled_on, inputs.platform) }}
+        uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        if: ${{ contains(matrix.enabled_on, inputs.platform) }}
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        if: ${{ contains(matrix.enabled_on, inputs.platform) }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Node.js
+        if: ${{ contains(matrix.enabled_on, inputs.platform) }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install frontend dependencies
+        if: ${{ contains(matrix.enabled_on, inputs.platform) }}
+        timeout-minutes: 10
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+        run: npm ci
+
+      # Verify the documented Ollama first-run script before packaging it.
+      - name: Test Ollama first-run script (dry-run env contract)
+        if: ${{ contains(matrix.enabled_on, inputs.platform) }}
+        shell: bash
+        run: bash scripts/test-ollama-first-run.sh
+
+      # tauri-action builds the bundles (MSI + NSIS on Windows; DMG + .app on
+      # macOS). Signing env vars are passed through; empty secrets simply leave
+      # the build unsigned rather than failing it.
+      - name: Build installers (tauri-action)
+        if: ${{ contains(matrix.enabled_on, inputs.platform) }}
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # Tauri updater artifact signing (minisign) — active when secret set
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Windows Authenticode — active when secrets set (PFX base64 + password)
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          # macOS Developer ID signing + notarization — active when secrets set
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      # Smoke test: the packaged release binary must launch and stay alive.
+      # (Frontend is bundled; WebView2 ships on windows-latest runners.)
+      - name: Smoke test packaged binary (Windows)
+        if: ${{ contains(matrix.enabled_on, inputs.platform) && runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem src-tauri/target/release -Filter *.exe |
+                 Where-Object { $_.Name -notmatch 'setup|installer' } |
+                 Select-Object -First 1
+          if (-not $exe) { Write-Error "no release binary found"; exit 1 }
+          Write-Host "launching $($exe.FullName)"
+          $p = Start-Process -FilePath $exe.FullName -PassThru
+          Start-Sleep -Seconds 12
+          if ($p.HasExited) {
+            Write-Error "binary exited early (code $($p.ExitCode)) — launch smoke test FAILED"
+            exit 1
+          }
+          Write-Host "binary alive after 12s — smoke test PASSED"
+          Stop-Process -Id $p.Id -Force
+
+      - name: Smoke test packaged binary (macOS)
+        if: ${{ contains(matrix.enabled_on, inputs.platform) && runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          app=$(find src-tauri/target/release/bundle/macos -maxdepth 1 -name '*.app' | head -1)
+          bin="$app/Contents/MacOS/$(defaults read "$PWD/$app/Contents/Info" CFBundleExecutable 2>/dev/null || echo gaply)"
+          [ -x "$bin" ] || bin=$(find "$app/Contents/MacOS" -type f -perm +111 | head -1)
+          echo "launching $bin"
+          "$bin" & pid=$!
+          sleep 12
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "binary exited early — launch smoke test FAILED"; exit 1
+          fi
+          echo "binary alive after 12s — smoke test PASSED"
+          kill "$pid" || true
+
+      - name: Upload installer artifacts
+        if: ${{ contains(matrix.enabled_on, inputs.platform) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gaply-installers-${{ matrix.os }}
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/release/bundle/**/*.sig
+            src-tauri/target/release/bundle/**/latest.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -51,6 +51,15 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    },
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDExODc0MDY5MEI3RkNBRjQKUldUMHluOExhVUNIRWYyTnRtVEJtczJJeUFOYldzOTllNTZzbzI3S1pJakhOUFRrcmtCaDlJL24K",
+      "endpoints": [
+        "https://github.com/RishiSTARP/gaply-react-frontend/releases/latest/download/latest.json"
+      ]
     }
   }
 }

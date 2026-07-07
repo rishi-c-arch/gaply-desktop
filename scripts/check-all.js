@@ -39,6 +39,7 @@ results.push(
 );
 results.push(run('secret-scanner-selftest', 'node', ['scripts/test-secret-scanner.js']));
 results.push(run('react-security-lint-selftest', 'node', ['scripts/test-react-security-lint.js']));
+results.push(run('ollama-first-run-selftest', 'bash', ['scripts/test-ollama-first-run.sh']));
 results.push(
   run('dependency-audit', 'npm', ['audit', '--omit=dev', '--audit-level=high'], { advisory: true })
 );
