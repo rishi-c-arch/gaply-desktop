@@ -79,20 +79,26 @@ jobs:
         # binary download stalls again.
         timeout-minutes: 10
         # `npm ci` is deterministic (installs package-lock.json exactly) and the
-        # right choice for CI. `--omit=optional` skips pdfjs-dist's OPTIONAL
-        # `canvas` dep, whose node-gyp/Cairo native build hangs on Windows and is
-        # never needed here (the browser build doesn't use the Node canvas binding).
+        # right choice for CI.
         #
-        # The Chromium downloads are the real culprit: puppeteer (direct devDep,
-        # v21) plus two legacy puppeteer@1.20 copies pulled in by react-snap /
-        # minimalcss each fetch a full Chromium at postinstall — the old revisions
-        # stall for tens of minutes with no progress output. This job only runs
-        # `cargo test` + `npm run tauri build`, which never launch a browser, so we
-        # skip every Chromium download (both the modern and legacy env-var names).
+        # Do NOT pass `--omit=optional`: napi platform binaries are declared as
+        # OPTIONAL dependencies (e.g. @tauri-apps/cli-win32-x64-msvc, plus
+        # esbuild/rollup native bindings). Omitting optionals removes the Tauri
+        # CLI's Windows native binding and `npm run tauri build` fails with
+        # "Cannot find native binding … @tauri-apps/cli-win32-x64-msvc". So we
+        # keep optionals. pdfjs-dist's optional `canvas` installs from a prebuilt
+        # (no Cairo/GTK compile on a normal runner); the timeout below guards the
+        # rare source-build fallback.
+        #
+        # The 45-min hang was NOT canvas — it was Chromium downloads: puppeteer
+        # (direct devDep, v21) plus two legacy puppeteer@1.20 copies via
+        # react-snap / minimalcss each fetch a full Chromium at postinstall. This
+        # job never launches a browser, so we skip every Chromium download (both
+        # the modern and legacy env-var names).
         env:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
           PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
-        run: npm ci --omit=optional
+        run: npm ci
 
       # Windows CI validates the PORTABLE core crate (gaply_core). It links no
       # GUI stack and holds the genuinely Windows-specific code — notably the
@@ -134,7 +140,9 @@ jobs:
       # (which builds fine — the failure is only at load), then we run it to
       # capture the 0xc0000139 exit and dumpbin its import table.
       - name: (diagnostic) inspect IPC test binary imports
-        if: steps.detect_tauri.outputs.present == 'true'
+        # always() so we still capture this even if an earlier step (e.g. the
+        # Tauri build) fails — it's independent forensic data, not a gate.
+        if: always() && steps.detect_tauri.outputs.present == 'true'
         continue-on-error: true
         working-directory: src-tauri
         shell: pwsh
@@ -175,7 +183,7 @@ jobs:
           exit 0
 
       - name: (diagnostic) upload IPC import dump
-        if: steps.detect_tauri.outputs.present == 'true'
+        if: always() && steps.detect_tauri.outputs.present == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
