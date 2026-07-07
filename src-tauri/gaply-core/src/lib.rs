@@ -22,6 +22,7 @@ pub mod ratelimit;
 pub mod refverify;
 pub mod sanitize;
 pub mod secrets;
+pub mod swarm;
 pub mod validate;
 pub mod verify_agent;
 pub mod vector;

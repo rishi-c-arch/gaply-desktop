@@ -21,20 +21,33 @@ Unpaywall/Semantic Scholar connectors; `UntrustedText`/`llm_safe()` is THE
 mechanism for untrusted web text — reuse it, never build a parallel one),
 `ratelimit.rs`, `cache.rs`, `sanitize.rs`, `secrets.rs`, `app_check.rs`.
 
-### Future swarm topology (how the agents map)
+### Swarm topology (BUILT — `swarm.rs`, Prompt 19)
 
-The agents are already independent, message-in/message-out units with injected
-seams (`HttpFetcher`, `ProxyClient`, `Embedder`, `PerplexityModel`), so they map
-onto a hierarchical swarm naturally:
+The round-table (mesh) debate orchestration now exists in `gaply-core/src/swarm.rs`:
 
-- **Coordinator** (queen): manuscript intake → fan-out → report assembly.
-- **Worker tier** (parallel, local, no cloud): Extraction first (it produces the
-  shared claims/citations), then Validation, AI-Detection, Plagiarism, and RAG
-  retrieval run concurrently over its output.
-- **Gated tier**: Verification runs last, consuming refverify evidence; it is
-  the single cloud egress and stays behind the proxy + harness gate.
-- Rate limiters and the TTL cache are shared swarm resources; provenance tags
-  make agent outputs mergeable without trust confusion.
+- **Mesh round-table**: all six agents produce an `Opinion` (answer +
+  explanation + confidence); up to `MAX_ROUNDS = 3` discussion rounds where each
+  agent sees every other opinion and may revise; zero-revision round = early
+  convergence. CPU-native, no GPU; fully offline for the five local agents —
+  only Verification touches the network (`AgentKind::requires_network()`), via
+  the proxy seam.
+- **Consensus**: confidence-weighted voting with per-agent-kind RESCALING
+  (`rescale_confidence`: deterministic k=1.0 … heuristic/LLM k=0.6 — they run
+  overconfident). The Validation/Maths agent's deterministic verdicts are HARD
+  CONSTRAINTS (`hard_constraint: true`) — never voted on, always override soft
+  consensus (recorded via `overridden_by_constraint`).
+- **Gate filtering**: opinions failing their own internal gate (e.g. the
+  Prompt-17 harness gate) are rejected before entering the round-table.
+- **Adapters** (`swarm::adapters`) map each real agent report into an `Opinion`
+  with the shared `pass`/`concern` vocabulary.
+- **ruv-swarm integration decision** (recorded in the module docs):
+  `ruv-swarm-core` v1.0.6 was evaluated and NOT embedded — async-only `Agent`
+  trait (tokio into a sync crate), MSRV 1.85 vs our 1.77.2 pin, and it contains
+  none of the debate/voting/constraint logic anyway. `SwarmAgent` is the
+  documented 1:1 seam onto `ruv_swarm_core::Agent` if the app later goes
+  multi-process.
+- Rate limiters and the TTL cache remain shared resources; provenance tags make
+  agent outputs mergeable without trust confusion.
 
 ## SPARC methodology (dev-time, via claude-flow)
 
@@ -56,9 +69,10 @@ time injection.
   registered as MCP servers for Claude Code sessions in this repo
   (`claude mcp add claude-flow npx claude-flow@alpha mcp start`, same pattern
   for `ruv-swarm`). They orchestrate how we build Gaply — tooling only.
-- **Runtime (Prompt 19, shipped):** ruv-swarm gets EMBEDDED AS A RUNTIME
-  LIBRARY inside the app to coordinate the six agents in production. That is a
-  separate, in-app dependency with its own review/testing; nothing from the
+- **Runtime (Prompt 19, shipped — BUILT):** the production swarm runtime is
+  `gaply-core/src/swarm.rs` — a native implementation of ruv-swarm's
+  mesh/round-table semantics (the `ruv-swarm-core` crate itself was evaluated
+  and rejected; see the swarm-topology section above). Nothing from the
   dev-time MCP setup ships to users.
 
 ## Working norms (standing)
