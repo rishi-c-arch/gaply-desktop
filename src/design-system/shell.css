@@ -1,0 +1,92 @@
+/* Gaply DS — app shell: nav rail, header bar, three-panel workspace. */
+
+.gds-root .gds-shell {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    'rail header'
+    'rail main';
+  height: 100%;
+  min-height: 0;
+  background: var(--g-bg-base);
+}
+
+/* ---------- Nav rail ---------- */
+.gds-root .gds-rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  gap: var(--g-space-1);
+  width: 216px;
+  padding: var(--g-space-2) var(--g-space-1);
+  background: var(--g-bg-layer1);
+  border-right: 1px solid var(--g-border);
+  transition: width 160ms ease;
+  overflow: hidden;
+}
+.gds-root .gds-rail[data-collapsed='true'] { width: 56px; }
+
+.gds-root .gds-rail__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--g-space-1);
+  padding: 0 var(--g-space-1) var(--g-space-1);
+  border-bottom: 1px solid var(--g-border);
+  min-height: 40px;
+}
+.gds-root .gds-rail__brand-name { font-weight: 700; letter-spacing: 0.01em; white-space: nowrap; }
+
+.gds-root .gds-rail__item {
+  display: flex;
+  align-items: center;
+  gap: var(--g-space-1);
+  padding: 9px 10px;
+  border-radius: var(--g-radius-button);
+  border: none;
+  background: none;
+  color: var(--g-text-3);
+  font: 500 var(--g-text-size-sm) / 1 var(--g-font-ui);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.gds-root .gds-rail__item:hover { background: var(--g-bg-layer2); color: var(--g-text-2); }
+.gds-root .gds-rail__item[aria-current='true'] {
+  background: color-mix(in srgb, var(--g-accent) 16%, transparent);
+  color: var(--g-text);
+}
+.gds-root .gds-rail__icon { width: 18px; text-align: center; flex: none; }
+.gds-root .gds-rail[data-collapsed='true'] .gds-rail__label,
+.gds-root .gds-rail[data-collapsed='true'] .gds-rail__brand-name { display: none; }
+
+.gds-root .gds-rail__spacer { flex: 1; }
+.gds-root .gds-rail__toggle { margin-top: auto; }
+
+/* ---------- Header bar ---------- */
+.gds-root .gds-header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  gap: var(--g-space-2);
+  padding: 0 var(--g-space-2);
+  height: 52px;
+  background: var(--g-bg-layer1);
+  border-bottom: 1px solid var(--g-border);
+}
+.gds-root .gds-header__title { font-weight: 600; font-size: var(--g-text-size-sm); color: var(--g-text-2); }
+.gds-root .gds-header__spacer { flex: 1; }
+
+/* ---------- Three-panel workspace ---------- */
+.gds-root .gds-workspace {
+  grid-area: main;
+  display: grid;
+  grid-template-columns: minmax(200px, 240px) 1fr minmax(240px, 320px);
+  gap: var(--g-space-1);
+  padding: var(--g-space-1);
+  min-height: 0;
+}
+.gds-root .gds-workspace > * { min-height: 0; }
+.gds-root .gds-workspace[data-inspector='false'] { grid-template-columns: minmax(200px, 240px) 1fr; }
+.gds-root .gds-workspace[data-outline='false'] { grid-template-columns: 1fr minmax(240px, 320px); }
+.gds-root .gds-workspace[data-outline='false'][data-inspector='false'] { grid-template-columns: 1fr; }

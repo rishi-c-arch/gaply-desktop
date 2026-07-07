@@ -1,0 +1,30 @@
+/* Gaply DS — containment for the reused ThreeJSGlobe.
+   The existing .threejs-globe-container CSS (hero-new.css) positions the globe
+   absolutely at 640-700px for the marketing homepage hero. Inside the design
+   system it must fill ITS OWN wrapper instead — these overrides are scoped
+   under .gds-globe so the marketing hero is completely unaffected. */
+
+.gds-globe {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--g-radius-panel, 8px);
+}
+
+.gds-globe .threejs-globe-container {
+  position: absolute !important;
+  inset: 0 !important;
+  right: auto !important;
+  top: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  transform: none !important;
+  box-shadow: none !important;
+  background-image: none !important;
+  border-radius: inherit !important;
+}
+
+/* rail mark + micro loader read as circular marks */
+.gds-globe--mark,
+.gds-globe--micro {
+  border-radius: 50%;
+}

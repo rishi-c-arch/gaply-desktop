@@ -1,0 +1,215 @@
+/* Gaply DS — primitive components. All selectors scoped under .gds-root. */
+
+/* ---------- Button ---------- */
+.gds-root .gds-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g-space-1);
+  padding: 8px 16px;
+  border-radius: var(--g-radius-button);
+  border: 1px solid transparent;
+  font: 500 var(--g-text-size-sm) / 1 var(--g-font-ui);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  user-select: none;
+}
+.gds-root .gds-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.gds-root .gds-btn--primary { background: var(--g-accent); color: #fff; }
+.gds-root .gds-btn--primary:hover:not(:disabled) { background: var(--g-accent-hover); }
+.gds-root .gds-btn--secondary {
+  background: var(--g-bg-layer2);
+  color: var(--g-text-2);
+  border-color: var(--g-border-strong);
+}
+.gds-root .gds-btn--secondary:hover:not(:disabled) { border-color: var(--g-text-3); color: var(--g-text); }
+.gds-root .gds-btn--ghost { background: transparent; color: var(--g-text-2); }
+.gds-root .gds-btn--ghost:hover:not(:disabled) { background: var(--g-bg-layer2); color: var(--g-text); }
+.gds-root .gds-btn--danger { background: var(--g-flagged); color: #fff; }
+.gds-root .gds-btn--danger:hover:not(:disabled) { filter: brightness(0.92); }
+
+/* ---------- Card ---------- */
+.gds-root .gds-card {
+  background: var(--g-bg-layer2);
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-panel);
+  padding: var(--g-space-2);
+  box-shadow: var(--g-shadow-1);
+}
+.gds-root .gds-card--glass {
+  background: var(--g-glass-bg);
+  border-color: var(--g-glass-border);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+}
+.gds-root .gds-card__title {
+  margin: 0 0 var(--g-space-1);
+  font-size: var(--g-text-size-sm);
+  font-weight: 600;
+  color: var(--g-text-2);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* ---------- Badge (4 status colors) ---------- */
+.gds-root .gds-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font: 600 var(--g-text-size-xs) / 1.8 var(--g-font-ui);
+  letter-spacing: 0.03em;
+  border: 1px solid;
+}
+.gds-root .gds-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.gds-root .gds-badge--certain  { color: var(--g-certain);  border-color: color-mix(in srgb, var(--g-certain) 45%, transparent);  background: color-mix(in srgb, var(--g-certain) 12%, transparent); }
+.gds-root .gds-badge--assessed { color: var(--g-assessed); border-color: color-mix(in srgb, var(--g-assessed) 45%, transparent); background: color-mix(in srgb, var(--g-assessed) 12%, transparent); }
+.gds-root .gds-badge--flagged  { color: var(--g-flagged);  border-color: color-mix(in srgb, var(--g-flagged) 45%, transparent);  background: color-mix(in srgb, var(--g-flagged) 12%, transparent); }
+.gds-root .gds-badge--neutral  { color: var(--g-accent);   border-color: color-mix(in srgb, var(--g-accent) 45%, transparent);   background: color-mix(in srgb, var(--g-accent) 12%, transparent); }
+
+/* ---------- ScoreRing ---------- */
+.gds-root .gds-scorering { display: inline-grid; place-items: center; position: relative; }
+.gds-root .gds-scorering svg { transform: rotate(-90deg); }
+.gds-root .gds-scorering__track { stroke: var(--g-border); }
+.gds-root .gds-scorering__value {
+  transition: stroke-dashoffset 400ms ease;
+  stroke-linecap: round;
+}
+.gds-root .gds-scorering__label {
+  position: absolute;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Panel ---------- */
+.gds-root .gds-panel {
+  background: var(--g-bg-layer1);
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.gds-root .gds-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--g-space-1) var(--g-space-2);
+  border-bottom: 1px solid var(--g-border);
+  font-size: var(--g-text-size-sm);
+  font-weight: 600;
+  color: var(--g-text-2);
+}
+.gds-root .gds-panel__body { padding: var(--g-space-2); overflow: auto; }
+
+/* ---------- Tabs ---------- */
+.gds-root .gds-tabs__list {
+  display: flex;
+  gap: var(--g-space-1);
+  border-bottom: 1px solid var(--g-border);
+}
+.gds-root .gds-tabs__tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--g-text-3);
+  font: 500 var(--g-text-size-sm) / 1 var(--g-font-ui);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.gds-root .gds-tabs__tab:hover { color: var(--g-text-2); }
+.gds-root .gds-tabs__tab[aria-selected='true'] {
+  color: var(--g-text);
+  border-bottom-color: var(--g-accent);
+}
+.gds-root .gds-tabs__panel { padding: var(--g-space-2) 0; }
+
+/* ---------- Modal ---------- */
+.gds-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+}
+.gds-modal {
+  background: var(--g-bg-layer1, #0e0e0e);
+  border: 1px solid var(--g-border-strong, #4b4b4b);
+  border-radius: var(--g-radius-panel, 8px);
+  min-width: 360px;
+  max-width: min(640px, 90vw);
+  max-height: 85vh;
+  overflow: auto;
+  box-shadow: var(--g-shadow-2, 0 8px 24px rgba(0, 0, 0, 0.5));
+  color: var(--g-text, #fff);
+  font-family: var(--g-font-ui, 'Inter', sans-serif);
+}
+.gds-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--g-border, #303030);
+  font-weight: 600;
+}
+.gds-modal__body { padding: 16px; color: var(--g-text-2, #d0d0d0); }
+
+/* ---------- Toast ---------- */
+.gds-toast-viewport {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1100;
+}
+.gds-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--g-bg-layer1, #0e0e0e);
+  border: 1px solid var(--g-border-strong, #4b4b4b);
+  border-left: 3px solid var(--g-accent, #a25ef6);
+  border-radius: var(--g-radius-button, 4px);
+  color: var(--g-text, #fff);
+  font: 500 13px/1.4 var(--g-font-ui, 'Inter', sans-serif);
+  padding: 10px 14px;
+  min-width: 240px;
+  box-shadow: var(--g-shadow-2, 0 8px 24px rgba(0, 0, 0, 0.5));
+  animation: gds-toast-in 160ms ease;
+}
+.gds-toast--certain { border-left-color: var(--g-certain, #1ca872); }
+.gds-toast--assessed { border-left-color: var(--g-assessed, #f98917); }
+.gds-toast--flagged { border-left-color: var(--g-flagged, #ee4331); }
+@keyframes gds-toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- UsageMeter ---------- */
+.gds-root .gds-usagemeter { display: grid; gap: 6px; }
+.gds-root .gds-usagemeter__row {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--g-text-size-xs);
+  color: var(--g-text-3);
+}
+.gds-root .gds-usagemeter__value { color: var(--g-text-2); font-variant-numeric: tabular-nums; }
+.gds-root .gds-usagemeter__track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--g-bg-layer2);
+  border: 1px solid var(--g-border);
+  overflow: hidden;
+}
+.gds-root .gds-usagemeter__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--g-accent);
+  transition: width 300ms ease;
+}
+.gds-root .gds-usagemeter--warn .gds-usagemeter__fill { background: var(--g-assessed); }
+.gds-root .gds-usagemeter--over .gds-usagemeter__fill { background: var(--g-flagged); }

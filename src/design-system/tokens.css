@@ -1,0 +1,70 @@
+/* Gaply Design System — tokens (dark-first, Adobe Spectrum "darkest"-derived).
+   Everything is namespaced: CSS variables as --g-*, classes as gds-*, and the
+   variables live on .gds-root so NOTHING here can leak into or restyle the
+   existing app. New screens opt in by rendering inside a .gds-root. */
+
+.gds-root {
+  /* -- color: surfaces ---------------------------------------------------- */
+  --g-bg-base: #000000;      /* app base */
+  --g-bg-layer1: #0e0e0e;    /* rail / header / panels */
+  --g-bg-layer2: #1d1d1d;    /* content surfaces */
+  --g-border: #303030;
+  --g-border-strong: #4b4b4b;
+
+  /* -- color: text --------------------------------------------------------- */
+  --g-text: #ffffff;
+  --g-text-2: #d0d0d0;
+  --g-text-3: #8d8d8d;
+
+  /* -- color: accent + status ---------------------------------------------- */
+  --g-accent: #a25ef6;
+  --g-accent-hover: #9146ec;
+  --g-certain: #1ca872;   /* mathematically certain */
+  --g-assessed: #f98917;  /* AI-assessed, moderate confidence */
+  --g-flagged: #ee4331;   /* flagged / refuted */
+
+  /* -- typography ----------------------------------------------------------- */
+  --g-font-ui: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  --g-font-mono: 'Source Code Pro', ui-monospace, 'SF Mono', monospace;
+  --g-text-size: 16px;
+  --g-text-size-sm: 13px;
+  --g-text-size-xs: 11px;
+
+  /* -- spacing (8px grid) + radii ------------------------------------------ */
+  --g-space-1: 8px;
+  --g-space-2: 16px;
+  --g-space-3: 24px;
+  --g-space-4: 32px;
+  --g-space-6: 48px;
+  --g-radius-panel: 8px;
+  --g-radius-button: 4px;
+
+  /* -- elevation / glass ----------------------------------------------------- */
+  --g-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.6);
+  --g-shadow-2: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --g-glass-bg: rgba(29, 29, 29, 0.55);
+  --g-glass-border: rgba(75, 75, 75, 0.45);
+
+  /* base application */
+  background: var(--g-bg-base);
+  color: var(--g-text);
+  font-family: var(--g-font-ui);
+  font-size: var(--g-text-size);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.gds-root ::selection {
+  background: var(--g-accent);
+  color: #fff;
+}
+
+.gds-root .gds-mono {
+  font-family: var(--g-font-mono);
+  font-size: 0.9em;
+}
+
+.gds-root :focus-visible {
+  outline: 2px solid var(--g-accent);
+  outline-offset: 2px;
+}

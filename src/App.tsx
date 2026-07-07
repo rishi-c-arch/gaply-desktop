@@ -66,6 +66,8 @@ const CitationGeneratorPage = React.lazy(() => import('./features/citation-gener
 const ScopusLowApcGuidePage = React.lazy(() => import('./components/seo-guides/ScopusLowApcGuidePage'));
 const FastPublicationIndiaGuidePage = React.lazy(() => import('./components/seo-guides/FastPublicationIndiaGuidePage'));
 const EthicalAiResearchGuidePage = React.lazy(() => import('./components/seo-guides/EthicalAiResearchGuidePage'));
+// Gaply Design System gallery — dev-only route (see the <Route> guard below).
+const DesignGalleryPage = React.lazy(() => import('./design-system/DesignGalleryPage'));
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{
@@ -417,6 +419,7 @@ const AppContent: React.FC = () => {
   const isExactHome = useMatch({ path: '/', end: true });
   const isHideHeaderPath =
     isExactHome ||
+    location.pathname === '/design' || // design-system gallery brings its own shell
     location.pathname.startsWith('/dashboard') ||
     location.pathname.startsWith('/blog') ||
     location.pathname === '/hire-expert' ||
@@ -959,6 +962,14 @@ const AppContent: React.FC = () => {
               </>
             </ProtectedRoute>
           } />
+          {/* Design-system gallery: dev builds only — never registered in production. */}
+          {process.env.NODE_ENV === 'development' && (
+            <Route path="/design" element={
+              <Suspense fallback={null}>
+                <DesignGalleryPage />
+              </Suspense>
+            } />
+          )}
         </Routes>
         <DownloadPopUp />
     </div>
