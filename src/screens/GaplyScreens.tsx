@@ -16,6 +16,7 @@ import ReportViewerPage from './report/ReportViewerPage';
 import PlagiarismCheckPage from './checks/PlagiarismCheckPage';
 import AiCheckPage from './checks/AiCheckPage';
 import StatsCheckPage from './checks/StatsCheckPage';
+import CitationManagerPage from './citations/CitationManagerPage';
 
 export const AuthRoute: React.FC = () => (
   <GaplySessionProvider>
@@ -67,5 +68,13 @@ export const AiCheckRoute: React.FC = () => (
 export const StatsCheckRoute: React.FC = () => (
   <GaplySessionProvider>
     <StatsCheckPage />
+  </GaplySessionProvider>
+);
+
+/** /app/citations — Citation Manager (F8). Free-offline; metadata syncs to
+ *  Supabase when signed in, the manuscript never does. */
+export const CitationManagerRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <CitationManagerPage />
   </GaplySessionProvider>
 );

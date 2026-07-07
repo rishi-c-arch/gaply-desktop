@@ -1,0 +1,49 @@
+/* Gaply — Citation Manager (F8). Scoped under .gds-root. */
+
+.gds-root .gds-cite-collections { display: grid; gap: 2px; }
+.gds-root .gds-cite-collection {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border-radius: var(--g-radius-button);
+  background: none; border: none; color: var(--g-text-2);
+  font: 500 var(--g-text-size-sm)/1.2 var(--g-font-ui); cursor: pointer; text-align: left; width: 100%;
+}
+.gds-root .gds-cite-collection[aria-current='true'] { background: var(--g-bg-layer2); color: var(--g-text); }
+.gds-root .gds-cite-collection[data-retracted='true'] { color: var(--g-flagged); }
+
+.gds-root .gds-cite-add { display: grid; gap: 8px; margin-bottom: var(--g-space-2); }
+.gds-root .gds-cite-add__row { display: flex; gap: 8px; flex-wrap: wrap; }
+.gds-root .gds-cite-input {
+  flex: 1; min-width: 160px;
+  background: var(--g-bg-layer2); border: 1px solid var(--g-border-strong);
+  border-radius: var(--g-radius-button); color: var(--g-text);
+  font: 400 var(--g-text-size-sm)/1.4 var(--g-font-ui); padding: 8px 10px;
+}
+.gds-root .gds-cite-input:focus { border-color: var(--g-accent); outline: none; }
+
+.gds-root .gds-cite-list { display: grid; gap: 4px; }
+.gds-root .gds-cite-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border: 1px solid var(--g-border); border-radius: var(--g-radius-button);
+  background: var(--g-bg-layer2); cursor: pointer; text-align: left; width: 100%;
+}
+.gds-root .gds-cite-item[aria-current='true'] { border-color: var(--g-accent); }
+.gds-root .gds-cite-item[data-retracted='true'] { border-color: color-mix(in srgb, var(--g-flagged) 55%, var(--g-border)); }
+.gds-root .gds-cite-item__icon { flex: none; width: 18px; text-align: center; }
+.gds-root .gds-cite-item__meta { min-width: 0; }
+.gds-root .gds-cite-item__title { margin: 0; font-size: var(--g-text-size-sm); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gds-root .gds-cite-item__sub { color: var(--g-text-3); font-size: var(--g-text-size-xs); }
+
+.gds-root .gds-cite-preview {
+  background: var(--g-bg-layer2); border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-panel); padding: var(--g-space-2);
+  line-height: 1.7; color: var(--g-text); font-size: var(--g-text-size-sm);
+}
+.gds-root .gds-cite-retract-banner {
+  display: flex; align-items: center; gap: 8px;
+  background: color-mix(in srgb, var(--g-flagged) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--g-flagged) 50%, transparent);
+  border-radius: var(--g-radius-button); padding: 8px 10px;
+  color: var(--g-flagged); font-size: var(--g-text-size-sm);
+}
+.gds-root .gds-cite-detail-field { display: grid; gap: 2px; margin-bottom: 8px; }
+.gds-root .gds-cite-detail-field label { font-size: var(--g-text-size-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--g-text-3); }

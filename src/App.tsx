@@ -77,6 +77,7 @@ const GaplyReportRoute = React.lazy(() => import('./screens/GaplyScreens').then(
 const GaplyPlagiarismRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.PlagiarismCheckRoute })));
 const GaplyAiCheckRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.AiCheckRoute })));
 const GaplyStatsCheckRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.StatsCheckRoute })));
+const GaplyCitationRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.CitationManagerRoute })));
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{
@@ -992,6 +993,7 @@ const AppContent: React.FC = () => {
           <Route path="/app/check/plagiarism" element={<Suspense fallback={null}><GaplyPlagiarismRoute /></Suspense>} />
           <Route path="/app/check/ai" element={<Suspense fallback={null}><GaplyAiCheckRoute /></Suspense>} />
           <Route path="/app/check/stats" element={<Suspense fallback={null}><GaplyStatsCheckRoute /></Suspense>} />
+          <Route path="/app/citations" element={<Suspense fallback={null}><GaplyCitationRoute /></Suspense>} />
         </Routes>
         <DownloadPopUp />
     </div>
