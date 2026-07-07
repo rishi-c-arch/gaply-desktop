@@ -1,0 +1,132 @@
+/* Gaply — upload + analysis theater (F5). Scoped under .gds-root. */
+
+.gds-root .gds-analysis { display: grid; gap: var(--g-space-2); }
+
+/* ---------- upload phase ---------- */
+.gds-root .gds-upload {
+  display: grid;
+  gap: var(--g-space-2);
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--g-space-3) 0;
+}
+.gds-root .gds-upload__drop {
+  border: 1.5px dashed var(--g-border-strong);
+  border-radius: var(--g-radius-panel);
+  padding: var(--g-space-6) var(--g-space-3);
+  text-align: center;
+  color: var(--g-text-2);
+  transition: border-color 120ms ease, background 120ms ease;
+  cursor: pointer;
+}
+.gds-root .gds-upload__drop[data-over='true'] {
+  border-color: var(--g-accent);
+  background: color-mix(in srgb, var(--g-accent) 8%, transparent);
+}
+.gds-root .gds-upload__hint { color: var(--g-text-3); font-size: var(--g-text-size-sm); }
+.gds-root .gds-upload__error {
+  color: var(--g-flagged);
+  font-size: var(--g-text-size-sm);
+  border: 1px solid color-mix(in srgb, var(--g-flagged) 40%, transparent);
+  background: color-mix(in srgb, var(--g-flagged) 10%, transparent);
+  border-radius: var(--g-radius-button);
+  padding: 10px 12px;
+}
+
+/* ---------- theater ---------- */
+.gds-root .gds-theater { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--g-space-2); }
+@media (max-width: 1100px) { .gds-root .gds-theater { grid-template-columns: 1fr; } }
+
+.gds-root .gds-lane {
+  display: grid;
+  gap: 6px;
+  padding: var(--g-space-2);
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-panel);
+  background: var(--g-bg-layer2);
+}
+.gds-root .gds-lane[data-status='running'] { border-color: var(--g-accent); }
+.gds-root .gds-lane[data-status='done'] { border-color: color-mix(in srgb, var(--g-certain) 45%, var(--g-border)); }
+.gds-root .gds-lane[data-status='locked'] { opacity: 0.75; }
+.gds-root .gds-lane__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gds-root .gds-lane__name { font-weight: 600; font-size: var(--g-text-size-sm); }
+.gds-root .gds-lane__summary { color: var(--g-text-2); font-size: var(--g-text-size-sm); }
+.gds-root .gds-lane__count { color: var(--g-text-3); font-size: var(--g-text-size-xs); font-variant-numeric: tabular-nums; }
+
+.gds-root .gds-lane__bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--g-bg-base);
+  border: 1px solid var(--g-border);
+  overflow: hidden;
+}
+.gds-root .gds-lane__fill {
+  height: 100%;
+  background: var(--g-accent);
+  transition: width 200ms ease;
+}
+.gds-root .gds-lane[data-status='done'] .gds-lane__fill { background: var(--g-certain); }
+
+.gds-root .gds-disclaimer {
+  font-size: var(--g-text-size-xs);
+  color: var(--g-assessed);
+  border-left: 2px solid var(--g-assessed);
+  padding-left: 8px;
+}
+
+/* per-section risk bars (AI lane) */
+.gds-root .gds-risk-row { display: flex; align-items: center; gap: 8px; }
+.gds-root .gds-risk-row__label { flex: none; width: 90px; font-size: var(--g-text-size-xs); color: var(--g-text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gds-root .gds-risk-row__track { flex: 1; height: 5px; border-radius: 999px; background: var(--g-bg-base); overflow: hidden; }
+.gds-root .gds-risk-row__fill { height: 100%; }
+
+/* ---------- section browser ---------- */
+.gds-root .gds-sections { display: grid; gap: 4px; max-height: 320px; overflow: auto; }
+.gds-root .gds-section-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-button);
+  background: var(--g-bg-layer1);
+  color: var(--g-text-2);
+  font-size: var(--g-text-size-sm);
+  cursor: pointer;
+  text-align: left;
+}
+.gds-root .gds-section-item[aria-current='true'] { border-color: var(--g-accent); color: var(--g-text); }
+
+/* ---------- debate (verification) ---------- */
+.gds-root .gds-debate { display: grid; gap: 8px; }
+.gds-root .gds-debate__turn {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: var(--g-radius-button);
+  background: var(--g-bg-layer1);
+  border: 1px solid var(--g-border);
+  font-size: var(--g-text-size-sm);
+}
+.gds-root .gds-debate__avatar {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--g-accent) 22%, var(--g-bg-layer2));
+  color: var(--g-text);
+}
+.gds-root .gds-debate__speaker { font-weight: 600; font-size: var(--g-text-size-xs); color: var(--g-text-3); }
+.gds-root .gds-lane__locked {
+  display: grid;
+  gap: 6px;
+  padding: var(--g-space-1);
+  border-radius: var(--g-radius-button);
+  background: var(--g-bg-layer1);
+  text-align: center;
+}

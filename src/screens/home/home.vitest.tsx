@@ -7,7 +7,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AuthService, AnalysisHistoryRow } from '../../services/supabase';
 import { GaplySessionProvider } from '../session/SessionProvider';
 import HomeDashboardPage, { summaryToRing } from './HomeDashboardPage';
-import UploadPlaceholderPage from '../upload/UploadPlaceholderPage';
+// The upload route now renders the F5 analysis theater; its upload phase keeps
+// the same testids the F4 dashboard entry points assert against.
+import AnalysisTheaterPage from '../analysis/AnalysisTheaterPage';
 
 vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
@@ -73,7 +75,7 @@ function renderDash(
       <GaplySessionProvider authService={fakeAuth(session)}>
         <Routes>
           <Route path="/app" element={<HomeDashboardPage {...svc} />} />
-          <Route path="/app/upload" element={<UploadPlaceholderPage />} />
+          <Route path="/app/upload" element={<AnalysisTheaterPage />} />
         </Routes>
       </GaplySessionProvider>
     </MemoryRouter>

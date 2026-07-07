@@ -11,7 +11,7 @@ import { GaplySessionProvider, RequireSession } from './session/SessionProvider'
 import AuthPage from './auth/AuthPage';
 import OnboardingPage from './onboarding/OnboardingPage';
 import HomeDashboardPage from './home/HomeDashboardPage';
-import UploadPlaceholderPage from './upload/UploadPlaceholderPage';
+import AnalysisTheaterPage from './analysis/AnalysisTheaterPage';
 
 export const AuthRoute: React.FC = () => (
   <GaplySessionProvider>
@@ -33,9 +33,10 @@ export const HomeRoute: React.FC = () => (
   </GaplySessionProvider>
 );
 
-/** /app/upload — FREE-OFFLINE (on-device parsing; F5 fills in the real flow). */
+/** /app/upload — FREE-OFFLINE: manuscript is parsed on-device by the Rust core;
+ *  no bytes leave the machine. The verification (cloud) lane is premium-gated. */
 export const UploadRoute: React.FC = () => (
   <GaplySessionProvider>
-    <UploadPlaceholderPage />
+    <AnalysisTheaterPage />
   </GaplySessionProvider>
 );
