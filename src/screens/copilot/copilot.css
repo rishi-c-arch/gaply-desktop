@@ -1,0 +1,34 @@
+/* Gaply — Research Copilot chat (F11). Scoped under .gds-root. */
+
+.gds-root .gds-chat { display: grid; grid-template-rows: 1fr auto; gap: var(--g-space-1); min-height: 0; height: 100%; }
+.gds-root .gds-chat__log { display: grid; gap: var(--g-space-1); overflow: auto; padding: 4px; align-content: start; }
+.gds-root .gds-chat__msg { display: grid; gap: 6px; padding: 10px 12px; border-radius: var(--g-radius-panel); max-width: 92%; }
+.gds-root .gds-chat__msg--user { background: color-mix(in srgb, var(--g-accent) 16%, var(--g-bg-layer2)); justify-self: end; }
+.gds-root .gds-chat__msg--assistant { background: var(--g-bg-layer2); border: 1px solid var(--g-border); justify-self: start; }
+.gds-root .gds-chat__msg--refused { border-color: color-mix(in srgb, var(--g-assessed) 45%, var(--g-border)); }
+.gds-root .gds-chat__msg--blocked { border-color: color-mix(in srgb, var(--g-flagged) 45%, var(--g-border)); }
+.gds-root .gds-chat__text { line-height: 1.6; font-size: var(--g-text-size-sm); color: var(--g-text); white-space: pre-wrap; }
+.gds-root .gds-chat__prov {
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+.gds-root .gds-chat__prov span {
+  font-family: var(--g-font-mono); font-size: 10px; color: var(--g-text-3);
+  background: var(--g-bg-layer1); border: 1px solid var(--g-border); border-radius: 999px; padding: 1px 7px;
+}
+.gds-root .gds-chat__disclaimer { font-size: var(--g-text-size-xs); color: var(--g-assessed); }
+.gds-root .gds-chat__lang { font-size: 10px; color: var(--g-text-3); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.gds-root .gds-chat__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.gds-root .gds-chat__chip {
+  background: var(--g-bg-layer1); border: 1px solid var(--g-border-strong); border-radius: 999px;
+  color: var(--g-text-2); font-size: var(--g-text-size-xs); padding: 5px 10px; cursor: pointer;
+}
+.gds-root .gds-chat__chip:hover { border-color: var(--g-accent); color: var(--g-text); }
+
+.gds-root .gds-chat__input-row { display: flex; gap: 8px; }
+.gds-root .gds-chat__input {
+  flex: 1; background: var(--g-bg-layer2); border: 1px solid var(--g-border-strong);
+  border-radius: var(--g-radius-button); color: var(--g-text);
+  font: 400 var(--g-text-size-sm)/1.4 var(--g-font-ui); padding: 10px 12px;
+}
+.gds-root .gds-chat__input:focus { border-color: var(--g-accent); outline: none; }

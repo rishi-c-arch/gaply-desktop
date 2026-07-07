@@ -25,6 +25,8 @@ import { JOURNALS } from '../journal/journalData';
 import { PublishReadyBridge, TauriPublishReadyBridge } from './publishReadyBridge';
 import { PublishReadyResult, TargetJournal } from './publishReadyTypes';
 import ReviewerLetterPanel from './ReviewerLetterPanel';
+import ResearchCopilotPanel from '../copilot/ResearchCopilotPanel';
+import { ChatClient, ProxyChatClient } from '../copilot/chatBridge';
 import './publishready.css';
 import '../journal/journal.css'; // reuse .gds-jc__input / __disclaimer
 
@@ -35,9 +37,36 @@ export interface PublishReadyPageProps {
   subscriptionService?: ReturnType<typeof createSubscriptionService>;
   /** Test seam: force premium/free instead of fetching. */
   forceTier?: 'free' | 'premium';
+  /** Research Copilot chat client for the docked panel (proxy in prod). */
+  chatClient?: ChatClient;
 }
 
-const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, forceTier }) => {
+/** Collapsible Research Copilot dock, attached to the PublishReady report. */
+const CopilotDock: React.FC<{ report: PublishReadyResult['report']; client: ChatClient }> = ({ report, client }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ borderTop: '1px solid var(--g-border)', background: 'var(--g-bg-layer1)' }} data-testid="pr-copilot-dock">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        data-testid="pr-copilot-toggle"
+        style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'none', border: 'none', color: 'var(--g-text-2)', cursor: 'pointer', fontWeight: 600 }}
+      >
+        {open ? '▾' : '▸'} Research Copilot ★ — ask about this review
+      </button>
+      {open && (
+        <div style={{ height: 360, padding: '0 16px 16px' }}>
+          <ResearchCopilotPanel
+            context={{ report, ragSnippets: [], citations: [] }}
+            client={client}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, forceTier, chatClient }) => {
+  const copilot = useMemo(() => chatClient ?? new ProxyChatClient('/proxy'), [chatClient]);
   const navigate = useNavigate();
   const { session } = useGaplySession();
   const { toast } = useToast();
@@ -141,12 +170,17 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
             </HeaderBar>
           }
         >
-          <ReportViewerPage
-            report={result.report}
-            tabs={PR_TABS}
-            bare
-            reviewerLetter={<ReviewerLetterPanel letter={result.reviewerLetter} />}
-          />
+          <div style={{ display: 'grid', gridTemplateRows: '1fr auto', height: '100%', minHeight: 0 }}>
+            <div style={{ minHeight: 0, overflow: 'auto' }}>
+              <ReportViewerPage
+                report={result.report}
+                tabs={PR_TABS}
+                bare
+                reviewerLetter={<ReviewerLetterPanel letter={result.reviewerLetter} />}
+              />
+            </div>
+            <CopilotDock report={result.report} client={copilot} />
+          </div>
         </AppShell>
       </div>
     );
