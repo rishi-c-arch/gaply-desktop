@@ -1,0 +1,107 @@
+/* Gaply — home dashboard (F4). Scoped under .gds-root. */
+
+.gds-root .gds-dash { display: grid; gap: var(--g-space-2); }
+
+/* ---------- hero: globe as live integrity-status object ---------- */
+.gds-root .gds-dash__hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--g-space-2);
+  padding: var(--g-space-3);
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-panel);
+  background:
+    radial-gradient(ellipse 55% 65% at 50% 30%, rgba(162, 94, 246, 0.16), transparent 70%),
+    var(--g-bg-layer1);
+  overflow: hidden;
+}
+.gds-root .gds-dash__hero-globe { width: min(300px, 60%); aspect-ratio: 1; }
+/* keep the canvas box square regardless of the hero scale's default height,
+   so the sphere renders round (inline height needs the !important) */
+.gds-root .gds-dash__hero-globe .gds-globe--hero {
+  width: 100% !important;
+  height: 100% !important;
+}
+.gds-root .gds-dash__hero-status {
+  font-size: var(--g-text-size-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--g-text-3);
+}
+.gds-root .gds-dash__hero-actions { display: flex; gap: var(--g-space-1); align-items: center; }
+
+/* drag-and-drop target */
+.gds-root .gds-dash__drop {
+  width: 100%;
+  border: 1px dashed var(--g-border-strong);
+  border-radius: var(--g-radius-panel);
+  padding: var(--g-space-2);
+  text-align: center;
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-sm);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.gds-root .gds-dash__drop[data-over='true'] {
+  border-color: var(--g-accent);
+  background: color-mix(in srgb, var(--g-accent) 8%, transparent);
+  color: var(--g-text-2);
+}
+
+/* ---------- quick actions ---------- */
+.gds-root .gds-dash__quick { display: flex; gap: var(--g-space-1); flex-wrap: wrap; }
+
+/* ---------- recent manuscripts ---------- */
+.gds-root .gds-dash__recent { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--g-space-1); }
+.gds-root .gds-dash__recent-card { display: flex; align-items: center; gap: var(--g-space-1); }
+.gds-root .gds-dash__recent-meta { min-width: 0; }
+.gds-root .gds-dash__recent-title {
+  margin: 0;
+  font-size: var(--g-text-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gds-root .gds-dash__recent-date { color: var(--g-text-3); font-size: var(--g-text-size-xs); }
+
+/* ---------- upgrade nudge (PublishReady tease) ---------- */
+.gds-root .gds-dash__nudge-letter {
+  position: relative;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-button);
+  padding: var(--g-space-2);
+  background: var(--g-bg-layer2);
+  overflow: hidden;
+}
+.gds-root .gds-dash__nudge-letter p {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--g-text-2);
+  filter: blur(4px);
+  user-select: none;
+}
+.gds-root .gds-dash__nudge-cta {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.55));
+}
+
+/* ---------- community pulse ---------- */
+.gds-root .gds-dash__pulse { display: grid; gap: var(--g-space-1); }
+.gds-root .gds-dash__pulse-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--g-space-1);
+  padding: 10px 12px;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-button);
+  background: var(--g-bg-layer2);
+  font-size: var(--g-text-size-sm);
+}
+.gds-root .gds-dash__pulse-title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gds-root .gds-dash__pulse-meta { color: var(--g-text-3); font-size: var(--g-text-size-xs); flex: none; }

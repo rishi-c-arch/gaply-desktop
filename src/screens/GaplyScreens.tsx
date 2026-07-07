@@ -11,6 +11,7 @@ import { GaplySessionProvider, RequireSession } from './session/SessionProvider'
 import AuthPage from './auth/AuthPage';
 import OnboardingPage from './onboarding/OnboardingPage';
 import HomeDashboardPage from './home/HomeDashboardPage';
+import UploadPlaceholderPage from './upload/UploadPlaceholderPage';
 
 export const AuthRoute: React.FC = () => (
   <GaplySessionProvider>
@@ -29,5 +30,12 @@ export const OnboardingRoute: React.FC = () => (
 export const HomeRoute: React.FC = () => (
   <GaplySessionProvider>
     <HomeDashboardPage />
+  </GaplySessionProvider>
+);
+
+/** /app/upload — FREE-OFFLINE (on-device parsing; F5 fills in the real flow). */
+export const UploadRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <UploadPlaceholderPage />
   </GaplySessionProvider>
 );

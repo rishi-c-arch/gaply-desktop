@@ -63,10 +63,9 @@ describe('Continue offline', () => {
     // landed on home with no session at all
     await screen.findByTestId('home-dashboard');
     expect(screen.getByTestId('signin-nudge')).toBeTruthy();
-    // free-offline features are present and usable
-    expect(screen.getByTestId('feature-extract')).toBeTruthy();
-    expect(screen.getByTestId('feature-validate')).toBeTruthy();
-    // the split-screen trust line was shown on the way in
+    // the free-offline hub is present and usable (hero + quick actions)
+    expect(screen.getByTestId('dash-hero')).toBeTruthy();
+    expect(screen.getByTestId('quick-actions')).toBeTruthy();
   });
 
   it('home dashboard renders directly at /app with no session (offline routes never guarded)', async () => {
