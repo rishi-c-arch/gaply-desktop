@@ -17,6 +17,7 @@
     "@fontsource/space-grotesk": "^5.2.10",
     "@react-three/drei": "^10.7.6",
     "@react-three/fiber": "^9.3.0",
+    "@supabase/supabase-js": "^2.110.0",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-fs": "^2.5.1",

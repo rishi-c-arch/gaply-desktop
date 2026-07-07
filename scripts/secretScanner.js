@@ -22,6 +22,11 @@ const PATTERNS = [
   { name: 'Google API key', regex: /\bAIza[0-9A-Za-z_-]{35}\b/ },
   { name: 'Slack token', regex: /\bxox[baprs]-[0-9A-Za-z-]{10,}/ },
   { name: 'Generic bearer secret', regex: /\bsecret_[A-Za-z0-9]{24,}/ },
+  // Supabase key material — the URL + anon key come from env, NEVER source.
+  { name: 'Supabase secret/publishable key', regex: /\bsb_(?:secret|publishable)_[A-Za-z0-9_-]{20,}/ },
+  { name: 'Supabase personal access token', regex: /\bsbp_[a-f0-9]{40}\b/ },
+  // Hardcoded HS256 JWT (the Supabase anon/service-role key shape).
+  { name: 'Hardcoded JWT (HS256)', regex: /\beyJhbGciOiJIUzI1NiI[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/ },
 ];
 
 const DEFAULT_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.env', '.html', '.css'];
