@@ -18,6 +18,7 @@ import AiCheckPage from './checks/AiCheckPage';
 import StatsCheckPage from './checks/StatsCheckPage';
 import CitationManagerPage from './citations/CitationManagerPage';
 import JournalCheckPage from './journal/JournalCheckPage';
+import PublishReadyPage from './publishready/PublishReadyPage';
 
 export const AuthRoute: React.FC = () => (
   <GaplySessionProvider>
@@ -84,5 +85,12 @@ export const CitationManagerRoute: React.FC = () => (
 export const JournalCheckRoute: React.FC = () => (
   <GaplySessionProvider>
     <JournalCheckPage />
+  </GaplySessionProvider>
+);
+
+/** /app/publishready — PublishReady (F10), the paid flagship. Premium-gated. */
+export const PublishReadyRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <PublishReadyPage />
   </GaplySessionProvider>
 );

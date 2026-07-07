@@ -49,6 +49,8 @@ export interface ReportViewerPageProps {
   title?: string;
   /** Render inside a caller-provided shell instead of the full AppShell. */
   bare?: boolean;
+  /** Content for the paid "Reviewer Letter" tab (F10 PublishReady). */
+  reviewerLetter?: React.ReactNode;
 }
 
 function statusForSection(findings: Finding[], section: string): BadgeStatus | 'neutral' {
@@ -66,6 +68,7 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
   tabs: tabsProp,
   title = 'Integrity report',
   bare = false,
+  reviewerLetter,
 }) => {
   const { session } = useGaplySession();
   const { toast } = useToast();
@@ -193,9 +196,13 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
                   onSelectFinding={selectFinding}
                 />
               ) : (tab as string) === 'Reviewer Letter' ? (
-                <p className="gds-finding__detail" data-testid="reviewer-letter">
-                  The full reviewer letter is generated in PublishReady (F10).
-                </p>
+                <div data-testid="reviewer-letter">
+                  {reviewerLetter ?? (
+                    <p className="gds-finding__detail">
+                      The full reviewer letter is generated in PublishReady (F10).
+                    </p>
+                  )}
+                </div>
               ) : (
                 <FindingsList
                   findings={findingsForTab(ordered, tab)}

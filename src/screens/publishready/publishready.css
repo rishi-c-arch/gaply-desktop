@@ -1,0 +1,38 @@
+/* Gaply — PublishReady (F10). Scoped under .gds-root. */
+
+.gds-root .gds-pr { display: grid; gap: var(--g-space-2); }
+.gds-root .gds-pr__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: var(--g-space-2); border: 1px solid var(--g-border); border-radius: var(--g-radius-panel);
+  background: var(--g-bg-layer2);
+}
+.gds-root .gds-pr__verdict {
+  font-weight: 800; font-size: 22px; letter-spacing: 0.02em;
+  padding: 12px 18px; border-radius: var(--g-radius-panel); border: 2px solid;
+}
+.gds-root .gds-pr__verdict[data-status='certain'] { color: var(--g-certain); border-color: var(--g-certain); background: color-mix(in srgb, var(--g-certain) 12%, transparent); }
+.gds-root .gds-pr__verdict[data-status='assessed'] { color: var(--g-assessed); border-color: var(--g-assessed); background: color-mix(in srgb, var(--g-assessed) 12%, transparent); }
+.gds-root .gds-pr__verdict[data-status='flagged'] { color: var(--g-flagged); border-color: var(--g-flagged); background: color-mix(in srgb, var(--g-flagged) 12%, transparent); }
+.gds-root .gds-pr__gauge { display: flex; align-items: center; gap: 12px; }
+.gds-root .gds-pr__gauge-label { font-size: var(--g-text-size-sm); color: var(--g-text-2); }
+.gds-root .gds-pr__body { margin: 0; line-height: 1.7; color: var(--g-text-2); font-size: var(--g-text-size-sm); }
+.gds-root .gds-pr__grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--g-space-1); }
+@media (max-width: 900px) { .gds-root .gds-pr__grid { grid-template-columns: 1fr; } }
+.gds-root .gds-pr__alts { display: grid; gap: 6px; }
+.gds-root .gds-pr__alt {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border: 1px solid var(--g-border); border-radius: var(--g-radius-button);
+  background: var(--g-bg-layer1); color: var(--g-text-2); font-size: var(--g-text-size-sm); cursor: pointer; text-align: left;
+}
+.gds-root .gds-pr__disclaimer { font-size: var(--g-text-size-xs); color: var(--g-assessed); border-left: 2px solid var(--g-assessed); padding-left: 8px; }
+
+/* ---- entry + teaser ---- */
+.gds-root .gds-pr-entry { display: grid; gap: var(--g-space-2); max-width: 640px; margin: 0 auto; }
+.gds-root .gds-pr-teaser { position: relative; }
+.gds-root .gds-pr-teaser__blur { filter: blur(6px); user-select: none; pointer-events: none; }
+.gds-root .gds-pr-teaser__cta {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background: linear-gradient(180deg, rgba(0,0,0,0.2), rgba(0,0,0,0.72));
+  border-radius: var(--g-radius-panel); text-align: center; gap: 10px;
+}
+.gds-root .gds-pr-teaser__cta > div { display: grid; gap: 10px; justify-items: center; padding: 24px; }
