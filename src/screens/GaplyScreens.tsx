@@ -17,6 +17,7 @@ import PlagiarismCheckPage from './checks/PlagiarismCheckPage';
 import AiCheckPage from './checks/AiCheckPage';
 import StatsCheckPage from './checks/StatsCheckPage';
 import CitationManagerPage from './citations/CitationManagerPage';
+import JournalCheckPage from './journal/JournalCheckPage';
 
 export const AuthRoute: React.FC = () => (
   <GaplySessionProvider>
@@ -76,5 +77,12 @@ export const StatsCheckRoute: React.FC = () => (
 export const CitationManagerRoute: React.FC = () => (
   <GaplySessionProvider>
     <CitationManagerPage />
+  </GaplySessionProvider>
+);
+
+/** /app/journal — Journal Check (F9). Free-offline; online fallback via proxy. */
+export const JournalCheckRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <JournalCheckPage />
   </GaplySessionProvider>
 );

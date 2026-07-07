@@ -1,0 +1,62 @@
+/* Gaply — Journal Check (F9). Scoped under .gds-root. */
+
+.gds-root .gds-jc { display: grid; gap: var(--g-space-2); max-width: 760px; margin: 0 auto; }
+.gds-root .gds-jc__search { display: flex; gap: 8px; }
+.gds-root .gds-jc__input {
+  flex: 1;
+  background: var(--g-bg-layer2); border: 1px solid var(--g-border-strong);
+  border-radius: var(--g-radius-button); color: var(--g-text);
+  font: 400 var(--g-text-size)/1.4 var(--g-font-ui); padding: 12px 14px;
+}
+.gds-root .gds-jc__input:focus { border-color: var(--g-accent); outline: none; }
+.gds-root .gds-jc__disclaimer { font-size: var(--g-text-size-xs); color: var(--g-text-3); }
+
+.gds-root .gds-jc__tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--g-border); }
+.gds-root .gds-jc__tab {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--g-text-3); font: 500 var(--g-text-size-sm)/1 var(--g-font-ui); padding: 10px 12px; cursor: pointer;
+}
+.gds-root .gds-jc__tab[aria-selected='true'] { color: var(--g-text); border-bottom-color: var(--g-accent); }
+
+/* result card */
+.gds-root .gds-jc-card {
+  border: 1px solid var(--g-border); border-radius: var(--g-radius-panel);
+  background: var(--g-bg-layer2); padding: var(--g-space-3); display: grid; gap: var(--g-space-2);
+}
+.gds-root .gds-jc-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.gds-root .gds-jc-card__name { margin: 0; font-size: 18px; font-weight: 700; }
+.gds-root .gds-jc-card__pub { color: var(--g-text-3); font-size: var(--g-text-size-sm); }
+
+.gds-root .gds-quartile {
+  display: inline-grid; place-items: center; min-width: 64px; height: 64px;
+  border-radius: var(--g-radius-panel); font-weight: 800; font-size: 22px; border: 2px solid;
+}
+.gds-root .gds-quartile[data-q='Q1'] { color: #f5c518; border-color: #f5c518; background: color-mix(in srgb, #f5c518 12%, transparent); }
+.gds-root .gds-quartile[data-q='Q2'] { color: var(--g-accent); border-color: var(--g-accent); background: color-mix(in srgb, var(--g-accent) 12%, transparent); }
+.gds-root .gds-quartile[data-q='Q3'] { color: var(--g-assessed); border-color: var(--g-assessed); background: color-mix(in srgb, var(--g-assessed) 12%, transparent); }
+.gds-root .gds-quartile[data-q='Q4'] { color: var(--g-flagged); border-color: var(--g-flagged); background: color-mix(in srgb, var(--g-flagged) 12%, transparent); }
+
+.gds-root .gds-jc-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.gds-root .gds-jc-field label { display: block; font-size: var(--g-text-size-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--g-text-3); }
+.gds-root .gds-jc-field span { font-size: var(--g-text-size-sm); color: var(--g-text-2); }
+
+.gds-root .gds-risk {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: var(--g-radius-button); border: 1px solid;
+  font-size: var(--g-text-size-sm);
+}
+.gds-root .gds-risk__dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.gds-root .gds-risk[data-level='green'] { border-color: color-mix(in srgb, var(--g-certain) 45%, transparent); color: var(--g-certain); }
+.gds-root .gds-risk[data-level='green'] .gds-risk__dot { background: var(--g-certain); }
+.gds-root .gds-risk[data-level='amber'] { border-color: color-mix(in srgb, var(--g-assessed) 45%, transparent); color: var(--g-assessed); }
+.gds-root .gds-risk[data-level='amber'] .gds-risk__dot { background: var(--g-assessed); }
+.gds-root .gds-risk[data-level='red'] { border-color: color-mix(in srgb, var(--g-flagged) 55%, transparent); color: var(--g-flagged); }
+.gds-root .gds-risk[data-level='red'] .gds-risk__dot { background: var(--g-flagged); }
+
+.gds-root .gds-jc-index { display: flex; gap: 8px; }
+.gds-root .gds-jc-suggest { display: grid; gap: 4px; }
+.gds-root .gds-jc-suggest button {
+  text-align: left; background: var(--g-bg-layer1); border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-button); padding: 8px 10px; color: var(--g-text-2);
+  font-size: var(--g-text-size-sm); cursor: pointer;
+}
