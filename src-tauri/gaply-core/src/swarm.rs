@@ -231,6 +231,10 @@ pub struct DebateOutcome {
     pub rounds_run: usize,
     /// True when a round completed with zero revisions (early termination).
     pub converged: bool,
+    /// Agents that revised their opinion during the debate (e.g. a
+    /// RevisingVerificationAgent reconsideration) — the report compiler uses
+    /// this to assign the "reconsidered after peer review" certainty tier.
+    pub revised_agents: Vec<AgentKind>,
     pub result: ConsensusResult,
 }
 
@@ -266,6 +270,7 @@ pub fn run_debate<'a>(
     // (3) mesh discussion rounds — everyone sees everyone; ≤ MAX_ROUNDS.
     let mut rounds_run = 0;
     let mut converged = false;
+    let mut revised_agents: Vec<AgentKind> = Vec::new();
     while rounds_run < max_rounds {
         rounds_run += 1;
         let snapshot: Vec<Opinion> = admitted.iter().map(|(_, o)| o.clone()).collect();
@@ -282,6 +287,9 @@ pub fn run_debate<'a>(
                 new.agent = own.agent;
                 new.hard_constraint = own.hard_constraint;
                 new.gate_passed = own.gate_passed;
+                if !revised_agents.contains(&new.agent) {
+                    revised_agents.push(new.agent);
+                }
                 *own = new;
                 any_revision = true;
             }
@@ -295,7 +303,7 @@ pub fn run_debate<'a>(
     // (4)+(5) consensus with rescaled weights and hard-constraint override.
     let opinions: Vec<Opinion> = admitted.into_iter().map(|(_, o)| o).collect();
     let result = consensus(&opinions)?;
-    Ok(DebateOutcome { opinions, rejected, rounds_run, converged, result })
+    Ok(DebateOutcome { opinions, rejected, rounds_run, converged, revised_agents, result })
 }
 
 // ============================================================================

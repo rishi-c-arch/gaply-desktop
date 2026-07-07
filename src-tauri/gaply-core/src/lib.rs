@@ -19,6 +19,7 @@ pub mod plagiarism;
 pub mod projects;
 pub mod rag;
 pub mod ratelimit;
+pub mod report;
 pub mod refverify;
 pub mod sanitize;
 pub mod secrets;
