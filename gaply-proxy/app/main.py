@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .app_check import HEADER_NAME, AppCheckVerifier, VerifyError, VerifiedToken
+from .bind_guard import BindClassification, InsecureBindError, enforce_private_bind
 from .claude_client import AnthropicClaudeClient, ClaudeClient
 from .config import Settings, settings_from_env
 from .rate_limit import TokenBucketRateLimiter
@@ -29,11 +30,24 @@ from .validation import ValidationError, validate_structured
 EXEMPT_PATHS = {"/health"}
 
 
+def check_bind(settings: Settings) -> BindClassification:
+    """Startup safety net: refuse to run if the configured bind host is public.
+
+    Raises InsecureBindError (fail closed) unless the break-glass override is
+    set. Called at app-creation time so `uvicorn app.main:app` with a public
+    GAPLY_BIND_HOST fails immediately, and again by the __main__ entrypoint,
+    which is the authoritative launch path (it hands the host to uvicorn).
+    """
+    return enforce_private_bind(settings.bind_host, allow_public=settings.allow_public_bind)
+
+
 def create_app(
     settings: Settings | None = None,
     claude_client: ClaudeClient | None = None,
 ) -> FastAPI:
     settings = settings or settings_from_env()
+    # Safety net: never come up bound to a public interface (see bind_guard).
+    check_bind(settings)
     verifier = AppCheckVerifier(
         settings.app_check_signing_key.encode("utf-8"),
         settings.app_check_app_id,

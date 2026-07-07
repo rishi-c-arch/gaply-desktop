@@ -1,0 +1,60 @@
+# systemd unit for the Gaply proxy — fails closed if Tailscale isn't connected.
+#
+# Install:
+#   sudo cp deploy/gaply-proxy.service /etc/systemd/system/
+#   sudo cp deploy/require-tailscale.sh /usr/local/bin/ && sudo chmod +x /usr/local/bin/require-tailscale.sh
+#   sudo systemctl daemon-reload && sudo systemctl enable --now gaply-proxy
+#
+# Secrets (CLAUDE_API_KEY, APP_CHECK_SIGNING_KEY, ...) go in an env file that is
+# root-owned and chmod 600 — never in this unit. See README.
+#
+# The proxy binds to loopback (GAPLY_BIND_HOST=127.0.0.1) and is published to the
+# tailnet by `tailscale serve` (automatic HTTPS, zero open public ports). It may
+# instead bind directly to this node's 100.x tailnet IP; either way the
+# bind_guard safety net refuses a public interface.
+
+[Unit]
+Description=Gaply FastAPI proxy (Tailscale-only, private)
+# Order after the tailnet is up. Requires=/After= the tailscaled service so we
+# don't even attempt to start before the daemon exists.
+Requires=tailscaled.service
+After=tailscaled.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+# Run as an unprivileged, dedicated user (create with: useradd -r -s /usr/sbin/nologin gaply).
+User=gaply
+Group=gaply
+WorkingDirectory=/opt/gaply-proxy
+EnvironmentFile=/etc/gaply-proxy/proxy.env
+Environment=GAPLY_BIND_HOST=127.0.0.1
+Environment=GAPLY_BIND_PORT=8080
+
+# FAIL CLOSED: if the tailnet isn't up/connected, this gate exits non-zero and
+# systemd aborts the start — uvicorn never runs.
+ExecStartPre=/usr/local/bin/require-tailscale.sh
+
+# Authoritative launch path: runs the bind safety net, then uvicorn.
+ExecStart=/opt/gaply-proxy/.venv/bin/python -m app
+
+Restart=on-failure
+RestartSec=5
+
+# Hardening — least privilege for a network service that touches secrets.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+# The venv/app tree is read-only to the service; it needs no write access at all.
+ReadOnlyPaths=/opt/gaply-proxy
+
+[Install]
+WantedBy=multi-user.target

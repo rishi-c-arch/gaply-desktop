@@ -22,6 +22,13 @@ class Settings:
     max_total_chars: int = 8000
     max_field_chars: int = 2000
     max_sentences_per_field: int = 8
+    # Bind address — must be localhost or a private/tailnet interface. Defaults
+    # to loopback so the proxy is never public unless deliberately reconfigured.
+    bind_host: str = "127.0.0.1"
+    bind_port: int = 8080
+    # Break-glass ONLY: disables the public-bind safety net. Never set in normal
+    # operation — see the bind_guard module and README.
+    allow_public_bind: bool = False
 
 
 def settings_from_env() -> Settings:
@@ -39,4 +46,9 @@ def settings_from_env() -> Settings:
         max_total_chars=int(os.getenv("MAX_TOTAL_CHARS", "8000")),
         max_field_chars=int(os.getenv("MAX_FIELD_CHARS", "2000")),
         max_sentences_per_field=int(os.getenv("MAX_SENTENCES_PER_FIELD", "8")),
+        bind_host=os.getenv("GAPLY_BIND_HOST", "127.0.0.1"),
+        bind_port=int(os.getenv("GAPLY_BIND_PORT", "8080")),
+        # Requires an explicit, unambiguous token to enable — a truthy value like
+        # "1" won't do it, so it can't be flipped on by accident.
+        allow_public_bind=os.getenv("GAPLY_ALLOW_PUBLIC_BIND", "") == "i-accept-public-exposure",
     )
