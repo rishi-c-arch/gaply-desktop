@@ -96,6 +96,32 @@ GitHub infrastructure to confirm end-to-end:
 | systemd gate script logic (exit non-zero when tailnet down) | **Logic written & `bash -n` clean**; exercised end-to-end only on a host with `tailscaled` |
 | Tailscale actually routes traffic tailnet-only; `serve` gives HTTPS + zero public ports; ACLs enforce access | **Requires a live Tailscale network** — cannot be confirmed offline (no tailnet in this repo/CI) |
 
+## Optional hardening — Trusted Execution Environment (AWS Nitro Enclaves)
+
+Tailscale hides the proxy from the network, but the **host still sees the API key
+and the summaries**. For a stronger boundary, sensitive processing can run inside
+an **AWS Nitro Enclave**: the parent instance has zero visibility into enclave
+memory, the enclave holds the key and makes the Claude call, and the proxy only
+trusts it after verifying a cryptographic **attestation** of the code identity
+(PCR0). Communication is VSOCK-only.
+
+- **Designed & unit-tested now:** the attestation *verification policy*
+  (`app/enclave.py`) and the attest→verify→forward handshake
+  (`app/enclave_client.py`), with mocked crypto — ACCEPT a valid document, REJECT
+  tampered PCR0 / signature / payload / root / nonce / stale ones
+  (`tests/test_enclave.py`).
+- **Requires real AWS to deploy/verify:** building the enclave image (EIF→PCR0),
+  a genuine NSM attestation, real COSE_Sign1/ES384 + AWS Nitro root-CA
+  validation, KMS attestation-gated key release, and VSOCK transport. Full
+  guide + build steps: [`deploy/enclave/README.md`](deploy/enclave/README.md).
+
+Enable with `GAPLY_ENCLAVE_ENABLED=yes` and pin `GAPLY_ENCLAVE_PCR0`. Until a
+provisioned enclave client is injected, the proxy **fails closed** (`503
+enclave_not_provisioned`) rather than silently doing a host-side call. See also
+`deploy/enclave/README.md` for **on-device** alternatives (Apple Secure Enclave,
+future macOS pass) and why **Intel SGX** (EPC limits, side-channel history) is
+not the primary recommendation.
+
 ## Environment variables (keys are never hardcoded)
 
 | Var | Purpose |
@@ -109,6 +135,10 @@ GitHub infrastructure to confirm end-to-end:
 | `MAX_TOTAL_CHARS` / `MAX_FIELD_CHARS` / `MAX_SENTENCES_PER_FIELD` | validator thresholds |
 | `GAPLY_BIND_HOST` / `GAPLY_BIND_PORT` | bind address (default `127.0.0.1:8080`); must be localhost or private/tailnet |
 | `GAPLY_ALLOW_PUBLIC_BIND` | break-glass ONLY; must equal `i-accept-public-exposure` to disable the public-bind safety net |
+| `GAPLY_ENCLAVE_ENABLED` | opt into the Nitro Enclave TEE path (`1`/`true`/`yes`); needs real AWS Nitro infra |
+| `GAPLY_ENCLAVE_PCR0` | pinned hex SHA-384 of the enclave image (code identity to trust) |
+| `GAPLY_ENCLAVE_CID` / `GAPLY_ENCLAVE_PORT` | enclave VSOCK context id / port (default `16` / `5005`) |
+| `GAPLY_ENCLAVE_MAX_AGE` | max attestation-document age in seconds (default `300`) |
 
 ## Run
 

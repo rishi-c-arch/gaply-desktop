@@ -92,6 +92,22 @@ def create_app(
     def get_claude() -> ClaudeClient:
         if app.state.claude_client is not None:
             return app.state.claude_client
+        # TEE path: when the enclave is enabled, the API key and the Claude call
+        # live INSIDE the Nitro Enclave; the proxy forwards over VSOCK after
+        # verifying attestation (see enclave.py / deploy/enclave). A real deploy
+        # injects a provisioned EnclaveClaudeClient as `claude_client`; without
+        # one we fail closed rather than silently fall back to a host-side call
+        # that would defeat the enclave's purpose.
+        if settings.enclave_enabled:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "enclave_not_provisioned",
+                    "reason": "GAPLY_ENCLAVE_ENABLED is set but no attested "
+                    "EnclaveClaudeClient was injected. Provision the Nitro "
+                    "Enclave (deploy/enclave) and supply it as claude_client.",
+                },
+            )
         if not settings.claude_api_key:
             raise HTTPException(
                 status_code=503, detail={"error": "claude_not_configured"}

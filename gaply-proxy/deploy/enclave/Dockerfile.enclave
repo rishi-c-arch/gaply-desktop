@@ -1,0 +1,22 @@
+# Enclave image for `nitro-cli build-enclave`. The resulting EIF's hash is PCR0
+# — the code identity the proxy pins and KMS gates key release on. Keep it
+# MINIMAL and REPRODUCIBLE (pin the base by digest, no timestamps) so PCR0 is
+# stable across rebuilds.
+#
+# This image runs the enclave-side agent (enclave_agent.py sketch): it holds the
+# Claude API key (obtained via KMS attestation at runtime — never baked in),
+# answers attestation challenges from the NSM, and forwards summaries to Claude.
+#
+# Pin the digest for reproducible PCR0 (example digest — replace with a real one):
+FROM public.ecr.aws/amazonlinux/amazonlinux@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+RUN yum install -y python3 python3-pip \
+ && pip3 install --no-cache-dir anthropic aws-nitro-enclaves-nsm-api cose cryptography \
+ && yum clean all
+
+WORKDIR /enclave
+COPY deploy/enclave/enclave_agent.py /enclave/enclave_agent.py
+
+# NO API KEY here. The agent fetches it at runtime via KMS Decrypt, which only
+# succeeds if this enclave's attestation (PCR0) matches the KMS key policy.
+ENTRYPOINT ["python3", "/enclave/enclave_agent.py"]
