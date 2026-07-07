@@ -94,13 +94,21 @@ jobs:
           PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
         run: npm ci --omit=optional
 
-      # Runs natively on Windows — all 135 tests (gaply_core unit + golden +
-      # the app crate's Tauri IPC tests), including the Windows Credential
-      # Manager keyring backend, which a macOS cross-compile check cannot cover.
-      - name: Run Rust test suite (gaply_core + app)
+      # Windows CI validates the PORTABLE core crate (gaply_core). It links no
+      # GUI stack and holds the genuinely Windows-specific code — notably the
+      # Credential Manager keyring backend a macOS check can't cover.
+      #
+      # We deliberately do NOT run `cargo test --workspace` here. The `app`
+      # crate's IPC tests (tests/commands_test.rs) link Tauri's wry/tao native
+      # webview stack; on Windows that test binary dies at LOAD with
+      # STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139) before the harness runs, so a
+      # `--workspace` run goes red regardless of the tests' own outcome. Those
+      # tests are #[cfg_attr(windows, ignore)] and run on macOS/Linux; the
+      # diagnostic step below records exactly which import fails to resolve.
+      - name: Run Rust test suite (gaply_core — portable/Windows-relevant logic)
         if: steps.detect_tauri.outputs.present == 'true'
         working-directory: src-tauri
-        run: cargo test --workspace
+        run: cargo test -p gaply_core
 
       # Produces the real Windows installers (bundle.targets = "all" → MSI + NSIS).
       # beforeBuildCommand builds the CRA frontend first.
@@ -116,6 +124,63 @@ jobs:
           path: |
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: warn
+          retention-days: 14
+
+      # DIAGNOSTIC (Option C) — records exactly which DLL/entrypoint the IPC test
+      # binary fails to resolve at load on Windows. Non-fatal (continue-on-error)
+      # so it never turns the job red; it's here to name the culprit for the
+      # record, not to gate anything. `--no-run` compiles+links commands_test
+      # (which builds fine — the failure is only at load), then we run it to
+      # capture the 0xc0000139 exit and dumpbin its import table.
+      - name: (diagnostic) inspect IPC test binary imports
+        if: steps.detect_tauri.outputs.present == 'true'
+        continue-on-error: true
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          Write-Host "Building app-crate IPC test binary (no run)…"
+          $lines = cargo test -p app --test commands_test --no-run --message-format=json 2>$null
+          $exe = $null
+          foreach ($l in $lines) {
+            try { $o = $l | ConvertFrom-Json } catch { continue }
+            if ($o.reason -eq 'compiler-artifact' -and $o.target.name -eq 'commands_test' -and $o.executable) {
+              $exe = $o.executable
+            }
+          }
+          if (-not $exe) { Write-Host "Could not locate commands_test.exe — skipping diagnostic."; exit 0 }
+          Write-Host "Test binary: $exe"
+
+          New-Item -ItemType Directory -Force -Path diag | Out-Null
+
+          Write-Host "=== Load attempt (expected to fail at load on Windows) ==="
+          & "$exe" --list 2>&1 | Out-Host
+          $code = $LASTEXITCODE
+          $hex = ('0x{0:X8}' -f ([uint32]($code -band 0xffffffff)))
+          Write-Host "exit code: $code ($hex)  [0xC0000139 == STATUS_ENTRYPOINT_NOT_FOUND]"
+          "exit code: $code ($hex)" | Out-File diag\commands_test.exit.txt
+
+          # Locate dumpbin via vswhere (present on windows-latest).
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath  = & $vswhere -latest -products * -property installationPath 2>$null
+          $dumpbin = Get-ChildItem "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($dumpbin) {
+            Write-Host "=== Dependent DLLs (dumpbin /dependents) ==="
+            & $dumpbin.FullName /dependents "$exe" | Tee-Object diag\commands_test.dependents.txt | Select-String '\.dll' | Out-Host
+            & $dumpbin.FullName /imports "$exe" | Out-File diag\commands_test.imports.txt
+            Write-Host "Full import table written to diag/commands_test.imports.txt (uploaded as an artifact)."
+          } else {
+            Write-Host "dumpbin not found; skipped import dump."
+          }
+          exit 0
+
+      - name: (diagnostic) upload IPC import dump
+        if: steps.detect_tauri.outputs.present == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: commands_test-imports-diagnostic
+          path: src-tauri/diag/*.txt
           if-no-files-found: warn
           retention-days: 14
 

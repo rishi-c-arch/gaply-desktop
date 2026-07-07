@@ -1,5 +1,28 @@
 //! Integration test: invoke real commands through the Tauri IPC harness
 //! (mock runtime, no window server needed) with the DB mocked out.
+//!
+//! WINDOWS NOTE — why every test here is `#[cfg_attr(windows, ignore)]`:
+//! These tests build a `WebviewWindowBuilder`, which references Tauri's
+//! `wry`/`tao` native webview+windowing code. Tauri's default features pull
+//! `wry` into the `app` crate, and Cargo feature-unification links it into this
+//! test binary too — even though `MockRuntime` never creates a real webview at
+//! runtime. On the Windows (msvc) target that linked GUI stack imports Win32
+//! entrypoints that fail to resolve when the test executable is *loaded* on the
+//! CI runner, so the process dies with STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139)
+//! before the test harness even starts. It is a load-time link/runtime
+//! mismatch, not a logic bug — the same command logic passes on macOS/Linux.
+//!
+//! So on Windows we skip these and let Windows CI validate the genuinely
+//! platform-specific code (the Credential Manager keyring backend, etc.) via
+//! `cargo test -p gaply_core`, which links no GUI stack. See the Windows CI
+//! workflow. On macOS/Linux the `cfg_attr` is inert and all tests run normally.
+//!
+//! Caveat: `#[ignore]` is a *runtime* skip; because the crash is at binary load
+//! (before the harness reads ignore flags), it does not by itself prevent the
+//! crash if this binary is ever executed on Windows. The real guard is that
+//! Windows CI runs `-p gaply_core` and never builds/runs this binary. To make
+//! `cargo test --workspace` itself safe on Windows we'd compile these out with
+//! `#[cfg(not(windows))]` instead — a follow-up if we want that.
 
 use std::sync::{Arc, Mutex};
 
@@ -97,6 +120,13 @@ fn invoke(
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows: wry/tao GUI stack force-linked into this mock IPC test \
+              binary fails to resolve a Win32 import at load \
+              (STATUS_ENTRYPOINT_NOT_FOUND 0xc0000139); Windows CI validates \
+              portable logic via `cargo test -p gaply_core`. Runs on macOS/Linux."
+)]
 fn create_project_roundtrip_through_ipc() {
     let (app, store, _db) = test_app();
     let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -131,6 +161,13 @@ fn create_project_roundtrip_through_ipc() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows: wry/tao GUI stack force-linked into this mock IPC test \
+              binary fails to resolve a Win32 import at load \
+              (STATUS_ENTRYPOINT_NOT_FOUND 0xc0000139); Windows CI validates \
+              portable logic via `cargo test -p gaply_core`. Runs on macOS/Linux."
+)]
 fn db_commands_report_migrated_healthy_database() {
     let (app, _store, _db) = test_app();
     let webview = WebviewWindowBuilder::new(&app, "db", Default::default())
@@ -160,6 +197,13 @@ fn db_commands_report_migrated_healthy_database() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows: wry/tao GUI stack force-linked into this mock IPC test \
+              binary fails to resolve a Win32 import at load \
+              (STATUS_ENTRYPOINT_NOT_FOUND 0xc0000139); Windows CI validates \
+              portable logic via `cargo test -p gaply_core`. Runs on macOS/Linux."
+)]
 fn validation_error_crosses_ipc_with_stable_shape() {
     let (app, _store, _db) = test_app();
     let webview = WebviewWindowBuilder::new(&app, "err", Default::default())
@@ -174,6 +218,13 @@ fn validation_error_crosses_ipc_with_stable_shape() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows: wry/tao GUI stack force-linked into this mock IPC test \
+              binary fails to resolve a Win32 import at load \
+              (STATUS_ENTRYPOINT_NOT_FOUND 0xc0000139); Windows CI validates \
+              portable logic via `cargo test -p gaply_core`. Runs on macOS/Linux."
+)]
 fn extract_manuscript_parses_stores_and_returns_result() {
     let (app, _store, db) = test_app();
     let webview = WebviewWindowBuilder::new(&app, "extract", Default::default())
@@ -216,6 +267,13 @@ fn extract_manuscript_parses_stores_and_returns_result() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows: wry/tao GUI stack force-linked into this mock IPC test \
+              binary fails to resolve a Win32 import at load \
+              (STATUS_ENTRYPOINT_NOT_FOUND 0xc0000139); Windows CI validates \
+              portable logic via `cargo test -p gaply_core`. Runs on macOS/Linux."
+)]
 fn rag_search_returns_provenance_through_ipc() {
     let (app, _store, db) = test_app();
     let webview = WebviewWindowBuilder::new(&app, "rag", Default::default())
