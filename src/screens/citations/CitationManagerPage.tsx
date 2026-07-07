@@ -33,6 +33,7 @@ import {
   RefVerifyBridge,
   TauriRefVerifyBridge,
 } from './refverifyBridge';
+import { mayUseCloud } from '../settings/settingsStore';
 import './citations.css';
 
 export interface CitationManagerPageProps {
@@ -118,6 +119,11 @@ const Inner: React.FC<CitationManagerPageProps> = ({
       toast('Enter a valid DOI or DOI URL', 'flagged');
       return;
     }
+    // F14 privacy gate — verification is the cloud path; off means no call.
+    if (!mayUseCloud('citation_verification')) {
+      toast('Citation verification is turned off in Settings → Sync & Privacy', 'assessed');
+      return;
+    }
     setBusy(true);
     try {
       const v = await rv.verify({ raw: doiInput, doi });
@@ -169,6 +175,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
 
   /* ----------------------------- bulk actions --------------------------- */
   const checkAllRetractions = async () => {
+    if (!mayUseCloud('citation_verification')) {
+      toast('Citation verification is turned off in Settings → Sync & Privacy', 'assessed');
+      return;
+    }
     setBusy(true);
     try {
       const updated = await Promise.all(

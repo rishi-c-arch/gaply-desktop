@@ -1,0 +1,233 @@
+/* Gaply — Settings & account (F14). Namespaced gds-set__*; tokens from
+   tokens.css. The 'dark' theme lifts surfaces one step off pure black —
+   applied via data-gds-theme on the screen's .gds-root. */
+
+.gds-root[data-gds-theme='dark'] {
+  --g-bg-base: #111111;
+  --g-bg-layer1: #1a1a1a;
+  --g-bg-layer2: #262626;
+  --g-border: #3a3a3a;
+}
+
+/* ------------------------------ connectivity ----------------------------- */
+
+.gds-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+}
+.gds-conn__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--g-certain);
+}
+.gds-conn[data-online='false'] .gds-conn__dot {
+  background: var(--g-text-3);
+}
+
+/* --------------------------------- layout -------------------------------- */
+
+.gds-set {
+  display: grid;
+  gap: var(--g-space-2);
+  max-width: 760px;
+  padding-bottom: var(--g-space-4);
+}
+.gds-set__nav {
+  display: grid;
+  gap: 2px;
+}
+.gds-set__navitem {
+  background: none;
+  border: none;
+  color: var(--g-text-2);
+  font: inherit;
+  font-size: var(--g-text-size-sm);
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--g-radius-button);
+  cursor: pointer;
+}
+.gds-set__navitem:hover {
+  background: var(--g-bg-layer2);
+  color: var(--g-text);
+}
+
+.gds-set__muted {
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-sm);
+  margin: 6px 0 0;
+}
+.gds-set__link {
+  color: var(--g-accent);
+}
+
+/* --------------------------------- profile ------------------------------- */
+
+.gds-set__form {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+.gds-set__field {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  max-width: 360px;
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+}
+.gds-set__field input {
+  background: var(--g-bg-layer2);
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-button);
+  color: var(--g-text);
+  font: inherit;
+  padding: 8px 10px;
+}
+.gds-set__meta {
+  display: flex;
+  gap: 6px;
+  font-size: var(--g-text-size-xs);
+  color: var(--g-text-3);
+}
+
+/* ------------------------ where your data lives --------------------------- */
+
+.gds-set__datamap {
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-panel);
+  padding: var(--g-space-2);
+  margin-bottom: var(--g-space-2);
+  background: var(--g-bg-layer1);
+}
+.gds-set__datamap-title {
+  margin: 0 0 12px;
+  font-size: var(--g-text-size);
+}
+.gds-set__datamap-boxes {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.gds-set__databox {
+  flex: 1 1 220px;
+  border: 1px solid var(--g-border-strong);
+  border-radius: var(--g-radius-panel);
+  padding: 12px;
+  background: var(--g-bg-layer2);
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  justify-items: start;
+}
+.gds-set__databox-head {
+  font-weight: 700;
+}
+.gds-set__databox ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+}
+.gds-set__databox-arrow {
+  align-self: center;
+  font-size: var(--g-text-size-xs);
+  color: var(--g-text-3);
+  white-space: nowrap;
+}
+.gds-set__datamap-note {
+  margin: 12px 0 0;
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+}
+
+/* -------------------------------- toggles -------------------------------- */
+
+.gds-set__toggles {
+  display: grid;
+  gap: 8px;
+}
+.gds-set__toggle {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-button);
+  cursor: pointer;
+}
+.gds-set__toggle-label {
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text);
+}
+.gds-set__toggle-sends {
+  font-size: var(--g-text-size-xs);
+  color: var(--g-text-3);
+}
+
+/* ------------------------------ offline data ------------------------------ */
+
+.gds-set__packs {
+  display: grid;
+  gap: 6px;
+}
+.gds-set__pack {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--g-text-size-sm);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--g-border);
+}
+.gds-set__storage {
+  margin: 12px 0;
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+}
+.gds-set__clear-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ------------------------- subscription / rows ---------------------------- */
+
+.gds-set__plan {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.gds-set__meters {
+  display: grid;
+  gap: 12px;
+  max-width: 420px;
+  margin-bottom: 12px;
+}
+.gds-set__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.gds-set__rowlabel {
+  width: 90px;
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+}
+
+/* ---------------------------------- about --------------------------------- */
+
+.gds-set__slm {
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+  border-left: 3px solid var(--g-accent);
+  padding-left: 10px;
+}

@@ -17,6 +17,7 @@ import { SAMPLE_REPORT } from '../report/sampleReport';
 import ResearchCopilotPanel from './ResearchCopilotPanel';
 import { ChatClient, ProxyChatClient } from './chatBridge';
 import { ChatContext } from './chatContext';
+import { mayUseCloud } from '../settings/settingsStore';
 
 const SAMPLE_CONTEXT: ChatContext = {
   report: SAMPLE_REPORT,
@@ -71,6 +72,27 @@ const CopilotPage: React.FC<CopilotPageProps> = ({ client, forceTier, context })
                 It teaches — it will never write your paper for you.
               </p>
               <Button onClick={() => navigate('/app/billing')}>Unlock Research Copilot →</Button>
+            </Card>
+          </Panel>
+        </AppShell>
+      </div>
+    );
+  }
+
+  // F14 privacy gate — the Copilot is cloud-only, so consent off means the
+  // chat is unavailable (no proxy call can happen) until re-enabled.
+  if (!mayUseCloud('research_copilot')) {
+    return (
+      <div className="gds-root" style={{ height: '100vh' }} data-testid="copilot-page">
+        <AppShell rail={rail} header={<HeaderBar title="Research Copilot ★" />}>
+          <Panel title="Research Copilot ★">
+            <Card title="Cloud access is off for the Copilot" data-testid="copilot-cloud-off">
+              <p style={{ color: 'var(--g-text-2)', fontSize: 14 }}>
+                You turned off the Copilot's cloud access in Settings → Sync &amp; Privacy, so it
+                cannot answer (it is the one suite that needs the network). Re-enable it there to
+                chat again.
+              </p>
+              <Button onClick={() => navigate('/app/settings')}>Open Settings</Button>
             </Card>
           </Panel>
         </AppShell>

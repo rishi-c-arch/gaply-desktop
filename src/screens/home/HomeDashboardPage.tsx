@@ -42,7 +42,7 @@ const RAIL = [
   { id: 'journal', label: 'Journal Check', icon: '◈' },
   { id: 'copilot', label: 'Research Copilot ★', icon: '✦' },
   { id: 'coauthor', label: 'Research Co-Author', icon: '☍' },
-  { id: 'settings', label: 'Settings', icon: '⚙' },
+  { id: 'settings', label: 'Settings', icon: '⚙', to: '/app/settings' },
 ];
 
 /* --------------------- certainty summary → ring score --------------------- */

@@ -22,6 +22,7 @@ import PublishReadyPage from './publishready/PublishReadyPage';
 import CopilotPage from './copilot/CopilotPage';
 import BillingPage from './subscription/BillingPage';
 import CommunityPage from './community/CommunityPage';
+import SettingsPage from './settings/SettingsPage';
 
 export const AuthRoute: React.FC = () => (
   <GaplySessionProvider>
@@ -116,5 +117,14 @@ export const BillingRoute: React.FC = () => (
 export const CommunityRoute: React.FC = () => (
   <GaplySessionProvider>
     <CommunityPage />
+  </GaplySessionProvider>
+);
+
+/** /app/settings — Settings & account (F14). FREE-OFFLINE: privacy toggles,
+ *  offline data and appearance work signed-out; profile/subscription sections
+ *  degrade gracefully without a session. */
+export const SettingsRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <SettingsPage />
   </GaplySessionProvider>
 );

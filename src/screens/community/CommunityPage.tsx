@@ -18,6 +18,7 @@ import { ToastProvider, useToast } from '../../design-system/Toast';
 import { createCommunityService } from '../../services/supabase';
 import { useGaplySession } from '../session/SessionProvider';
 import { BADGE_META, BadgeResult, classifyPost, ExistingPost, IntegrityBadge } from './badge';
+import { mayUseCloud } from '../settings/settingsStore';
 import './community.css';
 
 /** The fixed channel set (mirrors the Supabase community_channels; shown even
@@ -82,6 +83,12 @@ const Inner: React.FC<CommunityPageProps> = ({ communityService, initialPosts = 
   const submit = async () => {
     const text = draft.trim();
     if (!text || !session) return;
+    // F14 privacy gate — posting publishes to Supabase; consent off means the
+    // message never leaves the device.
+    if (!mayUseCloud('community_sync')) {
+      toast('Community posting is turned off in Settings → Sync & Privacy', 'assessed');
+      return;
+    }
     // Integrity pipeline BEFORE publish — the same computation as the preview.
     const badge = classifyPost(text, existingFor(posts, channel));
     const res = await svc.post(channel, session.user.id, text, {

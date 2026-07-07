@@ -28,6 +28,7 @@ import {
   ProxyJournalLookup,
   searchConference,
 } from './journalLookup';
+import { mayUseCloud } from '../settings/settingsStore';
 import './journal.css';
 
 export interface JournalCheckPageProps {
@@ -48,7 +49,7 @@ const JournalCheckPage: React.FC<JournalCheckPageProps> = ({ lookup }) => {
   const [conf, setConf] = useState<ConferenceRecord | null>(null);
   const [suggestions, setSuggestions] = useState<JournalRecord[]>([]);
   const [confSuggest, setConfSuggest] = useState<ConferenceRecord[]>([]);
-  const [status, setStatus] = useState<'idle' | 'searching' | 'notfound'>('idle');
+  const [status, setStatus] = useState<'idle' | 'searching' | 'notfound' | 'cloudoff'>('idle');
   const [fromCacheOrOnline, setFromCacheOrOnline] = useState<'local' | 'online' | null>(null);
 
   const runJournalSearch = async () => {
@@ -67,7 +68,14 @@ const JournalCheckPage: React.FC<JournalCheckPageProps> = ({ lookup }) => {
       setStatus('idle');
       return;
     }
-    // not in the local directory → online fallback (via proxy), TTL-cached
+    // not in the local directory → online fallback (via proxy), TTL-cached.
+    // The F14 privacy toggle gates this: off means NO network call at all.
+    if (!mayUseCloud('journal_check')) {
+      setResult(null);
+      setSuggestions([]);
+      setStatus('cloudoff');
+      return;
+    }
     setStatus('searching');
     try {
       const online = await cachedLookup.lookup(query);
@@ -151,6 +159,11 @@ const JournalCheckPage: React.FC<JournalCheckPageProps> = ({ lookup }) => {
             )}
             {tab === 'journal' && status === 'searching' && <p className="gds-jc__disclaimer" data-testid="searching">Checking online directory…</p>}
             {tab === 'journal' && status === 'notfound' && <p className="gds-jc__disclaimer" data-testid="notfound">Not found locally or online.</p>}
+            {tab === 'journal' && status === 'cloudoff' && (
+              <p className="gds-jc__disclaimer" data-testid="cloud-off">
+                Not in the offline directory — online lookup is turned off in Settings → Sync &amp; Privacy.
+              </p>
+            )}
 
             {/* conference result */}
             {tab === 'conference' && conf && <ConferenceResultCard conf={conf} />}

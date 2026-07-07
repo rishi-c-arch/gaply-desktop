@@ -23,6 +23,7 @@ import { ReportTab } from '../report/reportTypes';
 import { estimatePdfPageCount, validateFile } from '../analysis/validateFile';
 import { JOURNALS } from '../journal/journalData';
 import { PublishReadyBridge, TauriPublishReadyBridge } from './publishReadyBridge';
+import { mayUseCloud } from '../settings/settingsStore';
 import { PublishReadyResult, TargetJournal } from './publishReadyTypes';
 import ReviewerLetterPanel from './ReviewerLetterPanel';
 import ResearchCopilotPanel from '../copilot/ResearchCopilotPanel';
@@ -104,6 +105,12 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
 
   const run = async () => {
     if (!file || !journal) return;
+    // F14 privacy gate — the review round-trip goes through the proxy; consent
+    // off means the run never starts.
+    if (!mayUseCloud('publishready')) {
+      setError('PublishReady’s cloud access is turned off in Settings → Sync & Privacy.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {

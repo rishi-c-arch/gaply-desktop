@@ -75,6 +75,10 @@ describe('premium gate', () => {
     renderPR({ forceTier: 'premium', bridge: makePublishReadyMock(REPORT) });
     await screen.findByTestId('pr-entry');
     fireEvent.change(screen.getByTestId('pr-file'), { target: { files: [new File(['x'], `${RAW_SENTINEL}.pdf`, { type: 'application/pdf' })] } });
+    // acceptFile is async (FileReader page-count estimate) and pr-run stays
+    // disabled until it lands — wait for the accepted-file name to render,
+    // otherwise the run click is a silent no-op under parallel-suite load.
+    await screen.findByText(`${RAW_SENTINEL}.pdf`);
     journalStep();
     fireEvent.click(await screen.findByTestId('pr-journal-The Lancet'));
     fireEvent.click(screen.getByTestId('pr-run'));
