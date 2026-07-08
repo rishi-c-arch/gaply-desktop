@@ -40,7 +40,7 @@ export const PLANS: Plan[] = [
   ]),
   plan('pro', 'Pro', 499, 'For active researchers', [
     'Everything in Basic',
-    'Deep plagiarism (Copyleaks)',
+    'Deep plagiarism analysis (coming soon)',
     'Unlimited online verifications & journal checks',
   ]),
   plan('max', 'Max', 999, 'For labs & supervisors', [

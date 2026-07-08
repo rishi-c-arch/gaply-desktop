@@ -49,7 +49,7 @@ const JournalCheckPage: React.FC<JournalCheckPageProps> = ({ lookup }) => {
   const [conf, setConf] = useState<ConferenceRecord | null>(null);
   const [suggestions, setSuggestions] = useState<JournalRecord[]>([]);
   const [confSuggest, setConfSuggest] = useState<ConferenceRecord[]>([]);
-  const [status, setStatus] = useState<'idle' | 'searching' | 'notfound' | 'cloudoff'>('idle');
+  const [status, setStatus] = useState<'idle' | 'searching' | 'notfound' | 'cloudoff' | 'onlineerror'>('idle');
   const [fromCacheOrOnline, setFromCacheOrOnline] = useState<'local' | 'online' | null>(null);
 
   const runJournalSearch = async () => {
@@ -84,13 +84,19 @@ const JournalCheckPage: React.FC<JournalCheckPageProps> = ({ lookup }) => {
         setFromCacheOrOnline('online');
         setStatus('idle');
       } else {
+        // A real lookup ran and returned nothing → genuinely not found.
         setResult(null);
         setStatus('notfound');
       }
       setSuggestions([]);
-    } catch {
+    } catch (e) {
+      // The lookup ERRORED (e.g. the online endpoint isn't available). Do NOT
+      // claim "not found" — that would be a false negative. Say the online
+      // check couldn't run.
+      console.error('[journal] online lookup failed:', e instanceof Error ? e.message : e);
       setResult(null);
-      setStatus('notfound');
+      setSuggestions([]);
+      setStatus('onlineerror');
     }
   };
 
@@ -162,6 +168,12 @@ const JournalCheckPage: React.FC<JournalCheckPageProps> = ({ lookup }) => {
             {tab === 'journal' && status === 'cloudoff' && (
               <p className="gds-jc__disclaimer" data-testid="cloud-off">
                 Not in the offline directory — online lookup is turned off in Settings → Sync &amp; Privacy.
+              </p>
+            )}
+            {tab === 'journal' && status === 'onlineerror' && (
+              <p className="gds-jc__disclaimer" data-testid="online-error">
+                Not in the offline directory. The online lookup couldn’t run right now, so we can’t
+                confirm this journal either way — please try again later.
               </p>
             )}
 

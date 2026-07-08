@@ -148,6 +148,12 @@ const Inner: React.FC<CitationManagerPageProps> = ({
       await persistAndAdd(enriched);
       setDoiInput('');
       toast(enriched.retracted ? 'Added — but this work is RETRACTED' : 'Citation verified & added', enriched.retracted ? 'flagged' : 'certain');
+    } catch (e) {
+      // Previously swallowed: the verify bridge can reject (e.g. the backend
+      // command isn't available yet). Surface a real error instead of nothing.
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[citations] DOI verify failed:', msg);
+      toast(`Couldn’t verify this DOI: ${msg}`, 'flagged');
     } finally {
       setBusy(false);
     }
@@ -191,6 +197,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
       setCitations(updated);
       const nowRetracted = updated.filter((c) => c.retracted).length;
       toast(`Retraction sweep complete — ${nowRetracted} retracted`, nowRetracted ? 'flagged' : 'certain');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[citations] retraction sweep failed:', msg);
+      toast(`Retraction re-check failed: ${msg}`, 'flagged');
     } finally {
       setBusy(false);
     }

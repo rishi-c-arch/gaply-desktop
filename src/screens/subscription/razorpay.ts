@@ -22,13 +22,25 @@ export interface RazorpayClient {
   checkout(req: CheckoutRequest): Promise<CheckoutResult>;
 }
 
-/** Test/dev double — no real Razorpay SDK. */
+/** Test/dev double — no real Razorpay SDK. NOT used in production (see
+ *  UnavailableRazorpayClient); tests inject this explicitly to assert the
+ *  checkout call shape. */
 export class MockRazorpayClient implements RazorpayClient {
   public requests: CheckoutRequest[] = [];
   constructor(private result?: CheckoutResult) {}
   async checkout(req: CheckoutRequest): Promise<CheckoutResult> {
     this.requests.push(req);
     return this.result ?? { ok: true, razorpaySubscriptionId: `sub_mock_${req.planId}` };
+  }
+}
+
+/** Production default while payments are OFF. It NEVER fabricates success —
+ *  it returns a clear "not available" so no fake receipt or activation can be
+ *  shown. Real checkout arrives when the `payments` flag is enabled and a real
+ *  Razorpay client is wired in. */
+export class UnavailableRazorpayClient implements RazorpayClient {
+  async checkout(_req: CheckoutRequest): Promise<CheckoutResult> {
+    return { ok: false, error: 'Payments are not available yet.' };
   }
 }
 

@@ -19,7 +19,8 @@ import { useGaplySession } from '../session/SessionProvider';
 import { useSubscription, readUsage } from './useSubscription';
 import { formatInr, Plan, PLANS, studentPrice } from './pricing';
 import { ONLINE_CAPPED } from './tiers';
-import { MockRazorpayClient, RazorpayClient } from './razorpay';
+import { RazorpayClient, UnavailableRazorpayClient } from './razorpay';
+import { useFeatureFlag } from '../../config/Feature';
 
 export interface BillingPageProps {
   razorpay?: RazorpayClient;
@@ -30,7 +31,10 @@ const Inner: React.FC<BillingPageProps> = ({ razorpay }) => {
   const { session } = useGaplySession();
   const { toast } = useToast();
   const { tier, isPremium } = useSubscription();
-  const rzp = useMemo(() => razorpay ?? new MockRazorpayClient(), [razorpay]);
+  const paymentsEnabled = useFeatureFlag('payments');
+  // Honest default: no fabricated success. Real checkout only when a real
+  // client is injected AND the payments flag is on.
+  const rzp = useMemo(() => razorpay ?? new UnavailableRazorpayClient(), [razorpay]);
 
   const [annual, setAnnual] = useState(true);
   const [student, setStudent] = useState(false);
@@ -51,8 +55,14 @@ const Inner: React.FC<BillingPageProps> = ({ razorpay }) => {
   };
 
   const choose = async (p: Plan) => {
+    // Payments are off: never fabricate a "started"/success. Say so plainly.
+    if (!paymentsEnabled) {
+      toast('Payments coming soon — you can’t be charged yet.', 'neutral');
+      return;
+    }
     const amount = annual ? (student ? studentPrice(p.annualInr) : p.annualInr) : priceFor(p);
     const res = await rzp.checkout({ planId: p.id, amountInr: amount, annual, student });
+    // Only a REAL ok from a real client shows success; otherwise the real error.
     if (res.ok) {
       toast('Payment started — your plan activates once confirmed.', 'certain');
     } else {
@@ -123,8 +133,13 @@ const Inner: React.FC<BillingPageProps> = ({ razorpay }) => {
                   <ul style={{ margin: '8px 0', paddingLeft: 18, fontSize: 13, color: 'var(--g-text-2)' }}>
                     {p.features.map((f) => <li key={f}>{f}</li>)}
                   </ul>
-                  <Button onClick={() => choose(p)} disabled={isPremium} data-testid={`choose-${p.id}`}>
-                    {isPremium ? 'Current plan' : 'Choose'}
+                  <Button
+                    onClick={() => choose(p)}
+                    disabled={isPremium || !paymentsEnabled}
+                    title={!paymentsEnabled ? 'Payments coming soon' : undefined}
+                    data-testid={`choose-${p.id}`}
+                  >
+                    {isPremium ? 'Current plan' : paymentsEnabled ? 'Choose' : 'Payments coming soon'}
                   </Button>
                 </Card>
               ))}

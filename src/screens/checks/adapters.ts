@@ -77,7 +77,7 @@ export function plagiarismToReport(r: PlagiarismReport): PublishReadyReport {
     checklist: [],
     debate: EMPTY_DEBATE,
     disclaimer:
-      'Local similarity is computed on-device against your own session and the shared corpus only. It is an indicator, not proof — a comprehensive database check (Copyleaks) is a separate, online capability.',
+      'Local similarity is computed on-device against your own session and the shared corpus only. It is an indicator, not proof — broader deep plagiarism analysis is a separate capability (coming soon).',
   };
 }
 

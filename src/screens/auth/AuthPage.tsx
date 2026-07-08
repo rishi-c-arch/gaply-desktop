@@ -11,6 +11,7 @@ import { ToastProvider } from '../../design-system/Toast';
 import { useGaplySession } from '../session/SessionProvider';
 import { useAuth } from './useAuth';
 import { useDeepLinkAuth } from './useDeepLinkAuth';
+import { useFeatureFlag } from '../../config/Feature';
 import './auth.css';
 
 type Mode = 'signin' | 'signup';
@@ -27,13 +28,13 @@ type Mode = 'signin' | 'signup';
 // wiring would therefore need `email_optional: true` plus a separate
 // email-collection step, and there is no documented precedent of a working
 // ORCID→Supabase custom-OIDC integration. Until that's built and tested, the
-// button is shown disabled with a "coming soon" tooltip.
-const ORCID_ENABLED = process.env.REACT_APP_FEATURE_ORCID === 'true';
+// button is shown disabled with a "coming soon" tooltip (flag: `orcid`).
 
 const Inner: React.FC = () => {
   const { offline } = useGaplySession();
   const navigate = useNavigate();
   const { busy, signInPassword, signUpPassword, signInWithGoogle } = useAuth();
+  const orcidEnabled = useFeatureFlag('orcid');
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -105,12 +106,12 @@ const Inner: React.FC = () => {
           </Button>
           <Button
             variant="secondary"
-            disabled={!ORCID_ENABLED}
-            title={ORCID_ENABLED ? undefined : 'ORCID sign-in coming soon'}
+            disabled={!orcidEnabled}
+            title={orcidEnabled ? undefined : 'ORCID sign-in coming soon'}
             data-testid="oauth-orcid"
-            onClick={() => { /* deferred — see ORCID_ENABLED note above */ }}
+            onClick={() => { /* deferred — see the ORCID note above */ }}
           >
-            Continue with ORCID{ORCID_ENABLED ? '' : ' — coming soon'}
+            Continue with ORCID{orcidEnabled ? '' : ' — coming soon'}
           </Button>
           <Button variant="ghost" onClick={() => navigate('/app')} data-testid="continue-offline">
             Continue offline

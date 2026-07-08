@@ -95,8 +95,10 @@ describe('pricing', () => {
 
 /* ------------------------------ billing UI ------------------------------ */
 
-describe('BillingPage', () => {
-  it('checkout calls Razorpay with the chosen plan', async () => {
+describe('BillingPage — payments OFF shows an honest disabled state (no fake success)', () => {
+  it('the plan button is disabled/"coming soon" and clicking never fabricates success', async () => {
+    // payments flag defaults OFF in the test env, and the production default
+    // client cannot fabricate success. A real Razorpay client is never reached.
     const rzp = new MockRazorpayClient();
     render(
       <MemoryRouter>
@@ -105,9 +107,13 @@ describe('BillingPage', () => {
         </GaplySessionProvider>
       </MemoryRouter>
     );
-    fireEvent.click(await screen.findByTestId('choose-pro'));
-    await waitFor(() => expect(rzp.requests.length).toBe(1));
-    expect(rzp.requests[0].planId).toBe('pro');
+    const btn = (await screen.findByTestId('choose-pro')) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.textContent).toMatch(/coming soon/i);
+    fireEvent.click(btn);
+    // no checkout call, and crucially no "Payment started"/success anywhere
+    await waitFor(() => expect(rzp.requests.length).toBe(0));
+    expect(screen.queryByText(/payment started/i)).toBeNull();
   });
 });
 

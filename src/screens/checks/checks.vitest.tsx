@@ -2,7 +2,7 @@
 // network. Each screen renders its agent's output through the F6 viewer.
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { GaplySessionProvider } from '../session/SessionProvider';
@@ -11,7 +11,6 @@ import PlagiarismCheckPage from './PlagiarismCheckPage';
 import AiCheckPage from './AiCheckPage';
 import StatsCheckPage from './StatsCheckPage';
 import { makeMockCheckBridge } from './checkBridge';
-import { MockCopyleaksClient } from './copyleaks';
 import {
   plagiarismToReport,
   aiToReport,
@@ -154,32 +153,21 @@ describe('adapters keep certainty tiers honest', () => {
   });
 });
 
-/* --------------------------- Copyleaks seam ------------------------------ */
+/* ------------------- deep plagiarism: honest coming-soon ------------------ */
 
-describe('Copyleaks deep-check seam', () => {
-  it('is mockable and its payload contains NO raw manuscript text', async () => {
-    const client = new MockCopyleaksClient();
-    renderScreen(<PlagiarismCheckPage copyleaks={client} bridge={makeMockCheckBridge({ plagiarism: PLAG })} />, {
+describe('deep plagiarism analysis is an HONEST coming-soon (no fabrication)', () => {
+  it('shows a coming-soon card with NO fabricated score, source, or vendor name', async () => {
+    renderScreen(<PlagiarismCheckPage bridge={makeMockCheckBridge({ plagiarism: PLAG })} />, {
       user: { id: 'u1', email: 'a@b.c' },
     });
-    fireEvent.click(await screen.findByTestId('run-deep'));
-    await screen.findByTestId('deep-result');
-
-    expect(client.requests).toHaveLength(1);
-    const req = client.requests[0];
-    // reference + options + consent only — never the manuscript body
-    expect(req.manuscriptRef).toBeTruthy();
-    expect(req.consent).toBe(true);
-    const serialized = JSON.stringify(req);
-    expect(serialized).not.toContain(RAW_MANUSCRIPT_SENTINEL);
-    expect(serialized).not.toMatch(/manuscriptText|body|fullText|content/i);
-  });
-
-  it('signed-out users cannot run the deep check (paid/online)', async () => {
-    renderScreen(<PlagiarismCheckPage bridge={makeMockCheckBridge({ plagiarism: PLAG })} />, null);
-    await screen.findByTestId('plagiarism-check');
+    const panel = await screen.findByTestId('deep-check');
+    expect(within(panel).getByTestId('deep-note').textContent).toMatch(/coming soon/i);
+    // no fabricated percentage, no placeholder source, no third-party vendor
+    expect(panel.textContent).not.toMatch(/%/);
+    expect(panel.textContent).not.toMatch(/copyleaks|turnitin|researchgate|example\.org/i);
+    // with the flag off (default), there is no run button and no result
     expect(screen.queryByTestId('run-deep')).toBeNull();
-    expect(screen.getByText(/Sign in to enable the deep check/i)).toBeTruthy();
+    expect(screen.queryByTestId('deep-result')).toBeNull();
   });
 });
 

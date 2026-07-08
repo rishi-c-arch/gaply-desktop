@@ -1,71 +1,43 @@
 // Gaply — Plagiarism Check (F7). Local, free: self-plagiarism, internal
-// duplication, paraphrase, verbatim — via the per-session isolated vector store.
-// A clearly-labeled deep web/database check (Copyleaks-class) is teased behind
-// the swappable seam: paid + online, routed via the proxy (no client-side key,
-// no manuscript bytes on the client).
-import React, { useMemo, useState } from 'react';
+// duplication, paraphrase, verbatim — via the per-session isolated vector
+// store, computed on-device.
+//
+// The "deep" comprehensive check is NOT wired and shows an honest coming-soon
+// state (gated by the `deepPlagiarism` flag, off by default). It will be
+// powered by Gaply's own trained model — NO third-party service, and never a
+// fabricated score or source.
+import React, { useMemo } from 'react';
 import { Badge, Button, Card } from '../../design-system';
 import CheckScreen from './CheckScreen';
 import { CheckBridge, TauriCheckBridge } from './checkBridge';
 import { plagiarismToReport } from './adapters';
-import { CopyleaksClient, DeepCheckResult, MockCopyleaksClient } from './copyleaks';
-import { useGaplySession } from '../session/SessionProvider';
+import { useFeatureFlag } from '../../config/Feature';
 
 export interface PlagiarismCheckPageProps {
   bridge?: CheckBridge;
-  copyleaks?: CopyleaksClient;
-  /** Server-side reference for a deep check (never the manuscript text). */
-  manuscriptRef?: string;
 }
 
-const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({
-  bridge,
-  copyleaks,
-  manuscriptRef = 'session:current',
-}) => {
-  const { session } = useGaplySession();
+const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({ bridge }) => {
   const b = useMemo(() => bridge ?? new TauriCheckBridge(), [bridge]);
-  const deep = useMemo(() => copyleaks ?? new MockCopyleaksClient(), [copyleaks]);
-  const [deepResult, setDeepResult] = useState<DeepCheckResult | null>(null);
-  const [deepErr, setDeepErr] = useState<string | null>(null);
+  const deepEnabled = useFeatureFlag('deepPlagiarism');
 
-  const runDeep = async () => {
-    setDeepErr(null);
-    try {
-      // The request carries a REFERENCE + options + consent — NEVER text.
-      const res = await deep.checkDeep({
-        manuscriptRef,
-        scope: ['internet', 'scholar', 'repositories'],
-        consent: true,
-      });
-      setDeepResult(res);
-    } catch (e) {
-      setDeepErr(e instanceof Error ? e.message : 'deep check failed');
-    }
-  };
-
+  // Honest state: the deep check is not built. No vendor name, no number, no
+  // placeholder source. When the flag is on later, this is where the real
+  // (Gaply-model-powered) result will render.
   const deepPanel = (
-    <Card title="Deep web/database check (Turnitin-class)" glass data-testid="deep-check">
+    <Card title="Deep plagiarism analysis" glass data-testid="deep-check">
       <p style={{ margin: '0 0 8px', color: 'var(--g-text-2)', fontSize: 13 }}>
-        Compares against billions of web pages and published papers — coverage local checking can’t
-        replicate. <Badge status="assessed">paid · online</Badge>{' '}
-        Routed through the Gaply proxy: your manuscript never touches a client-side key.
+        Broader coverage beyond your own documents and the shared corpus.{' '}
+        <Badge status="neutral">coming soon</Badge>
       </p>
-      {session ? (
-        <Button variant="secondary" onClick={runDeep} data-testid="run-deep">
-          Run deep check (Copyleaks)
+      <p style={{ margin: 0, color: 'var(--g-text-3)', fontSize: 12 }} data-testid="deep-note">
+        Deep plagiarism analysis is coming soon. Local, on-device checks below are available now.
+      </p>
+      {deepEnabled && (
+        // Flag on but still no real backend — keep it honest, do not fabricate.
+        <Button variant="secondary" disabled style={{ marginTop: 8 }} data-testid="run-deep">
+          Run deep analysis (coming soon)
         </Button>
-      ) : (
-        <Badge status="neutral">Sign in to enable the deep check</Badge>
-      )}
-      {deepErr && <p style={{ color: 'var(--g-text-3)', fontSize: 12, marginTop: 8 }} data-testid="deep-note">{deepErr}</p>}
-      {deepResult && (
-        <div style={{ marginTop: 8 }} data-testid="deep-result">
-          <div className="gds-mono">
-            {deepResult.provider}: {(deepResult.aggregateScore * 100).toFixed(0)}% aggregate ·{' '}
-            {deepResult.matches.length} match(es)
-          </div>
-        </div>
       )}
     </Card>
   );
