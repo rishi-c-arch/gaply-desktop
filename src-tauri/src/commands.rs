@@ -151,6 +151,33 @@ pub fn check_plagiarism(
 // command to read a raw key back — external calls that need it are made from
 // the core, never from React.
 
+/// Fetch a compiled report by id (the `report_id` from AnalysisEvent::Finished).
+/// Returns the REAL cached compile_report output — the report viewer routes to
+/// this instead of the sample fixture. NotFound if it expired / never existed.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn get_report(state: State<'_, AppState>, report_id: String) -> Result<serde_json::Value, GaplyError> {
+    let key = format!("report:{report_id}");
+    match state.db.cache_get(&key, now_epoch())? {
+        Some(json) => serde_json::from_str(&json)
+            .map_err(|e| GaplyError::Internal(format!("parse cached report: {e}"))),
+        None => Err(GaplyError::NotFound { entity: "report", id: report_id }),
+    }
+}
+
+/// Write the bundled sample manuscript to a real temp file and return its
+/// absolute path, so the one-click "sample scan" runs through the REAL pipeline
+/// (the old `__bundled_sample__` sentinel pointed at no file). Text is embedded
+/// in the binary, so this works in dev and in a packaged build.
+#[tauri::command]
+#[tracing::instrument]
+pub fn sample_manuscript_path() -> Result<String, GaplyError> {
+    const SAMPLE: &str = include_str!("../resources/sample_manuscript.txt");
+    let path = std::env::temp_dir().join("gaply-sample-manuscript.txt");
+    std::fs::write(&path, SAMPLE)?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// Store an API key (or any secret) the user entered, in the OS keychain.
 #[tauri::command]
 #[tracing::instrument(skip(value))]

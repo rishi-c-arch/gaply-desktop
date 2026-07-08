@@ -40,6 +40,7 @@ export type AnalysisEvent =
 type RustAnalysisEvent =
   | { type: 'stageStarted'; stage: string; index: number; total: number }
   | { type: 'stageProgress'; stage: string; pct: number }
+  | { type: 'section'; stage: string; index: number; total: number; title: string }
   | { type: 'stageCompleted'; stage: string; summary: string }
   | { type: 'finished'; reportId: string }
   | { type: 'failed'; stage: string; message: string };
@@ -91,6 +92,11 @@ export class TauriAnalysisBridge implements AnalysisBridge {
         case 'stageProgress':
           // Lane is already "running"; no per-section data to attach. (The
           // pipeline emits this during verification's per-reference loop.)
+          break;
+        case 'section':
+          if (isLane(ev.stage)) {
+            emit({ kind: 'section', stage: ev.stage, index: ev.index, total: ev.total, title: ev.title });
+          }
           break;
         case 'stageCompleted':
           if (isLane(ev.stage)) emit({ kind: 'stage-done', stage: ev.stage, summary: ev.summary });

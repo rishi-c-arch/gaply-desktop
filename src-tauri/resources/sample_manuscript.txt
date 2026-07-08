@@ -1,0 +1,25 @@
+Title: Sleep Duration and Memory Consolidation: A Randomized Study
+
+Abstract
+We tested whether a full night of sleep improves consolidation of newly
+learned material relative to an equivalent period of daytime wakefulness.
+
+Introduction
+Sleep is widely believed to support the consolidation of declarative memory.
+Prior studies report mixed effect sizes, motivating a preregistered test.
+
+Methods
+We recruited 48 healthy adults (aged 18-35) and randomly assigned them to a
+sleep or wake condition. Recall was scored the next morning and compared with a
+paired t-test.
+
+Results
+The sleep group recalled significantly more items than the wake group
+(t(47) = 3.2, p = 0.002, d = 0.46), a moderate effect.
+
+Discussion
+The findings are consistent with an active-consolidation account of sleep and
+align with the larger reported effects in the literature.
+
+Conclusion
+A full night of sleep improved memory consolidation in this sample.

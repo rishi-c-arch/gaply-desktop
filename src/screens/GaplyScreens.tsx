@@ -13,7 +13,7 @@ import AuthSuccessPage from './auth/AuthSuccessPage';
 import OnboardingPage from './onboarding/OnboardingPage';
 import HomeDashboardPage from './home/HomeDashboardPage';
 import AnalysisTheaterPage from './analysis/AnalysisTheaterPage';
-import ReportViewerPage from './report/ReportViewerPage';
+import LiveReportPage from './report/LiveReportPage';
 import PlagiarismCheckPage from './checks/PlagiarismCheckPage';
 import AiCheckPage from './checks/AiCheckPage';
 import StatsCheckPage from './checks/StatsCheckPage';
@@ -58,11 +58,12 @@ export const UploadRoute: React.FC = () => (
   </GaplySessionProvider>
 );
 
-/** /app/report — FREE-OFFLINE: renders compile_report() output (the same viewer
- *  is reused by paid PublishReady, which adds the Reviewer Letter tab). */
+/** /app/report — FREE-OFFLINE: loads the REAL compiled report by id (from a
+ *  finished analysis) and renders it in the viewer. No sample fixture on the
+ *  live path — the fixture is test-only now. */
 export const ReportRoute: React.FC = () => (
   <GaplySessionProvider>
-    <ReportViewerPage />
+    <LiveReportPage />
   </GaplySessionProvider>
 );
 

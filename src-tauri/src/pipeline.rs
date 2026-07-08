@@ -52,6 +52,9 @@ const LANE_TOTAL: usize = 6;
 pub enum AnalysisEvent {
     StageStarted { stage: String, index: usize, total: usize },
     StageProgress { stage: String, pct: u8 },
+    /// A parsed section, streamed so the UI's outline populates as extraction
+    /// yields headings.
+    Section { stage: String, index: usize, total: usize, title: String },
     StageCompleted { stage: String, summary: String },
     Finished { report_id: String },
     Failed { stage: String, message: String },
@@ -133,6 +136,17 @@ fn run_pipeline_inner(
             .unwrap_or_else(|| "Untitled manuscript".to_string());
         let manuscript_id = db.create_manuscript(&manuscript_title, "", "")?;
         extract::persist::store_extraction(&db, manuscript_id, &extraction)?;
+        // Stream section headings so the outline panel populates.
+        let total_sections = extraction.sections.len();
+        for (i, s) in extraction.sections.iter().enumerate() {
+            let title = if s.heading.is_empty() { format!("{:?}", s.kind) } else { s.heading.clone() };
+            emit(AnalysisEvent::Section {
+                stage: "extraction".into(),
+                index: i + 1,
+                total: total_sections,
+                title,
+            });
+        }
         emit(
             AnalysisEvent::StageCompleted {
                 stage: "extraction".into(),

@@ -2,7 +2,7 @@
 // the Rust core reads the manuscript from a path and returns structured
 // reports; no manuscript bytes are ever sent to Supabase/Railway from here.
 import React, { useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, Panel } from '../../design-system';
 import { isTauri } from '../../utils/isTauri';
 import { useGaplySession } from '../session/SessionProvider';
@@ -34,8 +34,6 @@ export interface AnalysisTheaterPageProps {
   autoStart?: boolean;
 }
 
-const SAMPLE_FILE = { name: 'sample-manuscript.pdf', path: '__bundled_sample__' };
-
 function riskColor(risk: number): string {
   if (risk >= 0.6) return 'var(--g-flagged)';
   if (risk >= 0.4) return 'var(--g-assessed)';
@@ -48,6 +46,7 @@ const AnalysisTheaterPage: React.FC<AnalysisTheaterPageProps> = ({
   autoStart,
 }) => {
   const { session } = useGaplySession();
+  const navigate = useNavigate();
   const location = useLocation() as { state?: { fileName?: string; path?: string } };
   const [searchParams] = useSearchParams();
   const isSample = searchParams.get('sample') === '1';
@@ -59,9 +58,11 @@ const AnalysisTheaterPage: React.FC<AnalysisTheaterPageProps> = ({
   const tier: 'free' | 'premium' = 'free'; // wired to F2 subscription tier in F6+
   const droppedName = location.state?.fileName;
 
+  // NOTE: the sample no longer seeds a fake path — startSample() resolves a
+  // REAL bundled file via the core before running (the old '__bundled_sample__'
+  // sentinel pointed at no file and failed extraction).
   const seedFile =
-    initialFile ??
-    (isSample ? SAMPLE_FILE : droppedName ? { name: droppedName, path: droppedName } : null);
+    initialFile ?? (droppedName ? { name: droppedName, path: droppedName } : null);
 
   const [selected, setSelected] = useState<{ name: string; path: string } | null>(seedFile);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +108,18 @@ const AnalysisTheaterPage: React.FC<AnalysisTheaterPageProps> = ({
       if (typeof chosen === 'string') acceptPath(chosen);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not open the file picker.');
+    }
+  }, [acceptPath]);
+
+  // One-click sample: the core writes the bundled manuscript to a real temp
+  // file and returns its absolute path, so the sample runs the REAL pipeline.
+  const startSample = React.useCallback(async () => {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const path = await invoke<string>('sample_manuscript_path');
+      acceptPath(path);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load the sample manuscript.');
     }
   }, [acceptPath]);
 
@@ -178,7 +191,7 @@ const AnalysisTheaterPage: React.FC<AnalysisTheaterPageProps> = ({
               <Card glass data-testid="upload-sample">
                 <Badge status="neutral">sample</Badge> Loaded a bundled sample manuscript.
                 <div style={{ marginTop: 12 }}>
-                  <Button onClick={runNow} data-testid="run-sample">Run the sample scan</Button>
+                  <Button onClick={() => void startSample()} data-testid="run-sample">Run the sample scan</Button>
                 </div>
               </Card>
             ) : droppedName ? (
@@ -242,7 +255,17 @@ const AnalysisTheaterPage: React.FC<AnalysisTheaterPageProps> = ({
           ) : state.aborted ? (
             <Badge status="flagged">aborted</Badge>
           ) : state.complete ? (
-            <Badge status="certain">complete</Badge>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Badge status="certain">complete</Badge>
+              {state.reportId && (
+                <Button
+                  onClick={() => navigate(`/app/report?id=${encodeURIComponent(state.reportId!)}`)}
+                  data-testid="view-report"
+                >
+                  View report →
+                </Button>
+              )}
+            </div>
           ) : null
         }
       >

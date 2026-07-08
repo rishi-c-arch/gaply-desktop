@@ -66,6 +66,8 @@ pub fn run() {
             commands::has_secret,
             commands::delete_secret,
             commands::verify_reference,
+            commands::get_report,
+            commands::sample_manuscript_path,
             pipeline::run_full_analysis,
         ])
         .run(tauri::generate_context!())

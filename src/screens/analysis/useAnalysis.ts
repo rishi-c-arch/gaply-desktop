@@ -53,6 +53,8 @@ export interface AnalysisState {
   /** Completed sections (from extraction) the user can browse mid-scan. */
   sections: SectionRisk[];
   debate: DebateTurn[];
+  /** Set on completion — the id of the compiled report to load in the viewer. */
+  reportId?: string;
 }
 
 function initialLanes(): Record<AgentStage, LaneState> {
@@ -81,6 +83,7 @@ export function useAnalysis(bridge: AnalysisBridge) {
       let complete = prev.complete;
       let aborted = prev.aborted;
       let running = prev.running;
+      let reportId = prev.reportId;
 
       switch (e.kind) {
         case 'stage-start':
@@ -118,13 +121,14 @@ export function useAnalysis(bridge: AnalysisBridge) {
         case 'complete':
           complete = true;
           running = false;
+          reportId = e.reportId ?? reportId;
           break;
         case 'aborted':
           aborted = true;
           running = false;
           break;
       }
-      return { ...prev, lanes, sections, debate, complete, aborted, running };
+      return { ...prev, lanes, sections, debate, complete, aborted, running, reportId };
     });
   }, []);
 
@@ -139,6 +143,7 @@ export function useAnalysis(bridge: AnalysisBridge) {
         lanes: initialLanes(),
         sections: [],
         debate: [],
+        reportId: undefined,
       });
       try {
         await bridge.run(input, apply, controller.signal);
