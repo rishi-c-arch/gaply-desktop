@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Gaply secret-scanning pre-commit guard (Phase-0 remediation).
+# Zero-dependency: blocks a commit if staged content contains high-risk secret
+# material. Enable once per clone:  git config core.hooksPath .githooks
+#
+# Scans only what is STAGED (git diff --cached), so it can't be fooled by a
+# clean working tree. Exit non-zero aborts the commit.
+set -euo pipefail
+
+fail=0
+red()  { printf '\033[31m%s\033[0m\n' "$1"; }
+
+# 1) Block any real env file from being committed (only *.example allowed).
+staged_files=$(git diff --cached --name-only --diff-filter=ACM)
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    .env|.env.*|env.production|env)
+      case "$f" in
+        *.example|*.template) : ;;  # templates are fine
+        *) red "BLOCKED: attempting to commit a real env file: $f"; fail=1 ;;
+      esac ;;
+    *.pem|*.key|*.p12|*.pfx)
+      red "BLOCKED: attempting to commit key material: $f"; fail=1 ;;
+  esac
+done <<< "$staged_files"
+
+# 2) Content patterns. Allow obvious placeholders; flag anything that looks real.
+#    Razorpay LIVE key, Razorpay secret assignment, Supabase service_role JWT,
+#    AWS access key, and PEM private-key headers.
+#    Exclude this hook dir (it necessarily contains the detection strings) and
+#    the placeholder templates from the CONTENT scan; the filename checks above
+#    still apply everywhere.
+diff=$(git diff --cached -U0 --diff-filter=ACM -- . ':(exclude).githooks/**' ':(exclude)*.example' ':(exclude)*.template' || true)
+
+check() { # <regex> <label>
+  local hits
+  hits=$(printf '%s\n' "$diff" | grep -nE '^\+' | grep -iE "$1" \
+         | grep -viE 'REMOVED|your[_-]?key|your[_-]?secret|placeholder|xxxxxx|example|rzp_test_your|<[^>]+>' || true)
+  if [ -n "$hits" ]; then
+    red "BLOCKED: possible $2 in staged changes:"
+    printf '%s\n' "$hits" | sed -E 's/(.{80}).*/\1…/' | head -5
+    fail=1
+  fi
+}
+
+check 'rzp_live_[a-z0-9]{10,}'                         'Razorpay LIVE key id'
+check 'razorpay[_-]?key[_-]?secret[[:space:]]*[=:]'   'Razorpay key SECRET'
+check 'service_role'                                  'Supabase service_role key'
+check 'AKIA[0-9A-Z]{16}'                              'AWS access key id'
+check 'BEGIN [A-Z ]*PRIVATE KEY'                      'private key block'
+
+if [ "$fail" -ne 0 ]; then
+  red "Commit aborted by .githooks/pre-commit."
+  echo "If this is a false positive, review carefully, then: git commit --no-verify"
+  exit 1
+fi
+exit 0

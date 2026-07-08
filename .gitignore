@@ -13,16 +13,32 @@
 
 # misc
 .DS_Store
+
+# secrets & env — NEVER commit real env files. Only *.example templates are
+# tracked (see the negations). Phase-0 remediation added the bare .env /
+# .env.production patterns that were previously missing and let real files in.
+.env
+.env.*
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+.env*.local
+# keep placeholder templates tracked
+!.env.example
+!env.example
+# key material
+*.pem
+*.key
+*.p12
+*.pfx
+# scratch file used by git-filter-repo (contains literal secrets)
+secrets-replacements.txt
 
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .vercel
-.env*.local
 
 # Quartile HTML is committed; regenerate locally: npm run convert-quartile-guides
 
