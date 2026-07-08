@@ -33,8 +33,19 @@ export type AnalysisEvent =
   | { kind: 'stage-locked'; stage: AgentStage; reason: string }
   | { kind: 'debate-turn'; turn: DebateTurn }
   | { kind: 'stage-error'; stage: AgentStage; message: string }
-  | { kind: 'complete' }
+  | { kind: 'complete'; reportId?: string }
   | { kind: 'aborted' };
+
+/** Wire shape of the Rust `AnalysisEvent` (serde tag = "type", camelCase). */
+type RustAnalysisEvent =
+  | { type: 'stageStarted'; stage: string; index: number; total: number }
+  | { type: 'stageProgress'; stage: string; pct: number }
+  | { type: 'stageCompleted'; stage: string; summary: string }
+  | { type: 'finished'; reportId: string }
+  | { type: 'failed'; stage: string; message: string };
+
+const KNOWN_STAGES: readonly AgentStage[] = ['extraction', 'validation', 'ai', 'plagiarism', 'rag', 'verification'];
+const isLane = (s: string): s is AgentStage => (KNOWN_STAGES as readonly string[]).includes(s);
 
 export interface RunInput {
   path: string;
@@ -60,143 +71,57 @@ export class AnalysisAbortError extends Error {
 export class TauriAnalysisBridge implements AnalysisBridge {
   async run(input: RunInput, emit: (e: AnalysisEvent) => void, signal?: AbortSignal): Promise<void> {
     // Lazy import so the browser/test bundle never needs Tauri.
-    const { invoke } = await import('@tauri-apps/api/core');
-    const { path, title, tier } = input;
-    const checkAbort = () => {
-      if (signal?.aborted) throw new AnalysisAbortError();
+    const { invoke, Channel } = await import('@tauri-apps/api/core');
+    const { path, title } = input;
+
+    // One real command (run_full_analysis) drives all six lanes; per-stage
+    // progress streams back over a typed IPC Channel. We map the Rust
+    // AnalysisEvent onto the theater's event vocabulary. Only a PATH crosses
+    // IPC — never the manuscript bytes.
+    let done = false;
+    const channel = new Channel<RustAnalysisEvent>();
+    channel.onmessage = (ev) => {
+      // Cooperative abort: once aborted, stop forwarding events. (Server-side
+      // cancellation of an in-flight run is a later enhancement.)
+      if (signal?.aborted) return;
+      switch (ev.type) {
+        case 'stageStarted':
+          if (isLane(ev.stage)) emit({ kind: 'stage-start', stage: ev.stage });
+          break;
+        case 'stageProgress':
+          // Lane is already "running"; no per-section data to attach. (The
+          // pipeline emits this during verification's per-reference loop.)
+          break;
+        case 'stageCompleted':
+          if (isLane(ev.stage)) emit({ kind: 'stage-done', stage: ev.stage, summary: ev.summary });
+          break;
+        case 'finished':
+          done = true;
+          emit({ kind: 'complete', reportId: ev.reportId });
+          break;
+        case 'failed':
+          done = true;
+          // Synthesis (debate/compile) has no lane; surface it on the last lane
+          // so the user sees the real error rather than a silent stall.
+          emit({ kind: 'stage-error', stage: isLane(ev.stage) ? ev.stage : 'verification', message: ev.message });
+          break;
+      }
     };
 
     try {
-      // 1) Extraction ------------------------------------------------------
-      emit({ kind: 'stage-start', stage: 'extraction' });
-      checkAbort();
-      // NOTE: only the PATH crosses IPC — never the file bytes.
-      const ex = (await invoke('extract_manuscript', { path, title })) as any;
-      const sections: string[] = (ex.sections ?? []).map(
-        (s: any) => s.heading || s.kind || 'section'
-      );
-      sections.forEach((t, i) =>
-        emit({ kind: 'section', stage: 'extraction', index: i + 1, total: sections.length, title: t })
-      );
-      emit({
-        kind: 'stage-done',
-        stage: 'extraction',
-        summary: `Parsed ${sections.length} sections, ${(ex.citations ?? []).length} citations, ${(ex.statistics ?? []).length} stat claims`,
-        data: { sections },
-      });
-
-      // 2) Validation / Maths (deterministic) ------------------------------
-      emit({ kind: 'stage-start', stage: 'validation' });
-      checkAbort();
-      const v = (await invoke('validate_manuscript', { path, title })) as any;
-      emit({
-        kind: 'stage-done',
-        stage: 'validation',
-        summary: v.passed
-          ? 'All deterministic statistical rules passed'
-          : `${(v.flags ?? []).length} deterministic flag(s) — mathematically certain`,
-        data: { passed: v.passed, flags: v.flags ?? [] },
-      });
-
-      // 3) AI Check (per-section risk + mandatory disclaimer) --------------
-      emit({ kind: 'stage-start', stage: 'ai' });
-      checkAbort();
-      const ai = (await invoke('detect_ai', { path })) as any;
-      const aiSections: any[] = ai.sections ?? [];
-      aiSections.forEach((s, i) =>
-        emit({
-          kind: 'section',
-          stage: 'ai',
-          index: i + 1,
-          total: aiSections.length,
-          title: String(s.section),
-          risk: riskFromSignal(s.signal),
-        })
-      );
-      emit({
-        kind: 'stage-done',
-        stage: 'ai',
-        summary: `Signal: ${ai.signal} · ${ai.confidence} confidence`,
-        data: { signal: ai.signal, disclaimer: ai.disclaimer, sections: aiSections },
-      });
-
-      // 4) Plagiarism (per-session isolated store) -------------------------
-      emit({ kind: 'stage-start', stage: 'plagiarism' });
-      checkAbort();
-      const pl = (await invoke('check_plagiarism', { path })) as any;
-      const maxSim = Math.max(
-        0,
-        ...[...(pl.corpus_matches ?? []), ...(pl.self_matches ?? [])].map((m: any) => m.similarity)
-      );
-      emit({
-        kind: 'stage-done',
-        stage: 'plagiarism',
-        summary: `Peak similarity ${(maxSim * 100).toFixed(0)}% · ${(pl.corpus_matches ?? []).length} corpus / ${(pl.self_matches ?? []).length} self`,
-        data: { maxSimilarity: maxSim, note: pl.note },
-      });
-
-      // 5) RAG (journal match + international quartile) ---------------------
-      emit({ kind: 'stage-start', stage: 'rag' });
-      checkAbort();
-      const hits = (await invoke('rag_search', {
-        query: title || 'reporting standards and reference style',
-        topK: 3,
-        sourceFilter: 'journal_guideline',
-      })) as any[];
-      const top = hits?.[0];
-      emit({
-        kind: 'stage-done',
-        stage: 'rag',
-        summary: top ? `Matched to ${top.title} · SJR ${top.quartile ?? 'Q?'}` : 'No journal guideline matched (local corpus)',
-        data: { matched: Boolean(top), journal: top?.title, quartile: top?.quartile },
-      });
-
-      // 6) Verification (cloud, premium only) ------------------------------
-      if (tier !== 'premium') {
-        emit({
-          kind: 'stage-locked',
-          stage: 'verification',
-          reason: 'Cloud citation verification is a PublishReady feature — unlock to run the ReConcile debate.',
-        });
-      } else {
-        // Premium: the real cloud verification runs through the Tailscale proxy
-        // (structured summaries only, never the manuscript). That proxy command
-        // is not wired as a Tauri command yet, so we present the ReConcile
-        // debate as a live preview until it lands.
-        emit({ kind: 'stage-start', stage: 'verification' });
-        for (const turn of PREVIEW_DEBATE) {
-          checkAbort();
-          emit({ kind: 'debate-turn', turn });
-        }
-        emit({
-          kind: 'stage-done',
-          stage: 'verification',
-          summary: 'Debate preview — live cloud verification wiring pending',
-          data: { preview: true },
-        });
-      }
-
-      emit({ kind: 'complete' });
+      await invoke('run_full_analysis', { path, title, onEvent: channel });
     } catch (err) {
-      if (err instanceof AnalysisAbortError) {
+      if (signal?.aborted) {
         emit({ kind: 'aborted' });
         return;
       }
-      throw err;
+      // The command rejected without a terminal Channel event (e.g. it failed
+      // before emitting). Never fabricate completion — surface the real error.
+      if (!done) {
+        const message = err instanceof Error ? err.message : String(err);
+        emit({ kind: 'stage-error', stage: 'extraction', message });
+      }
     }
-  }
-}
-
-function riskFromSignal(signal: string): number {
-  switch (signal) {
-    case 'leans_ai_like':
-    case 'LeansAiLike':
-      return 0.7;
-    case 'leans_human_like':
-    case 'LeansHumanLike':
-      return 0.2;
-    default:
-      return 0.45;
   }
 }
 

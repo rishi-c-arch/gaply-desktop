@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod http_fetcher;
 pub mod logging;
+pub mod pipeline;
 pub mod state;
 
 use std::sync::Arc;
@@ -64,6 +65,7 @@ pub fn run() {
             commands::store_secret,
             commands::has_secret,
             commands::delete_secret,
+            pipeline::run_full_analysis,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {
