@@ -1,6 +1,6 @@
 import React, { Suspense, useEffect } from 'react';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
-import { Routes, Route, Link, useLocation, useMatch } from 'react-router-dom';
+import { Routes, Route, Link, Navigate, useLocation, useMatch } from 'react-router-dom';
 import './App.css';
 import './styles/variables.css';
 import './styles/dashboard-hud.css';
@@ -61,6 +61,7 @@ import { researchGuideKeywordsJoined } from './seo/researchGuideSeoPhrases';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { GtagRouteListener } from './analytics/GtagRouteListener';
 import { OfflineHintBanner } from './components/OfflineHintBanner';
+import { isTauri } from './utils/isTauri';
 
 const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
 const ScopusLowApcGuidePage = React.lazy(() => import('./components/seo-guides/ScopusLowApcGuidePage'));
@@ -70,6 +71,7 @@ const EthicalAiResearchGuidePage = React.lazy(() => import('./components/seo-gui
 const DesignGalleryPage = React.lazy(() => import('./design-system/DesignGalleryPage'));
 // Gaply desktop-app screens (auth / onboarding / home) — one lazy chunk.
 const GaplyAuthRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.AuthRoute })));
+const GaplyAuthSuccessRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.AuthSuccessRoute })));
 const GaplyOnboardingRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.OnboardingRoute })));
 const GaplyHomeRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.HomeRoute })));
 const GaplyUploadRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.UploadRoute })));
@@ -84,6 +86,7 @@ const GaplyCopilotRoute = React.lazy(() => import('./screens/GaplyScreens').then
 const GaplyBillingRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.BillingRoute })));
 const GaplyCommunityRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.CommunityRoute })));
 const GaplySettingsRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.SettingsRoute })));
+const GaplyComingSoonRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.ComingSoonRoute })));
 
 // SEO Component for dynamic meta tags
 const SEOHead: React.FC<{
@@ -489,9 +492,13 @@ const AppContent: React.FC = () => {
       <div className="noise-bg" aria-hidden="true" />
       {!isHideHeaderPath && <AppleHeader theme={headerTheme} onToggleTheme={handleToggleTheme} />}
       <Routes>
+          {/* Desktop (Tauri) launches straight into the Gaply app: "/" →
+              /auth. The marketing homepage below is untouched for the web
+              build — isTauri is false there, so the redirect never mounts. */}
           <Route path="/" element={
+            isTauri ? <Navigate to="/auth" replace /> :
             <>
-              <SEOHead 
+              <SEOHead
                 title="Gaply - AI-Powered Academic Research Platform | Thesis Writing, Journal Matching, AI Detection"
                 description="Professional AI-powered academic research platform offering thesis writing help, journal matching, AI content detection, plagiarism checking, dissertation editing, and research paper assistance for PhD students and researchers worldwide."
                 keywords="AI content remover for research papers, free AI detector and editor for PhD thesis, AI writing detection tool for academic writing, detect AI plagiarism in research paper, AI paraphrase detector academic, plagiarism checking service for thesis, best plagiarism checker for research papers, remove plagiarism from dissertation, academic text originality checker, help with thesis writing and formatting, dissertation writing service online, PhD thesis writing help, master's thesis editing service, dissertation proofreading and formatting, thesis structure and formatting guidelines, doctoral dissertation consultation, academic thesis writing assistance, research paper writing service, research paper evaluation help, academic paper writing assistance, scientific writing support online, research methodology help, literature review writing service, best site for research guidance, how to write a research proposal, funding proposal writing help, journal finder for Scopus, Elsevier journal suggestion tool, SCI journal recommendation service, find journal for my paper, journal submission assistance service, how to submit paper to journal, conference presentation coaching, publish paper in IEEE journal, academic proofreading and editing service, research paper editing service, thesis proofreading help, professional dissertation editor, edit academic paper online, grammar check for scholarly writing, academic copyediting service, SPSS statistical analysis help, data analysis service for researchers, statistical analysis assistance for thesis, SPSS tutorial for dissertation, data interpretation help for research, quantitative analysis support for PhD, statistics help for academic research"
@@ -992,6 +999,7 @@ const AppContent: React.FC = () => {
           {/* Gaply desktop-app screens (F3): auth is public, onboarding is
               online-only (guarded inside), /app is free-offline. */}
           <Route path="/auth" element={<Suspense fallback={null}><GaplyAuthRoute /></Suspense>} />
+          <Route path="/auth-success" element={<Suspense fallback={null}><GaplyAuthSuccessRoute /></Suspense>} />
           <Route path="/onboarding" element={<Suspense fallback={null}><GaplyOnboardingRoute /></Suspense>} />
           <Route path="/app" element={<Suspense fallback={null}><GaplyHomeRoute /></Suspense>} />
           <Route path="/app/upload" element={<Suspense fallback={null}><GaplyUploadRoute /></Suspense>} />
@@ -1006,6 +1014,7 @@ const AppContent: React.FC = () => {
           <Route path="/app/billing" element={<Suspense fallback={null}><GaplyBillingRoute /></Suspense>} />
           <Route path="/app/community" element={<Suspense fallback={null}><GaplyCommunityRoute /></Suspense>} />
           <Route path="/app/settings" element={<Suspense fallback={null}><GaplySettingsRoute /></Suspense>} />
+          <Route path="/app/coming-soon" element={<Suspense fallback={null}><GaplyComingSoonRoute /></Suspense>} />
         </Routes>
         <DownloadPopUp />
     </div>

@@ -28,8 +28,20 @@ serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2.11.3", features = [] }
 tauri-plugin-fs = "2.5.1"
 tauri-plugin-dialog = "2.7.1"
+# Phase-1 auth: origin-stable session store, deep-link OAuth callback, and
+# opening the system browser for the OAuth consent screen.
+tauri-plugin-store = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-opener = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# On Windows/Linux the OS launches a NEW process for the gaply:// deep link;
+# single-instance (with the deep-link feature) forwards the URL to the already
+# running app. macOS delivers deep links to the running app natively, so it's
+# not needed there.
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [dev-dependencies]
 tauri = { version = "2.11.3", features = ["test"] }

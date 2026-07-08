@@ -14,9 +14,26 @@ use crate::state::AppState;
 pub fn run() {
     logging::install_panic_hook();
 
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+
+    // single-instance MUST be registered first, and only on Windows/Linux,
+    // where the deep link spawns a second process we forward to the running app.
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.set_focus();
+            }
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let config = AppConfig::new(data_dir.join("gaply.db"));

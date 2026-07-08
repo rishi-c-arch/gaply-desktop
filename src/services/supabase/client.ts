@@ -7,6 +7,8 @@
 // all services in this folder degrade gracefully instead of throwing.
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { isTauri } from '../../utils/isTauri';
+import { tauriSessionStorage } from './tauriStorage';
 
 const url = process.env.REACT_APP_SUPABASE_URL || '';
 const anonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || '';
@@ -32,8 +34,17 @@ export function getSupabase(): SupabaseClient | null {
         auth: {
           persistSession: true,
           autoRefreshToken: true,
-          // Tauri/webview friendliness: no URL-fragment session detection races
-          detectSessionInUrl: true,
+          // PKCE everywhere: required for the desktop deep-link OAuth flow
+          // (we manually exchangeCodeForSession from the gaply:// callback) and
+          // harmless for email/password.
+          flowType: 'pkce',
+          // In Tauri we handle the OAuth callback ourselves via a deep link, so
+          // the client must NOT try to auto-parse a code from the URL. On the
+          // web build we keep auto-detection so a redirect callback still works.
+          detectSessionInUrl: !isTauri,
+          // Desktop: persist the session in a Tauri Store file (origin-stable
+          // across dev/prod webview origins). Web: default localStorage.
+          ...(isTauri ? { storage: tauriSessionStorage } : {}),
         },
       })
     : null;

@@ -30,18 +30,19 @@ import './dashboard.css';
 
 /* ------------------------------ rail items ------------------------------- */
 /* ★ = paid flagship (teased for free/signed-out). Unbuilt destinations are
-   marked "soon" and stay put — they gain routes in later F-prompts. */
+   every item now routes to a real screen; the one unbuilt destination ("My
+   Manuscripts") goes to an honest /app/coming-soon rather than a dead link. */
 const RAIL = [
   { id: 'home', label: 'Home', icon: '◫', to: '/app' },
-  { id: 'manuscripts', label: 'My Manuscripts', icon: '≣' },
-  { id: 'publishready', label: 'PublishReady ★', icon: '✓' },
-  { id: 'plagiarism', label: 'Plagiarism Check', icon: '≡' },
-  { id: 'ai-check', label: 'AI Check', icon: '◬' },
-  { id: 'stats-check', label: 'Statistical Analysis Check', icon: 'Σ' },
-  { id: 'citations', label: 'Citation Manager', icon: '❞' },
-  { id: 'journal', label: 'Journal Check', icon: '◈' },
-  { id: 'copilot', label: 'Research Copilot ★', icon: '✦' },
-  { id: 'coauthor', label: 'Research Co-Author', icon: '☍' },
+  { id: 'manuscripts', label: 'My Manuscripts', icon: '≣', to: '/app/coming-soon?feature=My%20Manuscripts' },
+  { id: 'publishready', label: 'PublishReady ★', icon: '✓', to: '/app/publishready' },
+  { id: 'plagiarism', label: 'Plagiarism Check', icon: '≡', to: '/app/check/plagiarism' },
+  { id: 'ai-check', label: 'AI Check', icon: '◬', to: '/app/check/ai' },
+  { id: 'stats-check', label: 'Statistical Analysis Check', icon: 'Σ', to: '/app/check/stats' },
+  { id: 'citations', label: 'Citation Manager', icon: '❞', to: '/app/citations' },
+  { id: 'journal', label: 'Journal Check', icon: '◈', to: '/app/journal' },
+  { id: 'copilot', label: 'Research Copilot ★', icon: '✦', to: '/app/copilot' },
+  { id: 'coauthor', label: 'Research Co-Author', icon: '☍', to: '/app/community' },
   { id: 'settings', label: 'Settings', icon: '⚙', to: '/app/settings' },
 ];
 
@@ -197,9 +198,9 @@ const HomeDashboardPage: React.FC<HomeDashboardPageProps> = ({
               {/* quick actions */}
               <div className="gds-dash__quick" data-testid="quick-actions">
                 <Button variant="secondary" onClick={() => navigate('/app/upload')}>New scan</Button>
-                <Button variant="secondary">Check a journal</Button>
-                <Button variant="secondary">Verify citations</Button>
-                <Button variant="secondary">Ask Copilot ★</Button>
+                <Button variant="secondary" onClick={() => navigate('/app/journal')}>Check a journal</Button>
+                <Button variant="secondary" onClick={() => navigate('/app/citations')}>Verify citations</Button>
+                <Button variant="secondary" onClick={() => navigate('/app/copilot')}>Ask Copilot ★</Button>
               </div>
 
               {/* recent manuscripts (metadata only) */}

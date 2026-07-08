@@ -9,6 +9,7 @@
 import React from 'react';
 import { GaplySessionProvider, RequireSession } from './session/SessionProvider';
 import AuthPage from './auth/AuthPage';
+import AuthSuccessPage from './auth/AuthSuccessPage';
 import OnboardingPage from './onboarding/OnboardingPage';
 import HomeDashboardPage from './home/HomeDashboardPage';
 import AnalysisTheaterPage from './analysis/AnalysisTheaterPage';
@@ -23,12 +24,17 @@ import CopilotPage from './copilot/CopilotPage';
 import BillingPage from './subscription/BillingPage';
 import CommunityPage from './community/CommunityPage';
 import SettingsPage from './settings/SettingsPage';
+import ComingSoonPage from './common/ComingSoonPage';
 
 export const AuthRoute: React.FC = () => (
   <GaplySessionProvider>
     <AuthPage />
   </GaplySessionProvider>
 );
+
+/** /auth-success — public web hand-off page for desktop Google OAuth; bounces
+ *  the ?code back to the gaply:// deep link. No session provider needed. */
+export const AuthSuccessRoute: React.FC = () => <AuthSuccessPage />;
 
 export const OnboardingRoute: React.FC = () => (
   <GaplySessionProvider>
@@ -126,5 +132,12 @@ export const CommunityRoute: React.FC = () => (
 export const SettingsRoute: React.FC = () => (
   <GaplySessionProvider>
     <SettingsPage />
+  </GaplySessionProvider>
+);
+
+/** /app/coming-soon — honest placeholder for not-yet-built nav targets. */
+export const ComingSoonRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <ComingSoonPage />
   </GaplySessionProvider>
 );

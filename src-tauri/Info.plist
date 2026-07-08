@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Gaply macOS Info.plist additions. Tauri merges this into the generated
+     Info.plist at bundle time. Registers the `gaply` URL scheme so the OS
+     routes gaply://auth/callback deep links to the installed app (desktop
+     Google OAuth hand-off). Mirrors the deep-link plugin `schemes` config in
+     tauri.conf.json. Only effective in a bundled/installed .app, not tauri dev. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>ai.gaply.app</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>gaply</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>
