@@ -5,8 +5,9 @@
 
 export const MAX_PAGES = 500;
 export const MAX_BYTES = 100 * 1024 * 1024; // 100 MB hard sanity cap
-export const ACCEPTED_EXT = ['pdf', 'docx'] as const;
-export const ACCEPT_HINT = 'PDF or DOCX, up to ~500 pages';
+// The Rust core (docparse) reads pdf/docx/txt/md — keep this in lockstep with it.
+export const ACCEPTED_EXT = ['pdf', 'docx', 'txt', 'md'] as const;
+export const ACCEPT_HINT = 'PDF, DOCX, or TXT, up to ~500 pages';
 
 export interface FileMeta {
   name: string;
@@ -30,7 +31,7 @@ export function validateFile(meta: FileMeta): ValidationResult {
   if (!(ACCEPTED_EXT as readonly string[]).includes(ext)) {
     return {
       ok: false,
-      error: `Gaply reads PDF or DOCX — "${meta.name}" is a .${ext} file.`,
+      error: `Gaply reads ${ACCEPT_HINT} — "${meta.name}" is a .${ext} file.`,
     };
   }
   if (meta.sizeBytes <= 0) {

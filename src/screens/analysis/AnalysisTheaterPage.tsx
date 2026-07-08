@@ -4,6 +4,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, Panel } from '../../design-system';
+import { isTauri } from '../../utils/isTauri';
 import { useGaplySession } from '../session/SessionProvider';
 import {
   AgentStage,
@@ -79,6 +80,64 @@ const AnalysisTheaterPage: React.FC<AnalysisTheaterPageProps> = ({
     }
   }, [phase, selected, start, tier]);
 
+  // Accept a file by its ABSOLUTE path (the desktop path). This is the correct
+  // desktop flow: HTML File objects have NO usable path inside a Tauri webview,
+  // so paths must come from the Tauri dialog / drag-drop APIs below.
+  const acceptPath = React.useCallback((path: string) => {
+    const name = path.split(/[\\/]/).pop() || path;
+    const res = validateFile({ name, sizeBytes: 1 }); // size/pages are enforced by the core
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setError(null);
+    setSelected({ name, path });
+    setPhase('theater');
+  }, []);
+
+  // Native file picker → returns an absolute path (never a bare filename).
+  const pickViaTauri = React.useCallback(async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const chosen = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'Manuscript', extensions: ['pdf', 'docx', 'txt', 'md'] }],
+      });
+      if (typeof chosen === 'string') acceptPath(chosen);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not open the file picker.');
+    }
+  }, [acceptPath]);
+
+  // Tauri drag-drop delivers ABSOLUTE paths; HTML drop events do not in a
+  // webview. This is the real fix for the "Extraction error" bug (the old code
+  // passed file.name, so the core got a bare filename it couldn't open).
+  React.useEffect(() => {
+    if (!isTauri) return;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      try {
+        const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+        unlisten = await getCurrentWebview().onDragDropEvent((event: { payload: { type: string; paths?: string[] } }) => {
+          const p = event.payload;
+          if (p.type === 'over') setDragOver(true);
+          else if (p.type === 'leave' || p.type === 'cancelled') setDragOver(false);
+          else if (p.type === 'drop') {
+            setDragOver(false);
+            const first = p.paths?.[0];
+            if (first) acceptPath(first);
+          }
+        });
+      } catch {
+        /* API unavailable (e.g. plain browser) — HTML fallback below handles it */
+      }
+    })();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [acceptPath]);
+
   const acceptFile = async (file: File) => {
     setError(null);
     const pageCount = await estimatePdfPageCount(file);
@@ -137,8 +196,11 @@ const AnalysisTheaterPage: React.FC<AnalysisTheaterPageProps> = ({
                 data-testid="upload-fresh"
                 role="button"
                 tabIndex={0}
-                onClick={() => inputRef.current?.click()}
-                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && inputRef.current?.click()}
+                onClick={() => (isTauri ? void pickViaTauri() : inputRef.current?.click())}
+                onKeyDown={(e) =>
+                  (e.key === 'Enter' || e.key === ' ') &&
+                  (isTauri ? void pickViaTauri() : inputRef.current?.click())
+                }
                 onDragOver={(e) => {
                   e.preventDefault();
                   setDragOver(true);
@@ -151,7 +213,7 @@ const AnalysisTheaterPage: React.FC<AnalysisTheaterPageProps> = ({
                 <input
                   ref={inputRef}
                   type="file"
-                  accept=".pdf,.docx"
+                  accept=".pdf,.docx,.txt,.md"
                   style={{ display: 'none' }}
                   data-testid="file-input"
                   onChange={(e) => e.target.files?.[0] && void acceptFile(e.target.files[0])}

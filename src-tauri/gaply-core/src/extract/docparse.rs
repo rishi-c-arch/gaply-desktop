@@ -10,8 +10,28 @@ use quick_xml::Reader;
 
 use crate::error::GaplyError;
 
+/// The minimum number of non-whitespace characters a parse must yield before we
+/// treat it as real text. Below this, a PDF is almost certainly scanned /
+/// image-only (no text layer) rather than a genuinely tiny manuscript.
+const MIN_MEANINGFUL_CHARS: usize = 20;
+
+/// True when extracted text has enough non-whitespace content to be a document
+/// rather than an empty/scanned artifact.
+fn has_extractable_text(text: &str) -> bool {
+    text.chars().filter(|c| !c.is_whitespace()).count() >= MIN_MEANINGFUL_CHARS
+}
+
 /// Parse a file into plaintext, dispatching on its extension.
 pub fn parse_path(path: &Path) -> Result<String, GaplyError> {
+    // A missing file is the single most common real-world failure (e.g. a UI
+    // that passed a bare filename instead of an absolute path). Name it clearly
+    // instead of letting a downstream parser emit a cryptic error.
+    if !path.exists() {
+        return Err(GaplyError::Validation(format!(
+            "file not found: {} — the desktop app must pass an absolute file path.",
+            path.display()
+        )));
+    }
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -31,8 +51,18 @@ pub fn parse_path(path: &Path) -> Result<String, GaplyError> {
 }
 
 fn parse_pdf(path: &Path) -> Result<String, GaplyError> {
-    pdf_extract::extract_text(path)
-        .map_err(|e| GaplyError::Internal(format!("pdf parse failed: {e}")))
+    let text = pdf_extract::extract_text(path)
+        .map_err(|e| GaplyError::Internal(format!("pdf parse failed: {e}")))?;
+    // A PDF that parses but yields (almost) no text is scanned / image-only.
+    // Say so specifically rather than proceeding with empty content.
+    if !has_extractable_text(&text) {
+        return Err(GaplyError::Validation(
+            "This PDF has no extractable text — it looks scanned or image-only. \
+             Extraction needs a text-based PDF (export from your editor, or run OCR first)."
+                .to_string(),
+        ));
+    }
+    Ok(text)
 }
 
 /// Extract text from a DOCX (a zip of XML). Paragraphs (`<w:p>`) become
@@ -122,9 +152,58 @@ mod tests {
 
     #[test]
     fn unsupported_extension_is_validation_error() {
-        assert!(matches!(
-            parse_path(Path::new("/tmp/x.rtf")),
-            Err(GaplyError::Validation(_))
-        ));
+        // Must EXIST so we reach the extension branch (not the not-found guard).
+        let p = std::env::temp_dir().join(format!("gaply_docparse_{}.rtf", std::process::id()));
+        std::fs::write(&p, b"{\\rtf1}").unwrap();
+        let res = parse_path(&p);
+        let _ = std::fs::remove_file(&p);
+        match res {
+            Err(GaplyError::Validation(m)) => assert!(m.contains("unsupported"), "got: {m}"),
+            other => panic!("expected unsupported-format validation error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn missing_file_is_named_clearly() {
+        // The Stage-2 real-world bug: a bare filename (no directory) reached the
+        // core. Now it fails with a specific, honest message — not a cryptic
+        // downstream parser error.
+        let res = parse_path(Path::new("Gaply Remediation Plan.pdf"));
+        match res {
+            Err(GaplyError::Validation(m)) => {
+                assert!(m.contains("file not found"), "got: {m}");
+                assert!(m.contains("absolute file path"), "should hint the real cause: {m}");
+            }
+            other => panic!("expected file-not-found validation error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn txt_file_is_read() {
+        let p = std::env::temp_dir().join(format!("gaply_docparse_{}.txt", std::process::id()));
+        std::fs::write(&p, "Methods\nWe ran a paired t-test.").unwrap();
+        let text = parse_path(&p).unwrap();
+        let _ = std::fs::remove_file(&p);
+        assert!(text.contains("paired t-test"));
+    }
+
+    #[test]
+    fn scanned_or_empty_text_is_detected() {
+        // The image-only / scanned case: parses but yields ~no text.
+        assert!(!has_extractable_text(""));
+        assert!(!has_extractable_text("   \n\t  \n "));
+        assert!(!has_extractable_text("a b c")); // below the meaningful threshold
+        assert!(has_extractable_text("Methods: we recruited 48 participants and ran a t-test."));
+    }
+
+    #[test]
+    fn real_text_pdf_extracts_content() {
+        // A genuine text-layer PDF fixture (generated from plain text). Proves
+        // pdf-extract works end-to-end and guards against a pdf-extract
+        // regression — the Stage-2 failure was NOT pdf-extract, it was the path.
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/sample_text.pdf");
+        let text = parse_path(Path::new(fixture)).expect("real text PDF should parse");
+        assert!(text.to_lowercase().contains("methods"), "got: {text:?}");
+        assert!(text.to_lowercase().contains("participants"), "got: {text:?}");
     }
 }

@@ -56,10 +56,15 @@ describe('upload validation (specific, never a bare spinner)', () => {
     if (!res.ok) expect(res.error).toBe(`File is 620 pages — max ${MAX_PAGES}.`);
   });
 
-  it('rejects the wrong file type by name', () => {
-    const res = validateFile({ name: 'notes.txt', sizeBytes: 1000 });
+  it('rejects a genuinely unsupported file type by name', () => {
+    // .txt IS supported now (the Rust core reads it); use a real unsupported type.
+    const res = validateFile({ name: 'slides.pptx', sizeBytes: 1000 });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toMatch(/PDF or DOCX/);
+    if (!res.ok) expect(res.error).toMatch(/is a \.pptx file/);
+  });
+
+  it('accepts a .txt manuscript (the core reads pdf/docx/txt/md)', () => {
+    expect(validateFile({ name: 'notes.txt', sizeBytes: 1000 })).toEqual({ ok: true });
   });
 
   it('rejects an empty file', () => {
