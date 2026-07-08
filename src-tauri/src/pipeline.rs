@@ -30,15 +30,13 @@ use tauri::State;
 
 use gaply_core::embed::Embedder;
 use gaply_core::extract::citations::Reference;
-use gaply_core::refverify::{
-    verify_reference, ApiRateLimiters, ReferenceVerification, VerifyContext,
-};
+use gaply_core::refverify::ReferenceVerification;
 use gaply_core::report::compile_report;
 use gaply_core::swarm::{adapters, run_debate, DebateConfig, PrecomputedAgent, SwarmAgent};
 use gaply_core::verify_agent::{verify_citations, MockProxyClient};
 use gaply_core::{ai_detect, extract, now_epoch, plagiarism, rag, validate, Database, GaplyError};
 
-use crate::http_fetcher::ReqwestFetcher;
+use crate::http_fetcher::RefVerifier;
 use crate::state::AppState;
 
 /// Report cache TTL: 30 days. The viewer reads it back by `report_id`.
@@ -201,13 +199,11 @@ fn run_pipeline_inner(
         let mut items: Vec<(Reference, ReferenceVerification)> = Vec::new();
         let refs = &extraction.references;
         if !refs.is_empty() {
-            let fetcher = ReqwestFetcher::new()?;
-            let limiters = ApiRateLimiters::with_polite_defaults();
-            let ctx = VerifyContext { db: &db, http: &fetcher, limiters: &limiters, contact_email: None };
+            let verifier = RefVerifier::new()?;
             let now = now_epoch();
             let total = refs.len();
             for (i, r) in refs.iter().enumerate() {
-                match verify_reference(&ctx, r, now) {
+                match verifier.verify(&db, r, now) {
                     Ok(rv) => items.push((r.clone(), rv)),
                     Err(e) => tracing::warn!(reference = %r.raw, error = %e, "refverify failed for a reference"),
                 }

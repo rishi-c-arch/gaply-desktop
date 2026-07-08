@@ -10,8 +10,12 @@
 //! `RateLimiter` first), so this type is pure transport: one GET, map the
 //! response. TLS is rustls (no OpenSSL).
 
-use gaply_core::refverify::{HttpFetcher, HttpRequest, HttpResponse};
-use gaply_core::GaplyError;
+use gaply_core::extract::citations::Reference;
+use gaply_core::refverify::{
+    verify_reference, ApiRateLimiters, HttpFetcher, HttpRequest, HttpResponse, ReferenceVerification,
+    VerifyContext,
+};
+use gaply_core::{Database, GaplyError};
 
 /// Networked `HttpFetcher` backed by a shared `reqwest::blocking::Client`
 /// (connection pool reused across calls). Cloneable — clones share the pool.
@@ -50,6 +54,39 @@ impl HttpFetcher for ReqwestFetcher {
     }
 }
 
+/// Reference verifier: owns a real HTTP fetcher + the per-API rate limiters,
+/// so both the `verify_reference` command and the pipeline's verify stage share
+/// one construction. Caching + rate limiting happen inside
+/// `refverify::verify_reference` (via `cached_fetch`); this just provides the
+/// context. Blocking IO — call from a blocking context (spawn_blocking).
+pub struct RefVerifier {
+    fetcher: ReqwestFetcher,
+    limiters: ApiRateLimiters,
+}
+
+impl RefVerifier {
+    pub fn new() -> Result<Self, GaplyError> {
+        Ok(Self { fetcher: ReqwestFetcher::new()?, limiters: ApiRateLimiters::with_polite_defaults() })
+    }
+
+    /// Verify one reference against the live connectors (cache-first, rate-
+    /// limited), returning the structured `ReferenceVerification`.
+    pub fn verify(
+        &self,
+        db: &Database,
+        reference: &Reference,
+        now: i64,
+    ) -> Result<ReferenceVerification, GaplyError> {
+        let ctx = VerifyContext {
+            db,
+            http: &self.fetcher,
+            limiters: &self.limiters,
+            contact_email: None,
+        };
+        verify_reference(&ctx, reference, now)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,5 +95,10 @@ mod tests {
     fn builds_a_client() {
         // Constructing the real fetcher must not panic or require network.
         assert!(ReqwestFetcher::new().is_ok());
+    }
+
+    #[test]
+    fn builds_a_verifier() {
+        assert!(RefVerifier::new().is_ok());
     }
 }

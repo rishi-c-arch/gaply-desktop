@@ -2,20 +2,33 @@
 //! `gaply_core` — no business logic lives here, so the Tauri layer can be
 //! swapped out without touching the core.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use gaply_core::ai_detect::{self, AiDetectionReport, HeuristicModel};
 use gaply_core::db::{DbHealth, DbInitReport, MigrationReport};
+use gaply_core::extract::citations::Reference;
 use gaply_core::extract::{self, docparse, ExtractionResult};
 use gaply_core::plagiarism::{PlagiarismReport, PlagiarismSession};
 use gaply_core::projects::{self, Project};
 use gaply_core::rag::{self, RagHit};
+use gaply_core::refverify::ReferenceVerification;
 use gaply_core::secrets;
 use gaply_core::validate::{self, StatsValidityReport};
-use gaply_core::GaplyError;
+use gaply_core::{now_epoch, GaplyError};
 
+use crate::http_fetcher::RefVerifier;
 use crate::state::AppState;
+
+/// Reference input from the Citation Manager (refverifyBridge). Only bibliographic
+/// metadata — never manuscript text.
+#[derive(Debug, Deserialize)]
+pub struct ReferenceInput {
+    pub raw: String,
+    pub doi: Option<String>,
+    pub title: Option<String>,
+    pub year: Option<i32>,
+}
 
 #[derive(Debug, Serialize)]
 pub struct HealthReport {
@@ -166,6 +179,36 @@ pub fn detect_ai(path: String) -> Result<AiDetectionReport, GaplyError> {
     let extraction = extract::extract_from_text(&text);
     let model = HeuristicModel::gpt2_like();
     Ok(ai_detect::detect_extraction(&model, &extraction))
+}
+
+/// Verify one reference against the live connectors (CrossRef / OpenAlex /
+/// Retraction Watch / Unpaywall / Semantic Scholar) — real HTTP via rustls,
+/// cache-first and rate-limited. The Citation Manager (refverifyBridge) calls
+/// this; it was previously MISSING, so verify/enrich silently did nothing.
+///
+/// Async + spawn_blocking: the HTTP client is blocking, so it must not run on
+/// the async runtime thread. Returns the structured ReferenceVerification
+/// (metadata only — no manuscript text is involved).
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn verify_reference(
+    state: State<'_, AppState>,
+    reference: ReferenceInput,
+) -> Result<ReferenceVerification, GaplyError> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let verifier = RefVerifier::new()?;
+        let reference = Reference {
+            raw: reference.raw,
+            authors: String::new(),
+            year: reference.year,
+            title: reference.title,
+            doi: reference.doi,
+        };
+        verifier.verify(&db, &reference, now_epoch())
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("verify_reference task panicked: {e}")))?
 }
 
 #[tauri::command]
