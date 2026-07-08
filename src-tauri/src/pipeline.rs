@@ -76,33 +76,29 @@ pub async fn run_full_analysis(
         .map_err(|e| GaplyError::Internal(format!("analysis task panicked: {e}")))?
 }
 
-/// Emit an event, ignoring a closed channel (frontend navigated away).
-fn emit(ch: &Channel<AnalysisEvent>, ev: AnalysisEvent) {
-    let _ = ch.send(ev);
-}
-
 /// Run a lane: emit StageStarted, execute `f`, emit StageCompleted or Failed.
 /// On failure the error propagates so the whole pipeline stops.
 fn lane<T>(
-    ch: &Channel<AnalysisEvent>,
+    emit: &dyn Fn(AnalysisEvent),
     stage: &str,
     index: usize,
     f: impl FnOnce() -> Result<(T, String), GaplyError>,
 ) -> Result<T, GaplyError> {
-    emit(ch, AnalysisEvent::StageStarted { stage: stage.into(), index, total: LANE_TOTAL });
+    emit(AnalysisEvent::StageStarted { stage: stage.into(), index, total: LANE_TOTAL });
     match f() {
         Ok((value, summary)) => {
-            emit(ch, AnalysisEvent::StageCompleted { stage: stage.into(), summary });
+            emit(AnalysisEvent::StageCompleted { stage: stage.into(), summary });
             Ok(value)
         }
         Err(e) => {
-            emit(ch, AnalysisEvent::Failed { stage: stage.into(), message: e.to_string() });
+            emit(AnalysisEvent::Failed { stage: stage.into(), message: e.to_string() });
             Err(e)
         }
     }
 }
 
-/// The synchronous pipeline. Every stage is a real production call.
+/// Channel wrapper: forward emitted events to the IPC channel (closed channel
+/// ignored — the frontend navigated away).
 fn run_pipeline(
     db: Arc<Database>,
     embedder: Arc<dyn Embedder>,
@@ -110,8 +106,22 @@ fn run_pipeline(
     title: Option<String>,
     ch: Channel<AnalysisEvent>,
 ) -> Result<(), GaplyError> {
+    run_pipeline_inner(db, embedder, path, title, &|ev| {
+        let _ = ch.send(ev);
+    })
+}
+
+/// The synchronous pipeline. Every stage is a real production call. `emit` is
+/// abstracted (Fn) so tests can drive the full pipeline with a collector.
+fn run_pipeline_inner(
+    db: Arc<Database>,
+    embedder: Arc<dyn Embedder>,
+    path: String,
+    title: Option<String>,
+    emit: &dyn Fn(AnalysisEvent),
+) -> Result<(), GaplyError> {
     // Parse once, up front (part of the extraction lane's work).
-    let text = lane(&ch, "extraction", 1, || {
+    let text = lane(emit, "extraction", 1, || {
         let text = extract::docparse::parse_path(std::path::Path::new(&path))?;
         Ok((text, String::new()))
     })?;
@@ -126,7 +136,6 @@ fn run_pipeline(
         let manuscript_id = db.create_manuscript(&manuscript_title, "", "")?;
         extract::persist::store_extraction(&db, manuscript_id, &extraction)?;
         emit(
-            &ch,
             AnalysisEvent::StageCompleted {
                 stage: "extraction".into(),
                 summary: format!(
@@ -142,7 +151,7 @@ fn run_pipeline(
     let (extraction, manuscript_id) = extraction;
 
     // 2) Validation — deterministic 5-rule validator (hard constraint).
-    let validation = lane(&ch, "validation", 2, || {
+    let validation = lane(emit, "validation", 2, || {
         let report = validate::validate(&extraction);
         let summary = if report.passed {
             "no statistical rule violations".to_string()
@@ -153,7 +162,7 @@ fn run_pipeline(
     })?;
 
     // 3) AI check — interim heuristic perplexity/burstiness (honest disclaimer).
-    let ai = lane(&ch, "ai", 3, || {
+    let ai = lane(emit, "ai", 3, || {
         let model = ai_detect::HeuristicModel::gpt2_like();
         let report = ai_detect::detect_extraction(&model, &extraction);
         let summary = format!("signal: {:?} (interim heuristic)", report.signal);
@@ -161,7 +170,7 @@ fn run_pipeline(
     })?;
 
     // 4) Plagiarism — per-session isolated store; self/internal duplication.
-    let plag = lane(&ch, "plagiarism", 4, || {
+    let plag = lane(emit, "plagiarism", 4, || {
         let mut session = plagiarism::PlagiarismSession::new()?;
         session.ingest_manuscript(embedder.as_ref(), &text)?;
         let report = session.report(&db, None)?;
@@ -175,7 +184,7 @@ fn run_pipeline(
 
     // 5) RAG — semantic search over the (currently empty) corpus. Honest: with
     // no seeded guidelines it returns nothing; that lands until you seed it.
-    let hits = lane(&ch, "rag", 5, || {
+    let hits = lane(emit, "rag", 5, || {
         let hits = rag::search(&db, embedder.as_ref(), "reporting standards guidelines", 5, None)?;
         let summary = if hits.is_empty() {
             "no guideline matches (corpus not seeded yet)".to_string()
@@ -188,7 +197,7 @@ fn run_pipeline(
     // 6) Verification — REAL refverify HTTP per reference (existence/retraction);
     // cloud hallucination verdict via verify_citations with the mock proxy
     // (UNKNOWN until the proxy is deployed — never fabricated).
-    let verification = lane(&ch, "verification", 6, || {
+    let verification = lane(emit, "verification", 6, || {
         let mut items: Vec<(Reference, ReferenceVerification)> = Vec::new();
         let refs = &extraction.references;
         if !refs.is_empty() {
@@ -203,7 +212,7 @@ fn run_pipeline(
                     Err(e) => tracing::warn!(reference = %r.raw, error = %e, "refverify failed for a reference"),
                 }
                 let pct = (((i + 1) * 100) / total) as u8;
-                emit(&ch, AnalysisEvent::StageProgress { stage: "verification".into(), pct });
+                emit(AnalysisEvent::StageProgress { stage: "verification".into(), pct });
             }
         }
         // ProxyClient is deferred: the mock returns no verdicts → UNKNOWN.
@@ -234,7 +243,7 @@ fn run_pipeline(
     let report = match report {
         Ok(r) => r,
         Err(e) => {
-            emit(&ch, AnalysisEvent::Failed { stage: "synthesis".into(), message: e.to_string() });
+            emit(AnalysisEvent::Failed { stage: "synthesis".into(), message: e.to_string() });
             return Err(e);
         }
     };
@@ -245,7 +254,7 @@ fn run_pipeline(
         .map_err(|e| GaplyError::Internal(format!("serialize report: {e}")))?;
     db.cache_put(&format!("report:{report_id}"), &json, REPORT_TTL_SECS, now_epoch())?;
 
-    emit(&ch, AnalysisEvent::Finished { report_id });
+    emit(AnalysisEvent::Finished { report_id });
     Ok(())
 }
 
@@ -270,5 +279,97 @@ mod tests {
         let v3 = serde_json::to_value(&fail).unwrap();
         assert_eq!(v3["type"], "failed");
         assert_eq!(v3["message"], "boom");
+    }
+
+    // A small but real IMRaD manuscript with a proper stat claim and NO
+    // References section — so the verify stage makes no network call, keeping
+    // this test hermetic while still exercising every lane end-to-end.
+    const MANUSCRIPT: &str = "\
+Title: Sleep and Memory Consolidation in Adults
+
+Abstract
+We examined whether a night of sleep improves memory consolidation in adults.
+
+Introduction
+Prior work suggests that sleep supports the consolidation of declarative memory.
+
+Methods
+We recruited 48 participants and analysed recall with a paired t-test.
+
+Results
+Sleep significantly improved recall (t(47) = 3.2, p = 0.002, d = 0.46).
+
+Discussion
+The results are consistent with a consolidation account of sleep.
+
+Conclusion
+A night of sleep improved memory consolidation in this sample.
+";
+
+    #[test]
+    fn full_pipeline_runs_all_six_lanes_and_produces_a_real_report() {
+        use std::cell::RefCell;
+
+        let db = Arc::new(Database::in_memory().expect("in-memory db"));
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+
+        let path = std::env::temp_dir().join(format!("gaply_pipeline_e2e_{}.txt", std::process::id()));
+        std::fs::write(&path, MANUSCRIPT).expect("write temp manuscript");
+
+        let events: RefCell<Vec<AnalysisEvent>> = RefCell::new(Vec::new());
+        let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
+
+        let res = run_pipeline_inner(
+            db.clone(),
+            embedder,
+            path.to_string_lossy().to_string(),
+            Some("E2E manuscript".into()),
+            &emit,
+        );
+        let _ = std::fs::remove_file(&path);
+        res.expect("pipeline should complete without error");
+
+        let ev = events.into_inner();
+
+        // Every one of the six lanes must complete.
+        let completed: Vec<String> = ev
+            .iter()
+            .filter_map(|e| match e {
+                AnalysisEvent::StageCompleted { stage, .. } => Some(stage.clone()),
+                _ => None,
+            })
+            .collect();
+        for stage in ["extraction", "validation", "ai", "plagiarism", "rag", "verification"] {
+            assert!(
+                completed.iter().any(|s| s == stage),
+                "lane '{stage}' did not complete; completed = {completed:?}"
+            );
+        }
+
+        // No fabricated failure, and a real Finished report id.
+        assert!(
+            !ev.iter().any(|e| matches!(e, AnalysisEvent::Failed { .. })),
+            "unexpected Failed event: {ev:?}"
+        );
+        let report_id = ev
+            .iter()
+            .find_map(|e| match e {
+                AnalysisEvent::Finished { report_id } => Some(report_id.clone()),
+                _ => None,
+            })
+            .expect("a Finished event with a report_id");
+
+        // The REAL compiled report was cached and deserializes with content.
+        let json = db
+            .cache_get(&format!("report:{report_id}"), now_epoch())
+            .unwrap()
+            .expect("report cached under report:{id}");
+        let report: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(report["verdict"].is_string(), "report has a verdict");
+        assert!(
+            report["disclaimer"].as_str().map(|s| !s.is_empty()).unwrap_or(false),
+            "report has a non-empty disclaimer"
+        );
+        assert!(report["findings"].is_array(), "report has a findings array");
     }
 }
