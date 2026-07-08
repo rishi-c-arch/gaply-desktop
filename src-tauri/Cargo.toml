@@ -35,6 +35,13 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-opener = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Phase-3 real HTTP core. rustls-tls (NOT native-tls) → no OpenSSL, keeps the
+# green Windows CI. `blocking` is added because gaply-core's HttpFetcher trait
+# is synchronous by design (the core crate is sync); the blocking client gives
+# a sync API backed by rustls. The verify stage runs under spawn_blocking so it
+# never blocks the async runtime thread.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+tokio = { version = "1", features = ["full"] }
 
 # On Windows/Linux the OS launches a NEW process for the gaply:// deep link;
 # single-instance (with the deep-link feature) forwards the URL to the already

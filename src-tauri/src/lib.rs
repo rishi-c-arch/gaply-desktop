@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod http_fetcher;
 pub mod logging;
 pub mod state;
 
