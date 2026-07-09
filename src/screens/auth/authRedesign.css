@@ -1,0 +1,299 @@
+/* Gaply — redesigned login (desktop). Split layout: a standard form panel on
+   the left, a slow-drifting galaxy visual on the right. Scoped under .gpl-auth
+   (legacy gds-auth styles used by other screens are untouched). Dark by
+   default; a full light variant via body.light. */
+
+.gpl-auth {
+  --gpl-a-bg: #0a0a0d;
+  --gpl-a-panel: #0c0c10;
+  --gpl-a-field: rgba(255, 255, 255, 0.04);
+  --gpl-a-border: rgba(255, 255, 255, 0.1);
+  --gpl-a-text: #f5f6f8;
+  --gpl-a-muted: #8b909b;
+  --gpl-a-accent: #ff3b3b;
+  --gpl-a-font-head: 'Epilogue', system-ui, -apple-system, sans-serif;
+  --gpl-a-font-body: 'Manrope', system-ui, -apple-system, sans-serif;
+
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(420px, 46%) 1fr;
+  background: var(--gpl-a-bg);
+  color: var(--gpl-a-text);
+  font-family: var(--gpl-a-font-body);
+  overflow: hidden;
+}
+
+body.light .gpl-auth {
+  --gpl-a-bg: #ffffff;
+  --gpl-a-panel: #ffffff;
+  --gpl-a-field: rgba(15, 23, 42, 0.03);
+  --gpl-a-border: rgba(15, 23, 42, 0.12);
+  --gpl-a-text: #0f172a;
+  --gpl-a-muted: #64748b;
+  --gpl-a-accent: #dc2626;
+}
+
+/* ── left: form panel ─────────────────────────────────────────────────── */
+.gpl-auth__panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 2.5rem;
+  background: var(--gpl-a-panel);
+  animation: gplAuthPanelIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes gplAuthPanelIn {
+  from { opacity: 0; transform: translateX(-18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.gpl-auth__panel-inner {
+  width: 100%;
+  max-width: 360px;
+}
+
+.gpl-auth__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2.25rem;
+}
+.gpl-auth__brand-name {
+  font-family: var(--gpl-a-font-head);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-size: 1rem;
+}
+
+.gpl-auth__theme {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--gpl-a-border);
+  background: var(--gpl-a-field);
+  color: var(--gpl-a-muted);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.gpl-auth__theme:hover { color: var(--gpl-a-text); }
+.gpl-auth__theme svg { width: 17px; height: 17px; }
+
+.gpl-auth__title {
+  font-family: var(--gpl-a-font-head);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  font-size: 1.55rem;
+  line-height: 1.1;
+  margin: 0 0 0.35rem;
+}
+.gpl-auth__subtitle {
+  margin: 0 0 1.6rem;
+  color: var(--gpl-a-muted);
+  font-size: 0.85rem;
+}
+
+.gpl-auth__field { margin-bottom: 0.85rem; }
+.gpl-auth__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--gpl-a-muted);
+}
+.gpl-auth__input {
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid var(--gpl-a-border);
+  background: var(--gpl-a-field);
+  color: var(--gpl-a-text);
+  font: inherit;
+  font-size: 0.88rem;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+.gpl-auth__input::placeholder { color: var(--gpl-a-muted); opacity: 0.7; }
+.gpl-auth__input:focus {
+  border-color: var(--gpl-a-accent);
+  box-shadow: 0 0 0 3px rgba(255, 59, 59, 0.13);
+}
+
+.gpl-auth__submit {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 11px 16px;
+  border: none;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.88rem;
+  letter-spacing: 0.01em;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(135deg, #ff4d4d 0%, #c81e1e 100%);
+  box-shadow: 0 10px 24px rgba(255, 59, 59, 0.26);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+.gpl-auth__submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(255, 59, 59, 0.34);
+  filter: brightness(1.04);
+}
+.gpl-auth__submit:disabled { opacity: 0.6; cursor: default; }
+
+.gpl-auth__divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 1.25rem 0;
+  color: var(--gpl-a-muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.gpl-auth__divider::before,
+.gpl-auth__divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--gpl-a-border);
+}
+
+.gpl-auth__oauth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 0.55rem;
+  padding: 11px 16px;
+  border-radius: 11px;
+  border: 1px solid var(--gpl-a-border);
+  background: var(--gpl-a-field);
+  color: var(--gpl-a-text);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+.gpl-auth__oauth:hover:not(:disabled) { transform: translateY(-1px); border-color: rgba(255, 255, 255, 0.2); }
+body.light .gpl-auth__oauth:hover:not(:disabled) { border-color: rgba(15, 23, 42, 0.2); }
+.gpl-auth__oauth:disabled { opacity: 0.5; cursor: default; }
+.gpl-auth__oauth svg { width: 18px; height: 18px; }
+
+.gpl-auth__ghost {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 10px;
+  border: none;
+  background: transparent;
+  color: var(--gpl-a-muted);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border-radius: 10px;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.gpl-auth__ghost:hover { color: var(--gpl-a-text); background: var(--gpl-a-field); }
+
+.gpl-auth__note {
+  margin: 0.75rem 0 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--gpl-a-muted);
+}
+
+.gpl-auth__switch {
+  margin-top: 1.5rem;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--gpl-a-muted);
+}
+.gpl-auth__switch button {
+  border: none;
+  background: none;
+  color: var(--gpl-a-accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+.gpl-auth__switch button:hover { text-decoration: underline; }
+
+/* ── right: galaxy visual ─────────────────────────────────────────────── */
+.gpl-auth__visual {
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+
+/* the image slowly drifts/zooms for a subtle "motion" feel (drop in a real
+   <video> here later if you want true footage — the layout won't change). */
+.gpl-auth__visual-img {
+  position: absolute;
+  inset: -4%;
+  background-size: cover;
+  background-position: center;
+  animation: gplAuthDrift 34s ease-in-out infinite alternate;
+}
+@keyframes gplAuthDrift {
+  from { transform: scale(1.05) translate(0, 0); }
+  to { transform: scale(1.16) translate(-2%, -2%); }
+}
+
+/* legibility + a soft seam into the panel */
+.gpl-auth__visual-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, var(--gpl-a-panel) 0%, rgba(10, 10, 13, 0) 22%),
+    radial-gradient(120% 100% at 70% 40%, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.5) 100%);
+}
+
+.gpl-auth__visual-copy {
+  position: absolute;
+  left: 3.5rem;
+  bottom: 3.5rem;
+  right: 3.5rem;
+  z-index: 1;
+}
+.gpl-auth__visual-tagline {
+  margin: 0 0 0.7rem;
+  font-family: var(--gpl-a-font-head);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  font-size: clamp(1.6rem, 2.4vw, 2.3rem);
+  line-height: 1.02;
+  color: #ffffff;
+}
+.gpl-auth__visual-sub {
+  margin: 0;
+  max-width: 28rem;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+/* narrow: stack the visual on top, form below (or hide the visual) */
+@media (max-width: 860px) {
+  .gpl-auth {
+    grid-template-columns: 1fr;
+    grid-template-rows: 34vh 1fr;
+  }
+  .gpl-auth__visual-copy { left: 1.5rem; right: 1.5rem; bottom: 1.5rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gpl-auth__panel,
+  .gpl-auth__visual-img {
+    animation: none;
+  }
+}

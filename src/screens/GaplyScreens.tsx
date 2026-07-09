@@ -10,6 +10,7 @@ import React from 'react';
 import { GaplySessionProvider, RequireSession } from './session/SessionProvider';
 import AuthPage from './auth/AuthPage';
 import AuthSuccessPage from './auth/AuthSuccessPage';
+import LandingPage from './landing/LandingPage';
 import OnboardingPage from './onboarding/OnboardingPage';
 import HomeDashboardPage from './home/HomeDashboardPage';
 import AnalysisTheaterPage from './analysis/AnalysisTheaterPage';
@@ -35,6 +36,10 @@ export const AuthRoute: React.FC = () => (
 /** /auth-success — public web hand-off page for desktop Google OAuth; bounces
  *  the ?code back to the gaply:// deep link. No session provider needed. */
 export const AuthSuccessRoute: React.FC = () => <AuthSuccessPage />;
+
+/** Desktop launch landing (isTauri "/"). Replicates the site's Research./Buddy.
+ *  section with the interactive 3D globe. No session needed; CTA enters /auth. */
+export const LandingRoute: React.FC = () => <LandingPage />;
 
 export const OnboardingRoute: React.FC = () => (
   <GaplySessionProvider>

@@ -55,6 +55,11 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
 export const useTheme = () => {
   const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error('useTheme must be used within ThemeProvider');
+  // Resilient default so components that only read the theme (e.g. a toggle in
+  // a screen) don't crash when rendered outside a provider (tests, storybook).
+  // In the real app the ThemeProvider always wraps these screens.
+  if (!ctx) {
+    return { theme: 'dark' as const, setTheme: () => {}, toggleTheme: () => {} };
+  }
   return ctx;
 };

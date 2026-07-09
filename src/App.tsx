@@ -1,6 +1,6 @@
 import React, { Suspense, useEffect } from 'react';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
-import { Routes, Route, Link, Navigate, useLocation, useMatch } from 'react-router-dom';
+import { Routes, Route, Link, useLocation, useMatch } from 'react-router-dom';
 import './App.css';
 import './styles/variables.css';
 import './styles/dashboard-hud.css';
@@ -72,6 +72,7 @@ const DesignGalleryPage = React.lazy(() => import('./design-system/DesignGallery
 // Gaply desktop-app screens (auth / onboarding / home) — one lazy chunk.
 const GaplyAuthRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.AuthRoute })));
 const GaplyAuthSuccessRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.AuthSuccessRoute })));
+const GaplyLandingRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.LandingRoute })));
 const GaplyOnboardingRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.OnboardingRoute })));
 const GaplyHomeRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.HomeRoute })));
 const GaplyUploadRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.UploadRoute })));
@@ -496,7 +497,7 @@ const AppContent: React.FC = () => {
               /auth. The marketing homepage below is untouched for the web
               build — isTauri is false there, so the redirect never mounts. */}
           <Route path="/" element={
-            isTauri ? <Navigate to="/auth" replace /> :
+            isTauri ? <Suspense fallback={null}><GaplyLandingRoute /></Suspense> :
             <>
               <SEOHead
                 title="Gaply - AI-Powered Academic Research Platform | Thesis Writing, Journal Matching, AI Detection"

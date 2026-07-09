@@ -1,0 +1,265 @@
+/* Gaply desktop launch landing — replicates the site's "Research. Buddy."
+   section (Epilogue/Manrope, red GAPLY watermark), with the centre photo
+   swapped for a bare interactive 3D globe. Dark by default; a light variant is
+   included (body.light). Background is kept clean/smooth (no grain). */
+
+.gpl-landing {
+  --gpl-primary: #ff0000;
+  --gpl-text: #ffffff;
+  --gpl-font-headline: 'Epilogue', system-ui, -apple-system, sans-serif;
+  --gpl-font-body: 'Manrope', system-ui, -apple-system, sans-serif;
+
+  position: relative;
+  overflow: hidden;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  /* smooth vignette — no noise texture */
+  background: radial-gradient(120% 90% at 50% 40%, #0a0a0b 0%, #000000 72%);
+  color: var(--gpl-text);
+  font-family: var(--gpl-font-body);
+}
+
+/* light variant */
+body.light .gpl-landing {
+  --gpl-primary: #dc2626;
+  --gpl-text: #0f172a;
+  background: radial-gradient(120% 90% at 50% 40%, #ffffff 0%, #f4f4f5 72%);
+}
+
+/* the landing supplies its own smooth background — hide the global grain */
+body.gpl-landing-active .noise-bg {
+  display: none !important;
+}
+
+/* faint GAPLY watermark behind everything */
+.gpl-landing__watermark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.gpl-landing__watermark-text {
+  font-family: var(--gpl-font-headline);
+  font-size: min(25vw, 22rem);
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  text-transform: uppercase;
+  color: var(--gpl-primary);
+  opacity: 0.15;
+}
+
+body.light .gpl-landing__watermark-text {
+  opacity: 0.08;
+}
+
+.gpl-landing__inner {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 80rem;
+  margin: 0 auto;
+}
+
+/* theme toggle (top-right) — reveals the light version */
+.gpl-landing__theme {
+  position: absolute;
+  top: 1.75rem;
+  right: 1.75rem;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--gpl-text);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.gpl-landing__theme:hover { background: rgba(255, 255, 255, 0.09); }
+.gpl-landing__theme svg { width: 18px; height: 18px; }
+body.light .gpl-landing__theme {
+  border-color: rgba(15, 23, 42, 0.14);
+  background: rgba(15, 23, 42, 0.03);
+}
+body.light .gpl-landing__theme:hover { background: rgba(15, 23, 42, 0.07); }
+
+/* centre column: Research./Buddy. + globe */
+.gpl-landing__center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.gpl-landing__title-stack {
+  margin: 0 0 2rem;
+  padding: 0;
+  width: 100%;
+  max-width: 56rem;
+  cursor: pointer;
+  outline: none;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.gpl-landing__title-stack:hover {
+  transform: translateY(-2px);
+}
+.gpl-landing__title-stack:focus-visible {
+  outline: 2px solid var(--gpl-primary);
+  outline-offset: 8px;
+  border-radius: 8px;
+}
+
+.gpl-landing__buddy-line {
+  display: block;
+  font-family: var(--gpl-font-headline);
+  font-size: clamp(3rem, 11vw, 6rem);
+  font-weight: 900;
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+  color: var(--gpl-text);
+}
+
+/* bare globe — SQUARE so the sphere is a true circle; soft red glow behind,
+   no box/frame around it. */
+.gpl-landing__globe {
+  position: relative;
+  width: min(46vmin, 460px);
+  aspect-ratio: 1 / 1;
+  max-height: 58vh;
+}
+
+.gpl-landing__globe::before {
+  content: '';
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 0, 0, 0.22), rgba(255, 0, 0, 0) 70%);
+  filter: blur(6px);
+  z-index: 0;
+  pointer-events: none;
+}
+
+body.light .gpl-landing__globe::before {
+  background: radial-gradient(closest-side, rgba(220, 38, 38, 0.18), rgba(220, 38, 38, 0) 70%);
+}
+
+.gpl-landing__globe > * {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+}
+
+/* WebGL-unavailable fallback: a static red-outlined orb (no box) */
+.gpl-landing__globe-fallback {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.gpl-landing__globe-fallback::after {
+  content: '';
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 60, 60, 0.4);
+  box-shadow: inset 0 0 60px rgba(255, 0, 0, 0.2), 0 0 60px rgba(255, 0, 0, 0.15);
+}
+
+.gpl-landing__foot {
+  display: flex;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.gpl-landing__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 28px;
+  border-radius: 9999px;
+  font-family: var(--gpl-font-body);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gpl-text);
+  text-decoration: none;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: background 0.3s ease, border-color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.gpl-landing__cta:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+
+body.light .gpl-landing__cta {
+  border-color: rgba(15, 23, 42, 0.14);
+  background: #ffffff;
+}
+body.light .gpl-landing__cta:hover {
+  background: #fafafa;
+  border-color: rgba(15, 23, 42, 0.2);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.1);
+}
+
+.gpl-landing__cta-arrow {
+  font-size: 1.1em;
+  line-height: 1;
+  transition: transform 0.3s ease;
+}
+
+.gpl-landing__cta:hover .gpl-landing__cta-arrow {
+  transform: translateX(4px);
+}
+
+/* exit transition into the login page: the whole landing eases up + fades,
+   while the globe pushes slightly forward — reads as a smooth hand-off. */
+.gpl-landing {
+  transition: opacity 0.48s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.48s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.48s ease;
+}
+.gpl-landing--leaving {
+  opacity: 0;
+  transform: translateY(-24px) scale(0.985);
+  filter: blur(2px);
+  pointer-events: none;
+}
+.gpl-landing--leaving .gpl-landing__globe {
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: scale(1.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gpl-landing,
+  .gpl-landing__title-stack,
+  .gpl-landing__cta,
+  .gpl-landing__cta-arrow,
+  .gpl-landing--leaving,
+  .gpl-landing--leaving .gpl-landing__globe {
+    transition: none;
+  }
+  .gpl-landing__cta:hover,
+  .gpl-landing__title-stack:hover {
+    transform: none;
+  }
+  .gpl-landing__cta:hover .gpl-landing__cta-arrow {
+    transform: none;
+  }
+}
