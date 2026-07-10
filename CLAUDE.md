@@ -83,5 +83,13 @@ time injection.
 - Windows CI (`.github/workflows/windows-build-check.yml`) runs
   `cargo test -p gaply_core` — the app crate's IPC tests are
   `#[cfg_attr(windows, ignore)]` (wry/tao load crash, see comments there).
+- MSRV note: `gaply-core` stays on the declared **1.77.2** (portable/pure). The
+  **app crate** now carries the SLM-1 candle runtime (`src/models/candle_perplexity.rs`),
+  and candle needs a newer Rust than 1.77.2 — so the *app crate* effectively
+  requires modern stable. This is fine: CI uses `dtolnay/rust-toolchain@stable`
+  and there is no `rust-toolchain.toml` pinning 1.77.2, so builds pass. The
+  1.77.2 figure is a documented target for the portable core, not an enforced
+  app-crate floor. All ML deps (candle/tokenizers) live in the app crate ONLY,
+  so `cargo test -p gaply_core` links none of them.
 - Be explicit about what's verified locally vs. what needs real infrastructure
   (AWS Nitro, Tailscale tailnet, Windows runners).

@@ -43,6 +43,18 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 tokio = { version = "1", features = ["full"] }
 
+# SLM-1 (AI-detection) real model runtime — candle, APP-CRATE ONLY so gaply-core
+# stays ML-free/sync/portable (the ReqwestFetcher precedent; `cargo test -p
+# gaply_core` pulls none of this). CPU backend by default. A local quantized
+# Qwen2 GGUF is loaded from a LOCAL PATH — deliberately NO `hf-hub` (it defaults
+# to native-tls → OpenSSL, which would break the no-OpenSSL/green-Windows-CI
+# guarantee). `tokenizers` with default-features disabled to avoid pulling the
+# oniguruma C library; a Qwen2 BPE tokenizer.json loads via the pure-Rust path.
+candle-core = "0.11"
+candle-nn = "0.11"
+candle-transformers = "0.11"
+tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
+
 # On Windows/Linux the OS launches a NEW process for the gaply:// deep link;
 # single-instance (with the deep-link feature) forwards the URL to the already
 # running app. macOS delivers deep links to the running app natively, so it's
