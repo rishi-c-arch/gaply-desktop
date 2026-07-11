@@ -300,6 +300,7 @@ pub fn run_publishready(
     path: String,
     journal_name: String,
     journal_quartile: String,
+    supplementary_paths: Option<Vec<String>>,
 ) -> Result<PublishReadyOutcome, GaplyError> {
     use gaply_core::reviewer_agent::{self, ReviewerEvaluation, TargetJournal};
     use gaply_core::verify_agent::ProxyClient;
@@ -323,9 +324,24 @@ pub fn run_publishready(
     let report: serde_json::Value =
         serde_json::from_str(&json).map_err(|e| GaplyError::Internal(format!("parse report: {e}")))?;
 
-    // 2) Build the validator-compliant, privacy-guarded reviewer payload.
+    // 2) Parse any supplementary files (memory-capped, app-crate) → JSON. The
+    //    reviewer_agent llm_safe's every string; a file that fails to parse is
+    //    skipped (honest), never fatal.
+    let supp_values: Vec<serde_json::Value> = supplementary_paths
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|p| match crate::supplementary::parse_supplementary(std::path::Path::new(p)) {
+            Ok(ev) => serde_json::to_value(&ev).ok(),
+            Err(e) => {
+                tracing::warn!(path = %p, error = %e, "supplementary parse failed; skipped");
+                None
+            }
+        })
+        .collect();
+
+    // 3) Build the validator-compliant, privacy-guarded reviewer payload.
     let journal = TargetJournal { name: journal_name, quartile: journal_quartile };
-    let (proxy_payload, sent_ids) = reviewer_agent::build_review_payload(&report, &journal);
+    let (proxy_payload, sent_ids) = reviewer_agent::build_review_payload(&report, &journal, &supp_values);
 
     // 3) Reviewer: cloud only, honest offline degradation.
     let reviewer = match ProxyReqwestClient::from_env() {
