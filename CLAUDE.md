@@ -78,8 +78,12 @@ time injection.
 ## Working norms (standing)
 
 - Commit ONLY when Rishi provides/approves the message; never push unprompted.
-- `origin/main` is Vercel-deployed: single-file, verified pushes only, and only
-  when explicitly requested. Feature work rides `feat/datamaestro-pro-pwa-security`.
+- Canonical remote: `desktop` (`rishi-c-arch/gaply-desktop`); `main` there is
+  the backup of local main. Push only when explicitly requested, never forced.
+  The old `origin` (RishiSTARP/gaply-react-frontend, Vercel-deployed) is gone —
+  404s since the phase-0 history purge; its stale local refs don't reflect
+  reality. Feature work rides stacked `feat/*` branches off main (reviewed
+  checkpoint commits kept unsquashed; fast-forward merges to main).
 - Windows CI (`.github/workflows/windows-build-check.yml`) runs
   `cargo test -p gaply_core` — the app crate's IPC tests are
   `#[cfg_attr(windows, ignore)]` (wry/tao load crash, see comments there).
