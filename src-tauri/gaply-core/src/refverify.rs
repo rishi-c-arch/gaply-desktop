@@ -355,6 +355,47 @@ fn json(body: &str, ctx: &'static str) -> Result<serde_json::Value, GaplyError> 
     serde_json::from_str(body).map_err(|e| GaplyError::Internal(format!("{ctx} json: {e}")))
 }
 
+/// Join a CrossRef `author` array (`[{given, family}]`) into a readable author
+/// string. Returns `None` if the field is absent, not an array, or yields no
+/// names — never panics on a malformed body.
+fn crossref_authors(work: &serde_json::Value) -> Option<String> {
+    let names: Vec<String> = work["author"]
+        .as_array()?
+        .iter()
+        .filter_map(|a| match (a["given"].as_str(), a["family"].as_str()) {
+            (Some(g), Some(f)) => Some(format!("{g} {f}")),
+            (None, Some(f)) => Some(f.to_string()),
+            (Some(g), None) => Some(g.to_string()),
+            // Organizations use a single `name` field.
+            (None, None) => a["name"].as_str().map(str::to_string),
+        })
+        .collect();
+    (!names.is_empty()).then(|| names.join(", "))
+}
+
+/// CrossRef publication year from `date-parts` — tries the common containers
+/// (`published`, `issued`, print/online) so records that only carry one are
+/// still covered. `None` if none present or malformed.
+fn crossref_year(work: &serde_json::Value) -> Option<i32> {
+    for key in ["published", "issued", "published-print", "published-online"] {
+        if let Some(y) = work[key]["date-parts"][0][0].as_i64() {
+            return i32::try_from(y).ok();
+        }
+    }
+    None
+}
+
+/// Join an OpenAlex `authorships` array (`[{author: {display_name}}]`) into a
+/// readable author string. `None` if absent/empty — never panics.
+fn openalex_authors(work: &serde_json::Value) -> Option<String> {
+    let names: Vec<String> = work["authorships"]
+        .as_array()?
+        .iter()
+        .filter_map(|a| a["author"]["display_name"].as_str().map(str::to_string))
+        .collect();
+    (!names.is_empty()).then(|| names.join(", "))
+}
+
 // ============================================================================
 // Connector result types
 // ============================================================================
@@ -365,6 +406,12 @@ pub struct ExistenceCheck {
     pub found: bool,
     pub doi: Option<String>,
     pub title: Option<UntrustedText>,
+    /// Matched author list from the source. Web text — serialized through
+    /// `llm_safe()` like `title`. Populated by the connectors (later change).
+    pub matched_authors: Option<UntrustedText>,
+    /// Matched publication year from the source. Numeric — no injection
+    /// surface, mirrors `Reference.year`. Populated by the connectors (later).
+    pub matched_year: Option<i32>,
     /// Some sources (OpenAlex) flag retraction inline.
     pub is_retracted_hint: Option<bool>,
     pub provenance: Provenance,
@@ -439,11 +486,16 @@ pub fn crossref_lookup(
             if doi.is_none() && title.is_none() {
                 return Ok(ConnectorOutcome::NotFound);
             }
+            let matched_authors =
+                crossref_authors(work).map(|a| UntrustedText::new(a, provenance.clone()));
+            let matched_year = crossref_year(work);
             Ok(ConnectorOutcome::Found(ExistenceCheck {
                 source: "crossref",
                 found: true,
                 doi,
                 title,
+                matched_authors,
+                matched_year,
                 is_retracted_hint: None,
                 provenance,
             }))
@@ -485,11 +537,17 @@ pub fn openalex_lookup(
             }
             let doi = work["doi"].as_str().map(|s| s.to_string());
             let title = work["title"].as_str().map(|t| UntrustedText::new(t, provenance.clone()));
+            let matched_authors =
+                openalex_authors(work).map(|a| UntrustedText::new(a, provenance.clone()));
+            let matched_year =
+                work["publication_year"].as_i64().and_then(|y| i32::try_from(y).ok());
             Ok(ConnectorOutcome::Found(ExistenceCheck {
                 source: "openalex",
                 found: true,
                 doi,
                 title,
+                matched_authors,
+                matched_year,
                 is_retracted_hint: work["is_retracted"].as_bool(),
                 provenance,
             }))

@@ -44,6 +44,8 @@ fn rv_with_evidence(title: &str) -> ReferenceVerification {
             found: true,
             doi: Some("10.1/abc".into()),
             title: Some(UntrustedText::new(title, p.clone())),
+            matched_authors: None,
+            matched_year: None,
             is_retracted_hint: None,
             provenance: p.clone(),
         }),
@@ -147,6 +149,33 @@ fn raw_manuscript_text_is_never_in_the_proxy_payload() {
     assert!(wire.contains("10.1/abc"));
     // Uncertainty instructions ride along with every request.
     assert!(wire.contains("MUST return UNKNOWN"));
+}
+
+// --- matched authors/year ride INSIDE the existence entry (no new key) --------
+
+#[test]
+fn matched_authors_and_year_serialize_without_minting_a_new_evidence_key() {
+    let mut rv = rv_with_evidence("A Study of Things");
+    if let Some(ex) = rv.exists.as_mut() {
+        ex.matched_authors = Some(UntrustedText::new("Jane Doe, John Roe", prov("crossref")));
+        ex.matched_year = Some(2022);
+    }
+    let proxy = MockProxyClient::returning(ok_response("c1", "SUPPORTED", vec!["ev-c1-0"]));
+    verify_citations(&proxy, &[(reference(), rv)]).unwrap();
+
+    let payload = &proxy.sent_payloads()[0];
+    let evidence = payload["summary"]["citations"][0]["evidence"].as_array().unwrap();
+    let existence =
+        evidence.iter().find(|e| e["kind"] == "existence").expect("existence entry present");
+
+    // The new fields live INSIDE the existence entry...
+    assert_eq!(existence["matched_authors"].as_str(), Some("Jane Doe, John Roe"));
+    assert_eq!(existence["matched_year"].as_i64(), Some(2022));
+    // ...under the SAME single key — no extra evidence entry was minted, so the
+    // gates (which key on evidence_keys) are untouched.
+    assert_eq!(existence["ref"].as_str(), Some("ev-c1-0"));
+    // rv_with_evidence has existence + retraction only: exactly 2 entries still.
+    assert_eq!(evidence.len(), 2, "no new evidence entry/key was added");
 }
 
 // --- untrusted fetched text goes through llm_safe() ---------------------------

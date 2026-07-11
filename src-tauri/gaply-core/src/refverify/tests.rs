@@ -33,7 +33,9 @@ fn crossref_found_by_doi() {
     let http = MockHttpFetcher::new().route(
         "api.crossref.org/works/",
         200,
-        r#"{"message":{"DOI":"10.1/abc","title":["A Verified Paper"]}}"#,
+        r#"{"message":{"DOI":"10.1/abc","title":["A Verified Paper"],
+            "author":[{"given":"Ada","family":"Lovelace"},{"given":"Alan","family":"Turing"}],
+            "published":{"date-parts":[[1936,5,12]]}}}"#,
     );
     let lim = ApiRateLimiters::default();
     let out = crossref_lookup(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap();
@@ -42,6 +44,31 @@ fn crossref_found_by_doi() {
             assert!(c.found);
             assert_eq!(c.doi.as_deref(), Some("10.1/abc"));
             assert_eq!(c.title.as_ref().unwrap().llm_safe(), "A Verified Paper");
+            // NEW: authors joined "given family", year from published.date-parts.
+            assert_eq!(
+                c.matched_authors.as_ref().unwrap().llm_safe(),
+                "Ada Lovelace, Alan Turing"
+            );
+            assert_eq!(c.matched_year, Some(1936));
+        }
+        other => panic!("expected Found, got {other:?}"),
+    }
+}
+
+#[test]
+fn crossref_missing_author_year_is_none() {
+    // A body lacking author/published must yield None, not panic.
+    let db = Database::in_memory().unwrap();
+    let http = MockHttpFetcher::new().route(
+        "api.crossref.org/works/",
+        200,
+        r#"{"message":{"DOI":"10.1/abc","title":["No Meta Paper"]}}"#,
+    );
+    let lim = ApiRateLimiters::default();
+    match crossref_lookup(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap() {
+        ConnectorOutcome::Found(c) => {
+            assert!(c.matched_authors.is_none());
+            assert!(c.matched_year.is_none());
         }
         other => panic!("expected Found, got {other:?}"),
     }
@@ -64,7 +91,9 @@ fn openalex_found_with_retraction_hint() {
     let http = MockHttpFetcher::new().route(
         "api.openalex.org/works/doi:",
         200,
-        r#"{"id":"https://openalex.org/W1","doi":"https://doi.org/10.1/abc","title":"A Paper","is_retracted":true}"#,
+        r#"{"id":"https://openalex.org/W1","doi":"https://doi.org/10.1/abc","title":"A Paper",
+            "is_retracted":true,"publication_year":2019,
+            "authorships":[{"author":{"display_name":"Grace Hopper"}},{"author":{"display_name":"Katherine Johnson"}}]}"#,
     );
     let lim = ApiRateLimiters::default();
     let out = openalex_lookup(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap();
@@ -72,6 +101,31 @@ fn openalex_found_with_retraction_hint() {
         ConnectorOutcome::Found(c) => {
             assert!(c.found);
             assert_eq!(c.is_retracted_hint, Some(true));
+            // NEW: authors from authorships[].author.display_name, year from publication_year.
+            assert_eq!(
+                c.matched_authors.as_ref().unwrap().llm_safe(),
+                "Grace Hopper, Katherine Johnson"
+            );
+            assert_eq!(c.matched_year, Some(2019));
+        }
+        other => panic!("expected Found, got {other:?}"),
+    }
+}
+
+#[test]
+fn openalex_missing_author_year_is_none() {
+    // A body lacking authorships/publication_year must yield None, not panic.
+    let db = Database::in_memory().unwrap();
+    let http = MockHttpFetcher::new().route(
+        "api.openalex.org/works/doi:",
+        200,
+        r#"{"id":"https://openalex.org/W1","doi":"https://doi.org/10.1/abc","title":"A Paper"}"#,
+    );
+    let lim = ApiRateLimiters::default();
+    match openalex_lookup(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap() {
+        ConnectorOutcome::Found(c) => {
+            assert!(c.matched_authors.is_none());
+            assert!(c.matched_year.is_none());
         }
         other => panic!("expected Found, got {other:?}"),
     }
