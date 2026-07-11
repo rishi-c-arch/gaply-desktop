@@ -82,6 +82,9 @@ fn sample_items() -> Vec<(Reference, ReferenceVerification)> {
             found: true,
             doi: Some("10.1038/171737a0".into()), // matches claimed exactly
             title: Some(UntrustedText::new(WC_TITLE, cr.clone())), // matches claimed exactly
+            // Full-metadata match (schema-fix): source confirms authors + year.
+            matched_authors: Some(UntrustedText::new("Watson, J.D., Crick, F.H.", cr.clone())),
+            matched_year: Some(1953),
             is_retracted_hint: Some(false),
             provenance: cr,
         }),
@@ -118,6 +121,9 @@ fn sample_items() -> Vec<(Reference, ReferenceVerification)> {
                 "Seasonal Migration Patterns of the Atlantic Herring",
                 cr2.clone(),
             )),
+            // The unrelated work's metadata (schema-fix): both mismatch the claim.
+            matched_authors: Some(UntrustedText::new("Johansson, L., Meyer, K.", cr2.clone())),
+            matched_year: Some(2015),
             is_retracted_hint: Some(false),
             provenance: cr2,
         }),
@@ -155,6 +161,10 @@ fn minimal_supported_item() -> Vec<(Reference, ReferenceVerification)> {
             found: true,
             doi: Some("10.1038/171737a0".into()), // matches claimed
             title: Some(UntrustedText::new(WC_TITLE, cr.clone())), // matches claimed
+            // Deliberately absent: this isolation case pins the claim to
+            // title+DOI only (post-schema-fix, connectors CAN emit these).
+            matched_authors: None,
+            matched_year: None,
             is_retracted_hint: Some(false),
             provenance: cr,
         }),
