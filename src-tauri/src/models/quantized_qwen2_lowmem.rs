@@ -314,7 +314,9 @@ impl ModelWeights {
         }
     }
 
-    pub fn forward(&mut self, x: &Tensor, index_pos: usize) -> Result<Tensor> {
+    /// Shared trunk (upstream `forward()` minus the last-position narrow and
+    /// the output head): embed → all layers → final norm, `[b, seq, hidden]`.
+    fn hidden_states(&mut self, x: &Tensor, index_pos: usize) -> Result<Tensor> {
         let (_b_sz, seq_len) = x.dims2()?;
         let mask = if seq_len == 1 {
             None
@@ -340,8 +342,25 @@ impl ModelWeights {
             let x = (x + residual)?;
             layer_in = x
         }
-        let x = self.norm.forward(&layer_in)?;
+        self.norm.forward(&layer_in)
+    }
+
+    /// Upstream-equivalent forward: last-position logits `[b, vocab]`.
+    pub fn forward(&mut self, x: &Tensor, index_pos: usize) -> Result<Tensor> {
+        let (_b_sz, seq_len) = x.dims2()?;
+        let x = self.hidden_states(x, index_pos)?;
         let x = x.i((.., seq_len - 1, ..))?;
+        let _enter = self.span_output.enter();
+        self.output.forward(&x)
+    }
+
+    /// ADDED vs upstream: ALL-position logits `[b, seq, vocab]` — the output
+    /// head applied to every hidden state instead of narrowing to the last.
+    /// One call scores a whole teacher-forced window; the logits tensor for a
+    /// 512-token Qwen2.5 window is ~311MB f32, so callers should consume it in
+    /// row chunks rather than materializing full-size softmax intermediates.
+    pub fn forward_all(&mut self, x: &Tensor, index_pos: usize) -> Result<Tensor> {
+        let x = self.hidden_states(x, index_pos)?;
         let _enter = self.span_output.enter();
         self.output.forward(&x)
     }

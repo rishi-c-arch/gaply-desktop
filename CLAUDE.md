@@ -91,5 +91,11 @@ time injection.
   1.77.2 figure is a documented target for the portable core, not an enforced
   app-crate floor. All ML deps (candle/tokenizers) live in the app crate ONLY,
   so `cargo test -p gaply_core` links none of them.
+- SLM-1 model tiers: **Q3_K_M = 8GB-tier**, **Q4_K_M = 16GB-tier** (Q4 + candle's
+  aarch64 repacked-Q4K cache ≈ 7.5GB base → jetsam on 8GB machines). Q3↔Q4
+  absolute surprisal calibration differs (~+0.13 bits mean, r = 0.975), so
+  AI-detection thresholds need PER-TIER calibration. Details in
+  `src-tauri/src/models/candle_perplexity.rs` module docs; equivalence gates in
+  `perplexity_probe --compare`.
 - Be explicit about what's verified locally vs. what needs real infrastructure
   (AWS Nitro, Tailscale tailnet, Windows runners).

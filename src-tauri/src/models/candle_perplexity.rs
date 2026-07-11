@@ -12,17 +12,38 @@
 //! (candle does not read the tokenizer out of the GGUF), and computes real
 //! per-token teacher-forced surprisal in bits for the AI-detection signal.
 //!
-//! # Why the incremental decode loop
+//! # Model tiers (RAM-driven)
 //!
-//! `candle_transformers::models::quantized_qwen2::ModelWeights::forward()`
-//! NARROWS TO THE LAST TOKEN before the head — it returns the distribution over
-//! the *next* token only, not logits for every position. So teacher-forced
-//! perplexity can't be read from one batched forward. We instead step token by
-//! token using the model's KV cache: at step `i` we feed the PREVIOUS token at
-//! offset `i`; the returned last-token logits are `P(token_i | prefix)`, and we
-//! take `-log2 P(token_i)`. Seeding the prefix with the model's BOS conditions
-//! token 0. This is O(n) single-token forwards per window — the cost the
-//! standalone perf probe measures before we decide on integration.
+//! - **8GB machines: Qwen2.5-7B-Instruct Q3_K_M** (~3.8GB file). Verified on
+//!   an 8GB M1 Air: 5.45GB peak footprint (~2.5GB headroom), ~100ms/token.
+//! - **16GB machines: Qwen2.5-7B-Instruct Q4_K_M** (~4.4GB file). Does NOT fit
+//!   8GB: candle's aarch64 kernel caches a repacked copy of every Q4K tensor
+//!   (~+3.1GB → ~7.5GB base) and the process gets jetsam-killed on real
+//!   windows (observed at 399 tokens, twice).
+//!
+//! Q3 tracks Q4 per-token surprisal at r = 0.975 (rank-preserving), but the
+//! ABSOLUTE calibration differs by ~+0.13 bits mean — any detection threshold
+//! must be calibrated PER TIER, never shared across quant levels.
+//!
+//! # Batched scoring (default) vs the reference decode loop
+//!
+//! Teacher-forced surprisal needs logits at EVERY position. Upstream
+//! `forward()` narrows to the last token, so the original implementation
+//! stepped token by token through the KV cache — one full weight-streaming
+//! forward per token (~2.6 s/token for 7B Q4 on CPU). That loop survives as
+//! [`CandlePerplexityModel::surprisals_reference`], the ground truth for
+//! `perplexity_probe --compare`.
+//!
+//! The trait's `surprisals()` now feeds the window `[bos, t0..t_{n-2}]`
+//! through the vendored model's `forward_all()` in `PREFILL_CHUNK`-token
+//! prefill chunks against the KV cache — logits row `i` is
+//! `P(token_i | prefix)`, identical conditioning to the loop (BOS seeds token
+//! 0). Both chunkings (prefill and `SCORE_CHUNK` log-softmax rows) bound the
+//! transient memory; see the const docs — on aarch64, candle's repacked-Q4K
+//! kernel cache leaves only a few hundred MB of headroom on 8GB machines.
+//! The two paths agree to float tolerance, not bitwise: the f32 attention
+//! GEMMs accumulate in shape-dependent order, so drift grows with position
+//! (position 0 is exact) and concentrates on high-entropy tokens.
 //!
 //! # Sync + threading
 //!
@@ -49,6 +70,22 @@ use gaply_core::ai_detect::PerplexityModel;
 /// configuration had.
 const CONTEXT_TOKENS: usize = 512;
 const STRIDE: usize = 256;
+
+/// Tokens fed per `forward_all()` call. Prefilling the window in chunks
+/// against the KV cache is mathematically identical to one full-window pass
+/// (`build_causal_mask` handles `index_pos > 0` prefill), but it bounds the
+/// logits tensor to `PREFILL_CHUNK × vocab` (~78MB) instead of
+/// `window × vocab` (~311MB at 512). That margin is NOT optional: on aarch64
+/// candle also caches a repacked copy of every Q4K tensor on first matmul
+/// (~+3.1GB for this model, on top of the ~4.4GB of QTensors), so the 8GB
+/// machines this must fit leave only a few hundred MB for activations —
+/// a full-window logits tensor was observed to OOM at 399 tokens.
+const PREFILL_CHUNK: usize = 128;
+
+/// Rows of a chunk's `[PREFILL_CHUNK, vocab]` logits scored per
+/// log-softmax/gather round. Bounds softmax intermediates to
+/// ~3 × 64 × 152k × 4B ≈ 117MB.
+const SCORE_CHUNK: usize = 64;
 
 /// Qwen2 uses `<|endoftext|>` as its BOS/EOS marker. Fallback id if the
 /// tokenizer lookup ever fails (Qwen2 vocab places it at 151643).
@@ -90,44 +127,18 @@ impl CandlePerplexityModel {
     }
 }
 
-impl PerplexityModel for CandlePerplexityModel {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn context_tokens(&self) -> usize {
-        CONTEXT_TOKENS
-    }
-
-    fn stride(&self) -> usize {
-        STRIDE
-    }
-
-    /// Subword tokens as their vocabulary PIECE STRINGS (e.g. "ĠThe"), so the
-    /// windower's units match the model's units. `surprisals()` maps each piece
-    /// string back to its exact id via the vocab — lossless, since we round-trip
-    /// through the tokenizer's own strings, not decoded text.
-    fn tokenize(&self, text: &str) -> Vec<String> {
-        match self.tokenizer.encode(text, false) {
-            Ok(enc) => enc.get_tokens().to_vec(),
-            Err(_) => Vec::new(),
-        }
-    }
-
-    /// Per-token surprisal in bits (`len == tokens.len()`), teacher-forced. See
-    /// the module docs for why this is an incremental KV-cache decode loop.
-    fn surprisals(&self, tokens: &[String]) -> Vec<f32> {
+impl CandlePerplexityModel {
+    /// REFERENCE implementation: per-token surprisal via the incremental
+    /// KV-cache decode loop (one forward per token — O(n) single-token
+    /// forwards, ~4.4GB of weights streamed per token, so slow). Kept
+    /// permanently as the ground truth the batched path is verified against
+    /// (`perplexity_probe --compare`); not used by the `PerplexityModel` trait.
+    pub fn surprisals_reference(&self, tokens: &[String]) -> Vec<f32> {
         if tokens.is_empty() {
             return Vec::new();
         }
 
-        // Piece string -> exact vocab id. A miss (shouldn't happen for real
-        // vocab pieces) falls back to BOS so length is preserved.
-        let ids: Vec<u32> = tokens
-            .iter()
-            .map(|t| self.tokenizer.token_to_id(t).unwrap_or(self.bos))
-            .collect();
-
+        let ids = self.token_ids(tokens);
         let mut model = self.inner.lock().expect("perplexity model mutex poisoned");
 
         // Fresh sequence: drop any KV state from a previous window. (forward()
@@ -167,6 +178,112 @@ impl PerplexityModel for CandlePerplexityModel {
         }
 
         out
+    }
+
+    /// Piece string -> exact vocab id. A miss (shouldn't happen for real
+    /// vocab pieces) falls back to BOS so length is preserved.
+    fn token_ids(&self, tokens: &[String]) -> Vec<u32> {
+        tokens
+            .iter()
+            .map(|t| self.tokenizer.token_to_id(t).unwrap_or(self.bos))
+            .collect()
+    }
+
+    /// Batched teacher-forced surprisals: the window is prefilled through
+    /// `forward_all()` in `PREFILL_CHUNK`-token chunks against the KV cache,
+    /// and each chunk's logits are scored (log-softmax + gather) and dropped
+    /// before the next chunk runs — see the const docs for why both chunkings
+    /// are load-bearing on 8GB machines. `ids` must be non-empty.
+    fn surprisals_batched(&self, ids: &[u32]) -> Result<Vec<f32>, String> {
+        let n = ids.len();
+
+        // Same sequence the reference loop feeds one token at a time:
+        // [bos, t0, .., t_{n-2}] — logits row i is P(t_i | prefix).
+        let mut input_ids = Vec::with_capacity(n);
+        input_ids.push(self.bos);
+        input_ids.extend_from_slice(&ids[..n - 1]);
+
+        let mut model = self.inner.lock().expect("perplexity model mutex poisoned");
+        // Fresh sequence: drop any KV state from a previous window.
+        model.clear_kv_cache();
+
+        let mut out = Vec::with_capacity(n);
+        for (chunk_idx, chunk) in input_ids.chunks(PREFILL_CHUNK).enumerate() {
+            let pos = chunk_idx * PREFILL_CHUNK;
+            let input = Tensor::new(chunk, &self.device)
+                .and_then(|t| t.reshape((1, chunk.len())))
+                .map_err(|e| format!("input build at {pos}: {e}"))?;
+            let logits = model
+                .forward_all(&input, pos)
+                .map_err(|e| format!("forward_all at {pos}: {e}"))?;
+            let logits = logits
+                .squeeze(0)
+                .and_then(|l| l.to_dtype(candle_core::DType::F32))
+                .map_err(|e| format!("logits reshape at {pos}: {e}"))?; // [chunk, vocab]
+
+            // Logits row j of this chunk predicts ids[pos + j].
+            let targets_all = &ids[pos..(pos + chunk.len()).min(n)];
+            for (c, targets) in targets_all.chunks(SCORE_CHUNK).enumerate() {
+                let rows = logits
+                    .narrow(0, c * SCORE_CHUNK, targets.len())
+                    .map_err(|e| format!("narrow chunk {pos}+{c}: {e}"))?;
+                let logprobs = candle_nn::ops::log_softmax(&rows, candle_core::D::Minus1)
+                    .map_err(|e| format!("log_softmax chunk {pos}+{c}: {e}"))?;
+                let target_ids = Tensor::new(targets, &self.device)
+                    .and_then(|t| t.reshape((targets.len(), 1)))
+                    .map_err(|e| format!("targets chunk {pos}+{c}: {e}"))?;
+                let picked: Vec<f32> = logprobs
+                    .gather(&target_ids, 1)
+                    .and_then(|g| g.squeeze(1))
+                    .and_then(|g| g.to_vec1::<f32>())
+                    .map_err(|e| format!("gather chunk {pos}+{c}: {e}"))?;
+                out.extend(picked.into_iter().map(|lp| -lp / std::f32::consts::LN_2));
+            }
+        }
+        Ok(out)
+    }
+}
+
+impl PerplexityModel for CandlePerplexityModel {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn context_tokens(&self) -> usize {
+        CONTEXT_TOKENS
+    }
+
+    fn stride(&self) -> usize {
+        STRIDE
+    }
+
+    /// Subword tokens as their vocabulary PIECE STRINGS (e.g. "ĠThe"), so the
+    /// windower's units match the model's units. `surprisals()` maps each piece
+    /// string back to its exact id via the vocab — lossless, since we round-trip
+    /// through the tokenizer's own strings, not decoded text.
+    fn tokenize(&self, text: &str) -> Vec<String> {
+        match self.tokenizer.encode(text, false) {
+            Ok(enc) => enc.get_tokens().to_vec(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Per-token surprisal in bits (`len == tokens.len()`), teacher-forced.
+    /// Batched: one `forward_all()` per window. On failure this returns zeros
+    /// with a warning (same shape contract as the reference loop) rather than
+    /// silently falling back to the ~2.6s/token reference path.
+    fn surprisals(&self, tokens: &[String]) -> Vec<f32> {
+        if tokens.is_empty() {
+            return Vec::new();
+        }
+        let ids = self.token_ids(tokens);
+        match self.surprisals_batched(&ids) {
+            Ok(bits) => bits,
+            Err(e) => {
+                tracing::warn!("perplexity: batched scoring failed: {e}");
+                vec![0f32; tokens.len()]
+            }
+        }
     }
 }
 
