@@ -8,6 +8,7 @@
 
 pub mod candle_perplexity;
 pub mod ollama_verify;
+pub mod proxy_client;
 pub mod quantized_qwen2_lowmem;
 
 use std::path::{Path, PathBuf};
@@ -17,6 +18,7 @@ use gaply_core::verify_agent::{MockProxyClient, ProxyClient};
 
 use crate::models::candle_perplexity::CandlePerplexityModel;
 use crate::models::ollama_verify::OllamaVerifyClient;
+use crate::models::proxy_client::ProxyReqwestClient;
 
 /// Default SLM-2 endpoint/model when the env overrides are unset.
 const DEFAULT_SLM2_ENDPOINT: &str = "http://127.0.0.1:11434";
@@ -106,10 +108,16 @@ fn slm2_endpoint_model() -> (String, String) {
 /// pick right now (`ollama …` when reachable, `mock …` when not) — for probes
 /// and logging; runs the SAME reachability decision as `verify_proxy`.
 pub fn verify_backend_label() -> String {
+    // Mirror verify_proxy's tier order: cloud → ollama → mock.
+    if let Ok(client) = ProxyReqwestClient::from_env() {
+        if client.reachable() {
+            return "cloud proxy".to_string();
+        }
+    }
     let (endpoint, model) = slm2_endpoint_model();
     match OllamaVerifyClient::with_endpoint(&endpoint, &model) {
         Ok(c) if c.reachable() => format!("ollama ({endpoint}, {model})"),
-        _ => format!("mock (Ollama unreachable at {endpoint})"),
+        _ => format!("mock (no cloud proxy; Ollama unreachable at {endpoint})"),
     }
 }
 
@@ -140,12 +148,26 @@ pub fn unload_slm2() {
 /// NEVER makes the pipeline fail for a user without Ollama running — the mirror
 /// of [`perplexity_model`]'s missing-model fallback.
 pub fn verify_proxy() -> Box<dyn ProxyClient> {
+    // Tier 1 — cloud proxy (deep reasoning). Selected ONLY when the App Check
+    // signing key is provisioned (from_env → keychain; Err = skip) AND the
+    // proxy answers /health. Otherwise fall through to local, cleanly.
+    match ProxyReqwestClient::from_env() {
+        Ok(client) if client.reachable() => {
+            tracing::info!("verification: routing to cloud proxy");
+            return Box::new(client);
+        }
+        Ok(_) => tracing::debug!("cloud proxy configured but unreachable; falling through to local"),
+        Err(_) => tracing::debug!("cloud proxy signing key absent; using local verification"),
+    }
+
+    // Tier 2 — local Ollama SLM-2.
     let (endpoint, model) = slm2_endpoint_model();
     match OllamaVerifyClient::with_endpoint(&endpoint, &model) {
         Ok(client) if client.reachable() => {
             tracing::info!(%endpoint, %model, "SLM-2: routing verification to local Ollama");
             Box::new(client)
         }
+        // Tier 3 — mock: honest empty verdicts (every citation UNKNOWN).
         _ => {
             tracing::warn!(
                 %endpoint,
