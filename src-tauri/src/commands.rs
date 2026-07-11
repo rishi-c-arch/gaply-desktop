@@ -391,6 +391,51 @@ pub fn build_gapfinder_corpus(
     )
 }
 
+/// Research Gap Finder (Set 3): grounded gap extraction over the session's
+/// paper corpus. CLOUD-ONLY like the reviewer — the pure
+/// gaply_core::gap_finder_agent builds a session-scoped, privacy-guarded
+/// payload and gates the reply (grounded_gaps must cite sent paper ids;
+/// ungrounded ideas land in the labeled suggestions lane, decided by CODE);
+/// no local model is loaded (one-at-a-time safe). Proxy unreachable → honest
+/// unavailable_offline, never faked. The user's JWT rides along for the
+/// server-side entitlement gate (Set 8 seam).
+#[derive(Debug, Serialize)]
+pub struct GapFinderOutcome {
+    pub findings: gaply_core::gap_finder_agent::GapFindings,
+    /// The exact payload sent (or that would be sent) to the proxy — exposed
+    /// so the UI/tests can prove no raw paper text crosses the boundary.
+    pub proxy_payload: serde_json::Value,
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(corpus, user_token))]
+pub fn run_gap_finder(
+    session: String,
+    corpus: serde_json::Value,
+    user_token: Option<String>,
+) -> Result<GapFinderOutcome, GaplyError> {
+    use gaply_core::gap_finder_agent::{self, GapFindings};
+    use gaply_core::verify_agent::ProxyClient;
+
+    // Session-scoped, privacy-guarded payload (errors on session mismatch).
+    let (proxy_payload, sent) = gap_finder_agent::build_gap_payload(&session, &corpus)?;
+
+    let findings = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+        Ok(client) if client.reachable() => match client
+            .verify(&proxy_payload)
+            .and_then(|resp| gap_finder_agent::gate_gap_response(&resp, &sent))
+        {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!(error = %e, "gap finder cloud call failed; marking unavailable");
+                GapFindings::unavailable_offline()
+            }
+        },
+        _ => GapFindings::unavailable_offline(),
+    };
+    Ok(GapFinderOutcome { findings, proxy_payload })
+}
+
 /// Research Copilot: one report-scoped chat turn behind the integrity
 /// FIREWALL (`gaply_core::chat_agent`). CLOUD-ONLY like the reviewer — no
 /// local model is ever loaded here (one-at-a-time lifecycle safe), and the

@@ -13,6 +13,7 @@ pub mod db;
 pub mod embed;
 pub mod error;
 pub mod extract;
+pub mod gap_finder_agent;
 pub mod memory;
 pub mod migrations;
 pub mod perplexity;
