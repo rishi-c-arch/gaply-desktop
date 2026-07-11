@@ -45,3 +45,4 @@ yarn-error.log*
 # Tauri
 src-tauri/target/
 src-tauri/gen/schemas/
+gaply-proxy/.env
