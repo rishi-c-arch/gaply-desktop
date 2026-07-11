@@ -37,6 +37,8 @@ fn verification_items(reference: Reference) -> Vec<(Reference, ReferenceVerifica
             found: true,
             doi: Some("10.1/zzz".into()),
             title: Some(UntrustedText::new("Sleep and memory", p.clone())),
+            matched_authors: None,
+            matched_year: None,
             is_retracted_hint: None,
             provenance: p.clone(),
         }),
