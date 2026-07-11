@@ -7,24 +7,109 @@
 // is a backend concern (compile_report / verify aren't Tauri commands yet — same
 // deferral as F6/F8). The real TauriPublishReadyBridge is documented; tests use
 // makePublishReadyMock.
+import { isTauri } from '../../utils/isTauri';
 import { PublishReadyReport } from '../report/reportTypes';
 import { buildProxyPayload } from './buildPayload';
 import { synthesizeReviewerLetter } from './synthesize';
-import { PublishReadyResult, TargetJournal } from './publishReadyTypes';
+import {
+  ProxyReviewPayload,
+  PublishReadyResult,
+  Recommendation,
+  ReviewerLetter,
+  TargetJournal,
+} from './publishReadyTypes';
 
 export interface PublishReadyBridge {
   run(input: { manuscriptPath: string; journal: TargetJournal }): Promise<PublishReadyResult>;
 }
 
-/** Production path (documented, not wired): run the local agents over the path,
- *  build the structured payload, POST it to the proxy for cloud Verification +
- *  reviewer synthesis, then compile_report. */
+/** Backend `run_publishready` return shape (snake_case, as serialized by Rust).
+ *  Adapted below to the frontend's PublishReadyResult (Option B: the frontend
+ *  reconciles fields the backend does not produce yet). */
+interface BackendReviewer {
+  recommendation: Recommendation;
+  publication_probability: number;
+  novelty_score: number;
+  journal_fit_score: number;
+  body: string;
+  issues: Array<{ finding_ref: string; severity: string; rationale: string }>;
+  warnings: string[];
+  available: boolean;
+}
+interface PublishReadyOutcome {
+  report: PublishReadyReport; // shape aligns 1:1 (verdict/combined_confidence/findings/checklist/debate/disclaimer)
+  reviewer: BackendReviewer;
+  proxy_payload: unknown; // { task, instruction, summary: { journal, findings, checklist, … } }
+}
+
+/** Map the backend outcome → the frontend result. The three fields the backend
+ *  doesn't produce yet (novelty.assessment, journalFit.note, alternatives) are
+ *  left EMPTY — never faked — as clean slots for Set 4-A. */
+function adaptOutcome(o: PublishReadyOutcome, journal: TargetJournal): PublishReadyResult {
+  const r = o.reviewer;
+  const reviewerLetter: ReviewerLetter = {
+    recommendation: r.recommendation,
+    publicationProbability: r.publication_probability,
+    novelty: { score: r.novelty_score, assessment: '' },
+    journalFit: { journal: journal.name, quartile: journal.quartile, fitScore: r.journal_fit_score, note: '' },
+    alternatives: [],
+    body: r.body,
+    available: r.available,
+    issues: (r.issues ?? []).map((i) => ({
+      findingRef: i.finding_ref,
+      severity: i.severity,
+      rationale: i.rationale,
+    })),
+    warnings: r.warnings ?? [],
+  };
+  return { report: o.report, reviewerLetter, proxyPayload: adaptPayload(o.proxy_payload, journal) };
+}
+
+/** Re-shape the backend payload (nested under `summary`) into the frontend's
+ *  flat ProxyReviewPayload for inspection. Structured fields only. */
+function adaptPayload(payload: unknown, journal: TargetJournal): ProxyReviewPayload {
+  const s = ((payload as { summary?: Record<string, unknown> })?.summary ?? {}) as Record<string, unknown>;
+  const findings = Array.isArray(s.findings) ? s.findings : [];
+  const checklist = Array.isArray(s.checklist) ? s.checklist : [];
+  return {
+    task: 'publishready_review',
+    journal: (s.journal as { name: string; quartile: string }) ?? {
+      name: journal.name,
+      quartile: journal.quartile,
+    },
+    findings: findings.map((f) => {
+      const o = f as Record<string, unknown>;
+      return {
+        agent: String(o.agent ?? ''),
+        tier: String(o.tier ?? ''),
+        severity: String(o.severity ?? ''),
+        title: String(o.title ?? ''),
+        confidence: Number(o.confidence ?? 0),
+        evidence: Array.isArray(o.evidence) ? o.evidence.map(String) : [],
+      };
+    }),
+    checklist: checklist.map((c) => {
+      const o = c as Record<string, unknown>;
+      return { requirement: String(o.requirement ?? ''), passed: Boolean(o.passed) };
+    }),
+  };
+}
+
+/** Production bridge: invoke `run_publishready` (path-only; the manuscript text
+ *  never leaves the device) and adapt the result. Only in the Tauri desktop
+ *  app — a plain browser throws a clear message the page surfaces. */
 export class TauriPublishReadyBridge implements PublishReadyBridge {
-  async run(_input: { manuscriptPath: string; journal: TargetJournal }): Promise<PublishReadyResult> {
-    throw new Error(
-      'TauriPublishReadyBridge: the compile_report + proxy review pipeline is not wired yet. ' +
-        'The structured-payload discipline (buildProxyPayload) and reviewer synthesis are ready.'
-    );
+  async run({ manuscriptPath, journal }: { manuscriptPath: string; journal: TargetJournal }): Promise<PublishReadyResult> {
+    if (!isTauri) {
+      throw new Error('PublishReady runs in the Gaply desktop app.');
+    }
+    const { invoke } = await import('@tauri-apps/api/core');
+    const outcome = (await invoke('run_publishready', {
+      path: manuscriptPath,
+      journalName: journal.name,
+      journalQuartile: journal.quartile,
+    })) as PublishReadyOutcome;
+    return adaptOutcome(outcome, journal);
   }
 }
 

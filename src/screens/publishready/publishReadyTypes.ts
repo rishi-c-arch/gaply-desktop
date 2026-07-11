@@ -1,23 +1,42 @@
 // Gaply — PublishReady (F10) types. The flagship paid output.
 import { PublishReadyReport } from '../report/reportTypes';
 
-export type Recommendation = 'reject' | 'major_revision' | 'minor_revision' | 'accept';
+// 'unknown' is the gate's honest downgrade (e.g. an ungrounded reject) and the
+// cloud-unavailable state — the backend can return it, so the UI must too.
+export type Recommendation = 'reject' | 'major_revision' | 'minor_revision' | 'accept' | 'unknown';
 
 export interface JournalAlt {
   name: string;
   quartile: string;
 }
 
+/** A gated reviewer issue, grounded in a finding the backend actually sent. */
+export interface ReviewerIssue {
+  findingRef: string;
+  severity: string;
+  rationale: string;
+}
+
 export interface ReviewerLetter {
   recommendation: Recommendation;
   /** 0–100. */
   publicationProbability: number;
+  /** `assessment` is '' when the backend doesn't produce it yet (Set 4-A). */
   novelty: { score: number; assessment: string };
+  /** `note` is '' when the backend doesn't produce it yet (Set 4-A). */
   journalFit: { journal: string; quartile: string; fitScore: number; note: string };
-  /** Same-or-higher-quartile options. */
+  /** Same-or-higher-quartile options; [] until the backend produces them. */
   alternatives: JournalAlt[];
   /** Synthesized reviewer prose (cloud-generated in production). */
   body: string;
+  /** False = deep reasoning unavailable offline (proxy not live) — render the
+   *  honest state, never a faked letter. Optional so the mock bridge (no field)
+   *  reads as available. */
+  available?: boolean;
+  /** Gate-approved issues (hallucinated finding_refs already dropped). */
+  issues?: ReviewerIssue[];
+  /** Gate warnings (dropped hallucinations, downgrades) — shown for honesty. */
+  warnings?: string[];
 }
 
 export interface TargetJournal {
@@ -56,6 +75,7 @@ export const RECOMMENDATION_LABEL: Record<Recommendation, string> = {
   major_revision: 'MAJOR REVISION',
   minor_revision: 'MINOR REVISION',
   accept: 'ACCEPT',
+  unknown: 'UNKNOWN',
 };
 
 export const RECOMMENDATION_STATUS: Record<Recommendation, 'certain' | 'assessed' | 'flagged'> = {
@@ -63,4 +83,5 @@ export const RECOMMENDATION_STATUS: Record<Recommendation, 'certain' | 'assessed
   major_revision: 'flagged',
   minor_revision: 'assessed',
   accept: 'certain',
+  unknown: 'assessed',
 };

@@ -1,7 +1,7 @@
 // Gaply — the Reviewer Letter panel (renders inside the F6 viewer's paid tab).
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Button, Card, ScoreRing } from '../../design-system';
+import { Badge, Card, ScoreRing } from '../../design-system';
 import {
   RECOMMENDATION_LABEL,
   RECOMMENDATION_STATUS,
@@ -11,15 +11,41 @@ import './publishready.css';
 
 export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ letter }) => {
   const navigate = useNavigate();
+
+  // Honest offline state: deep reasoning is cloud-only. The FULL local report
+  // (findings, checklist, verdict) still renders in the viewer's other tabs —
+  // this panel just declares the reviewer letter unavailable, never fakes one.
+  if (letter.available === false) {
+    return (
+      <div className="gds-pr" data-testid="reviewer-letter-panel">
+        <div className="gds-pr__head">
+          <div className="gds-pr__verdict" data-status="assessed" data-testid="pr-verdict">
+            REVIEWER UNAVAILABLE
+          </div>
+        </div>
+        <Card title="Deep reviewer analysis">
+          <p className="gds-pr__body" data-testid="pr-unavailable">
+            {letter.body || 'Deep reasoning requires cloud analysis — unavailable offline.'}
+          </p>
+          <p style={{ color: 'var(--g-text-3)', fontSize: 13 }}>
+            The full local report — findings, checklist, and verdict — is available in the tabs above.
+          </p>
+        </Card>
+        <p className="gds-pr__disclaimer">
+          Model-assisted assessment — non-definitive. Deterministic (mathematically certain) findings
+          require correction regardless of the reviewer letter.
+        </p>
+      </div>
+    );
+  }
+
   const status = RECOMMENDATION_STATUS[letter.recommendation];
+  const issues = letter.issues ?? [];
+  const warnings = letter.warnings ?? [];
   return (
     <div className="gds-pr" data-testid="reviewer-letter-panel">
       <div className="gds-pr__head">
-        <div
-          className="gds-pr__verdict"
-          data-status={status}
-          data-testid="pr-verdict"
-        >
+        <div className="gds-pr__verdict" data-status={status} data-testid="pr-verdict">
           {RECOMMENDATION_LABEL[letter.recommendation]}
         </div>
         <div className="gds-pr__gauge">
@@ -40,11 +66,28 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
         <p className="gds-pr__body" data-testid="pr-body">{letter.body}</p>
       </Card>
 
+      {issues.length > 0 && (
+        <Card title="Reviewer issues (grounded in report findings)">
+          <ul className="gds-pr__issues" data-testid="pr-issues" style={{ margin: 0, paddingLeft: 18 }}>
+            {issues.map((iss, i) => (
+              <li key={`${iss.findingRef}-${i}`} style={{ marginBottom: 6 }}>
+                <Badge status={iss.severity === 'critical' || iss.severity === 'major' ? 'flagged' : 'assessed'}>
+                  {iss.severity || 'issue'}
+                </Badge>{' '}
+                <span style={{ color: 'var(--g-text-3)', fontSize: 12 }}>({iss.findingRef})</span>{' '}
+                {iss.rationale}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       <div className="gds-pr__grid">
         <Card title="Novelty vs. recent literature">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <ScoreRing score={letter.novelty.score} status="neutral" size={54} strokeWidth={5} />
-            <span data-testid="pr-novelty">{letter.novelty.assessment}</span>
+            {/* assessment is '' until the backend produces it (Set 4-A) */}
+            <span data-testid="pr-novelty">{letter.novelty.assessment || '—'}</span>
           </div>
         </Card>
 
@@ -54,18 +97,18 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
               <Badge status={letter.journalFit.fitScore >= 65 ? 'certain' : 'assessed'} data-testid="pr-fit">
                 fit {letter.journalFit.fitScore}%
               </Badge>{' '}
+              {/* note is '' until the backend produces it (Set 4-A) */}
               {letter.journalFit.note}
             </div>
           </div>
         </Card>
       </div>
 
-      <Card title="Suggested alternative venues (same or higher quartile)">
-        <div className="gds-pr__alts" data-testid="pr-alternatives">
-          {letter.alternatives.length === 0 ? (
-            <span style={{ color: 'var(--g-text-3)', fontSize: 13 }}>No higher-tier alternatives found.</span>
-          ) : (
-            letter.alternatives.map((a) => (
+      {/* alternatives are [] until the backend produces them (Set 4-A) */}
+      {letter.alternatives.length > 0 && (
+        <Card title="Suggested alternative venues (same or higher quartile)">
+          <div className="gds-pr__alts" data-testid="pr-alternatives">
+            {letter.alternatives.map((a) => (
               <button
                 key={a.name}
                 className="gds-pr__alt"
@@ -75,10 +118,16 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
                 <span>{a.name}</span>
                 <Badge status={a.quartile === 'Q1' ? 'certain' : 'neutral'}>{a.quartile}</Badge>
               </button>
-            ))
-          )}
-        </div>
-      </Card>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {warnings.length > 0 && (
+        <p className="gds-pr__disclaimer" data-testid="pr-warnings" style={{ color: 'var(--g-text-3)' }}>
+          Gate notes: {warnings.join('; ')}
+        </p>
+      )}
 
       <p className="gds-pr__disclaimer">
         Model-assisted assessment — non-definitive. Deterministic (mathematically certain) findings
