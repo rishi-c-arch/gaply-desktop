@@ -77,6 +77,7 @@ pub fn run() {
             commands::run_copilot_chat,
             commands::build_gapfinder_corpus,
             commands::run_gap_finder,
+            commands::run_gapfinder_qa,
             pipeline::run_full_analysis,
         ])
         .run(tauri::generate_context!())

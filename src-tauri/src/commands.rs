@@ -436,6 +436,45 @@ pub fn run_gap_finder(
     Ok(GapFinderOutcome { findings, proxy_payload })
 }
 
+/// Research Gap Finder (Set 4): one achievability-Q&A turn. The structured
+/// constraints ACCUMULATOR lives with the caller (frontend state — the
+/// chat-history-stays-local discipline); this command hands the pure agent
+/// the current snapshot. The chat firewall's pre-filter runs FIRST inside
+/// qa_turn (a mid-Q&A "write my paper" pivot is refused before any client is
+/// touched), so we skip even the proxy probe on a refusal. CLOUD-ONLY,
+/// honest offline (constraints preserved); user JWT rides for entitlement.
+#[tauri::command]
+#[tracing::instrument(skip(corpus, grounded_gaps, constraints, latest_answer, user_token))]
+pub fn run_gapfinder_qa(
+    session: String,
+    corpus: serde_json::Value,
+    grounded_gaps: serde_json::Value,
+    constraints: serde_json::Value,
+    latest_answer: String,
+    user_token: Option<String>,
+) -> Result<gaply_core::gap_finder_agent::QaTurn, GaplyError> {
+    use gaply_core::chat_agent;
+    use gaply_core::gap_finder_agent;
+
+    // FIREWALL first — a ghostwriting pivot never even probes the proxy.
+    if chat_agent::is_ghostwriting(&latest_answer) {
+        return gap_finder_agent::qa_turn(None, &session, &corpus, &grounded_gaps, &constraints, &latest_answer);
+    }
+
+    let proxy = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+        Ok(client) if client.reachable() => Some(client),
+        _ => None,
+    };
+    gap_finder_agent::qa_turn(
+        proxy.as_ref().map(|c| c as &dyn gaply_core::verify_agent::ProxyClient),
+        &session,
+        &corpus,
+        &grounded_gaps,
+        &constraints,
+        &latest_answer,
+    )
+}
+
 /// Research Copilot: one report-scoped chat turn behind the integrity
 /// FIREWALL (`gaply_core::chat_agent`). CLOUD-ONLY like the reviewer — no
 /// local model is ever loaded here (one-at-a-time lifecycle safe), and the
