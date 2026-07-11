@@ -254,3 +254,24 @@ pub fn rag_search(
         source_filter.as_deref(),
     )
 }
+
+/// Ingest a target journal's page and/or author-guidelines URL into the
+/// `journal_guideline` corpus (PublishReady). Rate-limited fetch, all fetched
+/// text treated as untrusted (sanitized/quarantined). Never fails the job:
+/// unreachable/non-HTML/injected sources come back as Unavailable/Quarantined
+/// with an honest note, and the checklist simply stays bare — no fabrication.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn ingest_guidelines(
+    state: State<'_, AppState>,
+    journal_url: Option<String>,
+    guidelines_url: Option<String>,
+) -> Result<crate::guidelines::GuidelinesReport, GaplyError> {
+    let ingestor = crate::guidelines::GuidelinesIngestor::new()?;
+    Ok(ingestor.ingest(
+        &state.db,
+        state.embedder.as_ref(),
+        journal_url.as_deref(),
+        guidelines_url.as_deref(),
+    ))
+}

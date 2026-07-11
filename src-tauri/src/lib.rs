@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod guidelines;
 pub mod http_fetcher;
 pub mod logging;
 pub mod models;
@@ -69,6 +70,7 @@ pub fn run() {
             commands::verify_reference,
             commands::get_report,
             commands::sample_manuscript_path,
+            commands::ingest_guidelines,
             pipeline::run_full_analysis,
         ])
         .run(tauri::generate_context!())
