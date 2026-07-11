@@ -112,6 +112,20 @@ fn run_pipeline(
     })
 }
 
+/// Measurement-only entry point (Set 4 8GB memory proof): drives the REAL
+/// pipeline with a caller-supplied event sink so an example can instrument
+/// per-stage memory. Not used by the app; `#[doc(hidden)]`, no behavior change.
+#[doc(hidden)]
+pub fn run_pipeline_measured(
+    db: Arc<Database>,
+    embedder: Arc<dyn Embedder>,
+    path: String,
+    title: Option<String>,
+    emit: &dyn Fn(AnalysisEvent),
+) -> Result<(), GaplyError> {
+    run_pipeline_inner(db, embedder, path, title, emit)
+}
+
 /// The synchronous pipeline. Every stage is a real production call. `emit` is
 /// abstracted (Fn) so tests can drive the full pipeline with a collector.
 fn run_pipeline_inner(
@@ -173,11 +187,13 @@ fn run_pipeline_inner(
         Ok((report, summary))
     })?;
 
-    // 3) AI check — interim heuristic perplexity/burstiness (honest disclaimer).
+    // 3) AI check — real SLM-1 (candle) perplexity/burstiness when the model is
+    // present, else the interim heuristic. The model is scoped INSIDE this lane
+    // so it is dropped before the verification stage (one-at-a-time on 8GB).
     let ai = lane(emit, "ai", 3, || {
-        let model = ai_detect::HeuristicModel::gpt2_like();
-        let report = ai_detect::detect_extraction(&model, &extraction);
-        let summary = format!("signal: {:?} (interim heuristic)", report.signal);
+        let model = crate::models::perplexity_model();
+        let report = ai_detect::detect_extraction(&*model, &extraction);
+        let summary = format!("signal: {:?} (model: {})", report.signal, model.name());
         Ok((report, summary))
     })?;
 
@@ -207,8 +223,9 @@ fn run_pipeline_inner(
     })?;
 
     // 6) Verification — REAL refverify HTTP per reference (existence/retraction);
-    // cloud hallucination verdict via verify_citations with the mock proxy
-    // (UNKNOWN until the proxy is deployed — never fabricated).
+    // hallucination verdict via verify_citations routed to the local SLM-2
+    // (Ollama) when reachable, else honest UNKNOWNs — never fabricated, never
+    // fatal (see `crate::models::verify_proxy`).
     let verification = lane(emit, "verification", 6, || {
         let mut items: Vec<(Reference, ReferenceVerification)> = Vec::new();
         let refs = &extraction.references;
@@ -225,12 +242,30 @@ fn run_pipeline_inner(
                 emit(AnalysisEvent::StageProgress { stage: "verification".into(), pct });
             }
         }
-        // ProxyClient is deferred: the mock returns no verdicts → UNKNOWN.
-        let proxy = MockProxyClient::returning(serde_json::json!({ "verdicts": [] }));
-        let report = verify_citations(&proxy, &items)?;
+        // Route to local SLM-2 if reachable, else honest UNKNOWNs. The belt: if
+        // a reachable Ollama errors mid-call (model not pulled, timeout, bad
+        // reply), degrade to the mock's empty verdicts rather than fail the run.
+        let proxy = crate::models::verify_proxy();
+        let report = match verify_citations(&*proxy, &items) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(error = %e, "SLM-2: verification call failed; recording UNKNOWN verdicts");
+                let mock = MockProxyClient::returning(serde_json::json!({ "verdicts": [] }));
+                verify_citations(&mock, &items)?
+            }
+        };
+        // 8GB OOM guard: explicitly unload SLM-2 (verified via /api/ps) so
+        // qwen3:4b is out of memory before any next analysis loads candle SLM-1.
+        crate::models::unload_slm2();
+        let definite = report
+            .verdicts
+            .iter()
+            .filter(|v| v.verdict != gaply_core::verify_agent::Verdict::Unknown)
+            .count();
         let summary = format!(
-            "{} reference(s) checked via public APIs; cloud verdict pending proxy",
-            items.len()
+            "{} reference(s) checked via public APIs; {} definite verdict(s)",
+            items.len(),
+            definite
         );
         Ok((report, summary))
     })?;

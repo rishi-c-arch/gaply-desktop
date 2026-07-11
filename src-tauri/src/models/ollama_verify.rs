@@ -70,6 +70,14 @@ const REQUEST_TIMEOUT_SECS: u64 = 1800;
 /// q8_0 KV cache stays well inside the one-at-a-time memory budget.
 const NUM_CTX: u64 = 16384;
 
+/// Liveness-probe timeout — short, so a stopped Ollama fails fast to the mock.
+const HEALTH_TIMEOUT_SECS: u64 = 2;
+
+/// Post-unload verification: poll `/api/ps` this many times / at this interval
+/// to confirm the model actually left memory before the pipeline continues.
+const UNLOAD_VERIFY_ATTEMPTS: u32 = 15;
+const UNLOAD_VERIFY_INTERVAL_MS: u64 = 200;
+
 /// System framing for the local model. The payload's own `instruction` and
 /// `output_schema` fields (built by gaply-core) carry the real task; this
 /// only pins the output discipline.
@@ -105,15 +113,86 @@ impl OllamaVerifyClient {
             client,
         })
     }
-}
 
-impl ProxyClient for OllamaVerifyClient {
-    fn verify(&self, payload: &Value) -> Result<Value, GaplyError> {
-        let body = json!({
+    /// Quick liveness probe: `GET /api/version` with a short timeout, separate
+    /// from the long inference client. Used by the pipeline to decide whether
+    /// to route verification to Ollama or fall back to honest UNKNOWNs, so a
+    /// user without Ollama running never breaks the run.
+    pub fn reachable(&self) -> bool {
+        let Ok(probe) = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(HEALTH_TIMEOUT_SECS))
+            .build()
+        else {
+            return false;
+        };
+        probe
+            .get(format!("{}/api/version", self.base_url))
+            .send()
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    }
+
+    /// Is this client's model currently resident in Ollama (`GET /api/ps`)?
+    fn model_resident(&self) -> bool {
+        let Ok(probe) = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(HEALTH_TIMEOUT_SECS))
+            .build()
+        else {
+            return false;
+        };
+        probe
+            .get(format!("{}/api/ps", self.base_url))
+            .send()
+            .ok()
+            .and_then(|r| r.json::<Value>().ok())
+            .and_then(|v| {
+                v["models"].as_array().map(|arr| {
+                    arr.iter().any(|m| m["name"].as_str() == Some(self.model.as_str()))
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    /// Explicitly unload this client's model and VERIFY it's gone via
+    /// `/api/ps`. `keep_alive: 0` on the chat request should already unload it,
+    /// but this is the belt-and-suspenders 8GB guard: the pipeline calls it
+    /// after verification so SLM-2 is provably out of memory before a
+    /// subsequent analysis loads SLM-1 (candle). Returns `true` if the model is
+    /// confirmed not resident. Best-effort: a network hiccup returns `false`
+    /// rather than erroring (the caller only logs it).
+    pub fn unload(&self) -> bool {
+        if let Ok(client) = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(HEALTH_TIMEOUT_SECS))
+            .build()
+        {
+            // Canonical Ollama unload: /api/generate with keep_alive:0, no prompt.
+            let _ = client
+                .post(format!("{}/api/generate", self.base_url))
+                .json(&json!({ "model": self.model, "keep_alive": 0 }))
+                .send();
+        }
+        // Confirm it actually left memory (unload is applied after the response).
+        for _ in 0..UNLOAD_VERIFY_ATTEMPTS {
+            if !self.model_resident() {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(UNLOAD_VERIFY_INTERVAL_MS));
+        }
+        !self.model_resident()
+    }
+
+    /// Build the `/api/chat` request body. `keep_alive: 0` is LOAD-BEARING on
+    /// 8GB machines: it makes Ollama unload qwen3:4b immediately after this
+    /// response instead of lingering ~5 min, so a second analysis can't load
+    /// SLM-1 (candle) while SLM-2 is still resident (one-at-a-time / OOM guard).
+    /// The pipeline additionally calls [`Self::unload`] to VERIFY it's gone.
+    fn build_chat_body(&self, payload: &Value) -> Value {
+        json!({
             "model": self.model,
             "stream": false,
             "think": true,
             "format": "json",
+            "keep_alive": 0,
             "options": {
                 "temperature": 0.0,
                 "num_ctx": NUM_CTX,
@@ -122,7 +201,13 @@ impl ProxyClient for OllamaVerifyClient {
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": payload.to_string()},
             ],
-        });
+        })
+    }
+}
+
+impl ProxyClient for OllamaVerifyClient {
+    fn verify(&self, payload: &Value) -> Result<Value, GaplyError> {
+        let body = self.build_chat_body(payload);
 
         let url = format!("{}/api/chat", self.base_url);
         let resp = self
@@ -223,5 +308,15 @@ mod tests {
     fn with_endpoint_trims_trailing_slash() {
         let c = OllamaVerifyClient::with_endpoint("http://127.0.0.1:9999/", "qwen3:4b").unwrap();
         assert_eq!(c.base_url, "http://127.0.0.1:9999");
+    }
+
+    #[test]
+    fn chat_body_sends_keep_alive_zero() {
+        // The 8GB OOM guard: qwen3:4b must unload right after verification.
+        let c = OllamaVerifyClient::with_endpoint("http://127.0.0.1:11434", "qwen3:4b").unwrap();
+        let body = c.build_chat_body(&serde_json::json!({"task": "probe"}));
+        assert_eq!(body["keep_alive"], serde_json::json!(0));
+        assert_eq!(body["model"], "qwen3:4b");
+        assert_eq!(body["stream"], serde_json::json!(false));
     }
 }
