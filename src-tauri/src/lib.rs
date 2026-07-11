@@ -3,6 +3,7 @@ pub mod guidelines;
 pub mod http_fetcher;
 pub mod logging;
 pub mod models;
+pub mod paper_corpus;
 pub mod pipeline;
 pub mod state;
 pub mod supplementary;
@@ -74,6 +75,7 @@ pub fn run() {
             commands::ingest_guidelines,
             commands::run_publishready,
             commands::run_copilot_chat,
+            commands::build_gapfinder_corpus,
             pipeline::run_full_analysis,
         ])
         .run(tauri::generate_context!())

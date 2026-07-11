@@ -29,6 +29,10 @@ pub enum SourceType {
     JournalGuideline,
     Retraction,
     ReferenceStyle,
+    /// Gap Finder base papers (Set 2): a distinct corpus so paper text can
+    /// never surface in guideline-scoped queries (e.g. the PublishReady
+    /// checklist's journal_guideline search).
+    ResearchPaper,
 }
 
 impl SourceType {
@@ -37,6 +41,7 @@ impl SourceType {
             SourceType::JournalGuideline => "journal_guideline",
             SourceType::Retraction => "retraction",
             SourceType::ReferenceStyle => "reference_style",
+            SourceType::ResearchPaper => "research_paper",
         }
     }
 
@@ -45,8 +50,9 @@ impl SourceType {
             "journal_guideline" => Ok(SourceType::JournalGuideline),
             "retraction" => Ok(SourceType::Retraction),
             "reference_style" => Ok(SourceType::ReferenceStyle),
+            "research_paper" => Ok(SourceType::ResearchPaper),
             other => Err(GaplyError::Validation(format!(
-                "unknown source_type \"{other}\" (expected journal_guideline, retraction or reference_style)"
+                "unknown source_type \"{other}\" (expected journal_guideline, retraction, reference_style or research_paper)"
             ))),
         }
     }

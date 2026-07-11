@@ -364,6 +364,33 @@ pub fn run_publishready(
     Ok(PublishReadyOutcome { report, reviewer, proxy_payload })
 }
 
+/// Research Gap Finder (Set 2): build the session's paper corpus — N uploaded
+/// files + N links → bounded, llm_safe per-paper digests (stable ids p1…pN)
+/// + a per-session RAG ingest. NO reasoning, NO LLM, NO model load (the
+/// one-at-a-time lifecycle is untouched); link fetches are rate-limited per
+/// host with capped downloads. Caps reject oversize input honestly.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn build_gapfinder_corpus(
+    state: State<'_, AppState>,
+    session: String,
+    paths: Option<Vec<String>>,
+    links: Option<Vec<String>>,
+) -> Result<crate::paper_corpus::CorpusReport, GaplyError> {
+    let fetcher = crate::paper_corpus::ReqwestPaperFetcher::new()?;
+    // Same polite per-host budget as guidelines ingestion.
+    let limiter = gaply_core::ratelimit::RateLimiter::new(5.0, 1.0);
+    crate::paper_corpus::build_corpus(
+        &state.db,
+        state.embedder.as_ref(),
+        &session,
+        &paths.unwrap_or_default(),
+        &links.unwrap_or_default(),
+        &fetcher,
+        &limiter,
+    )
+}
+
 /// Research Copilot: one report-scoped chat turn behind the integrity
 /// FIREWALL (`gaply_core::chat_agent`). CLOUD-ONLY like the reviewer — no
 /// local model is ever loaded here (one-at-a-time lifecycle safe), and the

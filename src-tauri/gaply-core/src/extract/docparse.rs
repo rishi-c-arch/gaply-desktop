@@ -65,6 +65,23 @@ fn parse_pdf(path: &Path) -> Result<String, GaplyError> {
     Ok(text)
 }
 
+/// Extract text from in-memory PDF bytes — the bytes-API sibling of
+/// [`parse_docx`], for callers that fetched a PDF over the network (Gap
+/// Finder paper links) rather than from disk. Same scanned/image-only check
+/// as the path-based parser.
+pub fn parse_pdf_bytes(bytes: &[u8]) -> Result<String, GaplyError> {
+    let text = pdf_extract::extract_text_from_mem(bytes)
+        .map_err(|e| GaplyError::Internal(format!("pdf parse failed: {e}")))?;
+    if !has_extractable_text(&text) {
+        return Err(GaplyError::Validation(
+            "This PDF has no extractable text — it looks scanned or image-only. \
+             Extraction needs a text-based PDF (export from your editor, or run OCR first)."
+                .to_string(),
+        ));
+    }
+    Ok(text)
+}
+
 /// Extract text from a DOCX (a zip of XML). Paragraphs (`<w:p>`) become
 /// blank-line-separated blocks; `<w:tab>`/`<w:br>` become whitespace.
 pub fn parse_docx(bytes: &[u8]) -> Result<String, GaplyError> {

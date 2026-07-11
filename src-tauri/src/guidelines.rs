@@ -208,7 +208,7 @@ fn host_of(url: &str) -> String {
 // boilerplate stripping needs improving — deliberately avoided here to add no
 // new dependency.
 
-fn html_to_text(html: &str) -> String {
+pub(crate) fn html_to_text(html: &str) -> String {
     let mut s = html.to_string();
     for tag in ["script", "style", "head", "nav", "footer", "svg", "noscript"] {
         s = strip_block(&s, tag);
