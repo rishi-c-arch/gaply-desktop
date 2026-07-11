@@ -43,6 +43,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 tokio = { version = "1", features = ["full"] }
 
+# Supplementary-file parsing (PublishReady, APP-CRATE ONLY — gaply-core stays
+# pure). calamine: pure-Rust Excel reader (xlsx/xls/ods), no C libs, no OpenSSL.
+# csv: pure-Rust streaming CSV reader (calamine does not read CSV). Both are
+# memory-capped by the parser BEFORE full load (see src/supplementary.rs).
+calamine = "0.26"
+csv = "1"
+
 # SLM-1 (AI-detection) real model runtime — candle, APP-CRATE ONLY so gaply-core
 # stays ML-free/sync/portable (the ReqwestFetcher precedent; `cargo test -p
 # gaply_core` pulls none of this). CPU backend by default. A local quantized

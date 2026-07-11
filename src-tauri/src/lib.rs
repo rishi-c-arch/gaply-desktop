@@ -5,6 +5,7 @@ pub mod logging;
 pub mod models;
 pub mod pipeline;
 pub mod state;
+pub mod supplementary;
 
 use std::sync::Arc;
 
