@@ -78,6 +78,7 @@ pub fn run() {
             commands::build_gapfinder_corpus,
             commands::run_gap_finder,
             commands::run_gapfinder_qa,
+            commands::run_gapfinder_draft,
             pipeline::run_full_analysis,
         ])
         .run(tauri::generate_context!())

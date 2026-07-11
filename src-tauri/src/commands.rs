@@ -475,6 +475,43 @@ pub fn run_gapfinder_qa(
     )
 }
 
+/// Research Gap Finder (Set 5): one structured-draft turn against Set 4's
+/// narrowed gaps. The pure agent enforces the prose firewall (per-item
+/// detect_manuscript_prose + word cap — a written paragraph is BLOCKED,
+/// never shown) and pins grounding from what was sent. The chat firewall
+/// pre-filter runs FIRST here too — a prose-authoring request ("write my
+/// methodology section as prose") never even probes the proxy. CLOUD-ONLY,
+/// honest offline; user JWT rides for entitlement.
+#[tauri::command]
+#[tracing::instrument(skip(corpus, achievable_gaps, constraints, user_note, user_token))]
+pub fn run_gapfinder_draft(
+    session: String,
+    corpus: serde_json::Value,
+    achievable_gaps: serde_json::Value,
+    constraints: serde_json::Value,
+    user_note: String,
+    user_token: Option<String>,
+) -> Result<gaply_core::gap_finder_agent::DraftResult, GaplyError> {
+    use gaply_core::chat_agent;
+    use gaply_core::gap_finder_agent;
+
+    if chat_agent::is_ghostwriting(&user_note) {
+        return gap_finder_agent::draft_turn(None, &session, &corpus, &achievable_gaps, &constraints, &user_note);
+    }
+    let proxy = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+        Ok(client) if client.reachable() => Some(client),
+        _ => None,
+    };
+    gap_finder_agent::draft_turn(
+        proxy.as_ref().map(|c| c as &dyn gaply_core::verify_agent::ProxyClient),
+        &session,
+        &corpus,
+        &achievable_gaps,
+        &constraints,
+        &user_note,
+    )
+}
+
 /// Research Copilot: one report-scoped chat turn behind the integrity
 /// FIREWALL (`gaply_core::chat_agent`). CLOUD-ONLY like the reviewer — no
 /// local model is ever loaded here (one-at-a-time lifecycle safe), and the
