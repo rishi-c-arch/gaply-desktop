@@ -8,6 +8,8 @@ export type Recommendation = 'reject' | 'major_revision' | 'minor_revision' | 'a
 export interface JournalAlt {
   name: string;
   quartile: string;
+  /** The grounded reason this venue was suggested (advisory, from a finding). */
+  reason?: string;
 }
 
 /** A gated reviewer issue, grounded in a finding the backend actually sent. */

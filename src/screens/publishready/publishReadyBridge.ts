@@ -30,9 +30,15 @@ interface BackendReviewer {
   recommendation: Recommendation;
   publication_probability: number;
   novelty_score: number;
+  /** Grounded text; '' when the gate dropped it as ungrounded (Set 4-A). */
+  novelty_assessment?: string;
   journal_fit_score: number;
+  /** Grounded text; '' when the gate dropped it as ungrounded (Set 4-A). */
+  journal_fit_note?: string;
   body: string;
   issues: Array<{ finding_ref: string; severity: string; rationale: string }>;
+  /** Gated alternatives; ungrounded/fabricated ones already dropped (Set 4-A). */
+  alternatives?: Array<{ journal: string; quartile: string; reason: string; evidence_ref: string }>;
   warnings: string[];
   available: boolean;
 }
@@ -45,14 +51,25 @@ interface PublishReadyOutcome {
 /** Map the backend outcome → the frontend result. The three fields the backend
  *  doesn't produce yet (novelty.assessment, journalFit.note, alternatives) are
  *  left EMPTY — never faked — as clean slots for Set 4-A. */
-function adaptOutcome(o: PublishReadyOutcome, journal: TargetJournal): PublishReadyResult {
+export function adaptOutcome(o: PublishReadyOutcome, journal: TargetJournal): PublishReadyResult {
   const r = o.reviewer;
   const reviewerLetter: ReviewerLetter = {
     recommendation: r.recommendation,
     publicationProbability: r.publication_probability,
-    novelty: { score: r.novelty_score, assessment: '' },
-    journalFit: { journal: journal.name, quartile: journal.quartile, fitScore: r.journal_fit_score, note: '' },
-    alternatives: [],
+    // The three Set 4-A fields — populated when the backend grounded them,
+    // left EMPTY (never faked) when the gate dropped them as ungrounded.
+    novelty: { score: r.novelty_score, assessment: r.novelty_assessment ?? '' },
+    journalFit: {
+      journal: journal.name,
+      quartile: journal.quartile,
+      fitScore: r.journal_fit_score,
+      note: r.journal_fit_note ?? '',
+    },
+    alternatives: (r.alternatives ?? []).map((a) => ({
+      name: a.journal,
+      quartile: a.quartile,
+      reason: a.reason,
+    })),
     body: r.body,
     available: r.available,
     issues: (r.issues ?? []).map((i) => ({

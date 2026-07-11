@@ -104,9 +104,13 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
         </Card>
       </div>
 
-      {/* alternatives are [] until the backend produces them (Set 4-A) */}
+      {/* Suggested alternative journals — grounded in the analysis, ADVISORY
+          (Set 4-A). Empty when the backend grounded none; never fabricated. */}
       {letter.alternatives.length > 0 && (
-        <Card title="Suggested alternative venues (same or higher quartile)">
+        <Card title="Suggested alternative journals">
+          <p style={{ color: 'var(--g-text-3)', fontSize: 12, marginTop: 0 }}>
+            Suggested based on the analysis — advisory, not a recommendation to submit.
+          </p>
           <div className="gds-pr__alts" data-testid="pr-alternatives">
             {letter.alternatives.map((a) => (
               <button
@@ -114,9 +118,15 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
                 className="gds-pr__alt"
                 data-testid={`pr-alt-${a.quartile}`}
                 onClick={() => navigate('/app/journal')}
+                title="Open in Journal check"
               >
-                <span>{a.name}</span>
+                <span className="gds-pr__alt-name">{a.name}</span>
                 <Badge status={a.quartile === 'Q1' ? 'certain' : 'neutral'}>{a.quartile}</Badge>
+                {a.reason ? (
+                  <span style={{ color: 'var(--g-text-3)', fontSize: 12 }} data-testid="pr-alt-reason">
+                    {a.reason}
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>

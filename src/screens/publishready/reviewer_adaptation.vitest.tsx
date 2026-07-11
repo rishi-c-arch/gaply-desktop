@@ -8,6 +8,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import ReviewerLetterPanel from './ReviewerLetterPanel';
+import { adaptOutcome } from './publishReadyBridge';
 import { ReviewerLetter } from './publishReadyTypes';
 
 afterEach(cleanup);
@@ -67,5 +68,89 @@ describe('ReviewerLetterPanel — backend adaptation (Option B)', () => {
     // it does NOT fabricate a recommendation gauge / issues
     expect(screen.queryByTestId('pr-probability')).toBeNull();
     expect(screen.queryByTestId('pr-issues')).toBeNull();
+  });
+
+  // Set 4e: the three grounded fields, POPULATED.
+  it('renders the three grounded fields when the backend produced them', () => {
+    const populated: ReviewerLetter = {
+      ...available,
+      novelty: { score: 60, assessment: 'incremental over prior work' },
+      journalFit: { journal: 'Nature', quartile: 'Q1', fitScore: 55, note: 'misses the word-limit requirement' },
+      alternatives: [{ name: 'PLOS ONE', quartile: 'Q1', reason: 'broader scope fits the analysis' }],
+    };
+    renderPanel(populated);
+    // novelty assessment + fit note show their grounded text
+    expect(screen.getByTestId('pr-novelty').textContent).toMatch(/incremental over prior work/);
+    expect(screen.getByText(/misses the word-limit requirement/)).toBeTruthy();
+    // alternatives section renders journal/quartile/reason, advisory tone
+    const alts = screen.getByTestId('pr-alternatives');
+    expect(alts.textContent).toMatch(/PLOS ONE/);
+    expect(screen.getByTestId('pr-alt-reason').textContent).toMatch(/broader scope/);
+    expect(screen.getByText(/advisory, not a recommendation to submit/)).toBeTruthy();
+  });
+});
+
+describe('adaptOutcome — backend fields -> frontend letter (Set 4e)', () => {
+  const baseReport = {
+    verdict: 'concern',
+    combined_confidence: 1,
+    findings: [],
+    checklist: [],
+    debate: { rounds_run: 1, converged: true, overridden_by_constraint: false, rejected_agents: [], revised_agents: [] },
+    disclaimer: 'x',
+  };
+
+  it('maps the three grounded fields through', () => {
+    const outcome = {
+      report: baseReport,
+      reviewer: {
+        recommendation: 'major_revision',
+        publication_probability: 61,
+        novelty_score: 60,
+        novelty_assessment: 'incremental over prior work',
+        journal_fit_score: 55,
+        journal_fit_note: 'misses the word-limit requirement',
+        body: 'body',
+        issues: [],
+        alternatives: [{ journal: 'PLOS ONE', quartile: 'Q1', reason: 'broader scope', evidence_ref: 'chk1' }],
+        warnings: [],
+        available: true,
+      },
+      proxy_payload: { summary: { findings: [], checklist: [] } },
+    };
+    const res = adaptOutcome(outcome as unknown as Parameters<typeof adaptOutcome>[0], {
+      name: 'Nature',
+      quartile: 'Q1',
+    });
+    expect(res.reviewerLetter.novelty.assessment).toBe('incremental over prior work');
+    expect(res.reviewerLetter.journalFit.note).toBe('misses the word-limit requirement');
+    expect(res.reviewerLetter.alternatives).toEqual([
+      { name: 'PLOS ONE', quartile: 'Q1', reason: 'broader scope' },
+    ]);
+  });
+
+  it('leaves slots EMPTY when the backend omitted them (never faked)', () => {
+    const outcome = {
+      report: baseReport,
+      reviewer: {
+        recommendation: 'minor_revision',
+        publication_probability: 70,
+        novelty_score: 50,
+        journal_fit_score: 60,
+        body: 'body',
+        issues: [],
+        warnings: [],
+        available: true,
+        // novelty_assessment / journal_fit_note / alternatives ABSENT
+      },
+      proxy_payload: { summary: { findings: [], checklist: [] } },
+    };
+    const res = adaptOutcome(outcome as unknown as Parameters<typeof adaptOutcome>[0], {
+      name: 'Nature',
+      quartile: 'Q1',
+    });
+    expect(res.reviewerLetter.novelty.assessment).toBe('');
+    expect(res.reviewerLetter.journalFit.note).toBe('');
+    expect(res.reviewerLetter.alternatives).toEqual([]);
   });
 });
