@@ -360,3 +360,39 @@ pub fn run_publishready(
 
     Ok(PublishReadyOutcome { report, reviewer, proxy_payload })
 }
+
+/// Research Copilot: one report-scoped chat turn behind the integrity
+/// FIREWALL (`gaply_core::chat_agent`). CLOUD-ONLY like the reviewer — no
+/// local model is ever loaded here (one-at-a-time lifecycle safe), and the
+/// App Check signing key stays in the OS keychain (no secrets in the
+/// frontend). `context` is the frontend's structured chat context
+/// (findings/rag/citations summaries); the core re-applies the privacy +
+/// llm_safe discipline before anything crosses the trust boundary. Chat
+/// history is frontend state — nothing is persisted here.
+#[tauri::command]
+#[tracing::instrument(skip(context, question))]
+pub fn run_copilot_chat(
+    context: serde_json::Value,
+    question: String,
+    language: Option<String>,
+) -> Result<gaply_core::chat_agent::ChatTurn, GaplyError> {
+    use gaply_core::chat_agent;
+
+    let language = language.unwrap_or_else(|| "en".to_string());
+
+    // FIREWALL LAYER 1 first: a ghostwriting request is refused by local code
+    // before we even probe the proxy — the model is never in the loop.
+    if chat_agent::is_ghostwriting(&question) {
+        return Ok(chat_agent::chat_turn(None, &context, &question, &language));
+    }
+
+    // Cloud only, honest degradation: unreachable/unprovisioned proxy → the
+    // turn honestly says answers need the cloud (never a faked answer).
+    let turn = match ProxyReqwestClient::from_env() {
+        Ok(client) if client.reachable() => {
+            chat_agent::chat_turn(Some(&client), &context, &question, &language)
+        }
+        _ => chat_agent::chat_turn(None, &context, &question, &language),
+    };
+    Ok(turn)
+}

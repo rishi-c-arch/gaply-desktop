@@ -15,7 +15,7 @@ import {
 import { useSubscription } from '../subscription/useSubscription';
 import { SAMPLE_REPORT } from '../report/sampleReport';
 import ResearchCopilotPanel from './ResearchCopilotPanel';
-import { ChatClient, ProxyChatClient } from './chatBridge';
+import { ChatClient, TauriChatClient } from './chatBridge';
 import { ChatContext } from './chatContext';
 import { mayUseCloud } from '../settings/settingsStore';
 
@@ -47,7 +47,7 @@ export interface CopilotPageProps {
 const CopilotPage: React.FC<CopilotPageProps> = ({ client, forceTier, context }) => {
   const navigate = useNavigate();
   const sub = useSubscription();
-  const chatClient = useMemo(() => client ?? new ProxyChatClient('/proxy'), [client]);
+  const chatClient = useMemo(() => client ?? new TauriChatClient(), [client]);
   const tier = forceTier ?? (sub.loading ? 'loading' : sub.tier);
 
   const rail = (

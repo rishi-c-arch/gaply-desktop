@@ -1,6 +1,8 @@
-// Gaply — Research Copilot chat bridge. Sends the structured payload to the LLM
-// through the Railway proxy (cloud handles translation). Mock for tests. The
-// real ChatClient is documented; wiring the proxy chat endpoint is deferred.
+// Gaply — Research Copilot chat bridge. The production path goes through the
+// Rust backend (`run_copilot_chat`): the code-enforced integrity firewall +
+// llm_safe discipline live there, and the proxy hop is signed with the App
+// Check key from the OS keychain — no secrets in the frontend. Mock for tests.
+import { isTauri } from '../../utils/isTauri';
 import { ChatProxyPayload } from './chatContext';
 
 export interface ChatResponse {
@@ -16,8 +18,42 @@ export interface ChatClient {
   ask(payload: ChatProxyPayload): Promise<ChatResponse>;
 }
 
-/** Production path (documented): POST the payload to the proxy /copilot, which
- *  holds the Claude key, translates, and enforces the same system policy. */
+/** Backend `run_copilot_chat` turn shape (snake_case, as serialized by Rust).
+ *  `kind` distinguishes answered / refused_ghostwriting / blocked_ghostwriting
+ *  / unavailable; `answer` always carries the honest text to show. */
+export interface RustChatTurn {
+  kind: 'answered' | 'refused_ghostwriting' | 'blocked_ghostwriting' | 'unavailable';
+  answer: string;
+  provenance: string[];
+  ai_assessed: boolean;
+  warnings: string[];
+  available: boolean;
+}
+
+/** Production client: hand the turn to the Rust backend, which runs the
+ *  code-enforced firewall (pre-filter → cloud proxy when live → post-filter)
+ *  and degrades honestly when the cloud is unreachable. Desktop-app only. */
+export class TauriChatClient implements ChatClient {
+  async ask(payload: ChatProxyPayload): Promise<ChatResponse> {
+    if (!isTauri) {
+      throw new Error('The Research Copilot runs in the Gaply desktop app.');
+    }
+    const { invoke } = await import('@tauri-apps/api/core');
+    const turn = (await invoke('run_copilot_chat', {
+      context: { findings: payload.findings, rag: payload.rag, citations: payload.citations },
+      question: payload.question,
+      language: payload.language,
+    })) as RustChatTurn;
+    return {
+      answer: turn.answer,
+      provenance: turn.provenance ?? [],
+      aiAssessed: !!turn.ai_assessed,
+    };
+  }
+}
+
+/** Documented direct-proxy path (deferred): a future proxy /copilot endpoint.
+ *  The Tauri path above is production; this stays as the seam's record. */
 export class ProxyChatClient implements ChatClient {
   constructor(private proxyBaseUrl: string) {}
   async ask(_payload: ChatProxyPayload): Promise<ChatResponse> {

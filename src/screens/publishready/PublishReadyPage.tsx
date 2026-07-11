@@ -27,7 +27,7 @@ import { mayUseCloud } from '../settings/settingsStore';
 import { PublishReadyResult, TargetJournal } from './publishReadyTypes';
 import ReviewerLetterPanel from './ReviewerLetterPanel';
 import ResearchCopilotPanel from '../copilot/ResearchCopilotPanel';
-import { ChatClient, ProxyChatClient } from '../copilot/chatBridge';
+import { ChatClient, TauriChatClient } from '../copilot/chatBridge';
 import './publishready.css';
 import '../journal/journal.css'; // reuse .gds-jc__input / __disclaimer
 
@@ -67,7 +67,7 @@ const CopilotDock: React.FC<{ report: PublishReadyResult['report']; client: Chat
 };
 
 const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, forceTier, chatClient }) => {
-  const copilot = useMemo(() => chatClient ?? new ProxyChatClient('/proxy'), [chatClient]);
+  const copilot = useMemo(() => chatClient ?? new TauriChatClient(), [chatClient]);
   const navigate = useNavigate();
   const { session } = useGaplySession();
   const { toast } = useToast();

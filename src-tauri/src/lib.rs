@@ -73,6 +73,7 @@ pub fn run() {
             commands::sample_manuscript_path,
             commands::ingest_guidelines,
             commands::run_publishready,
+            commands::run_copilot_chat,
             pipeline::run_full_analysis,
         ])
         .run(tauri::generate_context!())

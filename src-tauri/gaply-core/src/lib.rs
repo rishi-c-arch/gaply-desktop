@@ -6,6 +6,7 @@
 pub mod ai_detect;
 pub mod app_check;
 pub mod cache;
+pub mod chat_agent;
 pub mod chunk;
 pub mod config;
 pub mod db;
