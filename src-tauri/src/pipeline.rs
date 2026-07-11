@@ -31,7 +31,7 @@ use tauri::State;
 use gaply_core::embed::Embedder;
 use gaply_core::extract::citations::Reference;
 use gaply_core::refverify::ReferenceVerification;
-use gaply_core::report::compile_report;
+use gaply_core::report::{build_checklist, compile_report};
 use gaply_core::swarm::{adapters, run_debate, DebateConfig, PrecomputedAgent, SwarmAgent};
 use gaply_core::verify_agent::{verify_citations, MockProxyClient};
 use gaply_core::{ai_detect, extract, now_epoch, plagiarism, rag, validate, Database, GaplyError};
@@ -44,6 +44,13 @@ const REPORT_TTL_SECS: i64 = 30 * 24 * 3600;
 /// The six agent lanes the frontend renders. Debate + compile happen after,
 /// under the "synthesis" pseudo-stage.
 const LANE_TOTAL: usize = 6;
+
+/// Semantic query used to retrieve ingested journal guidelines for the
+/// checklist. Broad enough to surface the common requirement families
+/// (length, abstract, disclosures, reference style).
+const GUIDELINE_QUERY: &str =
+    "author guidelines submission requirements word limit structured abstract \
+     conflict of interest declaration reference style";
 
 /// Typed progress events streamed to the webview over an IPC Channel.
 /// `type` is the discriminant the frontend matches on.
@@ -281,8 +288,18 @@ fn run_pipeline_inner(
             Box::new(PrecomputedAgent::new(adapters::from_verification_report(&verification))),
         ];
         let outcome = run_debate(&mut agents, &DebateConfig::default())?;
-        // Checklist needs seeded guidelines (deferred) — empty for now.
-        Ok(compile_report(&outcome, &validation, Some(&verification), Vec::new()))
+        // Build the checklist from the ingested journal_guideline corpus. With
+        // no guidelines ingested, build_checklist still returns the always-on
+        // structural checks (section presence) — never fabricated guideline
+        // items. It is a DB/embedder query (no model load), so the one-at-a-time
+        // model lifecycle is unaffected. Degrade to empty on a query error
+        // rather than fail the whole analysis.
+        let checklist = build_checklist(&db, embedder.as_ref(), &extraction, &text, GUIDELINE_QUERY)
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "build_checklist failed; empty checklist");
+                Vec::new()
+            });
+        Ok(compile_report(&outcome, &validation, Some(&verification), checklist))
     })();
 
     let report = match report {
@@ -416,5 +433,87 @@ A night of sleep improved memory consolidation in this sample.
             "report has a non-empty disclaimer"
         );
         assert!(report["findings"].is_array(), "report has a findings array");
+    }
+
+    /// Force the interim heuristic perplexity model (no candle load) so these
+    /// checklist-focused pipeline runs stay fast and don't stack 3.5GB model
+    /// loads in parallel on small machines. Harmless: the checklist assertions
+    /// don't depend on which perplexity model ran.
+    fn force_heuristic() {
+        std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-test-force-heuristic.gguf");
+    }
+
+    fn run_and_get_report(db: &Arc<Database>, embedder: Arc<dyn Embedder>) -> serde_json::Value {
+        let path = std::env::temp_dir()
+            .join(format!("gaply_ck_e2e_{}_{}.txt", std::process::id(), now_epoch()));
+        std::fs::write(&path, MANUSCRIPT).expect("write manuscript");
+        let events: std::cell::RefCell<Vec<AnalysisEvent>> = std::cell::RefCell::new(Vec::new());
+        let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
+        run_pipeline_inner(
+            db.clone(),
+            embedder,
+            path.to_string_lossy().to_string(),
+            Some("checklist e2e".into()),
+            &emit,
+        )
+        .expect("pipeline completes");
+        let _ = std::fs::remove_file(&path);
+        let report_id = events
+            .into_inner()
+            .iter()
+            .find_map(|e| match e {
+                AnalysisEvent::Finished { report_id } => Some(report_id.clone()),
+                _ => None,
+            })
+            .expect("a Finished report id");
+        let json = db
+            .cache_get(&format!("report:{report_id}"), now_epoch())
+            .unwrap()
+            .expect("report cached");
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn ingested_guidelines_appear_in_the_pipeline_checklist() {
+        force_heuristic();
+        let db = Arc::new(Database::in_memory().unwrap());
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+
+        // Ingest a journal guideline into the corpus (as guidelines.rs would).
+        let doc = gaply_core::rag::RawDocument {
+            source_type: gaply_core::rag::SourceType::JournalGuideline,
+            title: "Author Guidelines".into(),
+            source_url: "http://journal.test/guidelines".into(),
+            fetched_at: now_epoch(),
+            content: "Manuscripts must not exceed 3000 words. A structured abstract is required. \
+                      Authors must include a conflict of interest declaration. References must \
+                      follow a numbered Vancouver style."
+                .into(),
+        };
+        gaply_core::rag::ingest_document(&db, embedder.as_ref(), &doc).unwrap();
+
+        let report = run_and_get_report(&db, embedder);
+        let checklist = report["checklist"].as_array().expect("checklist array");
+        assert!(!checklist.is_empty(), "checklist should be populated");
+        assert!(
+            checklist.iter().any(|c| !c["guideline_source"].is_null()),
+            "expected a guideline-derived checklist item (guideline_source set), got {checklist:?}"
+        );
+    }
+
+    #[test]
+    fn no_guidelines_yields_structural_only_checklist_no_crash() {
+        force_heuristic();
+        let db = Arc::new(Database::in_memory().unwrap());
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+
+        // No guidelines ingested → pipeline still completes; checklist has only
+        // always-on structural checks, none guideline-derived (no fabrication).
+        let report = run_and_get_report(&db, embedder);
+        let checklist = report["checklist"].as_array().expect("checklist array");
+        assert!(
+            checklist.iter().all(|c| c["guideline_source"].is_null()),
+            "no guidelines → no guideline-derived items, got {checklist:?}"
+        );
     }
 }
