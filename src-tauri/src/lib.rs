@@ -3,6 +3,7 @@ pub mod guidelines;
 pub mod http_fetcher;
 pub mod logging;
 pub mod models;
+pub mod journal_registry;
 pub mod paper_corpus;
 pub mod pipeline;
 pub mod state;
@@ -79,6 +80,8 @@ pub fn run() {
             commands::run_gap_finder,
             commands::run_gapfinder_qa,
             commands::run_gapfinder_draft,
+            commands::verify_journal_registry,
+            commands::run_gapfinder_fit,
             pipeline::run_full_analysis,
         ])
         .run(tauri::generate_context!())

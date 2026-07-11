@@ -512,6 +512,58 @@ pub fn run_gapfinder_draft(
     )
 }
 
+/// Gap Finder (Set 6): verify a journal's facts STRICTLY from registry data
+/// — OpenAlex /sources + the DOAJ API, refverify-style (rate limiter,
+/// llm_safe, TTL cache, honest-unverified). NO LLM is involved in this
+/// command at all: the card cannot contain a model-originated fact.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn verify_journal_registry(
+    state: State<'_, AppState>,
+    issn: String,
+    name: Option<String>,
+    local_predatory_signals: Option<Vec<String>>,
+) -> Result<crate::journal_registry::JournalVerification, GaplyError> {
+    let fetcher = crate::http_fetcher::ReqwestFetcher::new()?;
+    // Polite per-host budget, refverify-style.
+    let limiter = gaply_core::ratelimit::RateLimiter::new(5.0, 1.0);
+    crate::journal_registry::verify_journal(
+        &state.db,
+        &fetcher,
+        &limiter,
+        &issn,
+        name.as_deref().unwrap_or(""),
+        &local_predatory_signals.unwrap_or_default(),
+    )
+}
+
+/// Gap Finder (Set 6): journal-fit reasoning over the VERIFIED card. The
+/// model reasons about fit using card facts by id; the gate drops any
+/// invented journal/gap and the card itself is never modified. CLOUD-ONLY,
+/// honest offline; user JWT rides for entitlement.
+#[tauri::command]
+#[tracing::instrument(skip(corpus, achievable_gaps, journal_card, user_token))]
+pub fn run_gapfinder_fit(
+    session: String,
+    corpus: serde_json::Value,
+    achievable_gaps: serde_json::Value,
+    journal_card: serde_json::Value,
+    user_token: Option<String>,
+) -> Result<gaply_core::gap_finder_agent::FitResult, GaplyError> {
+    use gaply_core::gap_finder_agent;
+    let proxy = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+        Ok(client) if client.reachable() => Some(client),
+        _ => None,
+    };
+    gap_finder_agent::fit_turn(
+        proxy.as_ref().map(|c| c as &dyn gaply_core::verify_agent::ProxyClient),
+        &session,
+        &corpus,
+        &achievable_gaps,
+        &journal_card,
+    )
+}
+
 /// Research Copilot: one report-scoped chat turn behind the integrity
 /// FIREWALL (`gaply_core::chat_agent`). CLOUD-ONLY like the reviewer — no
 /// local model is ever loaded here (one-at-a-time lifecycle safe), and the
