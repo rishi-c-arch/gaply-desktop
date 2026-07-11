@@ -13,6 +13,7 @@ import {
   Panel,
 } from '../../design-system';
 import { useSubscription } from '../subscription/useSubscription';
+import { useGaplySession } from '../session/SessionProvider';
 import { SAMPLE_REPORT } from '../report/sampleReport';
 import ResearchCopilotPanel from './ResearchCopilotPanel';
 import { ChatClient, TauriChatClient } from './chatBridge';
@@ -47,7 +48,13 @@ export interface CopilotPageProps {
 const CopilotPage: React.FC<CopilotPageProps> = ({ client, forceTier, context }) => {
   const navigate = useNavigate();
   const sub = useSubscription();
-  const chatClient = useMemo(() => client ?? new TauriChatClient(), [client]);
+  const { session } = useGaplySession();
+  // User JWT rides each paid chat turn → the proxy's server-side entitlement
+  // gate (Set 8). UX gating stays presentation-only.
+  const chatClient = useMemo(
+    () => client ?? new TauriChatClient(() => session?.access_token),
+    [client, session]
+  );
   const tier = forceTier ?? (sub.loading ? 'loading' : sub.tier);
 
   const rail = (

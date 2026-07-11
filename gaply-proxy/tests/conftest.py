@@ -33,6 +33,8 @@ def make_client(
     capacity: float = 100.0,
     refill_rate: float = 1e-9,
     claude: StubClaude | None = None,
+    entitlement_required: bool = False,
+    entitlement_checker=None,
 ) -> tuple[TestClient, StubClaude]:
     stub = claude or StubClaude()
     settings = Settings(
@@ -41,8 +43,12 @@ def make_client(
         app_check_debug_tokens=(DEBUG_TOKEN,),
         rate_limit_capacity=capacity,
         rate_limit_refill_rate=refill_rate,
+        entitlement_required=entitlement_required,
     )
-    return TestClient(create_app(settings=settings, claude_client=stub)), stub
+    app = create_app(
+        settings=settings, claude_client=stub, entitlement_checker=entitlement_checker
+    )
+    return TestClient(app), stub
 
 
 def mint(**kwargs) -> str:

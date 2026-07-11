@@ -24,6 +24,7 @@ from .app_check import HEADER_NAME, AppCheckVerifier, VerifyError, VerifiedToken
 from .bind_guard import BindClassification, InsecureBindError, enforce_private_bind
 from .claude_client import AnthropicClaudeClient, ClaudeClient
 from .config import Settings, settings_from_env
+from .entitlement import USER_TOKEN_HEADER, EntitlementChecker
 from .rate_limit import TokenBucketRateLimiter
 from .validation import ValidationError, validate_structured
 
@@ -44,6 +45,7 @@ def check_bind(settings: Settings) -> BindClassification:
 def create_app(
     settings: Settings | None = None,
     claude_client: ClaudeClient | None = None,
+    entitlement_checker: EntitlementChecker | None = None,
 ) -> FastAPI:
     settings = settings or settings_from_env()
     # Safety net: never come up bound to a public interface (see bind_guard).
@@ -62,6 +64,7 @@ def create_app(
     app.state.verifier = verifier
     app.state.limiter = limiter
     app.state.claude_client = claude_client  # None -> built lazily from env
+    app.state.entitlement_checker = entitlement_checker  # None -> stub (see below)
 
     @app.middleware("http")
     async def rate_limit_middleware(request: Request, call_next):
@@ -121,11 +124,46 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    def require_entitlement(request: Request) -> str | None:
+        """THE REAL entitlement gate (Set 8) — runs BEFORE any paid Claude
+        work. Returns the user token to consume against on success, or None
+        when enforcement is off (the honest pre-deployment stub state: the
+        proxy is not deployed, so default behavior is unchanged; production
+        MUST flip GAPLY_ENTITLEMENT_REQUIRED=true and inject a checker).
+        Enabled with no checker injected fails CLOSED — the proxy refuses to
+        serve unmetered paid work rather than silently skipping the gate."""
+        if not settings.entitlement_required:
+            return None
+        checker: EntitlementChecker | None = app.state.entitlement_checker
+        if checker is None:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "entitlement_not_configured",
+                    "reason": "GAPLY_ENTITLEMENT_REQUIRED is set but no "
+                    "EntitlementChecker was injected into create_app.",
+                },
+            )
+        user_token = request.headers.get(USER_TOKEN_HEADER, "")
+        if not user_token:
+            raise HTTPException(
+                status_code=401,
+                detail={"error": "user_token_missing", "reason": "sign in required"},
+            )
+        result = checker.check(user_token)
+        if not result.entitled:
+            raise HTTPException(
+                status_code=403,
+                detail={"error": "not_entitled", "reason": result.reason},
+            )
+        return user_token
+
     @app.post("/verify")
     async def verify_endpoint(
         request: Request,
         _token: VerifiedToken = Depends(require_app_check),
         claude: ClaudeClient = Depends(get_claude),
+        entitled_user: str | None = Depends(require_entitlement),
     ) -> dict[str, Any]:
         payload = await request.json()
         # Hard validator: structured summaries only, never raw manuscript text.
@@ -143,6 +181,10 @@ def create_app(
             )
         # Forward to Claude Sonnet; nothing is persisted.
         result = await claude.complete(payload)
+        # Consume a use ONLY after the paid work succeeded — server-side,
+        # never a client-side number.
+        if entitled_user is not None:
+            app.state.entitlement_checker.consume(entitled_user)
         return {"result": result}
 
     return app

@@ -45,10 +45,17 @@ describe('TauriChatClient', () => {
       context: { findings: PAYLOAD.findings, rag: PAYLOAD.rag, citations: PAYLOAD.citations },
       question: PAYLOAD.question,
       language: 'en',
+      userToken: null, // no token getter → honest null (Set 8)
     });
     // The frontend system prompt is NOT sent — the Rust backend pins its own
     // instruction; a spoofed frontend string can't weaken the firewall.
     expect(JSON.stringify(invoke.mock.calls[0][1])).not.toContain(SYSTEM_PROMPT.slice(0, 40));
+  });
+
+  it('forwards the user JWT when a token getter is supplied (Set 8 entitlement)', async () => {
+    invoke.mockResolvedValue(turn());
+    await new TauriChatClient(() => 'jwt-abc').ask(PAYLOAD);
+    expect(invoke.mock.calls[0][1].userToken).toBe('jwt-abc');
   });
 
   it('maps an answered turn to ChatResponse', async () => {

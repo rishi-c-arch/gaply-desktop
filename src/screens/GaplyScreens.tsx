@@ -2,12 +2,17 @@
 // (where required) the RequireSession guard. One module = one lazy chunk, so
 // supabase-js and the new screens stay out of the marketing-site bundle path.
 //
-// Guarding policy:
+// Guarding policy (Set 8):
 //   /auth        — public (entry point)
 //   /onboarding  — ONLINE-ONLY (writes the user's profiles row) → RequireSession
-//   /app         — FREE-OFFLINE (never requires a session)
+//   /app         — LOGIN REQUIRED (RequireAuth): all features need a signed-in
+//                  session. OFFLINE GRACE: a cached session keeps working with
+//                  no network (free features stay fully local); supabase-js
+//                  re-validates honestly on reconnect. This guard is UX — the
+//                  real boundary for paid work is server-side at the proxy.
 import React from 'react';
 import { GaplySessionProvider, RequireSession } from './session/SessionProvider';
+import RequireAuth from './session/RequireAuth';
 import AuthPage from './auth/AuthPage';
 import AuthSuccessPage from './auth/AuthSuccessPage';
 import LandingPage from './landing/LandingPage';
@@ -51,7 +56,9 @@ export const OnboardingRoute: React.FC = () => (
 
 export const HomeRoute: React.FC = () => (
   <GaplySessionProvider>
-    <HomeDashboardPage />
+    <RequireAuth>
+      <HomeDashboardPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 
@@ -59,7 +66,9 @@ export const HomeRoute: React.FC = () => (
  *  no bytes leave the machine. The verification (cloud) lane is premium-gated. */
 export const UploadRoute: React.FC = () => (
   <GaplySessionProvider>
-    <AnalysisTheaterPage />
+    <RequireAuth>
+      <AnalysisTheaterPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 
@@ -68,24 +77,32 @@ export const UploadRoute: React.FC = () => (
  *  live path — the fixture is test-only now. */
 export const ReportRoute: React.FC = () => (
   <GaplySessionProvider>
-    <LiveReportPage />
+    <RequireAuth>
+      <LiveReportPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 
 /** Single-agent check screens (F7) — all FREE-OFFLINE (local, on-device). */
 export const PlagiarismCheckRoute: React.FC = () => (
   <GaplySessionProvider>
-    <PlagiarismCheckPage />
+    <RequireAuth>
+      <PlagiarismCheckPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 export const AiCheckRoute: React.FC = () => (
   <GaplySessionProvider>
-    <AiCheckPage />
+    <RequireAuth>
+      <AiCheckPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 export const StatsCheckRoute: React.FC = () => (
   <GaplySessionProvider>
-    <StatsCheckPage />
+    <RequireAuth>
+      <StatsCheckPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 
@@ -93,42 +110,54 @@ export const StatsCheckRoute: React.FC = () => (
  *  Supabase when signed in, the manuscript never does. */
 export const CitationManagerRoute: React.FC = () => (
   <GaplySessionProvider>
-    <CitationManagerPage />
+    <RequireAuth>
+      <CitationManagerPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 
 /** /app/journal — Journal Check (F9). Free-offline; online fallback via proxy. */
 export const JournalCheckRoute: React.FC = () => (
   <GaplySessionProvider>
-    <JournalCheckPage />
+    <RequireAuth>
+      <JournalCheckPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 
 /** /app/publishready — PublishReady (F10), the paid flagship. Premium-gated. */
 export const PublishReadyRoute: React.FC = () => (
   <GaplySessionProvider>
-    <PublishReadyPage />
+    <RequireAuth>
+      <PublishReadyPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 
 /** /app/copilot — Research Copilot (F11), premium-gated. */
 export const CopilotRoute: React.FC = () => (
   <GaplySessionProvider>
-    <CopilotPage />
+    <RequireAuth>
+      <CopilotPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 
 /** /app/billing — Plans & Billing (F12). */
 export const BillingRoute: React.FC = () => (
   <GaplySessionProvider>
-    <BillingPage />
+    <RequireAuth>
+      <BillingPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 
 /** /app/community — Research Co-Author (F13). */
 export const CommunityRoute: React.FC = () => (
   <GaplySessionProvider>
-    <CommunityPage />
+    <RequireAuth>
+      <CommunityPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 
@@ -137,13 +166,17 @@ export const CommunityRoute: React.FC = () => (
  *  degrade gracefully without a session. */
 export const SettingsRoute: React.FC = () => (
   <GaplySessionProvider>
-    <SettingsPage />
+    <RequireAuth>
+      <SettingsPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );
 
 /** /app/coming-soon — honest placeholder for not-yet-built nav targets. */
 export const ComingSoonRoute: React.FC = () => (
   <GaplySessionProvider>
-    <ComingSoonPage />
+    <RequireAuth>
+      <ComingSoonPage />
+    </RequireAuth>
   </GaplySessionProvider>
 );

@@ -48,11 +48,19 @@ const HEALTH_TIMEOUT_SECS: u64 = 2;
 /// a generous ceiling — still bounded.
 const REQUEST_TIMEOUT_SECS: u64 = 180;
 
+/// Header carrying the signed-in user's Supabase JWT (Set 8). The USER'S OWN
+/// credential, never an app secret: the proxy verifies it server-side to run
+/// THE REAL entitlement gate before paid work. Optional until the proxy is
+/// deployed with enforcement on.
+const USER_TOKEN_HEADER: &str = "X-Gaply-User-Token";
+
 /// A remote [`ProxyClient`] backed by the gaply-proxy `/verify` endpoint.
 pub struct ProxyReqwestClient {
     base_url: String,
     signer: TokenSigner,
     client: reqwest::blocking::Client,
+    /// Signed-in user's JWT, forwarded for server-side entitlement (Set 8).
+    user_token: Option<String>,
 }
 
 impl ProxyReqwestClient {
@@ -74,7 +82,19 @@ impl ProxyReqwestClient {
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .build()
             .map_err(|e| GaplyError::Internal(format!("proxy client build failed: {e}")))?;
-        Ok(Self { base_url: base_url.trim_end_matches('/').to_string(), signer, client })
+        Ok(Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            signer,
+            client,
+            user_token: None,
+        })
+    }
+
+    /// Attach the signed-in user's JWT so the proxy can enforce entitlement
+    /// server-side (empty/None → header omitted; pre-login and tests).
+    pub fn with_user_token(mut self, token: Option<String>) -> Self {
+        self.user_token = token.filter(|t| !t.is_empty());
+        self
     }
 
     /// Liveness probe: `GET /health` with a short timeout. Used by
@@ -101,11 +121,13 @@ impl ProxyClient for ProxyReqwestClient {
         let (header, token) = proxy_auth_header(&self.signer)?;
 
         let url = format!("{}/verify", self.base_url);
-        let resp = self
-            .client
-            .post(&url)
-            .header(header, token)
-            .json(payload)
+        let mut req = self.client.post(&url).header(header, token).json(payload);
+        // User entitlement credential (Set 8) — the proxy's real gate needs to
+        // know WHICH user asks; App Check only proves WHICH app.
+        if let Some(user) = &self.user_token {
+            req = req.header(USER_TOKEN_HEADER, user);
+        }
+        let resp = req
             .send()
             .map_err(|e| GaplyError::Internal(format!("proxy POST {url} failed: {e}")))?;
 
@@ -169,6 +191,9 @@ mod tests {
     #[derive(Clone, Copy)]
     enum Mode {
         Ok,
+        /// 200 ONLY when the X-Gaply-User-Token header carries the expected
+        /// user JWT (Set 8 entitlement plumbing), 403 otherwise.
+        RequireUserToken,
         Unauthorized,
         Unprocessable,
         RateLimited,
@@ -262,6 +287,28 @@ mod tests {
             .unwrap_or_default();
 
         match mode {
+            Mode::RequireUserToken => {
+                let user = req
+                    .lines()
+                    .find_map(|l| {
+                        let (name, value) = l.split_once(':')?;
+                        name.trim()
+                            .eq_ignore_ascii_case("X-Gaply-User-Token")
+                            .then(|| value.trim().to_string())
+                    })
+                    .unwrap_or_default();
+                if user == "user-jwt-123" {
+                    send(
+                        &mut stream,
+                        200,
+                        "OK",
+                        "",
+                        r#"{"result":{"model":"stub","stop_reason":"end_turn","text":"{\"verdicts\":[]}"}}"#,
+                    );
+                } else {
+                    send(&mut stream, 403, "Forbidden", "", r#"{"error":"not_entitled","reason":"missing user token"}"#);
+                }
+            }
             Mode::Ok => {
                 if verifier.verify(&token).is_ok() {
                     // result.text is Claude's reply — a JSON string.
@@ -327,6 +374,28 @@ mod tests {
         let c = client_for(&proxy);
         assert!(c.verify(&serde_json::json!({"summary": {}})).is_ok());
         assert!(c.verify(&serde_json::json!({"summary": {}})).is_ok());
+    }
+
+    #[test]
+    fn user_token_header_is_attached_when_set() {
+        // The mock 200s ONLY when X-Gaply-User-Token carries the expected JWT
+        // — success proves the entitlement credential crossed the wire.
+        let proxy = MockProxy::start(Mode::RequireUserToken);
+        let c = client_for(&proxy).with_user_token(Some("user-jwt-123".into()));
+        assert!(c.verify(&serde_json::json!({"summary": {}})).is_ok());
+    }
+
+    #[test]
+    fn no_user_token_means_no_header() {
+        // Without a token the header is absent → the strict mock 403s, which
+        // maps to an honest error (and proves nothing is silently invented).
+        let proxy = MockProxy::start(Mode::RequireUserToken);
+        let err = client_for(&proxy).verify(&serde_json::json!({"summary": {}})).unwrap_err();
+        assert!(matches!(err, GaplyError::Internal(m) if m.contains("403")));
+        // Empty string is treated as absent too (filter in with_user_token).
+        let proxy2 = MockProxy::start(Mode::RequireUserToken);
+        let c = client_for(&proxy2).with_user_token(Some(String::new()));
+        assert!(c.verify(&serde_json::json!({"summary": {}})).is_err());
     }
 
     #[test]

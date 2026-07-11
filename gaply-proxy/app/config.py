@@ -29,6 +29,11 @@ class Settings:
     # Break-glass ONLY: disables the public-bind safety net. Never set in normal
     # operation — see the bind_guard module and README.
     allow_public_bind: bool = False
+    # Entitlement enforcement (Set 8). OFF by default (proxy not yet deployed;
+    # honest stub). Production MUST enable this AND inject an EntitlementChecker
+    # into create_app — enabled with no checker fails closed (503), never
+    # serving unmetered paid work. See app/entitlement.py.
+    entitlement_required: bool = False
     # Nitro Enclave TEE path (opt-in; requires real AWS Nitro infra to function).
     # When enabled, sensitive processing + the API key live inside the enclave
     # and the proxy forwards summaries over VSOCK after verifying attestation.
@@ -59,6 +64,8 @@ def settings_from_env() -> Settings:
         # Requires an explicit, unambiguous token to enable — a truthy value like
         # "1" won't do it, so it can't be flipped on by accident.
         allow_public_bind=os.getenv("GAPLY_ALLOW_PUBLIC_BIND", "") == "i-accept-public-exposure",
+        entitlement_required=os.getenv("GAPLY_ENTITLEMENT_REQUIRED", "").lower()
+        in {"1", "true", "yes"},
         enclave_enabled=os.getenv("GAPLY_ENCLAVE_ENABLED", "").lower() in {"1", "true", "yes"},
         enclave_cid=int(os.getenv("GAPLY_ENCLAVE_CID", "16")),
         enclave_port=int(os.getenv("GAPLY_ENCLAVE_PORT", "5005")),

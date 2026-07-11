@@ -294,13 +294,14 @@ pub struct PublishReadyOutcome {
 /// When the proxy is not live the reviewer letter is marked "unavailable
 /// offline"; the rest of the report (all local) is still returned.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip(state, user_token))]
 pub fn run_publishready(
     state: State<'_, AppState>,
     path: String,
     journal_name: String,
     journal_quartile: String,
     supplementary_paths: Option<Vec<String>>,
+    user_token: Option<String>,
 ) -> Result<PublishReadyOutcome, GaplyError> {
     use gaply_core::reviewer_agent::{self, ReviewerEvaluation, TargetJournal};
     use gaply_core::verify_agent::ProxyClient;
@@ -343,8 +344,10 @@ pub fn run_publishready(
     let journal = TargetJournal { name: journal_name, quartile: journal_quartile };
     let (proxy_payload, sent_ids) = reviewer_agent::build_review_payload(&report, &journal, &supp_values);
 
-    // 3) Reviewer: cloud only, honest offline degradation.
-    let reviewer = match ProxyReqwestClient::from_env() {
+    // 3) Reviewer: cloud only, honest offline degradation. The user's JWT
+    //    rides along so the proxy can run THE REAL entitlement gate + consume
+    //    a use server-side (Set 8; enforcement joins the deployed proxy).
+    let reviewer = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
         Ok(client) if client.reachable() => match client
             .verify(&proxy_payload)
             .and_then(|resp| reviewer_agent::gate_reviewer_response(&resp, &sent_ids))
@@ -370,11 +373,12 @@ pub fn run_publishready(
 /// llm_safe discipline before anything crosses the trust boundary. Chat
 /// history is frontend state — nothing is persisted here.
 #[tauri::command]
-#[tracing::instrument(skip(context, question))]
+#[tracing::instrument(skip(context, question, user_token))]
 pub fn run_copilot_chat(
     context: serde_json::Value,
     question: String,
     language: Option<String>,
+    user_token: Option<String>,
 ) -> Result<gaply_core::chat_agent::ChatTurn, GaplyError> {
     use gaply_core::chat_agent;
 
@@ -388,7 +392,9 @@ pub fn run_copilot_chat(
 
     // Cloud only, honest degradation: unreachable/unprovisioned proxy → the
     // turn honestly says answers need the cloud (never a faked answer).
-    let turn = match ProxyReqwestClient::from_env() {
+    // The user's JWT rides along for the proxy's server-side entitlement gate
+    // (Set 8; enforcement joins the deployed proxy).
+    let turn = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
         Ok(client) if client.reachable() => {
             chat_agent::chat_turn(Some(&client), &context, &question, &language)
         }

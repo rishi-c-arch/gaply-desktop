@@ -23,6 +23,7 @@ import { ReportTab } from '../report/reportTypes';
 import { estimatePdfPageCount, validateFile } from '../analysis/validateFile';
 import { JOURNALS } from '../journal/journalData';
 import { PublishReadyBridge, TauriPublishReadyBridge } from './publishReadyBridge';
+import { useEntitlement } from '../subscription/entitlement';
 import { mayUseCloud } from '../settings/settingsStore';
 import { PublishReadyResult, TargetJournal } from './publishReadyTypes';
 import ReviewerLetterPanel from './ReviewerLetterPanel';
@@ -67,27 +68,32 @@ const CopilotDock: React.FC<{ report: PublishReadyResult['report']; client: Chat
 };
 
 const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, forceTier, chatClient }) => {
-  const copilot = useMemo(() => chatClient ?? new TauriChatClient(), [chatClient]);
   const navigate = useNavigate();
   const { session } = useGaplySession();
+  const copilot = useMemo(
+    () => chatClient ?? new TauriChatClient(() => session?.access_token),
+    [chatClient, session]
+  );
   const { toast } = useToast();
   const b = useMemo(() => bridge ?? new TauriPublishReadyBridge(), [bridge]);
-  const subs = useMemo(() => subscriptionService ?? createSubscriptionService(), [subscriptionService]);
 
-  const [tier, setTier] = useState<'free' | 'premium' | 'loading'>(forceTier ?? 'loading');
+  // Entitlement gate (Set 8) — UX-ONLY presentation. THE REAL gate is
+  // server-side at the proxy (the user's JWT rides every paid request and the
+  // server verifies + consumes uses). `forceTier` is the existing test seam,
+  // mapped onto entitlement states. No prices anywhere: the answer is only
+  // ever "entitled or not"; the upgrade CTA links out to billing/payment.
+  const entitlement = useEntitlement(
+    'publishready',
+    subscriptionService,
+    forceTier ? (forceTier === 'premium' ? 'entitled' : 'not_entitled') : undefined
+  );
+
   const [file, setFile] = useState<{ name: string; path: string } | null>(null);
   const [journalQuery, setJournalQuery] = useState('');
   const [journal, setJournal] = useState<TargetJournal | null>(null);
   const [result, setResult] = useState<PublishReadyResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // resolve tier (premium gate)
-  React.useEffect(() => {
-    if (forceTier) return;
-    if (!session) { setTier('free'); return; }
-    subs.getTier(session.user.id).then((r) => setTier(r.tier));
-  }, [forceTier, session, subs]);
 
   const journalMatches = useMemo(() => {
     const q = journalQuery.trim().toLowerCase();
@@ -114,7 +120,9 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
     setBusy(true);
     setError(null);
     try {
-      setResult(await b.run({ manuscriptPath: file.path, journal }));
+      // The session's access token rides to the backend → proxy, where the
+      // REAL entitlement check + server-side use consumption happen.
+      setResult(await b.run({ manuscriptPath: file.path, journal, userToken: session?.access_token }));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'PublishReady failed');
     } finally {
@@ -122,8 +130,42 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
     }
   };
 
-  /* ------------------------------- teaser ------------------------------- */
-  if (tier === 'free') {
+  /* --------------------------- entitlement UX --------------------------- */
+  // All of these are PRESENTATION: honest, distinct states — never a silent
+  // failure, never a fake result, and never a price.
+  if (entitlement.status === 'signed_out') {
+    return (
+      <Shell navigate={navigate}>
+        <div className="gds-pr-entry" data-testid="pr-signin">
+          <Card title="PublishReady ★ — sign in required">
+            <p className="gds-jc__disclaimer">
+              Gaply needs you signed in to use its features. Your manuscript still never leaves
+              this device — sign-in only identifies your account and plan.
+            </p>
+            <Button data-testid="pr-signin-cta" onClick={() => navigate('/auth')}>Sign in to continue →</Button>
+          </Card>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (entitlement.status === 'offline_unverified') {
+    return (
+      <Shell navigate={navigate}>
+        <div className="gds-pr-entry" data-testid="pr-offline">
+          <Card title="PublishReady ★ — can’t verify your plan right now">
+            <p className="gds-jc__disclaimer">
+              You’re signed in, but {entitlement.reason ?? 'the server is unreachable'}. PublishReady’s
+              review needs the cloud connection anyway, so try again once you’re back online. Your
+              offline tools keep working as usual.
+            </p>
+          </Card>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (entitlement.status === 'not_entitled') {
     return (
       <Shell navigate={navigate}>
         <div className="gds-pr-entry" data-testid="pr-teaser">
@@ -150,7 +192,7 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
     );
   }
 
-  if (tier === 'loading') {
+  if (entitlement.status === 'checking') {
     return <Shell navigate={navigate}><p className="gds-jc__disclaimer" data-testid="pr-loading">Checking your plan…</p></Shell>;
   }
 

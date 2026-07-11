@@ -34,6 +34,10 @@ export interface RustChatTurn {
  *  code-enforced firewall (pre-filter → cloud proxy when live → post-filter)
  *  and degrades honestly when the cloud is unreachable. Desktop-app only. */
 export class TauriChatClient implements ChatClient {
+  /** `getUserToken` (Set 8): supplies the signed-in user's JWT per ask, so the
+   *  proxy can run the REAL server-side entitlement gate on the paid chat. */
+  constructor(private getUserToken?: () => string | undefined) {}
+
   async ask(payload: ChatProxyPayload): Promise<ChatResponse> {
     if (!isTauri) {
       throw new Error('The Research Copilot runs in the Gaply desktop app.');
@@ -43,6 +47,7 @@ export class TauriChatClient implements ChatClient {
       context: { findings: payload.findings, rag: payload.rag, citations: payload.citations },
       question: payload.question,
       language: payload.language,
+      userToken: this.getUserToken?.() ?? null,
     })) as RustChatTurn;
     return {
       answer: turn.answer,

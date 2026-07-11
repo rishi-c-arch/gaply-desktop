@@ -20,7 +20,10 @@ import {
 } from './publishReadyTypes';
 
 export interface PublishReadyBridge {
-  run(input: { manuscriptPath: string; journal: TargetJournal }): Promise<PublishReadyResult>;
+  /** `userToken` (Set 8): the signed-in user's Supabase JWT, forwarded so the
+   *  proxy can run the REAL server-side entitlement check + consume a use.
+   *  Optional — the UX gate already routed signed-out users to sign-in. */
+  run(input: { manuscriptPath: string; journal: TargetJournal; userToken?: string }): Promise<PublishReadyResult>;
 }
 
 /** Backend `run_publishready` return shape (snake_case, as serialized by Rust).
@@ -116,7 +119,7 @@ function adaptPayload(payload: unknown, journal: TargetJournal): ProxyReviewPayl
  *  never leaves the device) and adapt the result. Only in the Tauri desktop
  *  app — a plain browser throws a clear message the page surfaces. */
 export class TauriPublishReadyBridge implements PublishReadyBridge {
-  async run({ manuscriptPath, journal }: { manuscriptPath: string; journal: TargetJournal }): Promise<PublishReadyResult> {
+  async run({ manuscriptPath, journal, userToken }: { manuscriptPath: string; journal: TargetJournal; userToken?: string }): Promise<PublishReadyResult> {
     if (!isTauri) {
       throw new Error('PublishReady runs in the Gaply desktop app.');
     }
@@ -125,6 +128,7 @@ export class TauriPublishReadyBridge implements PublishReadyBridge {
       path: manuscriptPath,
       journalName: journal.name,
       journalQuartile: journal.quartile,
+      userToken: userToken ?? null,
     })) as PublishReadyOutcome;
     return adaptOutcome(outcome, journal);
   }
