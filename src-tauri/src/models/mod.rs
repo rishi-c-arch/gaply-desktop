@@ -7,4 +7,5 @@
 //! Windows CI's core-test job stays fast and green.
 
 pub mod candle_perplexity;
+pub mod ollama_verify;
 pub mod quantized_qwen2_lowmem;
