@@ -21,6 +21,7 @@ pub mod rag;
 pub mod ratelimit;
 pub mod report;
 pub mod refverify;
+pub mod reviewer_agent;
 pub mod sanitize;
 pub mod secrets;
 pub mod swarm;

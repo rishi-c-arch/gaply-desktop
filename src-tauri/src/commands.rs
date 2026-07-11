@@ -18,6 +18,7 @@ use gaply_core::validate::{self, StatsValidityReport};
 use gaply_core::{now_epoch, GaplyError};
 
 use crate::http_fetcher::RefVerifier;
+use crate::models::proxy_client::ProxyReqwestClient;
 use crate::state::AppState;
 
 /// Reference input from the Citation Manager (refverifyBridge). Only bibliographic
@@ -274,4 +275,72 @@ pub fn ingest_guidelines(
         journal_url.as_deref(),
         guidelines_url.as_deref(),
     ))
+}
+
+/// PublishReady result: the local report, the (cloud) reviewer evaluation, and
+/// the exact structured payload sent to the proxy (exposed so the UI/tests can
+/// prove it carries no manuscript text).
+#[derive(Debug, Serialize)]
+pub struct PublishReadyOutcome {
+    pub report: serde_json::Value,
+    pub reviewer: gaply_core::reviewer_agent::ReviewerEvaluation,
+    pub proxy_payload: serde_json::Value,
+}
+
+/// PublishReady: run the existing 6-lane pipeline (UNMODIFIED), then layer a
+/// single-pass cloud reviewer evaluation on top. The reviewer is CLOUD-ONLY —
+/// it uses the remote proxy directly, never the local Ollama/mock chain (a
+/// local model is not an acceptable substitute for deep reviewer reasoning).
+/// When the proxy is not live the reviewer letter is marked "unavailable
+/// offline"; the rest of the report (all local) is still returned.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn run_publishready(
+    state: State<'_, AppState>,
+    path: String,
+    journal_name: String,
+    journal_quartile: String,
+) -> Result<PublishReadyOutcome, GaplyError> {
+    use gaply_core::reviewer_agent::{self, ReviewerEvaluation, TargetJournal};
+    use gaply_core::verify_agent::ProxyClient;
+
+    // 1) Run the existing pipeline (composes on top; the 6 lanes are untouched).
+    let events = std::cell::RefCell::new(Vec::new());
+    let emit = |e: crate::pipeline::AnalysisEvent| events.borrow_mut().push(e);
+    crate::pipeline::run_pipeline_measured(state.db.clone(), state.embedder.clone(), path, None, &emit)?;
+    let report_id = events
+        .into_inner()
+        .into_iter()
+        .find_map(|e| match e {
+            crate::pipeline::AnalysisEvent::Finished { report_id } => Some(report_id),
+            _ => None,
+        })
+        .ok_or_else(|| GaplyError::Internal("pipeline produced no report".into()))?;
+    let json = state
+        .db
+        .cache_get(&format!("report:{report_id}"), gaply_core::now_epoch())?
+        .ok_or_else(|| GaplyError::Internal("compiled report not found".into()))?;
+    let report: serde_json::Value =
+        serde_json::from_str(&json).map_err(|e| GaplyError::Internal(format!("parse report: {e}")))?;
+
+    // 2) Build the validator-compliant, privacy-guarded reviewer payload.
+    let journal = TargetJournal { name: journal_name, quartile: journal_quartile };
+    let (proxy_payload, sent_ids) = reviewer_agent::build_review_payload(&report, &journal);
+
+    // 3) Reviewer: cloud only, honest offline degradation.
+    let reviewer = match ProxyReqwestClient::from_env() {
+        Ok(client) if client.reachable() => match client
+            .verify(&proxy_payload)
+            .and_then(|resp| reviewer_agent::gate_reviewer_response(&resp, &sent_ids))
+        {
+            Ok(ev) => ev,
+            Err(e) => {
+                tracing::warn!(error = %e, "reviewer cloud call failed; marking unavailable");
+                ReviewerEvaluation::unavailable_offline()
+            }
+        },
+        _ => ReviewerEvaluation::unavailable_offline(),
+    };
+
+    Ok(PublishReadyOutcome { report, reviewer, proxy_payload })
 }
