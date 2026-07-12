@@ -34,6 +34,10 @@ export interface Citation {
   provenance?: string[];
   /** Retraction notice URL, when retracted. */
   noticeUrl?: string;
+  /** Local-first (Set 4): tags on this reference. */
+  tags?: string[];
+  /** Local-first (Set 4): honest sync marker (local sqlite is the truth). */
+  syncStatus?: 'local_only' | 'pending' | 'synced';
 }
 
 /** Status precedence: retracted 🔴 > malformed > orphan/unused ⚠ > ok. */

@@ -175,6 +175,33 @@ pub const MIGRATIONS: &[Migration] = &[
             DROP TABLE documents;
         ",
     },
+    Migration {
+        version: 7,
+        name: "citation_library_local",
+        // Citation Manager Set 4: the LOCAL-FIRST reference library. Local
+        // sqlite is the source of truth; Supabase sync is an optional layer.
+        // csl_json holds the VERIFIED CSL-JSON (Set 2); title/authors/year
+        // are search columns DERIVED from it at write time (deterministic,
+        // never invented); tags is a JSON string array; sync_status is the
+        // honest marker ('local_only' | 'pending' | 'synced').
+        up: "
+            CREATE TABLE citation_library (
+                id          TEXT PRIMARY KEY,
+                csl_json    TEXT NOT NULL,
+                doi         TEXT,
+                title       TEXT NOT NULL DEFAULT '',
+                authors     TEXT NOT NULL DEFAULT '',
+                year        INTEGER,
+                tags        TEXT NOT NULL DEFAULT '[]',
+                sync_status TEXT NOT NULL DEFAULT 'local_only',
+                created_at  INTEGER NOT NULL,
+                updated_at  INTEGER NOT NULL
+            );
+            CREATE INDEX idx_citation_library_doi ON citation_library(doi);
+            CREATE INDEX idx_citation_library_year ON citation_library(year);
+        ",
+        down: "DROP TABLE citation_library;",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -311,11 +338,17 @@ mod tests {
     fn partial_down_keeps_earlier_versions() {
         let mut conn = test_connection();
         migrate_up(&mut conn).unwrap();
-        // roll back rag + memory/cache + embeddings, keep knowledge base and below
+        // roll back citations + rag + memory/cache + embeddings, keep
+        // knowledge base and below
         let reverted = migrate_down(&mut conn, 3).unwrap();
         assert_eq!(
             reverted,
-            vec!["rag_documents", "episodic_memory_and_cache", "embeddings_vec0"]
+            vec![
+                "citation_library_local",
+                "rag_documents",
+                "episodic_memory_and_cache",
+                "embeddings_vec0"
+            ]
         );
         assert_eq!(current_version(&conn).unwrap(), 3);
 

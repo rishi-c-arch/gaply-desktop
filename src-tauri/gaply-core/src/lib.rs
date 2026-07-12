@@ -8,6 +8,7 @@ pub mod app_check;
 pub mod cache;
 pub mod chat_agent;
 pub mod chunk;
+pub mod citation_library;
 pub mod config;
 pub mod db;
 pub mod embed;

@@ -1,8 +1,9 @@
-// Gaply — Citation Manager (F8). Mendeley/Zotero-style library. Citation
-// METADATA syncs to Supabase (citation_library, RLS); the manuscript never
-// does. Three panels: collections · citation list (status icons) · detail with
-// a live CSL-formatted preview + style switcher.
-import React, { useMemo, useState } from 'react';
+// Gaply — Citation Manager (F8). Mendeley/Zotero-style library — LOCAL-FIRST
+// (Set 4): the local sqlite citation_library is the SOURCE OF TRUTH
+// (add/list/search/tag fully offline, no sign-in); the Supabase sync is an
+// OPTIONAL layer (push when signed-in + online, honest per-ref sync status,
+// local data never lost to a failed sync). The manuscript never syncs.
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AppShell,
@@ -34,11 +35,15 @@ import {
   TauriRefVerifyBridge,
 } from './refverifyBridge';
 import { mayUseCloud } from '../settings/settingsStore';
+import { LocalLibrary, storedToCitation, TauriLocalLibrary } from './localLibrary';
 import './citations.css';
 
 export interface CitationManagerPageProps {
   refverify?: RefVerifyBridge;
+  /** OPTIONAL cloud sync layer (Supabase). Local sqlite is the truth. */
   citationService?: ReturnType<typeof createCitationLibraryService>;
+  /** The local-first store (Tauri in prod; mock in tests). */
+  localLibrary?: LocalLibrary;
   /** Citations auto-extracted from an analyzed manuscript (add-way #1). */
   extractedCitations?: Citation[];
   /** Pre-seed the library (tests / demo). */
@@ -69,6 +74,7 @@ function newId(seed: string): string {
 const Inner: React.FC<CitationManagerPageProps> = ({
   refverify,
   citationService,
+  localLibrary,
   extractedCitations = [],
   initialCitations = [],
 }) => {
@@ -77,6 +83,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const { toast } = useToast();
   const rv = useMemo(() => refverify ?? new TauriRefVerifyBridge(), [refverify]);
   const lib = useMemo(() => citationService ?? createCitationLibraryService(), [citationService]);
+  const local = useMemo(() => localLibrary ?? new TauriLocalLibrary(), [localLibrary]);
 
   const [citations, setCitations] = useState<Citation[]>(initialCitations);
   const [collection, setCollection] = useState<CollectionId>('all');
@@ -84,32 +91,126 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const [style, setStyle] = useState<string>('apa'); // global (bulk) style
   const [doiInput, setDoiInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState('');
+  const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
+  const [tagInput, setTagInput] = useState('');
+
+  // LOCAL-FIRST hydrate: the sqlite library is the source of truth. Failures
+  // (e.g. plain browser, no Tauri) degrade to in-memory state — never fatal.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const rows = await local.list();
+        if (!alive || rows.length === 0) return;
+        setCitations((existing) => {
+          const have = new Set(existing.map((c) => c.id));
+          return [...existing, ...rows.filter((r) => !have.has(r.id)).map(storedToCitation)];
+        });
+      } catch (e) {
+        console.warn('[citations] local library unavailable (in-memory only):', e);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [local]);
+
+  // Deterministic LOCAL search (title/author/year/DOI/tag) via the bridge.
+  useEffect(() => {
+    let alive = true;
+    if (!query.trim()) {
+      setSearchIds(null);
+      return;
+    }
+    (async () => {
+      try {
+        const rows = await local.search(query);
+        if (alive) setSearchIds(new Set(rows.map((r) => r.id)));
+      } catch {
+        // no local store (browser/tests without a bridge): filter in memory
+        const q = query.toLowerCase();
+        if (alive)
+          setSearchIds(
+            new Set(
+              citations
+                .filter(
+                  (c) =>
+                    c.csl.title.toLowerCase().includes(q) ||
+                    c.csl.author.some((a) => a.family.toLowerCase().includes(q)) ||
+                    (c.doi ?? '').toLowerCase().includes(q) ||
+                    String(c.csl.issued?.year ?? '').includes(q) ||
+                    (c.tags ?? []).some((t) => t.toLowerCase().includes(q))
+                )
+                .map((c) => c.id)
+            )
+          );
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, local]);
 
   const retractedCount = citations.filter((c) => c.retracted).length;
 
   const visible = useMemo(() => {
-    switch (collection) {
-      case 'retracted':
-        return citations.filter((c) => c.retracted);
-      case 'orphans':
-        return citations.filter((c) => computeStatus(c) === 'orphan');
-      case 'manuscript':
-        return citations.filter((c) => c.source === 'extracted');
-      default:
-        return citations;
-    }
-  }, [citations, collection]);
+    const base = (() => {
+      switch (collection) {
+        case 'retracted':
+          return citations.filter((c) => c.retracted);
+        case 'orphans':
+          return citations.filter((c) => computeStatus(c) === 'orphan');
+        case 'manuscript':
+          return citations.filter((c) => c.source === 'extracted');
+        default:
+          return citations;
+      }
+    })();
+    return searchIds ? base.filter((c) => searchIds.has(c.id)) : base;
+  }, [citations, collection, searchIds]);
 
   const selected = citations.find((c) => c.id === selectedId) ?? null;
 
-  /** Persist metadata (no manuscript text) + add to local state. */
+  /** LOCAL-FIRST persist: sqlite first (the truth), then the OPTIONAL cloud
+   *  push — a failed/unavailable sync NEVER loses local data, and the
+   *  sync status stays honest. */
   const persistAndAdd = async (c: Citation) => {
+    let status: Citation['syncStatus'] = 'local_only';
+    try {
+      await local.upsert(c, c.tags ?? []);
+    } catch (e) {
+      // No local store (plain browser) → in-memory only; still honest.
+      console.warn('[citations] local write unavailable:', e);
+    }
     if (session) {
       const res = await lib.add(citationToRow(session.user.id, c));
-      if (res.error) toast(`Not synced: ${res.error}`, 'assessed');
+      if (res.error || res.offline) {
+        status = 'pending';
+        toast(`Not synced: ${res.error ?? 'cloud unavailable offline'} — kept locally`, 'assessed');
+      } else {
+        status = 'synced';
+      }
+      try {
+        await local.markSync(c.id, status);
+      } catch {
+        /* in-memory only */
+      }
     }
-    setCitations((xs) => [c, ...xs]);
+    setCitations((xs) => [{ ...c, syncStatus: status }, ...xs]);
     setSelectedId(c.id);
+  };
+
+  /** Tag management on the selected reference — fully local. */
+  const applyTags = async (c: Citation, tags: string[]) => {
+    try {
+      await local.setTags(c.id, tags);
+    } catch (e) {
+      console.warn('[citations] local tags unavailable:', e);
+    }
+    setCitations((xs) => xs.map((x) => (x.id === c.id ? { ...x, tags, syncStatus: 'local_only' } : x)));
   };
 
   /* --------------------------- add way #2: DOI --------------------------- */
@@ -306,6 +407,42 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                   <div className="gds-cite-preview" data-testid="preview">
                     <Formatted text={formatCitation(selected.csl, style)} />
                   </div>
+                  <div style={{ marginTop: 10 }} data-testid="cm-tags">
+                    {(selected.tags ?? []).map((t) => (
+                      <button
+                        key={t}
+                        className="gds-chat__chip"
+                        title="Remove tag"
+                        data-testid={`cm-tag-${t}`}
+                        onClick={() => void applyTags(selected, (selected.tags ?? []).filter((x) => x !== t))}
+                      >
+                        {t} ✕
+                      </button>
+                    ))}
+                    <input
+                      className="gds-cite-input"
+                      style={{ maxWidth: 140, marginLeft: 6 }}
+                      placeholder="add tag…"
+                      value={tagInput}
+                      data-testid="cm-tag-input"
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && tagInput.trim()) {
+                          void applyTags(selected, Array.from(new Set([...(selected.tags ?? []), tagInput.trim()])));
+                          setTagInput('');
+                        }
+                      }}
+                    />
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 12 }} data-testid="cm-sync-status">
+                    {selected.syncStatus === 'synced'
+                      ? 'Synced to your account'
+                      : selected.syncStatus === 'pending'
+                        ? 'Sync pending — kept locally'
+                        : session
+                          ? 'Local only (not yet synced)'
+                          : 'Local only — sign in to enable optional sync'}
+                  </div>
                   <div style={{ marginTop: 10, fontSize: 12, color: 'var(--g-text-3)' }}>
                     Status: {STATUS_LABEL[computeStatus(selected)]}
                     {selected.provenance && selected.provenance.length > 0 && (
@@ -322,6 +459,15 @@ const Inner: React.FC<CitationManagerPageProps> = ({
           }
         >
           <Panel title={collection === 'retracted' ? 'Retracted Items' : 'Citations'}>
+            <div className="gds-cite-add__row" style={{ marginBottom: 8 }}>
+              <input
+                className="gds-cite-input"
+                placeholder="Search title, author, year, DOI or tag…"
+                value={query}
+                data-testid="cm-search"
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
             {/* add controls: three ways */}
             <div className="gds-cite-add" data-testid="add-controls">
               <div className="gds-cite-add__row">

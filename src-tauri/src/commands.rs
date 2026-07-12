@@ -384,6 +384,72 @@ pub fn resolve_citation_metadata(
     )
 }
 
+/// Citation Manager (Set 4): the LOCAL-FIRST reference library. All of these
+/// are fully local/offline sqlite operations — no network, no LLM, no
+/// sign-in required. The frontend's optional Supabase sync layer marks
+/// sync_status honestly after real pushes.
+#[tauri::command]
+#[tracing::instrument(skip(state, csl_json))]
+pub fn citation_lib_upsert(
+    state: State<'_, AppState>,
+    id: String,
+    csl_json: serde_json::Value,
+    doi: Option<String>,
+    tags: Option<Vec<String>>,
+) -> Result<gaply_core::citation_library::StoredReference, GaplyError> {
+    gaply_core::citation_library::upsert(
+        &state.db,
+        &id,
+        &csl_json.to_string(),
+        doi.as_deref(),
+        &tags.unwrap_or_default(),
+    )
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn citation_lib_list(
+    state: State<'_, AppState>,
+) -> Result<Vec<gaply_core::citation_library::StoredReference>, GaplyError> {
+    gaply_core::citation_library::list(&state.db)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn citation_lib_search(
+    state: State<'_, AppState>,
+    query: String,
+    tag: Option<String>,
+) -> Result<Vec<gaply_core::citation_library::StoredReference>, GaplyError> {
+    gaply_core::citation_library::search(&state.db, &query, tag.as_deref())
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn citation_lib_set_tags(
+    state: State<'_, AppState>,
+    id: String,
+    tags: Vec<String>,
+) -> Result<gaply_core::citation_library::StoredReference, GaplyError> {
+    gaply_core::citation_library::set_tags(&state.db, &id, &tags)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn citation_lib_delete(state: State<'_, AppState>, id: String) -> Result<(), GaplyError> {
+    gaply_core::citation_library::delete(&state.db, &id)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn citation_lib_set_sync_status(
+    state: State<'_, AppState>,
+    id: String,
+    status: String,
+) -> Result<(), GaplyError> {
+    gaply_core::citation_library::set_sync_status(&state.db, &id, &status)
+}
+
 /// Research Gap Finder (Set 2): build the session's paper corpus — N uploaded
 /// files + N links → bounded, llm_safe per-paper digests (stable ids p1…pN)
 /// + a per-session RAG ingest. NO reasoning, NO LLM, NO model load (the
