@@ -1,10 +1,14 @@
-// Gaply — CSL style formatting. A dependency-free, deterministic formatter
-// covering the common styles. Marketed as "cite in any style, for any journal
-// worldwide": the FULL CSL set drops in behind this same `formatCitation` seam
-// via citeproc-js + bundled CSL style/locale files (a production swap, kept out
-// now to stay dependency-light and avoid the Object.freeze conflict class that
-// jsPDF hit — see the report exporter). Nothing here touches the network.
+// Gaply — CSL style formatting (Set 3: the documented upgrade landed). The
+// FULL CSL set (~2,856 bundled styles) now formats behind this SAME seam via
+// citeproc-js (cslEngine.ts): once `prepareStyle(styleId)` has loaded a
+// style, `formatCitation` routes through the real CSL processor —
+// deterministically, offline (styles are app assets), NO LLM. Before a
+// style is prepared, the original hand-rolled formatter still serves the 8
+// legacy ids (unchanged behavior for existing callers); an unknown,
+// unprepared style id is an HONEST error — never a silent wrong-style
+// fallback. Nothing here touches the network.
 import { CslItem } from './citationTypes';
+import { formatWithCsl, isStyleReady, LEGACY_STYLE_ALIASES } from './cslEngine';
 
 export interface CslStyle {
   id: string;
@@ -53,8 +57,22 @@ function ieeeAuthors(c: CslItem): string {
   return joinAuthors(names, ' and ');
 }
 
-/** Format one citation in the given style id. Unknown style → APA. */
+/** Format one citation in the given style id. Full-CSL (citeproc) once the
+ *  style is prepared; the legacy hand-rolled path covers the original 8 ids
+ *  before that; anything else errs honestly. */
 export function formatCitation(c: CslItem, styleId: string): string {
+  if (isStyleReady(styleId)) {
+    return formatWithCsl([c], styleId);
+  }
+  if (!(styleId in LEGACY_STYLE_ALIASES)) {
+    throw new Error(
+      `style "${styleId}" is not loaded — prepareStyle(styleId) loads any of the bundled CSL styles`
+    );
+  }
+  return formatLegacy(c, styleId);
+}
+
+function formatLegacy(c: CslItem, styleId: string): string {
   const vol = c.volume ?? '';
   const iss = c.issue ? `(${c.issue})` : '';
   const pages = c.page ?? '';
