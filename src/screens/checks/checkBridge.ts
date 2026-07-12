@@ -2,6 +2,7 @@
 // and returns its raw report. LOCAL only: passes a file PATH over Tauri IPC,
 // never manuscript bytes, and makes no network call.
 import {
+  AiCheckResult,
   AiDetectionReport,
   PlagiarismReport,
   StatsValidityReport,
@@ -10,6 +11,8 @@ import {
 export interface CheckBridge {
   plagiarism(path: string): Promise<PlagiarismReport>;
   ai(path: string): Promise<AiDetectionReport>;
+  /** Set 5: the two-way tiered AI Check (run_aicheck) — passages + honest %. */
+  aicheck(path: string): Promise<AiCheckResult>;
   validation(path: string, title?: string): Promise<StatsValidityReport>;
 }
 
@@ -24,6 +27,9 @@ export class TauriCheckBridge implements CheckBridge {
   ai(path: string) {
     return this.invoke<AiDetectionReport>('detect_ai', { path });
   }
+  aicheck(path: string) {
+    return this.invoke<AiCheckResult>('run_aicheck', { path });
+  }
   validation(path: string, title?: string) {
     return this.invoke<StatsValidityReport>('validate_manuscript', { path, title });
   }
@@ -34,6 +40,7 @@ export class TauriCheckBridge implements CheckBridge {
 export function makeMockCheckBridge(reports: {
   plagiarism?: PlagiarismReport;
   ai?: AiDetectionReport;
+  aicheck?: AiCheckResult;
   validation?: StatsValidityReport;
   onCall?: (cmd: string, path: string) => void;
 }): CheckBridge {
@@ -45,6 +52,10 @@ export function makeMockCheckBridge(reports: {
     async ai(path) {
       reports.onCall?.('detect_ai', path);
       return reports.ai!;
+    },
+    async aicheck(path) {
+      reports.onCall?.('run_aicheck', path);
+      return reports.aicheck!;
     },
     async validation(path) {
       reports.onCall?.('validate_manuscript', path);

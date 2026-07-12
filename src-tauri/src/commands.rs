@@ -209,18 +209,48 @@ pub fn detect_ai(path: String) -> Result<AiDetectionReport, GaplyError> {
     Ok(ai_detect::detect_extraction(&model, &extraction))
 }
 
-/// AI Check (Set 4): two-stage tiered detection + capped SLM-2 passage
-/// classification (see `crate::aicheck`). Long-running — the deep pass is
-/// SLM-1 on CPU — so async + spawn_blocking, like `run_full_analysis`. The
-/// flow inside is strictly one-model-at-a-time and never fails for a missing
-/// model: degraded tiers come back as honest labels in the result.
+/// One analyzed section, exactly as the AI-Check flow saw it. `text` is the
+/// SAME `paragraphs.join(" ")` string the passage char-offsets index into —
+/// the UI slices `text[start_char..end_char]` to render in-document
+/// highlights without re-deriving (and possibly mismatching) the join.
+#[derive(Debug, Serialize)]
+pub struct AiCheckSection {
+    pub kind: gaply_core::extract::SectionKind,
+    pub heading: String,
+    pub text: String,
+}
+
+/// The `run_aicheck` response: the two-way analysis plus the analyzed section
+/// texts for in-document highlighting.
+#[derive(Debug, Serialize)]
+pub struct AiCheckResult {
+    pub analysis: ClassifiedAnalysis,
+    pub sections: Vec<AiCheckSection>,
+}
+
+/// AI Check (Set 5): the TWO-WAY tiered analysis — human-written vs
+/// AI-associated — over a manuscript path (see `crate::aicheck` for the
+/// probe-driven two-way decision). Long-running — the deep pass is SLM-1 on
+/// CPU — so async + spawn_blocking, like `run_full_analysis`. Never fails for
+/// a missing model: degraded tiers come back as honest labels in the result.
 #[tauri::command]
 #[tracing::instrument]
-pub async fn run_aicheck(path: String) -> Result<ClassifiedAnalysis, GaplyError> {
+pub async fn run_aicheck(path: String) -> Result<AiCheckResult, GaplyError> {
     tokio::task::spawn_blocking(move || {
         let text = docparse::parse_path(std::path::Path::new(&path))?;
         let extraction = extract::extract_from_text(&text);
-        Ok(crate::aicheck::run_aicheck_flow(&extraction))
+        let analysis = crate::aicheck::run_aicheck_flow(&extraction);
+        // The same join analyze_passages uses — offsets line up by construction.
+        let sections = extraction
+            .sections
+            .iter()
+            .map(|s| AiCheckSection {
+                kind: s.kind,
+                heading: s.heading.clone(),
+                text: s.paragraphs.join(" "),
+            })
+            .collect();
+        Ok(AiCheckResult { analysis, sections })
     })
     .await
     .map_err(|e| GaplyError::Internal(format!("aicheck task panicked: {e}")))?

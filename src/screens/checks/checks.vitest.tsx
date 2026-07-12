@@ -21,6 +21,7 @@ import {
   PlagiarismReport,
   StatsValidityReport,
 } from './agentTypes';
+import { AICHECK_FIXTURE } from './aicheckFixture';
 
 vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
@@ -113,15 +114,18 @@ describe('Plagiarism Check', () => {
 });
 
 describe('AI Check', () => {
-  it('renders per-section risk AND always shows the mandatory disclaimer', async () => {
-    const bridge = makeMockCheckBridge({ ai: AI });
+  it('renders the two-way tiered report with the mandatory caution (Set 5)', async () => {
+    const bridge = makeMockCheckBridge({ aicheck: AICHECK_FIXTURE });
     renderScreen(<AiCheckPage bridge={bridge} />);
     await runFile();
-    expect(screen.getByTestId('report-disclaimer').textContent).toMatch(/not proof of misconduct/i);
-    // every AI finding is the amber "AI-assessed" tier
-    for (const b of screen.getAllByText('AI-assessed, moderate confidence')) {
-      expect(b).toBeTruthy();
-    }
+    // the un-strippable caution, verbatim from the core
+    expect(screen.getByTestId('ai-disclaimer').textContent).toMatch(/NOT proof of AI authorship/);
+    // the honest % with two-tier highlights
+    expect(screen.getByTestId('ai-proportion').textContent).toBe('42.0%');
+    expect(screen.getByTestId('aicheck-highlight-0').getAttribute('data-tier')).toBe('flagged');
+    expect(screen.getByTestId('aicheck-highlight-1').getAttribute('data-tier')).toBe('assessed');
+    // the paraphrase lane is honestly unavailable — never a fake category
+    expect(screen.getByTestId('paraphrase-unavailable').textContent).toContain('UNAVAILABLE');
   });
 });
 
@@ -180,7 +184,10 @@ describe('locality: local checks carry no manuscript over the network', () => {
     (global as any).fetch = fetchSpy;
     const xhrOpen = vi.spyOn(XMLHttpRequest.prototype, 'open');
     const handed: string[] = [];
-    const bridge = makeMockCheckBridge({ ai: AI, onCall: (_cmd, path) => handed.push(path) });
+    const bridge = makeMockCheckBridge({
+      aicheck: AICHECK_FIXTURE,
+      onCall: (_cmd, path) => handed.push(path),
+    });
 
     renderScreen(<AiCheckPage bridge={bridge} />);
     fireEvent.change(await screen.findByTestId('file-input'), {

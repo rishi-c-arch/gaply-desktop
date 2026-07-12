@@ -1,11 +1,31 @@
-// Gaply — AI Check (F7). Local, free: perplexity + burstiness, per-section risk.
-// The MANDATORY uncertainty disclaimer rides on every result (surfaced verbatim
-// from the Rust agent). The PerplexityModel seam means the future fine-tuned SLM
-// replaces the interim HeuristicModel with NO UI change.
-import React, { useMemo } from 'react';
-import CheckScreen from './CheckScreen';
+// Gaply — AI Check (Set 5). Local, free: the TWO-WAY tiered analysis —
+// human-written vs AI-associated — over the run_aicheck command. 2-color
+// in-document highlighting, the honest proportion, per-passage evidence, and
+// the un-strippable cautions, all verbatim from the Rust core.
+//
+// Two-way is the Set-4 live-probe decision: no supported local model makes
+// the AI-generated vs AI-paraphrased distinction reliably, so this page
+// renders the paraphrase lane as honestly UNAVAILABLE (see AiCheckReport),
+// never a fake third category.
+//
+// Keeps CheckScreen's scaffold shape (file-pick testids, shell) but renders
+// its own report — the tiered wire doesn't fit the F6 PublishReadyReport.
+import React, { useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  AppShell,
+  Badge,
+  Button,
+  Card,
+  GaplyGlobe,
+  HeaderBar,
+  NavRail,
+  Panel,
+} from '../../design-system';
+import { ACCEPT_HINT, estimatePdfPageCount, validateFile } from '../analysis/validateFile';
+import AiCheckReport from './AiCheckReport';
 import { CheckBridge, TauriCheckBridge } from './checkBridge';
-import { aiToReport } from './adapters';
+import { AiCheckResult } from './agentTypes';
 
 export interface AiCheckPageProps {
   bridge?: CheckBridge;
@@ -13,14 +33,105 @@ export interface AiCheckPageProps {
 
 const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
   const b = useMemo(() => bridge ?? new TauriCheckBridge(), [bridge]);
+  const navigate = useNavigate();
+  const [selected, setSelected] = useState<{ name: string; path: string } | null>(null);
+  const [result, setResult] = useState<AiCheckResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const acceptFile = async (file: File) => {
+    setError(null);
+    const pageCount = await estimatePdfPageCount(file);
+    const res = validateFile({ name: file.name, sizeBytes: file.size, pageCount });
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setSelected({ name: file.name, path: (file as any).path ?? file.name });
+    setResult(null);
+  };
+
+  const runNow = async () => {
+    if (!selected) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setResult(await b.aicheck(selected.path));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'check failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <CheckScreen
-      testid="ai-check"
-      title="AI Check"
-      subtitle="Per-section AI-writing signal (perplexity + burstiness) — statistical, not proof"
-      tabs={['Overview', 'AI Risk']}
-      run={async (path) => aiToReport(await b.ai(path))}
-    />
+    <div className="gds-root" style={{ height: '100vh' }} data-testid="ai-check">
+      <AppShell
+        rail={
+          <NavRail
+            items={[
+              { id: 'home', label: 'Home', icon: '◫', onSelect: () => navigate('/app') },
+              { id: 'plag', label: 'Plagiarism Check', icon: '≡', onSelect: () => navigate('/app/check/plagiarism') },
+              { id: 'ai', label: 'AI Check', icon: '◬', onSelect: () => navigate('/app/check/ai') },
+              { id: 'stats', label: 'Statistical Analysis Check', icon: 'Σ', onSelect: () => navigate('/app/check/stats') },
+            ]}
+            activeId=""
+            brand={<GaplyGlobe scale="mark" />}
+          />
+        }
+        header={
+          <HeaderBar title="AI Check">
+            <Badge status="certain">local · free</Badge>
+          </HeaderBar>
+        }
+      >
+        <Panel title="AI Check">
+          <div style={{ display: 'grid', gap: 16 }}>
+            {!result ? (
+              <>
+                <Card title="Select a manuscript">
+                  <p style={{ margin: '0 0 12px', color: 'var(--g-text-3)', fontSize: 13 }}>
+                    Two-stage analysis: a fast pre-pass over the whole document, then the local
+                    model re-checks the strongest signals against your document's own baseline.
+                    Signal levels, never verdicts. · {ACCEPT_HINT} · parsed on your device, never
+                    uploaded.
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Button variant="secondary" onClick={() => inputRef.current?.click()} data-testid="pick-file">
+                      Choose file
+                    </Button>
+                    {selected && <span className="gds-mono" data-testid="selected-name">{selected.name}</span>}
+                    <input
+                      ref={inputRef}
+                      type="file"
+                      accept=".pdf,.docx"
+                      style={{ display: 'none' }}
+                      data-testid="file-input"
+                      onChange={(e) => e.target.files?.[0] && void acceptFile(e.target.files[0])}
+                    />
+                    <Button onClick={runNow} disabled={!selected || busy} data-testid="run-check">
+                      {busy ? 'Running…' : 'Run check'}
+                    </Button>
+                  </div>
+                  {error && <p style={{ color: 'var(--g-flagged)', fontSize: 13 }} role="alert" data-testid="check-error">{error}</p>}
+                </Card>
+                <Link to="/app">← Back to Home</Link>
+              </>
+            ) : (
+              <div data-testid="check-report">
+                <AiCheckReport result={result} />
+                <div style={{ marginTop: 12 }}>
+                  <Button variant="ghost" onClick={() => setResult(null)} data-testid="run-another">
+                    ← Run another
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </Panel>
+      </AppShell>
+    </div>
   );
 };
 

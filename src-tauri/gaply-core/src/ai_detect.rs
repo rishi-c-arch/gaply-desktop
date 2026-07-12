@@ -703,6 +703,9 @@ pub struct TieredAnalysis {
     /// Honest coverage statement — ALWAYS present ("N candidates;
     /// deep-verified M; cleared K; L heuristic-only beyond the budget").
     pub coverage_note: String,
+    /// Deterministic language assessment (Set 5) — non-English downgrades
+    /// the whole report's confidence, un-strippably.
+    pub language: LanguageAssessment,
     /// Mandatory disclaimer. Never empty.
     pub disclaimer: String,
 }
@@ -853,6 +856,16 @@ pub fn analyze_tiered(
         ),
     };
 
+    // Set 5: deterministic language assessment over the analyzed text —
+    // non-English is a report-wide confidence downgrade.
+    let doc_text: String = result
+        .sections
+        .iter()
+        .map(|s| s.paragraphs.join(" "))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let language = assess_language(&doc_text);
+
     TieredAnalysis {
         fast_model: fast.name().to_string(),
         deep_model: deep.map(|d| d.name().to_string()),
@@ -868,6 +881,7 @@ pub fn analyze_tiered(
         deep_verified,
         cleared_by_deep: cleared,
         coverage_note,
+        language,
         disclaimer: AI_DISCLAIMER.to_string(),
     }
 }
@@ -904,11 +918,15 @@ Distinguishing AI-paraphrased from AI-generated text is EVEN LESS reliable than 
 itself — expect high error rates from the small local model. Never treat a category as proof \
 and never use it as sole evidence.";
 
-/// The honest TWO-WAY fallback note when no classification model is available.
-pub const CLASSIFICATION_UNAVAILABLE_NOTE: &str = "Paraphrase distinction unavailable — the \
-local classification model (Ollama) is not installed or not running. The passage keeps its \
-AI-associated signal; no category was guessed. Install the local model to enable the \
-AI-generated vs AI-paraphrased distinction.";
+/// The honest TWO-WAY note when the distinction is not made. Reworded after
+/// the Set-4 LIVE PROBE: qwen3:4b cannot separate generated from paraphrased
+/// at usable speed (fast mode blurs everything into one category; reasoning
+/// mode takes minutes PER CALL and still miscategorizes human text), so the
+/// shipped flow does not ask — and this note must not promise that installing
+/// a model enables the distinction.
+pub const CLASSIFICATION_UNAVAILABLE_NOTE: &str = "Paraphrase distinction unavailable — no \
+supported local model currently distinguishes AI-generated from AI-paraphrased text \
+reliably. The passage keeps its two-way AI-associated signal; no category was guessed.";
 
 /// Beyond the per-analysis call budget.
 pub const CLASSIFICATION_BUDGET_NOTE: &str = "Not classified: the per-analysis classification \
@@ -1043,6 +1061,8 @@ pub struct ClassifiedAnalysis {
     pub classification_note: String,
     /// REQUIRED paraphrase-reliability caution. Never empty.
     pub paraphrase_caution: String,
+    /// Language assessment carried through from the tiered analysis (Set 5).
+    pub language: LanguageAssessment,
     /// Mandatory disclaimer. Never empty.
     pub disclaimer: String,
 }
@@ -1125,9 +1145,11 @@ fn unclassified(tp: &TieredPassage, note: &str, gate_flags: Vec<String>) -> Clas
 /// Classify the deep-verified passages of a tiered analysis, within a call
 /// budget. PURE apart from the seam: `client: None` is the honest two-way
 /// fallback (every deep-verified passage keeps its signal, unclassified with
-/// the install note). The tiered summary — including the honest % — is
-/// carried through UNCHANGED: classification splits the flagged text into
-/// categories; it never re-decides what is flagged.
+/// the unavailable note) — and since the Set-4 live probe it is also the
+/// SHIPPED default (see `CLASSIFICATION_UNAVAILABLE_NOTE`). The tiered
+/// summary — including the honest % — is carried through UNCHANGED:
+/// classification splits the flagged text into categories; it never
+/// re-decides what is flagged.
 #[tracing::instrument(skip(client, analysis), fields(passages = analysis.passages.len()))]
 pub fn classify_passages(
     client: Option<&dyn ClassifyClient>,
@@ -1227,10 +1249,10 @@ pub fn classify_passages(
              heuristic-only passage(s) not classified"
         ),
         None => format!(
-            "{deep_total} deep-verified passage(s); paraphrase distinction UNAVAILABLE — the \
-             local classification model (Ollama) is not installed/running, so no AI-generated \
-             vs AI-paraphrased categories were assigned (nothing was guessed); install the \
-             local model to enable the distinction"
+            "{deep_total} deep-verified passage(s); paraphrase distinction UNAVAILABLE — no \
+             supported local model distinguishes AI-generated from AI-paraphrased reliably, \
+             so passages carry the two-way signal (human-written vs AI-associated) and \
+             nothing was guessed"
         ),
     };
 
@@ -1251,7 +1273,192 @@ pub fn classify_passages(
         ai_paraphrased_chars,
         classification_note,
         paraphrase_caution: PARAPHRASE_CAUTION.to_string(),
+        language: analysis.language.clone(),
         disclaimer: AI_DISCLAIMER.to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic language assessment (AI Check Set 5) — calibration honesty
+// ---------------------------------------------------------------------------
+//
+// The perplexity thresholds and the SLM-1 calibration are ENGLISH-ONLY, and
+// non-English / non-native text is exactly where AI detectors' false
+// positives concentrate. So every tiered analysis carries a deterministic,
+// LLM-free language assessment: a Unicode-script histogram first (CJK,
+// Cyrillic, Arabic, … — robust, no wordlists needed), then stopword profiles
+// across six Latin-script languages. This is NOT a general language
+// identifier — it is an honesty gate for OUR calibration: anything that
+// doesn't read as English downgrades the whole report's confidence with an
+// un-strippable note.
+
+/// Report-level note when the document reads as English. The standing
+/// non-native caution STILL applies — English-detection says nothing about
+/// the writer.
+pub const LANGUAGE_RELIABLE_NOTE: &str = "Detected language: English — the calibrated \
+thresholds apply. The standing cautions still do: non-native English writers are \
+disproportionately over-flagged by AI detectors.";
+
+/// Report-level DOWNGRADE when the document does not read as English.
+pub const LANGUAGE_DOWNGRADE_NOTE: &str = "NON-ENGLISH (or unidentifiable) text detected. \
+Gaply's AI-detection thresholds are calibrated on English prose ONLY, so every signal in \
+this report is LOW-CONFIDENCE for this document and false positives are substantially more \
+likely. Treat all flags as unreliable; never act on them alone.";
+
+/// Deterministic language assessment — an un-strippable, mandatory part of
+/// every tiered/classified analysis.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LanguageAssessment {
+    /// Best-effort label: "english", "spanish", …, a script family
+    /// ("cjk script"), or "unknown". Never a guess dressed as certainty —
+    /// ties and thin evidence resolve to "unknown".
+    pub detected: String,
+    /// English stopword hit-ratio over the sampled words (deterministic).
+    pub english_stopword_ratio: f64,
+    /// TRUE only when the text reads as English — the calibration's domain.
+    /// FALSE is a CONFIDENCE DOWNGRADE for the entire report.
+    pub calibration_reliable: bool,
+    /// REQUIRED honesty note ([`LANGUAGE_RELIABLE_NOTE`] or
+    /// [`LANGUAGE_DOWNGRADE_NOTE`]). Never empty.
+    pub note: String,
+}
+
+/// Sample caps: enough text to be stable, bounded work on 500-page inputs.
+const LANG_SAMPLE_CHARS: usize = 20_000;
+const LANG_MIN_STOPWORD_RATIO: f64 = 0.05;
+
+/// Stopword profiles: (label, ~24 highest-frequency function words). Small
+/// deliberately — this discriminates six Latin-script languages; it does not
+/// try to be an identifier for all of them.
+const LANG_PROFILES: &[(&str, &[&str])] = &[
+    ("english", &[
+        "the", "and", "of", "to", "in", "is", "that", "was", "for", "with", "are", "this",
+        "be", "on", "not", "have", "has", "were", "which", "from", "but", "they", "their", "we",
+    ]),
+    ("spanish", &[
+        "el", "la", "los", "las", "de", "que", "y", "en", "un", "una", "es", "se", "por",
+        "con", "para", "del", "al", "como", "pero", "sus", "le", "ha", "este", "esta",
+    ]),
+    ("french", &[
+        "le", "la", "les", "des", "de", "du", "et", "en", "un", "une", "est", "que", "qui",
+        "dans", "pour", "pas", "sur", "par", "avec", "au", "ce", "il", "elle", "sont",
+    ]),
+    ("german", &[
+        "der", "die", "das", "und", "ist", "von", "mit", "den", "dem", "ein", "eine",
+        "nicht", "auch", "auf", "für", "als", "sich", "im", "dass", "wird", "sind", "oder",
+        "zu", "bei",
+    ]),
+    ("italian", &[
+        "il", "la", "le", "di", "che", "e", "in", "un", "una", "per", "non", "sono", "con",
+        "del", "della", "al", "si", "da", "come", "ma", "anche", "gli", "nel", "alla",
+    ]),
+    ("portuguese", &[
+        "o", "a", "os", "as", "de", "que", "e", "em", "um", "uma", "para", "com", "do",
+        "da", "no", "na", "por", "se", "mais", "como", "mas", "foi", "dos", "das",
+    ]),
+];
+
+/// Non-Latin script ranges: (label, is-in-range). Script evidence beats
+/// wordlists — a Cyrillic document needs no stopword vote.
+fn script_of(c: char) -> Option<&'static str> {
+    match c as u32 {
+        0x0370..=0x03FF => Some("greek script"),
+        0x0400..=0x04FF => Some("cyrillic script"),
+        0x0590..=0x05FF => Some("hebrew script"),
+        0x0600..=0x06FF | 0x0750..=0x077F => Some("arabic script"),
+        0x0900..=0x097F => Some("devanagari script"),
+        0x0E00..=0x0E7F => Some("thai script"),
+        0x3040..=0x30FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF => Some("cjk script"),
+        0xAC00..=0xD7AF => Some("hangul script"),
+        _ => None,
+    }
+}
+
+/// Deterministic language assessment over a text sample. LLM-free, no I/O,
+/// stable across runs.
+pub fn assess_language(text: &str) -> LanguageAssessment {
+    let sample: String = text.chars().take(LANG_SAMPLE_CHARS).collect();
+
+    // --- script histogram over letters ------------------------------------
+    let mut letters = 0usize;
+    let mut script_counts: Vec<(&'static str, usize)> = Vec::new();
+    for c in sample.chars() {
+        if !c.is_alphabetic() {
+            continue;
+        }
+        letters += 1;
+        // anything not in a listed range counts as latin-ish via `letters`
+        if let Some(name) = script_of(c) {
+            match script_counts.iter_mut().find(|(n, _)| *n == name) {
+                Some((_, k)) => *k += 1,
+                None => script_counts.push((name, 1)),
+            }
+        }
+    }
+
+    let downgraded = |detected: String, en_ratio: f64| LanguageAssessment {
+        detected,
+        english_stopword_ratio: en_ratio,
+        calibration_reliable: false,
+        note: LANGUAGE_DOWNGRADE_NOTE.to_string(),
+    };
+
+    if letters == 0 {
+        return downgraded("unknown".to_string(), 0.0);
+    }
+    // A dominant non-Latin script decides outright (>30% of letters).
+    if let Some((name, _)) = script_counts
+        .iter()
+        .filter(|(_, k)| *k * 10 > letters * 3)
+        .max_by_key(|(_, k)| *k)
+    {
+        return downgraded(name.to_string(), 0.0);
+    }
+
+    // --- stopword profiles over words --------------------------------------
+    let words: Vec<String> = sample
+        .split_whitespace()
+        .map(|w| {
+            w.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|w| !w.is_empty())
+        .collect();
+    if words.is_empty() {
+        return downgraded("unknown".to_string(), 0.0);
+    }
+
+    let ratio_of = |list: &[&str]| -> f64 {
+        let set: HashSet<&str> = list.iter().copied().collect();
+        words.iter().filter(|w| set.contains(w.as_str())).count() as f64 / words.len() as f64
+    };
+    let mut best = ("unknown", 0.0f64);
+    let mut english_ratio = 0.0f64;
+    for (label, list) in LANG_PROFILES {
+        let r = ratio_of(list);
+        if *label == "english" {
+            english_ratio = r;
+        }
+        // strictly-greater keeps the fixed profile order on ties — with
+        // english first, a tie resolves to english; everything stays
+        // deterministic.
+        if r > best.1 {
+            best = (label, r);
+        }
+    }
+
+    if best.1 < LANG_MIN_STOPWORD_RATIO {
+        return downgraded("unknown".to_string(), english_ratio);
+    }
+    if best.0 == "english" {
+        LanguageAssessment {
+            detected: "english".to_string(),
+            english_stopword_ratio: english_ratio,
+            calibration_reliable: true,
+            note: LANGUAGE_RELIABLE_NOTE.to_string(),
+        }
+    } else {
+        downgraded(best.0.to_string(), english_ratio)
     }
 }
 
@@ -1956,12 +2163,16 @@ mod classify_tests {
         assert!(out.classifier_model.is_none());
         assert_eq!(out.classified, 0);
         // every deep-verified passage keeps its signal, unclassified, with
-        // the install note — never a guessed third category
+        // the unavailable note — never a guessed third category
         for p in &out.passages {
             if p.tiered.depth == AnalysisDepth::DeepVerified {
                 assert_eq!(p.category, PassageCategory::Unclassified);
                 assert_eq!(p.category_note, CLASSIFICATION_UNAVAILABLE_NOTE);
-                assert!(p.category_note.contains("Install the local model"));
+                assert!(p.category_note.contains("no category was guessed"));
+                // probe honesty: must NOT promise that installing a model
+                // enables the distinction (qwen3:4b can't make it)
+                assert!(!p.category_note.contains("Install"));
+                assert!(p.category_note.contains("two-way"));
             }
         }
         assert!(out.classification_note.contains("UNAVAILABLE"));
@@ -2013,6 +2224,7 @@ mod classify_tests {
         assert_eq!(out.coverage_note, tiered.coverage_note);
         assert_eq!(out.fast_model, tiered.fast_model);
         assert_eq!(out.deep_model, tiered.deep_model);
+        assert_eq!(out.language, tiered.language, "Set-5 language rides through unchanged");
     }
 
     #[test]
@@ -2029,5 +2241,107 @@ mod classify_tests {
             DEFAULT_MAX_CLASSIFIED_PASSAGES,
         );
         assert_eq!(a, b);
+    }
+}
+
+#[cfg(test)]
+mod language_tests {
+    use super::*;
+
+    #[test]
+    fn english_prose_is_reliable_with_the_standing_caution() {
+        let out = assess_language(
+            "The results of the study show that the method was effective, and the data are \
+             consistent with this interpretation of the findings.",
+        );
+        assert_eq!(out.detected, "english");
+        assert!(out.calibration_reliable);
+        assert_eq!(out.note, LANGUAGE_RELIABLE_NOTE);
+        // reliable NEVER means caution-free — the non-native caution stays
+        assert!(out.note.contains("non-native English"));
+        assert!(out.english_stopword_ratio > 0.1);
+    }
+
+    #[test]
+    fn spanish_prose_downgrades_confidence() {
+        let out = assess_language(
+            "Los resultados de este estudio muestran que el método es eficaz y que los datos \
+             son consistentes con esta interpretación de los hallazgos en la muestra.",
+        );
+        assert_eq!(out.detected, "spanish");
+        assert!(!out.calibration_reliable);
+        assert_eq!(out.note, LANGUAGE_DOWNGRADE_NOTE);
+        assert!(out.note.contains("LOW-CONFIDENCE"));
+        assert!(out.note.contains("false positives"));
+    }
+
+    #[test]
+    fn non_latin_scripts_downgrade_via_script_detection() {
+        let ru = assess_language(
+            "Результаты исследования показывают, что метод эффективен и данные согласуются с \
+             интерпретацией.",
+        );
+        assert_eq!(ru.detected, "cyrillic script");
+        assert!(!ru.calibration_reliable);
+
+        let zh = assess_language("这项研究的结果表明该方法是有效的，数据与这种解释一致。");
+        assert_eq!(zh.detected, "cjk script");
+        assert!(!zh.calibration_reliable);
+        assert_eq!(zh.note, LANGUAGE_DOWNGRADE_NOTE);
+    }
+
+    #[test]
+    fn thin_or_unrecognizable_text_is_unknown_never_a_guess() {
+        for t in ["", "12345 67890 --- ###", "zzz qqq xxx yyy www"] {
+            let out = assess_language(t);
+            assert_eq!(out.detected, "unknown", "text: {t:?}");
+            assert!(!out.calibration_reliable);
+            assert_eq!(out.note, LANGUAGE_DOWNGRADE_NOTE);
+        }
+    }
+
+    #[test]
+    fn deterministic_and_wired_into_the_tiered_analysis() {
+        let s = "The data and the results of the study.";
+        assert_eq!(assess_language(s), assess_language(s));
+
+        let ex = crate::extract::extract_from_text(
+            "Introduction\n\nThe results show that the model can do the work well.\n",
+        );
+        let out = analyze_tiered(
+            &HeuristicModel::default(),
+            None,
+            &ex,
+            DEFAULT_MAX_DEEP_PASSAGES,
+            DEFAULT_MAX_DEEP_TOKENS,
+        );
+        assert_eq!(out.language.detected, "english");
+        assert!(out.language.calibration_reliable);
+        assert!(!out.language.note.is_empty(), "the language note is REQUIRED");
+        // un-strippable: it survives serialization to the UI
+        let wire = serde_json::to_string(&out).unwrap();
+        assert!(wire.contains("\"language\""));
+        assert!(wire.contains("calibration_reliable"));
+    }
+
+    #[test]
+    fn non_english_document_flows_the_downgrade_to_the_classified_wire() {
+        let ex = crate::extract::extract_from_text(
+            "Introducción\n\nLos resultados de este estudio muestran que el método es eficaz y \
+             los datos son consistentes con la interpretación de los hallazgos en la muestra.\n",
+        );
+        let out = analyze_tiered(
+            &HeuristicModel::default(),
+            None,
+            &ex,
+            DEFAULT_MAX_DEEP_PASSAGES,
+            DEFAULT_MAX_DEEP_TOKENS,
+        );
+        assert!(!out.language.calibration_reliable, "spanish must downgrade");
+        let classified = classify_passages(None, &out, DEFAULT_MAX_CLASSIFIED_PASSAGES);
+        assert_eq!(classified.language, out.language, "downgrade rides through Set 4");
+        let wire = serde_json::to_string(&classified).unwrap();
+        assert!(wire.contains("LOW-CONFIDENCE"));
+        assert!(!wire.contains("probability"));
     }
 }

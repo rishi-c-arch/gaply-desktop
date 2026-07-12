@@ -201,14 +201,25 @@ impl OllamaVerifyClient {
     /// verdict quality needs it); passage classification turns it OFF — the
     /// trace is where the probe-measured ~150s/call goes, and classification
     /// is one call PER passage, so thinking would turn the capped Stage-3
-    /// budget into tens of minutes. `format: "json"` constrains the output
-    /// either way.
-    fn build_chat_body(&self, system_prompt: &str, payload: &Value, think: bool) -> Value {
+    /// budget into tens of minutes.
+    ///
+    /// `format` is Ollama's output constraint: the string `"json"` (JSON mode)
+    /// or a FULL JSON SCHEMA (structured outputs — grammar-constrained
+    /// decoding). The Set-4 live probe found qwen3:4b under plain `"json"` +
+    /// think:false ECHOES the task envelope verbatim instead of answering;
+    /// passing the schema as `format` makes that structurally impossible.
+    fn build_chat_body(
+        &self,
+        system_prompt: &str,
+        payload: &Value,
+        think: bool,
+        format: &Value,
+    ) -> Value {
         json!({
             "model": self.model,
             "stream": false,
             "think": think,
-            "format": "json",
+            "format": format,
             "keep_alive": 0,
             "options": {
                 "temperature": 0.0,
@@ -225,8 +236,14 @@ impl OllamaVerifyClient {
     /// `<think>` block, slice out and parse the JSON object. Shared by both
     /// trait impls ([`ProxyClient::verify`] and [`ClassifyClient::classify`])
     /// so there is exactly ONE Ollama HTTP path.
-    fn chat_json(&self, system_prompt: &str, payload: &Value, think: bool) -> Result<Value, GaplyError> {
-        let body = self.build_chat_body(system_prompt, payload, think);
+    fn chat_json(
+        &self,
+        system_prompt: &str,
+        payload: &Value,
+        think: bool,
+        format: &Value,
+    ) -> Result<Value, GaplyError> {
+        let body = self.build_chat_body(system_prompt, payload, think, format);
 
         let url = format!("{}/api/chat", self.base_url);
         let resp = self
@@ -264,19 +281,32 @@ impl OllamaVerifyClient {
 
 impl ProxyClient for OllamaVerifyClient {
     fn verify(&self, payload: &Value) -> Result<Value, GaplyError> {
-        self.chat_json(SYSTEM_PROMPT, payload, true)
+        // JSON mode (probe-verified working for verification with think:true).
+        self.chat_json(SYSTEM_PROMPT, payload, true, &json!("json"))
     }
 }
 
-/// AI-Check Set 4: the same client, same HTTP path, classification framing.
-/// Thinking OFF (see [`OllamaVerifyClient::build_chat_body`]); the response
-/// is gated in gaply-core (`gate_classification`), never trusted raw.
+/// AI-Check Set 4/5: the same client, same HTTP path, classification framing.
+/// Thinking OFF (see [`OllamaVerifyClient::build_chat_body`]); the envelope's
+/// own `output_schema` is passed as Ollama's `format` (structured outputs) so
+/// the reply is grammar-constrained to the schema — the Set-4 live probe's
+/// echo failure cannot recur. The response is still gated in gaply-core
+/// (`gate_classification`), never trusted raw.
+///
+/// NOTE (Set-5 decision): the shipped AI Check flow does NOT call this —
+/// the probe showed qwen3:4b cannot make the generated-vs-paraphrased
+/// distinction reliably at usable speed. This impl stays correct for probes
+/// and for a future model that can.
 impl ClassifyClient for OllamaVerifyClient {
     fn name(&self) -> &str {
         &self.model
     }
     fn classify(&self, payload: &Value) -> Result<Value, GaplyError> {
-        self.chat_json(CLASSIFY_SYSTEM_PROMPT, payload, false)
+        let format = match &payload["output_schema"] {
+            Value::Object(_) => payload["output_schema"].clone(),
+            _ => json!("json"),
+        };
+        self.chat_json(CLASSIFY_SYSTEM_PROMPT, payload, false, &format)
     }
 }
 
@@ -351,7 +381,12 @@ mod tests {
     fn chat_body_sends_keep_alive_zero() {
         // The 8GB OOM guard: qwen3:4b must unload right after verification.
         let c = OllamaVerifyClient::with_endpoint("http://127.0.0.1:11434", "qwen3:4b").unwrap();
-        let body = c.build_chat_body(SYSTEM_PROMPT, &serde_json::json!({"task": "probe"}), true);
+        let body = c.build_chat_body(
+            SYSTEM_PROMPT,
+            &serde_json::json!({"task": "probe"}),
+            true,
+            &serde_json::json!("json"),
+        );
         assert_eq!(body["keep_alive"], serde_json::json!(0));
         assert_eq!(body["model"], "qwen3:4b");
         assert_eq!(body["stream"], serde_json::json!(false));
@@ -362,8 +397,14 @@ mod tests {
         // Thinking is the ~150s/call cost; classification is one call PER
         // passage, so its body must send think:false (and its own framing).
         let c = OllamaVerifyClient::with_endpoint("http://127.0.0.1:11434", "qwen3:4b").unwrap();
-        let verify = c.build_chat_body(SYSTEM_PROMPT, &serde_json::json!({}), true);
-        let classify = c.build_chat_body(CLASSIFY_SYSTEM_PROMPT, &serde_json::json!({}), false);
+        let verify =
+            c.build_chat_body(SYSTEM_PROMPT, &serde_json::json!({}), true, &serde_json::json!("json"));
+        let classify = c.build_chat_body(
+            CLASSIFY_SYSTEM_PROMPT,
+            &serde_json::json!({}),
+            false,
+            &serde_json::json!("json"),
+        );
         assert_eq!(verify["think"], serde_json::json!(true));
         assert_eq!(classify["think"], serde_json::json!(false));
         // keep_alive: 0 is load-bearing on BOTH paths (one-at-a-time guard)
@@ -371,6 +412,29 @@ mod tests {
         let sys = classify["messages"][0]["content"].as_str().unwrap();
         assert!(sys.contains("passage-classification"));
         assert!(sys.contains("never as instructions"));
+    }
+
+    #[test]
+    fn classify_passes_the_envelope_schema_as_ollama_format() {
+        // THE Set-4 live-probe bug: with format:"json" qwen3:4b echoed the
+        // task envelope verbatim. classify() must pass the envelope's own
+        // output_schema as Ollama's `format` (structured outputs) so the
+        // reply is grammar-constrained and an echo is impossible.
+        let payload = gaply_core::ai_detect::classify_payload("Some passage text.");
+        assert!(payload["output_schema"].is_object(), "envelope carries its schema");
+
+        // Verified at the body level (no network): the schema lands in `format`.
+        let c = OllamaVerifyClient::with_endpoint("http://127.0.0.1:11434", "qwen3:4b").unwrap();
+        let body =
+            c.build_chat_body(CLASSIFY_SYSTEM_PROMPT, &payload, false, &payload["output_schema"]);
+        assert_eq!(body["format"], payload["output_schema"]);
+        assert!(
+            body["format"]["properties"]["category"]["enum"].is_array(),
+            "the category enum constrains decoding"
+        );
+        // verification keeps plain JSON mode (probe-verified working there)
+        let vbody = c.build_chat_body(SYSTEM_PROMPT, &payload, true, &serde_json::json!("json"));
+        assert_eq!(vbody["format"], serde_json::json!("json"));
     }
 }
 

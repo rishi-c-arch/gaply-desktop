@@ -108,10 +108,15 @@ pub fn perplexity_model() -> Box<dyn PerplexityModel> {
 }
 
 /// The AI-Check classification client (SLM-2 over Ollama), or honestly `None`
-/// when Ollama isn't reachable — the caller's two-way fallback (passages keep
-/// their signal; no category is guessed; the report says to install the
-/// model). LOCAL-ONLY by design: AI Check is free and never touches the cloud
-/// proxy, so unlike [`verify_proxy`] there is deliberately no cloud tier here.
+/// when Ollama isn't reachable. LOCAL-ONLY by design: AI Check is free and
+/// never touches the cloud proxy, so unlike [`verify_proxy`] there is
+/// deliberately no cloud tier here.
+///
+/// NOTE (Set-5 decision): the SHIPPED AI Check flow does not call this — the
+/// Set-4 live probe showed qwen3:4b cannot make the generated-vs-paraphrased
+/// distinction reliably at usable speed, so `run_aicheck_flow` passes `None`
+/// unconditionally (the honest two-way collapse). This resolver stays for
+/// probes and for a future local model that can make the distinction.
 pub fn aicheck_classifier() -> Option<Box<dyn ClassifyClient>> {
     let (endpoint, model) = slm2_endpoint_model();
     match OllamaVerifyClient::with_endpoint(&endpoint, &model) {
