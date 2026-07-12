@@ -151,8 +151,10 @@ body.light .gpl-landing__theme:hover { background: rgba(15, 23, 42, 0.07); }
   pointer-events: none;
 }
 
+/* light theme: the globe is the white graph-paper math sphere — a red halo
+   would tint the paper, so it gets a soft neutral drop instead (polish). */
 body.light .gpl-landing__globe::before {
-  background: radial-gradient(closest-side, rgba(220, 38, 38, 0.18), rgba(220, 38, 38, 0) 70%);
+  background: radial-gradient(closest-side, rgba(46, 62, 78, 0.14), rgba(46, 62, 78, 0) 72%);
 }
 
 .gpl-landing__globe > * {
