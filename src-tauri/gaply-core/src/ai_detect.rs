@@ -624,6 +624,253 @@ pub fn analyze_passages(
     finish_analysis(model, passages, total_chars)
 }
 
+// ---------------------------------------------------------------------------
+// Two-stage tiered analysis (AI Check Set 3) — feasible at 500 pages
+// ---------------------------------------------------------------------------
+//
+// The Set-2 feasibility probe measured a full-document SLM-1 pass at ~8-15
+// HOURS for 500 pages on the 8GB CPU tier — infeasible. The two-stage
+// strategy: a fast deterministic heuristic pre-pass flags CANDIDATE passages
+// across the WHOLE document (seconds), then the deep model re-scores ONLY
+// the candidates within an explicit budget (bounded minutes).
+//
+// DEEP VERIFICATION IS SELF-CALIBRATED: SLM-1's absolute perplexity scale
+// differs from the heuristic's (the documented per-tier calibration
+// problem), so no absolute threshold is reused. Instead the deep model
+// scores each candidate AND a reference sample of the document's own
+// LEAST-suspicious sentences; a candidate is DEEP-VERIFIED only when its
+// deep perplexity is lower than the document's own baseline (more
+// predictable than the author's normal prose). A candidate the deep model
+// does NOT confirm is CLEARED — the false-positive reduction this stage
+// exists for. Candidates beyond the budget stay HEURISTIC-ONLY, honestly
+// labeled.
+
+/// Which analysis tier produced/confirmed a passage — STRUCTURAL, required.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnalysisDepth {
+    /// SLM-1 re-scored this passage against the document's own baseline.
+    DeepVerified,
+    /// Flagged by the fast pre-pass but NOT deep-verified (budget or no
+    /// deep model available) — a preliminary, lower-confidence signal.
+    HeuristicOnly,
+}
+
+/// Per-tier caution lines. REQUIRED, never empty — the Set-2 un-strippable
+/// pattern extended to the tier dimension.
+pub const DEEP_VERIFIED_NOTE: &str = "Deep-verified: the local model re-scored this passage \
+against this document's own baseline. Still a SIGNAL, not proof of AI authorship.";
+pub const HEURISTIC_ONLY_NOTE: &str = "Heuristic-only: flagged by the fast pre-pass and NOT \
+model-verified (analysis budget). A preliminary, lower-confidence signal — weigh accordingly; \
+never treat as proof.";
+
+/// Default deep-analysis budget: passages and tokens. At the measured 8GB
+/// CPU rate (~6 tok/s under load) ~2,000 tokens keeps Stage 2 in single-
+/// digit minutes. Both caps are parameters — these are defaults, not policy.
+pub const DEFAULT_MAX_DEEP_PASSAGES: usize = 16;
+pub const DEFAULT_MAX_DEEP_TOKENS: usize = 2_000;
+/// Reference-sample budget (the document's own baseline).
+const REFERENCE_SAMPLE_TOKENS: usize = 300;
+
+/// A passage with its tier label. Flattened so the wire shape is the Set-2
+/// passage plus `depth` + `depth_note`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TieredPassage {
+    #[serde(flatten)]
+    pub passage: FlaggedPassage,
+    pub depth: AnalysisDepth,
+    /// REQUIRED tier caution. Never empty.
+    pub depth_note: String,
+}
+
+/// The two-stage result. The honest % (Set 2 semantics) computes over the
+/// passages that SURVIVED: deep-verified + heuristic-only (cleared
+/// candidates are excluded — the deep model showed them human-baseline).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TieredAnalysis {
+    pub fast_model: String,
+    pub deep_model: Option<String>,
+    pub passages: Vec<TieredPassage>,
+    pub total_chars: usize,
+    pub flagged_chars: usize,
+    /// flagged_chars / total_chars — proportion of text with AI-associated
+    /// signals (deterministic count; see PassageAnalysis).
+    pub ai_signal_proportion: f64,
+    pub candidates_found: usize,
+    pub deep_verified: usize,
+    pub cleared_by_deep: usize,
+    /// Honest coverage statement — ALWAYS present ("N candidates;
+    /// deep-verified M; cleared K; L heuristic-only beyond the budget").
+    pub coverage_note: String,
+    /// Mandatory disclaimer. Never empty.
+    pub disclaimer: String,
+}
+
+/// Candidate ranking: strongest heuristic signal first (Strong > Moderate >
+/// Weak, then lower perplexity = more AI-like).
+fn candidate_rank(p: &FlaggedPassage) -> (u8, f64) {
+    let s = match p.strength {
+        PassageStrength::Strong => 0,
+        PassageStrength::Moderate => 1,
+        PassageStrength::Weak => 2,
+    };
+    (s, p.mean_perplexity)
+}
+
+/// The document's own baseline: the LEAST-suspicious sentences (highest
+/// heuristic perplexity), joined up to the reference token budget.
+fn reference_sample(result: &crate::extract::ExtractionResult, fast: &dyn PerplexityModel) -> String {
+    let mut scored: Vec<SentenceScore> = Vec::new();
+    for sec in &result.sections {
+        let text = sec.paragraphs.join(" ");
+        if text.trim().is_empty() {
+            continue;
+        }
+        let (_, _, s) = score_block(fast, &text);
+        scored.extend(s);
+    }
+    scored.sort_by(|a, b| b.perplexity.partial_cmp(&a.perplexity).unwrap_or(std::cmp::Ordering::Equal));
+    let mut out = String::new();
+    let mut tokens = 0usize;
+    // DEDUPE: a sentence repeated verbatim becomes trivially predictable to
+    // a real model once it has left-context (each repetition is near-free),
+    // which would crush the baseline perplexity and make it unbeatable —
+    // measured on the Set-3 probe. Unique sentences only.
+    let mut seen: HashSet<String> = HashSet::new();
+    for s in scored {
+        if !seen.insert(s.text.clone()) {
+            continue;
+        }
+        if tokens + s.tokens > REFERENCE_SAMPLE_TOKENS {
+            break;
+        }
+        tokens += s.tokens;
+        out.push_str(&s.text);
+        out.push(' ');
+    }
+    out
+}
+
+/// Two-stage tiered analysis. PURE: both models arrive via the trait; the
+/// app crate decides which real models to load (and in what order — the
+/// one-at-a-time lifecycle lives there). `deep: None` = heuristic-only
+/// everywhere, honestly labeled (e.g. the deep model isn't installed).
+pub fn analyze_tiered(
+    fast: &dyn PerplexityModel,
+    deep: Option<&dyn PerplexityModel>,
+    result: &crate::extract::ExtractionResult,
+    max_deep_passages: usize,
+    max_deep_tokens: usize,
+) -> TieredAnalysis {
+    // STAGE 1 — the fast pre-pass over the WHOLE document.
+    let stage1 = analyze_passages(fast, result);
+    let candidates_found = stage1.passages.len();
+    let total_chars = stage1.total_chars;
+
+    let mut ordered: Vec<FlaggedPassage> = stage1.passages;
+    ordered.sort_by(|a, b| {
+        candidate_rank(a)
+            .partial_cmp(&candidate_rank(b))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // STAGE 2 — deep re-score of the top candidates, within budget.
+    let mut passages: Vec<TieredPassage> = Vec::new();
+    let mut deep_verified = 0usize;
+    let mut cleared = 0usize;
+    let mut deep_done = 0usize;
+
+    if let Some(deep_model) = deep {
+        // Self-calibrated baseline: the document's own least-suspicious prose.
+        let reference = reference_sample(result, fast);
+        let (ref_ppl, _, ref_scores) = score_block(deep_model, &reference);
+        let have_reference = !ref_scores.is_empty();
+        let mut tokens_spent: usize =
+            ref_scores.iter().map(|s| s.tokens).sum();
+
+        for p in ordered {
+            let p_tokens: usize = p.sentences.iter().map(|s| s.tokens).sum();
+            let within_budget = deep_done < max_deep_passages
+                && tokens_spent + p_tokens <= max_deep_tokens
+                && have_reference;
+            if !within_budget {
+                passages.push(TieredPassage {
+                    passage: p,
+                    depth: AnalysisDepth::HeuristicOnly,
+                    depth_note: HEURISTIC_ONLY_NOTE.to_string(),
+                });
+                continue;
+            }
+            let (deep_ppl, deep_burst, deep_scores) = score_block(deep_model, &p.text);
+            tokens_spent += deep_scores.iter().map(|s| s.tokens).sum::<usize>();
+            deep_done += 1;
+            if !deep_scores.is_empty() && deep_ppl < ref_ppl {
+                // Confirmed: more predictable than the document's own
+                // baseline. Carry the DEEP scores as the evidence.
+                deep_verified += 1;
+                passages.push(TieredPassage {
+                    passage: FlaggedPassage {
+                        mean_perplexity: deep_ppl,
+                        burstiness: deep_burst,
+                        sentences: deep_scores,
+                        ..p
+                    },
+                    depth: AnalysisDepth::DeepVerified,
+                    depth_note: DEEP_VERIFIED_NOTE.to_string(),
+                });
+            } else {
+                // CLEARED: the deep model puts this at/above the document's
+                // own baseline — the false-positive reduction working.
+                cleared += 1;
+            }
+        }
+    } else {
+        for p in ordered {
+            passages.push(TieredPassage {
+                passage: p,
+                depth: AnalysisDepth::HeuristicOnly,
+                depth_note: HEURISTIC_ONLY_NOTE.to_string(),
+            });
+        }
+    }
+
+    // Restore document order for display.
+    passages.sort_by_key(|t| (t.passage.section as u8, t.passage.start_char));
+
+    let flagged_chars: usize = passages
+        .iter()
+        .flat_map(|t| t.passage.sentences.iter())
+        .map(|s| s.text.chars().count())
+        .sum();
+    let heuristic_only = passages.len() - deep_verified;
+    let coverage_note = match deep {
+        Some(_) => format!(
+            "{candidates_found} candidate passage(s) from the fast pre-pass; deep-verified {deep_verified}; cleared {cleared} as document-baseline; {heuristic_only} remain heuristic-only (analysis budget: {max_deep_passages} passages / {max_deep_tokens} tokens)"
+        ),
+        None => format!(
+            "{candidates_found} candidate passage(s) from the fast pre-pass; the deep model was not available — ALL flags are heuristic-only preliminary signals"
+        ),
+    };
+
+    TieredAnalysis {
+        fast_model: fast.name().to_string(),
+        deep_model: deep.map(|d| d.name().to_string()),
+        passages,
+        total_chars,
+        flagged_chars,
+        ai_signal_proportion: if total_chars == 0 {
+            0.0
+        } else {
+            flagged_chars as f64 / total_chars as f64
+        },
+        candidates_found,
+        deep_verified,
+        cleared_by_deep: cleared,
+        coverage_note,
+        disclaimer: AI_DISCLAIMER.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -915,5 +1162,150 @@ mod passage_tests {
         let old = detect_extraction(&m(), &ex);
         assert!(!old.sections.is_empty());
         assert_eq!(old.disclaimer, AI_DISCLAIMER);
+    }
+}
+
+#[cfg(test)]
+mod tiered_tests {
+    use super::*;
+    use crate::extract::extract_from_text;
+
+    const AI_MARKED: &str = "The results show that the data can do the work well.";
+    const AI_UNMARKED: &str = "The user can see the way to go and do the work now.";
+    const HUMAN_SENT: &str = "Cerulean contraptions wheezed, magnificently preposterous, unfathomable.";
+
+    fn fast() -> HeuristicModel {
+        HeuristicModel::default()
+    }
+
+    /// Scripted deep model: tokens "results"/"show"/"data" are very
+    /// predictable (1 bit), everything else is 7 bits. So AI_MARKED scores
+    /// BELOW the reference baseline (confirmed) while AI_UNMARKED scores AT
+    /// the baseline (cleared) — both are heuristic candidates.
+    struct ScriptedDeep;
+    impl PerplexityModel for ScriptedDeep {
+        fn name(&self) -> &str {
+            "scripted-deep"
+        }
+        fn context_tokens(&self) -> usize {
+            512
+        }
+        fn stride(&self) -> usize {
+            256
+        }
+        fn tokenize(&self, text: &str) -> Vec<String> {
+            HeuristicModel::default().tokenize(text)
+        }
+        fn surprisals(&self, tokens: &[String]) -> Vec<f32> {
+            tokens
+                .iter()
+                .map(|t| match t.to_lowercase().as_str() {
+                    "results" | "show" | "data" => 1.0,
+                    _ => 7.0,
+                })
+                .collect()
+        }
+    }
+
+    fn doc(parts: &[&str]) -> crate::extract::ExtractionResult {
+        extract_from_text(&format!("Introduction\n\n{}\n", parts.join(" ")))
+    }
+
+    #[test]
+    fn stage2_confirms_and_clears_by_the_documents_own_baseline() {
+        // Candidates: [AI_MARKED×3] and [AI_UNMARKED×3]; human prose is the
+        // baseline reference.
+        let ex = doc(&[
+            HUMAN_SENT, HUMAN_SENT,
+            AI_MARKED, AI_MARKED, AI_MARKED,
+            HUMAN_SENT, HUMAN_SENT,
+            AI_UNMARKED, AI_UNMARKED, AI_UNMARKED,
+            HUMAN_SENT,
+        ]);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS);
+        assert_eq!(out.candidates_found, 2, "{}", out.coverage_note);
+        assert_eq!(out.deep_verified, 1, "the marked run is below baseline → confirmed");
+        assert_eq!(out.cleared_by_deep, 1, "the unmarked run is AT baseline → cleared (false-positive reduction)");
+        assert_eq!(out.passages.len(), 1);
+        let p = &out.passages[0];
+        assert_eq!(p.depth, AnalysisDepth::DeepVerified);
+        assert!(p.passage.text.contains("results show"));
+        // the deep evidence replaced the heuristic scores
+        assert!(p.passage.sentences.iter().all(|s| s.perplexity < 200.0));
+        // the CLEARED passage no longer counts toward the honest %
+        assert!(out.flagged_chars < out.total_chars / 2);
+    }
+
+    #[test]
+    fn budget_caps_deep_analysis_with_an_honest_note() {
+        let ex = doc(&[
+            HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT,
+            AI_MARKED, AI_MARKED, HUMAN_SENT,
+        ]);
+        // budget of 1 passage: the second candidate stays heuristic-only.
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS);
+        assert_eq!(out.candidates_found, 2);
+        assert_eq!(out.deep_verified + out.cleared_by_deep, 1, "only one deep re-score");
+        assert_eq!(
+            out.passages.iter().filter(|p| p.depth == AnalysisDepth::HeuristicOnly).count(),
+            1
+        );
+        assert!(out.coverage_note.contains("heuristic-only"), "note: {}", out.coverage_note);
+        assert!(out.coverage_note.contains("budget"), "note: {}", out.coverage_note);
+    }
+
+    #[test]
+    fn no_deep_model_is_honestly_all_heuristic_only() {
+        let ex = doc(&[HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT]);
+        let out = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS);
+        assert!(out.deep_model.is_none());
+        assert!(out.passages.iter().all(|p| p.depth == AnalysisDepth::HeuristicOnly));
+        assert!(out.coverage_note.contains("deep model was") && out.coverage_note.contains("not available"));
+        assert_eq!(out.deep_verified, 0);
+    }
+
+    #[test]
+    fn tier_labeling_is_unstrippable_and_the_caution_covers_both_tiers() {
+        let ex = doc(&[
+            HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_UNMARKED, AI_UNMARKED, HUMAN_SENT,
+        ]);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS);
+        for p in &out.passages {
+            assert!(!p.depth_note.is_empty(), "the tier caution is REQUIRED");
+            match p.depth {
+                AnalysisDepth::DeepVerified => {
+                    assert!(p.depth_note.contains("Still a SIGNAL, not proof"))
+                }
+                AnalysisDepth::HeuristicOnly => {
+                    assert!(p.depth_note.contains("preliminary"));
+                    assert!(p.depth_note.contains("never treat as proof"));
+                }
+            }
+        }
+        // survives serialization — the UI gets tiers + cautions as data
+        let wire = serde_json::to_string(&out).unwrap();
+        assert!(wire.contains("\"depth\""));
+        assert!(wire.contains("heuristic_only") || wire.contains("deep_verified"));
+        assert!(wire.contains("not proof of AI authorship") || wire.contains("NOT proof"));
+        assert!(wire.contains("coverage_note"));
+        assert!(!wire.contains("probability"));
+    }
+
+    #[test]
+    fn the_honest_percentage_computes_over_surviving_passages() {
+        let ex = doc(&[HUMAN_SENT, AI_MARKED, AI_MARKED, AI_MARKED, HUMAN_SENT]);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS);
+        let expected_flagged: usize = out
+            .passages
+            .iter()
+            .flat_map(|p| p.passage.sentences.iter())
+            .map(|s| s.text.chars().count())
+            .sum();
+        assert_eq!(out.flagged_chars, expected_flagged);
+        assert!(out.ai_signal_proportion > 0.0 && out.ai_signal_proportion < 1.0);
+        assert_eq!(out.disclaimer, AI_DISCLAIMER);
+        // deterministic
+        let again = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS);
+        assert_eq!(out, again);
     }
 }
