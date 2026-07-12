@@ -10,9 +10,12 @@ import AuthPage from './auth/AuthPage';
 import OnboardingPage from './onboarding/OnboardingPage';
 import HomeDashboardPage from './home/HomeDashboardPage';
 
-// R3F needs WebGL; jsdom has none. The globe is decorative in these screens.
+// R3F needs WebGL; jsdom has none. The globes are decorative in these screens.
 vi.mock('../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
+}));
+vi.mock('../components/ThreeJSGlobe', () => ({
+  default: () => <div data-testid="hero-globe-stub" />,
 }));
 
 afterEach(cleanup);
@@ -60,19 +63,16 @@ describe('Continue offline', () => {
 
     fireEvent.click(screen.getByTestId('continue-offline'));
 
-    // landed on home with no session at all
+    // landed on home with no session at all — the app home is the hero
     await screen.findByTestId('home-dashboard');
-    expect(screen.getByTestId('signin-nudge')).toBeTruthy();
-    // the free-offline hub is present and usable (hero + quick actions)
     expect(screen.getByTestId('dash-hero')).toBeTruthy();
-    expect(screen.getByTestId('quick-actions')).toBeTruthy();
+    expect(screen.getByText('Research Platform')).toBeTruthy();
   });
 
   it('home dashboard renders directly at /app with no session (offline routes never guarded)', async () => {
     renderApp('/app', fakeAuth(null));
     await screen.findByTestId('home-dashboard');
-    expect(screen.getByTestId('signin-nudge')).toBeTruthy();
-    expect(screen.getByText('offline')).toBeTruthy(); // header badge
+    expect(screen.getByTestId('dash-hero')).toBeTruthy();
   });
 });
 

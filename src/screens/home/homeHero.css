@@ -1,0 +1,207 @@
+/* Gaply — app-home hero polish. Brings the /app hero to the same smooth,
+   premium feel as the landing + auth screens: a staggered fade-up entrance on
+   the signature cubic-bezier(0.22, 1, 0.36, 1) easing, silky hover motion, and
+   GPU-friendly transforms. SCOPED to .apple-hero--app-home so the marketing
+   hero (same markup) is never touched. Honors prefers-reduced-motion. */
+
+.apple-hero--app-home {
+  --home-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --home-enter: 0.58s;
+}
+
+/* Clean landing-style background — the SAME soft radial the landing uses,
+   theme-aware. Full 3-class selectors match the marketing hero's own
+   background specificity so this wins (and only on the app home). */
+.apple-hero--app-home.apple-hero--no-header.hero-section-stitch {
+  background: radial-gradient(120% 90% at 50% 38%, #0b0b0d 0%, #000000 72%);
+}
+body.light .apple-hero--app-home.apple-hero--no-header.hero-section-stitch {
+  background: radial-gradient(120% 90% at 50% 38%, #ffffff 0%, #f4f4f5 72%);
+}
+/* drop the marketing hero's colored glows for the clean landing look */
+.apple-hero--app-home .hero-radial { opacity: 0 !important; }
+
+/* ---- cinematic clip on the LEFT (cropped + feathered) ---- */
+/* content floats above it */
+.apple-hero--app-home .hero-main { position: relative; z-index: 1; }
+.apple-hero--app-home .hero-top-nav { position: relative; z-index: 2; }
+
+.apple-hero--app-home .home-hero-clip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 50%;
+  height: 100%;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.62;
+  /* feather the crop: a soft blob strongest on the RIGHT, fully gone before it
+     reaches the content on the left and at the top/bottom edges. */
+  -webkit-mask-image: radial-gradient(96% 116% at 84% 50%, #000 0%, #000 32%, rgba(0, 0, 0, 0.4) 58%, transparent 78%);
+  mask-image: radial-gradient(96% 116% at 84% 50%, #000 0%, #000 32%, rgba(0, 0, 0, 0.4) 58%, transparent 78%);
+}
+.apple-hero--app-home .home-hero-clip__img {
+  position: absolute;
+  inset: -10%;
+  background-size: cover;
+  background-position: 56% 30%;
+  background-repeat: no-repeat;
+  filter: grayscale(0.15) contrast(1.03) brightness(0.95);
+  animation: homeClipPan 28s ease-in-out infinite alternate;
+  will-change: transform;
+}
+/* light theme: the clip is dark B&W on white — keep it a touch fainter. */
+body.light .apple-hero--app-home .home-hero-clip {
+  opacity: 0.34;
+}
+body.light .apple-hero--app-home .home-hero-clip__img {
+  filter: grayscale(0.15) contrast(1.02) brightness(1.02);
+}
+
+@keyframes homeClipPan {
+  from { transform: scale(1.06) translate3d(0, 0, 0); }
+  to { transform: scale(1.14) translate3d(-2.5%, -2.5%, 0); }
+}
+
+/* One faint, soft glow for depth where the globe used to sit — no imagery,
+   no busy colour, just a gentle light. */
+.apple-hero--app-home .home-hero-aura {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.apple-hero--app-home .home-hero-aura__glow {
+  position: absolute;
+  top: 44%;
+  right: 12%;
+  transform: translateY(-50%);
+  width: 620px;
+  height: 620px;
+  max-width: 60vw;
+  border-radius: 50%;
+  filter: blur(100px);
+  background: radial-gradient(closest-side, rgba(162, 94, 246, 0.18), transparent 72%);
+  animation: homeAuraFloat 14s ease-in-out infinite;
+  will-change: transform;
+}
+body.light .apple-hero--app-home .home-hero-aura__glow {
+  background: radial-gradient(closest-side, rgba(162, 94, 246, 0.1), transparent 74%);
+}
+
+@keyframes homeAuraFloat {
+  0%, 100% { transform: translateY(-50%); }
+  50% { transform: translateY(calc(-50% - 14px)); }
+}
+
+@keyframes homeHeroEnter {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes homeHeroEnterScale {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Each region fades up, staggered — reads as one confident, settled motion. */
+.apple-hero--app-home .hero-top-nav,
+.apple-hero--app-home .hero-eyebrow,
+.apple-hero--app-home .hero-heading__line,
+.apple-hero--app-home .hero-body,
+.apple-hero--app-home .hero-cta-row,
+.apple-hero--app-home .rh-hero-entry,
+.apple-hero--app-home .hero-sidebar__link,
+.apple-hero--app-home .hero-bottom-card {
+  animation: homeHeroEnter var(--home-enter) var(--home-ease) both;
+  will-change: transform, opacity;
+}
+
+.apple-hero--app-home .hero-top-nav { animation-delay: 0.02s; }
+.apple-hero--app-home .hero-eyebrow { animation-delay: 0.08s; }
+.apple-hero--app-home .hero-heading__line:nth-of-type(1) { animation-delay: 0.13s; }
+.apple-hero--app-home .hero-heading__line:nth-of-type(2) { animation-delay: 0.19s; }
+.apple-hero--app-home .hero-body { animation-delay: 0.26s; }
+.apple-hero--app-home .hero-cta-row { animation-delay: 0.33s; }
+.apple-hero--app-home .rh-hero-entry { animation-delay: 0.40s; }
+.apple-hero--app-home .hero-bottom-card { animation-delay: 0.34s; }
+
+/* Sidebar links cascade in from the left — tight, cohesive stagger. */
+.apple-hero--app-home .hero-sidebar__link { animation-name: homeHeroEnter; }
+.apple-hero--app-home .hero-sidebar__link:nth-of-type(1) { animation-delay: 0.18s; }
+.apple-hero--app-home .hero-sidebar__link:nth-of-type(2) { animation-delay: 0.22s; }
+.apple-hero--app-home .hero-sidebar__link:nth-of-type(3) { animation-delay: 0.26s; }
+.apple-hero--app-home .hero-sidebar__link:nth-of-type(4) { animation-delay: 0.30s; }
+.apple-hero--app-home .hero-sidebar__link:nth-of-type(5) { animation-delay: 0.34s; }
+.apple-hero--app-home .hero-sidebar__link:nth-of-type(6) { animation-delay: 0.38s; }
+.apple-hero--app-home .hero-sidebar__link:nth-of-type(7) { animation-delay: 0.42s; }
+.apple-hero--app-home .hero-sidebar__link:nth-of-type(8) { animation-delay: 0.46s; }
+.apple-hero--app-home .hero-sidebar__link:nth-of-type(9) { animation-delay: 0.50s; }
+.apple-hero--app-home .hero-sidebar__link:nth-of-type(10) { animation-delay: 0.54s; }
+
+/* The visual column + globe settle in with a gentle scale, then the existing
+   float loop takes over. */
+.apple-hero--app-home .hero-visual-wrap {
+  animation: homeHeroEnterScale 0.8s var(--home-ease) both;
+  animation-delay: 0.16s;
+  will-change: transform, opacity;
+}
+
+/* Silkier micro-interactions than the base hero. */
+.apple-hero--app-home .hero-sidebar__link {
+  transition: color 0.25s var(--home-ease), transform 0.25s var(--home-ease), padding-left 0.25s var(--home-ease);
+}
+.apple-hero--app-home .hero-sidebar__link:hover {
+  transform: translateX(3px);
+}
+.apple-hero--app-home .hero-cta-primary,
+.apple-hero--app-home .hero-cta-secondary {
+  transition: transform 0.3s var(--home-ease), background 0.3s var(--home-ease),
+    border-color 0.3s var(--home-ease), color 0.3s var(--home-ease), box-shadow 0.3s var(--home-ease);
+}
+.apple-hero--app-home .hero-cta-primary:hover,
+.apple-hero--app-home .hero-cta-secondary:hover {
+  transform: translateY(-2px);
+}
+.apple-hero--app-home .hero-icon-btn {
+  transition: transform 0.25s var(--home-ease), background 0.25s var(--home-ease), color 0.25s var(--home-ease);
+}
+.apple-hero--app-home .hero-icon-btn:hover {
+  transform: translateY(-1px) scale(1.05);
+}
+.apple-hero--app-home .rh-hero-entry {
+  transition: transform 0.3s var(--home-ease), border-color 0.3s var(--home-ease), background 0.3s var(--home-ease), box-shadow 0.3s var(--home-ease);
+}
+.apple-hero--app-home .rh-hero-entry:hover {
+  transform: translateY(-2px);
+}
+
+/* Respect reduced-motion: no entrance, no drift — everything simply present. */
+@media (prefers-reduced-motion: reduce) {
+  .apple-hero--app-home .hero-top-nav,
+  .apple-hero--app-home .hero-eyebrow,
+  .apple-hero--app-home .hero-heading__line,
+  .apple-hero--app-home .hero-body,
+  .apple-hero--app-home .hero-cta-row,
+  .apple-hero--app-home .rh-hero-entry,
+  .apple-hero--app-home .hero-sidebar__link,
+  .apple-hero--app-home .hero-bottom-card,
+  .apple-hero--app-home .hero-visual-wrap,
+  .apple-hero--app-home .home-hero-aura__glow,
+  .apple-hero--app-home .home-hero-aura__ring,
+  .apple-hero--app-home .home-hero-clip__img {
+    animation: none;
+  }
+}
