@@ -326,7 +326,7 @@ fn enforce_total_budget(digests: &mut [PaperDigest]) {
 
 /// Parse one uploaded paper file: metadata size check BEFORE any read, then
 /// the existing manuscript parser.
-fn parse_paper_file(path: &Path) -> Result<String, GaplyError> {
+pub(crate) fn parse_paper_file(path: &Path) -> Result<String, GaplyError> {
     let meta = std::fs::metadata(path)
         .map_err(|e| GaplyError::Validation(format!("cannot stat paper file: {e}")))?;
     if meta.len() > MAX_PAPER_FILE_BYTES {

@@ -358,6 +358,147 @@ fn json(body: &str, ctx: &'static str) -> Result<serde_json::Value, GaplyError> 
 /// Join a CrossRef `author` array (`[{given, family}]`) into a readable author
 /// string. Returns `None` if the field is absent, not an array, or yields no
 /// names — never panics on a malformed body.
+// ============================================================================
+// Citation Manager (Set 2) — FULL citation metadata, verified from CrossRef
+// ============================================================================
+
+/// One CSL-JSON author. Both parts pass llm_safe at construction — CrossRef
+/// text is web text like everything else here.
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct CslAuthor {
+    pub family: String,
+    pub given: Option<String>,
+}
+
+/// Full citation metadata, CSL-JSON-shaped, from a VERIFIED CrossRef lookup.
+/// THE ANTI-HALLUCINATION RULE lives in this type: every field is parsed from
+/// the registry response or is None — a field CrossRef doesn't provide stays
+/// absent, never guessed, and no LLM is anywhere near this path. Strings are
+/// llm_safe'd at construction (same guard as [`UntrustedText`], applied
+/// eagerly so the frontend consumes plain CSL-JSON).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CitationMetadata {
+    pub source: &'static str,
+    /// "doi" (exact key) or "title" (bibliographic query — lower confidence;
+    /// surfaced so the UI can say so honestly).
+    pub matched_by: &'static str,
+    /// CSL item type (e.g. "article-journal"), mapped from CrossRef's type.
+    pub csl_type: String,
+    pub doi: Option<String>,
+    pub title: Option<String>,
+    pub authors: Vec<CslAuthor>,
+    pub container_title: Option<String>,
+    pub year: Option<i32>,
+    pub volume: Option<String>,
+    pub issue: Option<String>,
+    pub page: Option<String>,
+    pub provenance: Provenance,
+}
+
+/// llm_safe one registry string (empty → None).
+fn safe_meta(raw: &str, provenance: &Provenance) -> Option<String> {
+    let s = UntrustedText::new(raw, provenance.clone()).llm_safe();
+    (!s.trim().is_empty()).then_some(s)
+}
+
+/// CrossRef `type` → CSL item type (the common cases; unknown types pass
+/// through unchanged — still registry data, never invented).
+fn csl_type_of(crossref_type: &str) -> String {
+    match crossref_type {
+        "journal-article" => "article-journal".to_string(),
+        "proceedings-article" => "paper-conference".to_string(),
+        "book-chapter" => "chapter".to_string(),
+        "posted-content" => "article".to_string(),
+        "" => "document".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Full-metadata CrossRef lookup: DOI (exact) or title (bibliographic query).
+/// Reuses [`crossref_lookup`]'s exact cache keys and URLs, so one fetch
+/// serves both connectors; same rate limiter, TTL, and honest outcomes.
+pub fn citation_metadata_lookup(
+    ctx: &VerifyContext,
+    reference: &Reference,
+    now: i64,
+) -> Result<ConnectorOutcome<CitationMetadata>, GaplyError> {
+    let (matched_by, cache_key, url) = if let Some(doi) = normalized_doi(reference) {
+        (
+            "doi",
+            format!("refverify:crossref:doi:{doi}"),
+            format!("https://api.crossref.org/works/{}", pct(&doi)),
+        )
+    } else if let Some(title) = reference.title.as_deref().filter(|t| !t.is_empty()) {
+        (
+            "title",
+            format!("refverify:crossref:title:{}", sha256_hex(title)),
+            format!("https://api.crossref.org/works?rows=1&query.bibliographic={}", pct(title)),
+        )
+    } else {
+        return Ok(ConnectorOutcome::NotFound);
+    };
+
+    let req = HttpRequest::get(url).header("User-Agent", CROSSREF_UA);
+    match cached_fetch(ctx, "crossref", &cache_key, TTL_EXISTENCE, req, now)? {
+        Fetched::RateLimited { retry_after_secs } => {
+            Ok(ConnectorOutcome::RateLimited { retry_after_secs })
+        }
+        Fetched::HttpStatus { status: 404 } => Ok(ConnectorOutcome::NotFound),
+        Fetched::HttpStatus { status } => {
+            Ok(ConnectorOutcome::Unavailable { detail: format!("crossref http {status}") })
+        }
+        Fetched::Body { body, provenance } => {
+            let v = json(&body, "crossref")?;
+            let msg = &v["message"];
+            let work = if msg.get("items").is_some() { &msg["items"][0] } else { msg };
+            if work.is_null() {
+                return Ok(ConnectorOutcome::NotFound);
+            }
+            let doi = work["DOI"].as_str().map(|s| s.to_string());
+            let title = work["title"][0].as_str().and_then(|t| safe_meta(t, &provenance));
+            if doi.is_none() && title.is_none() {
+                return Ok(ConnectorOutcome::NotFound);
+            }
+            // Authors as CSL pairs; every part llm_safe'd. Organizations
+            // (single `name`) become a family-only entry.
+            let authors: Vec<CslAuthor> = work["author"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|a| {
+                            let family = a["family"]
+                                .as_str()
+                                .or_else(|| a["name"].as_str())
+                                .and_then(|f| safe_meta(f, &provenance))?;
+                            let given =
+                                a["given"].as_str().and_then(|g| safe_meta(g, &provenance));
+                            Some(CslAuthor { family, given })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            Ok(ConnectorOutcome::Found(CitationMetadata {
+                source: "crossref",
+                matched_by,
+                csl_type: csl_type_of(work["type"].as_str().unwrap_or("")),
+                doi,
+                title,
+                authors,
+                container_title: work["container-title"][0]
+                    .as_str()
+                    .and_then(|c| safe_meta(c, &provenance)),
+                year: crossref_year(work),
+                // Absent at the source → absent here. NEVER filled.
+                volume: work["volume"].as_str().and_then(|s| safe_meta(s, &provenance)),
+                issue: work["issue"].as_str().and_then(|s| safe_meta(s, &provenance)),
+                page: work["page"].as_str().and_then(|s| safe_meta(s, &provenance)),
+                provenance,
+            }))
+        }
+    }
+}
+
 fn crossref_authors(work: &serde_json::Value) -> Option<String> {
     let names: Vec<String> = work["author"]
         .as_array()?

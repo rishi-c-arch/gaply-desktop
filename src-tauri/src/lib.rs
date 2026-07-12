@@ -1,3 +1,4 @@
+pub mod citation_resolver;
 pub mod commands;
 pub mod guidelines;
 pub mod http_fetcher;
@@ -71,6 +72,7 @@ pub fn run() {
             commands::has_secret,
             commands::delete_secret,
             commands::verify_reference,
+            commands::resolve_citation_metadata,
             commands::get_report,
             commands::sample_manuscript_path,
             commands::ingest_guidelines,

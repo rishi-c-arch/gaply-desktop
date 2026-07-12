@@ -364,6 +364,26 @@ pub fn run_publishready(
     Ok(PublishReadyOutcome { report, reviewer, proxy_payload })
 }
 
+/// Citation Manager (Set 2): resolve VERIFIED citation metadata from a paper
+/// file, a DOI, or a title. Deterministic + free: NO LLM, NO proxy — the
+/// registry (CrossRef) is the only truth source, every field verified or
+/// honestly absent, honest Unverified with a manual-entry fallback otherwise.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn resolve_citation_metadata(
+    state: State<'_, AppState>,
+    path: Option<String>,
+    doi: Option<String>,
+    title: Option<String>,
+) -> Result<crate::citation_resolver::CitationResolve, GaplyError> {
+    crate::citation_resolver::resolve_with_live_fetcher(
+        &state.db,
+        path.as_deref(),
+        doi.as_deref(),
+        title.as_deref(),
+    )
+}
+
 /// Research Gap Finder (Set 2): build the session's paper corpus — N uploaded
 /// files + N links → bounded, llm_safe per-paper digests (stable ids p1…pN)
 /// + a per-session RAG ingest. NO reasoning, NO LLM, NO model load (the
