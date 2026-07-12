@@ -36,6 +36,8 @@ import {
 } from './refverifyBridge';
 import { mayUseCloud } from '../settings/settingsStore';
 import { LocalLibrary, storedToCitation, TauriLocalLibrary } from './localLibrary';
+import { CitationResolveBridge, metadataToCslItem, TauriCitationResolve } from './metadataBridge';
+import { exportBibliographyText, exportSerialized, saveExportToFile } from './exporters';
 import './citations.css';
 
 export interface CitationManagerPageProps {
@@ -44,6 +46,8 @@ export interface CitationManagerPageProps {
   citationService?: ReturnType<typeof createCitationLibraryService>;
   /** The local-first store (Tauri in prod; mock in tests). */
   localLibrary?: LocalLibrary;
+  /** Set 2's verified-metadata resolver (Tauri in prod; mock in tests). */
+  metadataResolver?: CitationResolveBridge;
   /** Citations auto-extracted from an analyzed manuscript (add-way #1). */
   extractedCitations?: Citation[];
   /** Pre-seed the library (tests / demo). */
@@ -75,6 +79,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   refverify,
   citationService,
   localLibrary,
+  metadataResolver,
   extractedCitations = [],
   initialCitations = [],
 }) => {
@@ -84,6 +89,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const rv = useMemo(() => refverify ?? new TauriRefVerifyBridge(), [refverify]);
   const lib = useMemo(() => citationService ?? createCitationLibraryService(), [citationService]);
   const local = useMemo(() => localLibrary ?? new TauriLocalLibrary(), [localLibrary]);
+  const resolver = useMemo(() => metadataResolver ?? new TauriCitationResolve(), [metadataResolver]);
 
   const [citations, setCitations] = useState<Citation[]>(initialCitations);
   const [collection, setCollection] = useState<CollectionId>('all');
@@ -245,7 +251,18 @@ const Inner: React.FC<CitationManagerPageProps> = ({
         retracted: false,
         source: 'doi',
       };
-      const enriched = applyVerification(base, v);
+      let enriched = applyVerification(base, v);
+      // Set 5 glue: enrich with the FULL verified metadata (authors/journal/
+      // volume/pages) from the Set 2 resolver — guarded: on any failure the
+      // existence-check metadata above still stands (never invented either way).
+      try {
+        const full = await resolver.resolve({ doi });
+        if (full.status === 'verified') {
+          enriched = { ...enriched, csl: { ...metadataToCslItem(full.metadata, enriched.id), id: enriched.csl.id } };
+        }
+      } catch (err) {
+        console.warn('[citations] full-metadata enrich unavailable:', err);
+      }
       await persistAndAdd(enriched);
       setDoiInput('');
       toast(enriched.retracted ? 'Added — but this work is RETRACTED' : 'Citation verified & added', enriched.retracted ? 'flagged' : 'certain');
@@ -265,6 +282,39 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     for (const c of extractedCitations) await persistAndAdd(c);
     setCollection('manuscript');
     toast(`Imported ${extractedCitations.length} extracted citation(s)`, 'certain');
+  };
+
+  /* --------------------- add way #4: from a paper file ------------------- */
+  const addFromFile = async (file: File) => {
+    const path = (file as any).path ?? file.name;
+    setBusy(true);
+    try {
+      const res = await resolver.resolve({ path });
+      if (res.status === 'unverified') {
+        toast(
+          res.unverified_title_hint
+            ? `Couldn’t verify: ${res.reason} (title hint: “${res.unverified_title_hint}”)`
+            : `Couldn’t verify: ${res.reason}`,
+          'assessed'
+        );
+        return;
+      }
+      const c: Citation = {
+        id: newId(res.metadata.doi ?? 'paper'),
+        csl: metadataToCslItem(res.metadata, newId('paper')),
+        doi: res.metadata.doi,
+        retracted: false,
+        source: 'doi',
+        provenance: [`source:${res.metadata.source}`, `matched_by:${res.metadata.matched_by}`],
+      };
+      await persistAndAdd(c);
+      toast('Paper resolved & added from verified metadata', 'certain');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast(`Couldn’t resolve this paper: ${msg}`, 'flagged');
+    } finally {
+      setBusy(false);
+    }
   };
 
   /* -------------------------- add way #3: manual ------------------------- */
@@ -307,18 +357,28 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     }
   };
 
-  const exportBibliography = () => {
-    const text = formatBibliography(visible.map((c) => c.csl), style);
-    const blob = new Blob([text], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `bibliography-${style}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+  const exportBibliography = async () => {
+    // Full-CSL when the style is prepared (Set 3), legacy formatter otherwise
+    // — identical seam as the preview.
+    let text: string;
+    try {
+      text = exportBibliographyText(visible.map((c) => c.csl), style);
+    } catch {
+      text = formatBibliography(visible.map((c) => c.csl), style);
+    }
+    await saveExportToFile(`bibliography-${style}.txt`, text);
     toast('Bibliography exported', 'certain');
+  };
+
+  const exportAs = async (format: 'bibtex' | 'ris') => {
+    try {
+      const text = await exportSerialized(visible.map((c) => c.csl), format);
+      await saveExportToFile(format === 'bibtex' ? 'library.bib' : 'library.ris', text);
+      toast(`${format === 'bibtex' ? 'BibTeX' : 'RIS'} exported`, 'certain');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast(`Export failed: ${msg}`, 'flagged');
+    }
   };
 
   return (
@@ -350,7 +410,9 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                 <option key={s.id} value={s.id}>{`Reformat all → ${s.label}`}</option>
               ))}
             </select>
-            <Button variant="secondary" onClick={exportBibliography} data-testid="export-biblio">Export bibliography</Button>
+            <Button variant="secondary" onClick={() => void exportBibliography()} data-testid="export-biblio">Export bibliography</Button>
+            <Button variant="secondary" onClick={() => void exportAs('bibtex')} data-testid="export-bibtex">Export BibTeX</Button>
+            <Button variant="secondary" onClick={() => void exportAs('ris')} data-testid="export-ris">Export RIS</Button>
             <Button variant="secondary" onClick={checkAllRetractions} disabled={busy} data-testid="check-retractions">
               Check all for retractions
             </Button>
@@ -486,6 +548,16 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                   Import from manuscript ({extractedCitations.length})
                 </Button>
                 <Button variant="ghost" onClick={addManual} data-testid="add-manual">+ Manual entry</Button>
+                <label className="gds-cite-input" style={{ cursor: 'pointer' }}>
+                  From paper file…
+                  <input
+                    type="file"
+                    accept=".pdf,.docx,.txt"
+                    style={{ display: 'none' }}
+                    data-testid="add-file"
+                    onChange={(e) => e.target.files?.[0] && void addFromFile(e.target.files[0])}
+                  />
+                </label>
               </div>
             </div>
 
