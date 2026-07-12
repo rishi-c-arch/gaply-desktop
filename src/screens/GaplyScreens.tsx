@@ -26,6 +26,7 @@ import StatsCheckPage from './checks/StatsCheckPage';
 import CitationManagerPage from './citations/CitationManagerPage';
 import JournalCheckPage from './journal/JournalCheckPage';
 import PublishReadyPage from './publishready/PublishReadyPage';
+import GapFinderPage from './gapfinder/GapFinderPage';
 import CopilotPage from './copilot/CopilotPage';
 import BillingPage from './subscription/BillingPage';
 import CommunityPage from './community/CommunityPage';
@@ -130,6 +131,15 @@ export const PublishReadyRoute: React.FC = () => (
   <GaplySessionProvider>
     <RequireAuth>
       <PublishReadyPage />
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/gapfinder — Research Gap Finder (Set 7), premium-gated. */
+export const GapFinderRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <GapFinderPage />
     </RequireAuth>
   </GaplySessionProvider>
 );
