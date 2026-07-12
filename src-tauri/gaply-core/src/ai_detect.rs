@@ -312,11 +312,19 @@ fn split_sentences(text: &str) -> Vec<String> {
 
 /// Interim, deliberately conservative thresholds for the heuristic proxy.
 /// NOT calibrated against real GPT-2 output — hence the ever-present
-/// disclaimer. Recalibrate when a real model is wired to the trait.
+/// disclaimer. Recalibrate when a real model is wired to the trait; the
+/// SLM-1 tiers (Q3 vs Q4, ~+0.13 bits mean) need PER-TIER values here.
+/// The passage-level flagging (Set 2) derives from these SAME constants —
+/// no second set of thresholds exists.
+const AI_LIKE_PPL: f64 = 12.0;
+const AI_LIKE_BURSTINESS: f64 = 8.0;
+const HUMAN_LIKE_PPL: f64 = 20.0;
+const HUMAN_LIKE_BURSTINESS: f64 = 15.0;
+
 fn classify(mean_ppl: f64, burstiness: f64) -> AiSignal {
-    if mean_ppl < 12.0 && burstiness < 8.0 {
+    if mean_ppl < AI_LIKE_PPL && burstiness < AI_LIKE_BURSTINESS {
         AiSignal::LeansAiLike
-    } else if mean_ppl > 20.0 || burstiness > 15.0 {
+    } else if mean_ppl > HUMAN_LIKE_PPL || burstiness > HUMAN_LIKE_BURSTINESS {
         AiSignal::LeansHumanLike
     } else {
         AiSignal::Inconclusive
@@ -419,6 +427,201 @@ pub fn detect_extraction(
         });
     }
     build_report(model, sections, all_ppls)
+}
+
+// ---------------------------------------------------------------------------
+// Passage-level flagging + the honest proportion (AI Check Set 2)
+// ---------------------------------------------------------------------------
+
+/// Per-passage caution. REQUIRED on every flagged passage, never empty —
+/// the same un-strippable pattern as [`AI_DISCLAIMER`]/[`SECTION_UNCERTAINTY`].
+pub const PASSAGE_UNCERTAINTY: &str = "AI-associated SIGNAL, not a determination of authorship. \
+Passage-level flags have high false-positive rates — especially for non-native English, \
+formulaic/technical prose, and short passages. Never treat a flagged passage as proof.";
+
+/// Deterministic strength label, derived ONLY from the existing [`classify`]
+/// thresholds (no new magic numbers):
+/// - `Strong`: >= 2 sentences AND the passage as a whole meets the FULL
+///   AI-like condition (mean perplexity AND burstiness under the same
+///   constants `classify` uses);
+/// - `Moderate`: >= 2 sentences whose mean perplexity is under the AI-like
+///   threshold (the burstiness condition not met);
+/// - `Weak`: a single flagged sentence — short text is exactly where the
+///   disclaimer says detection is least reliable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PassageStrength {
+    Strong,
+    Moderate,
+    Weak,
+}
+
+/// A contiguous run of sentences whose perplexity crosses the (existing)
+/// AI-like threshold. A SIGNAL with strength and evidence — never a verdict.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlaggedPassage {
+    pub section: SectionKind,
+    /// Char offsets of the span within the analyzed section text.
+    pub start_char: usize,
+    pub end_char: usize,
+    /// The span text (evidence display).
+    pub text: String,
+    /// Constituent per-sentence scores — the evidence behind the flag.
+    pub sentences: Vec<SentenceScore>,
+    pub mean_perplexity: f64,
+    pub burstiness: f64,
+    pub signal: AiSignal,
+    pub strength: PassageStrength,
+    /// REQUIRED per-passage caution. Never empty.
+    pub uncertainty: String,
+}
+
+/// Passage-level analysis + the HONEST percentage. `ai_signal_proportion`
+/// is a deterministic COUNT — flagged sentence chars / total sentence chars
+/// — i.e. "this proportion of the text shows AI-associated signals". It is
+/// NOT a probability that the document is AI-written, and the field name is
+/// chosen so it cannot be presented as one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PassageAnalysis {
+    pub model: String,
+    pub passages: Vec<FlaggedPassage>,
+    /// Total analyzed text length (sum of sentence chars).
+    pub total_chars: usize,
+    /// Flagged text length (sum of flagged sentence chars).
+    pub flagged_chars: usize,
+    /// flagged_chars / total_chars — the proportion of text with
+    /// AI-associated signals. DETERMINISTIC, never model-guessed.
+    pub ai_signal_proportion: f64,
+    /// Mandatory disclaimer. Never empty.
+    pub disclaimer: String,
+}
+
+/// A sentence carries an AI-associated signal when its perplexity sits under
+/// the SAME AI-like threshold `classify` uses. One constant, one meaning.
+fn sentence_flagged(ppl: f64) -> bool {
+    ppl < AI_LIKE_PPL
+}
+
+fn passage_strength(sentences: &[SentenceScore]) -> PassageStrength {
+    if sentences.len() < 2 {
+        return PassageStrength::Weak;
+    }
+    let ppls: Vec<f64> = sentences.iter().map(|s| s.perplexity).collect();
+    if classify(mean(&ppls), std_dev(&ppls)) == AiSignal::LeansAiLike {
+        PassageStrength::Strong
+    } else {
+        PassageStrength::Moderate
+    }
+}
+
+/// Group a section's scored sentences into flagged passages. Offsets are
+/// located by scanning the section text forward (sentences come verbatim,
+/// trimmed, in order from `split_sentences`).
+fn flag_passages_in_block(
+    section: SectionKind,
+    block_text: &str,
+    scores: &[SentenceScore],
+) -> Vec<FlaggedPassage> {
+    // Locate each sentence's char span in the block, in order.
+    let mut spans: Vec<(usize, usize)> = Vec::with_capacity(scores.len());
+    let mut cursor = 0usize;
+    for s in scores {
+        let found = block_text[cursor..].find(&s.text).map(|i| cursor + i);
+        let (a, b) = match found {
+            Some(a) => (a, a + s.text.len()),
+            None => (cursor, cursor), // defensive: never panic on odd text
+        };
+        spans.push((a, b));
+        cursor = b;
+    }
+
+    let mut passages = Vec::new();
+    let mut run: Vec<usize> = Vec::new();
+    let mut flush = |run: &mut Vec<usize>, passages: &mut Vec<FlaggedPassage>| {
+        if run.is_empty() {
+            return;
+        }
+        let first = run[0];
+        let last = *run.last().unwrap();
+        let sentences: Vec<SentenceScore> = run.iter().map(|&i| scores[i].clone()).collect();
+        let ppls: Vec<f64> = sentences.iter().map(|s| s.perplexity).collect();
+        let (start_char, end_char) = (spans[first].0, spans[last].1);
+        passages.push(FlaggedPassage {
+            section,
+            start_char,
+            end_char,
+            text: block_text[start_char..end_char].to_string(),
+            strength: passage_strength(&sentences),
+            mean_perplexity: mean(&ppls),
+            burstiness: std_dev(&ppls),
+            signal: AiSignal::LeansAiLike,
+            sentences,
+            uncertainty: PASSAGE_UNCERTAINTY.to_string(),
+        });
+        run.clear();
+    };
+
+    for (i, s) in scores.iter().enumerate() {
+        if sentence_flagged(s.perplexity) {
+            run.push(i);
+        } else {
+            flush(&mut run, &mut passages);
+        }
+    }
+    flush(&mut run, &mut passages);
+    passages
+}
+
+fn finish_analysis(
+    model: &dyn PerplexityModel,
+    passages: Vec<FlaggedPassage>,
+    total_chars: usize,
+) -> PassageAnalysis {
+    let flagged_chars: usize =
+        passages.iter().flat_map(|p| p.sentences.iter()).map(|s| s.text.chars().count()).sum();
+    let ai_signal_proportion =
+        if total_chars == 0 { 0.0 } else { flagged_chars as f64 / total_chars as f64 };
+    PassageAnalysis {
+        model: model.name().to_string(),
+        passages,
+        total_chars,
+        flagged_chars,
+        ai_signal_proportion,
+        disclaimer: AI_DISCLAIMER.to_string(),
+    }
+}
+
+/// Passage-level analysis over one block of text.
+pub fn analyze_passages_text(model: &dyn PerplexityModel, text: &str) -> PassageAnalysis {
+    let (_, _, scores) = score_block(model, text);
+    let total: usize = scores.iter().map(|s| s.text.chars().count()).sum();
+    let passages = flag_passages_in_block(SectionKind::Other, text, &scores);
+    finish_analysis(model, passages, total)
+}
+
+/// Passage-level analysis per Extraction-Agent section. Sits BESIDE
+/// [`detect_extraction`] (which is unchanged): the section-level report and
+/// the passage-level analysis share the same scoring and thresholds.
+#[tracing::instrument(skip(model, result), fields(sections = result.sections.len()))]
+pub fn analyze_passages(
+    model: &dyn PerplexityModel,
+    result: &ExtractionResult,
+) -> PassageAnalysis {
+    let mut passages = Vec::new();
+    let mut total_chars = 0usize;
+    for sec in &result.sections {
+        let text = sec.paragraphs.join(" ");
+        if text.trim().is_empty() {
+            continue;
+        }
+        let (_, _, scores) = score_block(model, &text);
+        if scores.is_empty() {
+            continue;
+        }
+        total_chars += scores.iter().map(|s| s.text.chars().count()).sum::<usize>();
+        passages.extend(flag_passages_in_block(sec.kind, &text, &scores));
+    }
+    finish_analysis(model, passages, total_chars)
 }
 
 #[cfg(test)]
@@ -552,5 +755,165 @@ mod tests {
     fn deterministic() {
         let model = HeuristicModel::gpt2_like();
         assert_eq!(detect_text(&model, HUMAN_SAMPLE), detect_text(&model, HUMAN_SAMPLE));
+    }
+}
+
+#[cfg(test)]
+mod passage_tests {
+    use super::*;
+
+    /// With HeuristicModel: all-common-word sentences score ~ppl 4 (< 12,
+    /// flagged); rare-long-word sentences score well above 12 (unflagged).
+    const AI_SENT: &str = "The results show that the model can do the work well.";
+    const HUMAN_SENT: &str = "Cerulean contraptions wheezed, magnificently preposterous, unfathomable.";
+
+    fn m() -> HeuristicModel {
+        HeuristicModel::default()
+    }
+
+    fn text_of(parts: &[&str]) -> String {
+        parts.join(" ")
+    }
+
+    // ------------------------- passage spans + grouping ---------------------
+
+    #[test]
+    fn contiguous_ai_like_runs_become_passages_with_correct_spans() {
+        // H, A, A, A, H, A  → two passages: len-3 and len-1.
+        let text = text_of(&[HUMAN_SENT, AI_SENT, AI_SENT, AI_SENT, HUMAN_SENT, AI_SENT]);
+        let out = analyze_passages_text(&m(), &text);
+        assert_eq!(out.passages.len(), 2, "two contiguous runs expected: {:#?}", out.passages);
+        assert_eq!(out.passages[0].sentences.len(), 3);
+        assert_eq!(out.passages[1].sentences.len(), 1);
+        // spans slice back to the exact text
+        for p in &out.passages {
+            assert_eq!(&text[p.start_char..p.end_char], p.text);
+            assert!(p.text.contains("results show"));
+        }
+        // evidence rides along
+        assert!(out.passages[0].sentences.iter().all(|s| s.perplexity < 12.0));
+    }
+
+    #[test]
+    fn human_text_yields_no_false_passages_and_zero_proportion() {
+        let text = text_of(&[HUMAN_SENT, HUMAN_SENT, HUMAN_SENT]);
+        let out = analyze_passages_text(&m(), &text);
+        assert!(out.passages.is_empty(), "no false flags: {:#?}", out.passages);
+        assert_eq!(out.flagged_chars, 0);
+        assert_eq!(out.ai_signal_proportion, 0.0);
+        // the disclaimer STILL rides on an all-clear report
+        assert_eq!(out.disclaimer, AI_DISCLAIMER);
+    }
+
+    #[test]
+    fn inconclusive_sentences_are_not_force_categorized() {
+        // Mixed common/rare words → mid perplexity (between the thresholds):
+        // NOT flagged as a passage, and detect_text keeps Inconclusive.
+        let mid = "The system wheezed with results and cerulean data everywhere today.";
+        let text = text_of(&[mid, mid, mid]);
+        let out = analyze_passages_text(&m(), &text);
+        let detect = detect_text(&m(), &text);
+        if detect.signal == AiSignal::Inconclusive {
+            assert!(out.passages.is_empty(), "inconclusive must not be forced into a category");
+        }
+        // whatever the mid text scores, no passage may carry Inconclusive:
+        assert!(out.passages.iter().all(|p| p.signal == AiSignal::LeansAiLike));
+    }
+
+    // ----------------------------- the honest % -----------------------------
+
+    #[test]
+    fn proportion_is_a_deterministic_char_count_not_a_probability() {
+        let text = text_of(&[AI_SENT, HUMAN_SENT]);
+        let out = analyze_passages_text(&m(), &text);
+        // exactly the flagged sentence's chars over both sentences' chars
+        let ai_len = AI_SENT.chars().count();
+        let human_len = HUMAN_SENT.chars().count();
+        assert_eq!(out.flagged_chars, ai_len);
+        assert_eq!(out.total_chars, ai_len + human_len);
+        let expected = ai_len as f64 / (ai_len + human_len) as f64;
+        assert!((out.ai_signal_proportion - expected).abs() < 1e-12);
+        // deterministic: identical across runs
+        let again = analyze_passages_text(&m(), &text);
+        assert_eq!(out, again);
+    }
+
+    #[test]
+    fn all_flagged_text_approaches_one_never_exceeds() {
+        let text = text_of(&[AI_SENT, AI_SENT, AI_SENT, AI_SENT]);
+        let out = analyze_passages_text(&m(), &text);
+        assert!(out.ai_signal_proportion > 0.9 && out.ai_signal_proportion <= 1.0);
+        assert_eq!(out.passages.len(), 1, "one contiguous run");
+    }
+
+    // ------------------- caution at the passage level -----------------------
+
+    #[test]
+    fn the_caution_is_unstrippable_at_every_level() {
+        let text = text_of(&[AI_SENT, AI_SENT, HUMAN_SENT, AI_SENT]);
+        let out = analyze_passages_text(&m(), &text);
+        assert!(!out.disclaimer.is_empty());
+        assert!(out.disclaimer.contains("NOT proof"));
+        assert!(out.disclaimer.contains("non-native English"));
+        for p in &out.passages {
+            assert!(!p.uncertainty.is_empty(), "per-passage caution is REQUIRED");
+            assert!(p.uncertainty.contains("not a determination"));
+        }
+        // and it survives serialization — the UI receives it as data
+        let wire = serde_json::to_string(&out).unwrap();
+        assert!(wire.contains("NOT proof of AI authorship"));
+        assert!(wire.contains("not a determination of authorship"));
+        assert!(wire.contains("ai_signal_proportion"), "the field name says proportion, not probability");
+        assert!(!wire.contains("probability"));
+    }
+
+    // -------------------------- strength labels -----------------------------
+
+    #[test]
+    fn strength_maps_deterministically_from_the_existing_thresholds() {
+        // len-1 run → Weak (short text is where detection is least reliable)
+        let single = analyze_passages_text(&m(), &text_of(&[HUMAN_SENT, AI_SENT, HUMAN_SENT]));
+        assert_eq!(single.passages[0].strength, PassageStrength::Weak);
+
+        // len-4 uniform AI-like run: burstiness ~0 < AI_LIKE_BURSTINESS and
+        // mean < AI_LIKE_PPL → the FULL classify condition → Strong.
+        let strong = analyze_passages_text(&m(), &text_of(&[AI_SENT, AI_SENT, AI_SENT, AI_SENT]));
+        assert_eq!(strong.passages[0].strength, PassageStrength::Strong);
+
+        // >= 2 sentences flagged but with enough perplexity VARIANCE to fail
+        // the burstiness half of classify → Moderate.
+        let varied_a = "The results show that the model can do the work well.";
+        let varied_b = "It is due to work of all of the top labs everywhere generally speaking.";
+        let out = analyze_passages_text(&m(), &text_of(&[varied_a, varied_b]));
+        if out.passages.len() == 1 && out.passages[0].sentences.len() == 2 {
+            let p = &out.passages[0];
+            let expected = if classify(p.mean_perplexity, p.burstiness) == AiSignal::LeansAiLike {
+                PassageStrength::Strong
+            } else {
+                PassageStrength::Moderate
+            };
+            assert_eq!(p.strength, expected, "strength derives ONLY from classify's constants");
+        }
+    }
+
+    // ---------------------- extraction-level analysis -----------------------
+
+    #[test]
+    fn analyze_passages_covers_sections_and_existing_detect_is_unchanged() {
+        let doc = format!(
+            "Introduction\n\n{h}\n\nMethods\n\n{a} {a} {a}\n\nDiscussion\n\n{h}\n",
+            a = AI_SENT,
+            h = HUMAN_SENT
+        );
+        let ex = crate::extract::extract_from_text(&doc);
+        let out = analyze_passages(&m(), &ex);
+        assert!(!out.passages.is_empty(), "the methods run should flag");
+        assert!(out.passages.iter().any(|p| p.sentences.len() >= 3));
+        assert!(out.ai_signal_proportion > 0.0 && out.ai_signal_proportion < 1.0);
+
+        // the ORIGINAL per-section report still works, side by side
+        let old = detect_extraction(&m(), &ex);
+        assert!(!old.sections.is_empty());
+        assert_eq!(old.disclaimer, AI_DISCLAIMER);
     }
 }
