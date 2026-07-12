@@ -1,3 +1,4 @@
+pub mod aicheck;
 pub mod citation_resolver;
 pub mod commands;
 pub mod guidelines;
@@ -67,6 +68,7 @@ pub fn run() {
             commands::extract_manuscript,
             commands::validate_manuscript,
             commands::detect_ai,
+            commands::run_aicheck,
             commands::check_plagiarism,
             commands::store_secret,
             commands::has_secret,

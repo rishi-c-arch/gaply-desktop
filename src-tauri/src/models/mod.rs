@@ -13,7 +13,7 @@ pub mod quantized_qwen2_lowmem;
 
 use std::path::{Path, PathBuf};
 
-use gaply_core::ai_detect::{HeuristicModel, PerplexityModel};
+use gaply_core::ai_detect::{ClassifyClient, HeuristicModel, PerplexityModel};
 use gaply_core::verify_agent::{MockProxyClient, ProxyClient};
 
 use crate::models::candle_perplexity::CandlePerplexityModel;
@@ -61,6 +61,39 @@ fn slm1_paths() -> Option<(PathBuf, PathBuf)> {
     Some((gguf, tokenizer))
 }
 
+/// The REAL SLM-1 (candle), or honestly `None`. `Some` only when the GGUF +
+/// tokenizer are present AND load — never a silent stand-in. The AI-Check
+/// tiered flow needs this distinction: `analyze_tiered(deep: None)` labels
+/// every flag heuristic-only, which is the truth when the model is absent
+/// (a heuristic masquerading as the deep tier would fabricate
+/// "deep-verified" labels).
+pub fn slm1_model() -> Option<Box<dyn PerplexityModel>> {
+    match slm1_paths() {
+        Some((gguf, tokenizer)) if gguf.exists() && tokenizer.exists() => {
+            match CandlePerplexityModel::from_paths(&gguf, &tokenizer) {
+                Ok(m) => {
+                    tracing::info!(gguf = %gguf.display(), "SLM-1: loaded candle perplexity model");
+                    Some(Box::new(m))
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "SLM-1: candle model present but failed to load"
+                    );
+                    None
+                }
+            }
+        }
+        _ => {
+            tracing::warn!(
+                "SLM-1: model files absent (set GAPLY_SLM1_GGUF/GAPLY_SLM1_TOKENIZER or populate \
+                 ~/gaply-models/slm1)"
+            );
+            None
+        }
+    }
+}
+
 /// The SLM-1 perplexity model for the AI-detection lane: the real candle
 /// `CandlePerplexityModel` when its GGUF + tokenizer are present and load,
 /// otherwise the interim [`HeuristicModel`]. NEVER fails — a user who hasn't
@@ -68,28 +101,30 @@ fn slm1_paths() -> Option<(PathBuf, PathBuf)> {
 /// [`PerplexityModel`], so the choice is a clean either/or at the trait
 /// boundary). Callers get a boxed trait object and don't know which ran.
 pub fn perplexity_model() -> Box<dyn PerplexityModel> {
-    match slm1_paths() {
-        Some((gguf, tokenizer)) if gguf.exists() && tokenizer.exists() => {
-            match CandlePerplexityModel::from_paths(&gguf, &tokenizer) {
-                Ok(m) => {
-                    tracing::info!(gguf = %gguf.display(), "SLM-1: loaded candle perplexity model");
-                    Box::new(m)
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "SLM-1: candle model present but failed to load; falling back to HeuristicModel"
-                    );
-                    Box::new(HeuristicModel::gpt2_like())
-                }
-            }
+    slm1_model().unwrap_or_else(|| {
+        tracing::warn!("SLM-1 unavailable; using interim HeuristicModel");
+        Box::new(HeuristicModel::gpt2_like())
+    })
+}
+
+/// The AI-Check classification client (SLM-2 over Ollama), or honestly `None`
+/// when Ollama isn't reachable — the caller's two-way fallback (passages keep
+/// their signal; no category is guessed; the report says to install the
+/// model). LOCAL-ONLY by design: AI Check is free and never touches the cloud
+/// proxy, so unlike [`verify_proxy`] there is deliberately no cloud tier here.
+pub fn aicheck_classifier() -> Option<Box<dyn ClassifyClient>> {
+    let (endpoint, model) = slm2_endpoint_model();
+    match OllamaVerifyClient::with_endpoint(&endpoint, &model) {
+        Ok(client) if client.reachable() => {
+            tracing::info!(%endpoint, %model, "SLM-2: routing AI-Check classification to local Ollama");
+            Some(Box::new(client))
         }
         _ => {
             tracing::warn!(
-                "SLM-1: model files absent (set GAPLY_SLM1_GGUF/GAPLY_SLM1_TOKENIZER or populate \
-                 ~/gaply-models/slm1); using interim HeuristicModel"
+                %endpoint,
+                "SLM-2: Ollama unreachable; AI-Check paraphrase distinction unavailable (two-way fallback)"
             );
-            Box::new(HeuristicModel::gpt2_like())
+            None
         }
     }
 }

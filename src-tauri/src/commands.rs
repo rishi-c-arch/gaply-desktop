@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use gaply_core::ai_detect::{self, AiDetectionReport, HeuristicModel};
+use gaply_core::ai_detect::{self, AiDetectionReport, ClassifiedAnalysis, HeuristicModel};
 use gaply_core::db::{DbHealth, DbInitReport, MigrationReport};
 use gaply_core::extract::citations::Reference;
 use gaply_core::extract::{self, docparse, ExtractionResult};
@@ -207,6 +207,23 @@ pub fn detect_ai(path: String) -> Result<AiDetectionReport, GaplyError> {
     let extraction = extract::extract_from_text(&text);
     let model = HeuristicModel::gpt2_like();
     Ok(ai_detect::detect_extraction(&model, &extraction))
+}
+
+/// AI Check (Set 4): two-stage tiered detection + capped SLM-2 passage
+/// classification (see `crate::aicheck`). Long-running — the deep pass is
+/// SLM-1 on CPU — so async + spawn_blocking, like `run_full_analysis`. The
+/// flow inside is strictly one-model-at-a-time and never fails for a missing
+/// model: degraded tiers come back as honest labels in the result.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn run_aicheck(path: String) -> Result<ClassifiedAnalysis, GaplyError> {
+    tokio::task::spawn_blocking(move || {
+        let text = docparse::parse_path(std::path::Path::new(&path))?;
+        let extraction = extract::extract_from_text(&text);
+        Ok(crate::aicheck::run_aicheck_flow(&extraction))
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("aicheck task panicked: {e}")))?
 }
 
 /// Verify one reference against the live connectors (CrossRef / OpenAlex /
