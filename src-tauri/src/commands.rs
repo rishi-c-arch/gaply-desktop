@@ -402,7 +402,7 @@ pub struct PublishReadyOutcome {
 /// offline"; the rest of the report (all local) is still returned.
 #[tauri::command]
 #[tracing::instrument(skip(state, user_token))]
-pub fn run_publishready(
+pub async fn run_publishready(
     state: State<'_, AppState>,
     path: String,
     journal_name: String,
@@ -410,65 +410,74 @@ pub fn run_publishready(
     supplementary_paths: Option<Vec<String>>,
     user_token: Option<String>,
 ) -> Result<PublishReadyOutcome, GaplyError> {
-    use gaply_core::reviewer_agent::{self, ReviewerEvaluation, TargetJournal};
-    use gaply_core::verify_agent::ProxyClient;
+    // async + spawn_blocking (mirrors run_full_analysis): the 6-lane pipeline is
+    // CPU-heavy and the reviewer does blocking keychain/HTTP, so run off the
+    // event-loop thread. Extract the Arc handles first (State<'_> isn't Send).
+    // Logic unchanged.
+    let db = state.db.clone();
+    let embedder = state.embedder.clone();
+    tokio::task::spawn_blocking(move || {
+        use gaply_core::reviewer_agent::{self, ReviewerEvaluation, TargetJournal};
+        use gaply_core::verify_agent::ProxyClient;
 
-    // 1) Run the existing pipeline (composes on top; the 6 lanes are untouched).
-    let events = std::cell::RefCell::new(Vec::new());
-    let emit = |e: crate::pipeline::AnalysisEvent| events.borrow_mut().push(e);
-    crate::pipeline::run_pipeline_measured(state.db.clone(), state.embedder.clone(), path, None, &emit)?;
-    let report_id = events
-        .into_inner()
-        .into_iter()
-        .find_map(|e| match e {
-            crate::pipeline::AnalysisEvent::Finished { report_id } => Some(report_id),
-            _ => None,
-        })
-        .ok_or_else(|| GaplyError::Internal("pipeline produced no report".into()))?;
-    let json = state
-        .db
-        .cache_get(&format!("report:{report_id}"), gaply_core::now_epoch())?
-        .ok_or_else(|| GaplyError::Internal("compiled report not found".into()))?;
-    let report: serde_json::Value =
-        serde_json::from_str(&json).map_err(|e| GaplyError::Internal(format!("parse report: {e}")))?;
+        // 1) Run the existing pipeline (composes on top; the 6 lanes are untouched).
+        let events = std::cell::RefCell::new(Vec::new());
+        let emit = |e: crate::pipeline::AnalysisEvent| events.borrow_mut().push(e);
+        crate::pipeline::run_pipeline_measured(db.clone(), embedder.clone(), path, None, &emit)?;
+        let report_id = events
+            .into_inner()
+            .into_iter()
+            .find_map(|e| match e {
+                crate::pipeline::AnalysisEvent::Finished { report_id } => Some(report_id),
+                _ => None,
+            })
+            .ok_or_else(|| GaplyError::Internal("pipeline produced no report".into()))?;
+        let json = db
+            .cache_get(&format!("report:{report_id}"), gaply_core::now_epoch())?
+            .ok_or_else(|| GaplyError::Internal("compiled report not found".into()))?;
+        let report: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| GaplyError::Internal(format!("parse report: {e}")))?;
 
-    // 2) Parse any supplementary files (memory-capped, app-crate) → JSON. The
-    //    reviewer_agent llm_safe's every string; a file that fails to parse is
-    //    skipped (honest), never fatal.
-    let supp_values: Vec<serde_json::Value> = supplementary_paths
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|p| match crate::supplementary::parse_supplementary(std::path::Path::new(p)) {
-            Ok(ev) => serde_json::to_value(&ev).ok(),
-            Err(e) => {
-                tracing::warn!(path = %p, error = %e, "supplementary parse failed; skipped");
-                None
-            }
-        })
-        .collect();
+        // 2) Parse any supplementary files (memory-capped, app-crate) → JSON. The
+        //    reviewer_agent llm_safe's every string; a file that fails to parse is
+        //    skipped (honest), never fatal.
+        let supp_values: Vec<serde_json::Value> = supplementary_paths
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|p| match crate::supplementary::parse_supplementary(std::path::Path::new(p)) {
+                Ok(ev) => serde_json::to_value(&ev).ok(),
+                Err(e) => {
+                    tracing::warn!(path = %p, error = %e, "supplementary parse failed; skipped");
+                    None
+                }
+            })
+            .collect();
 
-    // 3) Build the validator-compliant, privacy-guarded reviewer payload.
-    let journal = TargetJournal { name: journal_name, quartile: journal_quartile };
-    let (proxy_payload, sent_ids) = reviewer_agent::build_review_payload(&report, &journal, &supp_values);
+        // 3) Build the validator-compliant, privacy-guarded reviewer payload.
+        let journal = TargetJournal { name: journal_name, quartile: journal_quartile };
+        let (proxy_payload, sent_ids) = reviewer_agent::build_review_payload(&report, &journal, &supp_values);
 
-    // 3) Reviewer: cloud only, honest offline degradation. The user's JWT
-    //    rides along so the proxy can run THE REAL entitlement gate + consume
-    //    a use server-side (Set 8; enforcement joins the deployed proxy).
-    let reviewer = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
-        Ok(client) if client.reachable() => match client
-            .verify(&proxy_payload)
-            .and_then(|resp| reviewer_agent::gate_reviewer_response(&resp, &sent_ids))
-        {
-            Ok(ev) => ev,
-            Err(e) => {
-                tracing::warn!(error = %e, "reviewer cloud call failed; marking unavailable");
-                ReviewerEvaluation::unavailable_offline()
-            }
-        },
-        _ => ReviewerEvaluation::unavailable_offline(),
-    };
+        // 3) Reviewer: cloud only, honest offline degradation. The user's JWT
+        //    rides along so the proxy can run THE REAL entitlement gate + consume
+        //    a use server-side (Set 8; enforcement joins the deployed proxy).
+        let reviewer = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+            Ok(client) if client.reachable() => match client
+                .verify(&proxy_payload)
+                .and_then(|resp| reviewer_agent::gate_reviewer_response(&resp, &sent_ids))
+            {
+                Ok(ev) => ev,
+                Err(e) => {
+                    tracing::warn!(error = %e, "reviewer cloud call failed; marking unavailable");
+                    ReviewerEvaluation::unavailable_offline()
+                }
+            },
+            _ => ReviewerEvaluation::unavailable_offline(),
+        };
 
-    Ok(PublishReadyOutcome { report, reviewer, proxy_payload })
+        Ok(PublishReadyOutcome { report, reviewer, proxy_payload })
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("publishready task panicked: {e}")))?
 }
 
 /// Citation Manager (Set 2): resolve VERIFIED citation metadata from a paper
@@ -477,18 +486,26 @@ pub fn run_publishready(
 /// honestly absent, honest Unverified with a manual-entry fallback otherwise.
 #[tauri::command]
 #[tracing::instrument(skip(state))]
-pub fn resolve_citation_metadata(
+pub async fn resolve_citation_metadata(
     state: State<'_, AppState>,
     path: Option<String>,
     doi: Option<String>,
     title: Option<String>,
 ) -> Result<crate::citation_resolver::CitationResolve, GaplyError> {
-    crate::citation_resolver::resolve_with_live_fetcher(
-        &state.db,
-        path.as_deref(),
-        doi.as_deref(),
-        title.as_deref(),
-    )
+    // async + spawn_blocking (mirrors verify_reference): the CrossRef fetch is a
+    // blocking HTTP call, so it must run off the event-loop thread. Extract the
+    // Arc<Database> handle first (State<'_> isn't Send). Logic unchanged.
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::citation_resolver::resolve_with_live_fetcher(
+            &db,
+            path.as_deref(),
+            doi.as_deref(),
+            title.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("resolve citation task panicked: {e}")))?
 }
 
 /// Citation Manager (Set 4): the LOCAL-FIRST reference library. All of these
@@ -689,24 +706,33 @@ pub fn note_paper_fulltext(
 /// host with capped downloads. Caps reject oversize input honestly.
 #[tauri::command]
 #[tracing::instrument(skip(state))]
-pub fn build_gapfinder_corpus(
+pub async fn build_gapfinder_corpus(
     state: State<'_, AppState>,
     session: String,
     paths: Option<Vec<String>>,
     links: Option<Vec<String>>,
 ) -> Result<crate::paper_corpus::CorpusReport, GaplyError> {
-    let fetcher = crate::paper_corpus::ReqwestPaperFetcher::new()?;
-    // Same polite per-host budget as guidelines ingestion.
-    let limiter = gaply_core::ratelimit::RateLimiter::new(5.0, 1.0);
-    crate::paper_corpus::build_corpus(
-        &state.db,
-        state.embedder.as_ref(),
-        &session,
-        &paths.unwrap_or_default(),
-        &links.unwrap_or_default(),
-        &fetcher,
-        &limiter,
-    )
+    // async + spawn_blocking (mirrors run_full_analysis): link fetches + PDF
+    // parsing are blocking, so run off the event-loop thread. Extract the Arc
+    // handles first (State<'_> isn't Send). Logic unchanged.
+    let db = state.db.clone();
+    let embedder = state.embedder.clone();
+    tokio::task::spawn_blocking(move || {
+        let fetcher = crate::paper_corpus::ReqwestPaperFetcher::new()?;
+        // Same polite per-host budget as guidelines ingestion.
+        let limiter = gaply_core::ratelimit::RateLimiter::new(5.0, 1.0);
+        crate::paper_corpus::build_corpus(
+            &db,
+            embedder.as_ref(),
+            &session,
+            &paths.unwrap_or_default(),
+            &links.unwrap_or_default(),
+            &fetcher,
+            &limiter,
+        )
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("gapfinder corpus task panicked: {e}")))?
 }
 
 /// Research Gap Finder (Set 3): grounded gap extraction over the session's
@@ -727,31 +753,39 @@ pub struct GapFinderOutcome {
 
 #[tauri::command]
 #[tracing::instrument(skip(corpus, user_token))]
-pub fn run_gap_finder(
+pub async fn run_gap_finder(
     session: String,
     corpus: serde_json::Value,
     user_token: Option<String>,
 ) -> Result<GapFinderOutcome, GaplyError> {
-    use gaply_core::gap_finder_agent::{self, GapFindings};
-    use gaply_core::verify_agent::ProxyClient;
+    // async + spawn_blocking (mirrors run_full_analysis / verify_reference): the
+    // proxy client does blocking keychain + HTTP work, so it must run OFF the
+    // event-loop thread — the window stays responsive during the call and the
+    // 2s offline reachability probe. Body/logic is unchanged.
+    tokio::task::spawn_blocking(move || {
+        use gaply_core::gap_finder_agent::{self, GapFindings};
+        use gaply_core::verify_agent::ProxyClient;
 
-    // Session-scoped, privacy-guarded payload (errors on session mismatch).
-    let (proxy_payload, sent) = gap_finder_agent::build_gap_payload(&session, &corpus)?;
+        // Session-scoped, privacy-guarded payload (errors on session mismatch).
+        let (proxy_payload, sent) = gap_finder_agent::build_gap_payload(&session, &corpus)?;
 
-    let findings = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
-        Ok(client) if client.reachable() => match client
-            .verify(&proxy_payload)
-            .and_then(|resp| gap_finder_agent::gate_gap_response(&resp, &sent))
-        {
-            Ok(f) => f,
-            Err(e) => {
-                tracing::warn!(error = %e, "gap finder cloud call failed; marking unavailable");
-                GapFindings::unavailable_offline()
-            }
-        },
-        _ => GapFindings::unavailable_offline(),
-    };
-    Ok(GapFinderOutcome { findings, proxy_payload })
+        let findings = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+            Ok(client) if client.reachable() => match client
+                .verify(&proxy_payload)
+                .and_then(|resp| gap_finder_agent::gate_gap_response(&resp, &sent))
+            {
+                Ok(f) => f,
+                Err(e) => {
+                    tracing::warn!(error = %e, "gap finder cloud call failed; marking unavailable");
+                    GapFindings::unavailable_offline()
+                }
+            },
+            _ => GapFindings::unavailable_offline(),
+        };
+        Ok(GapFinderOutcome { findings, proxy_payload })
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("gap finder task panicked: {e}")))?
 }
 
 /// Research Gap Finder (Set 4): one achievability-Q&A turn. The structured
@@ -763,7 +797,7 @@ pub fn run_gap_finder(
 /// honest offline (constraints preserved); user JWT rides for entitlement.
 #[tauri::command]
 #[tracing::instrument(skip(corpus, grounded_gaps, constraints, latest_answer, user_token))]
-pub fn run_gapfinder_qa(
+pub async fn run_gapfinder_qa(
     session: String,
     corpus: serde_json::Value,
     grounded_gaps: serde_json::Value,
@@ -771,26 +805,33 @@ pub fn run_gapfinder_qa(
     latest_answer: String,
     user_token: Option<String>,
 ) -> Result<gaply_core::gap_finder_agent::QaTurn, GaplyError> {
-    use gaply_core::chat_agent;
-    use gaply_core::gap_finder_agent;
+    // async + spawn_blocking: keeps the blocking keychain/HTTP work off the
+    // event-loop thread (mirrors run_full_analysis). Body/logic unchanged — the
+    // firewall still short-circuits before any proxy probe.
+    tokio::task::spawn_blocking(move || {
+        use gaply_core::chat_agent;
+        use gaply_core::gap_finder_agent;
 
-    // FIREWALL first — a ghostwriting pivot never even probes the proxy.
-    if chat_agent::is_ghostwriting(&latest_answer) {
-        return gap_finder_agent::qa_turn(None, &session, &corpus, &grounded_gaps, &constraints, &latest_answer);
-    }
+        // FIREWALL first — a ghostwriting pivot never even probes the proxy.
+        if chat_agent::is_ghostwriting(&latest_answer) {
+            return gap_finder_agent::qa_turn(None, &session, &corpus, &grounded_gaps, &constraints, &latest_answer);
+        }
 
-    let proxy = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
-        Ok(client) if client.reachable() => Some(client),
-        _ => None,
-    };
-    gap_finder_agent::qa_turn(
-        proxy.as_ref().map(|c| c as &dyn gaply_core::verify_agent::ProxyClient),
-        &session,
-        &corpus,
-        &grounded_gaps,
-        &constraints,
-        &latest_answer,
-    )
+        let proxy = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+            Ok(client) if client.reachable() => Some(client),
+            _ => None,
+        };
+        gap_finder_agent::qa_turn(
+            proxy.as_ref().map(|c| c as &dyn gaply_core::verify_agent::ProxyClient),
+            &session,
+            &corpus,
+            &grounded_gaps,
+            &constraints,
+            &latest_answer,
+        )
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("gapfinder qa task panicked: {e}")))?
 }
 
 /// Research Gap Finder (Set 5): one structured-draft turn against Set 4's
@@ -802,7 +843,7 @@ pub fn run_gapfinder_qa(
 /// honest offline; user JWT rides for entitlement.
 #[tauri::command]
 #[tracing::instrument(skip(corpus, achievable_gaps, constraints, user_note, user_token))]
-pub fn run_gapfinder_draft(
+pub async fn run_gapfinder_draft(
     session: String,
     corpus: serde_json::Value,
     achievable_gaps: serde_json::Value,
@@ -810,24 +851,30 @@ pub fn run_gapfinder_draft(
     user_note: String,
     user_token: Option<String>,
 ) -> Result<gaply_core::gap_finder_agent::DraftResult, GaplyError> {
-    use gaply_core::chat_agent;
-    use gaply_core::gap_finder_agent;
+    // async + spawn_blocking: blocking keychain/HTTP off the event-loop thread
+    // (mirrors run_full_analysis). Body/logic unchanged.
+    tokio::task::spawn_blocking(move || {
+        use gaply_core::chat_agent;
+        use gaply_core::gap_finder_agent;
 
-    if chat_agent::is_ghostwriting(&user_note) {
-        return gap_finder_agent::draft_turn(None, &session, &corpus, &achievable_gaps, &constraints, &user_note);
-    }
-    let proxy = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
-        Ok(client) if client.reachable() => Some(client),
-        _ => None,
-    };
-    gap_finder_agent::draft_turn(
-        proxy.as_ref().map(|c| c as &dyn gaply_core::verify_agent::ProxyClient),
-        &session,
-        &corpus,
-        &achievable_gaps,
-        &constraints,
-        &user_note,
-    )
+        if chat_agent::is_ghostwriting(&user_note) {
+            return gap_finder_agent::draft_turn(None, &session, &corpus, &achievable_gaps, &constraints, &user_note);
+        }
+        let proxy = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+            Ok(client) if client.reachable() => Some(client),
+            _ => None,
+        };
+        gap_finder_agent::draft_turn(
+            proxy.as_ref().map(|c| c as &dyn gaply_core::verify_agent::ProxyClient),
+            &session,
+            &corpus,
+            &achievable_gaps,
+            &constraints,
+            &user_note,
+        )
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("gapfinder draft task panicked: {e}")))?
 }
 
 /// Gap Finder (Set 6): verify a journal's facts STRICTLY from registry data
@@ -836,23 +883,31 @@ pub fn run_gapfinder_draft(
 /// command at all: the card cannot contain a model-originated fact.
 #[tauri::command]
 #[tracing::instrument(skip(state))]
-pub fn verify_journal_registry(
+pub async fn verify_journal_registry(
     state: State<'_, AppState>,
     issn: String,
     name: Option<String>,
     local_predatory_signals: Option<Vec<String>>,
 ) -> Result<crate::journal_registry::JournalVerification, GaplyError> {
-    let fetcher = crate::http_fetcher::ReqwestFetcher::new()?;
-    // Polite per-host budget, refverify-style.
-    let limiter = gaply_core::ratelimit::RateLimiter::new(5.0, 1.0);
-    crate::journal_registry::verify_journal(
-        &state.db,
-        &fetcher,
-        &limiter,
-        &issn,
-        name.as_deref().unwrap_or(""),
-        &local_predatory_signals.unwrap_or_default(),
-    )
+    // async + spawn_blocking (mirrors verify_reference): the registry APIs are
+    // blocking HTTP, so run off the event-loop thread. Extract the Arc<Database>
+    // first (State<'_> isn't Send). Logic unchanged.
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let fetcher = crate::http_fetcher::ReqwestFetcher::new()?;
+        // Polite per-host budget, refverify-style.
+        let limiter = gaply_core::ratelimit::RateLimiter::new(5.0, 1.0);
+        crate::journal_registry::verify_journal(
+            &db,
+            &fetcher,
+            &limiter,
+            &issn,
+            name.as_deref().unwrap_or(""),
+            &local_predatory_signals.unwrap_or_default(),
+        )
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("verify journal registry task panicked: {e}")))?
 }
 
 /// Journal Verification (PAID): the combined command — grounded registry facts
@@ -867,29 +922,37 @@ pub fn verify_journal_registry(
 /// ONCE and threaded to both lanes.
 #[tauri::command]
 #[tracing::instrument(skip(state, query, issn, local_predatory_signals, user_token))]
-pub fn verify_journal_full(
+pub async fn verify_journal_full(
     state: State<'_, AppState>,
     query: Option<String>,
     issn: Option<String>,
     local_predatory_signals: Option<Vec<String>>,
     user_token: Option<String>,
 ) -> Result<crate::journal_verify::JournalVerificationResult, GaplyError> {
-    let fetcher = crate::http_fetcher::ReqwestFetcher::new()?;
-    let limiter = gaply_core::ratelimit::RateLimiter::new(5.0, 1.0);
-    let client = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
-        Ok(c) if c.reachable() => Some(c),
-        _ => None,
-    };
-    let proxy = client.as_ref().map(|c| c as &dyn gaply_core::verify_agent::ProxyClient);
-    crate::journal_verify::verify_journal_full(
-        &state.db,
-        &fetcher,
-        &limiter,
-        proxy,
-        query.as_deref(),
-        issn.as_deref(),
-        &local_predatory_signals.unwrap_or_default(),
-    )
+    // async + spawn_blocking (mirrors run_full_analysis): registry HTTP + the
+    // proxy keychain/HTTP are blocking, so run off the event-loop thread. Extract
+    // the Arc<Database> first (State<'_> isn't Send). Logic unchanged.
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let fetcher = crate::http_fetcher::ReqwestFetcher::new()?;
+        let limiter = gaply_core::ratelimit::RateLimiter::new(5.0, 1.0);
+        let client = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+            Ok(c) if c.reachable() => Some(c),
+            _ => None,
+        };
+        let proxy = client.as_ref().map(|c| c as &dyn gaply_core::verify_agent::ProxyClient);
+        crate::journal_verify::verify_journal_full(
+            &db,
+            &fetcher,
+            &limiter,
+            proxy,
+            query.as_deref(),
+            issn.as_deref(),
+            &local_predatory_signals.unwrap_or_default(),
+        )
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("verify journal full task panicked: {e}")))?
 }
 
 /// Gap Finder (Set 6): journal-fit reasoning over the VERIFIED card. The
@@ -898,25 +961,31 @@ pub fn verify_journal_full(
 /// honest offline; user JWT rides for entitlement.
 #[tauri::command]
 #[tracing::instrument(skip(corpus, achievable_gaps, journal_card, user_token))]
-pub fn run_gapfinder_fit(
+pub async fn run_gapfinder_fit(
     session: String,
     corpus: serde_json::Value,
     achievable_gaps: serde_json::Value,
     journal_card: serde_json::Value,
     user_token: Option<String>,
 ) -> Result<gaply_core::gap_finder_agent::FitResult, GaplyError> {
-    use gaply_core::gap_finder_agent;
-    let proxy = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
-        Ok(client) if client.reachable() => Some(client),
-        _ => None,
-    };
-    gap_finder_agent::fit_turn(
-        proxy.as_ref().map(|c| c as &dyn gaply_core::verify_agent::ProxyClient),
-        &session,
-        &corpus,
-        &achievable_gaps,
-        &journal_card,
-    )
+    // async + spawn_blocking: blocking keychain/HTTP off the event-loop thread
+    // (mirrors run_full_analysis). Body/logic unchanged.
+    tokio::task::spawn_blocking(move || {
+        use gaply_core::gap_finder_agent;
+        let proxy = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+            Ok(client) if client.reachable() => Some(client),
+            _ => None,
+        };
+        gap_finder_agent::fit_turn(
+            proxy.as_ref().map(|c| c as &dyn gaply_core::verify_agent::ProxyClient),
+            &session,
+            &corpus,
+            &achievable_gaps,
+            &journal_card,
+        )
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("gapfinder fit task panicked: {e}")))?
 }
 
 /// Research Copilot: one report-scoped chat turn behind the integrity
@@ -929,33 +998,40 @@ pub fn run_gapfinder_fit(
 /// history is frontend state — nothing is persisted here.
 #[tauri::command]
 #[tracing::instrument(skip(context, question, user_token))]
-pub fn run_copilot_chat(
+pub async fn run_copilot_chat(
     context: serde_json::Value,
     question: String,
     language: Option<String>,
     user_token: Option<String>,
 ) -> Result<gaply_core::chat_agent::ChatTurn, GaplyError> {
-    use gaply_core::chat_agent;
+    // async + spawn_blocking: blocking keychain/HTTP off the event-loop thread
+    // (mirrors run_full_analysis). Body/logic unchanged — the firewall still
+    // refuses ghostwriting before any proxy probe.
+    tokio::task::spawn_blocking(move || {
+        use gaply_core::chat_agent;
 
-    let language = language.unwrap_or_else(|| "en".to_string());
+        let language = language.unwrap_or_else(|| "en".to_string());
 
-    // FIREWALL LAYER 1 first: a ghostwriting request is refused by local code
-    // before we even probe the proxy — the model is never in the loop.
-    if chat_agent::is_ghostwriting(&question) {
-        return Ok(chat_agent::chat_turn(None, &context, &question, &language));
-    }
-
-    // Cloud only, honest degradation: unreachable/unprovisioned proxy → the
-    // turn honestly says answers need the cloud (never a faked answer).
-    // The user's JWT rides along for the proxy's server-side entitlement gate
-    // (Set 8; enforcement joins the deployed proxy).
-    let turn = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
-        Ok(client) if client.reachable() => {
-            chat_agent::chat_turn(Some(&client), &context, &question, &language)
+        // FIREWALL LAYER 1 first: a ghostwriting request is refused by local code
+        // before we even probe the proxy — the model is never in the loop.
+        if chat_agent::is_ghostwriting(&question) {
+            return Ok(chat_agent::chat_turn(None, &context, &question, &language));
         }
-        _ => chat_agent::chat_turn(None, &context, &question, &language),
-    };
-    Ok(turn)
+
+        // Cloud only, honest degradation: unreachable/unprovisioned proxy → the
+        // turn honestly says answers need the cloud (never a faked answer).
+        // The user's JWT rides along for the proxy's server-side entitlement gate
+        // (Set 8; enforcement joins the deployed proxy).
+        let turn = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+            Ok(client) if client.reachable() => {
+                chat_agent::chat_turn(Some(&client), &context, &question, &language)
+            }
+            _ => chat_agent::chat_turn(None, &context, &question, &language),
+        };
+        Ok(turn)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("copilot chat task panicked: {e}")))?
 }
 
 // ============================================================================
@@ -1043,7 +1119,7 @@ pub fn run_stats_verify(
 /// along for the proxy's server-side entitlement gate.
 #[tauri::command]
 #[tracing::instrument(skip(spec, manuscript_path, question, user_token))]
-pub fn run_stats_chat(
+pub async fn run_stats_chat(
     path: String,
     spec: AnalysisSpec,
     manuscript_path: Option<String>,
@@ -1051,24 +1127,31 @@ pub fn run_stats_chat(
     language: Option<String>,
     user_token: Option<String>,
 ) -> Result<gaply_core::stats_chat::StatsChatTurn, GaplyError> {
-    use gaply_core::stats_chat;
+    // async + spawn_blocking: this parses the uploaded table/manuscript (blocking
+    // I/O) and does blocking keychain/HTTP for the chat — all off the event-loop
+    // thread (mirrors run_full_analysis). Body/logic unchanged.
+    tokio::task::spawn_blocking(move || {
+        use gaply_core::stats_chat;
 
-    let language = language.unwrap_or_else(|| "en".to_string());
-    let table = load_first_table(&path)?;
-    let validity = stats_validity(&manuscript_path);
-    let report = stats_verdict::verify_analysis(&spec, &table.headers, &table.rows, validity.as_ref());
+        let language = language.unwrap_or_else(|| "en".to_string());
+        let table = load_first_table(&path)?;
+        let validity = stats_validity(&manuscript_path);
+        let report = stats_verdict::verify_analysis(&spec, &table.headers, &table.rows, validity.as_ref());
 
-    // FIREWALL layer 1 first: a ghostwriting request is refused by local code
-    // before we even probe the proxy. (stats_chat's own pre-filter — including
-    // the code-authoring mirror — still runs inside, so nothing slips through.)
-    if gaply_core::chat_agent::is_ghostwriting(&question) {
-        return Ok(stats_chat::stats_chat_turn(None, &report, &question, &language));
-    }
-    let turn = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
-        Ok(client) if client.reachable() => {
-            stats_chat::stats_chat_turn(Some(&client), &report, &question, &language)
+        // FIREWALL layer 1 first: a ghostwriting request is refused by local code
+        // before we even probe the proxy. (stats_chat's own pre-filter — including
+        // the code-authoring mirror — still runs inside, so nothing slips through.)
+        if gaply_core::chat_agent::is_ghostwriting(&question) {
+            return Ok(stats_chat::stats_chat_turn(None, &report, &question, &language));
         }
-        _ => stats_chat::stats_chat_turn(None, &report, &question, &language),
-    };
-    Ok(turn)
+        let turn = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+            Ok(client) if client.reachable() => {
+                stats_chat::stats_chat_turn(Some(&client), &report, &question, &language)
+            }
+            _ => stats_chat::stats_chat_turn(None, &report, &question, &language),
+        };
+        Ok(turn)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("stats chat task panicked: {e}")))?
 }
