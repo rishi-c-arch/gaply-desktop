@@ -6,6 +6,7 @@ pub mod http_fetcher;
 pub mod logging;
 pub mod models;
 pub mod journal_registry;
+pub mod journal_site_summary;
 pub mod paper_corpus;
 pub mod pipeline;
 pub mod state;
