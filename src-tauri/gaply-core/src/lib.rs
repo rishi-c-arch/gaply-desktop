@@ -29,6 +29,7 @@ pub mod refverify;
 pub mod reviewer_agent;
 pub mod sanitize;
 pub mod secrets;
+pub mod stats_chat;
 pub mod stats_verdict;
 pub mod stats_verify;
 pub mod swarm;
