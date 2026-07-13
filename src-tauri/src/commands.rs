@@ -16,6 +16,7 @@ use gaply_core::projects::{self, Project};
 use gaply_core::rag::{self, RagHit};
 use gaply_core::refverify::ReferenceVerification;
 use gaply_core::secrets;
+use gaply_core::stats_verdict::{self, AnalysisSpec, VerificationReport as StatsVerificationReport};
 use gaply_core::validate::{self, StatsValidityReport};
 use gaply_core::{now_epoch, GaplyError};
 
@@ -791,6 +792,121 @@ pub fn run_copilot_chat(
             chat_agent::chat_turn(Some(&client), &context, &question, &language)
         }
         _ => chat_agent::chat_turn(None, &context, &question, &language),
+    };
+    Ok(turn)
+}
+
+// ============================================================================
+// Statistical Analysis Verifier (premium) — thin adapters over
+// `gaply_core::stats_verdict` (deterministic recompute + verdict) and
+// `gaply_core::stats_chat` (the analysis-scoped interpretive chat). The
+// verified math lives entirely in core; these commands only parse the uploaded
+// table and delegate. No business logic here.
+// ============================================================================
+
+/// Columns of the uploaded data + an optional extraction-prefilled p-value, so
+/// the frontend spec-builder can map roles and pre-fill the reported statistic.
+#[derive(Debug, Serialize)]
+pub struct StatsPreview {
+    pub headers: Vec<String>,
+    pub row_count: usize,
+    /// p-value pre-filled from an optional manuscript (via extraction); the
+    /// test-statistic value stays user-provided (extraction can't capture it).
+    pub prefill_p_value: Option<f64>,
+}
+
+/// The first table of an uploaded CSV/spreadsheet (header row + data rows).
+fn load_first_table(path: &str) -> Result<crate::supplementary::Table, GaplyError> {
+    let ev = crate::supplementary::parse_supplementary(std::path::Path::new(path))?;
+    ev.tables.into_iter().next().ok_or_else(|| {
+        GaplyError::Validation(
+            "no table found in the uploaded file — provide a CSV or spreadsheet with a header row \
+             and numeric data"
+                .into(),
+        )
+    })
+}
+
+/// Deterministic advisory input: validate.rs over an optional manuscript.
+fn stats_validity(manuscript_path: &Option<String>) -> Option<StatsValidityReport> {
+    let p = manuscript_path.as_ref()?;
+    let text = docparse::parse_path(std::path::Path::new(p)).ok()?;
+    Some(validate::validate(&extract::extract_from_text(&text)))
+}
+
+/// Pre-fill a reported p-value from an optional manuscript's extracted claims.
+fn stats_prefill_p(manuscript_path: &Option<String>) -> Option<f64> {
+    let p = manuscript_path.as_ref()?;
+    let text = docparse::parse_path(std::path::Path::new(p)).ok()?;
+    let extraction = extract::extract_from_text(&text);
+    stats_verdict::ReportedStatistic::from_claims(&extraction.statistics).p_value
+}
+
+/// Preview the uploaded data's columns (and optionally pre-fill the reported
+/// p-value from an attached manuscript). Local, deterministic — no network.
+#[tauri::command]
+#[tracing::instrument(skip(manuscript_path))]
+pub fn run_stats_preview(
+    path: String,
+    manuscript_path: Option<String>,
+) -> Result<StatsPreview, GaplyError> {
+    let table = load_first_table(&path)?;
+    Ok(StatsPreview {
+        headers: table.headers,
+        row_count: table.rows.len(),
+        prefill_p_value: stats_prefill_p(&manuscript_path),
+    })
+}
+
+/// Recompute the user's analysis-spec against the uploaded data and compare
+/// reported vs recomputed → a [`StatsVerificationReport`]. 100% deterministic
+/// and LOCAL (the Set 2 engine); no model, no proxy. The optional manuscript
+/// adds the deterministic advisory lane (validate.rs).
+#[tauri::command]
+#[tracing::instrument(skip(spec, manuscript_path))]
+pub fn run_stats_verify(
+    path: String,
+    spec: AnalysisSpec,
+    manuscript_path: Option<String>,
+) -> Result<StatsVerificationReport, GaplyError> {
+    let table = load_first_table(&path)?;
+    let validity = stats_validity(&manuscript_path);
+    Ok(stats_verdict::verify_analysis(&spec, &table.headers, &table.rows, validity.as_ref()))
+}
+
+/// One analysis-scoped interpretive-chat turn (Set 4). The SAME deterministic
+/// report is rebuilt server-side to scope the chat (the report type is
+/// Serialize-only by design — never round-tripped). FIREWALL runs in local code
+/// before any proxy probe; cloud-only, honest degradation; the user's JWT rides
+/// along for the proxy's server-side entitlement gate.
+#[tauri::command]
+#[tracing::instrument(skip(spec, manuscript_path, question, user_token))]
+pub fn run_stats_chat(
+    path: String,
+    spec: AnalysisSpec,
+    manuscript_path: Option<String>,
+    question: String,
+    language: Option<String>,
+    user_token: Option<String>,
+) -> Result<gaply_core::stats_chat::StatsChatTurn, GaplyError> {
+    use gaply_core::stats_chat;
+
+    let language = language.unwrap_or_else(|| "en".to_string());
+    let table = load_first_table(&path)?;
+    let validity = stats_validity(&manuscript_path);
+    let report = stats_verdict::verify_analysis(&spec, &table.headers, &table.rows, validity.as_ref());
+
+    // FIREWALL layer 1 first: a ghostwriting request is refused by local code
+    // before we even probe the proxy. (stats_chat's own pre-filter — including
+    // the code-authoring mirror — still runs inside, so nothing slips through.)
+    if gaply_core::chat_agent::is_ghostwriting(&question) {
+        return Ok(stats_chat::stats_chat_turn(None, &report, &question, &language));
+    }
+    let turn = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+        Ok(client) if client.reachable() => {
+            stats_chat::stats_chat_turn(Some(&client), &report, &question, &language)
+        }
+        _ => stats_chat::stats_chat_turn(None, &report, &question, &language),
     };
     Ok(turn)
 }

@@ -16,6 +16,7 @@ export const PREMIUM_ONLY = new Set([
   'research_copilot',
   'deep_plagiarism',
   'research_gap_finder',
+  'stats_verifier',
 ]);
 
 /** Offline features — ALWAYS allowed, any tier, no session needed. */
