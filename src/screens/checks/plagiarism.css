@@ -1,0 +1,75 @@
+/* Gaply — deterministic plagiarism report + library manager (Set 5).
+   Scoped under .gds-root; reuses gds-highlight (report.css) for the spans. */
+
+/* highlighted verbatim spans read as inherited text (not <mark>'s default) */
+.gds-root .gds-plag-report mark.gds-highlight { color: inherit; }
+
+/* side-by-side: your document | the matched paper */
+.gds-root .gds-plag-sxs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--g-space-1);
+  margin-top: 8px;
+}
+@media (max-width: 720px) {
+  .gds-root .gds-plag-sxs { grid-template-columns: 1fr; }
+}
+.gds-root .gds-plag-col {
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-button);
+  padding: 10px 12px;
+  background: var(--g-bg-layer2);
+  min-width: 0;
+}
+.gds-root .gds-plag-col__label {
+  display: block;
+  font-size: var(--g-text-size-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--g-text-3);
+  margin-bottom: 6px;
+}
+.gds-root .gds-plag-col__text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--g-text);
+  overflow-wrap: anywhere;
+}
+
+/* the clickable match card */
+.gds-root .gds-plag-match {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-panel);
+  padding: 12px;
+  background: var(--g-bg-layer1);
+  color: var(--g-text);
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+.gds-root .gds-plag-match:hover { border-color: var(--g-accent); transform: translateX(2px); }
+.gds-root .gds-plag-match[aria-current='true'] { border-color: var(--g-accent); outline: 2px solid var(--g-accent); outline-offset: 1px; }
+.gds-root .gds-plag-match:focus-visible { outline: 2px solid var(--g-accent); outline-offset: 2px; }
+.gds-root .gds-plag-match__head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.gds-root .gds-plag-match__title { font-weight: 600; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gds-root .gds-plag-match__meta { flex: none; color: var(--g-text-3); font-size: var(--g-text-size-xs); }
+
+/* ---------- "my papers" library manager ---------- */
+.gds-root .gds-plag-lib { display: grid; gap: 8px; }
+.gds-root .gds-plag-lib__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--g-space-1);
+  padding: 10px 12px;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-button);
+  background: var(--g-bg-layer2);
+}
+.gds-root .gds-plag-lib__meta { min-width: 0; }
+.gds-root .gds-plag-lib__title { margin: 0; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gds-root .gds-plag-lib__date { color: var(--g-text-3); font-size: var(--g-text-size-xs); }
+.gds-root .gds-plag-lib__empty { color: var(--g-text-3); font-size: 13px; }

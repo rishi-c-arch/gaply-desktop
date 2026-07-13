@@ -98,20 +98,8 @@ async function runFile(name = 'paper.pdf') {
 }
 
 /* ------------------------------ each renders ----------------------------- */
-
-describe('Plagiarism Check', () => {
-  it('renders similarity, matched spans and match type from the agent', async () => {
-    const bridge = makeMockCheckBridge({ plagiarism: PLAG });
-    renderScreen(<PlagiarismCheckPage bridge={bridge} />);
-    await runFile();
-    // match type + similarity surface as findings (self=99% internal dup, corpus=91%)
-    expect(screen.getAllByText(/internal duplication/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText(/91% similarity/)).toBeTruthy();
-    // scoped tabs only (Overview + Plagiarism), not Statistics/AI Risk
-    expect(screen.getByTestId('tab-Plagiarism')).toBeTruthy();
-    expect(screen.queryByTestId('tab-Statistics')).toBeNull();
-  });
-});
+// The Plagiarism page (exact + similar lanes, library manager, side-by-side
+// report) is covered in depth by plagiarism.vitest.tsx.
 
 describe('AI Check', () => {
   it('renders the two-way tiered report with the mandatory caution (Set 5)', async () => {

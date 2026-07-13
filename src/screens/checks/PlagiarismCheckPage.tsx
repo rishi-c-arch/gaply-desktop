@@ -1,40 +1,102 @@
-// Gaply — Plagiarism Check (F7). Local, free: self-plagiarism, internal
-// duplication, paraphrase, verbatim — via the per-session isolated vector
-// store, computed on-device.
-//
-// The "deep" comprehensive check is NOT wired and shows an honest coming-soon
-// state (gated by the `deepPlagiarism` flag, off by default). It will be
-// powered by Gaply's own trained model — NO third-party service, and never a
-// fabricated score or source.
-import React, { useMemo } from 'react';
-import { Badge, Button, Card } from '../../design-system';
-import CheckScreen from './CheckScreen';
+// Gaply — Plagiarism Check (F7). Local, free. TWO honest lanes:
+//   · PRIMARY "Exact text matches" (Set 2/3): deterministic verbatim overlaps
+//     against the user's curated "my papers" library — real matches shown
+//     side-by-side in both documents, with a named-scope, un-strippable
+//     disclosure (NOT a Turnitin replacement).
+//   · SECONDARY "Similar meaning" (existing embedding lane, unchanged): the
+//     on-device semantic-similarity scan. Kept as-is; clearly labeled so the
+//     two don't confuse — the exact-match lane is the default.
+// The deep comprehensive check remains an honest coming-soon (no vendor, no
+// fabricated score). Path-only over IPC; text never leaves the device.
+import React, { useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  AppShell,
+  Badge,
+  Button,
+  Card,
+  GaplyGlobe,
+  HeaderBar,
+  NavRail,
+  Panel,
+} from '../../design-system';
+import { ACCEPT_HINT, estimatePdfPageCount, validateFile } from '../analysis/validateFile';
+import ReportViewerPage from '../report/ReportViewerPage';
+import { PublishReadyReport } from '../report/reportTypes';
+import { useFeatureFlag } from '../../config/Feature';
 import { CheckBridge, TauriCheckBridge } from './checkBridge';
 import { plagiarismToReport } from './adapters';
-import { useFeatureFlag } from '../../config/Feature';
+import { ExactPlagiarismReport } from './agentTypes';
+import PlagiarismExactReport from './PlagiarismExactReport';
+import PlagiarismLibraryManager from './PlagiarismLibraryManager';
 
 export interface PlagiarismCheckPageProps {
   bridge?: CheckBridge;
 }
 
+type Mode = 'exact' | 'similar';
+
 const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({ bridge }) => {
   const b = useMemo(() => bridge ?? new TauriCheckBridge(), [bridge]);
+  const navigate = useNavigate();
   const deepEnabled = useFeatureFlag('deepPlagiarism');
 
-  // Honest state: the deep check is not built. No vendor name, no number, no
-  // placeholder source. When the flag is on later, this is where the real
-  // (Gaply-model-powered) result will render.
+  const [mode, setMode] = useState<Mode>('exact');
+  const [exact, setExact] = useState<ExactPlagiarismReport | null>(null);
+  const [sim, setSim] = useState<PublishReadyReport | null>(null);
+  const [selected, setSelected] = useState<{ name: string; path: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const acceptFile = async (file: File) => {
+    setError(null);
+    const pageCount = await estimatePdfPageCount(file);
+    const res = validateFile({ name: file.name, sizeBytes: file.size, pageCount });
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setSelected({ name: file.name, path: (file as any).path ?? file.name });
+  };
+
+  const runNow = async () => {
+    if (!selected) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (mode === 'exact') {
+        setExact(await b.checkExact(selected.path));
+      } else {
+        setSim(plagiarismToReport(await b.plagiarism(selected.path)));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'check failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const report = mode === 'exact' ? exact : sim;
+  const reset = () => {
+    if (mode === 'exact') setExact(null);
+    else setSim(null);
+  };
+  const switchMode = (m: Mode) => {
+    setMode(m);
+    setError(null);
+    setSelected(null);
+  };
+
   const deepPanel = (
     <Card title="Deep plagiarism analysis" glass data-testid="deep-check">
       <p style={{ margin: '0 0 8px', color: 'var(--g-text-2)', fontSize: 13 }}>
-        Broader coverage beyond your own documents and the shared corpus.{' '}
-        <Badge status="neutral">coming soon</Badge>
+        Broader coverage beyond your own documents. <Badge status="neutral">coming soon</Badge>
       </p>
       <p style={{ margin: 0, color: 'var(--g-text-3)', fontSize: 12 }} data-testid="deep-note">
-        Deep plagiarism analysis is coming soon. Local, on-device checks below are available now.
+        Deep plagiarism analysis is coming soon. Local, on-device checks are available now.
       </p>
       {deepEnabled && (
-        // Flag on but still no real backend — keep it honest, do not fabricate.
         <Button variant="secondary" disabled style={{ marginTop: 8 }} data-testid="run-deep">
           Run deep analysis (coming soon)
         </Button>
@@ -43,14 +105,97 @@ const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({ bridge }) => 
   );
 
   return (
-    <CheckScreen
-      testid="plagiarism-check"
-      title="Plagiarism Check"
-      subtitle="Self-plagiarism, internal duplication, paraphrase & verbatim — on your device"
-      tabs={['Overview', 'Plagiarism']}
-      run={async (path) => plagiarismToReport(await b.plagiarism(path))}
-      extra={deepPanel}
-    />
+    <div className="gds-root" style={{ height: '100vh' }} data-testid="plagiarism-check">
+      <AppShell
+        rail={
+          <NavRail
+            items={[
+              { id: 'home', label: 'Home', icon: '◫', onSelect: () => navigate('/app') },
+              { id: 'plag', label: 'Plagiarism Check', icon: '≡', onSelect: () => navigate('/app/check/plagiarism') },
+              { id: 'ai', label: 'AI Check', icon: '◬', onSelect: () => navigate('/app/check/ai') },
+              { id: 'stats', label: 'Statistical Analysis Check', icon: 'Σ', onSelect: () => navigate('/app/check/stats') },
+            ]}
+            activeId="plag"
+            brand={<GaplyGlobe scale="mark" />}
+          />
+        }
+        header={
+          <HeaderBar title="Plagiarism Check">
+            <Badge status="certain">local · free</Badge>
+          </HeaderBar>
+        }
+      >
+        <Panel title="Plagiarism Check">
+          <div style={{ display: 'grid', gap: 16 }}>
+            {/* lane toggle — exact is the default */}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} data-testid="plag-mode">
+              <Button
+                variant={mode === 'exact' ? 'primary' : 'secondary'}
+                onClick={() => switchMode('exact')}
+                data-testid="mode-exact"
+              >
+                Exact text matches
+              </Button>
+              <Button
+                variant={mode === 'similar' ? 'primary' : 'secondary'}
+                onClick={() => switchMode('similar')}
+                data-testid="mode-similar"
+              >
+                Similar meaning (semantic)
+              </Button>
+            </div>
+
+            {/* the "my papers" library — only relevant to the exact lane */}
+            {mode === 'exact' && <PlagiarismLibraryManager bridge={b} />}
+
+            {!report ? (
+              <>
+                <Card title="Check a document">
+                  <p style={{ margin: '0 0 12px', color: 'var(--g-text-3)', fontSize: 13 }}>
+                    {mode === 'exact'
+                      ? 'Find verbatim text your document shares with itself or your library — real overlapping passages.'
+                      : 'Find passages with similar MEANING (semantic), even when reworded — a softer, fuzzier signal.'}{' '}
+                    · {ACCEPT_HINT} · parsed on your device.
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Button variant="secondary" onClick={() => inputRef.current?.click()} data-testid="pick-file">
+                      Choose file
+                    </Button>
+                    {selected && <span className="gds-mono" data-testid="selected-name">{selected.name}</span>}
+                    <input
+                      ref={inputRef}
+                      type="file"
+                      accept=".pdf,.docx,.txt,.md"
+                      style={{ display: 'none' }}
+                      data-testid="file-input"
+                      onChange={(e) => e.target.files?.[0] && void acceptFile(e.target.files[0])}
+                    />
+                    <Button onClick={runNow} disabled={!selected || busy} data-testid="run-check">
+                      {busy ? 'Running…' : 'Run check'}
+                    </Button>
+                  </div>
+                  {error && <p style={{ color: 'var(--g-flagged)', fontSize: 13 }} role="alert" data-testid="check-error">{error}</p>}
+                </Card>
+                {deepPanel}
+              </>
+            ) : (
+              <div data-testid="check-report">
+                {mode === 'exact' ? (
+                  <PlagiarismExactReport result={exact!} />
+                ) : (
+                  <ReportViewerPage report={sim!} tabs={['Overview', 'Plagiarism']} bare />
+                )}
+                <div style={{ marginTop: 12 }}>
+                  <Button variant="ghost" onClick={reset} data-testid="run-another">
+                    ← Check another
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </Panel>
+      </AppShell>
+    </div>
   );
 };
 

@@ -2,7 +2,70 @@
 // exact), consumed by the F7 single-agent screens. All produced by the existing
 // Rust commands: check_plagiarism / detect_ai / validate_manuscript.
 
-/* ----------------------------- Plagiarism ------------------------------- */
+/* --------------- Plagiarism — deterministic exact match (Set 2/3) --------------- */
+// Serde-exact mirrors of gaply-core's plagiarism_exact / plagiarism_library.
+// The DETERMINISTIC lane: real verbatim overlaps you can point to in both
+// places. `check_plagiarism_exact` returns ExactPlagiarismReport; the library
+// commands manage the durable "my papers" comparison set.
+
+export type MatchKind = 'self_repeat' | 'library_match';
+
+/** A span of a document. start_char/end_char are Rust BYTE offsets — the UI
+ *  renders the `text` field directly (already the exact slice) rather than
+ *  indexing JS strings with them. */
+export interface TextSpan {
+  start_char: number;
+  end_char: number;
+  text: string;
+}
+
+export interface MatchedPassage {
+  /** The overlapping span in the document under test (the upload). */
+  source: TextSpan;
+  /** The same text in the OTHER location: elsewhere in the upload
+   *  (self_repeat) or in the matched library paper (library_match). */
+  matched: TextSpan;
+  /** Jaccard over shared shingles — 1.0 for a fully verbatim run. A computed
+   *  overlap measure, never a fabricated score. */
+  similarity: number;
+  word_count: number;
+  match_kind: MatchKind;
+  /** "this document" for self_repeat, else the matched paper's title. */
+  source_ref: string;
+}
+
+export interface MatchStats {
+  source_fingerprints: number;
+  comparison_fingerprints: number;
+  candidate_seeds: number;
+  library_papers_examined: number;
+}
+
+export interface ExactPlagiarismReport {
+  shingle_size: number;
+  window_size: number;
+  self_matches: MatchedPassage[];
+  library_matches: MatchedPassage[];
+  /** The library papers the upload was compared against (scope, by title). */
+  compared_against: string[];
+  total_source_words: number;
+  /** Fraction of the upload's text covered by ANY match — a real proportion,
+   *  NOT a plagiarism score/verdict. */
+  duplication_ratio: number;
+  stats: MatchStats;
+  /** REQUIRED, never empty: the exact named scope + the Turnitin limitation. */
+  disclosure: string;
+}
+
+/** A paper in the durable "my papers" library (metadata only). */
+export interface LibraryPaper {
+  id: number;
+  title: string;
+  added_at: number; // epoch seconds
+  source_label: string;
+}
+
+/* ----------- Plagiarism — embedding "similar meaning" lane (existing) ----------- */
 
 export type MatchSource =
   | { kind: 'corpus'; document_id: number; chunk_id: number; title: string; source_url: string; source_type: string; excerpt: string }
