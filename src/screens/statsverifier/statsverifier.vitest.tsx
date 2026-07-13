@@ -2,7 +2,7 @@
 // tests: entitlement gating, the analysis-spec builder, the verified-vs-advisory
 // report (match/mismatch + un-strippable disclosure), and the scoped chat dock.
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -52,6 +52,26 @@ describe('StatsVerifierPage — entitlement gating (mirrors PublishReady)', () =
     renderPage({ bridge: makeMockStatsVerifierBridge({}), forceTier: 'premium' });
     expect(await screen.findByTestId('sv-entry')).toBeTruthy();
     expect(screen.queryByTestId('sv-teaser')).toBeNull();
+  });
+
+  // The feature was merged but DARK — no route wired it in. This pins that the
+  // new /app/statsverifier path resolves to THIS page, still behind the paid gate.
+  it('the /app/statsverifier route resolves to the gated page', () => {
+    render(
+      <MemoryRouter initialEntries={['/app/statsverifier']}>
+        <GaplySessionProvider authService={auth(null)}>
+          <Routes>
+            <Route
+              path="/app/statsverifier"
+              element={<StatsVerifierPage bridge={makeMockStatsVerifierBridge({})} forceTier="free" />}
+            />
+          </Routes>
+        </GaplySessionProvider>
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId('statsverifier')).toBeTruthy(); // page mounted at the path
+    expect(screen.getByTestId('sv-teaser')).toBeTruthy();     // PREMIUM gate still enforced
+    expect(screen.queryByTestId('sv-entry')).toBeNull();
   });
 });
 

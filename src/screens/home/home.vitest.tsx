@@ -62,6 +62,21 @@ describe('the home hero', () => {
     expect(screen.getByText(/Research Ecosystem/)).toBeTruthy();
   });
 
+  it('exposes the wired-up premium features in the hero nav', async () => {
+    renderDash(null);
+    await screen.findByTestId('home-dashboard');
+    // Statistical Analysis Verifier (paid, previously dark — no route/nav) is now reachable.
+    const sv = screen.getByRole('link', { name: /Statistical Analysis Verifier/ });
+    expect(sv.getAttribute('href')).toBe('/app/statsverifier');
+    // Research Gap Finder (route existed, nav entry was missing) is now linked.
+    const gf = screen.getByRole('link', { name: /Research Gap Finder/ });
+    expect(gf.getAttribute('href')).toBe('/app/gapfinder');
+    // The FREE deterministic Statistical Analysis Check stays a distinct entry —
+    // the paid Verifier did not replace or absorb it.
+    const check = screen.getByRole('link', { name: 'Statistical Analysis Check' });
+    expect(check.getAttribute('href')).toBe('/app/check/stats');
+  });
+
   it('"Start Analysis" navigates into the upload flow', async () => {
     renderDash(null);
     fireEvent.click(await screen.findByTestId('start-analysis'));

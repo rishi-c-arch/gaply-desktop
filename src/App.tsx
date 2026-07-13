@@ -87,6 +87,7 @@ const GaplyJournalVerifyRoute = React.lazy(() => import('./screens/GaplyScreens'
 const GaplyPublishReadyRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.PublishReadyRoute })));
 const GaplyCopilotRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.CopilotRoute })));
 const GaplyGapFinderRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.GapFinderRoute })));
+const GaplyStatsVerifierRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.StatsVerifierRoute })));
 const GaplyBillingRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.BillingRoute })));
 const GaplyCommunityRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.CommunityRoute })));
 const GaplySettingsRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.SettingsRoute })));
@@ -1017,6 +1018,7 @@ const AppContent: React.FC = () => {
           <Route path="/app/journal-verify" element={<Suspense fallback={null}><GaplyJournalVerifyRoute /></Suspense>} />
           <Route path="/app/publishready" element={<Suspense fallback={null}><GaplyPublishReadyRoute /></Suspense>} />
           <Route path="/app/gapfinder" element={<Suspense fallback={null}><GaplyGapFinderRoute /></Suspense>} />
+          <Route path="/app/statsverifier" element={<Suspense fallback={null}><GaplyStatsVerifierRoute /></Suspense>} />
           <Route path="/app/copilot" element={<Suspense fallback={null}><GaplyCopilotRoute /></Suspense>} />
           <Route path="/app/billing" element={<Suspense fallback={null}><GaplyBillingRoute /></Suspense>} />
           <Route path="/app/community" element={<Suspense fallback={null}><GaplyCommunityRoute /></Suspense>} />

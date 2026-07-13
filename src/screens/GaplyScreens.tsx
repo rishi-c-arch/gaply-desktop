@@ -29,6 +29,7 @@ import JournalCheckPage from './journal/JournalCheckPage';
 import JournalVerifyPage from './journalverify/JournalVerifyPage';
 import PublishReadyPage from './publishready/PublishReadyPage';
 import GapFinderPage from './gapfinder/GapFinderPage';
+import StatsVerifierPage from './statsverifier/StatsVerifierPage';
 import CopilotPage from './copilot/CopilotPage';
 import BillingPage from './subscription/BillingPage';
 import CommunityPage from './community/CommunityPage';
@@ -162,6 +163,16 @@ export const GapFinderRoute: React.FC = () => (
   <GaplySessionProvider>
     <RequireAuth>
       <GapFinderPage />
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/statsverifier — Statistical Analysis Verifier (paid). Premium-gated;
+ *  in-page `useEntitlement('stats_verifier')` mirrors PublishReady exactly. */
+export const StatsVerifierRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <StatsVerifierPage />
     </RequireAuth>
   </GaplySessionProvider>
 );
