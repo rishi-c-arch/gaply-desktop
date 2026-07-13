@@ -24,6 +24,7 @@ import PlagiarismCheckPage from './checks/PlagiarismCheckPage';
 import AiCheckPage from './checks/AiCheckPage';
 import StatsCheckPage from './checks/StatsCheckPage';
 import CitationManagerPage from './citations/CitationManagerPage';
+import NoteCreatorPage from './notes/NoteCreatorPage';
 import JournalCheckPage from './journal/JournalCheckPage';
 import PublishReadyPage from './publishready/PublishReadyPage';
 import GapFinderPage from './gapfinder/GapFinderPage';
@@ -113,6 +114,16 @@ export const CitationManagerRoute: React.FC = () => (
   <GaplySessionProvider>
     <RequireAuth>
       <CitationManagerPage />
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/notes — Note Creator. FREE-OFFLINE: local-first note-taking (per-paper
+ *  structured template + project notes), no model, no proxy, no entitlement. */
+export const NoteCreatorRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <NoteCreatorPage />
     </RequireAuth>
   </GaplySessionProvider>
 );

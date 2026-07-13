@@ -27,6 +27,7 @@ export const OFFLINE_FEATURES = new Set([
   'local_plagiarism',
   'report_view',
   'citation_manager_local',
+  'note_creator',
 ]);
 
 export interface GateResult {

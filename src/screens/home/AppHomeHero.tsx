@@ -21,6 +21,7 @@ const HERO_OPTIONS = [
   { label: 'AI Check', href: '/app/check/ai' },
   { label: 'Statistical Analysis Check', href: '/app/check/stats' },
   { label: 'Citation Manager', href: '/app/citations' },
+  { label: 'Note Creator', href: '/app/notes' },
   { label: 'Journal Check', href: '/app/journal' },
   { label: 'Research Copilot ★', href: '/app/copilot' },
   { label: 'Research Co-Author', href: '/app/community' },
