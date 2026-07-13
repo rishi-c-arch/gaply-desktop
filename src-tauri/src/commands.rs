@@ -370,18 +370,28 @@ pub fn rag_search(
 /// with an honest note, and the checklist simply stays bare — no fabrication.
 #[tauri::command]
 #[tracing::instrument(skip(state))]
-pub fn ingest_guidelines(
+pub async fn ingest_guidelines(
     state: State<'_, AppState>,
     journal_url: Option<String>,
     guidelines_url: Option<String>,
 ) -> Result<crate::guidelines::GuidelinesReport, GaplyError> {
-    let ingestor = crate::guidelines::GuidelinesIngestor::new()?;
-    Ok(ingestor.ingest(
-        &state.db,
-        state.embedder.as_ref(),
-        journal_url.as_deref(),
-        guidelines_url.as_deref(),
-    ))
+    // async + spawn_blocking (mirrors build_gapfinder_corpus / run_full_analysis):
+    // the guideline page fetch is blocking HTTP, so run off the event-loop thread
+    // (this was the one command deferred from H1). Extract the Arc handles first
+    // (State<'_> isn't Send). Logic unchanged.
+    let db = state.db.clone();
+    let embedder = state.embedder.clone();
+    tokio::task::spawn_blocking(move || {
+        let ingestor = crate::guidelines::GuidelinesIngestor::new()?;
+        Ok(ingestor.ingest(
+            &db,
+            embedder.as_ref(),
+            journal_url.as_deref(),
+            guidelines_url.as_deref(),
+        ))
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("ingest guidelines task panicked: {e}")))?
 }
 
 /// PublishReady result: the local report, the (cloud) reviewer evaluation, and

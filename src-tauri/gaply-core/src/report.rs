@@ -344,15 +344,14 @@ pub fn checklist_from_guidelines(
         });
     }
 
+    // No guideline docs in the store → "not provided yet", NOT a failure. Return
+    // only the always-on structural checks above and emit NO item — the old
+    // passed:false "journal guidelines available: FAILED" item dishonestly
+    // rendered "the user didn't provide guidelines" as a red ✗ manuscript
+    // failure. Absence of guideline-derived items (every item has
+    // guideline_source == None) is the neutral signal the UI reads to show an
+    // honest "add your journal's guidelines to enable these checks" note.
     if guidelines.is_empty() {
-        items.push(ChecklistItem {
-            requirement: "journal guidelines available".into(),
-            passed: false,
-            detail: "no journal guidelines retrieved from the RAG corpus; only structural \
-                     checks were run"
-                .into(),
-            guideline_source: None,
-        });
         return items;
     }
 

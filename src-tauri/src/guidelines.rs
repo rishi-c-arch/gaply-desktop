@@ -21,9 +21,12 @@
 //!
 //! # Scope note
 //!
-//! This POPULATES the corpus. `run_full_analysis` still passes an empty
-//! checklist (`pipeline.rs` `Vec::new()`); wiring `build_checklist` into the
-//! pipeline so the corpus reaches the report is a separate follow-up.
+//! This POPULATES the corpus. The pipeline already wires `build_checklist`
+//! against the `journal_guideline` corpus (`pipeline.rs`), so once this ingests
+//! the target journal's guidelines the guideline-derived checklist items reach
+//! the report automatically. What remains is a caller that triggers ingestion
+//! (the PublishReady UI — H4 Set 2); when the corpus is empty the checklist
+//! honestly shows only the always-on structural checks (no fabricated failure).
 
 use serde::Serialize;
 

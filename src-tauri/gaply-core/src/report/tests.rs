@@ -228,11 +228,33 @@ fn checklist_flags_violations_against_journal_guideline() {
 }
 
 #[test]
-fn checklist_without_guidelines_says_so_explicitly() {
+fn checklist_without_guidelines_shows_structural_checks_only_no_fake_failure() {
+    // Honest degradation (H4): with NO guideline docs in the store, the checklist
+    // must NOT fabricate a passed:false "journal guidelines available: FAILED"
+    // item — that misread "the user didn't provide guidelines" as a manuscript
+    // failure. It returns ONLY the always-on structural checks; absence of
+    // guideline-derived items (guideline_source == None on every item) is the
+    // neutral signal the UI reads to show an honest "add your guidelines" note.
     let extraction = crate::extract::extract_from_text("T\n\nAbstract\nx.\n");
     let items = checklist_from_guidelines(&extraction, "T Abstract x.", &[]);
-    let note = items.iter().find(|i| i.requirement.contains("guidelines available")).unwrap();
-    assert!(!note.passed, "absence of guidelines must be visible, not silent");
+
+    // no fabricated guidelines-availability failure
+    assert!(
+        !items.iter().any(|i| i.requirement.contains("guidelines available")),
+        "empty store must NOT emit a fake guidelines-availability item, got {:?}",
+        items.iter().map(|c| &c.requirement).collect::<Vec<_>>()
+    );
+    // the always-on structural checks still run, and every item is structural
+    // (no guideline provenance) — the honest "not provided" state
+    assert!(!items.is_empty(), "structural checks still run with no guidelines");
+    assert!(
+        items.iter().all(|i| i.guideline_source.is_none()),
+        "with no guidelines every item must be a structural check"
+    );
+    assert!(
+        items.iter().any(|i| i.requirement.contains("required section: Abstract")),
+        "the structural section checks are present"
+    );
 }
 
 // --- provenance + certainty tiers on every finding, incl. reconsidered ----------
