@@ -20,6 +20,7 @@ pub mod migrations;
 pub mod perplexity;
 pub mod plagiarism;
 pub mod plagiarism_exact;
+pub mod plagiarism_library;
 pub mod projects;
 pub mod rag;
 pub mod ratelimit;

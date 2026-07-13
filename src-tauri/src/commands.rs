@@ -10,6 +10,8 @@ use gaply_core::db::{DbHealth, DbInitReport, MigrationReport};
 use gaply_core::extract::citations::Reference;
 use gaply_core::extract::{self, docparse, ExtractionResult};
 use gaply_core::plagiarism::{PlagiarismReport, PlagiarismSession};
+use gaply_core::plagiarism_exact::{ExactConfig, ExactPlagiarismReport};
+use gaply_core::plagiarism_library::{self, LibraryPaper};
 use gaply_core::projects::{self, Project};
 use gaply_core::rag::{self, RagHit};
 use gaply_core::refverify::ReferenceVerification;
@@ -144,6 +146,63 @@ pub fn check_plagiarism(
     let mut session = PlagiarismSession::new()?;
     session.ingest_manuscript(state.embedder.as_ref(), &text)?;
     session.report(&state.db, None)
+}
+
+// --- Plagiarism: the DETERMINISTIC exact-match lane + "my papers" library ----
+// A separate lane from `check_plagiarism` (embedding "similar meaning") above:
+// deterministic verbatim matching against the user's durable, curated paper
+// library. Fully local — path-only over IPC, no network, no model.
+
+/// Derive a human title from a file path (stem), for library entries.
+fn title_from_path(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "Untitled paper".to_string())
+}
+
+/// Add a paper to the durable "my papers" library: docparse → extract text →
+/// compute Set-2 fingerprints once → store. Explicit user action; the upload
+/// under a plagiarism check is NEVER auto-added.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn add_to_plagiarism_library(
+    state: State<'_, AppState>,
+    path: String,
+    title: Option<String>,
+) -> Result<i64, GaplyError> {
+    let text = docparse::parse_path(std::path::Path::new(&path))?;
+    let title = title.unwrap_or_else(|| title_from_path(&path));
+    plagiarism_library::add_paper(&state.db, &title, &text, &path, &ExactConfig::default())
+}
+
+/// List the user's paper library (metadata only — never the stored text).
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn list_plagiarism_library(state: State<'_, AppState>) -> Result<Vec<LibraryPaper>, GaplyError> {
+    plagiarism_library::list_papers(&state.db)
+}
+
+/// Remove a paper from the library by id.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn remove_from_plagiarism_library(state: State<'_, AppState>, id: i64) -> Result<bool, GaplyError> {
+    plagiarism_library::remove_paper(&state.db, id)
+}
+
+/// Deterministic exact-match plagiarism check: compare an upload against the
+/// user's "my papers" library (LIBRARY mode, using each paper's precomputed
+/// fingerprints) AND against itself (self-plagiarism). The upload stays
+/// session-isolated — never added to the library.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn check_plagiarism_exact(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<ExactPlagiarismReport, GaplyError> {
+    let text = docparse::parse_path(std::path::Path::new(&path))?;
+    plagiarism_library::compare_against_library(&state.db, &text, &ExactConfig::default())
 }
 
 // --- Secret handling ---------------------------------------------------------

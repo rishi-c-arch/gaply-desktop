@@ -202,6 +202,28 @@ pub const MIGRATIONS: &[Migration] = &[
         ",
         down: "DROP TABLE citation_library;",
     },
+    Migration {
+        version: 8,
+        name: "plagiarism_library",
+        // Plagiarism Check Set 3: the durable, user-curated "my papers" store
+        // for DETERMINISTIC exact-match comparison — NOT session-tagged, NOT
+        // mixed with journal/RAG docs (that shared corpus is the embedding
+        // lane's stopgap). full_text is the paper's extracted text; fingerprints
+        // is the Set-2 winnowing fingerprint set, serialized (computed ONCE at
+        // add time, reused every check — no re-fingerprinting per run).
+        up: "
+            CREATE TABLE plagiarism_library (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                title        TEXT NOT NULL,
+                full_text    TEXT NOT NULL,
+                fingerprints TEXT NOT NULL,
+                source_label TEXT NOT NULL DEFAULT '',
+                added_at     INTEGER NOT NULL
+            );
+            CREATE INDEX idx_plagiarism_library_added ON plagiarism_library(added_at);
+        ",
+        down: "DROP TABLE plagiarism_library;",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -338,12 +360,13 @@ mod tests {
     fn partial_down_keeps_earlier_versions() {
         let mut conn = test_connection();
         migrate_up(&mut conn).unwrap();
-        // roll back citations + rag + memory/cache + embeddings, keep
-        // knowledge base and below
+        // roll back plagiarism library + citations + rag + memory/cache +
+        // embeddings, keep knowledge base and below
         let reverted = migrate_down(&mut conn, 3).unwrap();
         assert_eq!(
             reverted,
             vec![
+                "plagiarism_library",
                 "citation_library_local",
                 "rag_documents",
                 "episodic_memory_and_cache",

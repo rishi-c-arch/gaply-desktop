@@ -124,6 +124,11 @@ pub struct MatchStats {
     /// Number of (source-fingerprint, target-position) candidate pairs the
     /// postings index actually surfaced — ≪ source_fp × comparison_fp.
     pub candidate_seeds: usize,
+    /// How many library documents were actually tokenized this run. In the
+    /// PRECOMPUTED path ([`analyze_exact_prepared`]) this is only the papers
+    /// that share a stored fingerprint — proof the library is NOT
+    /// re-fingerprinted wholesale each check.
+    pub library_papers_examined: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -496,8 +501,137 @@ pub fn analyze_exact(document: &str, library: &[CompareDoc], config: &ExactConfi
             source_fingerprints: src.fingerprints.len(),
             comparison_fingerprints,
             candidate_seeds: self_seeds + library_seeds,
+            library_papers_examined: library.len(), // this path fingerprints all
         },
         disclosure: build_disclosure(&compared_against),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Precomputed-fingerprint path (Set 3) — the durable "my papers" library
+// ---------------------------------------------------------------------------
+//
+// ADDITIVE: these entry points let a persistent library store each paper's
+// winnowing fingerprints ONCE (at add time) and reuse them on every check.
+// The core algorithm above — tokenize/shingle/winnow/find_runs/verify+extend
+// — is unchanged and shared. Papers that share NO stored fingerprint with the
+// upload are never even tokenized (the gate), so a large library costs a cheap
+// fingerprint-set check per paper, not a re-fingerprint.
+
+/// Compute the storable winnowing fingerprint set for a document — call once
+/// when a paper is added to the library; store the result serialized.
+pub fn fingerprint_document(text: &str, config: &ExactConfig) -> Vec<(u64, usize)> {
+    build_doc(text, config).fingerprints
+}
+
+/// A library entry with its text and PRECOMPUTED fingerprints (from
+/// [`fingerprint_document`], stored + reloaded — never recomputed here).
+pub struct PreparedCompareDoc {
+    pub reference: String,
+    pub text: String,
+    pub fingerprints: Vec<(u64, usize)>,
+}
+
+fn build_library_disclosure(refs: &[String]) -> String {
+    let scope = if refs.is_empty() {
+        "Checked this document against ITSELF only — your paper library is empty.".to_string()
+    } else {
+        format!(
+            "Checked this document against itself and your {} paper(s) in your library: {}.",
+            refs.len(),
+            refs.join("; ")
+        )
+    };
+    format!("{scope} {NOT_TURNITIN_NOTICE}")
+}
+
+/// SELF mode + LIBRARY mode against a durable, PRECOMPUTED-fingerprint library.
+/// Identical matching to [`analyze_exact`], but the library's fingerprints are
+/// loaded, not recomputed; a paper is only tokenized if it shares a fingerprint
+/// with the upload (see [`MatchStats::library_papers_examined`]).
+pub fn analyze_exact_prepared(
+    document: &str,
+    library: &[PreparedCompareDoc],
+    config: &ExactConfig,
+) -> ExactPlagiarismReport {
+    let k = config.shingle_size.max(1);
+    let src = build_doc(document, config);
+
+    let (self_runs, self_seeds) = find_runs(&src, &src, k, config.min_match_words, true);
+    let self_matches: Vec<MatchedPassage> = self_runs
+        .iter()
+        .map(|r| MatchedPassage {
+            source: span_of(&src.tokens, document, r.s_lo, r.s_hi),
+            matched: span_of(&src.tokens, document, r.t_lo, r.t_hi),
+            similarity: region_jaccard(&src.shingles, r.s_lo, r.s_hi, &src.shingles, r.t_lo, r.t_hi, k),
+            word_count: r.s_hi - r.s_lo,
+            match_kind: MatchKind::SelfRepeat,
+            source_ref: "this document".to_string(),
+        })
+        .collect();
+
+    // Gate: which library papers even share a fingerprint with the upload.
+    let src_hashes: HashSet<u64> = src.fingerprints.iter().map(|(h, _)| *h).collect();
+
+    let mut library_matches = Vec::new();
+    let mut comparison_fingerprints = 0usize;
+    let mut library_seeds = 0usize;
+    let mut examined = 0usize;
+    let mut compared_against = Vec::with_capacity(library.len());
+    for entry in library {
+        compared_against.push(entry.reference.clone());
+        comparison_fingerprints += entry.fingerprints.len();
+        // cheap gate over the STORED fingerprints — no tokenization
+        if !entry.fingerprints.iter().any(|(h, _)| src_hashes.contains(h)) {
+            continue;
+        }
+        examined += 1;
+        // Reconstruct tokens/shingles for exact verify+extend+spans, but reuse
+        // the STORED fingerprints for the postings index (no re-winnow).
+        let tgt_tokens = tokenize_with_spans(&entry.text);
+        let tgt_shingles = shingle_hashes(&tgt_tokens, k);
+        let tgt = Doc { tokens: tgt_tokens, shingles: tgt_shingles, fingerprints: entry.fingerprints.clone() };
+        let (runs, seeds) = find_runs(&src, &tgt, k, config.min_match_words, false);
+        library_seeds += seeds;
+        for r in runs {
+            library_matches.push(MatchedPassage {
+                source: span_of(&src.tokens, document, r.s_lo, r.s_hi),
+                matched: span_of(&tgt.tokens, &entry.text, r.t_lo, r.t_hi),
+                similarity: region_jaccard(&src.shingles, r.s_lo, r.s_hi, &tgt.shingles, r.t_lo, r.t_hi, k),
+                word_count: r.s_hi - r.s_lo,
+                match_kind: MatchKind::LibraryMatch,
+                source_ref: entry.reference.clone(),
+            });
+        }
+    }
+
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    for m in &self_matches {
+        ranges.push((m.source.start_char, m.source.end_char));
+        ranges.push((m.matched.start_char, m.matched.end_char));
+    }
+    for m in &library_matches {
+        ranges.push((m.source.start_char, m.source.end_char));
+    }
+    let covered = covered_bytes(&mut ranges);
+    let total = document.len();
+    let duplication_ratio = if total == 0 { 0.0 } else { covered as f64 / total as f64 };
+
+    ExactPlagiarismReport {
+        shingle_size: config.shingle_size,
+        window_size: config.window_size,
+        self_matches,
+        library_matches,
+        compared_against: compared_against.clone(),
+        total_source_words: src.tokens.len(),
+        duplication_ratio,
+        stats: MatchStats {
+            source_fingerprints: src.fingerprints.len(),
+            comparison_fingerprints,
+            candidate_seeds: self_seeds + library_seeds,
+            library_papers_examined: examined,
+        },
+        disclosure: build_library_disclosure(&compared_against),
     }
 }
 
@@ -694,5 +828,75 @@ mod tests {
         // no panic slicing at multibyte boundaries; text round-trips
         assert_eq!(&doc[m.source.start_char..m.source.end_char], m.source.text);
         assert!(m.source.text.contains("jalapeño"));
+    }
+
+    // ------------------- precomputed-fingerprint library path ---------------
+
+    #[test]
+    fn precomputed_fingerprints_match_the_fresh_ones() {
+        // fingerprint_document (stored once) must equal what analyze_exact
+        // computes fresh — the stored path is not an approximation.
+        let text = format!("{FILLER_A} {RECYCLED} {FILLER_B}");
+        let stored = fingerprint_document(&text, &cfg());
+        let fresh = build_doc(&text, &cfg()).fingerprints;
+        assert_eq!(stored, fresh);
+        assert!(!stored.is_empty());
+    }
+
+    #[test]
+    fn prepared_library_match_has_spans_in_both_and_reuses_stored_fingerprints() {
+        let doc = format!("My intro. {FILLER_A} {RECYCLED}");
+        let paper = format!("Their paper. {FILLER_B} {RECYCLED} plus their own tail text here.");
+        let lib = vec![PreparedCompareDoc {
+            reference: "My 2019 paper".into(),
+            text: paper.clone(),
+            fingerprints: fingerprint_document(&paper, &cfg()),
+        }];
+        let out = analyze_exact_prepared(&doc, &lib, &cfg());
+        assert_eq!(out.library_matches.len(), 1, "{:#?}", out.library_matches);
+        let m = &out.library_matches[0];
+        assert_eq!(&doc[m.source.start_char..m.source.end_char], m.source.text);
+        assert_eq!(&paper[m.matched.start_char..m.matched.end_char], m.matched.text);
+        assert!(m.source.text.contains("cytochrome c"));
+        assert_eq!(m.source_ref, "My 2019 paper");
+        // the disclosure names the library and states the Turnitin limit
+        assert!(out.disclosure.contains("your 1 paper(s) in your library"));
+        assert!(out.disclosure.contains("My 2019 paper"));
+        assert!(out.disclosure.contains(NOT_TURNITIN_NOTICE));
+    }
+
+    #[test]
+    fn non_sharing_library_papers_are_gated_out_never_tokenized() {
+        // 4 unrelated papers + 1 that shares a passage. Only the sharing one
+        // is examined (tokenized) — proving stored fingerprints gate the work.
+        let doc = format!("Upload. {FILLER_A} {RECYCLED}");
+        let mut lib: Vec<PreparedCompareDoc> = (0..4)
+            .map(|i| {
+                let t: String = (0..300).map(|j| format!("unrelated{i}word{j} ")).collect();
+                PreparedCompareDoc { reference: format!("Unrelated {i}"), text: t.clone(), fingerprints: fingerprint_document(&t, &cfg()) }
+            })
+            .collect();
+        let shared = format!("Match paper. {FILLER_B} {RECYCLED} and their own words.");
+        lib.push(PreparedCompareDoc { reference: "The match".into(), text: shared.clone(), fingerprints: fingerprint_document(&shared, &cfg()) });
+
+        let out = analyze_exact_prepared(&doc, &lib, &cfg());
+        assert_eq!(out.stats.library_papers_examined, 1, "only the fingerprint-sharing paper is tokenized");
+        assert_eq!(out.library_matches.len(), 1);
+        assert_eq!(out.library_matches[0].source_ref, "The match");
+        // all 5 are still named in scope (compared against), even the gated ones
+        assert_eq!(out.compared_against.len(), 5);
+        // deterministic
+        assert_eq!(out, analyze_exact_prepared(&doc, &lib, &cfg()));
+    }
+
+    #[test]
+    fn empty_library_still_runs_self_mode_and_honest_disclosure() {
+        let doc = format!("A. {RECYCLED} B. {FILLER_A} C. {RECYCLED}");
+        let out = analyze_exact_prepared(&doc, &[], &cfg());
+        assert_eq!(out.self_matches.len(), 1, "self-recycling still detected");
+        assert!(out.library_matches.is_empty());
+        assert!(out.disclosure.contains("your paper library is empty"));
+        assert!(out.disclosure.contains(NOT_TURNITIN_NOTICE));
+        assert_eq!(out.stats.library_papers_examined, 0);
     }
 }
