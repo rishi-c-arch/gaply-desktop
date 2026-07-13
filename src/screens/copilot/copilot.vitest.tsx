@@ -9,6 +9,14 @@ import { buildChatPayload, ChatContext } from './chatContext';
 import { detectGhostwriting, isGhostwritingRequest, SYSTEM_PROMPT } from './chatGuards';
 import { detectLanguage } from './detectLanguage';
 import { PublishReadyReport } from '../report/reportTypes';
+import { MemoryRouter } from 'react-router-dom';
+import { GaplySessionProvider } from '../session/SessionProvider';
+import type { AuthService } from '../../services/supabase';
+import CopilotPage from './CopilotPage';
+
+vi.mock('../../design-system/GaplyGlobe', () => ({
+  GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
+}));
 
 afterEach(cleanup);
 
@@ -155,5 +163,61 @@ describe('response-side ghostwriting guard', () => {
     expect(detectGhostwriting('Focus on stating your gap clearly; ANOVA fits 3 groups.').blocked).toBe(false);
     const draft = 'In this paper we present a novel method. '.repeat(20) + '\n\n' + 'Our results demonstrate that the approach works well across settings. '.repeat(20);
     expect(detectGhostwriting(draft).blocked).toBe(true);
+  });
+});
+
+/* -------------------- M3 · entitlement gating (page) -------------------- */
+
+function auth(session: any): AuthService {
+  return {
+    signUp: vi.fn(), signIn: vi.fn(), signInWithOAuth: vi.fn(), signOut: vi.fn(),
+    getSession: vi.fn().mockResolvedValue({ session, offline: session === null }),
+    onAuthStateChange: (cb: any) => { cb(session); return () => {}; },
+  } as any;
+}
+const SESSION = { user: { id: 'u1', email: 'a@b.c' } };
+
+function renderCopilot(props: any = {}, session: any = SESSION) {
+  render(
+    <MemoryRouter>
+      <GaplySessionProvider authService={auth(session)}>
+        <CopilotPage client={makeMockChat()} {...props} />
+      </GaplySessionProvider>
+    </MemoryRouter>
+  );
+}
+
+describe('CopilotPage — entitlement gating mirrors the other paid pages (M3)', () => {
+  it('OFFLINE user gets the honest "can’t verify your plan" state, NOT the free upsell', async () => {
+    // Server unreachable → getTier resolves offline. A signed-in (possibly PREMIUM)
+    // user must never be shown the upsell just because their plan can't be verified.
+    const subs = {
+      getTier: vi.fn().mockResolvedValue({ tier: 'free', data: null, error: null, offline: true }),
+    } as any;
+    renderCopilot({ subscriptionService: subs });
+    expect(await screen.findByTestId('copilot-offline')).toBeTruthy();
+    // the whole point of M3: NOT the free upsell
+    expect(screen.queryByTestId('copilot-teaser')).toBeNull();
+    expect(screen.queryByTestId('copilot-unlock')).toBeNull();
+  });
+
+  it('a genuinely free user sees the teaser + upgrade CTA (never the tool)', async () => {
+    renderCopilot({ forceTier: 'free' });
+    expect(await screen.findByTestId('copilot-teaser')).toBeTruthy();
+    expect(screen.getByTestId('copilot-unlock')).toBeTruthy();
+    expect(screen.queryByTestId('chat-input')).toBeNull();
+  });
+
+  it('an entitled premium user reaches the chat tool', async () => {
+    renderCopilot({ forceTier: 'premium' });
+    expect(await screen.findByTestId('chat-input')).toBeTruthy();
+    expect(screen.queryByTestId('copilot-teaser')).toBeNull();
+    expect(screen.queryByTestId('copilot-offline')).toBeNull();
+  });
+
+  it('a signed-out user is asked to sign in (not upsold)', async () => {
+    renderCopilot({}, null);
+    expect(await screen.findByTestId('copilot-signin')).toBeTruthy();
+    expect(screen.queryByTestId('copilot-teaser')).toBeNull();
   });
 });
