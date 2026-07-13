@@ -21,6 +21,33 @@ fn has_extractable_text(text: &str) -> bool {
     text.chars().filter(|c| !c.is_whitespace()).count() >= MIN_MEANINGFUL_CHARS
 }
 
+/// Run a `pdf-extract` call behind a panic boundary.
+///
+/// `pdf-extract` is a third-party parser that can *panic* (not merely return
+/// `Err`) on malformed / truncated / hostile PDFs. The `.map_err()` at the call
+/// sites only handles the `Err` variant — a panic unwinds straight past it. The
+/// callers that funnel through here (`stats_validity` / `stats_prefill_p` and
+/// the Gap Finder corpus builder) run inside *synchronous* Tauri commands on the
+/// main thread, so an unguarded panic crashes the whole app instead of the
+/// intended honest "couldn't parse" degradation. (The main analysis pipeline is
+/// already protected by `spawn_blocking`'s `JoinError`; this covers the sync
+/// callers too.)
+///
+/// Catching the unwind here — at the single shared choke point — turns a
+/// panicking PDF into the same honest `Validation` error the `Err` path returns,
+/// so every caller is protected without any per-caller change. `AssertUnwindSafe`
+/// is sound: the closure only *reads* its captured path/bytes and returns a
+/// fresh value, so a caught panic leaves no observable state behind the boundary.
+fn catch_pdf_panic<T>(f: impl FnOnce() -> T) -> Result<T, GaplyError> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(|_| {
+        GaplyError::Validation(
+            "This PDF could not be parsed — it looks malformed or corrupted. \
+             Try re-exporting it from your editor (or use a different file)."
+                .to_string(),
+        )
+    })
+}
+
 /// Parse a file into plaintext, dispatching on its extension.
 pub fn parse_path(path: &Path) -> Result<String, GaplyError> {
     // A missing file is the single most common real-world failure (e.g. a UI
@@ -51,7 +78,10 @@ pub fn parse_path(path: &Path) -> Result<String, GaplyError> {
 }
 
 fn parse_pdf(path: &Path) -> Result<String, GaplyError> {
-    let text = pdf_extract::extract_text(path)
+    // `?` on the outer guard: a *panic* inside pdf-extract becomes an honest
+    // Validation error; the inner `.map_err(...)?` keeps the existing handling
+    // of a normal parse Err unchanged.
+    let text = catch_pdf_panic(|| pdf_extract::extract_text(path))?
         .map_err(|e| GaplyError::Internal(format!("pdf parse failed: {e}")))?;
     // A PDF that parses but yields (almost) no text is scanned / image-only.
     // Say so specifically rather than proceeding with empty content.
@@ -70,7 +100,8 @@ fn parse_pdf(path: &Path) -> Result<String, GaplyError> {
 /// Finder paper links) rather than from disk. Same scanned/image-only check
 /// as the path-based parser.
 pub fn parse_pdf_bytes(bytes: &[u8]) -> Result<String, GaplyError> {
-    let text = pdf_extract::extract_text_from_mem(bytes)
+    // Same panic boundary as the path-based parser (see `catch_pdf_panic`).
+    let text = catch_pdf_panic(|| pdf_extract::extract_text_from_mem(bytes))?
         .map_err(|e| GaplyError::Internal(format!("pdf parse failed: {e}")))?;
     if !has_extractable_text(&text) {
         return Err(GaplyError::Validation(
@@ -220,6 +251,59 @@ mod tests {
         // regression — the Stage-2 failure was NOT pdf-extract, it was the path.
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/sample_text.pdf");
         let text = parse_path(Path::new(fixture)).expect("real text PDF should parse");
+        assert!(text.to_lowercase().contains("methods"), "got: {text:?}");
+        assert!(text.to_lowercase().contains("participants"), "got: {text:?}");
+    }
+
+    // ---- C1: pdf-extract panic guard -------------------------------------
+
+    #[test]
+    fn catch_pdf_panic_turns_a_panic_into_an_honest_validation_error() {
+        // Deterministic proof of the boundary itself: a closure that PANICS is
+        // caught and mapped to Validation — the unwind does NOT propagate past
+        // catch_pdf_panic (if it did, this test process would abort).
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {})); // silence the expected panic on stderr
+        let result = catch_pdf_panic(|| -> String { panic!("simulated pdf-extract panic") });
+        std::panic::set_hook(prev);
+        match result {
+            Err(GaplyError::Validation(m)) => {
+                assert!(m.contains("could not be parsed"), "honest message expected, got: {m}");
+            }
+            other => panic!("expected Validation from a caught panic, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn catch_pdf_panic_passes_through_a_non_panicking_value() {
+        // The guard is transparent when nothing panics — no behavior change for
+        // the normal (valid) path.
+        let ok = catch_pdf_panic(|| 42_usize).expect("no panic → Ok");
+        assert_eq!(ok, 42);
+    }
+
+    #[test]
+    fn malformed_pdf_bytes_degrade_honestly_without_crashing() {
+        // A PDF-looking but broken byte sequence. Whether pdf-extract panics
+        // (→ Validation, via the guard) or returns Err (→ Internal), the caller
+        // gets an honest GaplyError and the process does NOT crash. Before the
+        // guard, a panic here would unwind through the sync command onto the
+        // main thread.
+        let junk: &[u8] = b"%PDF-1.5\n1 0 obj<</Type/Catalog>>endobj\nxref\nbroken trailer \x00\x01\x02\xff";
+        match parse_pdf_bytes(junk) {
+            Err(GaplyError::Validation(_)) | Err(GaplyError::Internal(_)) => {}
+            other => panic!("expected an honest parse error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn valid_pdf_bytes_still_parse_through_the_guard() {
+        // Regression: the panic boundary must not change the happy path. Feed the
+        // real fixture through the bytes API (the guarded parse_pdf_bytes) and
+        // confirm content still extracts exactly as before.
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/sample_text.pdf");
+        let bytes = std::fs::read(fixture).expect("fixture readable");
+        let text = parse_pdf_bytes(&bytes).expect("valid PDF bytes should parse through the guard");
         assert!(text.to_lowercase().contains("methods"), "got: {text:?}");
         assert!(text.to_lowercase().contains("participants"), "got: {text:?}");
     }
