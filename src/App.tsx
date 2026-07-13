@@ -18,11 +18,6 @@ import CoResearchAuthorFinder from './sections/CoResearchAuthorFinder';
 import PremiumFooter3D from './components/PremiumFooter3D';
 import EnhancedPremiumPage from './components/EnhancedPremiumPage';
 import Overview from './pages/Overview';
-import ProjectsPage from './pages/ProjectsPage';
-import UsagePage from './pages/UsagePage';
-import SettingsPage from './pages/SettingsPage';
-import BillingPage from './pages/BillingPage';
-import DashboardLayout from './components/Layout/DashboardLayout';
 import PackageSelection from './components/PackageSelection';
 import LoginPage from './components/LoginPage';
 import SignupPage from './components/SignupPage';
@@ -35,15 +30,12 @@ import HireExpertPage from './components/HireExpertPage';
 import ExpertSearchResultsPage from './components/ExpertSearchResultsPage';
 import PricingSection from './components/PricingSection';
 import PremiumProCheckout from './components/PremiumProCheckout';
-import { PremiumFeatureGuard } from './components/PremiumFeatureGuard';
 import PrivacyPolicyPage from './components/PrivacyPolicyPage';
 import TermsOfServicePage from './components/TermsOfServicePage';
 import DocumentOrchestratorPage from './components/DocumentOrchestratorPage';
 import ManuscriptOrchestratorPage from './components/ManuscriptOrchestratorPage';
 import StatisticalResearchOrchestratorPage from './components/StatisticalResearchOrchestratorPage';
 import DataMaestroProPage from './components/DataMaestroProPage';
-import JournalVerifyPage from './components/JournalVerifyPage';
-import ResearchDeepAnalysisPage from './components/ResearchDeepAnalysisPage';
 import ContactPage from './components/ContactPage';
 import WatchDemoPage from './components/WatchDemoPage';
 import SupportPage from './components/SupportPage';
@@ -447,7 +439,6 @@ const AppContent: React.FC = () => {
     location.pathname === '/auth' || // gaply desktop-app screens bring their own shell
     location.pathname === '/onboarding' ||
     location.pathname.startsWith('/app') ||
-    location.pathname.startsWith('/dashboard') ||
     location.pathname.startsWith('/blog') ||
     location.pathname === '/hire-expert' ||
     location.pathname === '/search-results' ||
@@ -855,141 +846,6 @@ const AppContent: React.FC = () => {
                   keywords="Gaply account management, academic research account, thesis writing account, AI detection account, journal matching account, research assistance account"
                 />
                 <Overview />
-              </>
-            </ProtectedRoute>
-          } />
-          <Route path="/dashboard" element={
-            <ProtectedRoute>
-              <>
-                <SEOHead 
-                  title="Dashboard | Academic Research Tools & Progress Tracking - Gaply"
-                  description="Access your Gaply dashboard to manage academic research projects, track thesis writing progress, monitor AI detection results, and view journal matching recommendations."
-                  keywords="academic research dashboard, thesis writing dashboard, AI detection dashboard, journal matching dashboard, research progress tracking, academic project management"
-                />
-                <Overview />
-              </>
-            </ProtectedRoute>
-          } />
-          {/* Local-only dashboard preview without auth redirect */}
-          <Route path="/dashboard-preview" element={
-            <>
-              <SEOHead 
-                title="Dashboard Preview | Gaply"
-                description="Local preview of the Feature Usage Overview dashboard layout."
-                keywords="dashboard preview, feature usage overview, gaply"
-              />
-              <Overview />
-            </>
-          } />
-          <Route path="/dashboard/publishready" element={
-            <ProtectedRoute>
-              <PremiumFeatureGuard featureKey="publish_ready_pro">
-                <>
-                  <SEOHead 
-                    title="PublishReady | Upload Manuscript & Full Analysis - Gaply"
-                    description="Upload your manuscript (PDF, DOCX, TXT), add journal link, and run full analysis with referee-style review, report, and chat. Uses gaply-orchestrator."
-                    keywords="PublishReady, manuscript upload, document analysis, publication chance, referee review, gaply-orchestrator"
-                  />
-                  <DashboardLayout pageTitle="PublishReady">
-                    <ManuscriptOrchestratorPage />
-                  </DashboardLayout>
-                </>
-              </PremiumFeatureGuard>
-            </ProtectedRoute>
-          } />
-          <Route path="/dashboard/datamaestro" element={
-            <ProtectedRoute>
-              <PremiumFeatureGuard featureKey="data_maestro_pro">
-                <>
-                  <SEOHead 
-                    title="DataMaestro | AI Statistical Analysis - Gaply"
-                    description="AI-powered statistical analysis for academic research. Upload datasets, get smart test recommendations, publication-ready results with tables, charts, and downloadable reports."
-                    keywords="DataMaestro, statistical analysis, AI research analysis, SPSS alternative, data analysis, academic research tool"
-                  />
-                  <DashboardLayout pageTitle="DataMaestro">
-                    <DataMaestroProPage />
-                  </DashboardLayout>
-                </>
-              </PremiumFeatureGuard>
-            </ProtectedRoute>
-          } />
-          <Route path="/dashboard/journal-verify" element={
-            <ProtectedRoute>
-              <PremiumFeatureGuard featureKey="journal_verification_pro">
-                <>
-                  <SEOHead 
-                    title="Verify Journal Authenticity | Journal Check - Gaply"
-                    description="AI-powered journal verification. Enter a journal URL or DOI to detect if it's real or predatory. Get detailed authenticity reports with key parameters."
-                    keywords="journal verification, predatory journal detection, journal authenticity check, DOI verification, research journal validation"
-                  />
-                  <DashboardLayout pageTitle="Journal Verification">
-                    <JournalVerifyPage />
-                  </DashboardLayout>
-                </>
-              </PremiumFeatureGuard>
-            </ProtectedRoute>
-          } />
-          <Route path="/dashboard/research-deep-analysis" element={
-            <ProtectedRoute>
-              <PremiumFeatureGuard featureKey="research_deep_analysis_pro">
-                <>
-                  <SEOHead 
-                    title="Research Deep Analysis | Gaply"
-                    description="Upload 3 research papers for comprehensive analysis. Identify research gaps, methodologies, publication opportunities, and get formal downloadable reports."
-                    keywords="research deep analysis, literature gap, research papers, publication suggestions, methodology analysis"
-                  />
-                  <DashboardLayout pageTitle="Research Deep Analysis">
-                    <ResearchDeepAnalysisPage />
-                  </DashboardLayout>
-                </>
-              </PremiumFeatureGuard>
-            </ProtectedRoute>
-          } />
-          <Route path="/dashboard/projects" element={
-            <ProtectedRoute>
-              <>
-                <SEOHead 
-                  title="Projects | Academic Research - Gaply"
-                  description="View your academic research projects and their status."
-                  keywords="research projects, academic projects, project management"
-                />
-                <ProjectsPage />
-              </>
-            </ProtectedRoute>
-          } />
-          <Route path="/dashboard/usage" element={
-            <ProtectedRoute>
-              <>
-                <SEOHead 
-                  title="Feature Usage Overview | Gaply"
-                  description="View your PublishReady and DataMaestro usage metrics."
-                  keywords="usage, PublishReady, DataMaestro, feature usage"
-                />
-                <UsagePage />
-              </>
-            </ProtectedRoute>
-          } />
-          <Route path="/dashboard/settings" element={
-            <ProtectedRoute>
-              <>
-                <SEOHead 
-                  title="Settings | Gaply"
-                  description="Manage your account, billing, profile, and get support."
-                  keywords="settings, account, billing, profile, support"
-                />
-                <SettingsPage />
-              </>
-            </ProtectedRoute>
-          } />
-          <Route path="/dashboard/billing" element={
-            <ProtectedRoute>
-              <>
-                <SEOHead 
-                  title="Billing | Gaply"
-                  description="View your billing history and recent transactions."
-                  keywords="billing, transactions, subscription, payments"
-                />
-                <BillingPage />
               </>
             </ProtectedRoute>
           } />
