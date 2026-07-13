@@ -70,6 +70,11 @@ pub struct JournalVerification {
     pub doaj_registered: Option<bool>,
     /// OpenAlex's own in-DOAJ flag (secondary signal; DOAJ API is primary).
     pub openalex_in_doaj: Option<bool>,
+    /// Present in the NLM Catalog (PubMed's free E-utilities)? Some(true/false)
+    /// from the esearch count; None = couldn't verify (unreachable/unparseable).
+    /// This is NLM-Catalog PRESENCE — the free PubMed/MEDLINE catalog signal —
+    /// not a claim of selective MEDLINE indexing.
+    pub pubmed_indexed: Option<bool>,
     /// Works per year, most recent first (current-volume/activity signal).
     pub works_by_year: Vec<YearCount>,
     /// Derived from works_by_year: any works within the activity window.
@@ -85,6 +90,90 @@ pub struct JournalVerification {
     pub verified_sources: Vec<String>,
     /// Facts we could NOT verify, named honestly.
     pub unverified: Vec<String>,
+    /// Authoritative indexes we did NOT consult because they have no free API
+    /// (Scopus, Web of Science). Their absence from this check is NOT a signal
+    /// either way — surfaced so the report is honest about what wasn't looked at.
+    pub sources_not_checked: Vec<String>,
+}
+
+/// One OpenAlex name-search hit — a journal candidate for the user to pick.
+#[derive(Debug, Clone, Serialize)]
+pub struct JournalMatch {
+    pub name: Option<String>,
+    pub issn: Option<String>,
+}
+
+/// Result of resolving a journal NAME to ISSN(s) via OpenAlex. Multiple matches
+/// are ALL returned for the user to disambiguate — never silently picked.
+#[derive(Debug, Clone, Serialize)]
+pub struct NameResolution {
+    pub query: String,
+    pub matches: Vec<JournalMatch>,
+    /// Honest "couldn't resolve" notes (registry unreachable / no match).
+    pub unverified: Vec<String>,
+}
+
+/// Result of resolving a journal LINK to ISSN(s) by deterministically extracting
+/// them from the fetched page. The page CONTENT itself is Set 3's LLM lane.
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkResolution {
+    pub url: String,
+    pub issns: Vec<String>,
+    pub unverified: Vec<String>,
+}
+
+/// Authoritative indexes with no free programmatic access — named honestly so
+/// the report never implies we checked them.
+const SOURCES_NOT_CHECKED: &[&str] = &[
+    "Scopus (no free API — not checked; absence here is not a signal)",
+    "Web of Science (no free API — not checked; absence here is not a signal)",
+];
+
+/// Minimal percent-encoding for query params (dep-free). RFC-3986 unreserved
+/// stays; everything else → %XX.
+fn pct_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Deterministic ISSN extraction: the fixed pattern DDDD-DDD[D|X], bounded so
+/// it never matches inside a longer digit run. Deduped, X upper-cased. No guess,
+/// no model — just what is literally on the page.
+fn extract_issns(text: &str) -> Vec<String> {
+    let b = text.as_bytes();
+    let n = b.len();
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i + 9 <= n {
+        let w = &b[i..i + 9];
+        let shaped = w[0].is_ascii_digit()
+            && w[1].is_ascii_digit()
+            && w[2].is_ascii_digit()
+            && w[3].is_ascii_digit()
+            && w[4] == b'-'
+            && w[5].is_ascii_digit()
+            && w[6].is_ascii_digit()
+            && w[7].is_ascii_digit()
+            && (w[8].is_ascii_digit() || w[8] == b'X' || w[8] == b'x');
+        let before_ok = i == 0 || !b[i - 1].is_ascii_digit();
+        let after_ok = i + 9 >= n || !b[i + 9].is_ascii_alphanumeric();
+        if shaped && before_ok && after_ok {
+            let issn = format!("{}{}", &text[i..i + 8], (w[8] as char).to_ascii_uppercase());
+            if !out.contains(&issn) {
+                out.push(issn);
+            }
+            i += 9;
+        } else {
+            i += 1;
+        }
+    }
+    out
 }
 
 /// llm_safe + clamp one registry string.
@@ -216,6 +305,91 @@ fn doaj_registered(
     }
 }
 
+/// NLM Catalog (PubMed's free E-utilities): is this ISSN present in the NLM
+/// Catalog? Some(true/false) from the esearch count, None = couldn't verify.
+/// A real API answer only — never a guessed indexing status.
+fn nlm_indexed(db: &Database, fetcher: &dyn HttpFetcher, limiter: &RateLimiter, issn: &str) -> Option<bool> {
+    let url = format!(
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=nlmcatalog&term={}%5BISSN%5D&retmode=json",
+        pct_encode(issn)
+    );
+    let body = cached_registry_get(db, fetcher, limiter, &format!("journal:nlm:{issn}"), &url)?;
+    let v: Value = serde_json::from_str(&body).ok()?;
+    // esearchresult.count is a STRING ("1") in E-utilities JSON.
+    let count = v["esearchresult"]["count"]
+        .as_str()
+        .and_then(|c| c.parse::<u64>().ok())
+        .or_else(|| v["esearchresult"]["count"].as_u64())?;
+    Some(count > 0)
+}
+
+/// Resolve a journal NAME to ISSN(s) via OpenAlex `/sources?search=` — a real
+/// API call. ALL matches are returned (the user disambiguates); no match →
+/// honest "couldn't resolve", never a guessed ISSN. Grounded: every string is
+/// llm_safe'd with OpenAlex provenance.
+pub fn resolve_name(
+    db: &Database,
+    fetcher: &dyn HttpFetcher,
+    limiter: &RateLimiter,
+    name: &str,
+) -> Result<NameResolution, GaplyError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(GaplyError::Validation("a journal name is required to resolve it".into()));
+    }
+    let url = format!("https://api.openalex.org/sources?search={}&per-page=5", pct_encode(name));
+    let mut matches = Vec::new();
+    let mut unverified = Vec::new();
+    match cached_registry_get(db, fetcher, limiter, &format!("journal:oa-name:{name}"), &url)
+        .and_then(|b| serde_json::from_str::<Value>(&b).ok())
+    {
+        Some(v) => {
+            if let Some(results) = v["results"].as_array() {
+                for src in results.iter().take(5) {
+                    let issn = src["issn_l"].as_str().map(|s| safe(s, "openalex", &url));
+                    let name = src["display_name"].as_str().map(|s| safe(s, "openalex", &url));
+                    if issn.is_some() || name.is_some() {
+                        matches.push(JournalMatch { name, issn });
+                    }
+                }
+            }
+            if matches.is_empty() {
+                unverified.push("couldn't resolve this name in OpenAlex (no matching journal)".into());
+            }
+        }
+        None => unverified.push("couldn't resolve this name (OpenAlex unreachable)".into()),
+    }
+    Ok(NameResolution { query: name.chars().take(REGISTRY_CLAMP).collect(), matches, unverified })
+}
+
+/// Resolve a journal LINK to ISSN(s) by fetching the page and DETERMINISTICALLY
+/// extracting ISSN patterns from it. Grounded in the fetched page; no ISSN found
+/// → honest "couldn't find an ISSN". The page body is cached so Set 3's LLM lane
+/// can reuse it. NO model here — pure extraction.
+pub fn resolve_link_issn(
+    db: &Database,
+    fetcher: &dyn HttpFetcher,
+    limiter: &RateLimiter,
+    url: &str,
+) -> Result<LinkResolution, GaplyError> {
+    let url = url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err(GaplyError::Validation("a valid http(s) journal URL is required".into()));
+    }
+    let mut issns = Vec::new();
+    let mut unverified = Vec::new();
+    match cached_registry_get(db, fetcher, limiter, &format!("journal:site:{url}"), url) {
+        Some(html) => {
+            issns = extract_issns(&html);
+            if issns.is_empty() {
+                unverified.push("couldn't find an ISSN on this page".into());
+            }
+        }
+        None => unverified.push("couldn't fetch this page (unreachable, blocked, or rate-limited)".into()),
+    }
+    Ok(LinkResolution { url: url.chars().take(REGISTRY_CLAMP * 2).collect(), issns, unverified })
+}
+
 /// Assemble the verified journal card — connectors only, NO model anywhere.
 /// `local_predatory_signals` are the F9 local-directory (Beall's/Cabells-
 /// style) signals for this journal, when the frontend has a matching record;
@@ -237,6 +411,7 @@ pub fn verify_journal(
 
     let oa = openalex_source(db, fetcher, limiter, issn);
     let doaj = doaj_registered(db, fetcher, limiter, issn);
+    let pubmed_indexed = nlm_indexed(db, fetcher, limiter, issn);
 
     let mut verified_sources = Vec::new();
     let mut unverified = Vec::new();
@@ -254,6 +429,13 @@ pub fn verify_journal(
     match doaj {
         Some(_) => verified_sources.push("doaj".to_string()),
         None => unverified.push("DOAJ registration (registry unreachable)".into()),
+    }
+    // PubMed / NLM Catalog — a fact, recorded honestly. NOT folded into the
+    // warning: many legitimate journals aren't in the NLM Catalog, so its
+    // absence is a weak signal we refuse to turn into an accusation.
+    match pubmed_indexed {
+        Some(_) => verified_sources.push("pubmed".to_string()),
+        None => unverified.push("PubMed / NLM Catalog indexing (E-utilities unreachable)".into()),
     }
 
     // Derived activity: verified only when OpenAlex answered.
@@ -309,6 +491,7 @@ pub fn verify_journal(
         issn: oa_issn.or_else(|| Some(issn.to_string())),
         doaj_registered: doaj,
         openalex_in_doaj,
+        pubmed_indexed,
         works_by_year,
         recent_activity,
         scope,
@@ -316,6 +499,7 @@ pub fn verify_journal(
         reasons,
         verified_sources,
         unverified,
+        sources_not_checked: SOURCES_NOT_CHECKED.iter().map(|s| s.to_string()).collect(),
     })
 }
 
@@ -392,11 +576,17 @@ mod tests {
         assert_eq!(card_no.doaj_registered, Some(false));
     }
 
+    /// NLM Catalog esearch fixture: count "1" = present.
+    fn nlm_present() -> &'static str {
+        r#"{"esearchresult":{"count":"1","idlist":["101234567"]}}"#
+    }
+
     #[test]
     fn registry_responses_are_ttl_cached() {
         let fetcher = MockHttpFetcher::new()
             .route("api.openalex.org", 200, &openalex_active())
-            .route("doaj.org", 200, r#"{"total":1,"results":[{}]}"#);
+            .route("doaj.org", 200, r#"{"total":1,"results":[{}]}"#)
+            .route("eutils.ncbi.nlm.nih.gov", 200, nlm_present());
         let d = db();
         let lim = wide();
         verify_journal(&d, &fetcher, &lim, "1365-2869", "", &[]).unwrap();
@@ -444,7 +634,9 @@ mod tests {
         assert_eq!(card.doaj_registered, None);
         assert_eq!(card.recent_activity, None);
         assert!(card.scope.is_empty());
-        assert_eq!(card.unverified.len(), 2, "both facts named as unverified");
+        assert_eq!(card.pubmed_indexed, None, "PubMed also unreachable → couldn't verify");
+        assert_eq!(card.unverified.len(), 3, "OpenAlex, DOAJ, PubMed all named as unverified");
+        assert!(card.unverified.iter().any(|u| u.contains("PubMed")));
         // warning is the honest "couldn't verify" caution — data statements only
         let w = card.warning.expect("unverifiable journal warrants caution");
         assert!(w.contains("could not be verified"));
@@ -472,17 +664,139 @@ mod tests {
     fn a_legit_registered_active_journal_gets_no_false_warning() {
         let fetcher = MockHttpFetcher::new()
             .route("api.openalex.org", 200, &openalex_active())
-            .route("doaj.org", 200, r#"{"total":1,"results":[{}]}"#);
+            .route("doaj.org", 200, r#"{"total":1,"results":[{}]}"#)
+            .route("eutils.ncbi.nlm.nih.gov", 200, nlm_present());
         let card = verify_journal(&db(), &fetcher, &wide(), "1365-2869", "J Sleep Res", &[]).unwrap();
         assert!(card.warning.is_none(), "no false-positive defamation: {:?}", card.warning);
         assert!(card.reasons.is_empty());
         assert_eq!(card.doaj_registered, Some(true));
         assert_eq!(card.recent_activity, Some(true));
+        assert_eq!(card.pubmed_indexed, Some(true), "PubMed presence recorded as a fact");
+        assert!(card.verified_sources.contains(&"pubmed".to_string()));
+        // Scopus/WoS honestly named as NOT checked (no free API) — not a signal.
+        assert_eq!(card.sources_not_checked.len(), 2);
+        assert!(card.sources_not_checked.iter().any(|s| s.contains("Scopus")));
+        assert!(card.sources_not_checked.iter().any(|s| s.contains("Web of Science")));
     }
 
     #[test]
     fn missing_issn_is_a_clear_error() {
         let fetcher = MockHttpFetcher::new();
         assert!(verify_journal(&db(), &fetcher, &wide(), "  ", "x", &[]).is_err());
+    }
+
+    // --------------------- name → ISSN resolution ---------------------------
+
+    #[test]
+    fn name_resolves_to_issn_via_openalex_grounded() {
+        let body = r#"{"results":[{"display_name":"Journal of Sleep Research","issn_l":"1365-2869"}]}"#;
+        let fetcher = MockHttpFetcher::new().route("api.openalex.org", 200, body);
+        let r = resolve_name(&db(), &fetcher, &wide(), "sleep research").unwrap();
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].issn.as_deref(), Some("1365-2869"));
+        assert_eq!(r.matches[0].name.as_deref(), Some("Journal of Sleep Research"));
+        assert!(r.unverified.is_empty());
+    }
+
+    #[test]
+    fn name_no_match_is_couldnt_resolve_never_a_guessed_issn() {
+        let fetcher = MockHttpFetcher::new().route("api.openalex.org", 200, r#"{"results":[]}"#);
+        let r = resolve_name(&db(), &fetcher, &wide(), "not a real journal xyz").unwrap();
+        assert!(r.matches.is_empty(), "no ISSN invented");
+        assert!(r.unverified.iter().any(|u| u.contains("couldn't resolve")));
+
+        // OpenAlex unreachable → honest couldn't-resolve, still no guess
+        let down = MockHttpFetcher::new();
+        let r2 = resolve_name(&db(), &down, &wide(), "anything").unwrap();
+        assert!(r2.matches.is_empty());
+        assert!(r2.unverified.iter().any(|u| u.contains("unreachable")));
+        assert!(resolve_name(&db(), &down, &wide(), "   ").is_err());
+    }
+
+    #[test]
+    fn multiple_name_matches_are_returned_for_disambiguation_not_picked() {
+        let body = r#"{"results":[
+            {"display_name":"Advances in Science","issn_l":"1111-1111"},
+            {"display_name":"Advances in Science and Technology","issn_l":"2222-2222"},
+            {"display_name":"Advances in Science (Reviews)","issn_l":"3333-3333"}
+        ]}"#;
+        let fetcher = MockHttpFetcher::new().route("api.openalex.org", 200, body);
+        let r = resolve_name(&db(), &fetcher, &wide(), "advances in science").unwrap();
+        assert_eq!(r.matches.len(), 3, "all matches returned; the user disambiguates");
+        let issns: Vec<_> = r.matches.iter().filter_map(|m| m.issn.as_deref()).collect();
+        assert_eq!(issns, vec!["1111-1111", "2222-2222", "3333-3333"]);
+    }
+
+    // --------------------- link → ISSN resolution ---------------------------
+
+    #[test]
+    fn link_extracts_issn_from_the_page_deterministically() {
+        let html = r#"<html><meta name="citation_issn" content="1234-5678">
+            <p>Print ISSN: 1234-5678 · Online ISSN 8765-432X</p></html>"#;
+        let fetcher = MockHttpFetcher::new().route("journal.example.org", 200, html);
+        let r = resolve_link_issn(&db(), &fetcher, &wide(), "https://journal.example.org/about").unwrap();
+        assert_eq!(r.issns, vec!["1234-5678", "8765-432X"], "deduped, X upper-cased, in page order");
+        assert!(r.unverified.is_empty());
+    }
+
+    #[test]
+    fn link_with_no_issn_is_honest_not_a_guess() {
+        let fetcher = MockHttpFetcher::new().route("nope.example.org", 200, "<html>No identifiers here. Phone 5551234567.</html>");
+        let r = resolve_link_issn(&db(), &fetcher, &wide(), "https://nope.example.org").unwrap();
+        assert!(r.issns.is_empty(), "a phone number is not an ISSN");
+        assert!(r.unverified.iter().any(|u| u.contains("couldn't find an ISSN")));
+
+        // unreachable page → honest couldn't-fetch
+        let down = MockHttpFetcher::new();
+        let r2 = resolve_link_issn(&db(), &down, &wide(), "https://gone.example.org").unwrap();
+        assert!(r2.unverified.iter().any(|u| u.contains("couldn't fetch")));
+        // non-http input rejected
+        assert!(resolve_link_issn(&db(), &down, &wide(), "not-a-url").is_err());
+    }
+
+    #[test]
+    fn extract_issns_unit() {
+        assert_eq!(extract_issns("ISSN 1365-2869 here"), vec!["1365-2869"]);
+        assert_eq!(extract_issns("check digit X: 2049-363X"), vec!["2049-363X"]);
+        assert!(extract_issns("12345-6789 is too long a run").is_empty());
+        assert_eq!(extract_issns("dup 1111-2222 and 1111-2222").len(), 1, "deduped");
+    }
+
+    // --------------------------- PubMed / NLM -------------------------------
+
+    #[test]
+    fn pubmed_indexed_true_false_and_couldnt_verify() {
+        // present in the NLM Catalog
+        let yes = MockHttpFetcher::new()
+            .route("api.openalex.org", 200, &openalex_active())
+            .route("eutils.ncbi.nlm.nih.gov", 200, r#"{"esearchresult":{"count":"1","idlist":["1"]}}"#);
+        let c = verify_journal(&db(), &yes, &wide(), "1365-2869", "", &[]).unwrap();
+        assert_eq!(c.pubmed_indexed, Some(true));
+        assert!(c.verified_sources.contains(&"pubmed".to_string()));
+
+        // catalog answers zero → Some(false), a real fact
+        let no = MockHttpFetcher::new()
+            .route("api.openalex.org", 200, &openalex_active())
+            .route("eutils.ncbi.nlm.nih.gov", 200, r#"{"esearchresult":{"count":"0","idlist":[]}}"#);
+        assert_eq!(verify_journal(&db(), &no, &wide(), "1365-2869", "", &[]).unwrap().pubmed_indexed, Some(false));
+
+        // E-utilities unreachable → couldn't verify (None), never guessed
+        let down = MockHttpFetcher::new().route("api.openalex.org", 200, &openalex_active());
+        let cd = verify_journal(&db(), &down, &wide(), "1365-2869", "", &[]).unwrap();
+        assert_eq!(cd.pubmed_indexed, None);
+        assert!(cd.unverified.iter().any(|u| u.contains("PubMed")));
+    }
+
+    #[test]
+    fn pubmed_absence_never_creates_a_false_warning() {
+        // a DOAJ-registered, active journal NOT in the NLM Catalog stays clean:
+        // PubMed non-presence is never turned into an accusation.
+        let fetcher = MockHttpFetcher::new()
+            .route("api.openalex.org", 200, &openalex_active())
+            .route("doaj.org", 200, r#"{"total":1,"results":[{}]}"#)
+            .route("eutils.ncbi.nlm.nih.gov", 200, r#"{"esearchresult":{"count":"0","idlist":[]}}"#);
+        let card = verify_journal(&db(), &fetcher, &wide(), "1365-2869", "", &[]).unwrap();
+        assert_eq!(card.pubmed_indexed, Some(false));
+        assert!(card.warning.is_none(), "PubMed absence is not a predatory signal");
     }
 }
