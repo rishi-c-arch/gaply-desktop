@@ -224,6 +224,44 @@ pub const MIGRATIONS: &[Migration] = &[
         ",
         down: "DROP TABLE plagiarism_library;",
     },
+    Migration {
+        version: 9,
+        name: "notes",
+        // Note Creator Set 2: the free, local-first notes store. TWO note types
+        // in ONE table — 'paper' (a structured template attached to a paper) and
+        // 'project' (the researcher's own ideas / hypotheses / to-dos).
+        //
+        // paper_id is a SOFT anchor (by convention → citation_library.id) with
+        // DELIBERATELY NO foreign-key constraint: a note is the researcher's OWN
+        // work and MUST survive deletion of the paper it annotates — nothing
+        // cascades. paper_title is denormalized so the note stays self-sufficient
+        // and still displays its paper even if the library row is gone.
+        //
+        // fields_json holds the optional per-paper template fields (citation,
+        // research_question, methodology, key_findings, notable_quotes, …) as
+        // flexible JSON — no rigid columns, so the template can evolve without a
+        // migration; '{}' for project notes. tags (JSON array) and sync_status
+        // (the honest 'local_only'|'pending'|'synced' marker — sync is DEFERRED,
+        // unused for now) mirror citation_library.
+        up: "
+            CREATE TABLE notes (
+                id          TEXT PRIMARY KEY,
+                note_type   TEXT NOT NULL,
+                paper_id    TEXT,
+                paper_title TEXT NOT NULL DEFAULT '',
+                title       TEXT NOT NULL DEFAULT '',
+                fields_json TEXT NOT NULL DEFAULT '{}',
+                body        TEXT NOT NULL DEFAULT '',
+                tags        TEXT NOT NULL DEFAULT '[]',
+                sync_status TEXT NOT NULL DEFAULT 'local_only',
+                created_at  INTEGER NOT NULL,
+                updated_at  INTEGER NOT NULL
+            );
+            CREATE INDEX idx_notes_paper ON notes(paper_id);
+            CREATE INDEX idx_notes_type ON notes(note_type);
+        ",
+        down: "DROP TABLE notes;",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -360,12 +398,13 @@ mod tests {
     fn partial_down_keeps_earlier_versions() {
         let mut conn = test_connection();
         migrate_up(&mut conn).unwrap();
-        // roll back plagiarism library + citations + rag + memory/cache +
-        // embeddings, keep knowledge base and below
+        // roll back notes + plagiarism library + citations + rag + memory/cache
+        // + embeddings, keep knowledge base and below
         let reverted = migrate_down(&mut conn, 3).unwrap();
         assert_eq!(
             reverted,
             vec![
+                "notes",
                 "plagiarism_library",
                 "citation_library_local",
                 "rag_documents",
