@@ -23,6 +23,7 @@ const HERO_OPTIONS = [
   { label: 'Citation Manager', href: '/app/citations' },
   { label: 'Note Creator', href: '/app/notes' },
   { label: 'Journal Check', href: '/app/journal' },
+  { label: 'Journal Verification ★', href: '/app/journal-verify' },
   { label: 'Research Copilot ★', href: '/app/copilot' },
   { label: 'Research Co-Author', href: '/app/community' },
   { label: 'My Manuscripts', href: '/app/coming-soon?feature=My%20Manuscripts' },

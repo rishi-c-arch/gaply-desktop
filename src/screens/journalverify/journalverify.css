@@ -1,0 +1,107 @@
+/* Gaply — Journal Verification. VERIFIED (grounded) vs CLAIMED (self-reported)
+   vs UNCHECKED must read as visually distinct at a glance. */
+
+.gds-jv-report { display: grid; gap: 16px; }
+
+.gds-jv-sec__head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.gds-jv-sec__sub { font-size: 12px; color: var(--g-text-3); }
+
+/* ---- VERIFIED: grounded registry facts (solid, green-ish "certain") ---- */
+.gds-jv-verified {
+  border: 1px solid var(--g-certain, #2a7);
+  border-left: 4px solid var(--g-certain, #2a7);
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--g-bg-layer1);
+}
+.gds-jv-facts { display: grid; gap: 8px; }
+.gds-jv-fact {
+  display: grid;
+  grid-template-columns: 200px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--g-bg-layer2, rgba(42,170,119,0.05));
+}
+.gds-jv-fact--muted { opacity: 0.7; }
+.gds-jv-fact__label { font-weight: 600; font-size: 13px; }
+.gds-jv-fact__value { font-size: 14px; }
+.gds-jv-fact__src { font-size: 11px; color: var(--g-certain, #2a7); text-decoration: none; white-space: nowrap; }
+
+.gds-jv-warning {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--g-flagged-bg, rgba(238,153,51,0.08));
+  font-size: 13px;
+}
+.gds-jv-unverified { margin-top: 8px; font-size: 12px; color: var(--g-text-3); }
+.gds-jv-unverified ul { margin: 4px 0 0 18px; }
+.gds-jv-unchecked { margin-top: 8px; font-size: 12px; color: var(--g-text-3); font-style: italic; }
+
+/* ---- CLAIMED: self-reported (DASHED + amber "assessed") — clearly NOT verified ---- */
+.gds-jv-claimed {
+  border: 2px dashed var(--g-assessed, #e93);
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--g-bg-layer1);
+}
+.gds-jv-claims__label {
+  font-size: 12px;
+  color: var(--g-assessed, #e93);
+  font-weight: 600;
+  margin: 4px 0 10px;
+}
+.gds-jv-claims__notice { font-size: 13px; color: var(--g-text-3); }
+.gds-jv-claim {
+  display: grid;
+  grid-template-columns: 200px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(238,153,51,0.06);
+}
+.gds-jv-claim__value { font-size: 14px; }
+.gds-jv-claim__notstated { font-size: 13px; color: var(--g-text-3); font-style: italic; }
+.gds-jv-claim__src { font-size: 11px; color: var(--g-text-3); white-space: nowrap; }
+
+/* ---- NOT-FOUND: honest warning (NOT a verdict) ---- */
+.gds-jv-notfound {
+  border: 1px solid var(--g-flagged, #e93);
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--g-flagged-bg, rgba(238,153,51,0.08));
+  display: grid;
+  gap: 8px;
+}
+.gds-jv-notfound p { margin: 0; font-size: 14px; }
+
+.gds-jv-notes { font-size: 12px; color: var(--g-text-3); margin: 0; padding-left: 18px; }
+
+/* ---- the un-strippable disclosure (structural, always present) ---- */
+.gds-jv-disclosure {
+  border-top: 1px solid var(--g-border);
+  padding-top: 12px;
+  font-size: 12px;
+  color: var(--g-text-2);
+  line-height: 1.5;
+}
+
+/* disambiguation picker */
+.gds-jv-picker { display: grid; gap: 8px; margin-top: 8px; }
+.gds-jv-picker__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--g-border);
+  border-radius: 10px;
+  background: var(--g-bg-layer1);
+  cursor: pointer;
+  color: inherit;
+}
+.gds-jv-picker__item:hover { border-color: var(--g-accent, #7c6cf0); }
+.gds-jv-picker__name { font-weight: 600; }
+.gds-jv-picker__issn { font: 12px var(--g-mono, monospace); color: var(--g-text-3); }

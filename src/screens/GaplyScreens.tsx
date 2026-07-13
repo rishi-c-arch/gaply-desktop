@@ -26,6 +26,7 @@ import StatsCheckPage from './checks/StatsCheckPage';
 import CitationManagerPage from './citations/CitationManagerPage';
 import NoteCreatorPage from './notes/NoteCreatorPage';
 import JournalCheckPage from './journal/JournalCheckPage';
+import JournalVerifyPage from './journalverify/JournalVerifyPage';
 import PublishReadyPage from './publishready/PublishReadyPage';
 import GapFinderPage from './gapfinder/GapFinderPage';
 import CopilotPage from './copilot/CopilotPage';
@@ -124,6 +125,16 @@ export const NoteCreatorRoute: React.FC = () => (
   <GaplySessionProvider>
     <RequireAuth>
       <NoteCreatorPage />
+    </RequireAuth>
+  </GaplySessionProvider>
+);
+
+/** /app/journal-verify — Journal Verification (paid). Evidence from registries
+ *  + the journal's own site; premium-gated (server-side JWT on the LLM lane). */
+export const JournalVerifyRoute: React.FC = () => (
+  <GaplySessionProvider>
+    <RequireAuth>
+      <JournalVerifyPage />
     </RequireAuth>
   </GaplySessionProvider>
 );
