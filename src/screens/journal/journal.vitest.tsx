@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { GaplySessionProvider } from '../session/SessionProvider';
 import type { AuthService } from '../../services/supabase';
-import JournalCheckPage from './JournalCheckPage';
+import JournalCheckPage, { JOURNAL_CHECK_DISCLOSURE } from './JournalCheckPage';
 import { JournalRecord, JOURNALS, riskVerdict, searchLocal } from './journalData';
 import { CachedJournalLookup, makeMockLookup } from './journalLookup';
 
@@ -77,8 +77,8 @@ describe('known journal search', () => {
     expect(screen.getByTestId('quartile-badge').getAttribute('data-q')).toBe('Q1');
     // SJR field present (quartile shown when no numeric SJR)
     expect(screen.getByTestId('sjr').textContent).toMatch(/Q1 quartile|\d/);
-    // green traffic light — well indexed
-    expect(screen.getByTestId('risk-verdict').getAttribute('data-level')).toBe('green');
+    // green signal — well indexed
+    expect(screen.getByTestId('indexing-signal').getAttribute('data-level')).toBe('green');
     expect(card.textContent).toMatch(/Elsevier/);
   });
 
@@ -114,20 +114,54 @@ describe('online fallback', () => {
   });
 });
 
-/* --------------------------- predatory verdict -------------------------- */
+/* --------------- indexing signal — evidence, NOT a verdict --------------- */
 
-describe('predatory-signal journal', () => {
-  it('shows the RED traffic-light verdict', async () => {
+describe('indexing signal (evidence, not a predatory verdict)', () => {
+  it('a flagged journal shows a red SIGNAL + honest warning — never a "predatory" verdict', async () => {
     renderJC(makeMockLookup(() => PREDATORY));
     await search('World Journal of Advanced Multidisciplinary Research');
     await screen.findByTestId('result-card');
-    expect(screen.getByTestId('risk-verdict').getAttribute('data-level')).toBe('red');
-    expect(screen.getByTestId('risk-verdict').textContent).toMatch(/predatory/i);
+    // red is a severity cue on the signal, not a legitimacy verdict
+    expect(screen.getByTestId('indexing-signal').getAttribute('data-level')).toBe('red');
+    // the headline is NOT the old "High predatory risk" verdict
+    expect(screen.getByTestId('signal-headline').textContent).not.toMatch(/high predatory risk/i);
+    // the honest "warning sign, not proof" framing is present (mirrors the paid tool)
+    expect(screen.getByTestId('not-indexed-warning').textContent).toMatch(/not proof that a journal is predatory/i);
   });
 
-  it('riskVerdict: unindexed + signals → red; Q1 Scopus+WoS → green (unit)', () => {
+  it('renders NO verdict/conclusion language about the named journal (mirrors the paid banned-conclusion test)', async () => {
+    renderJC(makeMockLookup(() => PREDATORY));
+    await search('World Journal of Advanced Multidisciplinary Research');
+    const card = await screen.findByTestId('result-card');
+    const text = card.textContent ?? '';
+    expect(text).not.toMatch(/high predatory risk/i);
+    expect(text).not.toMatch(/this journal is (predatory|legitimate|safe|trustworthy|not predatory)/i);
+    expect(text).not.toMatch(/verdict:|conclusion:|rating:|score:/i);
+    // "predatory" may appear ONLY inside the negating "not proof…" phrase.
+    for (const m of Array.from(text.matchAll(/predatory/gi))) {
+      const around = text.slice(Math.max(0, (m.index ?? 0) - 40), (m.index ?? 0) + 12);
+      expect(around).toMatch(/not proof that a journal is predatory/i);
+    }
+  });
+
+  it('structural disclosure + cross-link to the paid tool are present (coherence)', async () => {
+    renderJC(makeMockLookup(() => PREDATORY));
+    await search('World Journal of Advanced Multidisciplinary Research');
+    await screen.findByTestId('result-card');
+    expect(screen.getByTestId('jc-disclosure').textContent).toBe(JOURNAL_CHECK_DISCLOSURE);
+    expect(screen.getByTestId('jc-disclosure').textContent).toMatch(/evidence, not a verdict/i);
+    expect(screen.getByTestId('to-journal-verify')).toBeTruthy();
+  });
+
+  it('a well-indexed journal reads as evidence, not a "legitimate" verdict (unit + render)', async () => {
+    // unit: the underlying levels are unchanged (still red for flagged, green for Q1 Scopus+WoS)
     expect(riskVerdict(PREDATORY).level).toBe('red');
     expect(riskVerdict(LEGIT_ONLINE).level).toBe('green');
+    // render: the green headline is factual ("well indexed"), not a "Legitimate" verdict
+    renderJC(makeMockLookup(() => LEGIT_ONLINE));
+    await search('Journal of Fictional Physics');
+    await screen.findByTestId('result-card');
+    expect(screen.getByTestId('signal-headline').textContent).not.toMatch(/\blegitimate\b/i);
   });
 });
 

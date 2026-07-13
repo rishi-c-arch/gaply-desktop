@@ -31,6 +31,15 @@ import {
 import { mayUseCloud } from '../settings/settingsStore';
 import './journal.css';
 
+/** Structural, un-strippable disclosure — rendered on EVERY journal result,
+ *  mirroring the paid Journal Verification's evidence-not-verdict discipline.
+ *  The free tool presents indexing SIGNALS; it never declares a named journal
+ *  predatory or legitimate. */
+export const JOURNAL_CHECK_DISCLOSURE =
+  'Indexing signals only — this is evidence, not a verdict. Being absent from ' +
+  'Scopus/Web of Science is a warning sign, not proof that a journal is predatory: ' +
+  'some legitimate new or regional journals aren’t indexed either. You decide.';
+
 export interface JournalCheckPageProps {
   /** Online fallback client (proxy in prod; mock in tests). */
   lookup?: JournalLookupClient;
@@ -153,7 +162,7 @@ const JournalCheckPage: React.FC<JournalCheckPageProps> = ({ lookup }) => {
             </p>
 
             {/* journal result */}
-            {tab === 'journal' && result && <JournalResultCard journal={result} origin={fromCacheOrOnline} onFit={() => navigate('/app/report')} />}
+            {tab === 'journal' && result && <JournalResultCard journal={result} origin={fromCacheOrOnline} onFit={() => navigate('/app/report')} onVerify={() => navigate('/app/journal-verify')} />}
             {tab === 'journal' && suggestions.length > 0 && (
               <div className="gds-jc-suggest" data-testid="suggestions">
                 {suggestions.map((j) => (
@@ -195,8 +204,8 @@ const JournalCheckPage: React.FC<JournalCheckPageProps> = ({ lookup }) => {
 
 /* ---------------------------- journal result ---------------------------- */
 
-const JournalResultCard: React.FC<{ journal: JournalRecord; origin: 'local' | 'online' | null; onFit: () => void }> = ({ journal, origin, onFit }) => {
-  const risk = riskVerdict(journal);
+const JournalResultCard: React.FC<{ journal: JournalRecord; origin: 'local' | 'online' | null; onFit: () => void; onVerify: () => void }> = ({ journal, origin, onFit, onVerify }) => {
+  const signal = riskVerdict(journal);
   return (
     <div className="gds-jc-card" data-testid="result-card">
       <div className="gds-jc-card__head">
@@ -211,14 +220,29 @@ const JournalResultCard: React.FC<{ journal: JournalRecord; origin: 'local' | 'o
         )}
       </div>
 
-      {/* predatory-risk traffic light */}
-      <div className="gds-risk" data-level={risk.level} data-testid="risk-verdict">
+      {/* indexing SIGNAL — evidence to weigh, NEVER a legitimacy verdict
+          (mirrors the paid Journal Verification's evidence-not-verdict stance;
+          the red dot is a severity cue, not a "predatory" conclusion) */}
+      <div className="gds-risk" data-level={signal.level} data-testid="indexing-signal">
         <span className="gds-risk__dot" />
-        <span>
-          {risk.level === 'green' ? 'Legitimate — well indexed' : risk.level === 'amber' ? 'Caution — verify fit' : 'High predatory risk'}
-          {risk.reasons.length > 0 && `: ${risk.reasons.join('; ')}`}
+        <span data-testid="signal-headline">
+          {signal.level === 'green'
+            ? 'Well indexed internationally'
+            : signal.level === 'amber'
+              ? 'Indexed — verify fit for your work'
+              : 'Warning signs to investigate'}
+          {signal.reasons.length > 0 && `: ${signal.reasons.join('; ')}`}
         </span>
       </div>
+
+      {signal.level === 'red' && (
+        <p className="gds-jc__warning" data-testid="not-indexed-warning">
+          <strong>These are warning signs, not proof.</strong> Signals like these are
+          worth investigating, but they are not proof that a journal is predatory —
+          some legitimate new or regional journals show similar gaps (for example, not
+          being indexed in Scopus/Web of Science). Weigh the evidence and verify carefully.
+        </p>
+      )}
 
       <div className="gds-jc-grid">
         <div className="gds-jc-field"><label>SJR (Scimago)</label><span data-testid="sjr">{journal.sjr != null ? journal.sjr.toFixed(3) : `${journal.quartile ?? '—'} quartile`}</span></div>
@@ -242,6 +266,20 @@ const JournalResultCard: React.FC<{ journal: JournalRecord; origin: 'local' | 'o
       <Button variant="secondary" onClick={onFit} data-testid="journal-fit">
         Which quartile journals is my paper competitive for? →
       </Button>
+
+      {/* Coherence with the paid tool: point to the registry-grounded evidence
+          check so the free and paid tools never contradict each other. */}
+      <div className="gds-jc-crosslink" data-testid="jc-crosslink">
+        For a deeper, registry-grounded evidence check (DOAJ · PubMed · OpenAlex), open{' '}
+        <button type="button" className="gds-jc-link" data-testid="to-journal-verify" onClick={onVerify}>
+          Journal Verification →
+        </button>
+      </div>
+
+      {/* Structural, un-strippable disclosure — on every result. */}
+      <p className="gds-jc__disclaimer gds-jc__disclosure" data-testid="jc-disclosure">
+        {JOURNAL_CHECK_DISCLOSURE}
+      </p>
     </div>
   );
 };

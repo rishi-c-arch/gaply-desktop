@@ -59,18 +59,28 @@ export const QUARTILE_STATUS: Record<Quartile, 'certain' | 'assessed' | 'flagged
   Q4: 'flagged',
 };
 
-/* ------------------------- predatory-risk verdict ----------------------- */
+/* --------------------- indexing / caution SIGNAL ------------------------ */
+// EVIDENCE, never a verdict. This computes an attention level + the factual
+// reasons behind it (indexing status, any Beall's/Cabells-style signals) so the
+// UI can present them as SIGNALS the researcher weighs. It must NEVER declare a
+// named journal "predatory" or "legitimate" — non-indexing is not proof (some
+// legitimate new/regional journals aren't indexed either). Mirrors the paid
+// Journal Verification's evidence-not-verdict discipline. (Type/function names
+// kept for GapFinderPage, which consumes `.reasons` as a factual signal list.)
 
 export type RiskLevel = 'green' | 'amber' | 'red';
 
 export interface RiskVerdict {
+  /** Attention level for the traffic-light colour — a severity cue, NOT a
+   *  legitimacy verdict. */
   level: RiskLevel;
   reasons: string[];
 }
 
-/** Cross-reference indexing + Beall's/Cabells-style signals. Traffic light:
- *  red = likely predatory / unindexed; amber = caution (Q4, single index,
- *  missing metadata); green = well-indexed international journal. */
+/** Cross-reference indexing + signals into an evidence signal (NOT a verdict).
+ *  red = strong caution (unindexed and/or flagged signals — a warning worth
+ *  investigating, never "proof of predatory"); amber = verify fit; green = well
+ *  indexed internationally. The RENDERED copy frames every level as evidence. */
 export function riskVerdict(r: JournalRecord): RiskVerdict {
   const reasons: string[] = [];
   const indexed = r.indexing.scopus || r.indexing.wos;
@@ -80,7 +90,7 @@ export function riskVerdict(r: JournalRecord): RiskVerdict {
   if (!r.issn) reasons.push('No ISSN on record');
 
   if (!indexed || r.signals.length > 0) {
-    return { level: 'red', reasons: reasons.length ? reasons : ['Multiple predatory signals'] };
+    return { level: 'red', reasons: reasons.length ? reasons : ['Multiple caution signals'] };
   }
   if (r.quartile === 'Q4' || !r.issn || (r.indexing.scopus !== r.indexing.wos && !r.indexing.wos)) {
     return {
