@@ -26,7 +26,7 @@ import { PublishReadyReport } from '../report/reportTypes';
 import { useFeatureFlag } from '../../config/Feature';
 import { CheckBridge, TauriCheckBridge } from './checkBridge';
 import { plagiarismToReport } from './adapters';
-import { ExactPlagiarismReport } from './agentTypes';
+import { ExactPlagiarismReport, PlagiarismReport } from './agentTypes';
 import PlagiarismExactReport from './PlagiarismExactReport';
 import PlagiarismLibraryManager from './PlagiarismLibraryManager';
 
@@ -44,6 +44,10 @@ const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({ bridge }) => 
   const [mode, setMode] = useState<Mode>('exact');
   const [exact, setExact] = useState<ExactPlagiarismReport | null>(null);
   const [sim, setSim] = useState<PublishReadyReport | null>(null);
+  // Raw semantic report kept alongside the adapted one, so we can honestly flag
+  // an EMPTY corpus-match result (M1: there's no external corpus configured yet —
+  // an empty list must not read as "verified clean").
+  const [simRaw, setSimRaw] = useState<PlagiarismReport | null>(null);
   const [selected, setSelected] = useState<{ name: string; path: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +72,9 @@ const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({ bridge }) => 
       if (mode === 'exact') {
         setExact(await b.checkExact(selected.path));
       } else {
-        setSim(plagiarismToReport(await b.plagiarism(selected.path)));
+        const raw = await b.plagiarism(selected.path);
+        setSimRaw(raw);
+        setSim(plagiarismToReport(raw));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'check failed');
@@ -80,7 +86,10 @@ const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({ bridge }) => 
   const report = mode === 'exact' ? exact : sim;
   const reset = () => {
     if (mode === 'exact') setExact(null);
-    else setSim(null);
+    else {
+      setSim(null);
+      setSimRaw(null);
+    }
   };
   const switchMode = (m: Mode) => {
     setMode(m);
@@ -183,7 +192,20 @@ const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({ bridge }) => 
                 {mode === 'exact' ? (
                   <PlagiarismExactReport result={exact!} />
                 ) : (
-                  <ReportViewerPage report={sim!} tabs={['Overview', 'Plagiarism']} bare />
+                  <>
+                    <ReportViewerPage report={sim!} tabs={['Overview', 'Plagiarism']} bare />
+                    {simRaw && simRaw.corpus_matches.length === 0 && (
+                      <p
+                        style={{ marginTop: 12, color: 'var(--g-text-2)', fontSize: 13 }}
+                        data-testid="plag-no-corpus-note"
+                      >
+                        No external plagiarism corpus is currently configured, so the semantic lane
+                        compared your manuscript only against itself. An empty result here does{' '}
+                        <strong>not</strong> mean the text is original — for verbatim overlap against
+                        sources you choose, use “Exact text matches” against your reference library.
+                      </p>
+                    )}
+                  </>
                 )}
                 <div style={{ marginTop: 12 }}>
                   <Button variant="ghost" onClick={reset} data-testid="run-another">

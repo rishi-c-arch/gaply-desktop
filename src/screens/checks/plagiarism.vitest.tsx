@@ -172,5 +172,29 @@ describe('PlagiarismCheckPage — exact lane is primary, library present', () =>
     fireEvent.click(screen.getByTestId('run-check'));
     await screen.findByTestId('check-report');
     expect(screen.getAllByText(/91% similarity/).length).toBeGreaterThanOrEqual(1);
+    // with a real corpus match, the honest "no corpus" note is absent
+    expect(screen.queryByTestId('plag-no-corpus-note')).toBeNull();
+  });
+
+  it('empty corpus matches show an HONEST note — empty is NOT "verified clean" (M1)', async () => {
+    const bridge = makeMockCheckBridge({
+      exact: PLAG_EXACT_FIXTURE,
+      plagiarism: {
+        chunk_count: 3, threshold: 0.8,
+        corpus_matches: [], // no external corpus configured (post-M1 reality)
+        self_matches: [],
+        note: 'isolation note',
+      },
+    });
+    renderPage(bridge);
+    fireEvent.click(await screen.findByTestId('mode-similar'));
+    fireEvent.change(await screen.findByTestId('file-input'), {
+      target: { files: [new File(['x'], 'paper.pdf', { type: 'application/pdf' })] },
+    });
+    await screen.findByTestId('selected-name');
+    fireEvent.click(screen.getByTestId('run-check'));
+    await screen.findByTestId('check-report');
+    const note = await screen.findByTestId('plag-no-corpus-note');
+    expect(note.textContent).toMatch(/does\s+not\s+mean the text is original/i);
   });
 });

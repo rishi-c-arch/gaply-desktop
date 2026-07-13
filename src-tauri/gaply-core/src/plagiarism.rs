@@ -241,18 +241,31 @@ struct CorpusChunkInfo {
     source_type: String,
 }
 
+/// M1: source types EXCLUDED from the shared-corpus plagiarism scan. These are
+/// the user's OWN working documents — Gap Finder base papers (`research_paper`)
+/// and PublishReady author-guidelines pages Gaply fetched for them
+/// (`journal_guideline`) — NOT third-party source material. Matching a manuscript
+/// against them produced false "corpus matches". DENYLIST, not allowlist: a
+/// genuine corpus feed added later under any other `source_type` is scanned
+/// automatically, without re-touching this query.
+const EXCLUDED_CORPUS_SOURCE_TYPES: [&str; 2] = ["research_paper", "journal_guideline"];
+
 fn corpus_chunk_info(
     shared: &Database,
     chunk_id: i64,
 ) -> Result<Option<CorpusChunkInfo>, GaplyError> {
-    use rusqlite::OptionalExtension;
+    use rusqlite::{params, OptionalExtension};
     let conn = shared.conn()?;
+    // (?2, ?3) bind the two EXCLUDED_CORPUS_SOURCE_TYPES — the user's own working
+    // docs never surface as corpus matches (M1). A rejected doc → None → the
+    // caller's `else { continue }` (compare_to_corpus) drops it cleanly.
     let info = conn
         .query_row(
             "SELECT c.id, c.document_id, c.content, d.title, d.source_url, d.source_type
              FROM chunks c JOIN documents d ON d.id = c.document_id
-             WHERE c.id = ?1 AND d.status = 'ingested'",
-            [chunk_id],
+             WHERE c.id = ?1 AND d.status = 'ingested'
+               AND d.source_type NOT IN (?2, ?3)",
+            params![chunk_id, EXCLUDED_CORPUS_SOURCE_TYPES[0], EXCLUDED_CORPUS_SOURCE_TYPES[1]],
             |row| {
                 Ok(CorpusChunkInfo {
                     chunk_id: row.get(0)?,
@@ -275,9 +288,13 @@ mod tests {
     use crate::rag::{ingest_document, RawDocument, SourceType};
     use crate::vector::EMBEDDING_DIM;
 
+    // A GENUINE-corpus document (a non-excluded source_type). `Retraction` is used
+    // deliberately: `journal_guideline` / `research_paper` are now excluded from the
+    // plagiarism scan (M1), so a corpus fixture must use a scannable type to prove a
+    // real corpus doc still matches.
     fn corpus_doc(title: &str, url: &str, content: &str) -> RawDocument {
         RawDocument {
-            source_type: SourceType::JournalGuideline,
+            source_type: SourceType::Retraction,
             title: title.into(),
             source_url: url.into(),
             fetched_at: 1_700_000_000,
@@ -366,6 +383,55 @@ mod tests {
         assert_eq!(shared.count_rows("documents").unwrap(), before_docs);
         assert_eq!(shared.count_rows("chunks").unwrap(), before_chunks);
         assert_eq!(shared.count_rows("embeddings").unwrap(), before_embeddings);
+    }
+
+    #[test]
+    fn users_own_working_docs_never_surface_as_corpus_matches() {
+        // M1: the user's OWN Gap Finder papers (research_paper) + PublishReady
+        // guidelines (journal_guideline) must NEVER surface as plagiarism "corpus
+        // matches" — even when the corpus text is IDENTICAL to the manuscript.
+        let shared = Database::in_memory().unwrap();
+        // Distinct content per doc (a unique trailing token) so ingest_document's
+        // checksum dedup doesn't drop any — each stays highly similar to ORIGINAL.
+        let ingest = |st: SourceType, url: &str, tag: &str| {
+            ingest_document(
+                &shared,
+                &HashEmbedder,
+                &RawDocument {
+                    source_type: st,
+                    title: "Doc".into(),
+                    source_url: url.into(),
+                    fetched_at: 1_700_000_000,
+                    content: format!("{ORIGINAL} {tag}"),
+                },
+            )
+            .unwrap();
+        };
+        ingest(SourceType::ResearchPaper, "gapfinder://s/p1", "refA");
+        ingest(SourceType::JournalGuideline, "https://j.example/guidelines", "refB");
+
+        let mut session = PlagiarismSession::new().unwrap();
+        session.ingest_manuscript(&HashEmbedder, ORIGINAL).unwrap();
+
+        // LEAK CLOSED: near-identical text in the user's own working docs → no match.
+        let matches = session.compare_to_corpus(&shared, 0.8, 5).unwrap();
+        assert!(
+            matches.is_empty(),
+            "the user's own working docs must not be corpus matches, got {matches:?}"
+        );
+
+        // DENYLIST PRECISE (not a blanket disable): a genuine, non-excluded corpus
+        // type (retraction) with the same-ish text STILL matches.
+        ingest(SourceType::Retraction, "https://retractionwatch.example/r1", "refC");
+        let matches2 = session.compare_to_corpus(&shared, 0.8, 5).unwrap();
+        assert!(
+            !matches2.is_empty(),
+            "a non-excluded corpus type (retraction) must still be scanned"
+        );
+        match &matches2[0].source {
+            MatchSource::Corpus { source_type, .. } => assert_eq!(source_type, "retraction"),
+            other => panic!("expected a retraction corpus match, got {other:?}"),
+        }
     }
 
     #[test]
