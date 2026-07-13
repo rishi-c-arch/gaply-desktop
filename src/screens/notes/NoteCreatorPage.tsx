@@ -210,6 +210,14 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
                 base={editing.kind === 'paper-edit' ? { id: editing.note.id, paper_id: editing.note.paper_id, paper_title: editing.note.paper_title } : editing.base}
                 existing={editing.kind === 'paper-edit' ? editing.note : null}
                 paperText={paperText}
+                // The picked paper's badge promised full text → if the read comes
+                // back null (case/format mismatch or an ambiguous collision the
+                // backend refused to guess), the editor shows an honest note (M2).
+                fullTextExpected={
+                  !!options.find(
+                    (o) => o.id === (editing.kind === 'paper-edit' ? editing.note.paper_id : editing.base.paper_id)
+                  )?.hasFullText
+                }
                 onSave={save}
                 onDelete={editing.kind === 'paper-edit' ? () => remove(editing.note.id) : undefined}
                 onClose={() => setEditing(null)}

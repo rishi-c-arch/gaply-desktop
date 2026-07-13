@@ -14,7 +14,7 @@ vi.mock('../../design-system/GaplyGlobe', () => ({
 import NoteCreatorPage from './NoteCreatorPage';
 import PaperNoteEditor from './PaperNoteEditor';
 import { makeMockNotesBridge, Note } from './notesBridge';
-import { makeMockPaperSource } from './paperSource';
+import { makeMockPaperSource, TauriPaperSource } from './paperSource';
 import { OFFLINE_FEATURES } from '../subscription/tiers';
 import { gateFeature } from '../subscription/tiers';
 
@@ -136,10 +136,44 @@ describe('PaperNoteEditor — optional side-by-side', () => {
     expect(screen.getByTestId('note-split')).toBeTruthy();
     expect(screen.getByTestId('paper-fulltext').textContent).toContain('Full text of the paper');
   });
-  it('gracefully shows just the editor when no full text', () => {
+  it('gracefully shows just the editor when no full text (no badge promised)', () => {
     render(<PaperNoteEditor base={base} onSave={() => {}} onClose={() => {}} />);
     expect(screen.queryByTestId('note-split')).toBeNull();
+    expect(screen.queryByTestId('paper-fulltext-unavailable')).toBeNull(); // nothing promised → no note
     expect(screen.getByTestId('paper-note-editor')).toBeTruthy();
+  });
+  it('M2: when the badge promised full text but the read returns none, shows an HONEST note (never a blank/wrong panel)', () => {
+    render(<PaperNoteEditor base={base} fullTextExpected paperText={null} onSave={() => {}} onClose={() => {}} />);
+    expect(screen.queryByTestId('note-split')).toBeNull(); // no side-by-side
+    const note = screen.getByTestId('paper-fulltext-unavailable');
+    expect(note.textContent).toMatch(/full text isn’t available/i);
+    expect(screen.getByTestId('paper-note-editor')).toBeTruthy(); // editor still shown
+  });
+});
+
+/* ------- M2 · honest exactly-one full-text badge (TauriPaperSource) ------ */
+
+describe('TauriPaperSource — badge promises only an UNAMBIGUOUS single match (M2)', () => {
+  it('hasFullText lights up on a case-insensitive single match, NOT on a title collision', async () => {
+    const citations = {
+      list: async () => [
+        { id: 'c1', title: 'Sleep And Memory', authors: '', year: 2021 },
+        { id: 'c2', title: 'Dup Title', authors: '', year: 2020 },
+        { id: 'c3', title: 'No Match', authors: '', year: 2019 },
+      ],
+    } as any;
+    const papers = {
+      libraryList: async () => [
+        { id: 1, title: 'sleep and memory', added_at: 0 }, // case differs — still a single match
+        { id: 2, title: 'Dup Title', added_at: 0 }, // two library rows share this title →
+        { id: 3, title: 'Dup Title', added_at: 1 }, // ambiguous → the badge must NOT promise
+      ],
+    } as any;
+    const opts = await new TauriPaperSource(citations, papers).listPapers();
+    const by = (id: string) => opts.find((o) => o.id === id)!;
+    expect(by('c1').hasFullText).toBe(true); // case-insensitive single match
+    expect(by('c2').hasFullText).toBe(false); // collision → no false promise (backend returns None)
+    expect(by('c3').hasFullText).toBe(false); // no match
   });
 });
 

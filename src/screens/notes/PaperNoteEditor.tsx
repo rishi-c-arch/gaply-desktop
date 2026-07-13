@@ -16,6 +16,11 @@ export interface PaperNoteEditorProps {
   existing?: Note | null;
   /** OPTIONAL paper full text for side-by-side reading (graceful — absent = editor only). */
   paperText?: string | null;
+  /** True when the picked paper's badge promised full text (M2 Set 1). When it's
+   *  true but `paperText` is null (case/format mismatch, or an ambiguous
+   *  title-collision the backend refused to guess), show an HONEST "not
+   *  available" note instead of silently dropping the side-by-side. */
+  fullTextExpected?: boolean;
   onSave: (draft: NoteDraft) => void;
   onDelete?: () => void;
   onClose: () => void;
@@ -24,7 +29,7 @@ export interface PaperNoteEditorProps {
 
 type Quote = { text: string; page: string };
 
-const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paperText, onSave, onDelete, onClose, busy }) => {
+const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paperText, fullTextExpected, onSave, onDelete, onClose, busy }) => {
   const initial = useMemo<PaperNoteFields>(() => (existing ? parseFields(existing) : {}), [existing]);
 
   const [title, setTitle] = useState(existing?.title ?? '');
@@ -146,7 +151,19 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
           <div className="gds-note__editor-pane">{editor}</div>
         </div>
       ) : (
-        editor
+        <>
+          {fullTextExpected && (
+            <p
+              className="gds-jc__disclaimer"
+              data-testid="paper-fulltext-unavailable"
+              style={{ marginBottom: 10 }}
+            >
+              Full text isn’t available for this paper in your plagiarism library — showing your
+              notes only. (It matches by title, so a differently-named or duplicate entry won’t link.)
+            </p>
+          )}
+          {editor}
+        </>
       )}
     </Card>
   );

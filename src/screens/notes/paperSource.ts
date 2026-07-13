@@ -33,13 +33,20 @@ export class TauriPaperSource implements PaperSource {
   async listPapers(): Promise<PaperOption[]> {
     const refs: StoredReference[] = await this.citations.list().catch(() => []);
     const lib = await this.papers.libraryList().catch(() => []);
-    const fullTextTitles = new Set(lib.map((p) => p.title.trim().toLowerCase()));
+    // M2 Set 1: the badge only promises when there's EXACTLY ONE normalized
+    // (trim + lowercase) match — mirroring the backend's exactly-one read. It must
+    // NOT light up on a title collision (the backend returns None for those, so a
+    // promise would be false) nor rely on case-sensitivity. Count, don't just
+    // test membership.
+    const norm = (s: string) => s.trim().toLowerCase();
+    const counts = new Map<string, number>();
+    for (const p of lib) counts.set(norm(p.title), (counts.get(norm(p.title)) ?? 0) + 1);
     return refs.map((r) => ({
       id: r.id,
       title: r.title,
       authors: r.authors,
       year: r.year,
-      hasFullText: fullTextTitles.has(r.title.trim().toLowerCase()),
+      hasFullText: counts.get(norm(r.title)) === 1,
     }));
   }
 }

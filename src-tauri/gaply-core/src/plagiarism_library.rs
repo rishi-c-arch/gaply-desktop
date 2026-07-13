@@ -79,17 +79,37 @@ pub fn remove_paper(db: &Database, id: i64) -> Result<bool, GaplyError> {
 }
 
 /// Read-only accessor: the stored `full_text` of a library paper matched by
-/// title (most recently added on a tie), or `None`. ADDITIVE — added for Note
-/// Creator's optional side-by-side reading (Set 6); the library's own
-/// add/list/remove/compare behavior is entirely unchanged. Deterministic, local,
-/// no model, no network.
+/// title, or `None`. ADDITIVE — for Note Creator's optional side-by-side reading
+/// (Set 6); the library's own add/list/remove/compare behavior is unchanged.
+/// Deterministic, local, no model, no network.
+///
+/// HONEST, SAFE match (M2 Set 1): the title comparison is NORMALIZED (trim +
+/// case-insensitive, mirroring the frontend badge) and AMBIGUITY-GUARDED — it
+/// returns text ONLY when EXACTLY ONE library paper matches. Two same-title
+/// papers → `None` (NEVER the wrong one — the old `ORDER BY added_at DESC LIMIT 1`
+/// silently returned whichever was added last). Zero → `None`. (Fully reliable
+/// linking by a shared id is the deferred Set 2; here the side-by-side just
+/// degrades honestly rather than showing the wrong paper's text.)
 pub fn full_text_by_title(db: &Database, title: &str) -> Result<Option<String>, GaplyError> {
+    let needle = title.trim();
+    if needle.is_empty() {
+        return Ok(None);
+    }
     let conn = db.conn()?;
     let mut stmt = conn.prepare(
-        "SELECT full_text FROM plagiarism_library WHERE title = ?1 ORDER BY added_at DESC LIMIT 1",
+        "SELECT full_text FROM plagiarism_library WHERE lower(trim(title)) = lower(trim(?1))",
     )?;
-    let mut rows = stmt.query_map(params![title], |r| r.get::<_, String>(0))?;
-    Ok(rows.next().transpose()?)
+    let mut rows = stmt.query_map(params![needle], |r| r.get::<_, String>(0))?;
+    // Exactly-one guard: a first match with no second is the only case that
+    // yields text; anything else (zero, or 2+ ambiguous) → None, never a guess.
+    let first = match rows.next() {
+        Some(r) => r?,
+        None => return Ok(None),
+    };
+    if rows.next().is_some() {
+        return Ok(None);
+    }
+    Ok(Some(first))
 }
 
 /// Compare an upload against the WHOLE library using the deterministic
@@ -163,10 +183,31 @@ mod tests {
 
         // returns the stored full_text for a matching title
         assert_eq!(full_text_by_title(&db, "Sleep & Memory (2021)").unwrap().as_deref(), Some(body.as_str()));
+        // M2 Set 1 — CASE/WHITESPACE-INSENSITIVE single match returns the RIGHT text
+        // (fixes the false-negative from the old case-sensitive read).
+        assert_eq!(full_text_by_title(&db, "  sleep & MEMORY (2021)  ").unwrap().as_deref(), Some(body.as_str()));
         // None for an unknown title (graceful — no side-by-side)
         assert_eq!(full_text_by_title(&db, "Not In Library").unwrap(), None);
+        // empty/whitespace title → None
+        assert_eq!(full_text_by_title(&db, "   ").unwrap(), None);
         // read-only: the library is unchanged after the read
         assert_eq!(list_papers(&db).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn full_text_by_title_never_returns_the_wrong_paper_on_a_title_collision() {
+        // THE FLOOR (M2 Set 1, bug c): two papers share a (normalized) title →
+        // full_text_by_title must return None, NEVER the most-recently-added one.
+        let db = db();
+        let cfg = ExactConfig::default();
+        add_paper(&db, "Common Title", "FIRST paper body", "/a.pdf", &cfg).unwrap();
+        add_paper(&db, "common title", "SECOND paper body (added later)", "/b.pdf", &cfg).unwrap();
+
+        // ambiguous (2 case-insensitive matches) → None: we never guess which one
+        assert_eq!(full_text_by_title(&db, "Common Title").unwrap(), None);
+        assert_eq!(full_text_by_title(&db, "common title").unwrap(), None);
+        // both rows still present — read-only, nothing dropped
+        assert_eq!(list_papers(&db).unwrap().len(), 2);
     }
 
     #[test]
