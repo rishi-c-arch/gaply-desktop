@@ -557,6 +557,118 @@ pub fn citation_lib_set_sync_status(
     gaply_core::citation_library::set_sync_status(&state.db, &id, &status)
 }
 
+/// Note Creator (Set 3): thin IPC wrappers over the Set 2 notes store
+/// (`gaply_core::notes`). All fully local/offline sqlite — no network, no LLM,
+/// no sign-in, no entitlement (Note Creator is free). No logic lives here.
+///
+/// Writable note fields from the frontend. `NoteInput` in core isn't
+/// Deserialize (and Set 2's notes.rs stays untouched), so this app-crate struct
+/// carries the wire shape and maps into it. `id` is the caller's stable uuid;
+/// `fields_json` arrives as a JSON object (null/absent → the store's `{}`).
+#[derive(Debug, Deserialize)]
+pub struct NoteWrite {
+    pub id: String,
+    pub note_type: String,
+    #[serde(default)]
+    pub paper_id: Option<String>,
+    #[serde(default)]
+    pub paper_title: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub fields_json: Option<serde_json::Value>,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+impl NoteWrite {
+    fn into_input(self) -> (String, gaply_core::notes::NoteInput) {
+        let fields_json = match self.fields_json {
+            None | Some(serde_json::Value::Null) => String::new(), // → core stores '{}'
+            Some(v) => v.to_string(),
+        };
+        (
+            self.id,
+            gaply_core::notes::NoteInput {
+                note_type: self.note_type,
+                paper_id: self.paper_id,
+                paper_title: self.paper_title,
+                title: self.title,
+                fields_json,
+                body: self.body,
+                tags: self.tags,
+            },
+        )
+    }
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state, note))]
+pub fn note_create(
+    state: State<'_, AppState>,
+    note: NoteWrite,
+) -> Result<gaply_core::notes::Note, GaplyError> {
+    let (id, input) = note.into_input();
+    gaply_core::notes::upsert_note(&state.db, &id, &input)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state, note))]
+pub fn note_update(
+    state: State<'_, AppState>,
+    note: NoteWrite,
+) -> Result<gaply_core::notes::Note, GaplyError> {
+    let (id, input) = note.into_input();
+    gaply_core::notes::update_note(&state.db, &id, &input)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn note_get(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Option<gaply_core::notes::Note>, GaplyError> {
+    gaply_core::notes::get_note(&state.db, &id)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn note_list(
+    state: State<'_, AppState>,
+    note_type: Option<String>,
+    paper_id: Option<String>,
+) -> Result<Vec<gaply_core::notes::Note>, GaplyError> {
+    gaply_core::notes::list_notes(&state.db, note_type.as_deref(), paper_id.as_deref())
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn note_search(
+    state: State<'_, AppState>,
+    query: String,
+    tag: Option<String>,
+) -> Result<Vec<gaply_core::notes::Note>, GaplyError> {
+    gaply_core::notes::search_notes(&state.db, &query, tag.as_deref())
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn note_set_tags(
+    state: State<'_, AppState>,
+    id: String,
+    tags: Vec<String>,
+) -> Result<gaply_core::notes::Note, GaplyError> {
+    gaply_core::notes::set_tags(&state.db, &id, &tags)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn note_delete(state: State<'_, AppState>, id: String) -> Result<(), GaplyError> {
+    gaply_core::notes::delete_note(&state.db, &id)
+}
+
 /// Research Gap Finder (Set 2): build the session's paper corpus — N uploaded
 /// files + N links → bounded, llm_safe per-paper digests (stable ids p1…pN)
 /// + a per-session RAG ingest. NO reasoning, NO LLM, NO model load (the
