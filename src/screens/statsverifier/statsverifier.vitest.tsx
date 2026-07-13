@@ -11,6 +11,7 @@ import type { AuthService } from '../../services/supabase';
 import StatsVerifierPage from './StatsVerifierPage';
 import StatsVerifierReport from './StatsVerifierReport';
 import AnalysisSpecBuilder from './AnalysisSpecBuilder';
+import StatsChatDock from './StatsChatDock';
 import { makeMockStatsVerifierBridge } from './statsVerifierBridge';
 import { PREVIEW_FIXTURE, MISMATCH_REPORT, MATCH_REPORT, ERROR_REPORT } from './statsVerifierFixtures';
 import type { StatsChatTurn } from './statsVerifierTypes';
@@ -246,5 +247,56 @@ describe('StatsVerifierPage — verify then chat, honest states', () => {
   it('honest empty state before any upload', async () => {
     renderPage({ bridge: makeMockStatsVerifierBridge({}), forceTier: 'premium' });
     expect(await screen.findByTestId('sv-empty')).toBeTruthy();
+  });
+});
+
+/* ------- M5 · StatsChatDock client-side ghostwriting guards (parity) ------ */
+
+describe('StatsChatDock — client ghostwriting guards mirror ResearchCopilotPanel (M5)', () => {
+  function renderDock(chatImpl: (input: any) => Promise<any>) {
+    const bridge = { chat: vi.fn(chatImpl) } as any;
+    render(<StatsChatDock bridge={bridge} path="/data.csv" spec={{} as any} />);
+    fireEvent.click(screen.getByTestId('sv-copilot-toggle')); // dock starts closed
+    return bridge;
+  }
+  const ask = (text: string) => {
+    fireEvent.change(screen.getByTestId('sv-chat-input'), { target: { value: text } });
+    fireEvent.click(screen.getByTestId('sv-chat-send'));
+  };
+
+  it('REQUEST guard: a manuscript-ghostwriting request is refused client-side, BEFORE any cloud call', async () => {
+    const bridge = renderDock(async () => ({ answer: 'should never be reached', kind: 'answered' }));
+    ask('write my results section');
+    const refusal = await screen.findByTestId('sv-msg-assistant-refused');
+    expect(refusal.textContent).toMatch(/write your results/i);
+    expect(bridge.chat).not.toHaveBeenCalled(); // refused before the cloud call
+  });
+
+  it('RESPONSE guard: drafted manuscript prose in the reply is blocked client-side', async () => {
+    const drafted =
+      'In this study, we investigate the effect of extended sleep on working memory. ' +
+      'Ninety-six participants were recruited and randomized into two groups over four weeks, ' +
+      'with careful attention to adherence and dropout across the whole cohort.\n\n' +
+      'Our results demonstrate a statistically significant improvement in recall among the ' +
+      'extended-sleep group. These findings replicate prior work and support a causal role for ' +
+      'sleep in memory consolidation, with implications for theory and clinical practice.';
+    renderDock(async () => ({ answer: drafted, kind: 'answered', advisory: false }));
+    ask('help me strengthen my analysis'); // benign request; model drifts into prose
+    const blocked = await screen.findByTestId('sv-msg-assistant-blocked');
+    expect(blocked.textContent).toMatch(/ghostwrite manuscript text/i);
+    expect(screen.queryByText(/Ninety-six participants/)).toBeNull(); // the draft is NOT shown
+  });
+
+  it('FUNCTIONALITY: a normal stats question passes through the guards to the answer', async () => {
+    renderDock(async () => ({
+      answer: 'Your p-value of 0.06 is borderline; interpret it cautiously.',
+      kind: 'answered',
+      advisory: true,
+      disclaimer: 'advisory interpretation',
+    }));
+    ask('is my p-value borderline?');
+    expect(await screen.findByText(/0.06 is borderline/)).toBeTruthy();
+    expect(screen.queryByTestId('sv-msg-assistant-refused')).toBeNull();
+    expect(screen.queryByTestId('sv-msg-assistant-blocked')).toBeNull();
   });
 });

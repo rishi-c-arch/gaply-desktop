@@ -8,6 +8,12 @@ import React, { useRef, useState } from 'react';
 import { Badge, Button } from '../../design-system';
 import { StatsVerifierBridge } from './statsVerifierBridge';
 import { AnalysisSpec, StatsChatTurn } from './statsVerifierTypes';
+import {
+  detectGhostwriting,
+  GHOSTWRITE_BLOCK_MESSAGE,
+  isGhostwritingRequest,
+  refusalFor,
+} from '../copilot/chatGuards';
 import '../copilot/copilot.css';
 
 const CHIPS = [
@@ -52,13 +58,29 @@ const StatsChatDock: React.FC<StatsChatDockProps> = ({ bridge, path, spec, manus
     if (!question || busy) return;
     setMessages((m) => [...m, { role: 'user', text: question }]);
     setInput('');
+
+    // REQUEST guard (client backstop, mirrors ResearchCopilotPanel) — refuse a
+    // manuscript-ghostwriting request up front, before any cloud call. The backend
+    // run_stats_chat firewall remains the real boundary (it also catches
+    // code-authoring); this is defense-in-depth so the client has the same guard.
+    if (isGhostwritingRequest(question)) {
+      setMessages((m) => [...m, { role: 'assistant', text: refusalFor(question), kind: 'refused_ghostwriting' }]);
+      return;
+    }
+
     setBusy(true);
     try {
       const turn = await bridge.chat({ path, spec, manuscriptPath, question, language, userToken });
-      setMessages((m) => [
-        ...m,
-        { role: 'assistant', text: turn.answer, kind: turn.kind, disclaimer: turn.advisory ? turn.disclaimer : undefined },
-      ]);
+      // RESPONSE guard (client backstop, mirrors ResearchCopilotPanel) — block
+      // drafted manuscript prose even if the model drifts.
+      if (detectGhostwriting(turn.answer).blocked) {
+        setMessages((m) => [...m, { role: 'assistant', text: GHOSTWRITE_BLOCK_MESSAGE, kind: 'blocked_ghostwriting' }]);
+      } else {
+        setMessages((m) => [
+          ...m,
+          { role: 'assistant', text: turn.answer, kind: turn.kind, disclaimer: turn.advisory ? turn.disclaimer : undefined },
+        ]);
+      }
     } catch {
       setMessages((m) => [...m, { role: 'assistant', text: 'The copilot is unavailable right now.', kind: 'unavailable' }]);
     } finally {
@@ -84,7 +106,7 @@ const StatsChatDock: React.FC<StatsChatDockProps> = ({ bridge, path, spec, manus
                 <div
                   key={i}
                   className={`gds-chat__msg gds-chat__msg--${m.role}${m.kind === 'refused_ghostwriting' ? ' gds-chat__msg--refused' : ''}${m.kind === 'blocked_ghostwriting' ? ' gds-chat__msg--blocked' : ''}`}
-                  data-testid={`sv-msg-${m.role}${m.kind === 'refused_ghostwriting' ? '-refused' : ''}`}
+                  data-testid={`sv-msg-${m.role}${m.kind === 'refused_ghostwriting' ? '-refused' : m.kind === 'blocked_ghostwriting' ? '-blocked' : ''}`}
                 >
                   <div className="gds-chat__text">{m.text}</div>
                   {m.role === 'assistant' && m.kind === 'answered' && m.disclaimer && (
