@@ -855,6 +855,43 @@ pub fn verify_journal_registry(
     )
 }
 
+/// Journal Verification (PAID): the combined command — grounded registry facts
+/// (local retrieval) + the self-reported site summary (the ONE cloud/LLM use),
+/// joined into one evidence result. Thin orchestration over the tested lanes.
+///
+/// Honest gate placement: the user's JWT rides to the PROXY for the server-side
+/// entitlement gate on the LLM site-summary (the genuine cloud work) — mirroring
+/// how the Stats Verifier gates its interpretive chat. The grounded registry
+/// checks are LOCAL and run regardless, so an offline/unavailable proxy degrades
+/// the site summary honestly and never blocks the facts. The page is fetched
+/// ONCE and threaded to both lanes.
+#[tauri::command]
+#[tracing::instrument(skip(state, query, issn, local_predatory_signals, user_token))]
+pub fn verify_journal_full(
+    state: State<'_, AppState>,
+    query: Option<String>,
+    issn: Option<String>,
+    local_predatory_signals: Option<Vec<String>>,
+    user_token: Option<String>,
+) -> Result<crate::journal_verify::JournalVerificationResult, GaplyError> {
+    let fetcher = crate::http_fetcher::ReqwestFetcher::new()?;
+    let limiter = gaply_core::ratelimit::RateLimiter::new(5.0, 1.0);
+    let client = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+        Ok(c) if c.reachable() => Some(c),
+        _ => None,
+    };
+    let proxy = client.as_ref().map(|c| c as &dyn gaply_core::verify_agent::ProxyClient);
+    crate::journal_verify::verify_journal_full(
+        &state.db,
+        &fetcher,
+        &limiter,
+        proxy,
+        query.as_deref(),
+        issn.as_deref(),
+        &local_predatory_signals.unwrap_or_default(),
+    )
+}
+
 /// Gap Finder (Set 6): journal-fit reasoning over the VERIFIED card. The
 /// model reasons about fit using card facts by id; the gate drops any
 /// invented journal/gap and the card itself is never modified. CLOUD-ONLY,

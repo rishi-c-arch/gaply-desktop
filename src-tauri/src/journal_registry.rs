@@ -390,6 +390,18 @@ pub fn resolve_link_issn(
     Ok(LinkResolution { url: url.chars().take(REGISTRY_CLAMP * 2).collect(), issns, unverified })
 }
 
+/// Fetch a journal SITE page body, reusing the SAME cache key as
+/// [`resolve_link_issn`] (`journal:site:{url}`) — so a link that was just
+/// resolved is served from cache and the page is fetched ONCE. Read-only, no
+/// model. Set 3's LLM lane consumes the returned body; the registry facts do not.
+pub fn fetch_site_body(db: &Database, fetcher: &dyn HttpFetcher, limiter: &RateLimiter, url: &str) -> Option<String> {
+    let url = url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return None;
+    }
+    cached_registry_get(db, fetcher, limiter, &format!("journal:site:{url}"), url)
+}
+
 /// Assemble the verified journal card — connectors only, NO model anywhere.
 /// `local_predatory_signals` are the F9 local-directory (Beall's/Cabells-
 /// style) signals for this journal, when the frontend has a matching record;

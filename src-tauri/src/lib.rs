@@ -7,6 +7,7 @@ pub mod logging;
 pub mod models;
 pub mod journal_registry;
 pub mod journal_site_summary;
+pub mod journal_verify;
 pub mod paper_corpus;
 pub mod pipeline;
 pub mod state;
@@ -107,6 +108,7 @@ pub fn run() {
             commands::run_gapfinder_qa,
             commands::run_gapfinder_draft,
             commands::verify_journal_registry,
+            commands::verify_journal_full,
             commands::run_gapfinder_fit,
             pipeline::run_full_analysis,
         ])
