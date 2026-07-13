@@ -11,6 +11,7 @@ import { makePublishReadyMock } from './publishReadyBridge';
 import { buildProxyPayload } from './buildPayload';
 import { synthesizeReviewerLetter, suggestAlternatives } from './synthesize';
 import { PublishReadyReport, Finding } from '../report/reportTypes';
+import { JOURNALS } from '../journal/journalData';
 
 vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
@@ -152,5 +153,86 @@ describe('journal fit', () => {
     const alts = suggestAlternatives({ name: 'The Lancet', quartile: 'Q1' });
     expect(alts.some((a) => a.name === 'The Lancet')).toBe(false);
     for (const a of alts) expect(a.quartile).toBe('Q1'); // Q1 target → only Q1 alts
+  });
+});
+
+/* ----------------------- H4 · journal guidelines ------------------------ */
+
+// A report whose checklist has ONLY structural items (no guideline_source) — the
+// honest "no guidelines provided" state.
+const REPORT_NO_GUIDELINES: PublishReadyReport = {
+  ...REPORT,
+  checklist: [
+    { requirement: 'required section: Abstract', passed: true, detail: 'found', guideline_source: null },
+    { requirement: 'required section: Methods', passed: true, detail: 'found', guideline_source: null },
+  ],
+};
+
+// Drive the entry form to a ready-to-run state (file + journal picked).
+async function reachRunnable() {
+  await screen.findByTestId('pr-entry');
+  fireEvent.change(screen.getByTestId('pr-file'), { target: { files: [new File(['x'], 'p.pdf', { type: 'application/pdf' })] } });
+  await screen.findByText('p.pdf');
+  fireEvent.change(screen.getByTestId('pr-journal-input'), { target: { value: 'lancet' } });
+  fireEvent.click(await screen.findByTestId('pr-journal-The Lancet'));
+}
+
+describe('H4 · target-journal guidelines', () => {
+  it('shows the guidelines input and prefills it from the picked journal', async () => {
+    const withUrl = JOURNALS.find((j) => j.guidelinesUrl);
+    expect(withUrl).toBeTruthy(); // the bundled directory carries guideline URLs
+    renderPR({ forceTier: 'premium', bridge: makePublishReadyMock(REPORT) });
+    await screen.findByTestId('pr-entry');
+    // empty until a journal is picked
+    expect((screen.getByTestId('pr-guidelines-input') as HTMLInputElement).value).toBe('');
+    fireEvent.change(screen.getByTestId('pr-journal-input'), { target: { value: withUrl!.name } });
+    fireEvent.click(await screen.findByTestId(`pr-journal-${withUrl!.name}`));
+    // grounded prefill — the user still sees + can edit it
+    expect((screen.getByTestId('pr-guidelines-input') as HTMLInputElement).value).toBe(withUrl!.guidelinesUrl);
+  });
+
+  it('ingests the guidelines URL BEFORE running the review (local, best-effort)', async () => {
+    const bridge = makePublishReadyMock(REPORT);
+    renderPR({ forceTier: 'premium', bridge });
+    await reachRunnable();
+    fireEvent.change(screen.getByTestId('pr-guidelines-input'), { target: { value: 'https://journal.example/authors' } });
+    fireEvent.click(screen.getByTestId('pr-run'));
+    await screen.findByTestId('publishready');
+    expect(bridge.callOrder).toEqual(['ingest', 'run']); // ingest FIRST
+    expect(bridge.ingestCalls).toEqual([{ guidelinesUrl: 'https://journal.example/authors' }]);
+  });
+
+  it('skips ingestion when the guidelines URL is blank (structural checks only)', async () => {
+    const bridge = makePublishReadyMock(REPORT);
+    renderPR({ forceTier: 'premium', bridge });
+    await reachRunnable();
+    fireEvent.change(screen.getByTestId('pr-guidelines-input'), { target: { value: '' } }); // clear any prefill
+    fireEvent.click(screen.getByTestId('pr-run'));
+    await screen.findByTestId('publishready');
+    expect(bridge.callOrder).toEqual(['run']); // no ingest call
+    expect(bridge.ingestCalls).toEqual([]);
+  });
+
+  it('checklist shows an honest "no guidelines" note when none were ingested — NOT a failure', async () => {
+    renderPR({ forceTier: 'premium', bridge: makePublishReadyMock(REPORT_NO_GUIDELINES) });
+    await reachRunnable();
+    fireEvent.change(screen.getByTestId('pr-guidelines-input'), { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('pr-run'));
+    await screen.findByTestId('publishready');
+    fireEvent.click(await screen.findByTestId('tab-Checklist'));
+    const note = await screen.findByTestId('checklist-no-guidelines');
+    expect(note.textContent).toMatch(/only the structural checks/i);
+    // and NO fabricated "guidelines available" FAIL row (Set 1's honest degradation)
+    expect(screen.queryByText(/guidelines available/i)).toBeNull();
+  });
+
+  it('checklist hides the note when guideline-derived items exist', async () => {
+    renderPR({ forceTier: 'premium', bridge: makePublishReadyMock(REPORT) }); // REPORT has a guideline_source item
+    await reachRunnable();
+    fireEvent.click(screen.getByTestId('pr-run'));
+    await screen.findByTestId('publishready');
+    fireEvent.click(await screen.findByTestId('tab-Checklist'));
+    await screen.findByTestId('checklist');
+    expect(screen.queryByTestId('checklist-no-guidelines')).toBeNull();
   });
 });

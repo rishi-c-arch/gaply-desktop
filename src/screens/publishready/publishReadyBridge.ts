@@ -19,11 +19,26 @@ import {
   TargetJournal,
 } from './publishReadyTypes';
 
+/** Result of ingesting the target journal's guidelines into the local
+ *  `journal_guideline` corpus (H4). Wire shape from Rust `GuidelinesReport`
+ *  (snake_case). Never throws for a bad page — `any_ingested: false` + an honest
+ *  `note` (unreachable / quarantined / no substantive content). */
+export interface GuidelinesIngestResult {
+  any_ingested: boolean;
+  note: string;
+}
+
 export interface PublishReadyBridge {
   /** `userToken` (Set 8): the signed-in user's Supabase JWT, forwarded so the
    *  proxy can run the REAL server-side entitlement check + consume a use.
    *  Optional — the UX gate already routed signed-out users to sign-in. */
   run(input: { manuscriptPath: string; journal: TargetJournal; userToken?: string }): Promise<PublishReadyResult>;
+  /** H4: LOCAL, best-effort. Fetch + sanitize + embed the target journal's
+   *  author-guidelines page into the `journal_guideline` corpus so the pipeline's
+   *  checklist can cross-reference the manuscript against the REAL guidelines. No
+   *  proxy, no JWT (RAG is local); a bad page degrades honestly (structural
+   *  checks only) and never blocks the run. */
+  ingestGuidelines(input: { journalUrl?: string; guidelinesUrl?: string }): Promise<GuidelinesIngestResult>;
 }
 
 /** Backend `run_publishready` return shape (snake_case, as serialized by Rust).
@@ -132,14 +147,49 @@ export class TauriPublishReadyBridge implements PublishReadyBridge {
     })) as PublishReadyOutcome;
     return adaptOutcome(outcome, journal);
   }
+
+  async ingestGuidelines({ journalUrl, guidelinesUrl }: { journalUrl?: string; guidelinesUrl?: string }): Promise<GuidelinesIngestResult> {
+    if (!isTauri) {
+      throw new Error('PublishReady runs in the Gaply desktop app.');
+    }
+    const { invoke } = await import('@tauri-apps/api/core');
+    // camelCase → Rust snake_case (journal_url / guidelines_url), same auto-map
+    // as run_publishready. Local command — no proxy, no JWT.
+    return (await invoke('ingest_guidelines', {
+      journalUrl: journalUrl ?? null,
+      guidelinesUrl: guidelinesUrl ?? null,
+    })) as GuidelinesIngestResult;
+  }
 }
 
 /** Test/dev bridge: given a compiled report, derive the reviewer letter and the
  *  exact proxy payload deterministically. Records the payload so tests can prove
  *  it carries no manuscript text. */
-export function makePublishReadyMock(report: PublishReadyReport): PublishReadyBridge & { lastPayload?: unknown } {
-  const bridge: PublishReadyBridge & { lastPayload?: unknown } = {
+export function makePublishReadyMock(
+  report: PublishReadyReport,
+  opts?: { ingestResult?: GuidelinesIngestResult }
+): PublishReadyBridge & {
+  lastPayload?: unknown;
+  /** Recorded ingest calls + call order, so tests can prove ingest-before-run. */
+  ingestCalls: Array<{ journalUrl?: string; guidelinesUrl?: string }>;
+  callOrder: string[];
+} {
+  const ingestCalls: Array<{ journalUrl?: string; guidelinesUrl?: string }> = [];
+  const callOrder: string[] = [];
+  const bridge: PublishReadyBridge & {
+    lastPayload?: unknown;
+    ingestCalls: Array<{ journalUrl?: string; guidelinesUrl?: string }>;
+    callOrder: string[];
+  } = {
+    ingestCalls,
+    callOrder,
+    async ingestGuidelines(input) {
+      ingestCalls.push(input);
+      callOrder.push('ingest');
+      return opts?.ingestResult ?? { any_ingested: true, note: 'guidelines ingested (mock)' };
+    },
     async run({ journal }) {
+      callOrder.push('run');
       const proxyPayload = buildProxyPayload(report, journal);
       bridge.lastPayload = proxyPayload;
       const reviewerLetter = synthesizeReviewerLetter(report, journal);

@@ -91,6 +91,11 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
   const [file, setFile] = useState<{ name: string; path: string } | null>(null);
   const [journalQuery, setJournalQuery] = useState('');
   const [journal, setJournal] = useState<TargetJournal | null>(null);
+  // H4: the target journal's author-guidelines URL. Prefilled from the picked
+  // journal's known URL (user-editable) so the checklist can cross-reference the
+  // REAL guidelines. `guidelinesNote` surfaces the honest ingest outcome.
+  const [guidelinesUrl, setGuidelinesUrl] = useState('');
+  const [guidelinesNote, setGuidelinesNote] = useState<string | null>(null);
   const [result, setResult] = useState<PublishReadyResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +124,24 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
     }
     setBusy(true);
     setError(null);
+    setGuidelinesNote(null);
     try {
+      // H4: populate the journal-guideline corpus FIRST (local fetch, behind the
+      // same cloud consent), so the pipeline's checklist cross-references the real
+      // guidelines the user pointed at. Best-effort + honest: an unreachable or
+      // quarantined page just leaves the checklist structural-only (Set 1's honest
+      // degradation) — it NEVER blocks the review.
+      const url = guidelinesUrl.trim();
+      if (url) {
+        try {
+          const ing = await b.ingestGuidelines({ guidelinesUrl: url });
+          setGuidelinesNote(ing.note);
+        } catch {
+          setGuidelinesNote(
+            'Could not fetch that guidelines page — the checklist will show structural checks only.'
+          );
+        }
+      }
       // The session's access token rides to the backend → proxy, where the
       // REAL entitlement check + server-side use consumption happen.
       setResult(await b.run({ manuscriptPath: file.path, journal, userToken: session?.access_token }));
@@ -265,12 +287,37 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
                   key={j.name}
                   className="gds-pr__alt"
                   data-testid={`pr-journal-${j.name}`}
-                  onClick={() => setJournal({ name: j.name, quartile: j.quartile ?? 'Q4' })}
+                  onClick={() => {
+                    setJournal({ name: j.name, quartile: j.quartile ?? 'Q4' });
+                    // Prefill the guidelines URL from the picked journal's known
+                    // URL (grounded auto-suggest); the user confirms/edits it.
+                    setGuidelinesUrl(j.guidelinesUrl ?? '');
+                  }}
                 >
                   <span>{j.name}</span><Badge status="neutral">{j.quartile ?? '—'}</Badge>
                 </button>
               ))}
             </div>
+          )}
+        </Card>
+
+        <Card title="3 · Target journal guidelines (optional)">
+          <input
+            className="gds-jc__input"
+            style={{ width: '100%' }}
+            placeholder="Paste your target journal's author-guidelines URL…"
+            value={guidelinesUrl}
+            data-testid="pr-guidelines-input"
+            onChange={(e) => setGuidelinesUrl(e.target.value)}
+          />
+          <p className="gds-jc__disclaimer">
+            Optional. Gaply fetches this page and cross-references your manuscript against the
+            real guidelines — word limit, structured abstract, conflict-of-interest, reference
+            style (deterministic checks over the actual page, no guessing). Pick a journal above
+            to prefill its known URL. Leave blank to run the structural checks only.
+          </p>
+          {guidelinesNote && (
+            <p className="gds-jc__disclaimer" data-testid="pr-guidelines-note">{guidelinesNote}</p>
           )}
         </Card>
 

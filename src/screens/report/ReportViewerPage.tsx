@@ -366,26 +366,44 @@ const FindingsList: React.FC<{
 
 /* ------------------------------- checklist ------------------------------ */
 
-const ChecklistView: React.FC<{ items: ChecklistItem[] }> = ({ items }) => (
-  <div className="gds-checklist" data-testid="checklist">
-    {items.map((c, i) => (
-      <div key={i} className="gds-checklist__item" data-testid={`check-${i}`}>
-        <span className="gds-checklist__mark" data-pass={c.passed}>
-          {c.passed ? '✓' : '✗'}
-        </span>
-        <div>
-          <div>{c.requirement}</div>
-          <div className="gds-finding__detail" style={{ fontSize: 12 }}>{c.detail}</div>
-        </div>
-        {c.guideline_source && (
-          <span className="gds-checklist__src">
-            <Badge status="neutral">source</Badge>
+const ChecklistView: React.FC<{ items: ChecklistItem[] }> = ({ items }) => {
+  // H4 honest empty-state: when NO item carries a guideline source, the
+  // target-journal guidelines weren't provided/ingested — so only the always-on
+  // structural checks ran. Say that honestly (it is NOT a failure); it replaces
+  // the old fabricated "journal guidelines available: FAILED" item (Set 1).
+  const hasGuidelineItems = items.some((c) => !!c.guideline_source);
+  return (
+    <div className="gds-checklist" data-testid="checklist">
+      {items.map((c, i) => (
+        <div key={i} className="gds-checklist__item" data-testid={`check-${i}`}>
+          <span className="gds-checklist__mark" data-pass={c.passed}>
+            {c.passed ? '✓' : '✗'}
           </span>
-        )}
-      </div>
-    ))}
-  </div>
-);
+          <div>
+            <div>{c.requirement}</div>
+            <div className="gds-finding__detail" style={{ fontSize: 12 }}>{c.detail}</div>
+          </div>
+          {c.guideline_source && (
+            <span className="gds-checklist__src">
+              <Badge status="neutral">source</Badge>
+            </span>
+          )}
+        </div>
+      ))}
+      {!hasGuidelineItems && (
+        <p
+          className="gds-finding__detail"
+          style={{ fontSize: 12, marginTop: 8 }}
+          data-testid="checklist-no-guidelines"
+        >
+          No target-journal guidelines were provided, so only the structural checks above ran.
+          Add your journal’s author-guidelines URL to cross-reference your manuscript against the
+          real guidelines (word limit, structured abstract, conflict-of-interest, reference style).
+        </p>
+      )}
+    </div>
+  );
+};
 
 const ReportViewerPage: React.FC<ReportViewerPageProps> = (props) => (
   <ToastProvider>

@@ -143,6 +143,9 @@ describe('server-side gate plumbing', () => {
         seen.push(input);
         throw new Error('stop here — plumbing proven');
       },
+      async ingestGuidelines() {
+        return { any_ingested: false, note: 'noop' };
+      },
     };
     renderPage(SESSION, { subscriptionService: subsService('premium'), bridge });
     await screen.findByTestId('pr-entry');
