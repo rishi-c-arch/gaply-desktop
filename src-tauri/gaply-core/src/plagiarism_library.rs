@@ -78,6 +78,20 @@ pub fn remove_paper(db: &Database, id: i64) -> Result<bool, GaplyError> {
     Ok(n > 0)
 }
 
+/// Read-only accessor: the stored `full_text` of a library paper matched by
+/// title (most recently added on a tie), or `None`. ADDITIVE — added for Note
+/// Creator's optional side-by-side reading (Set 6); the library's own
+/// add/list/remove/compare behavior is entirely unchanged. Deterministic, local,
+/// no model, no network.
+pub fn full_text_by_title(db: &Database, title: &str) -> Result<Option<String>, GaplyError> {
+    let conn = db.conn()?;
+    let mut stmt = conn.prepare(
+        "SELECT full_text FROM plagiarism_library WHERE title = ?1 ORDER BY added_at DESC LIMIT 1",
+    )?;
+    let mut rows = stmt.query_map(params![title], |r| r.get::<_, String>(0))?;
+    Ok(rows.next().transpose()?)
+}
+
 /// Compare an upload against the WHOLE library using the deterministic
 /// exact-match core with each paper's PRECOMPUTED fingerprints. The upload is
 /// session-isolated — it is NEVER written to the library (adding is an explicit
@@ -138,6 +152,21 @@ mod tests {
         assert!(remove_paper(&db, id).unwrap());
         assert!(list_papers(&db).unwrap().is_empty());
         assert!(!remove_paper(&db, id).unwrap(), "removing a gone id is false");
+    }
+
+    #[test]
+    fn full_text_by_title_reads_the_stored_text_additively() {
+        let db = db();
+        let cfg = ExactConfig::default();
+        let body = format!("Intro. {RECYCLED} End.");
+        add_paper(&db, "Sleep & Memory (2021)", &body, "/papers/sleep.pdf", &cfg).unwrap();
+
+        // returns the stored full_text for a matching title
+        assert_eq!(full_text_by_title(&db, "Sleep & Memory (2021)").unwrap().as_deref(), Some(body.as_str()));
+        // None for an unknown title (graceful — no side-by-side)
+        assert_eq!(full_text_by_title(&db, "Not In Library").unwrap(), None);
+        // read-only: the library is unchanged after the read
+        assert_eq!(list_papers(&db).unwrap().len(), 1);
     }
 
     #[test]

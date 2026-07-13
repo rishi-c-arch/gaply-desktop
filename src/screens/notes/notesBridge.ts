@@ -58,6 +58,10 @@ export interface NotesBridge {
   search(query: string, tag?: string): Promise<Note[]>;
   setTags(id: string, tags: string[]): Promise<Note>;
   remove(id: string): Promise<void>;
+  /** Read-only: the stored full_text of a paper (matched by title) in the
+   *  plagiarism "my papers" library, for optional side-by-side reading. Null =
+   *  no full text available (editor shows notes alone). */
+  paperFullText(title: string): Promise<string | null>;
 }
 
 /** Read a note's template fields back from `fields_json` (safe: bad JSON → {}). */
@@ -113,13 +117,19 @@ export class TauriNotesBridge implements NotesBridge {
   async remove(id: string) {
     await this.invoke<void>('note_delete', { id });
   }
+  async paperFullText(title: string) {
+    return (await this.invoke<string | null>('note_paper_fulltext', { title })) ?? null;
+  }
 }
 
 /** In-memory double mirroring the Rust semantics: create/update by id, list
  *  filtered by note_type + paper_id, search over title/body/fields_json/
  *  paper_title/tags (+ tag filter), created_at preserved, every mutation resets
  *  sync_status, update() must exist. Used by the Sets 4/5 UI tests. */
-export function makeMockNotesBridge(seed: Note[] = []): NotesBridge & { rows: Map<string, Note> } {
+export function makeMockNotesBridge(
+  seed: Note[] = [],
+  fullTexts: Record<string, string> = {}
+): NotesBridge & { rows: Map<string, Note> } {
   const rows = new Map<string, Note>(seed.map((n) => [n.id, n]));
 
   const write = (draft: NoteDraft): Note => {
@@ -183,6 +193,9 @@ export function makeMockNotesBridge(seed: Note[] = []): NotesBridge & { rows: Ma
     },
     async remove(id) {
       rows.delete(id);
+    },
+    async paperFullText(title) {
+      return fullTexts[title] ?? null;
     },
   };
 }

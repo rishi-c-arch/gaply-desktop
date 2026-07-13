@@ -116,6 +116,40 @@ describe('Note Creator — unified search across BOTH note types', () => {
   });
 });
 
+/* ------------------ live side-by-side (Set 6 read command) ------------ */
+
+describe('Note Creator — live side-by-side from the full_text read command', () => {
+  it('shows the ACTUAL paper text beside the editor when the library has it', async () => {
+    const notes = makeMockNotesBridge([], { 'A Paper With Text': 'The full extracted text of the paper.' });
+    render(
+      <MemoryRouter>
+        <NoteCreatorPage notes={notes} papers={makeMockPaperSource([{ id: 'c1', title: 'A Paper With Text', hasFullText: true }])} />
+      </MemoryRouter>
+    );
+    await screen.findByTestId('picker-select');
+    fireEvent.change(screen.getByTestId('picker-select'), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByTestId('picker-start'));
+
+    // the read command populated paperText → side-by-side renders the real text
+    await screen.findByTestId('note-split');
+    expect(screen.getByTestId('paper-fulltext').textContent).toContain('full extracted text of the paper');
+  });
+
+  it('gracefully stays editor-only when the paper has no stored full text', async () => {
+    const notes = makeMockNotesBridge(); // no fullTexts
+    render(
+      <MemoryRouter>
+        <NoteCreatorPage notes={notes} papers={makeMockPaperSource([{ id: 'c1', title: 'No Text Paper' }])} />
+      </MemoryRouter>
+    );
+    await screen.findByTestId('picker-select');
+    fireEvent.change(screen.getByTestId('picker-select'), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByTestId('picker-start'));
+    await screen.findByTestId('paper-note-editor');
+    expect(screen.queryByTestId('note-split')).toBeNull();
+  });
+});
+
 /* ---------------------- recommended-tools panel ----------------------- */
 
 describe('RecommendedToolsPanel — honest + static', () => {

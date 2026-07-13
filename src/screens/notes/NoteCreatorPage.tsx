@@ -42,6 +42,7 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
   const [allTags, setAllTags] = useState<string[]>([]);
   const [options, setOptions] = useState<PaperOption[]>([]);
   const [editing, setEditing] = useState<Editing | null>(null);
+  const [paperText, setPaperText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,6 +78,19 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
   useEffect(() => {
     void source.listPapers().then(setOptions).catch(() => setOptions([]));
   }, [source]);
+
+  // Optional side-by-side: fetch the paper's full text (from the plagiarism
+  // "my papers" library) when a paper editor opens; null → editor-only.
+  useEffect(() => {
+    setPaperText(null);
+    const title =
+      editing?.kind === 'paper-new' ? editing.base.paper_title :
+      editing?.kind === 'paper-edit' ? editing.note.paper_title : '';
+    if (!title) return;
+    let alive = true;
+    bridge.paperFullText(title).then((t) => { if (alive) setPaperText(t); }).catch(() => {});
+    return () => { alive = false; };
+  }, [editing, bridge]);
 
   const afterMutation = async () => {
     setEditing(null);
@@ -195,6 +209,7 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
               <PaperNoteEditor
                 base={editing.kind === 'paper-edit' ? { id: editing.note.id, paper_id: editing.note.paper_id, paper_title: editing.note.paper_title } : editing.base}
                 existing={editing.kind === 'paper-edit' ? editing.note : null}
+                paperText={paperText}
                 onSave={save}
                 onDelete={editing.kind === 'paper-edit' ? () => remove(editing.note.id) : undefined}
                 onClose={() => setEditing(null)}

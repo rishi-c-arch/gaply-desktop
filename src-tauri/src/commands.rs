@@ -669,6 +669,19 @@ pub fn note_delete(state: State<'_, AppState>, id: String) -> Result<(), GaplyEr
     gaply_core::notes::delete_note(&state.db, &id)
 }
 
+/// Read-only: the stored full_text of a paper in the plagiarism "my papers"
+/// library, matched by title — for Note Creator's OPTIONAL side-by-side reading.
+/// Thin delegation to the additive read accessor; local, deterministic, no
+/// network. None → no full text (the editor shows notes alone).
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn note_paper_fulltext(
+    state: State<'_, AppState>,
+    title: String,
+) -> Result<Option<String>, GaplyError> {
+    gaply_core::plagiarism_library::full_text_by_title(&state.db, &title)
+}
+
 /// Research Gap Finder (Set 2): build the session's paper corpus — N uploaded
 /// files + N links → bounded, llm_safe per-paper digests (stable ids p1…pN)
 /// + a per-session RAG ingest. NO reasoning, NO LLM, NO model load (the
