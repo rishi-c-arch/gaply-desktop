@@ -7,6 +7,7 @@ import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../../contexts/ThemeContext';
 import ResearchHubHeroEntry from '../../sections/ResearchHubHeroEntry';
+import HeroAnimation from './HeroAnimation';
 import homeHeroClip from '../../assets/home-hero-clip.png';
 import '../../hero-animations.css';
 import '../../hero-new.css';
@@ -41,10 +42,12 @@ const AppHomeHero: React.FC = () => {
   return (
     <div data-testid="home-dashboard">
       <section className="apple-hero apple-hero--no-header hero-section-stitch apple-hero--app-home" data-testid="dash-hero">
-        {/* cinematic clip on the RIGHT — cropped + feathered so it melts into
-            the background, with a slow pan for the video feel. Decorative. */}
+        {/* cinematic visual on the RIGHT — cropped + feathered so it melts into
+            the background. The still image is the base (and the reduced-motion /
+            pre-mount fallback); the live formula animation drifts on top. */}
         <div className="home-hero-clip" aria-hidden="true">
           <div className="home-hero-clip__img" style={{ backgroundImage: `url(${homeHeroClip})` }} />
+          <HeroAnimation dark={isDark} />
         </div>
         <nav className="hero-top-nav hero-top-nav--relative" aria-label="Primary">
           <div className="hero-top-nav__left">
