@@ -2,7 +2,7 @@
 // Gated ★ screens read this; free-offline features must NEVER consult it (they
 // are always available). Offline mode / no session → free.
 import { useEffect, useMemo, useState } from 'react';
-import { createSubscriptionService, createUsageService } from '../../services/supabase';
+import { createSubscriptionService } from '../../services/supabase';
 import { useGaplySession } from '../session/SessionProvider';
 import { gateFeature, GateResult, Tier } from './tiers';
 
@@ -52,30 +52,8 @@ export function useSubscription(
   };
 }
 
-/** Read the current period's usage for a metered online feature. Returns the
- *  used count (0 offline / no session). */
-export async function readUsage(
-  userId: string | undefined,
-  feature: string,
-  usageService = createUsageService()
-): Promise<number> {
-  if (!userId) return 0;
-  const period = periodStart();
-  const res = await usageService.get(userId, feature, period);
-  return res.data?.count ?? 0;
-}
-
-/** Increment usage for a metered online feature (call after a successful run). */
-export async function bumpUsage(
-  userId: string | undefined,
-  feature: string,
-  usageService = createUsageService()
-): Promise<void> {
-  if (!userId) return;
-  await usageService.increment(userId, feature, periodStart());
-}
-
-/** First day of the current month, ISO date — the usage_counters period key. */
-export function periodStart(now: Date = new Date()): string {
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
-}
+// NOTE: the per-feature usage helpers (readUsage / bumpUsage / periodStart) were
+// removed with H3. `bumpUsage` had ZERO callers, so usage never incremented and
+// the Settings/Billing meters read a permanent 0 — a false "0/5" limit. The
+// underlying usage_counters service (`createUsageService`) is left in place,
+// reserved for when metering is enforced server-side at the proxy.

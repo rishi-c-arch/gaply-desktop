@@ -29,15 +29,18 @@ function auth(session: any): AuthService {
 /* ------------------------------ gate logic ------------------------------ */
 
 describe('feature gating', () => {
-  it('free user hitting a cap is blocked from the 6th online run + upsell shown', () => {
-    expect(gateFeature('free', 'citation_verification', 4)).toMatchObject({ allowed: true, remaining: 1 });
-    const atCap = gateFeature('free', 'citation_verification', 5);
-    expect(atCap.allowed).toBe(false);
-    expect(atCap.reason).toBe('cap_reached');
-    expect(atCap.upsell).toBe(true);
+  it('free-tier online features are UNCAPPED — the phantom caps were removed (H3)', () => {
+    // citation_verification / journal_check were advertised as 5 / 3 but never
+    // enforced (bumpUsage had zero callers) and can't be enforced client-side, so
+    // ONLINE_CAPPED is now empty → gateFeature allows them unlimited, honestly.
+    const cv = gateFeature('free', 'citation_verification', 999);
+    expect(cv.allowed).toBe(true);
+    expect(cv.cap).toBeNull();
+    expect(cv.reason).toBeUndefined();
+    expect(gateFeature('free', 'journal_check', 999).allowed).toBe(true);
   });
 
-  it('premium user is unlocked on capped + ★ features', () => {
+  it('premium user is unlocked on online + ★ features', () => {
     expect(gateFeature('premium', 'citation_verification', 999).allowed).toBe(true);
     expect(gateFeature('premium', 'publishready').allowed).toBe(true);
   });

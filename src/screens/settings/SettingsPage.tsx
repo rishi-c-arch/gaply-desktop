@@ -15,13 +15,11 @@ import {
   NavRail,
   Panel,
   ThreePanelWorkspace,
-  UsageMeter,
 } from '../../design-system';
 import { ToastProvider, useToast } from '../../design-system/Toast';
-import { createProfileService, createUsageService, ProfileRow } from '../../services/supabase';
+import { createProfileService, ProfileRow } from '../../services/supabase';
 import { useGaplySession } from '../session/SessionProvider';
-import { useSubscription, readUsage } from '../subscription/useSubscription';
-import { ONLINE_CAPPED } from '../subscription/tiers';
+import { useSubscription } from '../subscription/useSubscription';
 import { JOURNAL_COUNT } from '../journal/journalData';
 import {
   Appearance,
@@ -56,16 +54,14 @@ const SECTIONS = [
 export interface SettingsPageProps {
   /** Test seams — production uses the env-configured services. */
   profileService?: ReturnType<typeof createProfileService>;
-  usageService?: ReturnType<typeof createUsageService>;
 }
 
-const Inner: React.FC<SettingsPageProps> = ({ profileService, usageService }) => {
+const Inner: React.FC<SettingsPageProps> = ({ profileService }) => {
   const navigate = useNavigate();
   const { session } = useGaplySession();
   const { toast } = useToast();
   const { tier, isPremium, status } = useSubscription();
   const profiles = useMemo(() => profileService ?? createProfileService(), [profileService]);
-  const usageSvc = useMemo(() => usageService ?? createUsageService(), [usageService]);
 
   /* profile */
   const [profile, setProfile] = useState<ProfileRow | null>(null);
@@ -80,9 +76,6 @@ const Inner: React.FC<SettingsPageProps> = ({ profileService, usageService }) =>
   const [bytesUsed, setBytesUsed] = useState(() => localBytesUsed());
   const [clearArmed, setClearArmed] = useState(false);
 
-  /* subscription usage */
-  const [usage, setUsage] = useState<Record<string, number>>({});
-
   /* appearance */
   const [appearance, setAppearance] = useState<Appearance>(() => readAppearance());
 
@@ -95,15 +88,10 @@ const Inner: React.FC<SettingsPageProps> = ({ profileService, usageService }) =>
       setDisplayName(r.data.display_name ?? '');
       setOrcid(r.data.orcid ?? '');
     });
-    (async () => {
-      const next: Record<string, number> = {};
-      for (const f of Object.keys(ONLINE_CAPPED)) next[f] = await readUsage(session.user.id, f, usageSvc);
-      if (alive) setUsage(next);
-    })();
     return () => {
       alive = false;
     };
-  }, [session, profiles, usageSvc]);
+  }, [session, profiles]);
 
   const saveProfile = async () => {
     if (!session) return;
@@ -331,18 +319,9 @@ const Inner: React.FC<SettingsPageProps> = ({ profileService, usageService }) =>
                     <span className="gds-set__muted">status: {status}</span>
                   </div>
                   {session && !isPremium && (
-                    <div className="gds-set__meters" data-testid="settings-usage-meters">
-                      <UsageMeter
-                        label="Citation verifications"
-                        used={usage.citation_verification ?? 0}
-                        limit={ONLINE_CAPPED.citation_verification}
-                      />
-                      <UsageMeter
-                        label="Journal checks"
-                        used={usage.journal_check ?? 0}
-                        limit={ONLINE_CAPPED.journal_check}
-                      />
-                    </div>
+                    <p className="gds-set__muted" data-testid="free-online-note">
+                      Citation verification and journal checks are currently unlimited on the free tier.
+                    </p>
                   )}
                   <p className="gds-set__muted">
                     Upgrade, downgrade, Razorpay billing (INR/UPI) and the student discount live on

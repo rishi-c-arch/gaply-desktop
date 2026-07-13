@@ -50,28 +50,16 @@ function mockProfiles(overrides: any = {}) {
     ...overrides,
   } as any;
 }
-function mockUsage(counts: Record<string, number> = {}) {
-  return {
-    get: vi.fn(async (_u: string, feature: string) => ({
-      data: feature in counts ? { user_id: 'u1', feature, count: counts[feature], period_start: '2026-07-01' } : null,
-      error: null,
-      offline: false,
-    })),
-    increment: vi.fn(),
-  } as any;
-}
-
 function renderSettings(props: any = {}, session: any = USER) {
   const profileService = props.profileService ?? mockProfiles();
-  const usageService = props.usageService ?? mockUsage();
   const utils = render(
     <MemoryRouter>
       <GaplySessionProvider authService={auth(session)}>
-        <SettingsPage {...props} profileService={profileService} usageService={usageService} />
+        <SettingsPage {...props} profileService={profileService} />
       </GaplySessionProvider>
     </MemoryRouter>
   );
-  return { profileService, usageService, ...utils };
+  return { profileService, ...utils };
 }
 
 /* --------------------- privacy toggles: persist + gate -------------------- */
@@ -178,25 +166,21 @@ describe('"Where your data lives" privacy panel', () => {
   });
 });
 
-/* ------------------------------- usage meters ------------------------------ */
+/* ----------------------- free online features note ---------------------- */
 
-describe('usage meters read from usage_counters', () => {
-  it('meters show the stored per-feature counts for a free user', async () => {
-    renderSettings({ usageService: mockUsage({ citation_verification: 4, journal_check: 1 }) });
-    const meters = await screen.findByTestId('settings-usage-meters');
-    await waitFor(() => {
-      expect(within(meters).getByLabelText('Citation verifications').getAttribute('aria-valuenow')).toBe('4');
-      expect(within(meters).getByLabelText('Journal checks').getAttribute('aria-valuenow')).toBe('1');
-    });
-    // caps come from the F12 tier table
-    expect(within(meters).getByLabelText('Citation verifications').getAttribute('aria-valuemax')).toBe('5');
-    expect(within(meters).getByLabelText('Journal checks').getAttribute('aria-valuemax')).toBe('3');
+describe('free-tier online features shown as unlimited (no phantom meter — H3)', () => {
+  it('an honest "unlimited on the free tier" note replaces the old 0/5, 0/3 meters', async () => {
+    renderSettings();
+    const note = await screen.findByTestId('free-online-note');
+    expect(note.textContent).toMatch(/unlimited on the free tier/i);
+    // the old permanently-0 phantom meters are gone
+    expect(screen.queryByTestId('settings-usage-meters')).toBeNull();
   });
 
-  it('meters are hidden signed-out (no counters to read)', async () => {
+  it('the note is hidden signed-out (subscription section needs a session)', async () => {
     renderSettings({}, null);
     await screen.findByTestId('settings-sections');
-    expect(screen.queryByTestId('settings-usage-meters')).toBeNull();
+    expect(screen.queryByTestId('free-online-note')).toBeNull();
   });
 });
 

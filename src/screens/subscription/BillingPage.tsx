@@ -1,7 +1,7 @@
 // Gaply — Billing & plans (/app/billing). Razorpay checkout for INR/UPI+cards,
 // plans ending in 9, annual effective-monthly, student discount, and the usage
 // meters that double as conversion nudges. Free-offline stays unlimited.
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AppShell,
@@ -12,13 +12,11 @@ import {
   HeaderBar,
   NavRail,
   Panel,
-  UsageMeter,
 } from '../../design-system';
 import { ToastProvider, useToast } from '../../design-system/Toast';
 import { useGaplySession } from '../session/SessionProvider';
-import { useSubscription, readUsage } from './useSubscription';
+import { useSubscription } from './useSubscription';
 import { formatInr, Plan, PLANS, studentPrice } from './pricing';
-import { ONLINE_CAPPED } from './tiers';
 import { RazorpayClient, UnavailableRazorpayClient } from './razorpay';
 import { useFeatureFlag } from '../../config/Feature';
 
@@ -38,16 +36,6 @@ const Inner: React.FC<BillingPageProps> = ({ razorpay }) => {
 
   const [annual, setAnnual] = useState(true);
   const [student, setStudent] = useState(false);
-  const [usage, setUsage] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    if (!session) return;
-    (async () => {
-      const next: Record<string, number> = {};
-      for (const f of Object.keys(ONLINE_CAPPED)) next[f] = await readUsage(session.user.id, f);
-      setUsage(next);
-    })();
-  }, [session]);
 
   const priceFor = (p: Plan) => {
     const base = annual ? p.effectiveMonthlyInr : p.monthlyInr;
@@ -100,13 +88,13 @@ const Inner: React.FC<BillingPageProps> = ({ razorpay }) => {
               </p>
             </Card>
 
-            {/* usage meters (conversion nudges) */}
+            {/* free-tier online features — honestly unlimited (no enforceable
+                per-user cap client-side; server-side metering isn't deployed) */}
             {session && !isPremium && (
-              <Card title="This month's online usage">
-                <div style={{ display: 'grid', gap: 12, maxWidth: 420 }} data-testid="usage-meters">
-                  <UsageMeter label="Citation verifications" used={usage.citation_verification ?? 0} limit={ONLINE_CAPPED.citation_verification} />
-                  <UsageMeter label="Journal checks" used={usage.journal_check ?? 0} limit={ONLINE_CAPPED.journal_check} />
-                </div>
+              <Card title="Free online features">
+                <p style={{ maxWidth: 480, color: 'var(--g-text-2)' }} data-testid="free-online-note">
+                  Citation verification and journal checks are currently unlimited on the free tier.
+                </p>
               </Card>
             )}
 

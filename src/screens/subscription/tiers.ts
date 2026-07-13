@@ -3,12 +3,15 @@
 // free users; premium unlocks the ★ flagships.
 export type Tier = 'free' | 'premium';
 
-/** Features that are ONLINE and metered for free users. Offline features are
- *  intentionally absent — they are never capped. */
-export const ONLINE_CAPPED: Record<string, number> = {
-  citation_verification: 5,
-  journal_check: 3,
-};
+/** Online features that COULD be metered for free users — currently EMPTY.
+ *  The previously-advertised caps (citation_verification: 5, journal_check: 3)
+ *  were never enforced: nothing ever incremented usage, and a per-user cap
+ *  cannot be enforced client-side (a tampered client bypasses any count). Rather
+ *  than advertise a phantom limit + a permanently-0 meter, these free-tier
+ *  online features are honestly UNLIMITED until server-side metering exists (at
+ *  the proxy). Re-adding an entry here re-enables `gateFeature`'s cap logic once
+ *  a real, server-enforced meter lands. Offline features are absent by design. */
+export const ONLINE_CAPPED: Record<string, number> = {};
 
 /** ★ Premium-only features (no free access, only a teaser). */
 export const PREMIUM_ONLY = new Set([
@@ -57,10 +60,13 @@ export function gateFeature(tier: Tier, feature: string, used = 0): GateResult {
   if (tier === 'premium') {
     return { allowed: true, cap: null, used, remaining: null, upsell: false };
   }
-  // free user, online capped feature
+  // free user, online feature. ONLINE_CAPPED is currently empty (no enforceable
+  // caps), so every online feature falls through here — honestly unlimited. The
+  // cap logic below stays RESERVED: it activates only if a real, server-enforced
+  // cap is ever added back to ONLINE_CAPPED.
   const cap = ONLINE_CAPPED[feature];
   if (cap === undefined) {
-    // unknown online feature — allow but don't meter
+    // uncapped online feature — allow, don't meter
     return { allowed: true, cap: null, used, remaining: null, upsell: false };
   }
   const remaining = Math.max(0, cap - used);
