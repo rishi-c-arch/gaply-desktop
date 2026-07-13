@@ -21,6 +21,12 @@ pdf-extract = "0.7"
 zip = "2.2"
 quick-xml = "0.36"
 serde_json = "1.0"
+# Statistical Analysis Verifier (Set 2): distribution CDFs for exact p-values
+# (StudentsT / FisherSnedecor / ChiSquared / Normal). Pure-Rust (pulls nalgebra,
+# also pure-Rust) — NO OpenSSL / no C libs (verified via cargo tree). The test
+# statistics themselves are hand-rolled; statrs is used ONLY for the tail
+# probabilities, where correctness matters most.
+statrs = "0.18"
 
 # OS keychain access via the keyring crate, configured per platform so each
 # target pulls only its own native backend:
