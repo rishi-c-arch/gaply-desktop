@@ -173,7 +173,7 @@ describe('JournalVerifyReport — verified vs claimed visually distinct', () => 
     expect(text).not.toMatch(/verdict:|conclusion:|rating:|score:/);
     // "predatory" may appear ONLY inside the negating disclosure phrase, never as
     // a conclusion — so any occurrence must be in "…not proof that a journal is predatory".
-    for (const m of text.matchAll(/predatory/g)) {
+    for (const m of Array.from(text.matchAll(/predatory/g))) {
       const around = text.slice(Math.max(0, m.index! - 30), m.index! + 10);
       expect(around).toMatch(/not proof that a journal is predatory/);
     }
