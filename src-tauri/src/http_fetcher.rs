@@ -47,11 +47,50 @@ impl HttpFetcher for ReqwestFetcher {
             .map_err(|e| GaplyError::Internal(format!("http GET {} failed: {e}", req.url)))?;
         let status = resp.status().as_u16();
         // Read the body regardless of status — connectors branch on `status`.
-        let body = resp
-            .text()
-            .map_err(|e| GaplyError::Internal(format!("http body read failed: {e}")))?;
+        // BOUNDED read (M4): the body can be an ARBITRARY, user-supplied journal
+        // page (journal_registry fetches it for the site lane), so cap it exactly
+        // like the paper-corpus fetcher (crate::paper_corpus::MAX_FETCH_BYTES). A
+        // lying/absent Content-Length can't OOM us — the take() in the helper is
+        // the real guard. Over-cap → an honest Validation error, which the caller
+        // (cached_registry_get) already degrades to "unverified"/"not stated".
+        let declared = resp.content_length();
+        let bytes = read_body_capped(resp, declared, crate::paper_corpus::MAX_FETCH_BYTES)?;
+        let body = String::from_utf8_lossy(&bytes).into_owned();
         Ok(HttpResponse { status, body })
     }
+}
+
+/// Read an HTTP response body into memory with a HARD size cap, mirroring the
+/// paper-corpus fetcher's `ReqwestPaperFetcher::get_capped` (same
+/// `crate::paper_corpus::MAX_FETCH_BYTES` — no competing cap): a fast reject on an
+/// honest Content-Length, then a `Read::take`-bounded read so a lying/absent
+/// Content-Length can't OOM us. Over-cap is an honest `GaplyError::Validation`,
+/// never an unbounded read.
+fn read_body_capped(
+    reader: impl std::io::Read,
+    declared_len: Option<u64>,
+    cap: usize,
+) -> Result<Vec<u8>, GaplyError> {
+    use std::io::Read;
+    // Fast reject on an honest Content-Length; the take() below is the real guard.
+    if let Some(len) = declared_len {
+        if len > cap as u64 {
+            return Err(GaplyError::Validation(format!(
+                "response body is {len} bytes; exceeds the {cap}-byte cap"
+            )));
+        }
+    }
+    let mut buf = Vec::new();
+    reader
+        .take((cap + 1) as u64)
+        .read_to_end(&mut buf)
+        .map_err(|e| GaplyError::Internal(format!("http body read failed: {e}")))?;
+    if buf.len() > cap {
+        return Err(GaplyError::Validation(format!(
+            "response body exceeds the {cap}-byte read cap"
+        )));
+    }
+    Ok(buf)
 }
 
 /// Reference verifier: owns a real HTTP fetcher + the per-API rate limiters,
@@ -100,5 +139,37 @@ mod tests {
     #[test]
     fn builds_a_verifier() {
         assert!(RefVerifier::new().is_ok());
+    }
+
+    #[test]
+    fn read_body_capped_allows_under_cap_and_rejects_over_cap() {
+        use std::io::Cursor;
+        // under the cap → the body is returned verbatim
+        let small = vec![b'a'; 100];
+        assert_eq!(read_body_capped(Cursor::new(small.clone()), Some(100), 1000).unwrap(), small);
+        // exactly AT the cap → allowed
+        assert_eq!(
+            read_body_capped(Cursor::new(vec![b'z'; 1000]), None, 1000).unwrap().len(),
+            1000
+        );
+        // over cap via an HONEST Content-Length → fast reject
+        assert!(matches!(
+            read_body_capped(Cursor::new(vec![b'x'; 10]), Some(5000), 1000),
+            Err(GaplyError::Validation(_))
+        ));
+        // over cap via the ACTUAL body with a LYING/absent Content-Length → the
+        // take() guard still rejects. THIS is the memory-exhaustion protection:
+        // the read never grows unboundedly past the cap.
+        assert!(matches!(
+            read_body_capped(Cursor::new(vec![b'y'; 2000]), None, 1000),
+            Err(GaplyError::Validation(_))
+        ));
+    }
+
+    #[test]
+    fn shares_the_paper_corpus_cap_no_competing_mechanism() {
+        // Consistency: the journal-URL read uses the SAME cap as the paper-corpus
+        // fetcher — one constant, not a second competing limit.
+        assert_eq!(crate::paper_corpus::MAX_FETCH_BYTES, 20 * 1024 * 1024);
     }
 }
