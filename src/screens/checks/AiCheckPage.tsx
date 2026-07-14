@@ -121,10 +121,10 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
               <>
                 <Card title="Select a manuscript">
                   <p style={{ margin: '0 0 12px', color: 'var(--g-text-3)', fontSize: 13 }}>
-                    Two-stage analysis: a fast pre-pass over the whole document, then the local
-                    model re-checks the strongest signals against your document's own baseline.
-                    Signal levels, never verdicts. · {ACCEPT_HINT} · parsed on your device, never
-                    uploaded.
+                    Up to two analysis stages — Every manuscript receives a fast local pre-pass. On
+                    devices with approximately 16 GB or more RAM, Gaply also performs an additional
+                    local deep verification using the 7B model. Findings remain signals—not
+                    verdicts—and your manuscript never leaves your device. · {ACCEPT_HINT}
                   </p>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     <Button variant="secondary" onClick={() => void pickFile()} data-testid="pick-file">

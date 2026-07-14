@@ -665,6 +665,13 @@ pub const HEURISTIC_ONLY_NOTE: &str = "Heuristic-only: flagged by the fast pre-p
 model-verified (analysis budget). A preliminary, lower-confidence signal — weigh accordingly; \
 never treat as proof.";
 
+/// Coverage note when the deep pass was GATED OFF for insufficient RAM (distinct
+/// from the generic "deep model was not available" case: here the model exists
+/// but the host can't run it safely). Verbatim, un-strippable.
+pub const DEEP_GATED_LOW_RAM_NOTE: &str = "Deep verification was skipped on this device because \
+the local 7B model requires approximately 16 GB of RAM to run reliably. All findings below are \
+heuristic-only preliminary signals.";
+
 /// Default deep-analysis budget: passages and tokens. Both caps are parameters
 /// — these are defaults, not policy.
 ///
@@ -774,6 +781,9 @@ pub fn analyze_tiered(
     result: &crate::extract::ExtractionResult,
     max_deep_passages: usize,
     max_deep_tokens: usize,
+    // When true, `deep` is `None` because the host's RAM gate skipped loading the
+    // 7B model (not because it was merely absent) — the coverage note says so.
+    deep_gated_low_ram: bool,
 ) -> TieredAnalysis {
     // STAGE 1 — the fast pre-pass over the WHOLE document.
     let stage1 = analyze_passages(fast, result);
@@ -860,6 +870,7 @@ pub fn analyze_tiered(
         Some(_) => format!(
             "{candidates_found} candidate passage(s) from the fast pre-pass; deep-verified {deep_verified}; cleared {cleared} as document-baseline; {heuristic_only} remain heuristic-only (analysis budget: {max_deep_passages} passages / {max_deep_tokens} tokens)"
         ),
+        None if deep_gated_low_ram => DEEP_GATED_LOW_RAM_NOTE.to_string(),
         None => format!(
             "{candidates_found} candidate passage(s) from the fast pre-pass; the deep model was not available — ALL flags are heuristic-only preliminary signals"
         ),
@@ -1822,7 +1833,7 @@ mod tiered_tests {
             AI_UNMARKED, AI_UNMARKED, AI_UNMARKED,
             HUMAN_SENT,
         ]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, false);
         assert_eq!(out.candidates_found, 2, "{}", out.coverage_note);
         assert_eq!(out.deep_verified, 1, "the marked run is below baseline → confirmed");
         assert_eq!(out.cleared_by_deep, 1, "the unmarked run is AT baseline → cleared (false-positive reduction)");
@@ -1843,7 +1854,7 @@ mod tiered_tests {
             AI_MARKED, AI_MARKED, HUMAN_SENT,
         ]);
         // budget of 1 passage: the second candidate stays heuristic-only.
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, false);
         assert_eq!(out.candidates_found, 2);
         assert_eq!(out.deep_verified + out.cleared_by_deep, 1, "only one deep re-score");
         assert_eq!(
@@ -1857,7 +1868,7 @@ mod tiered_tests {
     #[test]
     fn no_deep_model_is_honestly_all_heuristic_only() {
         let ex = doc(&[HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT]);
-        let out = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS);
+        let out = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, false);
         assert!(out.deep_model.is_none());
         assert!(out.passages.iter().all(|p| p.depth == AnalysisDepth::HeuristicOnly));
         assert!(out.coverage_note.contains("deep model was") && out.coverage_note.contains("not available"));
@@ -1865,11 +1876,29 @@ mod tiered_tests {
     }
 
     #[test]
+    fn ram_gated_deep_pass_emits_the_gated_note_not_the_generic_one() {
+        let ex = doc(&[HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT]);
+        // deep=None BUT gated for low RAM → the RAM-specific note, distinct from
+        // the generic "deep model was not available" case above.
+        let gated = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, true);
+        assert_eq!(gated.coverage_note, DEEP_GATED_LOW_RAM_NOTE);
+        assert!(gated.coverage_note.contains("16 GB of RAM"));
+        assert!(!gated.coverage_note.contains("not available"), "must NOT reuse the generic note");
+        // per-passage labeling is unchanged — still honestly heuristic-only
+        assert!(gated.deep_model.is_none());
+        assert!(gated.passages.iter().all(|p| p.depth == AnalysisDepth::HeuristicOnly));
+        assert_eq!(gated.deep_verified, 0);
+        // and the two None-cases are genuinely different notes
+        let absent = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, false);
+        assert_ne!(gated.coverage_note, absent.coverage_note);
+    }
+
+    #[test]
     fn tier_labeling_is_unstrippable_and_the_caution_covers_both_tiers() {
         let ex = doc(&[
             HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_UNMARKED, AI_UNMARKED, HUMAN_SENT,
         ]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, false);
         for p in &out.passages {
             assert!(!p.depth_note.is_empty(), "the tier caution is REQUIRED");
             match p.depth {
@@ -1894,7 +1923,7 @@ mod tiered_tests {
     #[test]
     fn the_honest_percentage_computes_over_surviving_passages() {
         let ex = doc(&[HUMAN_SENT, AI_MARKED, AI_MARKED, AI_MARKED, HUMAN_SENT]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, false);
         let expected_flagged: usize = out
             .passages
             .iter()
@@ -1905,7 +1934,7 @@ mod tiered_tests {
         assert!(out.ai_signal_proportion > 0.0 && out.ai_signal_proportion < 1.0);
         assert_eq!(out.disclaimer, AI_DISCLAIMER);
         // deterministic
-        let again = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS);
+        let again = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, false);
         assert_eq!(out, again);
     }
 }
@@ -1966,6 +1995,7 @@ mod classify_tests {
             &ex,
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
+            false,
         );
         assert_eq!(out.deep_verified, 1, "fixture: exactly one deep-verified passage");
         out
@@ -1977,7 +2007,7 @@ mod classify_tests {
         let ex = doc(&[
             HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT,
         ]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, false);
         assert_eq!(out.deep_verified, 1);
         assert!(out.passages.iter().any(|p| p.depth == AnalysisDepth::HeuristicOnly));
         out
@@ -2130,6 +2160,7 @@ mod classify_tests {
             &ex,
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
+            false,
         );
         assert_eq!(tiered.deep_verified, 2, "fixture: two deep-verified passages");
 
@@ -2323,6 +2354,7 @@ mod language_tests {
             &ex,
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
+            false,
         );
         assert_eq!(out.language.detected, "english");
         assert!(out.language.calibration_reliable);
@@ -2345,6 +2377,7 @@ mod language_tests {
             &ex,
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
+            false,
         );
         assert!(!out.language.calibration_reliable, "spanish must downgrade");
         let classified = classify_passages(None, &out, DEFAULT_MAX_CLASSIFIED_PASSAGES);

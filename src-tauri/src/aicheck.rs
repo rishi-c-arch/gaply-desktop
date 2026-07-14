@@ -42,16 +42,30 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
     // at the closing brace (one-at-a-time).
     let tiered = {
         let fast = HeuristicModel::default();
-        let deep = crate::models::slm1_model();
-        if deep.is_none() {
-            tracing::warn!("AI Check: SLM-1 absent — all flags will be heuristic-only");
-        }
+        // RAM gate: the SLM-1 7B deep pass is proven-fatal on 8GB (candle-CPU
+        // swap death-spiral), so gate it OFF below ~16GB total RAM — heuristic
+        // only, honestly labelled. Overridable via GAPLY_FORCE_DEEP / _DISABLE_DEEP.
+        let deep_allowed = crate::models::deep_pass_allowed_from_env();
+        let deep_gated_low_ram = !deep_allowed;
+        let deep = if deep_allowed {
+            let m = crate::models::slm1_model();
+            if m.is_none() {
+                tracing::warn!("AI Check: SLM-1 absent — all flags will be heuristic-only");
+            } else {
+                tracing::info!("AI Check: deep pass enabled (RAM gate passed or overridden)");
+            }
+            m
+        } else {
+            tracing::warn!("AI Check: deep pass gated off (total RAM below 16GB) — heuristic-only");
+            None
+        };
         ai_detect::analyze_tiered(
             &fast,
             deep.as_deref(),
             extraction,
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
+            deep_gated_low_ram,
         )
     }; // ← SLM-1 dropped HERE
 

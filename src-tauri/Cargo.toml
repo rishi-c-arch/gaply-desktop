@@ -69,5 +69,11 @@ tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
+# macOS-only: the AI-Check RAM gate reads total physical memory via
+# sysctlbyname("hw.memsize") to decide whether the SLM-1 7B deep pass may run
+# (proven-fatal on 8GB). libc 0.2 is already in the lockfile via candle.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tauri = { version = "2.11.3", features = ["test"] }

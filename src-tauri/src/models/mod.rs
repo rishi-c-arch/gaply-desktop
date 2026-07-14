@@ -94,6 +94,92 @@ pub fn slm1_model() -> Option<Box<dyn PerplexityModel>> {
     }
 }
 
+/// Total physical RAM in bytes. macOS: `sysctlbyname("hw.memsize")` (via libc).
+/// Other platforms: `None` — the RAM gate targets the proven-fatal 8GB *macOS*
+/// case; on non-macOS the caller treats `None` as "allow" (current behaviour).
+pub fn total_physical_ram_bytes() -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut mem: u64 = 0;
+        let mut size = std::mem::size_of::<u64>();
+        // SAFETY: "hw.memsize\0" is a valid NUL-terminated C string; `mem`/`size`
+        // are valid out-params sized for a u64, and sysctlbyname writes at most
+        // `size` bytes. A non-zero return means the sysctl failed → treat as None.
+        let rc = unsafe {
+            libc::sysctlbyname(
+                b"hw.memsize\0".as_ptr() as *const libc::c_char,
+                &mut mem as *mut u64 as *mut libc::c_void,
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if rc == 0 && mem > 0 {
+            Some(mem)
+        } else {
+            None
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// Minimum total RAM to run the SLM-1 7B deep pass: 15 GiB (framed to users as
+/// "16 GB"). Below this the deep pass is proven-fatal on 8GB (a candle-CPU swap
+/// death-spiral), so it is gated OFF and AI Check runs the fast heuristic
+/// pre-pass only — honestly labelled (`analyze_tiered(deep: None)`).
+const DEEP_PASS_MIN_RAM_BYTES: u64 = 15 * 1024 * 1024 * 1024;
+
+/// Pure gate decision (unit-tested). Precedence: `disable` wins over `force`,
+/// which wins over the RAM check. `total = None` (non-macOS) → allow.
+pub fn deep_pass_allowed(total: Option<u64>, force: bool, disable: bool) -> bool {
+    if disable {
+        return false;
+    }
+    if force {
+        return true;
+    }
+    match total {
+        Some(t) => t >= DEEP_PASS_MIN_RAM_BYTES,
+        None => true,
+    }
+}
+
+/// Env-driven gate used by the AI-Check flow: reads `GAPLY_DISABLE_DEEP` /
+/// `GAPLY_FORCE_DEEP` ("1" = set; disable wins if both) and the machine's total
+/// RAM. Returns whether the SLM-1 deep pass may run.
+pub fn deep_pass_allowed_from_env() -> bool {
+    let is_set = |k: &str| std::env::var(k).ok().as_deref() == Some("1");
+    deep_pass_allowed(
+        total_physical_ram_bytes(),
+        is_set("GAPLY_FORCE_DEEP"),
+        is_set("GAPLY_DISABLE_DEEP"),
+    )
+}
+
+#[cfg(test)]
+mod ram_gate_tests {
+    use super::deep_pass_allowed;
+    const GB: u64 = 1024 * 1024 * 1024;
+
+    #[test]
+    fn deep_pass_gate_decision_table() {
+        // 8GB machine → OFF (below the 15 GiB threshold); 16GB → ON
+        assert!(!deep_pass_allowed(Some(8 * GB), false, false), "8GB gated off");
+        assert!(deep_pass_allowed(Some(16 * GB), false, false), "16GB allowed");
+        // non-macOS (None) → allow (current behaviour)
+        assert!(deep_pass_allowed(None, false, false), "non-macOS allowed");
+        // force → ON even at 8GB
+        assert!(deep_pass_allowed(Some(8 * GB), true, false), "force overrides low RAM");
+        // disable → OFF even at 32GB
+        assert!(!deep_pass_allowed(Some(32 * GB), false, true), "disable overrides high RAM");
+        // disable WINS over force
+        assert!(!deep_pass_allowed(Some(32 * GB), true, true), "disable wins over force");
+    }
+}
+
 /// The SLM-1 perplexity model for the AI-detection lane: the real candle
 /// `CandlePerplexityModel` when its GGUF + tokenizer are present and load,
 /// otherwise the interim [`HeuristicModel`]. NEVER fails — a user who hasn't
