@@ -42,23 +42,44 @@ fn first_gguf(dir: &Path) -> Option<PathBuf> {
         .find(|p| p.extension().and_then(|s| s.to_str()) == Some("gguf"))
 }
 
-/// Resolve the SLM-1 GGUF + tokenizer paths. Explicit overrides
-/// `GAPLY_SLM1_GGUF` / `GAPLY_SLM1_TOKENIZER` win; otherwise the conventional
-/// `~/gaply-models/slm1/*.gguf` and `~/gaply-models/slm1-adapter/tokenizer.json`.
-/// Returns `None` if paths can't be formed (no home dir, or no GGUF present).
+/// Resolve the shared Qwen2.5 `tokenizer.json`. The Qwen2.5 tokenizer is
+/// IDENTICAL across every size (0.5B … 7B), so SLM-1 (7B) and SLM-1-MINI (1.5B)
+/// use the same file. `GAPLY_SLM1_TOKENIZER` wins; otherwise the conventional
+/// `~/gaply-models/slm1-adapter/tokenizer.json`.
+fn slm1_tokenizer_path() -> Option<PathBuf> {
+    match std::env::var_os("GAPLY_SLM1_TOKENIZER") {
+        Some(p) => Some(PathBuf::from(p)),
+        None => Some(
+            home_dir()?
+                .join("gaply-models")
+                .join("slm1-adapter")
+                .join("tokenizer.json"),
+        ),
+    }
+}
+
+/// Resolve the SLM-1 (full 7B) GGUF + tokenizer paths. `GAPLY_SLM1_GGUF` wins
+/// for the model; otherwise the conventional `~/gaply-models/slm1/*.gguf`. The
+/// tokenizer is the shared Qwen2.5 one ([`slm1_tokenizer_path`]). Returns `None`
+/// if paths can't be formed (no home dir, or no GGUF present).
 fn slm1_paths() -> Option<(PathBuf, PathBuf)> {
     let gguf = match std::env::var_os("GAPLY_SLM1_GGUF") {
         Some(p) => PathBuf::from(p),
         None => first_gguf(&home_dir()?.join("gaply-models").join("slm1"))?,
     };
-    let tokenizer = match std::env::var_os("GAPLY_SLM1_TOKENIZER") {
+    Some((gguf, slm1_tokenizer_path()?))
+}
+
+/// Resolve the SLM-1-MINI (compact Qwen2.5-1.5B) GGUF + tokenizer paths.
+/// `GAPLY_SLM1_MINI_GGUF` wins for the model; otherwise the conventional
+/// `~/gaply-models/slm1-mini/*.gguf`. The tokenizer is the SAME shared Qwen2.5
+/// one as SLM-1 ([`slm1_tokenizer_path`]) — no separate download.
+fn slm1_mini_paths() -> Option<(PathBuf, PathBuf)> {
+    let gguf = match std::env::var_os("GAPLY_SLM1_MINI_GGUF") {
         Some(p) => PathBuf::from(p),
-        None => home_dir()?
-            .join("gaply-models")
-            .join("slm1-adapter")
-            .join("tokenizer.json"),
+        None => first_gguf(&home_dir()?.join("gaply-models").join("slm1-mini"))?,
     };
-    Some((gguf, tokenizer))
+    Some((gguf, slm1_tokenizer_path()?))
 }
 
 /// The REAL SLM-1 (candle), or honestly `None`. `Some` only when the GGUF +
@@ -88,6 +109,44 @@ pub fn slm1_model() -> Option<Box<dyn PerplexityModel>> {
             tracing::warn!(
                 "SLM-1: model files absent (set GAPLY_SLM1_GGUF/GAPLY_SLM1_TOKENIZER or populate \
                  ~/gaply-models/slm1)"
+            );
+            None
+        }
+    }
+}
+
+/// The REAL SLM-1-MINI (candle Qwen2.5-1.5B), or honestly `None`. The COMPACT
+/// deep-verifier for <16GB machines where the full 7B is gated off (proven-fatal
+/// on 8GB). Same Qwen2 loader, same shared tokenizer as SLM-1; the only
+/// difference is the display name — it carries the tier identity so the report
+/// can say WHICH model verified (a 1.5B is a lighter verifier than the 7B).
+/// `Some` only when the GGUF + tokenizer are present AND load — never a silent
+/// stand-in (the same honesty contract as [`slm1_model`]).
+pub fn slm1_mini_model() -> Option<Box<dyn PerplexityModel>> {
+    match slm1_mini_paths() {
+        Some((gguf, tokenizer)) if gguf.exists() && tokenizer.exists() => {
+            match CandlePerplexityModel::from_paths_named(
+                &gguf,
+                &tokenizer,
+                "Qwen2.5-1.5B (compact, on-device)",
+            ) {
+                Ok(m) => {
+                    tracing::info!(gguf = %gguf.display(), "SLM-1-MINI: loaded compact candle perplexity model");
+                    Some(Box::new(m))
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "SLM-1-MINI: compact model present but failed to load"
+                    );
+                    None
+                }
+            }
+        }
+        _ => {
+            tracing::warn!(
+                "SLM-1-MINI: model files absent (set GAPLY_SLM1_MINI_GGUF or populate \
+                 ~/gaply-models/slm1-mini)"
             );
             None
         }
@@ -177,6 +236,35 @@ mod ram_gate_tests {
         assert!(!deep_pass_allowed(Some(32 * GB), false, true), "disable overrides high RAM");
         // disable WINS over force
         assert!(!deep_pass_allowed(Some(32 * GB), true, true), "disable wins over force");
+    }
+}
+
+#[cfg(test)]
+mod mini_loader_tests {
+    use super::{slm1_mini_model, slm1_mini_paths};
+
+    /// The mini resolver honors `GAPLY_SLM1_MINI_GGUF` for the model and shares
+    /// the SLM-1 tokenizer (`GAPLY_SLM1_TOKENIZER`), and `slm1_mini_model`
+    /// honestly returns `None` when the GGUF path doesn't exist — never a silent
+    /// stand-in, and (critically) never loads the real ~945MB model in tests.
+    ///
+    /// One test, done sequentially, so it doesn't race itself on the shared
+    /// process env. Mirrors the existing env-in-tests pattern (aicheck.rs).
+    #[test]
+    fn mini_paths_honor_env_and_absent_model_is_none() {
+        // SAFETY: single-threaded within this test; set → assert → restore.
+        std::env::set_var("GAPLY_SLM1_MINI_GGUF", "/nonexistent/mini.gguf");
+        std::env::set_var("GAPLY_SLM1_TOKENIZER", "/nonexistent/tokenizer.json");
+
+        let (gguf, tok) = slm1_mini_paths().expect("env overrides form a path pair");
+        assert_eq!(gguf.to_str(), Some("/nonexistent/mini.gguf"));
+        assert_eq!(tok.to_str(), Some("/nonexistent/tokenizer.json"), "shares the SLM-1 tokenizer");
+
+        // Files don't exist → honestly None (no panic, no real-model load).
+        assert!(slm1_mini_model().is_none(), "absent mini GGUF => None");
+
+        std::env::remove_var("GAPLY_SLM1_MINI_GGUF");
+        std::env::remove_var("GAPLY_SLM1_TOKENIZER");
     }
 }
 

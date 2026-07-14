@@ -100,10 +100,29 @@ pub struct CandlePerplexityModel {
     name: String,
 }
 
+/// Default display name when a caller doesn't specify a tier identity.
+const DEFAULT_MODEL_NAME: &str = "candle-qwen2-gguf (cpu)";
+
 impl CandlePerplexityModel {
     /// Load from LOCAL paths only (no network): a quantized Qwen2 `*.gguf` and
-    /// its Hugging Face `tokenizer.json`. CPU device.
+    /// its Hugging Face `tokenizer.json`. CPU device. Uses the default display
+    /// name; multi-tier callers (SLM-1 vs SLM-1-MINI) should use
+    /// [`CandlePerplexityModel::from_paths_named`] so the report can say WHICH
+    /// model verified.
     pub fn from_paths(model_gguf: &Path, tokenizer_json: &Path) -> Result<Self, String> {
+        Self::from_paths_named(model_gguf, tokenizer_json, DEFAULT_MODEL_NAME)
+    }
+
+    /// Like [`from_paths`](CandlePerplexityModel::from_paths) but with an
+    /// explicit display `name` — the tier identity that surfaces in the
+    /// AI-Check report's model line (e.g. the compact 1.5B vs the full 7B). The
+    /// name is the ONLY difference; loading is identical (same Qwen2 loader,
+    /// same shared tokenizer).
+    pub fn from_paths_named(
+        model_gguf: &Path,
+        tokenizer_json: &Path,
+        name: &str,
+    ) -> Result<Self, String> {
         let device = Device::Cpu;
 
         let mut file = std::fs::File::open(model_gguf)
@@ -122,7 +141,7 @@ impl CandlePerplexityModel {
             device,
             tokenizer,
             bos,
-            name: "candle-qwen2-gguf (cpu)".to_string(),
+            name: name.to_string(),
         })
     }
 }
@@ -320,6 +339,19 @@ mod tests {
         let r = CandlePerplexityModel::from_paths(
             Path::new("/nonexistent/model.gguf"),
             Path::new("/nonexistent/tokenizer.json"),
+        );
+        assert!(r.is_err());
+    }
+
+    /// The named ctor shares the loader with `from_paths` — a bad path must
+    /// still error cleanly (no panic). The name only surfaces after a
+    /// successful load, which unit tests don't do (no real GGUF).
+    #[test]
+    fn from_paths_named_missing_model_errors_cleanly() {
+        let r = CandlePerplexityModel::from_paths_named(
+            Path::new("/nonexistent/model.gguf"),
+            Path::new("/nonexistent/tokenizer.json"),
+            "Qwen2.5-1.5B (compact, on-device)",
         );
         assert!(r.is_err());
     }
