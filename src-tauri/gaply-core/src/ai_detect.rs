@@ -665,11 +665,20 @@ pub const HEURISTIC_ONLY_NOTE: &str = "Heuristic-only: flagged by the fast pre-p
 model-verified (analysis budget). A preliminary, lower-confidence signal — weigh accordingly; \
 never treat as proof.";
 
-/// Default deep-analysis budget: passages and tokens. At the measured 8GB
-/// CPU rate (~6 tok/s under load) ~2,000 tokens keeps Stage 2 in single-
-/// digit minutes. Both caps are parameters — these are defaults, not policy.
+/// Default deep-analysis budget: passages and tokens. Both caps are parameters
+/// — these are defaults, not policy.
+///
+/// Budget math (empirical, 8GB M1 Air): real Stage-2 throughput under memory
+/// pressure is ~2–2.8 tok/s (candle 7B-Q3 on unoptimized aarch64 CPU while the
+/// system swap-thrashes) — NOT the ~6 tok/s once assumed. `tokens_spent` starts
+/// at the REFERENCE_SAMPLE_TOKENS (300) baseline, so the candidate budget is
+/// (MAX_DEEP_TOKENS − 300). At 700 that leaves ~400 candidate tokens: total ~700
+/// tokens ≈ ~4–6 min worst-case (vs the old 2,000 → 12–20 min measured). Beyond
+/// the budget, passages stay heuristic-only (honestly labelled; the coverage
+/// note prints the exact budget). Empirical plan: revisit DOWN to 500 only if
+/// real runs on 8GB consistently exceed ~6 min.
 pub const DEFAULT_MAX_DEEP_PASSAGES: usize = 16;
-pub const DEFAULT_MAX_DEEP_TOKENS: usize = 2_000;
+pub const DEFAULT_MAX_DEEP_TOKENS: usize = 700;
 /// Reference-sample budget (the document's own baseline).
 const REFERENCE_SAMPLE_TOKENS: usize = 300;
 
