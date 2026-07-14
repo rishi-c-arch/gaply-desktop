@@ -154,6 +154,37 @@ pub fn full_text_by_citation_id(
     Ok(Some(first))
 }
 
+/// M2 Set 2C — the side-by-side READ resolution chain for a note: resolve the
+/// paper's stored `full_text` by the RELIABLE id first, then Set-1's honest title
+/// fallback, else `None`. This is where the citation↔plagiarism link (2A column +
+/// 2B capture) finally pays off in the live read.
+///
+/// Order (every branch guarded — NO branch returns a wrong/unverified paper):
+///   1. ID (reliable): `paper_id` present & non-empty → [`full_text_by_citation_id`]
+///      (exactly-one-guarded, 2A). `Some` → done.
+///   2. TITLE (Set-1's honest fallback): no id, OR the id read returned `None`
+///      (no link / backfill gap / old data) → [`full_text_by_title`]
+///      (exactly-one-guarded). Free-typed notes (`paper_id` empty/None) land here,
+///      exactly as before 2C.
+///   3. `None`: neither matched — honest empty-state.
+///
+/// Pure sequencing: it does NOT change either underlying read (both stay
+/// ambiguity-guarded), so the "never the wrong paper" floor holds on both paths.
+pub fn full_text_for_note(
+    db: &Database,
+    title: &str,
+    paper_id: Option<&str>,
+) -> Result<Option<String>, GaplyError> {
+    if let Some(pid) = paper_id {
+        if !pid.trim().is_empty() {
+            if let Some(text) = full_text_by_citation_id(db, pid)? {
+                return Ok(Some(text));
+            }
+        }
+    }
+    full_text_by_title(db, title)
+}
+
 /// Compare an upload against the WHOLE library using the deterministic
 /// exact-match core with each paper's PRECOMPUTED fingerprints. The upload is
 /// session-isolated — it is NEVER written to the library (adding is an explicit
@@ -320,6 +351,76 @@ mod tests {
         assert_eq!(full_text_by_citation_id(&db, "").unwrap(), None);
         // and the title path STILL reads it (Set-1 untouched)
         assert_eq!(full_text_by_title(&db, "No Anchor").unwrap().as_deref(), Some("orphan body"));
+    }
+
+    // --- M2 Set 2C: the id-first / title-fallback / None resolution chain ---
+
+    #[test]
+    fn resolve_id_match_wins_even_when_the_title_differs() {
+        // The reliable path: a note whose paper_id links to a plagiarism row (via
+        // citation_id) resolves by ID — even if the note's title ≠ the row's title.
+        let db = db();
+        let cfg = ExactConfig::default();
+        add_paper(&db, "Row Title (in library)", "the id-linked body", "/p.pdf", Some("cit-A"), &cfg).unwrap();
+
+        // note title deliberately DIFFERENT from the row title → id still resolves it
+        let got = full_text_for_note(&db, "A Totally Different Note Title", Some("cit-A")).unwrap();
+        assert_eq!(got.as_deref(), Some("the id-linked body"));
+    }
+
+    #[test]
+    fn resolve_falls_back_to_title_when_no_id_or_the_id_is_unlinked() {
+        let db = db();
+        let cfg = ExactConfig::default();
+        // a title-matching row that has NO citation link (added with None)
+        add_paper(&db, "Shared Title", "the title-matched body", "/t.pdf", None, &cfg).unwrap();
+
+        // (a) free-typed note: paper_id = "" → skip id read → Set-1 title fallback
+        assert_eq!(
+            full_text_for_note(&db, "Shared Title", Some("")).unwrap().as_deref(),
+            Some("the title-matched body")
+        );
+        // (b) no paper_id at all → title fallback
+        assert_eq!(
+            full_text_for_note(&db, "Shared Title", None).unwrap().as_deref(),
+            Some("the title-matched body")
+        );
+        // (c) paper_id present but NOT linked to any row (backfill gap / old data)
+        //     → id read None → title fallback still finds it
+        assert_eq!(
+            full_text_for_note(&db, "Shared Title", Some("cit-UNLINKED")).unwrap().as_deref(),
+            Some("the title-matched body")
+        );
+    }
+
+    #[test]
+    fn resolve_returns_none_when_neither_id_nor_title_matches() {
+        let db = db();
+        let cfg = ExactConfig::default();
+        add_paper(&db, "Some Library Paper", "body", "/x.pdf", Some("cit-X"), &cfg).unwrap();
+
+        // wrong id AND wrong title → honest None, never a guess
+        assert_eq!(full_text_for_note(&db, "Unknown Note Title", Some("cit-NOPE")).unwrap(), None);
+    }
+
+    #[test]
+    fn resolve_never_returns_the_wrong_paper_on_either_path_the_floor() {
+        // THE FLOOR (M2), proven on BOTH paths of the chain:
+        let db = db();
+        let cfg = ExactConfig::default();
+
+        // id-path collision: two rows share citation_id 'cit-dup' (different titles,
+        // NEITHER matching the note title) → id read guarded → None → title read
+        // finds nothing → overall None (the id collision NEVER leaks a paper).
+        add_paper(&db, "Dup A", "A body", "/a.pdf", Some("cit-dup"), &cfg).unwrap();
+        add_paper(&db, "Dup B", "B body", "/b.pdf", Some("cit-dup"), &cfg).unwrap();
+        assert_eq!(full_text_for_note(&db, "A Note Title Matching Neither", Some("cit-dup")).unwrap(), None);
+
+        // title-path collision (Set-1 floor): two rows share a normalized title,
+        // note has no id → title read guarded → None (never the last-added one).
+        add_paper(&db, "Twin", "first twin", "/1.pdf", None, &cfg).unwrap();
+        add_paper(&db, "twin", "second twin", "/2.pdf", None, &cfg).unwrap();
+        assert_eq!(full_text_for_note(&db, "Twin", None).unwrap(), None);
     }
 
     #[test]

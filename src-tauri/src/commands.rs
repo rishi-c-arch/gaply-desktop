@@ -708,16 +708,20 @@ pub fn note_delete(state: State<'_, AppState>, id: String) -> Result<(), GaplyEr
 }
 
 /// Read-only: the stored full_text of a paper in the plagiarism "my papers"
-/// library, matched by title — for Note Creator's OPTIONAL side-by-side reading.
-/// Thin delegation to the additive read accessor; local, deterministic, no
-/// network. None → no full text (the editor shows notes alone).
+/// library — for Note Creator's OPTIONAL side-by-side reading. Thin delegation to
+/// the M2 Set 2C resolution chain: RELIABLE id match (via the note's `paper_id` →
+/// citation_id) first, then Set-1's honest title fallback, else None. Both
+/// underlying reads are exactly-one-guarded — never the wrong paper. `paper_id`
+/// empty/None (free-typed notes) uses the title fallback exactly as before.
+/// Local, deterministic, no network. None → no full text (editor shows notes alone).
 #[tauri::command]
 #[tracing::instrument(skip(state))]
 pub fn note_paper_fulltext(
     state: State<'_, AppState>,
     title: String,
+    paper_id: Option<String>,
 ) -> Result<Option<String>, GaplyError> {
-    gaply_core::plagiarism_library::full_text_by_title(&state.db, &title)
+    gaply_core::plagiarism_library::full_text_for_note(&state.db, &title, paper_id.as_deref())
 }
 
 /// Research Gap Finder (Set 2): build the session's paper corpus — N uploaded

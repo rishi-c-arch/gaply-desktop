@@ -33,21 +33,31 @@ export class TauriPaperSource implements PaperSource {
   async listPapers(): Promise<PaperOption[]> {
     const refs: StoredReference[] = await this.citations.list().catch(() => []);
     const lib = await this.papers.libraryList().catch(() => []);
-    // M2 Set 1: the badge only promises when there's EXACTLY ONE normalized
-    // (trim + lowercase) match — mirroring the backend's exactly-one read. It must
-    // NOT light up on a title collision (the backend returns None for those, so a
-    // promise would be false) nor rely on case-sensitivity. Count, don't just
-    // test membership.
+    // The badge must promise EXACTLY when the backend read would return text (M2
+    // Set 2C's chain): id match first, else title fallback — both exactly-one-
+    // guarded, so a collision NEVER promises (backend returns None there).
+    //   · idCount === 1  → the id path yields text          → promise
+    //   · idCount ≠ 1 (0 or 2+) → backend falls to title    → promise iff
+    //       titleCount === 1  (Set-1's normalized single match)
+    // Count, don't just test membership — mirrors the guarded reads exactly.
     const norm = (s: string) => s.trim().toLowerCase();
-    const counts = new Map<string, number>();
-    for (const p of lib) counts.set(norm(p.title), (counts.get(norm(p.title)) ?? 0) + 1);
-    return refs.map((r) => ({
-      id: r.id,
-      title: r.title,
-      authors: r.authors,
-      year: r.year,
-      hasFullText: counts.get(norm(r.title)) === 1,
-    }));
+    const titleCounts = new Map<string, number>();
+    const idCounts = new Map<string, number>();
+    for (const p of lib) {
+      titleCounts.set(norm(p.title), (titleCounts.get(norm(p.title)) ?? 0) + 1);
+      if (p.citation_id) idCounts.set(p.citation_id, (idCounts.get(p.citation_id) ?? 0) + 1);
+    }
+    return refs.map((r) => {
+      const idCount = idCounts.get(r.id) ?? 0;
+      const titleCount = titleCounts.get(norm(r.title)) ?? 0;
+      return {
+        id: r.id,
+        title: r.title,
+        authors: r.authors,
+        year: r.year,
+        hasFullText: idCount === 1 ? true : titleCount === 1,
+      };
+    });
   }
 }
 

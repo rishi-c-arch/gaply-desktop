@@ -111,3 +111,26 @@ describe('NotesBridge (mock) — CRUD round-trip, both note types', () => {
     expect(second.updated_at).toBeGreaterThan(first.updated_at);
   });
 });
+
+describe('paperFullText — M2 Set 2C id-first / title-fallback / None chain', () => {
+  it('resolves by the RELIABLE id first (even when the title differs)', async () => {
+    // seed the id key AND a different title key with different text → id wins
+    const b = makeMockNotesBridge([], { 'cite-watson': 'BODY VIA ID', 'Some Other Title': 'body via title' });
+    expect(await b.paperFullText('Some Other Title', 'cite-watson')).toBe('BODY VIA ID');
+  });
+
+  it('falls back to the title when there is no id, an empty id, or an unlinked id', async () => {
+    const b = makeMockNotesBridge([], { 'Molecular Structure of Nucleic Acids': 'body via title' });
+    // no id
+    expect(await b.paperFullText('Molecular Structure of Nucleic Acids')).toBe('body via title');
+    // empty id (free-typed note) → title path, exactly as before 2C
+    expect(await b.paperFullText('Molecular Structure of Nucleic Acids', '')).toBe('body via title');
+    // an id that isn't seeded (backfill gap / old data) → title fallback
+    expect(await b.paperFullText('Molecular Structure of Nucleic Acids', 'cite-unlinked')).toBe('body via title');
+  });
+
+  it('returns null when neither the id nor the title matches (honest empty-state)', async () => {
+    const b = makeMockNotesBridge([], { 'A Known Title': 'x' });
+    expect(await b.paperFullText('Unknown Title', 'cite-nope')).toBeNull();
+  });
+});

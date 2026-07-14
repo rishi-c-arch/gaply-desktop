@@ -175,6 +175,45 @@ describe('TauriPaperSource — badge promises only an UNAMBIGUOUS single match (
     expect(by('c2').hasFullText).toBe(false); // collision → no false promise (backend returns None)
     expect(by('c3').hasFullText).toBe(false); // no match
   });
+
+  it('M2 Set 2C — the badge PREFERS a reliable id (citation_id) match, mirroring the backend chain', async () => {
+    const citations = {
+      list: async () => [
+        { id: 'c1', title: 'Wholly Different Title', authors: '', year: 2021 }, // links by id, NOT title
+        { id: 'c2', title: 'Shared Twin Title', authors: '', year: 2020 }, // title collides, but has an id link
+        { id: 'c3', title: 'Only By Title', authors: '', year: 2019 }, // no id link → title fallback
+      ],
+    } as any;
+    const papers = {
+      libraryList: async () => [
+        // c1: id-linked though the titles differ → id path promises
+        { id: 1, title: 'A Library Title', added_at: 0, citation_id: 'c1' },
+        // c2: title collides (2 rows) BUT exactly one carries the id → id path still promises
+        { id: 2, title: 'Shared Twin Title', added_at: 0, citation_id: 'c2' },
+        { id: 3, title: 'Shared Twin Title', added_at: 1 },
+        // c3: no id link, exactly one title match → Set-1 title fallback promises
+        { id: 4, title: 'Only By Title', added_at: 0 },
+      ],
+    } as any;
+    const opts = await new TauriPaperSource(citations, papers).listPapers();
+    const by = (id: string) => opts.find((o) => o.id === id)!;
+    expect(by('c1').hasFullText).toBe(true); // reliable id match despite differing titles
+    expect(by('c2').hasFullText).toBe(true); // id path wins over the title collision
+    expect(by('c3').hasFullText).toBe(true); // no id → honest single title match
+  });
+
+  it('M2 Set 2C — an AMBIGUOUS id (two rows same citation_id) does NOT promise (floor holds on the id path)', async () => {
+    const citations = { list: async () => [{ id: 'c1', title: 'No Title Match Here', authors: '', year: 2021 }] } as any;
+    const papers = {
+      libraryList: async () => [
+        { id: 1, title: 'Row One', added_at: 0, citation_id: 'c1' },
+        { id: 2, title: 'Row Two', added_at: 1, citation_id: 'c1' }, // same id → 2 matches
+      ],
+    } as any;
+    const opts = await new TauriPaperSource(citations, papers).listPapers();
+    // id collision → backend returns None; no title match either → no false promise
+    expect(opts.find((o) => o.id === 'c1')!.hasFullText).toBe(false);
+  });
 });
 
 /* ----------------------------- note list ------------------------------ */

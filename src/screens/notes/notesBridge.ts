@@ -58,10 +58,11 @@ export interface NotesBridge {
   search(query: string, tag?: string): Promise<Note[]>;
   setTags(id: string, tags: string[]): Promise<Note>;
   remove(id: string): Promise<void>;
-  /** Read-only: the stored full_text of a paper (matched by title) in the
-   *  plagiarism "my papers" library, for optional side-by-side reading. Null =
-   *  no full text available (editor shows notes alone). */
-  paperFullText(title: string): Promise<string | null>;
+  /** Read-only: the stored full_text of a paper in the plagiarism "my papers"
+   *  library, for optional side-by-side reading. M2 Set 2C: resolves by the
+   *  RELIABLE `paperId` (→ citation_id) first, then the title fallback, else null.
+   *  Null = no full text available (editor shows notes alone). */
+  paperFullText(title: string, paperId?: string): Promise<string | null>;
 }
 
 /** Read a note's template fields back from `fields_json` (safe: bad JSON → {}). */
@@ -117,8 +118,8 @@ export class TauriNotesBridge implements NotesBridge {
   async remove(id: string) {
     await this.invoke<void>('note_delete', { id });
   }
-  async paperFullText(title: string) {
-    return (await this.invoke<string | null>('note_paper_fulltext', { title })) ?? null;
+  async paperFullText(title: string, paperId?: string) {
+    return (await this.invoke<string | null>('note_paper_fulltext', { title, paperId })) ?? null;
   }
 }
 
@@ -194,7 +195,11 @@ export function makeMockNotesBridge(
     async remove(id) {
       rows.delete(id);
     },
-    async paperFullText(title) {
+    async paperFullText(title, paperId) {
+      // Mirror the backend M2 Set 2C chain: id key first (reliable), then title
+      // key (Set-1 fallback), else null. Tests seed `fullTexts` under either an
+      // id or a title to exercise each branch.
+      if (paperId && fullTexts[paperId] != null) return fullTexts[paperId];
       return fullTexts[title] ?? null;
     },
   };

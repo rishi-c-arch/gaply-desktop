@@ -86,9 +86,15 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
     const title =
       editing?.kind === 'paper-new' ? editing.base.paper_title :
       editing?.kind === 'paper-edit' ? editing.note.paper_title : '';
-    if (!title) return;
+    // M2 Set 2C: thread the note's paper_id (→ citation_id) so the read resolves
+    // by the RELIABLE id first, then the title fallback. Free-typed notes
+    // (paper_id '' / null) fall through to the title path exactly as before.
+    const paperId =
+      editing?.kind === 'paper-new' ? editing.base.paper_id :
+      editing?.kind === 'paper-edit' ? editing.note.paper_id : null;
+    if (!title && !paperId) return;
     let alive = true;
-    bridge.paperFullText(title).then((t) => { if (alive) setPaperText(t); }).catch(() => {});
+    bridge.paperFullText(title, paperId ?? undefined).then((t) => { if (alive) setPaperText(t); }).catch(() => {});
     return () => { alive = false; };
   }, [editing, bridge]);
 
