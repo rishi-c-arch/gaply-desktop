@@ -28,10 +28,20 @@
 //! the Set-5 language downgrade) live in gaply-core.
 
 use gaply_core::ai_detect::{
-    self, ClassifiedAnalysis, HeuristicModel, DEFAULT_MAX_CLASSIFIED_PASSAGES,
-    DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS,
+    self, ClassifiedAnalysis, HeuristicModel, COMPACT_MAX_DEEP_TOKENS,
+    DEFAULT_MAX_CLASSIFIED_PASSAGES, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS,
 };
 use gaply_core::extract::ExtractionResult;
+
+/// Per-tier deep-token budget: the compact 1.5B is ~15x faster than the 7B on
+/// the same hardware, so it gets the larger budget and still finishes fast;
+/// every other case (the slow 7B, or no model) uses the tight default.
+fn deep_budget_tokens(kind: ai_detect::DeepKind) -> usize {
+    match kind {
+        ai_detect::DeepKind::Compact => COMPACT_MAX_DEEP_TOKENS,
+        _ => DEFAULT_MAX_DEEP_TOKENS,
+    }
+}
 
 /// Run the full AI Check over an extraction. Never fails: an absent SLM-1
 /// means honest heuristic-only labels — degraded tiers are data in the
@@ -75,7 +85,7 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
             deep.as_deref(),
             extraction,
             DEFAULT_MAX_DEEP_PASSAGES,
-            DEFAULT_MAX_DEEP_TOKENS,
+            deep_budget_tokens(deep_kind),
             deep_kind,
         )
     }; // ← the deep model is dropped HERE
@@ -164,6 +174,16 @@ mod tests {
                 assert!(!p.tiered.passage.uncertainty.is_empty());
             }
         }
+    }
+
+    /// Per-tier budgets: the compact tier gets 1500 tokens, everything else 700.
+    #[test]
+    fn per_tier_deep_budget_is_1500_for_compact_700_otherwise() {
+        use gaply_core::ai_detect::DeepKind;
+        assert_eq!(deep_budget_tokens(DeepKind::Compact), 1500);
+        assert_eq!(deep_budget_tokens(DeepKind::Full), 700);
+        assert_eq!(deep_budget_tokens(DeepKind::GatedLowRam), 700);
+        assert_eq!(deep_budget_tokens(DeepKind::Absent), 700);
     }
 
     /// Non-English input downgrades the whole report, un-strippably.

@@ -708,6 +708,12 @@ heuristic-only preliminary signals.";
 /// real runs on 8GB consistently exceed ~6 min.
 pub const DEFAULT_MAX_DEEP_PASSAGES: usize = 16;
 pub const DEFAULT_MAX_DEEP_TOKENS: usize = 700;
+/// Per-tier token budget for the COMPACT (1.5B) verifier. The mini measured
+/// ~38 tok/s on the same 8GB M1 Air (vs the 7B's ~2–2.8 tok/s under pressure),
+/// so it can afford a larger budget and still finish fast: ~1500 tokens ≈ ~40s
+/// worst-case. Paired with the early-stop, real runs concentrate well under
+/// this. The 7B keeps DEFAULT_MAX_DEEP_TOKENS (700) — it is the slow tier.
+pub const COMPACT_MAX_DEEP_TOKENS: usize = 1500;
 /// Reference-sample budget (the document's own baseline).
 const REFERENCE_SAMPLE_TOKENS: usize = 300;
 
@@ -843,9 +849,16 @@ pub fn analyze_tiered(
 
         for p in ordered {
             let p_tokens: usize = p.sentences.iter().map(|s| s.tokens).sum();
+            // EARLY-STOP: candidates are sorted strongest-first, so the first
+            // Weak-strength passage means every remaining one is Weak too (a
+            // single flagged sentence — exactly where detection is least
+            // reliable). Don't spend deep tokens on clearly-weak signals; they
+            // stay honestly heuristic-only. This concentrates the budget on the
+            // genuinely ambiguous Strong/Moderate passages.
             let within_budget = deep_done < max_deep_passages
                 && tokens_spent + p_tokens <= max_deep_tokens
-                && have_reference;
+                && have_reference
+                && p.strength != PassageStrength::Weak;
             if !within_budget {
                 passages.push(TieredPassage {
                     passage: p,
@@ -1960,6 +1973,53 @@ mod tiered_tests {
         for p in full.passages.iter().filter(|p| p.depth == AnalysisDepth::DeepVerified) {
             assert_eq!(p.depth_note, DEEP_VERIFIED_NOTE);
         }
+    }
+
+    #[test]
+    fn early_stop_leaves_weak_candidates_heuristic_only_even_with_budget() {
+        // A non-Weak run (2 AI sentences) then a Weak run (1 AI sentence),
+        // separated by human prose. The budget is GENEROUS (100 passages /
+        // 100k tokens) so ONLY the early-stop can leave the Weak candidate
+        // unverified.
+        let ex = doc(&[AI_MARKED, AI_MARKED, HUMAN_SENT, AI_MARKED, HUMAN_SENT]);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 100, 100_000, DeepKind::Full);
+
+        // Sanity: the fixture really has one Weak and at least one non-Weak.
+        let weak: Vec<_> = out
+            .passages
+            .iter()
+            .filter(|p| p.passage.strength == PassageStrength::Weak)
+            .collect();
+        assert_eq!(weak.len(), 1, "fixture: exactly one Weak candidate");
+        assert!(
+            out.passages.iter().any(|p| p.passage.strength != PassageStrength::Weak),
+            "fixture: at least one non-Weak candidate"
+        );
+
+        // The boundary: ONLY the non-Weak candidate was deep-scored (verified or
+        // cleared) — the Weak one was skipped despite ample budget.
+        assert_eq!(
+            out.deep_verified + out.cleared_by_deep,
+            1,
+            "early-stop: the Weak single-sentence candidate is NOT deep-scored"
+        );
+
+        // Labeling unchanged by construction: the skipped Weak stays honestly
+        // heuristic-only with the existing note.
+        assert_eq!(weak[0].depth, AnalysisDepth::HeuristicOnly);
+        assert_eq!(weak[0].depth_note, HEURISTIC_ONLY_NOTE);
+    }
+
+    #[test]
+    fn compact_budget_const_is_larger_than_the_7b_budget() {
+        // Per-tier budgets: the compact 1.5B affords more; the 7B stays tight.
+        assert_eq!(COMPACT_MAX_DEEP_TOKENS, 1500);
+        assert_eq!(DEFAULT_MAX_DEEP_TOKENS, 700);
+        assert!(COMPACT_MAX_DEEP_TOKENS > DEFAULT_MAX_DEEP_TOKENS);
+        // The larger budget rides through to the coverage note verbatim.
+        let ex = doc(&[AI_MARKED, AI_MARKED, HUMAN_SENT]);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, COMPACT_MAX_DEEP_TOKENS, DeepKind::Compact);
+        assert!(out.coverage_note.contains("1500 tokens"), "note: {}", out.coverage_note);
     }
 
     #[test]
