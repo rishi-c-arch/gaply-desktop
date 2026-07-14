@@ -31,7 +31,7 @@
         "font-src": "'self' data:",
         "media-src": "'self' blob:",
         "worker-src": "'self' blob:",
-        "connect-src": "ipc: http://ipc.localhost 'self' https://gaply-backend-production.up.railway.app https://gaply-backend-gaply.up.railway.app https://backend.gaply.in https://*.supabase.co wss://*.supabase.co",
+        "connect-src": "ipc: http://ipc.localhost 'self' https://*.supabase.co wss://*.supabase.co",
         "object-src": "'none'",
         "base-uri": "'self'",
         "form-action": "'self'",

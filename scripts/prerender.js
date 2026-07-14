@@ -59,8 +59,6 @@ function startStaticServer() {
       const u = req.url();
       const isApi =
         u.includes(':8080') ||
-        u.includes('gaply-backend') ||
-        u.includes('backend.gaply') ||
         u.includes('/api/');
       if (isApi) {
         req.abort();
