@@ -3,7 +3,6 @@ import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { Routes, Route, Link, useLocation, useMatch } from 'react-router-dom';
 import './App.css';
 import './styles/variables.css';
-import './styles/dashboard-hud.css';
 import './hero-animations.css';
 import './hero-new.css';
 import './responsive.css';
