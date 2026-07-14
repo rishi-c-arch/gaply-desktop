@@ -34,11 +34,18 @@ pub struct LibraryPaper {
 
 /// Add a paper to the library: compute its Set-2 fingerprints ONCE and store
 /// them with the extracted text. Returns the new row id.
+///
+/// `citation_id` (M2 Set 2A) is the OPTIONAL soft anchor → `citation_library.id`
+/// — the reliable link that lets Note Creator's side-by-side resolve by a shared
+/// id instead of only by title. `None` stores NULL (no association), which is the
+/// default until Set 2B wires the add-time picker; existing callers pass `None`
+/// and behave exactly as before. NOT unique: two uploads may share one citation.
 pub fn add_paper(
     db: &Database,
     title: &str,
     full_text: &str,
     source_label: &str,
+    citation_id: Option<&str>,
     config: &ExactConfig,
 ) -> Result<i64, GaplyError> {
     let fingerprints = plagiarism_exact::fingerprint_document(full_text, config);
@@ -46,9 +53,9 @@ pub fn add_paper(
         .map_err(|e| GaplyError::Internal(format!("serialize fingerprints: {e}")))?;
     let conn = db.conn()?;
     conn.execute(
-        "INSERT INTO plagiarism_library (title, full_text, fingerprints, source_label, added_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![title, full_text, fps_json, source_label, now_epoch()],
+        "INSERT INTO plagiarism_library (title, full_text, fingerprints, source_label, citation_id, added_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![title, full_text, fps_json, source_label, citation_id, now_epoch()],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -112,6 +119,41 @@ pub fn full_text_by_title(db: &Database, title: &str) -> Result<Option<String>, 
     Ok(Some(first))
 }
 
+/// Read-only accessor: the stored `full_text` of a library paper matched by its
+/// `citation_id` soft anchor (M2 Set 2A), or `None`. The RELIABLE side-by-side
+/// path — an exact id match, not a fuzzy title match. ADDITIVE; nothing in the
+/// live read chain calls this yet (Set 2C wires the id-first resolution into
+/// `note_paper_fulltext`). Deterministic, local, no model, no network.
+///
+/// SAME "never the wrong paper" FLOOR as [`full_text_by_title`]: `citation_id`
+/// is NOT unique (a user may associate two uploads with one citation), so this
+/// is AMBIGUITY-GUARDED — text ONLY when EXACTLY ONE row carries the id. Zero →
+/// `None`; 2+ → `None` (never a guess). An empty id → `None` (NULL rows and
+/// free-typed notes with no anchor never match here — they use the title path).
+pub fn full_text_by_citation_id(
+    db: &Database,
+    citation_id: &str,
+) -> Result<Option<String>, GaplyError> {
+    let needle = citation_id.trim();
+    if needle.is_empty() {
+        return Ok(None);
+    }
+    let conn = db.conn()?;
+    let mut stmt =
+        conn.prepare("SELECT full_text FROM plagiarism_library WHERE citation_id = ?1")?;
+    let mut rows = stmt.query_map(params![needle], |r| r.get::<_, String>(0))?;
+    // Exactly-one guard, mirroring full_text_by_title: a first match with no
+    // second yields text; zero or 2+ → None, never a guess.
+    let first = match rows.next() {
+        Some(r) => r?,
+        None => return Ok(None),
+    };
+    if rows.next().is_some() {
+        return Ok(None);
+    }
+    Ok(Some(first))
+}
+
 /// Compare an upload against the WHOLE library using the deterministic
 /// exact-match core with each paper's PRECOMPUTED fingerprints. The upload is
 /// session-isolated — it is NEVER written to the library (adding is an explicit
@@ -160,7 +202,7 @@ mod tests {
     fn add_list_remove_round_trip() {
         let db = db();
         let cfg = ExactConfig::default();
-        let id = add_paper(&db, "Sleep & Memory (2021)", &format!("Intro. {RECYCLED} End."), "/papers/sleep.pdf", &cfg)
+        let id = add_paper(&db, "Sleep & Memory (2021)", &format!("Intro. {RECYCLED} End."), "/papers/sleep.pdf", None, &cfg)
             .unwrap();
 
         let papers = list_papers(&db).unwrap();
@@ -179,7 +221,7 @@ mod tests {
         let db = db();
         let cfg = ExactConfig::default();
         let body = format!("Intro. {RECYCLED} End.");
-        add_paper(&db, "Sleep & Memory (2021)", &body, "/papers/sleep.pdf", &cfg).unwrap();
+        add_paper(&db, "Sleep & Memory (2021)", &body, "/papers/sleep.pdf", None, &cfg).unwrap();
 
         // returns the stored full_text for a matching title
         assert_eq!(full_text_by_title(&db, "Sleep & Memory (2021)").unwrap().as_deref(), Some(body.as_str()));
@@ -200,8 +242,8 @@ mod tests {
         // full_text_by_title must return None, NEVER the most-recently-added one.
         let db = db();
         let cfg = ExactConfig::default();
-        add_paper(&db, "Common Title", "FIRST paper body", "/a.pdf", &cfg).unwrap();
-        add_paper(&db, "common title", "SECOND paper body (added later)", "/b.pdf", &cfg).unwrap();
+        add_paper(&db, "Common Title", "FIRST paper body", "/a.pdf", None, &cfg).unwrap();
+        add_paper(&db, "common title", "SECOND paper body (added later)", "/b.pdf", None, &cfg).unwrap();
 
         // ambiguous (2 case-insensitive matches) → None: we never guess which one
         assert_eq!(full_text_by_title(&db, "Common Title").unwrap(), None);
@@ -210,12 +252,82 @@ mod tests {
         assert_eq!(list_papers(&db).unwrap().len(), 2);
     }
 
+    // --- M2 Set 2A: the citation_id write-path + the id-keyed read ---
+
+    fn stored_citation_id(db: &Database, row_id: i64) -> Option<String> {
+        db.conn()
+            .unwrap()
+            .query_row(
+                "SELECT citation_id FROM plagiarism_library WHERE id = ?1",
+                params![row_id],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn add_paper_stores_citation_id_when_given_and_null_when_none() {
+        let db = db();
+        let cfg = ExactConfig::default();
+        // with an id → persisted verbatim
+        let linked = add_paper(&db, "Linked", "body one", "/one.pdf", Some("cit-uuid-1"), &cfg).unwrap();
+        assert_eq!(stored_citation_id(&db, linked).as_deref(), Some("cit-uuid-1"));
+        // without → NULL (the unchanged, default behavior existing callers keep)
+        let unlinked = add_paper(&db, "Unlinked", "body two", "/two.pdf", None, &cfg).unwrap();
+        assert_eq!(stored_citation_id(&db, unlinked), None);
+    }
+
+    #[test]
+    fn full_text_by_citation_id_reads_the_text_for_an_exact_single_match() {
+        let db = db();
+        let cfg = ExactConfig::default();
+        add_paper(&db, "Sleep & Memory", "the stored body", "/s.pdf", Some("cit-A"), &cfg).unwrap();
+
+        // exact id match → its full_text
+        assert_eq!(full_text_by_citation_id(&db, "cit-A").unwrap().as_deref(), Some("the stored body"));
+        // an unknown id → None (graceful)
+        assert_eq!(full_text_by_citation_id(&db, "cit-UNKNOWN").unwrap(), None);
+        // empty/whitespace id → None (NULL rows + free-typed notes never match here)
+        assert_eq!(full_text_by_citation_id(&db, "   ").unwrap(), None);
+        // read-only
+        assert_eq!(list_papers(&db).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn full_text_by_citation_id_never_returns_the_wrong_paper_when_an_id_is_shared() {
+        // THE FLOOR on the ID path (M2 Set 2A): citation_id is NOT unique — a user
+        // may associate two uploads with one citation. Two rows share the id →
+        // full_text_by_citation_id must return None, NEVER a guess.
+        let db = db();
+        let cfg = ExactConfig::default();
+        add_paper(&db, "Version one", "FIRST body", "/v1.pdf", Some("cit-shared"), &cfg).unwrap();
+        add_paper(&db, "Version two", "SECOND body", "/v2.pdf", Some("cit-shared"), &cfg).unwrap();
+
+        // ambiguous (2 matches) → None, mirroring the title-collision floor
+        assert_eq!(full_text_by_citation_id(&db, "cit-shared").unwrap(), None);
+        // both rows still present — read-only
+        assert_eq!(list_papers(&db).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_null_citation_id_row_never_matches_the_id_read() {
+        // A row added with None (NULL citation_id) must be invisible to the id
+        // read — it is only reachable via the title path (Set-1). Guards against
+        // an empty/NULL id ever colliding.
+        let db = db();
+        let cfg = ExactConfig::default();
+        add_paper(&db, "No Anchor", "orphan body", "/n.pdf", None, &cfg).unwrap();
+        assert_eq!(full_text_by_citation_id(&db, "").unwrap(), None);
+        // and the title path STILL reads it (Set-1 untouched)
+        assert_eq!(full_text_by_title(&db, "No Anchor").unwrap().as_deref(), Some("orphan body"));
+    }
+
     #[test]
     fn stored_fingerprints_are_persisted_and_reused_not_recomputed() {
         let db = db();
         let cfg = ExactConfig::default();
         let text = format!("Body. {RECYCLED} tail words to pad the paper out nicely.");
-        add_paper(&db, "Paper", &text, "", &cfg).unwrap();
+        add_paper(&db, "Paper", &text, "", None, &cfg).unwrap();
 
         // the stored fingerprints must equal a fresh computation (persisted
         // faithfully, so the compare path reuses them without recomputing).
@@ -234,7 +346,7 @@ mod tests {
         let db = db();
         let cfg = ExactConfig::default();
         let paper = format!("Their earlier work. {RECYCLED} plus the rest of their study text.");
-        add_paper(&db, "Prior study (2019)", &paper, "/lib/prior.pdf", &cfg).unwrap();
+        add_paper(&db, "Prior study (2019)", &paper, "/lib/prior.pdf", None, &cfg).unwrap();
 
         let upload = format!("My new manuscript introduction. {RECYCLED}");
         let report = compare_against_library(&db, &upload, &cfg).unwrap();
@@ -257,7 +369,7 @@ mod tests {
     fn the_upload_is_never_auto_added_to_the_library() {
         let db = db();
         let cfg = ExactConfig::default();
-        add_paper(&db, "Existing", &format!("{RECYCLED} filler tail."), "", &cfg).unwrap();
+        add_paper(&db, "Existing", &format!("{RECYCLED} filler tail."), "", None, &cfg).unwrap();
         let before = list_papers(&db).unwrap().len();
 
         let _ = compare_against_library(&db, &format!("Upload text. {RECYCLED}"), &cfg).unwrap();

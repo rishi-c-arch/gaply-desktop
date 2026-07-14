@@ -172,10 +172,21 @@ pub fn add_to_plagiarism_library(
     state: State<'_, AppState>,
     path: String,
     title: Option<String>,
+    citation_id: Option<String>,
 ) -> Result<i64, GaplyError> {
     let text = docparse::parse_path(std::path::Path::new(&path))?;
     let title = title.unwrap_or_else(|| title_from_path(&path));
-    plagiarism_library::add_paper(&state.db, &title, &text, &path, &ExactConfig::default())
+    // M2 Set 2A: citation_id is the OPTIONAL soft anchor → citation_library.id.
+    // Frontend callers that omit it (all of them until Set 2B) deserialize to
+    // None → stored NULL → unchanged behavior.
+    plagiarism_library::add_paper(
+        &state.db,
+        &title,
+        &text,
+        &path,
+        citation_id.as_deref(),
+        &ExactConfig::default(),
+    )
 }
 
 /// List the user's paper library (metadata only — never the stored text).

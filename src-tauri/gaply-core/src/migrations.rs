@@ -262,6 +262,31 @@ pub const MIGRATIONS: &[Migration] = &[
         ",
         down: "DROP TABLE notes;",
     },
+    Migration {
+        version: 10,
+        name: "plagiarism_library_citation_link",
+        // M2 Set 2A: the reliable link between the plagiarism "my papers" store
+        // and the citation library, so Note Creator's side-by-side can resolve by
+        // a shared id (exact) instead of only by title (ambiguous).
+        //
+        // ADDITIVE + NULLABLE: a nullable `citation_id TEXT` (soft anchor →
+        // citation_library.id, mirroring notes.paper_id — DELIBERATELY no FK, so
+        // deleting the citation never cascades into the user's paper store).
+        // Existing rows get citation_id = NULL (zero data loss); the read path
+        // treats NULL as "no id link" and falls back to the Set-1 title match.
+        // NOT unique — a user may associate two uploads with one citation, so the
+        // id read is exactly-one-guarded (see full_text_by_citation_id), never a
+        // guess. This is the FIRST ALTER migration (all prior are CREATE/DROP
+        // TABLE); the up/down is exercised by a dedicated test below.
+        up: "
+            ALTER TABLE plagiarism_library ADD COLUMN citation_id TEXT;
+            CREATE INDEX idx_plagiarism_library_citation ON plagiarism_library(citation_id);
+        ",
+        down: "
+            DROP INDEX idx_plagiarism_library_citation;
+            ALTER TABLE plagiarism_library DROP COLUMN citation_id;
+        ",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -404,6 +429,7 @@ mod tests {
         assert_eq!(
             reverted,
             vec![
+                "plagiarism_library_citation_link",
                 "notes",
                 "plagiarism_library",
                 "citation_library_local",
@@ -428,5 +454,84 @@ mod tests {
         let reapplied = migrate_up(&mut conn).unwrap();
         assert_eq!(reapplied.len(), MIGRATIONS.len());
         assert!(table_names(&conn).iter().any(|t| t == "embeddings"));
+    }
+
+    // --- M2 Set 2A: the first ALTER migration (v10) ---
+
+    fn column_names(conn: &Connection, table: &str) -> Vec<String> {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .unwrap();
+        stmt.query_map([], |r| r.get::<_, String>(1)) // col 1 = name
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
+    }
+
+    fn index_exists(conn: &Connection, name: &str) -> bool {
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            [name],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap()
+            > 0
+    }
+
+    #[test]
+    fn v10_adds_nullable_citation_id_column_and_index_additively() {
+        // Simulate an EXISTING db that predates v10: migrate up to 9, insert a
+        // plagiarism_library row, THEN apply v10 — the row must survive with
+        // citation_id = NULL (additive, no data loss).
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap(); // reaches latest, but we re-check post-state
+        // roll back the single v10 to stand at v9 with a pre-existing row
+        migrate_down(&mut conn, 9).unwrap();
+        assert_eq!(current_version(&conn).unwrap(), 9);
+        assert!(!column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
+        conn.execute(
+            "INSERT INTO plagiarism_library (title, full_text, fingerprints, source_label, added_at)
+             VALUES ('Old Paper', 'body', '[]', '/old.pdf', 1)",
+            [],
+        )
+        .unwrap();
+
+        // apply v10
+        let applied = migrate_up(&mut conn).unwrap();
+        assert_eq!(applied, vec!["plagiarism_library_citation_link"]);
+        assert_eq!(current_version(&conn).unwrap(), 10);
+
+        // the column + index now exist; the pre-existing row is intact, NULL id
+        assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
+        assert!(index_exists(&conn, "idx_plagiarism_library_citation"));
+        let (title, cid): (String, Option<String>) = conn
+            .query_row(
+                "SELECT title, citation_id FROM plagiarism_library WHERE title = 'Old Paper'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(title, "Old Paper");
+        assert_eq!(cid, None, "pre-existing rows backfill to NULL, not a guessed link");
+    }
+
+    #[test]
+    fn v10_down_removes_the_column_and_index_reversibly() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
+        assert!(index_exists(&conn, "idx_plagiarism_library_citation"));
+
+        // down one version: the column + index are gone, the table remains
+        let reverted = migrate_down(&mut conn, 9).unwrap();
+        assert_eq!(reverted, vec!["plagiarism_library_citation_link"]);
+        assert!(!column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
+        assert!(!index_exists(&conn, "idx_plagiarism_library_citation"));
+        assert!(table_names(&conn).iter().any(|t| t == "plagiarism_library"));
+
+        // and it re-applies cleanly (idempotent up after a partial down)
+        let reapplied = migrate_up(&mut conn).unwrap();
+        assert_eq!(reapplied, vec!["plagiarism_library_citation_link"]);
+        assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
     }
 }
