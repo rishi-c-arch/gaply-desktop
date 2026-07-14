@@ -191,51 +191,188 @@ pub fn total_physical_ram_bytes() -> Option<u64> {
 /// pre-pass only — honestly labelled (`analyze_tiered(deep: None)`).
 const DEEP_PASS_MIN_RAM_BYTES: u64 = 15 * 1024 * 1024 * 1024;
 
-/// Pure gate decision (unit-tested). Precedence: `disable` wins over `force`,
-/// which wins over the RAM check. `total = None` (non-macOS) → allow.
-pub fn deep_pass_allowed(total: Option<u64>, force: bool, disable: bool) -> bool {
+/// Which deep-verifier tier AI Check runs for a given machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeepTier {
+    /// The full Qwen2.5-7B — only on ≥16GB machines (proven-fatal on 8GB) or via
+    /// the EXPLICIT `GAPLY_FORCE_DEEP=full` escape hatch.
+    Full7B,
+    /// The compact Qwen2.5-1.5B — the real-model verifier for <16GB machines.
+    Mini,
+    /// No deep model — the honest fast pre-pass only.
+    HeuristicOnly,
+}
+
+/// `GAPLY_FORCE_DEEP` override, parsed from the env value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForceTier {
+    /// `=1` — bypass the RAM gate to force a deep pass, tier chosen by presence,
+    /// but the low-RAM SAFETY INVARIANT still holds (never the 7B below 16GB).
+    Any,
+    /// `=mini` — force the compact tier (e.g. to test it on a high-RAM machine).
+    Mini,
+    /// `=full` — the ONLY way to run the 7B below 16GB (deliberate escape hatch).
+    Full,
+}
+
+/// Pure tier decision (unit-tested — see `deep_tier_gate_tests`). Precedence,
+/// highest first:
+///   1. `disable`                       → HeuristicOnly (wins over everything)
+///   2. `force=Full` & 7B present       → Full7B (the escape hatch, any RAM)
+///   3. `force=Mini` & mini present     → Mini
+///   4. `force=Any`                     → Mini if present, else Full7B ONLY when
+///                                        high-RAM, else HeuristicOnly
+///   5. high-RAM & 7B present           → Full7B
+///   6. mini present                    → Mini
+///   7. otherwise                       → HeuristicOnly
+///
+/// SAFETY INVARIANT: below 15 GiB, `Full7B` is UNREACHABLE except via rule 2
+/// (`force=Full`). `high_ram` is `true` when `total >= 15 GiB` OR `total = None`
+/// (non-macOS, where the 7B was never the fatal case).
+pub fn deep_tier(
+    total: Option<u64>,
+    force: Option<ForceTier>,
+    disable: bool,
+    full_present: bool,
+    mini_present: bool,
+) -> DeepTier {
     if disable {
-        return false;
+        return DeepTier::HeuristicOnly;
     }
-    if force {
-        return true;
-    }
-    match total {
+    let high_ram = match total {
         Some(t) => t >= DEEP_PASS_MIN_RAM_BYTES,
         None => true,
+    };
+    match force {
+        // Explicit full override — the ONLY path to the 7B below 16GB.
+        Some(ForceTier::Full) if full_present => return DeepTier::Full7B,
+        Some(ForceTier::Mini) if mini_present => return DeepTier::Mini,
+        Some(ForceTier::Any) => {
+            // Bypass the RAM gate to enable a deep pass, but keep the invariant:
+            // the 7B is still only reachable on high-RAM.
+            if mini_present {
+                return DeepTier::Mini;
+            }
+            if full_present && high_ram {
+                return DeepTier::Full7B;
+            }
+            return DeepTier::HeuristicOnly;
+        }
+        // A forced tier whose model is absent falls through to the RAM gate.
+        _ => {}
+    }
+    if high_ram && full_present {
+        return DeepTier::Full7B;
+    }
+    if mini_present {
+        return DeepTier::Mini;
+    }
+    DeepTier::HeuristicOnly
+}
+
+/// True when SLM-1 (the full 7B) GGUF + tokenizer are both present on disk.
+pub fn slm1_present() -> bool {
+    slm1_paths().map(|(g, t)| g.exists() && t.exists()).unwrap_or(false)
+}
+
+/// True when SLM-1-MINI (the compact 1.5B) GGUF + tokenizer are both present.
+pub fn slm1_mini_present() -> bool {
+    slm1_mini_paths().map(|(g, t)| g.exists() && t.exists()).unwrap_or(false)
+}
+
+/// Parse `GAPLY_FORCE_DEEP`: `full` / `mini` / `1` → the matching override;
+/// anything else (unset/other) → `None`.
+fn force_deep_from_env() -> Option<ForceTier> {
+    match std::env::var("GAPLY_FORCE_DEEP").ok().as_deref() {
+        Some("full") => Some(ForceTier::Full),
+        Some("mini") => Some(ForceTier::Mini),
+        Some("1") => Some(ForceTier::Any),
+        _ => None,
     }
 }
 
-/// Env-driven gate used by the AI-Check flow: reads `GAPLY_DISABLE_DEEP` /
-/// `GAPLY_FORCE_DEEP` ("1" = set; disable wins if both) and the machine's total
-/// RAM. Returns whether the SLM-1 deep pass may run.
-pub fn deep_pass_allowed_from_env() -> bool {
-    let is_set = |k: &str| std::env::var(k).ok().as_deref() == Some("1");
-    deep_pass_allowed(
+/// `GAPLY_DISABLE_DEEP=1` → disable (wins over any force).
+fn disable_deep_from_env() -> bool {
+    std::env::var("GAPLY_DISABLE_DEEP").ok().as_deref() == Some("1")
+}
+
+/// Env + machine-driven tier decision used by the AI-Check flow: reads the total
+/// RAM, the `GAPLY_FORCE_DEEP` / `GAPLY_DISABLE_DEEP` overrides, and which model
+/// files are present, then applies [`deep_tier`].
+pub fn deep_tier_from_env() -> DeepTier {
+    deep_tier(
         total_physical_ram_bytes(),
-        is_set("GAPLY_FORCE_DEEP"),
-        is_set("GAPLY_DISABLE_DEEP"),
+        force_deep_from_env(),
+        disable_deep_from_env(),
+        slm1_present(),
+        slm1_mini_present(),
     )
 }
 
 #[cfg(test)]
-mod ram_gate_tests {
-    use super::deep_pass_allowed;
+mod deep_tier_gate_tests {
+    use super::{deep_tier, DeepTier, ForceTier};
     const GB: u64 = 1024 * 1024 * 1024;
+    // Common machine shapes: (total, force, disable, full_present, mini_present).
+    const NF: Option<ForceTier> = None;
 
     #[test]
-    fn deep_pass_gate_decision_table() {
-        // 8GB machine → OFF (below the 15 GiB threshold); 16GB → ON
-        assert!(!deep_pass_allowed(Some(8 * GB), false, false), "8GB gated off");
-        assert!(deep_pass_allowed(Some(16 * GB), false, false), "16GB allowed");
-        // non-macOS (None) → allow (current behaviour)
-        assert!(deep_pass_allowed(None, false, false), "non-macOS allowed");
-        // force → ON even at 8GB
-        assert!(deep_pass_allowed(Some(8 * GB), true, false), "force overrides low RAM");
-        // disable → OFF even at 32GB
-        assert!(!deep_pass_allowed(Some(32 * GB), false, true), "disable overrides high RAM");
-        // disable WINS over force
-        assert!(!deep_pass_allowed(Some(32 * GB), true, true), "disable wins over force");
+    fn deep_tier_decision_table() {
+        // --- normal RAM gate (no force, no disable) ---
+        // 16GB, both present → the full 7B
+        assert_eq!(deep_tier(Some(16 * GB), NF, false, true, true), DeepTier::Full7B);
+        // 8GB, both present → the compact mini (7B gated off)
+        assert_eq!(deep_tier(Some(8 * GB), NF, false, true, true), DeepTier::Mini);
+        // 8GB, only mini present → Mini
+        assert_eq!(deep_tier(Some(8 * GB), NF, false, false, true), DeepTier::Mini);
+        // 16GB, only mini present → Mini (no 7B to run)
+        assert_eq!(deep_tier(Some(16 * GB), NF, false, false, true), DeepTier::Mini);
+        // nothing present → HeuristicOnly
+        assert_eq!(deep_tier(Some(8 * GB), NF, false, false, false), DeepTier::HeuristicOnly);
+        // non-macOS (None) is treated as high-RAM → 7B if present
+        assert_eq!(deep_tier(None, NF, false, true, false), DeepTier::Full7B);
+
+        // --- THE SAFETY INVARIANT: below 15GiB the 7B is UNREACHABLE without ---
+        // --- an explicit GAPLY_FORCE_DEEP=full. This is the fatal-case guard.  ---
+        assert_eq!(
+            deep_tier(Some(8 * GB), NF, false, /*full*/ true, /*mini*/ false),
+            DeepTier::HeuristicOnly,
+            "8GB + only 7B present + no force → NEVER Full7B (proven-fatal); heuristic-only"
+        );
+
+        // --- disable wins over everything ---
+        assert_eq!(deep_tier(Some(32 * GB), NF, true, true, true), DeepTier::HeuristicOnly);
+        assert_eq!(
+            deep_tier(Some(32 * GB), Some(ForceTier::Full), true, true, true),
+            DeepTier::HeuristicOnly,
+            "disable beats force=full"
+        );
+
+        // --- force=full: the ONLY way to the 7B below 16GB ---
+        assert_eq!(
+            deep_tier(Some(8 * GB), Some(ForceTier::Full), false, true, false),
+            DeepTier::Full7B,
+            "explicit force=full runs the 7B even on 8GB"
+        );
+        // force=full but 7B absent → falls through to the RAM gate (mini here)
+        assert_eq!(deep_tier(Some(8 * GB), Some(ForceTier::Full), false, false, true), DeepTier::Mini);
+
+        // --- force=mini: force the compact tier even on a high-RAM machine ---
+        assert_eq!(deep_tier(Some(32 * GB), Some(ForceTier::Mini), false, true, true), DeepTier::Mini);
+        // force=mini but mini absent → RAM gate (7B on high-RAM)
+        assert_eq!(deep_tier(Some(32 * GB), Some(ForceTier::Mini), false, true, false), DeepTier::Full7B);
+
+        // --- force=Any (=1): bypass RAM gate, invariant-safe ---
+        // 8GB + mini present → Mini (forced deep, safe tier)
+        assert_eq!(deep_tier(Some(8 * GB), Some(ForceTier::Any), false, true, true), DeepTier::Mini);
+        // 8GB + only 7B present → still NOT the 7B (invariant) → HeuristicOnly
+        assert_eq!(
+            deep_tier(Some(8 * GB), Some(ForceTier::Any), false, true, false),
+            DeepTier::HeuristicOnly,
+            "force=1 never forces the 7B onto low-RAM"
+        );
+        // 32GB + only 7B present → Full7B (high-RAM, so allowed)
+        assert_eq!(deep_tier(Some(32 * GB), Some(ForceTier::Any), false, true, false), DeepTier::Full7B);
     }
 }
 
