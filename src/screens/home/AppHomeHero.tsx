@@ -12,9 +12,12 @@ import homeHeroClip from '../../assets/home-hero-clip.png';
 import '../../hero-animations.css';
 import '../../hero-new.css';
 import './homeHero.css';
+import { isFeatureEnabled } from '../../config/featureFlags';
 
 // The real app feature pages (the old dashboard tools), in the hero-sidebar
 // style. Each navigates to its actual in-app route.
+// The free Statistical Analysis Check is hidden behind the statsCheck flag
+// (default OFF); flags are build-time, so this filters once at module load.
 const HERO_OPTIONS = [
   { label: 'PublishReady ★', href: '/app/publishready' },
   { label: 'Plagiarism Check', href: '/app/check/plagiarism' },
@@ -30,7 +33,7 @@ const HERO_OPTIONS = [
   { label: 'Research Co-Author', href: '/app/community' },
   { label: 'My Manuscripts', href: '/app/coming-soon?feature=My%20Manuscripts' },
   { label: 'Settings', href: '/app/settings' },
-];
+].filter((opt) => opt.href !== '/app/check/stats' || isFeatureEnabled('statsCheck'));
 
 const AppHomeHero: React.FC = () => {
   const { theme, toggleTheme } = useTheme();

@@ -23,6 +23,7 @@ import {
 import { ACCEPT_HINT, estimatePdfPageCount, validateFile } from '../analysis/validateFile';
 import { basenameOf, pickManuscriptPath } from '../common/pickFile';
 import { isTauri } from '../../utils/isTauri';
+import { isFeatureEnabled } from '../../config/featureFlags';
 import ReportViewerPage from '../report/ReportViewerPage';
 import { PublishReadyReport } from '../report/reportTypes';
 import { useFeatureFlag } from '../../config/Feature';
@@ -42,6 +43,10 @@ const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({ bridge }) => 
   const b = useMemo(() => bridge ?? new TauriCheckBridge(), [bridge]);
   const navigate = useNavigate();
   const deepEnabled = useFeatureFlag('deepPlagiarism');
+  // Plagiarism Check itself is behind the plagiarismCheck flag (default OFF) —
+  // OFF shows an honest coming-soon (run disabled). The "my papers" library
+  // manager stays live regardless, because Notes' side-by-side reads from it.
+  const plagiarismEnabled = useFeatureFlag('plagiarismCheck');
 
   const [mode, setMode] = useState<Mode>('exact');
   const [exact, setExact] = useState<ExactPlagiarismReport | null>(null);
@@ -147,7 +152,9 @@ const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({ bridge }) => 
               { id: 'home', label: 'Home', icon: '◫', onSelect: () => navigate('/app') },
               { id: 'plag', label: 'Plagiarism Check', icon: '≡', onSelect: () => navigate('/app/check/plagiarism') },
               { id: 'ai', label: 'AI Check', icon: '◬', onSelect: () => navigate('/app/check/ai') },
-              { id: 'stats', label: 'Statistical Analysis Check', icon: 'Σ', onSelect: () => navigate('/app/check/stats') },
+              ...(isFeatureEnabled('statsCheck')
+                ? [{ id: 'stats', label: 'Statistical Analysis Check', icon: 'Σ', onSelect: () => navigate('/app/check/stats') }]
+                : []),
             ]}
             activeId="plag"
             brand={<GaplyGlobe scale="mark" />}
@@ -179,10 +186,22 @@ const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({ bridge }) => 
               </Button>
             </div>
 
-            {/* the "my papers" library — only relevant to the exact lane */}
+            {/* the "my papers" library — only relevant to the exact lane. KEPT
+                live even when the check is coming-soon: Notes' side-by-side reads
+                from it (full_text_for_note). */}
             {mode === 'exact' && <PlagiarismLibraryManager bridge={b} />}
 
-            {!report ? (
+            {!plagiarismEnabled ? (
+              <Card title="Plagiarism Check" data-testid="plag-coming-soon">
+                <p style={{ margin: '0 0 8px', color: 'var(--g-text-2)', fontSize: 14 }}>
+                  <Badge status="neutral">coming soon</Badge>
+                </p>
+                <p style={{ margin: 0, color: 'var(--g-text-3)', fontSize: 13 }} data-testid="plag-coming-soon-note">
+                  Plagiarism checking is coming soon. You can still curate your paper library above —
+                  the documents you add there power Note Creator&apos;s side-by-side reading.
+                </p>
+              </Card>
+            ) : !report ? (
               <>
                 <Card title="Check a document">
                   <p style={{ margin: '0 0 12px', color: 'var(--g-text-3)', fontSize: 13 }}>

@@ -22,26 +22,29 @@ const BASENAME = 'FINAL CH 4 rewritten (1).docx';
 const openMock = vi.fn(async () => ABS);
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openMock }));
 
+// Free-check flags ON so the plagiarism page is runnable (the path-acquisition
+// contract is orthogonal to the feature-hide flags).
+vi.mock('../../config/Feature', () => ({
+  useFeatureFlag: (n: string) => n === 'plagiarismCheck',
+  Feature: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
 }));
 
 import AiCheckPage from './AiCheckPage';
 import PlagiarismCheckPage from './PlagiarismCheckPage';
-import StatsCheckPage from './StatsCheckPage';
 import { GaplySessionProvider } from '../session/SessionProvider';
 import type { AuthService } from '../../services/supabase';
 import { makeMockCheckBridge } from './checkBridge';
 import { AICHECK_FIXTURE } from './aicheckFixture';
 import { PLAG_EXACT_FIXTURE } from './plagiarismExactFixture';
-import type { StatsValidityReport } from './agentTypes';
 
 afterEach(() => {
   cleanup();
   openMock.mockClear();
 });
-
-const STATS_OK: StatsValidityReport = { passed: true, checks: [], flags: [] };
 
 function auth(): AuthService {
   return {
@@ -92,17 +95,9 @@ describe('M6 file-path fix — the Tauri dialog supplies an ABSOLUTE path to the
     expect(calls.some(([, p]) => p === BASENAME)).toBe(false);
   });
 
-  it('Statistical Validation (via CheckScreen): pick → dialog → validate_manuscript gets the absolute path', async () => {
-    const calls: Array<[string, string]> = [];
-    const bridge = makeMockCheckBridge({ validation: STATS_OK, onCall: (c, p) => calls.push([c, p]) });
-    renderScreen(<StatsCheckPage bridge={bridge} />);
-
-    await pickViaDialog();
-    fireEvent.click(screen.getByTestId('run-check'));
-
-    await waitFor(() => expect(calls.some(([c, p]) => c === 'validate_manuscript' && p === ABS)).toBe(true));
-    expect(calls.some(([, p]) => p === BASENAME)).toBe(false);
-  });
+  // (The Statistical Validation contract case was removed with the free Stats
+  //  Check — hidden behind the statsCheck flag in Set 1. AiCheck + Plagiarism
+  //  keep the absolute-path guard.)
 
   it('the dialog is asked for the right extensions (single-file, no directory)', async () => {
     renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE })} />);

@@ -35,6 +35,7 @@ import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { GtagRouteListener } from './analytics/GtagRouteListener';
 import { OfflineHintBanner } from './components/OfflineHintBanner';
 import { isTauri } from './utils/isTauri';
+import { isFeatureEnabled } from './config/featureFlags';
 
 const CitationGeneratorPage = React.lazy(() => import('./features/citation-generator/CitationGeneratorPage'));
 const ScopusLowApcGuidePage = React.lazy(() => import('./components/seo-guides/ScopusLowApcGuidePage'));
@@ -644,7 +645,12 @@ const AppContent: React.FC = () => {
           <Route path="/app/report" element={<Suspense fallback={null}><GaplyReportRoute /></Suspense>} />
           <Route path="/app/check/plagiarism" element={<Suspense fallback={null}><GaplyPlagiarismRoute /></Suspense>} />
           <Route path="/app/check/ai" element={<Suspense fallback={null}><GaplyAiCheckRoute /></Suspense>} />
-          <Route path="/app/check/stats" element={<Suspense fallback={null}><GaplyStatsCheckRoute /></Suspense>} />
+          {/* Free Statistical Analysis Check — hidden behind the statsCheck flag
+              (default OFF). The page + backend stay intact (the paid Verifier
+              shares the validator); flipping the flag restores it. */}
+          {isFeatureEnabled('statsCheck') && (
+            <Route path="/app/check/stats" element={<Suspense fallback={null}><GaplyStatsCheckRoute /></Suspense>} />
+          )}
           <Route path="/app/citations" element={<Suspense fallback={null}><GaplyCitationRoute /></Suspense>} />
           <Route path="/app/notes" element={<Suspense fallback={null}><GaplyNotesRoute /></Suspense>} />
           <Route path="/app/journal" element={<Suspense fallback={null}><GaplyJournalRoute /></Suspense>} />

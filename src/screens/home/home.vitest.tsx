@@ -71,10 +71,9 @@ describe('the home hero', () => {
     // Research Gap Finder (route existed, nav entry was missing) is now linked.
     const gf = screen.getByRole('link', { name: /Research Gap Finder/ });
     expect(gf.getAttribute('href')).toBe('/app/gapfinder');
-    // The FREE deterministic Statistical Analysis Check stays a distinct entry —
-    // the paid Verifier did not replace or absorb it.
-    const check = screen.getByRole('link', { name: 'Statistical Analysis Check' });
-    expect(check.getAttribute('href')).toBe('/app/check/stats');
+    // The FREE deterministic Statistical Analysis Check is HIDDEN behind the
+    // statsCheck flag (default OFF) — the paid Verifier above is unaffected.
+    expect(screen.queryByRole('link', { name: 'Statistical Analysis Check' })).toBeNull();
   });
 
   it('"Start Analysis" navigates into the upload flow', async () => {

@@ -25,6 +25,7 @@ import {
 import { ACCEPT_HINT, estimatePdfPageCount, validateFile } from '../analysis/validateFile';
 import { basenameOf, pickManuscriptPath } from '../common/pickFile';
 import { isTauri } from '../../utils/isTauri';
+import { isFeatureEnabled } from '../../config/featureFlags';
 import AiCheckReport from './AiCheckReport';
 import { CheckBridge, TauriCheckBridge } from './checkBridge';
 import { AiCheckResult } from './agentTypes';
@@ -100,7 +101,9 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
               { id: 'home', label: 'Home', icon: '◫', onSelect: () => navigate('/app') },
               { id: 'plag', label: 'Plagiarism Check', icon: '≡', onSelect: () => navigate('/app/check/plagiarism') },
               { id: 'ai', label: 'AI Check', icon: '◬', onSelect: () => navigate('/app/check/ai') },
-              { id: 'stats', label: 'Statistical Analysis Check', icon: 'Σ', onSelect: () => navigate('/app/check/stats') },
+              ...(isFeatureEnabled('statsCheck')
+                ? [{ id: 'stats', label: 'Statistical Analysis Check', icon: 'Σ', onSelect: () => navigate('/app/check/stats') }]
+                : []),
             ]}
             activeId=""
             brand={<GaplyGlobe scale="mark" />}

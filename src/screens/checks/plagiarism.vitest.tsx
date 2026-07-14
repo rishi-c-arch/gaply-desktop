@@ -33,6 +33,13 @@ function citationRef(id: string, title: string, authors = '', year: number | nul
   return { id, csl_json: '{}', doi: null, title, authors, year, tags: [], sync_status: 'local_only', created_at: 0, updated_at: 0 };
 }
 
+// Exercise the RUNNABLE plagiarism path: mock the free-check flags ON (Set 1
+// ships them OFF — see featureGates.vitest.tsx for the coming-soon/OFF behavior).
+vi.mock('../../config/Feature', () => ({
+  useFeatureFlag: (n: string) => n === 'plagiarismCheck',
+  Feature: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
 }));

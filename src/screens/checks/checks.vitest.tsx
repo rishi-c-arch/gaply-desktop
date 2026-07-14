@@ -23,6 +23,13 @@ import {
 } from './agentTypes';
 import { AICHECK_FIXTURE } from './aicheckFixture';
 
+// Exercise the RUNNABLE plagiarism path: mock the free-check flags ON (Set 1
+// ships them OFF — see featureGates.vitest.tsx for the coming-soon/OFF behavior).
+vi.mock('../../config/Feature', () => ({
+  useFeatureFlag: (n: string) => n === 'plagiarismCheck',
+  Feature: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
 }));
