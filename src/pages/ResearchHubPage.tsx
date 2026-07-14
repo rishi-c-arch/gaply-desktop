@@ -34,8 +34,8 @@ const ResearchHubPage: React.FC = () => {
           <Link className="rh-landing__cta" to="/">
             Back to home
           </Link>
-          <Link className="rh-landing__cta-secondary" to="/login">
-            Log in
+          <Link className="rh-landing__cta-secondary" to="/download">
+            Get the app
           </Link>
         </div>
       </div>

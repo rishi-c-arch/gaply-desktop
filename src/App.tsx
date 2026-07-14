@@ -16,37 +16,19 @@ import PremiumFeatures from './sections/PremiumFeatures';
 import JournalQuartile from './sections/JournalQuartile';
 import CoResearchAuthorFinder from './sections/CoResearchAuthorFinder';
 import PremiumFooter3D from './components/PremiumFooter3D';
-import EnhancedPremiumPage from './components/EnhancedPremiumPage';
-import Overview from './pages/Overview';
-import PackageSelection from './components/PackageSelection';
-import LoginPage from './components/LoginPage';
-import SignupPage from './components/SignupPage';
-import AcademicAIRemoverPage from './components/AcademicAIRemoverPage';
-import PaperSearchPage from './components/PaperSearchPage';
-import JournalMatchingPage from './components/JournalMatchingPage';
 import FeaturesPage from './components/FeaturesPage';
 import CareerPage from './components/CareerPage';
-import HireExpertPage from './components/HireExpertPage';
-import ExpertSearchResultsPage from './components/ExpertSearchResultsPage';
 import PricingSection from './components/PricingSection';
-import PremiumProCheckout from './components/PremiumProCheckout';
 import PrivacyPolicyPage from './components/PrivacyPolicyPage';
 import TermsOfServicePage from './components/TermsOfServicePage';
-import DocumentOrchestratorPage from './components/DocumentOrchestratorPage';
-import ManuscriptOrchestratorPage from './components/ManuscriptOrchestratorPage';
-import StatisticalResearchOrchestratorPage from './components/StatisticalResearchOrchestratorPage';
-import DataMaestroProPage from './components/DataMaestroProPage';
 import ContactPage from './components/ContactPage';
 import WatchDemoPage from './components/WatchDemoPage';
 import SupportPage from './components/SupportPage';
 import ResearchHubPage from './pages/ResearchHubPage';
-import ConferencesIndiaPage from './features/conferences-india/ConferencesIndiaPage';
 import DownloadsPage from './components/DownloadsPage';
 import DownloadPopUp from './components/DownloadPopUp';
 import BlogPage from './pages/BlogPage';
 import BlogPostPage from './pages/BlogPostPage';
-import { AuthProvider } from './contexts/AuthContext';
-import { ProtectedRoute } from './components/ProtectedRoute';
 import { GAPLY_GLOBAL_FAQ_MAIN_ENTITIES } from './seo/gaplyGlobalFaqMainEntity';
 import { pathnameUsesOwnFaqJsonLd } from './seo/guidePathsWithOwnFaqJsonLd';
 import { researchGuideKeywordsJoined } from './seo/researchGuideSeoPhrases';
@@ -223,15 +205,6 @@ const AppleHeader: React.FC<{ theme: 'light' | 'dark'; onToggleTheme: () => void
           >
             {isDark ? 'Light Mode' : 'Dark Mode'}
           </button>
-          <button
-            className="apple-header__cta"
-            onClick={() => {
-              window.location.href = '/hire-expert';
-            }}
-          >
-            <span>Hire an expert</span>
-            <div className="apple-header__cta-shine" aria-hidden="true" />
-          </button>
         </nav>
       </div>
     </header>
@@ -245,7 +218,6 @@ const HERO_OPTIONS = [
   { label: 'Pricing', href: '/pricing' },
   { label: 'Download', href: '/download' },
   { label: 'Careers', href: '/career' },
-  { label: 'Hire an expert', href: '/hire-expert' },
 ];
 
 // Apple-style Hero Section (Figma-inspired hero; no header on home)
@@ -356,7 +328,7 @@ const AppleHeroSection: React.FC = () => {
             <button
               className="hero-cta-primary"
               onClick={() => {
-                window.location.href = '/login';
+                window.location.href = '/download';
               }}
             >
               <span>Start Analysis</span>
@@ -440,11 +412,6 @@ const AppContent: React.FC = () => {
     location.pathname === '/onboarding' ||
     location.pathname.startsWith('/app') ||
     location.pathname.startsWith('/blog') ||
-    location.pathname === '/hire-expert' ||
-    location.pathname === '/search-results' ||
-    location.pathname === '/paper-search' ||
-    location.pathname === '/journal-matching' ||
-    location.pathname === '/conferences-india' ||
     location.pathname === '/research-hub';
 
   // Call the function to remove the floating orb when the component mounts
@@ -473,14 +440,6 @@ const AppContent: React.FC = () => {
     document.head.appendChild(script);
   }, [location.pathname]);
 
-  const handleAuthSuccess = (token: string, userData: any, redirect?: string) => {
-    // Only allow same-origin paths to prevent open redirect
-    const safePath = redirect && redirect.startsWith('/') && !redirect.startsWith('//') && !redirect.includes(':')
-      ? redirect
-      : '/packages';
-    window.location.href = safePath;
-  };
-
   return (
     <div className="App" data-home={isExactHome ? 'true' : undefined}>
       <GtagRouteListener />
@@ -507,88 +466,6 @@ const AppContent: React.FC = () => {
               <CoResearchAuthorFinder />
               <PremiumFooter3D />
             </>
-          } />
-          <Route path="/academic-ai-remover" element={
-            <>
-              <SEOHead 
-                title="AI Content Remover for Research Papers | Free AI Detector & Editor for PhD Thesis - Gaply"
-                description="Advanced AI content detection and removal tool for academic writing. Free AI detector and editor for PhD thesis, research papers, and dissertations. Bypass Turnitin, GPTZero, Crossplag with our AI paraphrase detector."
-                keywords="AI content remover for research papers, free AI detector and editor for PhD thesis, AI writing detection tool for academic writing, detect AI plagiarism in research paper, AI paraphrase detector academic, plagiarism checking service for thesis, best plagiarism checker for research papers, remove plagiarism from dissertation, academic text originality checker"
-              />
-              <AcademicAIRemoverPage />
-            </>
-          } />
-          <Route path="/paper-search" element={
-            <>
-              <SEOHead 
-                title="Research Paper Search Engine | Academic Paper Writing Assistance - Gaply"
-                description="Comprehensive research paper search engine for academic writing. Find relevant papers, get research paper evaluation help, academic paper writing assistance, and scientific writing support online."
-                keywords="research paper writing service, research paper evaluation help, academic paper writing assistance, scientific writing support online, research methodology help, literature review writing service, best site for research guidance, how to write a research proposal, funding proposal writing help"
-              />
-              <PaperSearchPage />
-            </>
-          } />
-          <Route path="/journal-matching" element={
-            <>
-              <SEOHead 
-                title="Journal Finder for Scopus | Elsevier Journal Suggestion Tool - Gaply"
-                description="Professional journal matching service for academic publishing. Journal finder for Scopus, Elsevier journal suggestion tool, SCI journal recommendation service. Find the perfect journal for your paper."
-                keywords="journal finder for Scopus, Elsevier journal suggestion tool, SCI journal recommendation service, find journal for my paper, journal submission assistance service, how to submit paper to journal, conference paper preparation help, conference presentation coaching, publish paper in IEEE journal"
-              />
-              <JournalMatchingPage />
-            </>
-          } />
-          <Route path="/document-orchestrator" element={
-            <>
-              <SEOHead 
-                title="Document Analysis Orchestrator | Gaply"
-                description="Run chunk-by-chunk manuscript analysis with strict JSON output and publication chance estimation."
-                keywords="document analysis orchestrator, publication chance estimator, journal guidelines compliance, academic AI analysis"
-              />
-              <DocumentOrchestratorPage />
-            </>
-          } />
-          <Route path="/final-orchestrator" element={
-            <>
-              <SEOHead 
-                title="Document Analysis Orchestrator | PublishReady - Gaply"
-                description="Run chunk-level analysis with strict JSON output and publication chance estimation. Uses gaply-orchestrator for full manuscript analysis."
-                keywords="document analysis orchestrator, publication chance, PublishReady, gaply-orchestrator, journal guidelines"
-              />
-              <DocumentOrchestratorPage />
-            </>
-          } />
-          <Route path="/manuscript-upload" element={
-            <>
-              <SEOHead 
-                title="Upload Manuscript | Final Analysis Suite - Gaply"
-                description="Upload manuscript files, add journal links, and generate a clean report with Gaply chat support."
-                keywords="final analysis suite, manuscript upload, journal submission assistant, gaply chat"
-              />
-              <ManuscriptOrchestratorPage />
-            </>
-          } />
-          <Route path="/statistical-research" element={
-            <>
-              <SEOHead 
-                title="Statistical Research Orchestrator | Gaply"
-                description="Advanced statistical analysis orchestrator for research. Upload datasets, get test recommendations, interpretations, and comprehensive HTML reports."
-                keywords="statistical analysis, research orchestrator, statistical tests, data analysis, research methodology"
-              />
-              <StatisticalResearchOrchestratorPage />
-            </>
-          } />
-          <Route path="/datamaestro-pro" element={
-            <ProtectedRoute>
-              <>
-                <SEOHead 
-                  title="DataMaestro Pro - AI Statistical Analysis | Gaply"
-                  description="AI-powered statistical analysis for academic research. Upload datasets, get smart test recommendations, publication-ready results with tables, charts, and downloadable reports."
-                  keywords="DataMaestro Pro, statistical analysis, AI research analysis, SPSS alternative, data analysis, academic research tool"
-                />
-                <DataMaestroProPage />
-              </>
-            </ProtectedRoute>
           } />
           <Route path="/features" element={
             <>
@@ -619,11 +496,6 @@ const AppContent: React.FC = () => {
               />
               <PricingSection />
             </>
-          } />
-          <Route path="/checkout/premium-pro" element={
-            <ProtectedRoute>
-              <PremiumProCheckout />
-            </ProtectedRoute>
           } />
           <Route path="/download" element={
             <>
@@ -663,16 +535,6 @@ const AppContent: React.FC = () => {
                 keywords="research collaboration, find co-author, PhD collaboration, researcher network, academic networking, ResearchHub, Gaply"
               />
               <ResearchHubPage />
-            </>
-          } />
-          <Route path="/conferences-india" element={
-            <>
-              <SEOHead
-                title="Research Conferences in India | All Disciplines - Gaply"
-                description="Upcoming and recent academic conferences in India across STEM, medicine, social sciences, humanities, law, and multidisciplinary science. Curated from official sites—verify every event."
-                keywords="research conferences India, academic conferences India, science congress India, humanities conferences India, medical conferences India, social science India, PhD events India, Gaply"
-              />
-              <ConferencesIndiaPage />
             </>
           } />
           <Route path="/citation-generator" element={
@@ -765,90 +627,6 @@ const AppContent: React.FC = () => {
               <CareerPage />
             </>
           } />
-                <Route path="/hire-expert" element={
-                  <>
-                    <SEOHead 
-                      title="Hire an Expert | Professional Academic Research Services - Gaply"
-                      description="Hire our team of academic research experts for personalized thesis writing, journal matching, AI detection, and research paper assistance. Get professional help for your PhD, Master's, or research projects."
-                      keywords="hire academic expert, thesis writing expert, research paper expert, PhD thesis help, dissertation expert, academic consultant, research specialist, thesis writing service, journal matching expert, AI detection expert"
-                    />
-                    <HireExpertPage />
-                  </>
-                } />
-                <Route path="/search-results" element={
-                  <>
-                    <SEOHead 
-                      title="Expert Search Results | Find Academic Research Experts - Gaply"
-                      description="Browse our comprehensive database of academic research experts. Find the perfect specialist for your thesis writing, journal matching, AI detection, and research paper assistance needs."
-                      keywords="expert search results, academic research experts, thesis writing experts, research paper experts, PhD thesis help, dissertation experts, academic consultants, research specialists"
-                    />
-                    <ExpertSearchResultsPage />
-                  </>
-                } />
-          <Route path="/login" element={
-            <>
-              <SEOHead 
-                title="Login to Gaply | Access Your Academic Research Platform"
-                description="Login to your Gaply account to access premium academic research features including thesis writing tools, AI detection, journal matching, and research paper assistance."
-                keywords="Gaply login, academic research platform login, thesis writing account, AI detection login, journal matching login, research paper assistance login"
-              />
-              <LoginPage onLoginSuccess={handleAuthSuccess} onSwitchToSignup={() => window.location.href = '/signup'} />
-            </>
-          } />
-          <Route path="/signup" element={
-            <>
-              <SEOHead 
-                title="Sign Up for Gaply | Create Your Academic Research Account"
-                description="Sign up for Gaply to access professional academic research tools including thesis writing assistance, AI content detection, journal matching, and research paper support."
-                keywords="Gaply signup, academic research platform signup, thesis writing account creation, AI detection signup, journal matching signup, research paper assistance signup"
-              />
-              <SignupPage onSignupSuccess={handleAuthSuccess} onSwitchToLogin={() => window.location.href = '/login'} />
-            </>
-          } />
-          <Route path="/premium" element={
-            <>
-              <SEOHead 
-                title="Premium Academic Research Services | Advanced Thesis Writing & AI Detection - Gaply"
-                description="Upgrade to premium academic research services with advanced thesis writing tools, enhanced AI content detection, priority journal matching, and expert research paper assistance."
-                keywords="premium academic research services, advanced thesis writing, enhanced AI detection, priority journal matching, expert research assistance, premium dissertation editing"
-              />
-              <EnhancedPremiumPage />
-            </>
-          } />
-          <Route path="/packages" element={
-            <>
-              <SEOHead 
-                title="Choose Your Academic Research Package | Thesis Writing Plans - Gaply"
-                description="Select the perfect academic research package for your needs. Choose from thesis writing plans, AI detection packages, journal matching services, and research paper assistance options."
-                keywords="academic research packages, thesis writing plans, AI detection packages, journal matching services, research paper assistance plans, dissertation editing packages"
-              />
-              <PackageSelection onClose={() => window.location.href = '/'} />
-            </>
-          } />
-          <Route path="/account" element={
-            <ProtectedRoute>
-              <>
-                <SEOHead 
-                  title="My Account | Manage Your Academic Research Services - Gaply"
-                  description="Manage your Gaply account, view your academic research services, track your thesis writing progress, and access your AI detection and journal matching tools."
-                  keywords="Gaply account management, academic research account, thesis writing account, AI detection account, journal matching account, research assistance account"
-                />
-                <Overview />
-              </>
-            </ProtectedRoute>
-          } />
-          <Route path="/my-account" element={
-            <ProtectedRoute>
-              <>
-                <SEOHead 
-                  title="My Account | Manage Your Academic Research Services - Gaply"
-                  description="Manage your Gaply account, view your academic research services, track your thesis writing progress, and access your AI detection and journal matching tools."
-                  keywords="Gaply account management, academic research account, thesis writing account, AI detection account, journal matching account, research assistance account"
-                />
-                <Overview />
-              </>
-            </ProtectedRoute>
-          } />
           {/* Design-system gallery: dev builds only — never registered in production. */}
           {process.env.NODE_ENV === 'development' && (
             <Route path="/design" element={
@@ -886,16 +664,14 @@ const AppContent: React.FC = () => {
   );
 };
 
-// Main App component that provides AuthProvider and ThemeProvider
+// Main App component that provides ThemeProvider
 const App: React.FC = () => {
   return (
-    <AuthProvider>
-      <ThemeProvider>
-        <AppErrorBoundary>
-          <AppContent />
-        </AppErrorBoundary>
-      </ThemeProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AppErrorBoundary>
+        <AppContent />
+      </AppErrorBoundary>
+    </ThemeProvider>
   );
 };
 

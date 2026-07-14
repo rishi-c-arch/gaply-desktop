@@ -292,11 +292,6 @@ const EthicalAiResearchGuidePage: React.FC = () => {
               clear slide deck, written for integrity, not shortcuts.
             </p>
             <FeatureDotList items={HERO_FEATURE_LINES} />
-            <p className="ethical-ai-feature-panel__links">
-              <Link to="/academic-ai-remover">Academic AI review</Link>
-              <span aria-hidden> · </span>
-              <Link to="/journal-matching">Journal matching</Link>
-            </p>
           </div>
           <div
             id="ethical-ai-deck-anchor"

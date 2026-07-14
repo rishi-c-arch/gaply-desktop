@@ -1,5 +1,4 @@
 import React, { useRef } from 'react';
-import { usePremiumFeatureNav } from '../hooks/usePremiumFeatureNav';
 import { useIntersectionObserver } from '../hooks/useIntersectionObserver';
 import '../styles/variables.css';
 import '../styles/animations.css';
@@ -106,7 +105,6 @@ function QuartileChart({ segments }: { segments: QuartileSegment[] }) {
 export default function JournalQuartile() {
   const sectionRef = useRef<HTMLElement>(null);
   const inView = useIntersectionObserver(sectionRef, { threshold: 0.1 });
-  const goToPremiumFeature = usePremiumFeatureNav();
 
   return (
     <section ref={sectionRef} className="jqa-section" aria-labelledby="jqa-heading">
@@ -163,7 +161,7 @@ export default function JournalQuartile() {
         <div className="jqa-cta">
           <button
             type="button"
-            onClick={() => goToPremiumFeature('/dashboard/journal-verify', 'journal_verification_pro')}
+            onClick={() => { window.location.href = '/download'; }}
             className="jqa-btn jqa-btn-premium"
             aria-label="Verify journal authenticity"
           >

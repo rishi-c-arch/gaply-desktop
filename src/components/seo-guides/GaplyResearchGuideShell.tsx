@@ -172,7 +172,6 @@ const GaplyResearchGuideShell: React.FC<GaplyResearchGuideShellProps> = ({
           </div>
           <nav className="grg-foot__links" aria-label="Related">
             <Link to="/features">Features</Link>
-            <Link to="/journal-matching">Journal matching</Link>
             <Link to="/citation-generator">Citation generator</Link>
             <Link to="/support">Support</Link>
           </nav>

@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 import type { ScopusJournal } from './scopusGuideHelpers';
 import { groupByCategoryOrdered, slugifySegment } from './scopusGuideHelpers';
 
@@ -111,8 +110,8 @@ const JournalDirectorySection: React.FC<JournalDirectorySectionProps> = ({
           color: 'var(--muted-text)',
         }}
       >
-        Need a journal that fits your manuscript? Try{' '}
-        <Link to="/journal-matching">Gaply journal matching</Link>.
+        Need a journal that fits your manuscript? Explore journal options in the
+        Gaply desktop app.
       </p>
     </section>
   );

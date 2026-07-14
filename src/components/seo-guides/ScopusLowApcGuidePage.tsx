@@ -177,8 +177,8 @@ const ScopusLowApcGuidePage: React.FC = () => {
             </li>
           </ul>
           <p style={{ marginBottom: 0 }}>
-            Use <Link to="/journal-matching">Gaply journal matching</Link> to align scope and audience with your
-            manuscript, then verify APC on the official journal page.
+            Align scope and audience with your manuscript, then verify APC on the
+            official journal page.
           </p>
         </section>
 

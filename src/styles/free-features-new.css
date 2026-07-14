@@ -344,6 +344,18 @@ body.light .free2-particle {
   perspective: 1000px;
 }
 
+/* Repopulated free-features layout (M6 Phase 3a): a clean responsive grid that
+   holds all the free-feature cards without the old 4-slot absolute "holographic"
+   positioning. Cards use the base .free2-card and flow as grid items. */
+.free2-right--grid {
+  min-height: auto;
+  perspective: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
 .free2-card {
   position: relative;
   border-radius: 18px;

@@ -1,20 +1,16 @@
 import React from 'react';
-import { usePremiumFeatureNav } from '../hooks/usePremiumFeatureNav';
 import '../styles/variables.css';
 import '../styles/animations.css';
 import '../styles/premium-features-new.css';
 
 export default function PremiumFeatures() {
-  const goToPremiumFeature = usePremiumFeatureNav();
-
-  const goToPublishReady = () =>
-    goToPremiumFeature('/dashboard/publishready', 'publish_ready_pro');
-  const goToDataMaestro = () =>
-    goToPremiumFeature('/dashboard/datamaestro', 'data_maestro_pro');
-  const goToJournalVerify = () =>
-    goToPremiumFeature('/dashboard/journal-verify', 'journal_verification_pro');
-  const goToResearchDeepAnalysis = () =>
-    goToPremiumFeature('/dashboard/research-deep-analysis', 'research_deep_analysis_pro');
+  // M6 Phase 3a (D3): the paid features ship in the Gaply desktop app now — these
+  // CTAs route to the download page instead of the retired web dashboard.
+  const goToDownload = () => { window.location.href = '/download'; };
+  const goToPublishReady = goToDownload;
+  const goToDataMaestro = goToDownload;
+  const goToJournalVerify = goToDownload;
+  const goToResearchDeepAnalysis = goToDownload;
 
   return (
     <section className="premium2-section" aria-labelledby="premium2-heading">

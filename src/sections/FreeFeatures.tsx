@@ -4,6 +4,70 @@ import '../styles/variables.css';
 import '../styles/animations.css';
 import '../styles/free-features-new.css';
 
+/** The genuinely-FREE desktop features (no entitlement gate — confirmed against
+ *  tiers.ts + the useEntitlement gates). Copy is grounded in what each feature
+ *  actually does: signals/indicators, NEVER automated verdicts; exact-match vs
+ *  the user's OWN corpus (not the internet); "validation" ≠ the paid Statistical
+ *  Analysis Verifier; "Journal Check" (evidence signals) ≠ the paid Journal
+ *  Verification (LLM site-summary). No dormant/coming-soon lanes advertised.
+ *  All ship in the desktop app → each CTA goes to /download. */
+const FREE_CARDS = [
+  {
+    chipClass: 'free2-chip--cyan',
+    chip: 'On-device',
+    icon: 'smart_toy',
+    title: 'AI Detection',
+    module: 'MODULE_01',
+    body:
+      'Analyzes AI-writing signals using perplexity and burstiness indicators. Results are evidence for human review—not proof that text was or wasn\'t AI-generated. Runs entirely on your device.',
+  },
+  {
+    chipClass: 'free2-chip--emerald',
+    chip: 'On-device',
+    icon: 'plagiarism',
+    title: 'Plagiarism Check',
+    module: 'MODULE_02',
+    body:
+      'Exact-match, verbatim overlap against your own paper library, plus self-plagiarism within a draft. An indicator, not Turnitin — it checks your corpus, never the whole internet. Fully on-device.',
+  },
+  {
+    chipClass: 'free2-chip--violet',
+    chip: 'LLM-free',
+    icon: 'rule',
+    title: 'Statistical Validation',
+    module: 'MODULE_03',
+    body:
+      'A deterministic, LLM-free sanity-check that flags statistical issues in your manuscript — test/group mismatches, missing effect sizes, and more. Fully on-device.',
+  },
+  {
+    chipClass: 'free2-chip--cyan',
+    chip: 'Local + lookup',
+    icon: 'library_books',
+    title: 'Citation Manager',
+    module: 'MODULE_04',
+    body:
+      'In the desktop app: a local-first reference library with CSL citation styles, verified metadata lookup (DOI / CrossRef / OpenAlex), a citation-hallucination check, and one-click exports. Your library stays on your device; lookups use the web.',
+  },
+  {
+    chipClass: 'free2-chip--emerald',
+    chip: 'Offline',
+    icon: 'edit_note',
+    title: 'Note Creator',
+    module: 'MODULE_05',
+    body:
+      "Own-words, per-paper note templates plus quick project notes and unified search — with an optional side-by-side of your paper's full text. Fully offline; your notes never leave your device.",
+  },
+  {
+    chipClass: 'free2-chip--violet',
+    chip: 'Evidence',
+    icon: 'travel_explore',
+    title: 'Journal Check',
+    module: 'MODULE_06',
+    body:
+      "Evidence signals on a journal — indexing and 'well-indexed' markers vs. warning-signs to investigate. Signals to weigh, not a predatory verdict.",
+  },
+];
+
 export default function FreeFeatures() {
   const navigate = useNavigate();
   return (
@@ -32,8 +96,8 @@ export default function FreeFeatures() {
           </h2>
 
           <p className="free2-body">
-            Access advanced research tools powered by generative mathematical models. Completely open
-            for academic exploration.
+            Free, unlimited research tools — most run entirely on your device. They surface signals and
+            indicators for your judgement, never automated verdicts.
           </p>
 
           <div className="free2-scroll-hint" aria-hidden="true">
@@ -44,127 +108,52 @@ export default function FreeFeatures() {
           </div>
         </div>
 
-        {/* Right column – holographic cards */}
-        <div className="free2-right">
-          {/* Card 1 – Paper Search */}
-          <article className="free2-card free2-card--primary">
-            <div className="free2-card-header">
-              <span className="free2-chip free2-chip--cyan">Free Access</span>
-              <span className="material-symbols-outlined free2-card-icon">science</span>
-            </div>
-            <h3 className="free2-card-title">Paper Search</h3>
-            <p className="free2-card-body">
-              Semantic discovery across arXiv, PubMed &amp; IEEE. Visualize citation networks in real
-              time.
-            </p>
-
-            <div className="free2-search-preview">
-              <div className="free2-skel-line free2-skel-line--wide" />
-              <div className="free2-skel-line free2-skel-line--half" />
-              <div className="free2-search-chip">
-                <span className="material-symbols-outlined free2-search-icon">search</span>
+        {/* Right column — the genuinely-free features (M6 Phase 3a repopulation).
+            The old 4-slot absolute "holographic" layout can't hold this many cards
+            without overlap, so the column is a responsive CSS grid
+            (.free2-right--grid, defined in free-features-new.css); cards use the
+            base .free2-card (no absolute --primary/--secondary modifier). */}
+        <div className="free2-right free2-right--grid">
+          {FREE_CARDS.map((card) => (
+            <article className="free2-card" key={card.title}>
+              <div className="free2-card-header">
+                <span className={`free2-chip ${card.chipClass}`}>{card.chip}</span>
+                <span className="material-symbols-outlined free2-card-icon">{card.icon}</span>
               </div>
-            </div>
-
-            <div className="free2-card-footer">
-              <span className="free2-module-label">MODULE_01</span>
-              <button className="free2-interaction" type="button" aria-label="Open Paper Search" onClick={() => navigate('/paper-search')}>
-                <span className="material-symbols-outlined free2-interaction-icon">arrow_forward</span>
-              </button>
-            </div>
-          </article>
-
-          {/* Card 2 – Journal Match */}
-          <article className="free2-card free2-card--secondary">
-            <div className="free2-card-header">
-              <span className="free2-chip">Algorithm</span>
-              <span className="material-symbols-outlined free2-card-icon">hub</span>
-            </div>
-            <h3 className="free2-card-title free2-card-title--muted">Journal Match</h3>
-            <p className="free2-card-body free2-card-body--muted">
-              AI-driven probability matching for 45,000+ academic journals. Optimize your submission
-              strategy.
-            </p>
-
-            <div className="free2-match-grid">
-              <div className="free2-match-pill free2-match-pill--primary">
-                <div className="free2-match-score">98%</div>
-                <div className="free2-match-label">Nature</div>
+              <h3 className="free2-card-title">{card.title}</h3>
+              <p className="free2-card-body">{card.body}</p>
+              <div className="free2-card-footer">
+                <span className="free2-module-label">{card.module}</span>
+                <button
+                  className="free2-interaction"
+                  type="button"
+                  aria-label={`Get ${card.title} in the Gaply desktop app`}
+                  onClick={() => navigate('/download')}
+                >
+                  <span className="material-symbols-outlined free2-interaction-icon">arrow_forward</span>
+                </button>
               </div>
-              <div className="free2-match-pill free2-match-pill--secondary">
-                <div className="free2-match-score">85%</div>
-                <div className="free2-match-label">Science</div>
-              </div>
-            </div>
+            </article>
+          ))}
 
-            <div className="free2-card-footer">
-              <span className="free2-module-label">MODULE_02</span>
-              <button className="free2-interaction" type="button" aria-label="Open Journal Match" onClick={() => navigate('/journal-matching')}>
-                <span className="material-symbols-outlined free2-interaction-icon">arrow_forward</span>
-              </button>
-            </div>
-          </article>
-
-          {/* Card 3 – Citation generator (100% free, browser-only) */}
-          <article className="free2-card free2-card--tertiary">
+          {/* Citation Generator — the client-side WEB tool, distinct from the
+              desktop Citation Manager above: runs in the browser, no sign-in. */}
+          <article className="free2-card">
             <div className="free2-card-header">
               <span className="free2-chip free2-chip--violet">No sign-in</span>
               <span className="material-symbols-outlined free2-card-icon">format_quote</span>
             </div>
             <h3 className="free2-card-title">Citation Generator</h3>
             <p className="free2-card-body">
-              APA, Vancouver &amp; Harvard in your browser. DOI, ISBN, PubMed lookup, BibTeX / RIS / JSON converter—saved lists stay on your device.
+              Format APA, Vancouver &amp; Harvard citations in your browser — DOI, ISBN &amp; PubMed lookup, BibTeX / RIS / JSON export. Saved lists stay on your device.
             </p>
-
-            <div className="free2-cite-preview" aria-hidden="true">
-              <div className="free2-cite-line">(Author et al., 2024)</div>
-              <div className="free2-cite-line free2-cite-line--dim">References</div>
-              <div className="free2-cite-line free2-cite-line--short" />
-            </div>
-
             <div className="free2-card-footer">
-              <span className="free2-module-label">MODULE_03</span>
+              <span className="free2-module-label">MODULE_07</span>
               <button
                 className="free2-interaction"
                 type="button"
-                aria-label="Open Citation Generator"
+                aria-label="Open the browser Citation Generator"
                 onClick={() => navigate('/citation-generator')}
-              >
-                <span className="material-symbols-outlined free2-interaction-icon">arrow_forward</span>
-              </button>
-            </div>
-          </article>
-
-          {/* Card 4 – Conference Finder → /conferences-india */}
-          <article className="free2-card free2-card--quaternary">
-            <div className="free2-card-header">
-              <span className="free2-chip free2-chip--emerald">Free resource</span>
-              <span className="material-symbols-outlined free2-card-icon">event_available</span>
-            </div>
-            <h3 className="free2-card-title">Conference Finder</h3>
-            <p className="free2-card-body">
-              Research conferences in India—upcoming and recent events across STEM, medicine, social sciences, and more.
-              Filter by field, search by city or name. Always verify dates on the organizer&apos;s site.
-            </p>
-
-            <div className="free2-conf-preview" aria-hidden="true">
-              <div className="free2-conf-row">
-                <span className="free2-conf-dot" />
-                <span>ISCBC-2026 · Life sciences</span>
-              </div>
-              <div className="free2-conf-row free2-conf-row--dim">
-                <span className="free2-conf-dot free2-conf-dot--muted" />
-                <span>Delhi · Jan 2026</span>
-              </div>
-            </div>
-
-            <div className="free2-card-footer">
-              <span className="free2-module-label">MODULE_04</span>
-              <button
-                className="free2-interaction"
-                type="button"
-                aria-label="Open Conference Finder"
-                onClick={() => navigate('/conferences-india')}
               >
                 <span className="material-symbols-outlined free2-interaction-icon">arrow_forward</span>
               </button>

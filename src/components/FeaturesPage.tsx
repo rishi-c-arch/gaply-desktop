@@ -1,24 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
 import SEO from './SEO';
 
 const FEATURES_PAGE_URL = 'https://www.gaply.in/features';
 
 const FeaturesPage: React.FC = () => {
   const navigate = useNavigate();
-  const { isAuthenticated, isLoading } = useAuth();
   const [activeSection, setActiveSection] = useState<'free' | 'premium'>('free');
   const [hoveredFeature, setHoveredFeature] = useState<string | null>(null);
-
-  /** Premium dashboard routes: send guests straight to login/signup with return URL (no silent bounce). */
-  const openPremiumPath = (path: string) => {
-    if (!isLoading && !isAuthenticated) {
-      navigate(`/login?redirect=${encodeURIComponent(path)}`);
-      return;
-    }
-    navigate(path);
-  };
 
   // Free Features Data
   const freeFeatures = [
@@ -163,26 +152,11 @@ const FeaturesPage: React.FC = () => {
   ];
 
   function featureListItemUrl(id: string): string {
-    switch (id) {
-      case 'paper-search':
-        return 'https://www.gaply.in/paper-search';
-      case 'journal-matching':
-        return 'https://www.gaply.in/journal-matching';
-      case 'citation-generator':
-        return 'https://www.gaply.in/citation-generator';
-      case 'conference-finder':
-        return 'https://www.gaply.in/conferences-india';
-      case 'journal-verification':
-        return 'https://www.gaply.in/dashboard/journal-verify';
-      case 'research-deep-analysis':
-        return 'https://www.gaply.in/dashboard/research-deep-analysis';
-      case 'publish-ready':
-        return 'https://www.gaply.in/dashboard/publishready';
-      case 'data-maestro':
-        return 'https://www.gaply.in/dashboard/datamaestro';
-      default:
-        return FEATURES_PAGE_URL;
-    }
+    // Only the client-side citation generator has its own live web URL; every
+    // other feature ships in the desktop app → the download page (M6 Phase 3a).
+    return id === 'citation-generator'
+      ? 'https://www.gaply.in/citation-generator'
+      : 'https://www.gaply.in/download';
   }
 
   const featuresPageStructuredData = {
@@ -412,14 +386,11 @@ const FeaturesPage: React.FC = () => {
               onMouseEnter={() => setHoveredFeature(feature.id)}
               onMouseLeave={() => setHoveredFeature(null)}
               onClick={() => {
-                if (feature.id === 'publish-ready') openPremiumPath('/dashboard/publishready');
-                if (feature.id === 'data-maestro') openPremiumPath('/dashboard/datamaestro');
-                if (feature.id === 'paper-search') navigate('/paper-search');
-                if (feature.id === 'journal-matching') navigate('/journal-matching');
+                // The client-side citation generator stays on the web; every other
+                // advertised feature ships in the Gaply desktop app now → /download
+                // (M6 Phase 3a; the retired web/dashboard routes are gone).
                 if (feature.id === 'citation-generator') navigate('/citation-generator');
-                if (feature.id === 'conference-finder') navigate('/conferences-india');
-                if (feature.id === 'journal-verification') openPremiumPath('/dashboard/journal-verify');
-                if (feature.id === 'research-deep-analysis') openPremiumPath('/dashboard/research-deep-analysis');
+                else navigate('/download');
               }}
             >
               <meta itemProp="applicationCategory" content="EducationalApplication" />
@@ -571,7 +542,7 @@ const FeaturesPage: React.FC = () => {
           </button>
           
           <button
-            onClick={() => navigate('/premium')}
+            onClick={() => navigate('/download')}
             style={{
               padding: '18px 36px',
               borderRadius: '16px',

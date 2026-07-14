@@ -36,7 +36,7 @@ const PricingSection: React.FC = () => {
       popular: true,
       color: "var(--card-bg)",
       ctaVariant: "solid" as const,
-      ctaHref: "/checkout/premium-pro",
+      ctaHref: "/download",
       note: "Credits never expire. Use them anytime."
     },
     {
