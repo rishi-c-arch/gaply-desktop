@@ -7,18 +7,30 @@ import { Button, Card } from '../../design-system';
 import './plagiarism.css';
 import { CheckBridge } from './checkBridge';
 import { LibraryPaper } from './agentTypes';
+import { LocalLibrary, StoredReference, TauriLocalLibrary } from '../citations/localLibrary';
+
+// Module-level singleton default (stable identity → no per-render churn / effect
+// loops), mirroring TauriPaperSource's citation source.
+const defaultCitations = new TauriLocalLibrary();
 
 export interface PlagiarismLibraryManagerProps {
   bridge: CheckBridge;
   /** Notified after add/remove so the checker can note the scope changed. */
   onChange?: () => void;
+  /** M2 Set 2B: source for the OPTIONAL add-time citation picker (citation_library).
+   *  Defaults to the real local library; injectable for tests. */
+  citations?: LocalLibrary;
 }
 
-const PlagiarismLibraryManager: React.FC<PlagiarismLibraryManagerProps> = ({ bridge, onChange }) => {
+const PlagiarismLibraryManager: React.FC<PlagiarismLibraryManagerProps> = ({ bridge, onChange, citations = defaultCitations }) => {
   const [papers, setPapers] = useState<LibraryPaper[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // The OPTIONAL citation to associate with the NEXT added paper. '' = "— none —"
+  // → no link (citation_id stays NULL, exactly as before). Read at add time.
+  const [refs, setRefs] = useState<StoredReference[]>([]);
+  const [linkCitationId, setLinkCitationId] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -32,12 +44,21 @@ const PlagiarismLibraryManager: React.FC<PlagiarismLibraryManagerProps> = ({ bri
     void refresh();
   }, [refresh]);
 
+  // Load the citation library once for the optional picker (best-effort — an
+  // empty/failed list just leaves the picker with only "— none —").
+  useEffect(() => {
+    citations.list().then(setRefs).catch(() => setRefs([]));
+  }, [citations]);
+
   const onPick = async (file: File) => {
     setBusy(true);
     setError(null);
     try {
       const path = (file as any).path ?? file.name;
-      await bridge.libraryAdd(path);
+      // Explicit optional link: pass the picked citation id, or undefined when
+      // "— none —" (→ Set-2A's optional param → NULL, unchanged behavior).
+      await bridge.libraryAdd(path, undefined, linkCitationId || undefined);
+      setLinkCitationId(''); // reset so the link is a per-paper deliberate choice
       await refresh();
       onChange?.();
     } catch (e) {
@@ -68,6 +89,25 @@ const PlagiarismLibraryManager: React.FC<PlagiarismLibraryManagerProps> = ({ bri
         Parsed on your device; the text never leaves it.
       </p>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+        {/* Optional add-time link: associate the next added paper with a citation
+            from your library (grounded — YOU declare the match, no auto-infer).
+            Leaving it "— none —" adds the paper with no link, exactly as before. */}
+        <select
+          className="gds-jc__input"
+          data-testid="library-citation-select"
+          value={linkCitationId}
+          onChange={(e) => setLinkCitationId(e.target.value)}
+          disabled={busy}
+          style={{ minWidth: 240 }}
+          aria-label="Link to a citation (optional)"
+        >
+          <option value="">Link to a citation (optional) — none —</option>
+          {refs.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.title}{r.authors ? ` — ${r.authors}` : ''}{r.year ? ` (${r.year})` : ''}
+            </option>
+          ))}
+        </select>
         <Button variant="secondary" onClick={() => inputRef.current?.click()} disabled={busy} data-testid="library-pick">
           {busy ? 'Working…' : 'Add a paper'}
         </Button>

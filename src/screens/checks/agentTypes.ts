@@ -63,6 +63,10 @@ export interface LibraryPaper {
   title: string;
   added_at: number; // epoch seconds
   source_label: string;
+  /** M2 Set 2B: the OPTIONAL soft anchor → citation_library.id captured at add
+   *  time (NULL/undefined when unlinked). Carried for 2C's reliable side-by-side
+   *  and the id-based "full text available" badge; not yet consumed. */
+  citation_id?: string;
 }
 
 /* ----------- Plagiarism — embedding "similar meaning" lane (existing) ----------- */

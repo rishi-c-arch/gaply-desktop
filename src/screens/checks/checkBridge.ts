@@ -14,8 +14,10 @@ export interface CheckBridge {
   plagiarism(path: string): Promise<PlagiarismReport>;
   /** Deterministic exact-match check against the "my papers" library. */
   checkExact(path: string): Promise<ExactPlagiarismReport>;
-  /** "My papers" library management (durable comparison set). */
-  libraryAdd(path: string, title?: string): Promise<number>;
+  /** "My papers" library management (durable comparison set). `citationId` (M2
+   *  Set 2B) is the OPTIONAL soft anchor → citation_library.id captured by the
+   *  add-time picker; omitted → stored NULL (unchanged behavior). */
+  libraryAdd(path: string, title?: string, citationId?: string): Promise<number>;
   libraryList(): Promise<LibraryPaper[]>;
   libraryRemove(id: number): Promise<boolean>;
   ai(path: string): Promise<AiDetectionReport>;
@@ -35,8 +37,8 @@ export class TauriCheckBridge implements CheckBridge {
   checkExact(path: string) {
     return this.invoke<ExactPlagiarismReport>('check_plagiarism_exact', { path });
   }
-  libraryAdd(path: string, title?: string) {
-    return this.invoke<number>('add_to_plagiarism_library', { path, title });
+  libraryAdd(path: string, title?: string, citationId?: string) {
+    return this.invoke<number>('add_to_plagiarism_library', { path, title, citationId });
   }
   libraryList() {
     return this.invoke<LibraryPaper[]>('list_plagiarism_library', {});
@@ -78,11 +80,13 @@ export function makeMockCheckBridge(reports: {
       reports.onCall?.('check_plagiarism_exact', path);
       return reports.exact!;
     },
-    async libraryAdd(path, title) {
+    async libraryAdd(path, title, citationId) {
       reports.onCall?.('add_to_plagiarism_library', path);
       const id = nextId++;
       const name = title ?? (path.split('/').pop() || 'Untitled paper').replace(/\.[^.]+$/, '');
-      library.unshift({ id, title: name, added_at: Math.floor(Date.now() / 1000), source_label: path });
+      // Record citation_id so tests can prove the picked link crossed the seam
+      // (undefined when the picker was left "— none —", i.e. stored NULL).
+      library.unshift({ id, title: name, added_at: Math.floor(Date.now() / 1000), source_label: path, citation_id: citationId });
       return id;
     },
     async libraryList() {

@@ -13,6 +13,25 @@ import PlagiarismExactReport from './PlagiarismExactReport';
 import PlagiarismLibraryManager from './PlagiarismLibraryManager';
 import { makeMockCheckBridge } from './checkBridge';
 import { PLAG_EXACT_FIXTURE, PLAG_EXACT_CLEAR, LIBRARY_FIXTURE } from './plagiarismExactFixture';
+import type { LocalLibrary, StoredReference } from '../citations/localLibrary';
+
+/** Minimal citation-library double for the Set-2B add-time picker — only list()
+ *  is exercised; the rest throw if touched (they must not be). */
+function makeCitations(refs: StoredReference[]): LocalLibrary {
+  const nope = () => { throw new Error('unused in the picker'); };
+  return {
+    list: async () => refs,
+    search: async () => refs,
+    upsert: nope as unknown as LocalLibrary['upsert'],
+    setTags: nope as unknown as LocalLibrary['setTags'],
+    remove: async () => {},
+    markSync: nope as unknown as LocalLibrary['markSync'],
+  };
+}
+
+function citationRef(id: string, title: string, authors = '', year: number | null = null): StoredReference {
+  return { id, csl_json: '{}', doi: null, title, authors, year, tags: [], sync_status: 'local_only', created_at: 0, updated_at: 0 };
+}
 
 vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
@@ -118,6 +137,54 @@ describe('PlagiarismLibraryManager — curate the "my papers" set', () => {
     render(<PlagiarismLibraryManager bridge={bridge} />);
     const empty = await screen.findByTestId('library-empty');
     expect(empty.textContent).toMatch(/No papers in your library yet/i);
+  });
+
+  it('M2 Set 2B — the OPTIONAL picker is populated from the citation library, defaults to none', async () => {
+    const bridge = makeMockCheckBridge({ library: [] });
+    const cites = makeCitations([citationRef('cit-1', 'Attention Is All You Need', 'Vaswani et al.', 2017)]);
+    render(<PlagiarismLibraryManager bridge={bridge} citations={cites} />);
+    const select = (await screen.findByTestId('library-citation-select')) as HTMLSelectElement;
+    // grounded: the real citation appears as an option; the default is "— none —"
+    await waitFor(() => expect(within(select).getByText(/Attention Is All You Need/)).toBeTruthy());
+    expect(within(select).getByText(/none/i)).toBeTruthy();
+    expect(select.value).toBe(''); // no auto-selection — the user must opt in
+  });
+
+  it('M2 Set 2B — adding a paper WITH a citation picked captures the link (citation_id crosses the seam)', async () => {
+    const bridge = makeMockCheckBridge({ library: [] });
+    const cites = makeCitations([citationRef('cit-1', 'Some Prior Work', 'Author', 2020)]);
+    render(<PlagiarismLibraryManager bridge={bridge} citations={cites} />);
+    const select = await screen.findByTestId('library-citation-select');
+    await waitFor(() => expect(within(select as HTMLElement).getByText(/Some Prior Work/)).toBeTruthy());
+
+    // explicitly link, then add
+    fireEvent.change(select, { target: { value: 'cit-1' } });
+    fireEvent.change(screen.getByTestId('library-add-input'), {
+      target: { files: [new File(['x'], 'my-paper.pdf', { type: 'application/pdf' })] },
+    });
+    await waitFor(() => expect(screen.getByText('my-paper')).toBeTruthy());
+
+    // the picked link was passed through libraryAdd → stored on the row
+    const rows = await bridge.libraryList();
+    expect(rows.find((r) => r.title === 'my-paper')?.citation_id).toBe('cit-1');
+    // and the picker resets so the link is a deliberate per-paper choice
+    expect((select as HTMLSelectElement).value).toBe('');
+  });
+
+  it('M2 Set 2B — adding WITHOUT a citation is unchanged: no link, citation_id stays undefined (NULL)', async () => {
+    const bridge = makeMockCheckBridge({ library: [] });
+    const cites = makeCitations([citationRef('cit-1', 'Some Prior Work', 'Author', 2020)]);
+    render(<PlagiarismLibraryManager bridge={bridge} citations={cites} />);
+    await screen.findByTestId('library-citation-select');
+
+    // leave the picker at "— none —" and add — exactly today's flow
+    fireEvent.change(screen.getByTestId('library-add-input'), {
+      target: { files: [new File(['x'], 'unlinked.pdf', { type: 'application/pdf' })] },
+    });
+    await waitFor(() => expect(screen.getByText('unlinked')).toBeTruthy());
+
+    const rows = await bridge.libraryList();
+    expect(rows.find((r) => r.title === 'unlinked')?.citation_id).toBeUndefined();
   });
 });
 
