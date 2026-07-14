@@ -661,9 +661,31 @@ pub enum AnalysisDepth {
 /// pattern extended to the tier dimension.
 pub const DEEP_VERIFIED_NOTE: &str = "Deep-verified: the local model re-scored this passage \
 against this document's own baseline. Still a SIGNAL, not proof of AI authorship.";
+/// The COMPACT-tier verified note (1.5B). Honest that the verifier is lighter
+/// than the full 7B — a <16GB machine gets real model verification, but the
+/// user deserves to know it's the smaller model. Verbatim, un-strippable.
+pub const DEEP_VERIFIED_MINI_NOTE: &str = "Deep-verified by the compact on-device model (1.5B) \
+— a lighter verifier than the full 7B used on higher-RAM machines. Still a SIGNAL, not proof of \
+AI authorship.";
 pub const HEURISTIC_ONLY_NOTE: &str = "Heuristic-only: flagged by the fast pre-pass and NOT \
 model-verified (analysis budget). A preliminary, lower-confidence signal — weigh accordingly; \
 never treat as proof.";
+
+/// Which deep tier ran (or why none did) — the HONEST labeling signal the app
+/// threads in. Pairs with the `deep` argument of [`analyze_tiered`]:
+/// `Full`/`Compact` accompany `Some(model)`; `GatedLowRam`/`Absent` accompany
+/// `None`. Keeps the per-tier verified note + coverage clause truthful.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeepKind {
+    /// The full 7B ran.
+    Full,
+    /// The compact 1.5B ran — a lighter verifier.
+    Compact,
+    /// No deep model — the RAM gate skipped the (proven-fatal) 7B.
+    GatedLowRam,
+    /// No deep model — the files were simply not present.
+    Absent,
+}
 
 /// Coverage note when the deep pass was GATED OFF for insufficient RAM (distinct
 /// from the generic "deep model was not available" case: here the model exists
@@ -781,9 +803,10 @@ pub fn analyze_tiered(
     result: &crate::extract::ExtractionResult,
     max_deep_passages: usize,
     max_deep_tokens: usize,
-    // When true, `deep` is `None` because the host's RAM gate skipped loading the
-    // 7B model (not because it was merely absent) — the coverage note says so.
-    deep_gated_low_ram: bool,
+    // Which tier ran (or why none did) — drives the per-tier verified note and
+    // the coverage clause. Must agree with `deep`: `Full`/`Compact` with
+    // `Some`, `GatedLowRam`/`Absent` with `None`.
+    deep_kind: DeepKind,
 ) -> TieredAnalysis {
     // STAGE 1 — the fast pre-pass over the WHOLE document.
     let stage1 = analyze_passages(fast, result);
@@ -804,6 +827,13 @@ pub fn analyze_tiered(
     let mut deep_done = 0usize;
 
     if let Some(deep_model) = deep {
+        // Per-tier verified caution: the compact 1.5B is honestly labelled as a
+        // lighter verifier than the 7B.
+        let verified_note = if matches!(deep_kind, DeepKind::Compact) {
+            DEEP_VERIFIED_MINI_NOTE
+        } else {
+            DEEP_VERIFIED_NOTE
+        };
         // Self-calibrated baseline: the document's own least-suspicious prose.
         let reference = reference_sample(result, fast);
         let (ref_ppl, _, ref_scores) = score_block(deep_model, &reference);
@@ -839,7 +869,7 @@ pub fn analyze_tiered(
                         ..p
                     },
                     depth: AnalysisDepth::DeepVerified,
-                    depth_note: DEEP_VERIFIED_NOTE.to_string(),
+                    depth_note: verified_note.to_string(),
                 });
             } else {
                 // CLEARED: the deep model puts this at/above the document's
@@ -867,10 +897,15 @@ pub fn analyze_tiered(
         .sum();
     let heuristic_only = passages.len() - deep_verified;
     let coverage_note = match deep {
+        // Compact tier: name the lighter verifier and point higher-RAM machines
+        // at the full 7B (approved wording, verbatim clause).
+        Some(_) if matches!(deep_kind, DeepKind::Compact) => format!(
+            "{candidates_found} candidate passage(s) from the fast pre-pass; {deep_verified} deep-verified by the compact 1.5B on-device model (higher-RAM machines use the full 7B); cleared {cleared} as document-baseline; {heuristic_only} remain heuristic-only (analysis budget: {max_deep_passages} passages / {max_deep_tokens} tokens)"
+        ),
         Some(_) => format!(
             "{candidates_found} candidate passage(s) from the fast pre-pass; deep-verified {deep_verified}; cleared {cleared} as document-baseline; {heuristic_only} remain heuristic-only (analysis budget: {max_deep_passages} passages / {max_deep_tokens} tokens)"
         ),
-        None if deep_gated_low_ram => DEEP_GATED_LOW_RAM_NOTE.to_string(),
+        None if matches!(deep_kind, DeepKind::GatedLowRam) => DEEP_GATED_LOW_RAM_NOTE.to_string(),
         None => format!(
             "{candidates_found} candidate passage(s) from the fast pre-pass; the deep model was not available — ALL flags are heuristic-only preliminary signals"
         ),
@@ -1833,7 +1868,7 @@ mod tiered_tests {
             AI_UNMARKED, AI_UNMARKED, AI_UNMARKED,
             HUMAN_SENT,
         ]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, false);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
         assert_eq!(out.candidates_found, 2, "{}", out.coverage_note);
         assert_eq!(out.deep_verified, 1, "the marked run is below baseline → confirmed");
         assert_eq!(out.cleared_by_deep, 1, "the unmarked run is AT baseline → cleared (false-positive reduction)");
@@ -1854,7 +1889,7 @@ mod tiered_tests {
             AI_MARKED, AI_MARKED, HUMAN_SENT,
         ]);
         // budget of 1 passage: the second candidate stays heuristic-only.
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, false);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
         assert_eq!(out.candidates_found, 2);
         assert_eq!(out.deep_verified + out.cleared_by_deep, 1, "only one deep re-score");
         assert_eq!(
@@ -1868,7 +1903,7 @@ mod tiered_tests {
     #[test]
     fn no_deep_model_is_honestly_all_heuristic_only() {
         let ex = doc(&[HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT]);
-        let out = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, false);
+        let out = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent);
         assert!(out.deep_model.is_none());
         assert!(out.passages.iter().all(|p| p.depth == AnalysisDepth::HeuristicOnly));
         assert!(out.coverage_note.contains("deep model was") && out.coverage_note.contains("not available"));
@@ -1880,7 +1915,7 @@ mod tiered_tests {
         let ex = doc(&[HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT]);
         // deep=None BUT gated for low RAM → the RAM-specific note, distinct from
         // the generic "deep model was not available" case above.
-        let gated = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, true);
+        let gated = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::GatedLowRam);
         assert_eq!(gated.coverage_note, DEEP_GATED_LOW_RAM_NOTE);
         assert!(gated.coverage_note.contains("16 GB of RAM"));
         assert!(!gated.coverage_note.contains("not available"), "must NOT reuse the generic note");
@@ -1889,8 +1924,42 @@ mod tiered_tests {
         assert!(gated.passages.iter().all(|p| p.depth == AnalysisDepth::HeuristicOnly));
         assert_eq!(gated.deep_verified, 0);
         // and the two None-cases are genuinely different notes
-        let absent = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, false);
+        let absent = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent);
         assert_ne!(gated.coverage_note, absent.coverage_note);
+    }
+
+    #[test]
+    fn compact_tier_is_honestly_labelled_and_distinct_from_the_7b_and_gated_notes() {
+        let ex = doc(&[
+            HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_UNMARKED, AI_UNMARKED, HUMAN_SENT,
+        ]);
+        // Same deep double, but labelled Compact → the compact wording.
+        let mini = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Compact);
+        let full = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
+        assert!(mini.deep_verified >= 1, "fixture: at least one deep-verified passage");
+
+        // Per-passage: deep-verified passages carry the COMPACT note, not the 7B one.
+        for p in mini.passages.iter().filter(|p| p.depth == AnalysisDepth::DeepVerified) {
+            assert_eq!(p.depth_note, DEEP_VERIFIED_MINI_NOTE);
+            assert!(p.depth_note.contains("compact on-device model (1.5B)"));
+            assert!(p.depth_note.contains("lighter verifier than the full 7B"));
+        }
+
+        // Coverage clause names the compact model (approved wording, verbatim).
+        assert!(mini
+            .coverage_note
+            .contains("deep-verified by the compact 1.5B on-device model (higher-RAM machines use the full 7B)"));
+
+        // mini note != 7B note != gated note — three genuinely distinct strings.
+        assert_ne!(DEEP_VERIFIED_MINI_NOTE, DEEP_VERIFIED_NOTE, "compact note != 7B note");
+        assert_ne!(mini.coverage_note, full.coverage_note, "compact coverage != 7B coverage");
+        assert_ne!(mini.coverage_note, DEEP_GATED_LOW_RAM_NOTE, "compact coverage != gated note");
+        assert_ne!(DEEP_VERIFIED_MINI_NOTE, DEEP_GATED_LOW_RAM_NOTE, "compact note != gated note");
+
+        // The full-7B tier's wording is UNCHANGED.
+        for p in full.passages.iter().filter(|p| p.depth == AnalysisDepth::DeepVerified) {
+            assert_eq!(p.depth_note, DEEP_VERIFIED_NOTE);
+        }
     }
 
     #[test]
@@ -1898,7 +1967,7 @@ mod tiered_tests {
         let ex = doc(&[
             HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_UNMARKED, AI_UNMARKED, HUMAN_SENT,
         ]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, false);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
         for p in &out.passages {
             assert!(!p.depth_note.is_empty(), "the tier caution is REQUIRED");
             match p.depth {
@@ -1923,7 +1992,7 @@ mod tiered_tests {
     #[test]
     fn the_honest_percentage_computes_over_surviving_passages() {
         let ex = doc(&[HUMAN_SENT, AI_MARKED, AI_MARKED, AI_MARKED, HUMAN_SENT]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, false);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
         let expected_flagged: usize = out
             .passages
             .iter()
@@ -1934,7 +2003,7 @@ mod tiered_tests {
         assert!(out.ai_signal_proportion > 0.0 && out.ai_signal_proportion < 1.0);
         assert_eq!(out.disclaimer, AI_DISCLAIMER);
         // deterministic
-        let again = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, false);
+        let again = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
         assert_eq!(out, again);
     }
 }
@@ -1995,7 +2064,7 @@ mod classify_tests {
             &ex,
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
-            false,
+            DeepKind::Full,
         );
         assert_eq!(out.deep_verified, 1, "fixture: exactly one deep-verified passage");
         out
@@ -2007,7 +2076,7 @@ mod classify_tests {
         let ex = doc(&[
             HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT,
         ]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, false);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
         assert_eq!(out.deep_verified, 1);
         assert!(out.passages.iter().any(|p| p.depth == AnalysisDepth::HeuristicOnly));
         out
@@ -2160,7 +2229,7 @@ mod classify_tests {
             &ex,
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
-            false,
+            DeepKind::Full,
         );
         assert_eq!(tiered.deep_verified, 2, "fixture: two deep-verified passages");
 
@@ -2354,7 +2423,7 @@ mod language_tests {
             &ex,
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
-            false,
+            DeepKind::Absent,
         );
         assert_eq!(out.language.detected, "english");
         assert!(out.language.calibration_reliable);
@@ -2377,7 +2446,7 @@ mod language_tests {
             &ex,
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
-            false,
+            DeepKind::Absent,
         );
         assert!(!out.language.calibration_reliable, "spanish must downgrade");
         let classified = classify_passages(None, &out, DEFAULT_MAX_CLASSIFIED_PASSAGES);

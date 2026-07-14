@@ -47,35 +47,38 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
         // heuristic-only. Overridable via GAPLY_FORCE_DEEP / GAPLY_DISABLE_DEEP.
         let tier = crate::models::deep_tier_from_env();
         tracing::info!(?tier, "AI Check: deep tier resolved");
-        // The 7B is loaded here; the Mini tier's model load is wired in the
-        // dispatch step — until then Mini falls back to the honest heuristic-only
-        // path (unchanged low-RAM behaviour).
-        let deep = match tier {
-            crate::models::DeepTier::Full7B => {
-                let m = crate::models::slm1_model();
-                if m.is_none() {
-                    tracing::warn!("AI Check: SLM-1 absent — all flags will be heuristic-only");
+        // Load the model the tier selected (7B on ≥16GB, the compact 1.5B on
+        // <16GB, or none). `deep_kind` labels the report HONESTLY: Full/Compact
+        // when a model ran, GatedLowRam/Absent otherwise.
+        let (deep, deep_kind) = match tier {
+            crate::models::DeepTier::Full7B => match crate::models::slm1_model() {
+                Some(m) => (Some(m), ai_detect::DeepKind::Full),
+                None => {
+                    tracing::warn!("AI Check: SLM-1 (7B) selected but absent — heuristic-only");
+                    (None, ai_detect::DeepKind::Absent)
                 }
-                m
-            }
-            crate::models::DeepTier::Mini | crate::models::DeepTier::HeuristicOnly => {
-                tracing::warn!("AI Check: deep pass runs heuristic-only on this machine");
-                None
+            },
+            crate::models::DeepTier::Mini => match crate::models::slm1_mini_model() {
+                Some(m) => (Some(m), ai_detect::DeepKind::Compact),
+                None => {
+                    tracing::warn!("AI Check: SLM-1-MINI (1.5B) selected but absent — heuristic-only");
+                    (None, ai_detect::DeepKind::Absent)
+                }
+            },
+            crate::models::DeepTier::HeuristicOnly => {
+                tracing::warn!("AI Check: deep pass gated off — heuristic-only");
+                (None, ai_detect::DeepKind::GatedLowRam)
             }
         };
-        // The low-RAM gated note fires only when the TIER gated the deep pass —
-        // not when the 7B was merely absent (that keeps the generic note).
-        let deep_gated_low_ram =
-            matches!(tier, crate::models::DeepTier::Mini | crate::models::DeepTier::HeuristicOnly);
         ai_detect::analyze_tiered(
             &fast,
             deep.as_deref(),
             extraction,
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
-            deep_gated_low_ram,
+            deep_kind,
         )
-    }; // ← SLM-1 dropped HERE
+    }; // ← the deep model is dropped HERE
 
     // TWO-WAY collapse (probe decision): `None` is deliberate, even when
     // Ollama is running — no supported local model makes the
@@ -100,10 +103,12 @@ mod tests {
 
     /// The two-way collapse holds with AND without a live (scripted) Ollama —
     /// both scenarios in ONE test because they mutate process-wide env vars.
-    /// SLM-1 is forced absent throughout (the pipeline-test `force_heuristic`
-    /// precedent): no candle load, no real network, fully deterministic.
+    /// The deep tier is DISABLED throughout (GAPLY_DISABLE_DEEP): no candle load
+    /// of EITHER the 7B or the compact mini (which may be installed on the dev
+    /// machine), no real network — fully deterministic, heuristic-only.
     #[test]
     fn flow_is_two_way_and_honest_with_or_without_ollama() {
+        std::env::set_var("GAPLY_DISABLE_DEEP", "1");
         std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
         let ex = extract_from_text(&format!(
             "Introduction\n\n{h} {a} {a} {a} {h}\n",
@@ -164,6 +169,8 @@ mod tests {
     /// Non-English input downgrades the whole report, un-strippably.
     #[test]
     fn non_english_document_is_downgraded() {
+        // Disable the deep tier so an installed mini can't load candle here.
+        std::env::set_var("GAPLY_DISABLE_DEEP", "1");
         std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
         let ex = extract_from_text(
             "Introducción\n\nLos resultados de este estudio muestran que el método es eficaz y \
