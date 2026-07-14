@@ -59,6 +59,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // Reserved backend infra — no frontend `invoke` caller today, but kept
+            // deliberately: each is exercised end-to-end through real Tauri IPC by
+            // `tests/commands_test.rs` (project CRUD roundtrip, db lifecycle/health,
+            // rag provenance search, extract-and-store). They back the project-scoped
+            // notes concept, DB diagnostics, the RAG agent, and standalone extraction,
+            // and are the seam a future settings/diagnostics UI plugs into. Not dead.
             commands::create_project,
             commands::list_projects,
             commands::get_project,
@@ -76,6 +82,11 @@ pub fn run() {
             commands::add_to_plagiarism_library,
             commands::list_plagiarism_library,
             commands::remove_from_plagiarism_library,
+            // Reserved keychain-write seam — no frontend caller yet. The READ side
+            // (`gaply_core::secrets::get_secret`) is live: `app_check.rs` loads the
+            // attestation signing key through it. These write/presence/delete commands
+            // are what an API-key-entry UI on the (currently stubbed) cloud-auth path
+            // will call. Kept intentionally.
             commands::store_secret,
             commands::has_secret,
             commands::delete_secret,

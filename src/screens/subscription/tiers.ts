@@ -13,11 +13,15 @@ export type Tier = 'free' | 'premium';
  *  a real, server-enforced meter lands. Offline features are absent by design. */
 export const ONLINE_CAPPED: Record<string, number> = {};
 
-/** ★ Premium-only features (no free access, only a teaser). */
+/** ★ Premium-only features (no free access, only a teaser).
+ *  NOTE: the "Deep plagiarism analysis" lane is deliberately absent here. It is a
+ *  disabled coming-soon placeholder (PlagiarismCheckPage, gated by the separate
+ *  `deepPlagiarism` dev feature flag) that never consults an entitlement — so its
+ *  old `'deep_plagiarism'` key was orphaned (checked by nothing) and was removed.
+ *  When that lane actually ships, add its entitlement key back here at wire-up. */
 export const PREMIUM_ONLY = new Set([
   'publishready',
   'research_copilot',
-  'deep_plagiarism',
   'research_gap_finder',
   'stats_verifier',
   'journal_verification',
