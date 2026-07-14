@@ -58,6 +58,20 @@ describe('golden render against a sample compile_report() output', () => {
     expect(screen.getByTestId('report-disclaimer').textContent).toMatch(/never definitive proof/i);
   });
 
+  it('the mandatory disclaimer is NEVER empty — a hardcoded fallback backstops a wire regression (L4)', async () => {
+    // wire regressed the required disclaimer to empty → the fallback renders, NOT an empty <p>
+    renderReport({ ...SAMPLE_REPORT, disclaimer: '' });
+    await screen.findByTestId('report-viewer');
+    const guarded = screen.getByTestId('report-disclaimer').textContent!.trim();
+    expect(guarded.length).toBeGreaterThan(0);
+    expect(guarded).toMatch(/never definitive proof/i);
+    cleanup();
+    // NORMAL PATH unchanged: a present wire value renders verbatim, fallback dormant
+    renderReport(SAMPLE_REPORT);
+    await screen.findByTestId('report-viewer');
+    expect(screen.getByTestId('report-disclaimer').textContent).toBe(SAMPLE_REPORT.disclaimer);
+  });
+
   it('paid PublishReady adds the Reviewer Letter tab', async () => {
     renderReport(SAMPLE_REPORT, true);
     await screen.findByTestId('report-viewer');

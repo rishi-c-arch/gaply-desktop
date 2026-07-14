@@ -35,6 +35,19 @@ import { downloadReportPdf } from './exportPdf';
 import '../auth/auth.css';
 import './report.css';
 
+/** Empty-guard backstop for the mandatory certainty-tier disclaimer. The wire
+ *  normally carries `report.disclaimer` VERBATIM from the Rust core's `DISCLAIMER`
+ *  (report.rs); this hardcoded copy renders ONLY if that field ever regresses to
+ *  empty, so the "indicators for human review, never definitive proof" framing
+ *  can never silently vanish. */
+const REPORT_DISCLAIMER_FALLBACK =
+  "Certainty tiers: 'mathematically certain' findings are deterministic rule " +
+  "verdicts and require correction; 'AI-assessed, moderate confidence' findings " +
+  'are statistical or model-derived signals — indicators for human review, never ' +
+  "definitive proof; 'reconsidered after peer review' findings were revised by " +
+  "the verification agent after seeing other agents' evidence and remain " +
+  'non-definitive.';
+
 export interface ReportViewerPageProps {
   /** The compiled report. Defaults to the golden sample until a
    *  `compile_report` Tauri command feeds a live one. */
@@ -213,7 +226,9 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
 
               {/* mandatory disclaimer — always visible */}
               <p className="gds-report__disclaimer" data-testid="report-disclaimer" style={{ marginTop: 16 }}>
-                {report.disclaimer}
+                {report.disclaimer && report.disclaimer.trim()
+                  ? report.disclaimer
+                  : REPORT_DISCLAIMER_FALLBACK}
               </p>
             </Panel>
           </ThreePanelWorkspace>

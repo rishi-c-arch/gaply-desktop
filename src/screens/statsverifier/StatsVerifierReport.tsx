@@ -13,6 +13,14 @@ import { AdvisoryNote, VerificationReport, VerifiedResult } from './statsVerifie
 
 const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(4));
 
+/** Empty-guard backstop for the un-strippable lane disclosure. The wire normally
+ *  carries `report.disclosure` VERBATIM from the Rust core's `LANE_DISCLOSURE`
+ *  (stats_verdict.rs); this hardcoded copy renders ONLY if that field ever
+ *  regresses to empty, so the verified-vs-advisory distinction can never vanish. */
+const LANE_DISCLOSURE_FALLBACK =
+  'VERIFIED results are deterministic recomputations from your data. ADVISORY ' +
+  'notes are methodology observations, NOT verifications — consult a statistician.';
+
 /** The verified lane — the engine's ground truth, match or mismatch. */
 const VerifiedCard: React.FC<{ v: VerifiedResult }> = ({ v }) => {
   const isMatch = v.verdict === 'match';
@@ -151,7 +159,9 @@ const StatsVerifierReport: React.FC<StatsVerifierReportProps> = ({ report }) => 
       data-testid="sv-disclosure"
       style={{ borderTop: '1px solid var(--g-border)', paddingTop: 10, fontSize: 12 }}
     >
-      {report.disclosure}
+      {report.disclosure && report.disclosure.trim()
+        ? report.disclosure
+        : LANE_DISCLOSURE_FALLBACK}
     </p>
   </div>
 );

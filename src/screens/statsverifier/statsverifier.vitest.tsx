@@ -157,6 +157,20 @@ describe('StatsVerifierReport — verified vs advisory, visually distinct', () =
     expect(d).toMatch(/ADVISORY notes are methodology observations, NOT verifications/);
   });
 
+  it('the LANE disclosure is NEVER empty — a hardcoded fallback backstops a wire regression (L4)', () => {
+    // wire regressed the required field to empty → the fallback renders, NOT an empty <p>
+    const { rerender } = render(<StatsVerifierReport report={{ ...MATCH_REPORT, disclosure: '' }} />);
+    const guarded = screen.getByTestId('sv-disclosure').textContent!.trim();
+    expect(guarded.length).toBeGreaterThan(0);
+    expect(guarded).toMatch(/ADVISORY notes are methodology observations, NOT verifications/);
+    // whitespace-only is treated as empty too
+    rerender(<StatsVerifierReport report={{ ...MATCH_REPORT, disclosure: '   ' }} />);
+    expect(screen.getByTestId('sv-disclosure').textContent!.trim().length).toBeGreaterThan(0);
+    // NORMAL PATH unchanged: a present wire value renders verbatim, fallback dormant
+    rerender(<StatsVerifierReport report={MATCH_REPORT} />);
+    expect(screen.getByTestId('sv-disclosure').textContent).toBe(MATCH_REPORT.disclosure);
+  });
+
   it('a recompute ERROR is shown honestly — never a fake result', () => {
     render(<StatsVerifierReport report={ERROR_REPORT} />);
     expect(screen.queryByTestId('sv-verified')).toBeNull(); // no fabricated result

@@ -15,6 +15,19 @@ import { Badge, Card } from '../../design-system';
 import '../report/report.css';
 import { AiCheckPassage, AiCheckResult, AiCheckSection } from './agentTypes';
 
+/** Empty-guard backstop for the un-strippable AI disclaimer. The wire normally
+ *  carries `analysis.disclaimer` VERBATIM from the Rust core's `AI_DISCLAIMER`
+ *  (ai_detect.rs); this hardcoded copy renders ONLY if that field ever regresses
+ *  to empty, so the signal-not-verdict disclaimer can never silently vanish. */
+const AI_DISCLAIMER_FALLBACK =
+  'STATISTICAL SIGNAL ONLY — NOT proof of AI authorship. Perplexity and ' +
+  'burstiness are probabilistic indicators with high false-positive and ' +
+  'false-negative rates. They vary by domain, genre, and individual writing ' +
+  'style, can be deliberately evaded, and are unreliable on short texts, ' +
+  'non-native English, and heavily edited writing. These scores must never be ' +
+  'used as sole or definitive evidence that text was AI-generated — treat them ' +
+  'as one weak input to human judgement.';
+
 type Segment =
   | { kind: 'plain'; text: string }
   | { kind: 'passage'; passage: AiCheckPassage; index: number };
@@ -126,7 +139,9 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
       >
         <Badge status="flagged">signal, not proof</Badge>
         <p className="gds-report__disclaimer" style={{ marginTop: 6 }} data-testid="ai-disclaimer">
-          {analysis.disclaimer}
+          {analysis.disclaimer && analysis.disclaimer.trim()
+            ? analysis.disclaimer
+            : AI_DISCLAIMER_FALLBACK}
         </p>
       </section>
 

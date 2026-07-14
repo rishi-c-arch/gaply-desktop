@@ -74,6 +74,22 @@ describe('AiCheckReport — two-way in-document highlighting', () => {
     expect(screen.getByTestId('paraphrase-unavailable')).toBeTruthy();
   });
 
+  it('the AI disclaimer is NEVER empty — a hardcoded fallback backstops a wire regression (L4)', () => {
+    // wire regressed the required disclaimer to empty → the fallback renders, NOT an empty <p>
+    const empty = { ...AICHECK_FIXTURE, analysis: { ...AICHECK_FIXTURE.analysis, disclaimer: '' } };
+    const { rerender } = render(<AiCheckReport result={empty} />);
+    const guarded = screen.getByTestId('ai-disclaimer').textContent!.trim();
+    expect(guarded.length).toBeGreaterThan(0);
+    expect(guarded).toMatch(/NOT proof of AI authorship/);
+    // whitespace-only counts as empty too
+    const blank = { ...AICHECK_FIXTURE, analysis: { ...AICHECK_FIXTURE.analysis, disclaimer: '   ' } };
+    rerender(<AiCheckReport result={blank} />);
+    expect(screen.getByTestId('ai-disclaimer').textContent!.trim().length).toBeGreaterThan(0);
+    // NORMAL PATH unchanged: a present wire value renders verbatim, fallback dormant
+    rerender(<AiCheckReport result={AICHECK_FIXTURE} />);
+    expect(screen.getByTestId('ai-disclaimer').textContent).toBe(AICHECK_FIXTURE.analysis.disclaimer);
+  });
+
   it('a passage that cannot be anchored still surfaces (never silently dropped)', () => {
     const broken = {
       ...AICHECK_FIXTURE,
