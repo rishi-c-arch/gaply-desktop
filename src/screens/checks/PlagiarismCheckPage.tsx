@@ -21,6 +21,8 @@ import {
   Panel,
 } from '../../design-system';
 import { ACCEPT_HINT, estimatePdfPageCount, validateFile } from '../analysis/validateFile';
+import { basenameOf, pickManuscriptPath } from '../common/pickFile';
+import { isTauri } from '../../utils/isTauri';
 import ReportViewerPage from '../report/ReportViewerPage';
 import { PublishReadyReport } from '../report/reportTypes';
 import { useFeatureFlag } from '../../config/Feature';
@@ -62,6 +64,29 @@ const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({ bridge }) => 
       return;
     }
     setSelected({ name: file.name, path: (file as any).path ?? file.name });
+  };
+
+  // Desktop: an ABSOLUTE path from the Tauri dialog (the real fix). Size/pages
+  // are enforced by the core; validate the extension only.
+  const acceptPath = (path: string) => {
+    setError(null);
+    const name = basenameOf(path);
+    const res = validateFile({ name, sizeBytes: 1 });
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setSelected({ name, path });
+  };
+
+  // Tauri → native picker (absolute path); browser/vitest → the hidden <input>.
+  const pickFile = async () => {
+    if (isTauri) {
+      const p = await pickManuscriptPath(['pdf', 'docx', 'txt', 'md'], 'Manuscript');
+      if (p) acceptPath(p);
+    } else {
+      inputRef.current?.click();
+    }
   };
 
   const runNow = async () => {
@@ -167,7 +192,7 @@ const PlagiarismCheckPage: React.FC<PlagiarismCheckPageProps> = ({ bridge }) => 
                     · {ACCEPT_HINT} · parsed on your device.
                   </p>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <Button variant="secondary" onClick={() => inputRef.current?.click()} data-testid="pick-file">
+                    <Button variant="secondary" onClick={() => void pickFile()} data-testid="pick-file">
                       Choose file
                     </Button>
                     {selected && <span className="gds-mono" data-testid="selected-name">{selected.name}</span>}
