@@ -199,10 +199,19 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
         ai_detect::analyze_stage1(&fast, stage1_cfg, extraction)
     }; // ← the 0.5B Stage-1 LM is DROPPED HERE (memory returned before phase B)
 
+    // SET 3 EXPERIMENT: nudge libmalloc to return the 0.5B's freed spans to the
+    // OS AFTER the drop and BEFORE the mini's courtesy check reads free memory
+    // (macOS keeps freed medium allocations in per-size magazines; see the fn).
+    #[cfg(test)]
+    crate::models::flow_probe::record("after_phase_a_drop");
+    crate::models::release_freed_memory_to_os();
+
     // PHASE B — the deep verifier (1.5B/7B). Its RAM courtesy check now reads the
     // memory FREED by phase A's drop — a LOWER bar than when the 0.5B was still
     // resident. Model scoped to this block, dropped at the brace.
     let tiered = {
+        #[cfg(test)]
+        crate::models::flow_probe::record("before_deep_check");
         // DEEP VERIFIER (Set E — un-idled): the DeepTier gate (unchanged) decides
         // which model the machine is entitled to; the RAM courtesy check guards
         // the actual load. `deep_kind` carries the honest outcome (incl. the two
@@ -395,6 +404,7 @@ mod tests {
     /// machine), no real network — fully deterministic, heuristic-only.
     #[test]
     fn flow_is_two_way_and_honest_with_or_without_ollama() {
+        let _guard = crate::models::flow_probe::LOCK.lock().unwrap();
         std::env::set_var("GAPLY_DISABLE_DEEP", "1");
         std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
         // Stage-1 LM absent → no candle load of the 0.5B (installed on dev machines).
@@ -468,6 +478,7 @@ mod tests {
     /// Non-English input downgrades the whole report, un-strippably.
     #[test]
     fn non_english_document_is_downgraded() {
+        let _guard = crate::models::flow_probe::LOCK.lock().unwrap();
         // Disable the deep tier + Stage-1 LM so no installed model loads candle here.
         std::env::set_var("GAPLY_DISABLE_DEEP", "1");
         std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
@@ -480,5 +491,24 @@ mod tests {
         assert_eq!(out.language.detected, "spanish");
         assert!(!out.language.calibration_reliable);
         assert!(out.language.note.contains("LOW-CONFIDENCE"));
+    }
+
+    /// SET 3: the pressure-relief nudge fires EXACTLY ONCE per run, AFTER the
+    /// phase-A drop and BEFORE the phase-B deep courtesy check — the exact event
+    /// sequence pins both the count and the order. Hermetic (no candle load).
+    #[test]
+    fn pressure_relief_fires_once_between_phase_a_drop_and_the_deep_check() {
+        let _guard = crate::models::flow_probe::LOCK.lock().unwrap();
+        std::env::set_var("GAPLY_DISABLE_DEEP", "1");
+        std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
+        std::env::set_var("GAPLY_STAGE1_LM_GGUF", "/nonexistent/stage1.gguf");
+        crate::models::flow_probe::reset();
+        let ex = extract_from_text("Introduction\n\nThe results show the method works well here.\n");
+        let _ = run_aicheck_flow(&ex);
+        assert_eq!(
+            crate::models::flow_probe::events(),
+            vec!["after_phase_a_drop", "pressure_relief", "before_deep_check"],
+            "pressure relief fires once, after the phase-A drop and before the deep check"
+        );
     }
 }

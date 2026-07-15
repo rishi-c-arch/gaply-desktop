@@ -362,6 +362,53 @@ pub fn enough_free_memory(resident_bytes: u64) -> bool {
     }
 }
 
+/// Test-only event recorder — pins the ORDER + count of `release_freed_memory_to_os`
+/// relative to the phase-A drop and the phase-B courtesy check in the flow.
+#[cfg(test)]
+pub mod flow_probe {
+    use std::sync::Mutex;
+    static EVENTS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+    /// Serializes the flow tests (they mutate process-global env + this log).
+    pub static LOCK: Mutex<()> = Mutex::new(());
+    pub fn record(e: &'static str) {
+        EVENTS.lock().unwrap().push(e);
+    }
+    pub fn reset() {
+        EVENTS.lock().unwrap().clear();
+    }
+    pub fn events() -> Vec<&'static str> {
+        EVENTS.lock().unwrap().clone()
+    }
+}
+
+/// EXPERIMENT (Set 3): nudge the system allocator to return freed pages to the
+/// OS. macOS libmalloc keeps freed medium-size allocations in its per-size-class
+/// magazines (it does NOT munmap them on `free`), so after a large model DROPS,
+/// its ~medium per-tensor `Vec<u8>` spans stay resident — the sequential-load
+/// gate measured ~515MB retained this way. `malloc_zone_pressure_relief(zone, 0)`
+/// asks the zone to release as much cached memory as it can back to the OS, so
+/// the NEXT courtesy check reads the reclaimed memory. No-op off macOS.
+pub fn release_freed_memory_to_os() {
+    #[cfg(test)]
+    flow_probe::record("pressure_relief");
+    #[cfg(target_os = "macos")]
+    {
+        // <malloc/malloc.h>:
+        //   malloc_zone_t *malloc_default_zone(void);
+        //   size_t malloc_zone_pressure_relief(malloc_zone_t *zone, size_t goal);
+        // `goal == 0` = release as much as possible; returns bytes released.
+        extern "C" {
+            fn malloc_default_zone() -> *mut libc::c_void;
+            fn malloc_zone_pressure_relief(zone: *mut libc::c_void, goal: usize) -> usize;
+        }
+        // SAFETY: `malloc_default_zone()` returns the process's always-present
+        // default zone (never null); `malloc_zone_pressure_relief` on it with
+        // goal 0 only releases cached free spans — no effect on live allocations.
+        let released = unsafe { malloc_zone_pressure_relief(malloc_default_zone(), 0) };
+        tracing::info!(released_bytes = released, "libmalloc pressure relief after model drop");
+    }
+}
+
 /// Minimum total RAM to run the SLM-1 7B deep pass: 15 GiB (framed to users as
 /// "16 GB"). Below this the deep pass is proven-fatal on 8GB (a candle-CPU swap
 /// death-spiral), so it is gated OFF and AI Check runs the fast heuristic
