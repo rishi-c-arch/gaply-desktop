@@ -947,6 +947,43 @@ fn candidate_rank(p: &FlaggedPassage) -> (u8, f64) {
     (s, p.mean_perplexity)
 }
 
+/// Progress + cancel hooks injected by the app (the flow is long — minutes on
+/// 8GB). Both optional and Tauri-free (`&dyn Fn`), so gaply-core stays portable:
+/// the app supplies an IPC-channel emitter + an `Arc<AtomicBool>`-backed cancel
+/// check; tests supply collectors. `Default` = neither (the wrapper's path).
+#[derive(Clone, Copy, Default)]
+pub struct RunHooks<'a> {
+    /// Called `(done, total)` after each candidate is processed — a smooth bar.
+    pub progress: Option<&'a dyn Fn(usize, usize)>,
+    /// Polled per candidate; `true` stops the loop promptly.
+    pub should_cancel: Option<&'a dyn Fn() -> bool>,
+}
+
+/// Which stage a cancel interrupted (for the honest cancel note).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalysisStage {
+    Stage1,
+    DeepVerify,
+}
+
+/// A user-cancelled run — carries how far it got so the app can say so honestly
+/// ("Cancelled during deep verification; 4 of 16 passages scored"). NEVER a
+/// partial analysis: a half-scored document isn't a valid signal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cancelled {
+    pub stage: AnalysisStage,
+    pub done: usize,
+    pub total: usize,
+}
+
+/// The result of a cancellable stage: the finished value, or a `Cancelled` stop
+/// (never a partial value).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Cancellable<T> {
+    Completed(T),
+    Cancelled(Cancelled),
+}
+
 /// The two candle models the flow uses are DISJOINT by construction:
 /// [`analyze_stage1`] (fast + the 0.5B) produces a [`Stage1Analysis`] the app
 /// can carry across a model DROP, and [`analyze_deep`] (the 1.5B/7B only)
@@ -955,8 +992,9 @@ fn candidate_rank(p: &FlaggedPassage) -> (u8, f64) {
 /// enforced at COMPILE TIME.
 ///
 /// This wrapper keeps the original single-call shape (both models alive at once)
-/// for tests/probes and any caller that doesn't need the sequential drop. PURE:
-/// models arrive via the trait; `deep: None` = heuristic-only, honestly labeled.
+/// for tests/probes and any caller that doesn't need the sequential drop or the
+/// progress/cancel hooks. PURE: models arrive via the trait; `deep: None` =
+/// heuristic-only, honestly labeled.
 pub fn analyze_tiered(
     fast: &dyn PerplexityModel,
     deep: Option<&dyn PerplexityModel>,
@@ -966,8 +1004,15 @@ pub fn analyze_tiered(
     deep_kind: DeepKind,
     stage1: Option<Stage1Config>,
 ) -> TieredAnalysis {
-    let s1 = analyze_stage1(fast, stage1, result);
-    analyze_deep(s1, deep, max_deep_passages, max_deep_tokens, deep_kind, result)
+    // No hooks → neither stage can cancel, so both always Complete.
+    let s1 = match analyze_stage1(fast, stage1, result, RunHooks::default()) {
+        Cancellable::Completed(s) => s,
+        Cancellable::Cancelled(_) => unreachable!("no cancel hook → never cancelled"),
+    };
+    match analyze_deep(s1, deep, max_deep_passages, max_deep_tokens, deep_kind, result, RunHooks::default()) {
+        Cancellable::Completed(t) => t,
+        Cancellable::Cancelled(_) => unreachable!("no cancel hook → never cancelled"),
+    }
 }
 
 /// The 0.5B-produced half of the analysis — the SEAM between phase A (the
@@ -996,7 +1041,8 @@ pub fn analyze_stage1(
     fast: &dyn PerplexityModel,
     stage1: Option<Stage1Config>,
     result: &crate::extract::ExtractionResult,
-) -> Stage1Analysis {
+    hooks: RunHooks,
+) -> Cancellable<Stage1Analysis> {
     // STAGE 1 — the fast pre-pass over the WHOLE document.
     let stage1_pre = analyze_passages(fast, result);
     let candidates_found = stage1_pre.passages.len();
@@ -1050,16 +1096,24 @@ pub fn analyze_stage1(
     };
 
     // Pair every candidate with its 0.5B features NOW, so phase B needs no
-    // Stage-1 model — the drop point.
-    let candidates: Vec<(FlaggedPassage, crate::ai_features::PassageFeatures)> = ordered
-        .into_iter()
-        .map(|p| {
-            let feats = features_for(&p.text);
-            (p, feats)
-        })
-        .collect();
+    // Stage-1 model — the drop point. Cancel + progress fire per candidate.
+    let total = ordered.len();
+    let mut candidates: Vec<(FlaggedPassage, crate::ai_features::PassageFeatures)> =
+        Vec::with_capacity(total);
+    for (i, p) in ordered.into_iter().enumerate() {
+        if let Some(cancel) = hooks.should_cancel {
+            if cancel() {
+                return Cancellable::Cancelled(Cancelled { stage: AnalysisStage::Stage1, done: i, total });
+            }
+        }
+        let feats = features_for(&p.text);
+        candidates.push((p, feats));
+        if let Some(prog) = hooks.progress {
+            prog(i + 1, total);
+        }
+    }
 
-    Stage1Analysis {
+    Cancellable::Completed(Stage1Analysis {
         fast_model: fast.name().to_string(),
         total_chars,
         candidates_found,
@@ -1068,7 +1122,7 @@ pub fn analyze_stage1(
         lm_perplexity,
         lm_perplexity_signal,
         norms_provisional,
-    }
+    })
 }
 
 /// PHASE B — the deep verifier over the phase-A candidates. Uses ONLY `deep`
@@ -1083,7 +1137,8 @@ pub fn analyze_deep(
     max_deep_tokens: usize,
     deep_kind: DeepKind,
     result: &crate::extract::ExtractionResult,
-) -> TieredAnalysis {
+    hooks: RunHooks,
+) -> Cancellable<TieredAnalysis> {
     let Stage1Analysis {
         fast_model,
         total_chars,
@@ -1095,6 +1150,7 @@ pub fn analyze_deep(
         norms_provisional,
     } = stage1;
 
+    let total = candidates.len();
     let mut passages: Vec<TieredPassage> = Vec::new();
     let mut deep_verified = 0usize;
     let cleared = 0usize; // never cleared any more (self-baseline removed)
@@ -1107,46 +1163,72 @@ pub fn analyze_deep(
             DEEP_VERIFIED_NOTE
         };
         let mut tokens_spent = 0usize;
-        for (p, feats) in candidates {
+        for (i, (p, feats)) in candidates.into_iter().enumerate() {
+            // CANCEL is checked BEFORE the expensive score_block — an 8-min run
+            // must stop within seconds, so per-passage (not per-phase).
+            if let Some(cancel) = hooks.should_cancel {
+                if cancel() {
+                    return Cancellable::Cancelled(Cancelled {
+                        stage: AnalysisStage::DeepVerify,
+                        done: deep_verified,
+                        total,
+                    });
+                }
+            }
             let p_tokens: usize = p.sentences.iter().map(|s| s.tokens).sum();
             // EARLY-STOP at the first Weak candidate (sorted strongest-first) +
             // the budget caps — unchanged.
             let within_budget = deep_done < max_deep_passages
                 && tokens_spent + p_tokens <= max_deep_tokens
                 && p.strength != PassageStrength::Weak;
-            if !within_budget {
+            if within_budget {
+                let (deep_ppl, deep_burst, deep_scores) = score_block(deep_model, &p.text);
+                tokens_spent += deep_scores.iter().map(|s| s.tokens).sum::<usize>();
+                deep_done += 1;
+                deep_verified += 1;
+                passages.push(TieredPassage {
+                    passage: FlaggedPassage {
+                        mean_perplexity: deep_ppl,
+                        burstiness: deep_burst,
+                        sentences: deep_scores,
+                        ..p
+                    },
+                    depth: AnalysisDepth::DeepVerified,
+                    depth_note: verified_note.to_string(),
+                    features: feats,
+                });
+            } else {
                 passages.push(TieredPassage {
                     passage: p,
                     depth: AnalysisDepth::HeuristicOnly,
                     depth_note: HEURISTIC_ONLY_NOTE.to_string(),
                     features: feats,
                 });
-                continue;
             }
-            let (deep_ppl, deep_burst, deep_scores) = score_block(deep_model, &p.text);
-            tokens_spent += deep_scores.iter().map(|s| s.tokens).sum::<usize>();
-            deep_done += 1;
-            deep_verified += 1;
-            passages.push(TieredPassage {
-                passage: FlaggedPassage {
-                    mean_perplexity: deep_ppl,
-                    burstiness: deep_burst,
-                    sentences: deep_scores,
-                    ..p
-                },
-                depth: AnalysisDepth::DeepVerified,
-                depth_note: verified_note.to_string(),
-                features: feats,
-            });
+            if let Some(prog) = hooks.progress {
+                prog(i + 1, total);
+            }
         }
     } else {
-        for (p, feats) in candidates {
+        for (i, (p, feats)) in candidates.into_iter().enumerate() {
+            if let Some(cancel) = hooks.should_cancel {
+                if cancel() {
+                    return Cancellable::Cancelled(Cancelled {
+                        stage: AnalysisStage::DeepVerify,
+                        done: deep_verified,
+                        total,
+                    });
+                }
+            }
             passages.push(TieredPassage {
                 passage: p,
                 depth: AnalysisDepth::HeuristicOnly,
                 depth_note: HEURISTIC_ONLY_NOTE.to_string(),
                 features: feats,
             });
+            if let Some(prog) = hooks.progress {
+                prog(i + 1, total);
+            }
         }
     }
 
@@ -1211,7 +1293,7 @@ pub fn analyze_deep(
         evidence: crate::ai_signals::document_evidence(&document_features, &stylo_norms),
     };
 
-    TieredAnalysis {
+    Cancellable::Completed(TieredAnalysis {
         fast_model,
         deep_model: deep.map(|d| d.name().to_string()),
         passages,
@@ -1233,7 +1315,7 @@ pub fn analyze_deep(
         coverage_note,
         language,
         disclaimer: AI_DISCLAIMER.to_string(),
-    }
+    })
 }
 
 /// SET E — the deep verifier as ONE ensemble FEATURE, never the gatekeeper.
@@ -2358,19 +2440,87 @@ mod tiered_tests {
         );
 
         // Two-phase: phase A in its OWN scope so the 0.5B drops before phase B.
+        // None hooks → both stages Complete (the wrapper's exact path).
         let s1 = {
             let lm_b = ConstSurprisal(3.519);
-            analyze_stage1(&fast(), Some(Stage1Config { lm: &lm_b, norm: &norm, provisional: true }), &ex)
+            match analyze_stage1(&fast(), Some(Stage1Config { lm: &lm_b, norm: &norm, provisional: true }), &ex, RunHooks::default()) {
+                Cancellable::Completed(s) => s,
+                Cancellable::Cancelled(_) => panic!("no cancel hook"),
+            }
         }; // lm_b is dropped HERE — analyze_deep cannot reference it.
-        let two_phase = analyze_deep(
-            s1, Some(&ScriptedDeep), DEFAULT_MAX_DEEP_PASSAGES, COMPACT_MAX_DEEP_TOKENS, DeepKind::Compact, &ex,
-        );
+        let two_phase = match analyze_deep(
+            s1, Some(&ScriptedDeep), DEFAULT_MAX_DEEP_PASSAGES, COMPACT_MAX_DEEP_TOKENS, DeepKind::Compact, &ex, RunHooks::default(),
+        ) {
+            Cancellable::Completed(t) => t,
+            Cancellable::Cancelled(_) => panic!("no cancel hook"),
+        };
 
         assert_eq!(wrapper, two_phase, "two-phase split == wrapper (behavior-preserving)");
         // Non-vacuous: the fixture really exercises both phases.
         assert!(wrapper.deep_verified >= 1, "deep phase ran");
         assert!(wrapper.lm_perplexity.is_some(), "stage-1 phase produced a signal");
         assert!(wrapper.coverage_note.contains("compact 1.5B"));
+    }
+
+    /// SET 1 (progress+cancel seam): the deep loop fires progress `(i, total)`
+    /// exactly once per candidate, in order, with a constant total.
+    #[test]
+    fn deep_progress_fires_per_passage_in_order() {
+        let ex = doc(&[
+            HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_UNMARKED, AI_UNMARKED, HUMAN_SENT,
+        ]);
+        let s1 = match analyze_stage1(&fast(), None, &ex, RunHooks::default()) {
+            Cancellable::Completed(s) => s,
+            Cancellable::Cancelled(_) => unreachable!(),
+        };
+        let n = s1.candidates.len();
+        assert!(n >= 1, "fixture has candidates");
+        let seen = std::cell::RefCell::new(Vec::<(usize, usize)>::new());
+        let prog = |done, total| seen.borrow_mut().push((done, total));
+        let hooks = RunHooks { progress: Some(&prog), should_cancel: None };
+        let _ = match analyze_deep(s1, Some(&ScriptedDeep), DEFAULT_MAX_DEEP_PASSAGES, COMPACT_MAX_DEEP_TOKENS, DeepKind::Compact, &ex, hooks) {
+            Cancellable::Completed(t) => t,
+            Cancellable::Cancelled(_) => unreachable!("no cancel hook"),
+        };
+        let expected: Vec<(usize, usize)> = (1..=n).map(|i| (i, n)).collect();
+        assert_eq!(seen.into_inner(), expected, "one tick per passage, in order, constant total");
+    }
+
+    /// SET 1: a scripted cancel stops the deep loop PROMPTLY (per-passage, not at
+    /// a phase boundary) and yields a distinct Cancelled outcome — NEVER a
+    /// partial/complete TieredAnalysis.
+    #[test]
+    fn deep_cancel_stops_promptly_and_yields_no_partial_result() {
+        // Four separated AI runs -> >= 3 candidates, so "stopped early" is testable.
+        let ex = doc(&[
+            HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_UNMARKED, AI_UNMARKED, HUMAN_SENT,
+            AI_MARKED, AI_MARKED, HUMAN_SENT, AI_UNMARKED, AI_UNMARKED, HUMAN_SENT,
+        ]);
+        let s1 = match analyze_stage1(&fast(), None, &ex, RunHooks::default()) {
+            Cancellable::Completed(s) => s,
+            Cancellable::Cancelled(_) => unreachable!(),
+        };
+        let total = s1.candidates.len();
+        assert!(total >= 3, "need >= 3 candidates to prove early stop, got {total}");
+        // false on the first poll, true on the second → cancel at the 2nd passage.
+        let calls = std::cell::Cell::new(0usize);
+        let cancel = || {
+            let n = calls.get();
+            calls.set(n + 1);
+            n >= 1
+        };
+        let hooks = RunHooks { progress: None, should_cancel: Some(&cancel) };
+        match analyze_deep(s1, Some(&ScriptedDeep), DEFAULT_MAX_DEEP_PASSAGES, COMPACT_MAX_DEEP_TOKENS, DeepKind::Compact, &ex, hooks) {
+            Cancellable::Cancelled(c) => {
+                assert_eq!(c.stage, AnalysisStage::DeepVerify);
+                assert!(c.done < total, "partial stop: done={} < total={total}", c.done);
+                assert_eq!(c.total, total);
+            }
+            Cancellable::Completed(_) => panic!("must be Cancelled — never a partial result"),
+        }
+        // PROMPT: the loop polled cancel exactly twice then stopped — it did NOT
+        // keep scanning the remaining candidates.
+        assert_eq!(calls.get(), 2, "stopped at the 2nd poll, not after all {total} passages");
     }
 
     /// SET E: the deep verifier places its re-scored passages against its OWN

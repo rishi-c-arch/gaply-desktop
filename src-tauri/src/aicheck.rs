@@ -196,7 +196,12 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
                 None
             }
         };
-        ai_detect::analyze_stage1(&fast, stage1_cfg, extraction)
+        // Set-1 seam is present but no hooks are wired yet (progress/cancel land
+        // in the next set); None hooks -> always Completed.
+        match ai_detect::analyze_stage1(&fast, stage1_cfg, extraction, ai_detect::RunHooks::default()) {
+            ai_detect::Cancellable::Completed(s) => s,
+            ai_detect::Cancellable::Cancelled(_) => unreachable!("no cancel hook wired"),
+        }
     }; // ← the 0.5B Stage-1 LM is DROPPED HERE (memory returned before phase B)
 
     // PHASE B — the deep verifier (1.5B/7B). Its RAM courtesy check now reads the
@@ -248,14 +253,18 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
         };
         let deep_norm = deep_norm_id.as_deref().and_then(|id| norms.for_model(id));
 
-        let mut tiered = ai_detect::analyze_deep(
+        let mut tiered = match ai_detect::analyze_deep(
             stage1_analysis,
             deep_lm.as_deref(),
             DEFAULT_MAX_DEEP_PASSAGES,
             deep_budget_tokens(deep_kind),
             deep_kind,
             extraction,
-        );
+            ai_detect::RunHooks::default(),
+        ) {
+            ai_detect::Cancellable::Completed(t) => t,
+            ai_detect::Cancellable::Cancelled(_) => unreachable!("no cancel hook wired"),
+        };
         // Place the deep verifier's re-scored passages against its own norm WHILE
         // the model is still alive (before the block drops it). No-op unless a
         // norm resolved (the 7B has none yet → verifies without a placement row).
