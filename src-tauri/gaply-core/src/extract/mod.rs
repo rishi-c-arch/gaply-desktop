@@ -175,14 +175,14 @@ Jones, P. (2019). Memory under deprivation. Cognitive Science, 5(1), 10-20.
         // narrative: "Smith et al. (2023)"
         assert!(r.citations.iter().any(|c| c.style == CitationStyle::Narrative
             && c.authors.contains("Smith")
-            && c.year == 2023));
+            && c.year == Some(2023)));
         // parenthetical: "(Jones, 2019; Brown & Lee, 2020)"
         assert!(r.citations.iter().any(|c| c.style == CitationStyle::Parenthetical
             && c.authors.contains("Jones")
-            && c.year == 2019));
+            && c.year == Some(2019)));
         assert!(r.citations.iter().any(|c| c.style == CitationStyle::Parenthetical
             && c.authors.contains("Brown")
-            && c.year == 2020));
+            && c.year == Some(2020)));
     }
 
     #[test]

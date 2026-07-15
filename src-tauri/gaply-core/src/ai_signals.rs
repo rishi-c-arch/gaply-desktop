@@ -220,16 +220,30 @@ pub fn citation_density(n_citations: usize, word_count: usize) -> f64 {
 
 /// Fraction of in-text citations in the DOMINANT style (1.0 = fully consistent).
 /// AI reference lists mix styles; humans are consistent. `None` if no citations.
+/// Counts all three styles (parenthetical / narrative / numeric) so a
+/// bracket-numeric paper reads as consistent, not mixed.
 pub fn citation_style_consistency(citations: &[Citation]) -> Option<f64> {
     if citations.is_empty() {
         return None;
     }
-    let paren = citations
-        .iter()
-        .filter(|c| c.style == CitationStyle::Parenthetical)
-        .count();
-    let dominant = paren.max(citations.len() - paren);
+    let mut counts = [0usize; 3];
+    for c in citations {
+        let i = match c.style {
+            CitationStyle::Parenthetical => 0,
+            CitationStyle::Narrative => 1,
+            CitationStyle::Numeric => 2,
+        };
+        counts[i] += 1;
+    }
+    let dominant = counts.iter().copied().max().unwrap_or(0);
     Some(dominant as f64 / citations.len() as f64)
+}
+
+/// Per-token in-text citation count: author-year markers count 1 each; a
+/// bracket-numeric marker counts once PER referenced number (`[1,2]` = 2,
+/// `[3–5]` = 3) — the decision's density semantics.
+pub fn in_text_citation_count(citations: &[Citation]) -> usize {
+    citations.iter().map(|c| c.numbers.len().max(1)).sum()
 }
 
 /// A syntactically-valid DOI: `10.NNNN/...` (registrant + suffix). Pure syntax —
@@ -343,7 +357,7 @@ pub fn document_features(
         mtld_deviation: mtld_val.map(|m| two_sided_deviation(m, h.mtld_median)),
         ngram_repetition: Some(ngram_repetition(&tokens, 3)),
         template_density: Some(template_density(&doc_text)),
-        citation_density: Some(citation_density(result.citations.len(), word_count)),
+        citation_density: Some(citation_density(in_text_citation_count(&result.citations), word_count)),
         citation_style_consistency: citation_style_consistency(&result.citations),
         doi_syntax_validity: doi_syntax_validity(&result.references),
         // The network lane (C2) fills this in the app crate; local build = None.
@@ -614,13 +628,29 @@ mod tests {
 
         assert_eq!(citation_density(4, 2000), 2.0);
         let loc = Location { section: crate::extract::SectionKind::Other, paragraph: 0 };
+        let ay = |style, authors: &str, year| Citation {
+            style, authors: authors.into(), year: Some(year), numbers: vec![], raw: "".into(), location: loc.clone(),
+        };
         let cites = vec![
-            Citation { style: CitationStyle::Parenthetical, authors: "A".into(), year: 2020, raw: "".into(), location: loc.clone() },
-            Citation { style: CitationStyle::Parenthetical, authors: "B".into(), year: 2021, raw: "".into(), location: loc.clone() },
-            Citation { style: CitationStyle::Narrative, authors: "C".into(), year: 2022, raw: "".into(), location: loc },
+            ay(CitationStyle::Parenthetical, "A", 2020),
+            ay(CitationStyle::Parenthetical, "B", 2021),
+            ay(CitationStyle::Narrative, "C", 2022),
         ];
         assert_eq!(citation_style_consistency(&cites), Some(2.0 / 3.0));
         assert!(citation_style_consistency(&[]).is_none());
+
+        // Per-token count: 2 author-year (1 each) + one [1,2] marker (2) = 4.
+        let numeric = Citation {
+            style: CitationStyle::Numeric, authors: "".into(), year: None, numbers: vec![1, 2],
+            raw: "[1,2]".into(), location: loc,
+        };
+        let mixed = vec![cites[0].clone(), cites[2].clone(), numeric];
+        assert_eq!(in_text_citation_count(&mixed), 4, "[1,2] contributes 2 tokens");
+        // A numeric-only doc reads as STYLE-consistent (all one style).
+        let all_numeric = vec![
+            Citation { style: CitationStyle::Numeric, authors: "".into(), year: None, numbers: vec![1], raw: "[1]".into(), location: Location { section: crate::extract::SectionKind::Other, paragraph: 0 } },
+        ];
+        assert_eq!(citation_style_consistency(&all_numeric), Some(1.0));
     }
 
     #[test]

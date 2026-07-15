@@ -37,6 +37,11 @@ pub struct Regexes {
     pub year_bare: Regex,
     pub narrative_cite: Regex,
     pub paren_group: Regex,
+    /// Candidate bracket group `[...]` — permissive capture of the inner text;
+    /// `citations::parse_numeric_group` decides authoritatively whether it is a
+    /// numeric in-text citation (digits/commas/ranges only) or noise
+    /// (`[Fig. 2]`, `[95% CI]`, `[data not shown]`).
+    pub bracket_numeric: Regex,
 }
 
 pub fn regexes() -> &'static Regexes {
@@ -81,6 +86,7 @@ pub fn regexes() -> &'static Regexes {
             )
             .unwrap(),
             paren_group: Regex::new(r"\(([^()]*(?:19|20)\d{2}[^()]*)\)").unwrap(),
+            bracket_numeric: Regex::new(r"\[([^\[\]]{1,80})\]").unwrap(),
         }
     })
 }
