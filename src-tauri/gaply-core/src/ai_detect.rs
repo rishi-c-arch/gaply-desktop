@@ -947,25 +947,56 @@ fn candidate_rank(p: &FlaggedPassage) -> (u8, f64) {
     (s, p.mean_perplexity)
 }
 
-/// Two-stage tiered analysis. PURE: both models arrive via the trait; the
-/// app crate decides which real models to load (and in what order — the
-/// one-at-a-time lifecycle lives there). `deep: None` = heuristic-only
-/// everywhere, honestly labeled (e.g. the deep model isn't installed).
+/// The two candle models the flow uses are DISJOINT by construction:
+/// [`analyze_stage1`] (fast + the 0.5B) produces a [`Stage1Analysis`] the app
+/// can carry across a model DROP, and [`analyze_deep`] (the 1.5B/7B only)
+/// consumes it. Neither signature can name the other's model, so the app's
+/// one-at-a-time lifecycle (drop the 0.5B before loading the verifier) is
+/// enforced at COMPILE TIME.
+///
+/// This wrapper keeps the original single-call shape (both models alive at once)
+/// for tests/probes and any caller that doesn't need the sequential drop. PURE:
+/// models arrive via the trait; `deep: None` = heuristic-only, honestly labeled.
 pub fn analyze_tiered(
     fast: &dyn PerplexityModel,
     deep: Option<&dyn PerplexityModel>,
     result: &crate::extract::ExtractionResult,
     max_deep_passages: usize,
     max_deep_tokens: usize,
-    // Which tier ran (or why none did) — drives the per-tier verified note and
-    // the coverage clause. Must agree with `deep`: `Full`/`Compact` with
-    // `Some`, `GatedLowRam`/`Absent` with `None`.
     deep_kind: DeepKind,
-    // The Stage-1 real-LM signal (root-cause fix). `None` = the pre-B2 behavior
-    // (proxy only). When `Some`, a proxy-independent smart sample is scored and
-    // placed SOFTLY against the absolute human norm.
     stage1: Option<Stage1Config>,
 ) -> TieredAnalysis {
+    let s1 = analyze_stage1(fast, stage1, result);
+    analyze_deep(s1, deep, max_deep_passages, max_deep_tokens, deep_kind, result)
+}
+
+/// The 0.5B-produced half of the analysis — the SEAM between phase A (the
+/// Stage-1 LM) and phase B (the deep verifier). Carries the ranked candidates
+/// each already paired with its 0.5B `PassageFeatures`, so phase B needs NO
+/// access to the Stage-1 model. Opaque: produced by [`analyze_stage1`], consumed
+/// by [`analyze_deep`]; between the two the app drops the 0.5B.
+pub struct Stage1Analysis {
+    fast_model: String,
+    total_chars: usize,
+    candidates_found: usize,
+    /// Ranked candidates, each with its PRECOMPUTED 0.5B features.
+    candidates: Vec<(FlaggedPassage, crate::ai_features::PassageFeatures)>,
+    stage1_configured: bool,
+    lm_perplexity: Option<f64>,
+    lm_perplexity_signal: Option<crate::stage1_norms::PerplexitySignal>,
+    norms_provisional: bool,
+}
+
+/// PHASE A — the fast pre-pass + the Stage-1 real-LM signal. Uses ONLY `fast`
+/// and (optionally) the Stage-1 LM in `stage1`. Has NO deep-model parameter, so
+/// the app can DROP the 0.5B the instant this returns, before loading the
+/// verifier. Every candidate's 0.5B features are computed here (same total 0.5B
+/// work as before — features were always computed for all candidates).
+pub fn analyze_stage1(
+    fast: &dyn PerplexityModel,
+    stage1: Option<Stage1Config>,
+    result: &crate::extract::ExtractionResult,
+) -> Stage1Analysis {
     // STAGE 1 — the fast pre-pass over the WHOLE document.
     let stage1_pre = analyze_passages(fast, result);
     let candidates_found = stage1_pre.passages.len();
@@ -1018,11 +1049,52 @@ pub fn analyze_tiered(
         f
     };
 
-    // STAGE 2 — the deep verifier. NON-DROPPING: the self-baseline clearing
-    // (H2b) is GONE — a passage is never dropped for matching the document's own
-    // (AI) baseline. (In the B2-interim flow the app passes `deep: None`, so this
-    // branch is exercised only by tests until the verifier-feature set re-adds
-    // the mini/7B with its own absolute per-model norms.)
+    // Pair every candidate with its 0.5B features NOW, so phase B needs no
+    // Stage-1 model — the drop point.
+    let candidates: Vec<(FlaggedPassage, crate::ai_features::PassageFeatures)> = ordered
+        .into_iter()
+        .map(|p| {
+            let feats = features_for(&p.text);
+            (p, feats)
+        })
+        .collect();
+
+    Stage1Analysis {
+        fast_model: fast.name().to_string(),
+        total_chars,
+        candidates_found,
+        candidates,
+        stage1_configured: stage1.is_some(),
+        lm_perplexity,
+        lm_perplexity_signal,
+        norms_provisional,
+    }
+}
+
+/// PHASE B — the deep verifier over the phase-A candidates. Uses ONLY `deep`
+/// (the 1.5B/7B). Has NO Stage-1 parameter: it consumes the PRECOMPUTED 0.5B
+/// features from `Stage1Analysis`, so the app loads the deep model only AFTER
+/// phase A dropped the 0.5B. NON-DROPPING: the H2b self-baseline clearing is gone
+/// — a passage is never dropped for matching the document's own (AI) baseline.
+pub fn analyze_deep(
+    stage1: Stage1Analysis,
+    deep: Option<&dyn PerplexityModel>,
+    max_deep_passages: usize,
+    max_deep_tokens: usize,
+    deep_kind: DeepKind,
+    result: &crate::extract::ExtractionResult,
+) -> TieredAnalysis {
+    let Stage1Analysis {
+        fast_model,
+        total_chars,
+        candidates_found,
+        candidates,
+        stage1_configured,
+        lm_perplexity,
+        lm_perplexity_signal,
+        norms_provisional,
+    } = stage1;
+
     let mut passages: Vec<TieredPassage> = Vec::new();
     let mut deep_verified = 0usize;
     let cleared = 0usize; // never cleared any more (self-baseline removed)
@@ -1035,7 +1107,7 @@ pub fn analyze_tiered(
             DEEP_VERIFIED_NOTE
         };
         let mut tokens_spent = 0usize;
-        for p in ordered {
+        for (p, feats) in candidates {
             let p_tokens: usize = p.sentences.iter().map(|s| s.tokens).sum();
             // EARLY-STOP at the first Weak candidate (sorted strongest-first) +
             // the budget caps — unchanged.
@@ -1043,7 +1115,6 @@ pub fn analyze_tiered(
                 && tokens_spent + p_tokens <= max_deep_tokens
                 && p.strength != PassageStrength::Weak;
             if !within_budget {
-                let feats = features_for(&p.text);
                 passages.push(TieredPassage {
                     passage: p,
                     depth: AnalysisDepth::HeuristicOnly,
@@ -1056,7 +1127,6 @@ pub fn analyze_tiered(
             tokens_spent += deep_scores.iter().map(|s| s.tokens).sum::<usize>();
             deep_done += 1;
             deep_verified += 1;
-            let feats = features_for(&p.text);
             passages.push(TieredPassage {
                 passage: FlaggedPassage {
                     mean_perplexity: deep_ppl,
@@ -1070,8 +1140,7 @@ pub fn analyze_tiered(
             });
         }
     } else {
-        for p in ordered {
-            let feats = features_for(&p.text);
+        for (p, feats) in candidates {
             passages.push(TieredPassage {
                 passage: p,
                 depth: AnalysisDepth::HeuristicOnly,
@@ -1112,7 +1181,7 @@ pub fn analyze_tiered(
                 _ => "the deep model was not available — those flags stay heuristic-only preliminary signals".to_string(),
             };
             // Stage-1 real-LM clause — honest about whether it produced a signal.
-            let stage1_clause = match (stage1.is_some(), lm_perplexity.is_some()) {
+            let stage1_clause = match (stage1_configured, lm_perplexity.is_some()) {
                 (true, true) => " Stage-1 language-model perplexity was computed over a proxy-independent sample and placed against human-academic norms (PRELIMINARY — norms not yet held-out-evaluated).",
                 (true, false) => " No scorable text for the Stage-1 language-model signal.",
                 (false, _) => "",
@@ -1143,7 +1212,7 @@ pub fn analyze_tiered(
     };
 
     TieredAnalysis {
-        fast_model: fast.name().to_string(),
+        fast_model,
         deep_model: deep.map(|d| d.name().to_string()),
         passages,
         total_chars,
@@ -2268,6 +2337,40 @@ mod tiered_tests {
             },
             notes: "test".into(),
         }
+    }
+
+    /// SEQUENTIAL SEAM (Set 1): the two-phase path — analyze_stage1, DROP the
+    /// 0.5B, then analyze_deep — is behavior-identical to the single-call
+    /// wrapper. Proves phase B needs NO Stage-1 model (it isn't even in
+    /// analyze_deep's signature — structural disjointness).
+    #[test]
+    fn two_phase_split_with_drop_between_equals_the_wrapper() {
+        let ex = doc(&[
+            HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_UNMARKED, AI_UNMARKED, HUMAN_SENT,
+        ]);
+        let norm = test_norm();
+
+        // Single-call wrapper (both models alive at once).
+        let lm_a = ConstSurprisal(3.519); // 2^3.519 ≈ 11.46
+        let wrapper = analyze_tiered(
+            &fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, COMPACT_MAX_DEEP_TOKENS,
+            DeepKind::Compact, Some(Stage1Config { lm: &lm_a, norm: &norm, provisional: true }),
+        );
+
+        // Two-phase: phase A in its OWN scope so the 0.5B drops before phase B.
+        let s1 = {
+            let lm_b = ConstSurprisal(3.519);
+            analyze_stage1(&fast(), Some(Stage1Config { lm: &lm_b, norm: &norm, provisional: true }), &ex)
+        }; // lm_b is dropped HERE — analyze_deep cannot reference it.
+        let two_phase = analyze_deep(
+            s1, Some(&ScriptedDeep), DEFAULT_MAX_DEEP_PASSAGES, COMPACT_MAX_DEEP_TOKENS, DeepKind::Compact, &ex,
+        );
+
+        assert_eq!(wrapper, two_phase, "two-phase split == wrapper (behavior-preserving)");
+        // Non-vacuous: the fixture really exercises both phases.
+        assert!(wrapper.deep_verified >= 1, "deep phase ran");
+        assert!(wrapper.lm_perplexity.is_some(), "stage-1 phase produced a signal");
+        assert!(wrapper.coverage_note.contains("compact 1.5B"));
     }
 
     /// SET E: the deep verifier places its re-scored passages against its OWN
