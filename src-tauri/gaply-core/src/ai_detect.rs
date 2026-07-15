@@ -906,6 +906,12 @@ pub struct TieredAnalysis {
     /// True while the shipped norms are the provisional Phase-1 seed (surfaced
     /// so the report can label the perplexity signal "preliminary").
     pub norms_provisional: bool,
+    /// Document-level cheap signals (Set C1) — stylometry, lexical diversity,
+    /// n-gram/template, local citation components. Data only.
+    pub document_features: crate::ai_features::DocumentFeatures,
+    /// The multi-signal Evidence Summary (Set D renders it). `value` stays
+    /// `None` until Phase 3 (honesty gate); `evidence` carries the signal rows.
+    pub document_score: crate::ai_features::DocumentScore,
     /// Honest coverage statement — ALWAYS present ("N candidates;
     /// deep-verified M; cleared K; L heuristic-only beyond the budget").
     pub coverage_note: String,
@@ -981,6 +987,9 @@ pub fn analyze_tiered(
     // gate). Min-token-gated (H5).
     let features_for = |text: &str| -> crate::ai_features::PassageFeatures {
         let mut f = crate::ai_features::PassageFeatures::default();
+        // Cheap per-passage signal (Set C1): de-biased template density — works at
+        // any length, independent of the Stage-1 model.
+        f.template_density = Some(crate::ai_signals::template_density(text));
         if let (Some(cfg), Some(median)) = (&stage1, doc_median_surprisal) {
             let toks = cfg.lm.tokenize(text);
             if toks.len() >= MIN_STAGE1_TOKENS {
@@ -1103,6 +1112,17 @@ pub fn analyze_tiered(
         .join(" ");
     let language = assess_language(&doc_text);
 
+    // Set C1: document-level cheap signals + the multi-signal Evidence Summary.
+    // No numeric score is produced — the honesty gate keeps `value` None until
+    // Phase 3; the evidence rows ship now.
+    let stylo_norms = crate::ai_signals::StyloNorms::bundled();
+    let document_features = crate::ai_signals::document_features(result, &stylo_norms);
+    let document_score = crate::ai_features::DocumentScore {
+        value: None,
+        band: None,
+        evidence: crate::ai_signals::document_evidence(&document_features, &stylo_norms),
+    };
+
     TieredAnalysis {
         fast_model: fast.name().to_string(),
         deep_model: deep.map(|d| d.name().to_string()),
@@ -1120,6 +1140,8 @@ pub fn analyze_tiered(
         lm_perplexity,
         lm_perplexity_signal,
         norms_provisional,
+        document_features,
+        document_score,
         coverage_note,
         language,
         disclaimer: AI_DISCLAIMER.to_string(),
@@ -1298,6 +1320,10 @@ pub struct ClassifiedAnalysis {
     pub lm_perplexity_signal: Option<crate::stage1_norms::PerplexitySignal>,
     /// True while the norms are the provisional Phase-1 seed.
     pub norms_provisional: bool,
+    /// Document-level cheap signals (Set C1), carried through.
+    pub document_features: crate::ai_features::DocumentFeatures,
+    /// The multi-signal Evidence Summary (Set D renders it); no numeric score yet.
+    pub document_score: crate::ai_features::DocumentScore,
     pub coverage_note: String,
     /// Passages successfully classified (each cost one model call).
     pub classified: usize,
@@ -1518,6 +1544,8 @@ pub fn classify_passages(
         lm_perplexity: analysis.lm_perplexity,
         lm_perplexity_signal: analysis.lm_perplexity_signal,
         norms_provisional: analysis.norms_provisional,
+        document_features: analysis.document_features.clone(),
+        document_score: analysis.document_score.clone(),
         coverage_note: analysis.coverage_note.clone(),
         classified,
         ai_generated_chars,

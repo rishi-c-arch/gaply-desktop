@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "provisional": true,
+  "human_academic": {
+    "sentence_length_cv_median": 0.434,
+    "function_word_ratio_median": 0.344,
+    "comma_per100_median": 3.70,
+    "mtld_median": 85.0
+  },
+  "notes": "PROVISIONAL Phase-1 stylometry reference. sentence_length_cv, function_word_ratio and comma_per100 MEASURED on the same 20 pre-2015 open-access arXiv abstracts as stage1_norms (calibration/human_academic/). mtld_median (85) is a LITERATURE-derived placeholder (human academic MTLD ~70-90; many seed abstracts fall below the 100-token MTLD gate) — replace with a measured, humanities-inclusive, non-native-inclusive value in Phase 3. These stylometric signals over-flag non-native writers, so they are SOFT and down-weighted (BiasTier::Stylometric); the reference exists only to convert a raw value into a soft evidence level, never a verdict."
+}

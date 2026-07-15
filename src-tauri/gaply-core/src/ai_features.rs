@@ -94,6 +94,35 @@ pub struct PassageFeatures {
     pub verifier: Option<VerifierFeature>,
 }
 
+/// Document-level cheap-signal features (Set C1). The typed home for signals
+/// that are about the WHOLE document (citation behaviour, document stylometry,
+/// lexical diversity) rather than a single passage. `None` = not computed. Set D
+/// renders `SignalEvidence` rows FROM these; the data stays separate from the
+/// presentation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DocumentFeatures {
+    /// Sentence-length coefficient of variation (burstiness). Low = uniform = AI.
+    pub sentence_length_cv: Option<f64>,
+    /// Fraction of tokens that are function words.
+    pub function_word_ratio: Option<f64>,
+    /// Em-dashes (U+2014) per 100 words — a weak, evadable, model-specific tell.
+    pub em_dash_per100: Option<f64>,
+    /// MTLD lexical diversity (≥100-token gate) and its two-sided deviation from
+    /// the human norm.
+    pub mtld: Option<f64>,
+    pub mtld_deviation: Option<f64>,
+    /// Repetition density (1 − distinct-3).
+    pub ngram_repetition: Option<f64>,
+    /// De-biased template-phrase density (≥2 distinct markers required).
+    pub template_density: Option<f64>,
+    /// In-text citations per 1000 words (the fair anchor's local component).
+    pub citation_density: Option<f64>,
+    /// Fraction of citations in the dominant style (1.0 = consistent).
+    pub citation_style_consistency: Option<f64>,
+    /// Fraction of DOI-bearing references with syntactically-valid DOIs.
+    pub doi_syntax_validity: Option<f64>,
+}
+
 /// Document-level score slot. `value` (0-100) is `None` until the trained
 /// calibrated ensemble ships (Phase 3 honesty gate); `evidence` ships from
 /// Phase 1; `band` is the confidence interval (Phase 3).

@@ -5,6 +5,7 @@
 
 pub mod ai_detect;
 pub mod ai_features;
+pub mod ai_signals;
 pub mod app_check;
 pub mod cache;
 pub mod chat_agent;
