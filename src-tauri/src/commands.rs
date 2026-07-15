@@ -305,7 +305,7 @@ pub struct AiCheckResult {
 /// CPU — so async + spawn_blocking, like `run_full_analysis`. Never fails for
 /// a missing model: degraded tiers come back as honest labels in the result.
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip(state, on_event))]
 pub async fn run_aicheck(
     state: State<'_, AppState>,
     path: String,
@@ -313,13 +313,38 @@ pub async fn run_aicheck(
     // default) keeps AI Check fully on-device; `true` is the AND of the user's
     // explicit AI-Check opt-in and the global cloud gate, decided by the caller.
     verify_citations: Option<bool>,
+    // Progress/terminal events streamed during the run (pipeline.rs precedent).
+    on_event: tauri::ipc::Channel<crate::aicheck::AiCheckEvent>,
 ) -> Result<AiCheckResult, GaplyError> {
+    use crate::aicheck::AiCheckEvent;
     let db = state.db.clone();
+    let cancel = state.aicheck_cancel.clone();
+    // RESET the cancel token per run — a cancelled run must not poison the next.
+    cancel.store(false, std::sync::atomic::Ordering::SeqCst);
     let verify_citations = verify_citations.unwrap_or(false);
     tokio::task::spawn_blocking(move || {
+        // Closed-channel-ignored: the frontend may have navigated away.
+        let emit = move |ev: AiCheckEvent| {
+            let _ = on_event.send(ev);
+        };
+        emit(AiCheckEvent::Extract);
         let text = docparse::parse_path(std::path::Path::new(&path))?;
         let extraction = extract::extract_from_text(&text);
-        let mut analysis = crate::aicheck::run_aicheck_flow(&extraction);
+        let should_cancel = || cancel.load(std::sync::atomic::Ordering::SeqCst);
+        let mut analysis =
+            match crate::aicheck::run_aicheck_flow(&extraction, &emit, &should_cancel) {
+                Ok(a) => a,
+                Err(c) => {
+                    // Honest terminal Cancelled event; the promise rejects with a
+                    // distinct code so the UI shows a benign stop, not an error.
+                    let stage = match c.stage {
+                        gaply_core::ai_detect::AnalysisStage::Stage1 => "stage-1 language model",
+                        gaply_core::ai_detect::AnalysisStage::DeepVerify => "deep verification",
+                    };
+                    emit(AiCheckEvent::Cancelled { stage: stage.into(), done: c.done, total: c.total });
+                    return Err(GaplyError::Cancelled);
+                }
+            };
         // C2: merge the citation-verification lane (metadata-only, cache-first).
         crate::aicheck::apply_citation_verification(
             &mut analysis, &extraction, &db, now_epoch(), verify_citations,
@@ -334,10 +359,30 @@ pub async fn run_aicheck(
                 text: s.paragraphs.join(" "),
             })
             .collect();
+        emit(AiCheckEvent::Report);
         Ok(AiCheckResult { analysis, sections })
     })
     .await
     .map_err(|e| GaplyError::Internal(format!("aicheck task panicked: {e}")))?
+}
+
+/// Flip the AI Check cancel token — the running `run_aicheck` (if any) polls it
+/// per-passage and stops promptly with an honest Cancelled state. Cheap + sync.
+#[tauri::command]
+pub fn cancel_aicheck(state: State<'_, AppState>) {
+    state.aicheck_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Pre-flight memory status for the AI Check page (re-checkable — the user closes
+/// apps, re-checks, and sees it improve). TRUTHFUL about the tier THIS machine
+/// can run (never implies freeing memory unlocks the 7B on an 8GB box).
+#[tauri::command]
+pub fn aicheck_memory_status() -> crate::aicheck::AiCheckMemoryStatus {
+    crate::aicheck::memory_status(
+        crate::models::free_memory_bytes(),
+        crate::models::total_physical_ram_bytes(),
+        crate::models::deep_tier_from_env(),
+    )
 }
 
 /// Verify one reference against the live connectors (CrossRef / OpenAlex /

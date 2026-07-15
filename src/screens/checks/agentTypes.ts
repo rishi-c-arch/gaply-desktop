@@ -232,6 +232,29 @@ export interface AiCheckResult {
   sections: AiCheckSection[];
 }
 
+/** Progress/terminal events streamed over the IPC Channel during a run (serde-
+ *  tagged, snake_case). `report` = success-terminal (result on the promise);
+ *  `cancelled` = stop-terminal (nothing renders — partial isn't a valid signal). */
+export type AiCheckEvent =
+  | { type: 'extract' }
+  | { type: 'pre_pass' }
+  | { type: 'stage1_lm' }
+  | { type: 'deep_verify'; done: number; total: number }
+  | { type: 'memory_skip'; model: string; reason: string }
+  | { type: 'report' }
+  | { type: 'cancelled'; stage: string; done: number; total: number };
+
+/** Pre-flight memory status (re-checkable). Truthful about the attainable tier. */
+export interface AiCheckMemoryStatus {
+  free_mb: number;
+  total_gb: number;
+  stage1_fits: boolean;
+  deep_fits: boolean;
+  tier_attainable: 'full_7b' | 'compact_1_5b' | 'heuristic_only';
+  tier_label: string;
+  hint: string;
+}
+
 /* --------------------------- Validation / Maths ------------------------- */
 
 export type RuleId =

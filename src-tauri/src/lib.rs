@@ -77,6 +77,8 @@ pub fn run() {
             commands::validate_manuscript,
             commands::detect_ai,
             commands::run_aicheck,
+            commands::cancel_aicheck,
+            commands::aicheck_memory_status,
             commands::check_plagiarism,
             commands::check_plagiarism_exact,
             commands::add_to_plagiarism_library,

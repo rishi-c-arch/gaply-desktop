@@ -1,3 +1,4 @@
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use gaply_core::db::ProjectStore;
@@ -15,6 +16,10 @@ pub struct AppState {
     pub db: Arc<Database>,
     pub store: Arc<dyn ProjectStore>,
     pub embedder: Arc<dyn Embedder>,
+    /// AI Check's cancel token — flipped `true` by `cancel_aicheck`, RESET to
+    /// `false` at the start of each `run_aicheck` so a cancelled run never
+    /// poisons the next one. Polled per-passage in the deep loop.
+    pub aicheck_cancel: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -24,6 +29,6 @@ impl AppState {
         store: Arc<dyn ProjectStore>,
         embedder: Arc<dyn Embedder>,
     ) -> Self {
-        Self { config, db, store, embedder }
+        Self { config, db, store, embedder, aicheck_cancel: Arc::new(AtomicBool::new(false)) }
     }
 }

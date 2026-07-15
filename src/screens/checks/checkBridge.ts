@@ -2,6 +2,8 @@
 // and returns its raw report. LOCAL only: passes a file PATH over Tauri IPC,
 // never manuscript bytes, and makes no network call.
 import {
+  AiCheckEvent,
+  AiCheckMemoryStatus,
   AiCheckResult,
   AiDetectionReport,
   ExactPlagiarismReport,
@@ -23,8 +25,17 @@ export interface CheckBridge {
   ai(path: string): Promise<AiDetectionReport>;
   /** Set 5: the two-way tiered AI Check (run_aicheck) — passages + honest %.
    *  `verifyCitations` (C2) is the AND of the AI-Check opt-in and the global
-   *  cloud gate; omitted/false keeps AI Check fully on-device. */
-  aicheck(path: string, verifyCitations?: boolean): Promise<AiCheckResult>;
+   *  cloud gate; omitted/false keeps AI Check fully on-device. `onEvent`
+   *  (progress+cancel Set 2) receives streamed events over the IPC Channel. */
+  aicheck(
+    path: string,
+    verifyCitations?: boolean,
+    onEvent?: (ev: AiCheckEvent) => void,
+  ): Promise<AiCheckResult>;
+  /** Flip the AI Check cancel token — the running analysis stops promptly. */
+  cancelAicheck(): Promise<void>;
+  /** Pre-flight memory status (re-checkable) — free vs needed + attainable tier. */
+  aicheckMemoryStatus(): Promise<AiCheckMemoryStatus>;
   validation(path: string, title?: string): Promise<StatsValidityReport>;
 }
 
@@ -51,8 +62,17 @@ export class TauriCheckBridge implements CheckBridge {
   ai(path: string) {
     return this.invoke<AiDetectionReport>('detect_ai', { path });
   }
-  aicheck(path: string, verifyCitations?: boolean) {
-    return this.invoke<AiCheckResult>('run_aicheck', { path, verifyCitations });
+  async aicheck(path: string, verifyCitations?: boolean, onEvent?: (ev: AiCheckEvent) => void) {
+    const { invoke, Channel } = await import('@tauri-apps/api/core');
+    const ch = new Channel<AiCheckEvent>();
+    if (onEvent) ch.onmessage = onEvent;
+    return invoke<AiCheckResult>('run_aicheck', { path, verifyCitations, onEvent: ch });
+  }
+  cancelAicheck() {
+    return this.invoke<void>('cancel_aicheck', {});
+  }
+  aicheckMemoryStatus() {
+    return this.invoke<AiCheckMemoryStatus>('aicheck_memory_status', {});
   }
   validation(path: string, title?: string) {
     return this.invoke<StatsValidityReport>('validate_manuscript', { path, title });
@@ -68,6 +88,9 @@ export function makeMockCheckBridge(reports: {
   library?: LibraryPaper[];
   ai?: AiDetectionReport;
   aicheck?: AiCheckResult;
+  /** Events the mock replays to `onEvent` before resolving (Set 2). */
+  aicheckEvents?: AiCheckEvent[];
+  memoryStatus?: AiCheckMemoryStatus;
   validation?: StatsValidityReport;
   onCall?: (cmd: string, path: string, verifyCitations?: boolean) => void;
 }): CheckBridge {
@@ -106,9 +129,27 @@ export function makeMockCheckBridge(reports: {
       reports.onCall?.('detect_ai', path);
       return reports.ai!;
     },
-    async aicheck(path, verifyCitations) {
+    async aicheck(path, verifyCitations, onEvent) {
       reports.onCall?.('run_aicheck', path, verifyCitations);
+      (reports.aicheckEvents ?? []).forEach((ev) => onEvent?.(ev));
       return reports.aicheck!;
+    },
+    async cancelAicheck() {
+      reports.onCall?.('cancel_aicheck', '');
+    },
+    async aicheckMemoryStatus() {
+      reports.onCall?.('aicheck_memory_status', '');
+      return (
+        reports.memoryStatus ?? {
+          free_mb: 4096,
+          total_gb: 8,
+          stage1_fits: true,
+          deep_fits: true,
+          tier_attainable: 'compact_1_5b',
+          tier_label: 'the compact 1.5B deep verifier',
+          hint: 'Ready — the compact 1.5B deep verifier will run.',
+        }
+      );
     },
     async validation(path) {
       reports.onCall?.('validate_manuscript', path);

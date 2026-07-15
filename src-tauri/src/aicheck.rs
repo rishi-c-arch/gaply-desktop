@@ -32,6 +32,84 @@ use gaply_core::ai_detect::{
     DEFAULT_MAX_CLASSIFIED_PASSAGES, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS,
 };
 use gaply_core::extract::ExtractionResult;
+use serde::Serialize;
+
+/// Progress/terminal events streamed to the frontend over the IPC `Channel`
+/// during a run (the pipeline.rs precedent). `Report` is terminal-success (the
+/// AiCheckResult returns on the command's promise); `Cancelled` is terminal-stop.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AiCheckEvent {
+    /// Parsing + section extraction.
+    Extract,
+    /// The fast heuristic pre-pass.
+    PrePass,
+    /// The Stage-1 real-LM (0.5B) signal.
+    Stage1Lm,
+    /// The deep verifier — per-passage progress.
+    DeepVerify { done: usize, total: usize },
+    /// A model was skipped THIS RUN (honest live note — memory, or a gate).
+    MemorySkip { model: String, reason: String },
+    /// Terminal: analysis complete; the result returns on the promise.
+    Report,
+    /// Terminal: the user cancelled; nothing is shown (partial != valid signal).
+    Cancelled { stage: String, done: usize, total: usize },
+}
+
+/// Pre-flight memory status for the AI Check page (re-checkable). TRUTHFUL about
+/// the tier THIS machine can run — never implies freeing memory unlocks a model
+/// the machine isn't entitled to (the structural `deep_tier` gate is honest).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AiCheckMemoryStatus {
+    pub free_mb: u64,
+    pub total_gb: f64,
+    pub stage1_fits: bool,
+    pub deep_fits: bool,
+    /// Machine-matchable: "full_7b" | "compact_1_5b" | "heuristic_only".
+    pub tier_attainable: String,
+    pub tier_label: String,
+    pub hint: String,
+}
+
+/// Pure builder (testable): maps free/total/tier into the honest status. `free`
+/// None (non-macOS / query failure) → treated as "fits" (allow), mirroring
+/// `enough_free_memory`.
+pub fn memory_status(
+    free: Option<u64>,
+    total: Option<u64>,
+    tier: crate::models::DeepTier,
+) -> AiCheckMemoryStatus {
+    const MB: u64 = 1024 * 1024;
+    const STAGE1: u64 = 400 * MB;
+    const MINI: u64 = 1600 * MB;
+    const FULL: u64 = 6 * 1024 * MB;
+    // Mirror enough_free_memory: free >= 1.5x need (None free → allow).
+    let fits = |need: u64| free.map(|f| f >= need.saturating_mul(3) / 2).unwrap_or(true);
+    let (tier_attainable, tier_label, deep_need) = match tier {
+        crate::models::DeepTier::Full7B => ("full_7b", "the full 7B deep verifier", Some(FULL)),
+        crate::models::DeepTier::Mini => ("compact_1_5b", "the compact 1.5B deep verifier", Some(MINI)),
+        crate::models::DeepTier::HeuristicOnly => ("heuristic_only", "the fast pre-pass only", None),
+    };
+    let stage1_fits = fits(STAGE1);
+    let deep_fits = deep_need.map(fits).unwrap_or(false);
+    // TRUTHFUL: the hint is keyed on the ATTAINABLE tier — on an 8GB machine
+    // `tier_label` is "the compact 1.5B", so we never tell them freeing memory
+    // unlocks the 7B (it can't; the deep_tier gate is structural, not motivational).
+    let hint = match (deep_need, deep_fits) {
+        (None, _) => "This machine runs the fast pre-pass only — no on-device deep model is available.".to_string(),
+        (Some(_), true) => format!("Ready — {tier_label} will run."),
+        (Some(_), false) => format!("Free up memory so {tier_label} can run — closing browsers usually frees the most."),
+    };
+    AiCheckMemoryStatus {
+        free_mb: free.map(|b| b / MB).unwrap_or(0),
+        total_gb: total.map(|b| (b as f64 / 1_073_741_824.0 * 10.0).round() / 10.0).unwrap_or(0.0),
+        stage1_fits,
+        deep_fits,
+        tier_attainable: tier_attainable.to_string(),
+        tier_label: tier_label.to_string(),
+        hint,
+    }
+}
 
 /// Per-tier deep-token budget: the compact 1.5B is ~15x faster than the 7B on
 /// the same hardware, so it gets the larger budget and still finishes fast;
@@ -147,8 +225,12 @@ pub fn apply_citation_verification(
 /// Run the full AI Check over an extraction. Never fails: an absent SLM-1
 /// means honest heuristic-only labels — degraded tiers are data in the
 /// result, not errors.
-#[tracing::instrument(skip(extraction), fields(sections = extraction.sections.len()))]
-pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
+#[tracing::instrument(skip(extraction, emit, should_cancel), fields(sections = extraction.sections.len()))]
+pub fn run_aicheck_flow(
+    extraction: &ExtractionResult,
+    emit: &dyn Fn(AiCheckEvent),
+    should_cancel: &dyn Fn() -> bool,
+) -> Result<ClassifiedAnalysis, ai_detect::Cancelled> {
     // Measured resident of the Stage-1 LM (Qwen2.5-0.5B Q4) ≈ 385MB → guard ~400MB.
     const STAGE1_LM_RESIDENT_BYTES: u64 = 400 * 1024 * 1024;
     // Compact 1.5B deep verifier (Q4 GGUF 986MB + candle repack cache/activations)
@@ -160,6 +242,8 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
     let mut stage1_skipped_for_memory = false;
     // Bundled norms (no model) — used by BOTH phases.
     let norms = gaply_core::stage1_norms::Stage1Norms::bundled();
+
+    emit(AiCheckEvent::PrePass);
 
     // PHASE A — fast pre-pass + the Stage-1 LM (0.5B). The model is scoped to
     // THIS block and DROPS at the closing brace, so its ~1GB working set returns
@@ -175,6 +259,10 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
         {
             stage1_skipped_for_memory = true;
             tracing::warn!("AI Check: Stage-1 LM skipped this run — insufficient free memory");
+            emit(AiCheckEvent::MemorySkip {
+                model: "Stage-1 language model".into(),
+                reason: "insufficient free memory this run".into(),
+            });
             None
         } else {
             crate::models::stage1_lm_model()
@@ -196,11 +284,13 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
                 None
             }
         };
-        // Set-1 seam is present but no hooks are wired yet (progress/cancel land
-        // in the next set); None hooks -> always Completed.
-        match ai_detect::analyze_stage1(&fast, stage1_cfg, extraction, ai_detect::RunHooks::default()) {
+        emit(AiCheckEvent::Stage1Lm);
+        // Cancel is wired (per-candidate in phase A); progress rides the deep
+        // loop below (the determinate bar). A cancelled phase A returns early.
+        let hooks = ai_detect::RunHooks { progress: None, should_cancel: Some(should_cancel) };
+        match ai_detect::analyze_stage1(&fast, stage1_cfg, extraction, hooks) {
             ai_detect::Cancellable::Completed(s) => s,
-            ai_detect::Cancellable::Cancelled(_) => unreachable!("no cancel hook wired"),
+            ai_detect::Cancellable::Cancelled(c) => return Err(c),
         }
     }; // ← the 0.5B Stage-1 LM is DROPPED HERE (memory returned before phase B)
 
@@ -253,6 +343,26 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
         };
         let deep_norm = deep_norm_id.as_deref().and_then(|id| norms.for_model(id));
 
+        // Honest LIVE note when the deep tier was skipped/gated this run.
+        match deep_kind {
+            ai_detect::DeepKind::SkippedLowMemory => emit(AiCheckEvent::MemorySkip {
+                model: "deep verifier".into(),
+                reason: "insufficient free memory this run".into(),
+            }),
+            ai_detect::DeepKind::GatedLowRam => emit(AiCheckEvent::MemorySkip {
+                model: "7B deep verifier".into(),
+                reason: "this machine has under ~16 GB of RAM".into(),
+            }),
+            _ => {}
+        }
+
+        // The determinate progress bar + per-passage cancel live here. Progress
+        // fires ONLY when a deep model actually ran (no DeepVerify spam for the
+        // instant heuristic-only pass when deep is None).
+        let deep_progress = |done, total| emit(AiCheckEvent::DeepVerify { done, total });
+        let progress: Option<&dyn Fn(usize, usize)> =
+            if deep_lm.is_some() { Some(&deep_progress) } else { None };
+        let hooks = ai_detect::RunHooks { progress, should_cancel: Some(should_cancel) };
         let mut tiered = match ai_detect::analyze_deep(
             stage1_analysis,
             deep_lm.as_deref(),
@@ -260,10 +370,10 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
             deep_budget_tokens(deep_kind),
             deep_kind,
             extraction,
-            ai_detect::RunHooks::default(),
+            hooks,
         ) {
             ai_detect::Cancellable::Completed(t) => t,
-            ai_detect::Cancellable::Cancelled(_) => unreachable!("no cancel hook wired"),
+            ai_detect::Cancellable::Cancelled(c) => return Err(c),
         };
         // Place the deep verifier's re-scored passages against its own norm WHILE
         // the model is still alive (before the block drops it). No-op unless a
@@ -287,7 +397,7 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
             "skipped this run: insufficient free memory",
         ));
     }
-    analysis
+    Ok(analysis)
 }
 
 #[cfg(test)]
@@ -298,6 +408,9 @@ mod tests {
     use crate::models::ollama_verify::scripted::scripted_ollama;
 
     use super::*;
+
+    /// Serializes the flow tests — they mutate process-global env (GAPLY_*).
+    static FLOW_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     // --- Set C2a: citation verification ---
     use gaply_core::extract::citations::Reference;
@@ -404,6 +517,7 @@ mod tests {
     /// machine), no real network — fully deterministic, heuristic-only.
     #[test]
     fn flow_is_two_way_and_honest_with_or_without_ollama() {
+        let _env = FLOW_ENV_LOCK.lock().unwrap();
         std::env::set_var("GAPLY_DISABLE_DEEP", "1");
         std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
         // Stage-1 LM absent → no candle load of the 0.5B (installed on dev machines).
@@ -417,7 +531,7 @@ mod tests {
         // --- Scenario 1: a live (scripted) Ollama must make NO difference —
         // the probe decision is that the classifier is never consulted.
         std::env::set_var("GAPLY_SLM2_ENDPOINT", scripted_ollama("{}"));
-        let out = run_aicheck_flow(&ex);
+        let out = run_aicheck_flow(&ex, &|_| {}, &|| false).expect("no cancel");
         assert!(out.deep_model.is_none(), "SLM-1 absent must be reported as None");
         assert!(!out.passages.is_empty(), "the AI-like run should flag");
         assert!(out
@@ -444,7 +558,7 @@ mod tests {
             format!("http://{}", l.local_addr().unwrap())
         };
         std::env::set_var("GAPLY_SLM2_ENDPOINT", dead);
-        let out2 = run_aicheck_flow(&ex);
+        let out2 = run_aicheck_flow(&ex, &|_| {}, &|| false).expect("no cancel");
         assert!(out2.classifier_model.is_none());
         assert_eq!(out2.classified, 0);
         assert!(out2.classification_note.contains("UNAVAILABLE"));
@@ -477,6 +591,7 @@ mod tests {
     /// Non-English input downgrades the whole report, un-strippably.
     #[test]
     fn non_english_document_is_downgraded() {
+        let _env = FLOW_ENV_LOCK.lock().unwrap();
         // Disable the deep tier + Stage-1 LM so no installed model loads candle here.
         std::env::set_var("GAPLY_DISABLE_DEEP", "1");
         std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
@@ -485,9 +600,92 @@ mod tests {
             "Introducción\n\nLos resultados de este estudio muestran que el método es eficaz y \
              los datos son consistentes con la interpretación de los hallazgos en la muestra.\n",
         );
-        let out = run_aicheck_flow(&ex);
+        let out = run_aicheck_flow(&ex, &|_| {}, &|| false).expect("no cancel");
         assert_eq!(out.language.detected, "spanish");
         assert!(!out.language.calibration_reliable);
         assert!(out.language.note.contains("LOW-CONFIDENCE"));
+    }
+
+    // --- Set 2: events, cancel/reset, memory status ---
+
+    fn hermetic_env() {
+        // No candle load of either model.
+        std::env::set_var("GAPLY_DISABLE_DEEP", "1");
+        std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/x.gguf");
+        std::env::set_var("GAPLY_SLM1_MINI_GGUF", "/nonexistent/x.gguf");
+        std::env::set_var("GAPLY_STAGE1_LM_GGUF", "/nonexistent/x.gguf");
+    }
+
+    #[test]
+    fn flow_emits_events_in_order() {
+        let _env = FLOW_ENV_LOCK.lock().unwrap();
+        hermetic_env();
+        let ex = extract_from_text("Introduction\n\nThe results show the method works well here.\n");
+        let seen = std::cell::RefCell::new(Vec::<AiCheckEvent>::new());
+        let emit = |ev: AiCheckEvent| seen.borrow_mut().push(ev);
+        let _ = run_aicheck_flow(&ex, &emit, &|| false).expect("no cancel");
+        // Hermetic (no models): PrePass then Stage1Lm; no DeepVerify (no model),
+        // no MemorySkip (models ABSENT, not skipped-for-memory). Extract/Report
+        // are emitted by the command, not the flow.
+        assert_eq!(seen.into_inner(), vec![AiCheckEvent::PrePass, AiCheckEvent::Stage1Lm]);
+    }
+
+    #[test]
+    fn cancel_token_flips_and_resets_across_runs() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        let _env = FLOW_ENV_LOCK.lock().unwrap();
+        hermetic_env();
+        // An AI-like doc so the pre-pass yields candidates (the cancel checkpoint).
+        let ex = extract_from_text(
+            "Introduction\n\nThe results show that the model can do the work well. \
+             The system is fast. The user can see the way to go now.\n",
+        );
+        let token = Arc::new(AtomicBool::new(false));
+        let sc = {
+            let t = token.clone();
+            move || t.load(Ordering::SeqCst)
+        };
+
+        // RUN 1 — cancel_aicheck flips the token → the flow yields Cancelled, NOT
+        // a partial result.
+        token.store(true, Ordering::SeqCst);
+        let r1 = run_aicheck_flow(&ex, &|_| {}, &sc);
+        assert!(matches!(r1, Err(_)), "flipped token → Cancelled (no partial result)");
+
+        // RUN 2 — run_aicheck resets the token first → the next run is NOT poisoned.
+        token.store(false, Ordering::SeqCst);
+        let r2 = run_aicheck_flow(&ex, &|_| {}, &sc);
+        assert!(r2.is_ok(), "reset token → the next run completes normally");
+    }
+
+    #[test]
+    fn memory_status_is_truthful_about_the_attainable_tier() {
+        use crate::models::DeepTier;
+        let gb = 1024 * 1024 * 1024u64;
+
+        // 8GB machine, tight memory, mini attainable → hint names the COMPACT 1.5B,
+        // NEVER the 7B (freeing memory can't unlock a tier this machine lacks).
+        let s = memory_status(Some(gb), Some(8 * gb), DeepTier::Mini);
+        assert_eq!(s.tier_attainable, "compact_1_5b");
+        assert!(!s.deep_fits, "1GB free < ~2.4GB needed for the mini");
+        assert!(s.hint.contains("compact 1.5B"), "hint: {}", s.hint);
+        assert!(!s.hint.contains("7B"), "must NOT dangle the 7B on an 8GB machine: {}", s.hint);
+        assert!(s.hint.contains("closing browsers"));
+
+        // Ample memory → deep fits, "Ready".
+        let s = memory_status(Some(4 * gb), Some(8 * gb), DeepTier::Mini);
+        assert!(s.deep_fits && s.hint.starts_with("Ready"), "hint: {}", s.hint);
+
+        // 16GB machine → the 7B is genuinely attainable; the hint may name it.
+        let s = memory_status(Some(2 * gb), Some(16 * gb), DeepTier::Full7B);
+        assert_eq!(s.tier_attainable, "full_7b");
+        assert!(s.hint.contains("7B"));
+
+        // No deep model → honest "fast pre-pass only", never a "free memory" nudge.
+        let s = memory_status(Some(gb), Some(8 * gb), DeepTier::HeuristicOnly);
+        assert_eq!(s.tier_attainable, "heuristic_only");
+        assert!(s.hint.contains("fast pre-pass only"));
+        assert!(!s.hint.contains("Free up memory"));
     }
 }

@@ -29,6 +29,11 @@ pub enum GaplyError {
 
     #[error("internal error: {0}")]
     Internal(String),
+
+    /// The user cancelled a long-running operation. A distinct code so the
+    /// frontend can treat it as a benign stop, not an error toast.
+    #[error("cancelled")]
+    Cancelled,
 }
 
 impl GaplyError {
@@ -43,6 +48,7 @@ impl GaplyError {
             GaplyError::Io(_) => "io",
             GaplyError::Keychain(_) => "keychain",
             GaplyError::Internal(_) => "internal",
+            GaplyError::Cancelled => "cancelled",
         }
     }
 }
