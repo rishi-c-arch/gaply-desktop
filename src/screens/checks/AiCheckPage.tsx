@@ -29,6 +29,8 @@ import { isFeatureEnabled } from '../../config/featureFlags';
 import AiCheckReport from './AiCheckReport';
 import { CheckBridge, TauriCheckBridge } from './checkBridge';
 import { AiCheckResult } from './agentTypes';
+import { mayUseCloud } from '../settings/settingsStore';
+import { readVerifyCitations, setVerifyCitations } from '../settings/settingsStore';
 
 export interface AiCheckPageProps {
   bridge?: CheckBridge;
@@ -41,6 +43,12 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
   const [result, setResult] = useState<AiCheckResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // C2: the AI-Check-owned opt-in (default OFF, persisted). The network lane runs
+  // only when this AND the global cloud gate are both on.
+  const [verifyCitations, setVerify] = useState<boolean>(() => readVerifyCitations());
+  // Whether the citation lane actually ran for the LAST run (for the interim
+  // acknowledgment line, until Set D renders the full Evidence Summary).
+  const [citationRan, setCitationRan] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const acceptFile = async (file: File) => {
@@ -83,8 +91,11 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
     if (!selected) return;
     setBusy(true);
     setError(null);
+    // AND-gate: the AI-Check opt-in AND the global cloud consent for the suite.
+    const doVerify = verifyCitations && mayUseCloud('citation_verification');
     try {
-      setResult(await b.aicheck(selected.path));
+      setResult(await b.aicheck(selected.path, doVerify));
+      setCitationRan(doVerify);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'check failed');
     } finally {
@@ -124,7 +135,9 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
                     Up to two analysis stages — Every manuscript receives a fast local pre-pass. On
                     devices with approximately 16 GB or more RAM, Gaply also performs an additional
                     local deep verification using the 7B model. Findings remain signals—not
-                    verdicts—and your manuscript never leaves your device. · {ACCEPT_HINT}
+                    verdicts—and your manuscript never leaves your device. Optionally, Gaply can check
+                    your reference list's details — author, year, title, DOI (never your text) —
+                    against public scholarly databases to flag citations it can't verify. · {ACCEPT_HINT}
                   </p>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     <Button variant="secondary" onClick={() => void pickFile()} data-testid="pick-file">
@@ -143,13 +156,32 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
                       {busy ? 'Running…' : 'Run check'}
                     </Button>
                   </div>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 12, fontSize: 13, color: 'var(--g-text-2)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={verifyCitations}
+                      data-testid="verify-citations"
+                      onChange={(e) => {
+                        setVerify(e.target.checked);
+                        setVerifyCitations(e.target.checked);
+                      }}
+                      style={{ marginTop: 2 }}
+                    />
+                    <span>
+                      Verify references online
+                      <span style={{ display: 'block', color: 'var(--g-text-3)', fontSize: 12 }}>
+                        Sends only citation details (author, year, title, DOI) to CrossRef/OpenAlex — never your
+                        manuscript. Off by default. You can turn this off anytime.
+                      </span>
+                    </span>
+                  </label>
                   {error && <p style={{ color: 'var(--g-flagged)', fontSize: 13 }} role="alert" data-testid="check-error">{error}</p>}
                 </Card>
                 <Link to="/app">← Back to Home</Link>
               </>
             ) : (
               <div data-testid="check-report">
-                <AiCheckReport result={result} />
+                <AiCheckReport result={result} citationVerificationRan={citationRan} />
                 <div style={{ marginTop: 12 }}>
                   <Button variant="ghost" onClick={() => setResult(null)} data-testid="run-another">
                     ← Run another

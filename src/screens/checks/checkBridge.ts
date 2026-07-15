@@ -21,8 +21,10 @@ export interface CheckBridge {
   libraryList(): Promise<LibraryPaper[]>;
   libraryRemove(id: number): Promise<boolean>;
   ai(path: string): Promise<AiDetectionReport>;
-  /** Set 5: the two-way tiered AI Check (run_aicheck) — passages + honest %. */
-  aicheck(path: string): Promise<AiCheckResult>;
+  /** Set 5: the two-way tiered AI Check (run_aicheck) — passages + honest %.
+   *  `verifyCitations` (C2) is the AND of the AI-Check opt-in and the global
+   *  cloud gate; omitted/false keeps AI Check fully on-device. */
+  aicheck(path: string, verifyCitations?: boolean): Promise<AiCheckResult>;
   validation(path: string, title?: string): Promise<StatsValidityReport>;
 }
 
@@ -49,8 +51,8 @@ export class TauriCheckBridge implements CheckBridge {
   ai(path: string) {
     return this.invoke<AiDetectionReport>('detect_ai', { path });
   }
-  aicheck(path: string) {
-    return this.invoke<AiCheckResult>('run_aicheck', { path });
+  aicheck(path: string, verifyCitations?: boolean) {
+    return this.invoke<AiCheckResult>('run_aicheck', { path, verifyCitations });
   }
   validation(path: string, title?: string) {
     return this.invoke<StatsValidityReport>('validate_manuscript', { path, title });
@@ -67,7 +69,7 @@ export function makeMockCheckBridge(reports: {
   ai?: AiDetectionReport;
   aicheck?: AiCheckResult;
   validation?: StatsValidityReport;
-  onCall?: (cmd: string, path: string) => void;
+  onCall?: (cmd: string, path: string, verifyCitations?: boolean) => void;
 }): CheckBridge {
   const library: LibraryPaper[] = reports.library ? [...reports.library] : [];
   let nextId = library.reduce((m, p) => Math.max(m, p.id), 0) + 1;
@@ -104,8 +106,8 @@ export function makeMockCheckBridge(reports: {
       reports.onCall?.('detect_ai', path);
       return reports.ai!;
     },
-    async aicheck(path) {
-      reports.onCall?.('run_aicheck', path);
+    async aicheck(path, verifyCitations) {
+      reports.onCall?.('run_aicheck', path, verifyCitations);
       return reports.aicheck!;
     },
     async validation(path) {

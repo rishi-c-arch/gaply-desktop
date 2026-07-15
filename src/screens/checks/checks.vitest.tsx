@@ -22,6 +22,7 @@ import {
   StatsValidityReport,
 } from './agentTypes';
 import { AICHECK_FIXTURE } from './aicheckFixture';
+import { readVerifyCitations, setVerifyCitations, setCloudConsent } from '../settings/settingsStore';
 
 // Exercise the RUNNABLE plagiarism path: mock the free-check flags ON (Set 1
 // ships them OFF — see featureGates.vitest.tsx for the coming-soon/OFF behavior).
@@ -121,6 +122,42 @@ describe('AI Check', () => {
     expect(screen.getByTestId('aicheck-highlight-1').getAttribute('data-tier')).toBe('assessed');
     // the paraphrase lane is honestly unavailable — never a fake category
     expect(screen.getByTestId('paraphrase-unavailable').textContent).toContain('UNAVAILABLE');
+  });
+});
+
+describe('AI Check — citation verification opt-in (C2b)', () => {
+  const box = () => screen.getByTestId('verify-citations') as HTMLInputElement;
+  const lastVerify = (calls: Array<[string, string, boolean | undefined]>) =>
+    calls.filter(([c]) => c === 'run_aicheck').at(-1)?.[2];
+
+  it('defaults OFF on fresh state — the run passes verifyCitations=false', async () => {
+    localStorage.clear();
+    const calls: Array<[string, string, boolean | undefined]> = [];
+    renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE, onCall: (c, p, v) => calls.push([c, p, v]) })} />);
+    expect(box().checked).toBe(false);
+    await runFile();
+    expect(lastVerify(calls)).toBe(false);
+  });
+
+  it('toggle ON + suite allowed → verifyCitations=true and persists', async () => {
+    localStorage.clear();
+    const calls: Array<[string, string, boolean | undefined]> = [];
+    renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE, onCall: (c, p, v) => calls.push([c, p, v]) })} />);
+    fireEvent.click(box());
+    expect(readVerifyCitations()).toBe(true); // persisted to gaply.settings.aicheck
+    await runFile();
+    expect(lastVerify(calls)).toBe(true);
+  });
+
+  it('AND-gate: opt-in ON but the global suite cloud is OFF → verifyCitations=false', async () => {
+    localStorage.clear();
+    setVerifyCitations(true); // AI-Check opt-in ON (persisted before mount)
+    setCloudConsent('citation_verification', false); // global kill-switch OFF
+    const calls: Array<[string, string, boolean | undefined]> = [];
+    renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE, onCall: (c, p, v) => calls.push([c, p, v]) })} />);
+    expect(box().checked).toBe(true); // control reflects the opt-in
+    await runFile();
+    expect(lastVerify(calls)).toBe(false); // AND-gate collapses to false
   });
 });
 

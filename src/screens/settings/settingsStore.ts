@@ -66,6 +66,30 @@ export function mayUseCloud(suite: CloudSuite, storage: Storage | null = default
   return readCloudConsent(storage)[suite];
 }
 
+/* --------------------------------- AI Check ------------------------------ */
+
+const AICHECK_KEY = 'gaply.settings.aicheck';
+
+/** AI Check's OWN opt-in (default OFF) to verify reference metadata online. AI
+ *  Check is on-device by default and NOT a CloudSuite; this is a distinct,
+ *  explicit switch that sends only citation details (author, year, title, DOI)
+ *  — never the manuscript. Gate the network lane on
+ *  `readVerifyCitations() && mayUseCloud('citation_verification')`. */
+export function readVerifyCitations(storage: Storage | null = defaultStorage()): boolean {
+  if (!storage) return false;
+  try {
+    const raw = storage.getItem(AICHECK_KEY);
+    if (!raw) return false;
+    return (JSON.parse(raw) as { verifyCitations?: boolean }).verifyCitations === true;
+  } catch {
+    return false;
+  }
+}
+
+export function setVerifyCitations(on: boolean, storage: Storage | null = defaultStorage()): void {
+  storage?.setItem(AICHECK_KEY, JSON.stringify({ verifyCitations: on }));
+}
+
 /* -------------------------------- appearance ----------------------------- */
 
 export interface Appearance {

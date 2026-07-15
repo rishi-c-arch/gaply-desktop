@@ -118,9 +118,13 @@ const PassageInspector: React.FC<{ passage: AiCheckPassage }> = ({ passage }) =>
 
 export interface AiCheckReportProps {
   result: AiCheckResult;
+  /** C2b interim: true when the online citation-verification lane ran for this
+   *  run. Surfaces one honest acknowledgment line until Set D renders the full
+   *  Evidence Summary (which replaces it). */
+  citationVerificationRan?: boolean;
 }
 
-const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
+const AiCheckReport: React.FC<AiCheckReportProps> = ({ result, citationVerificationRan }) => {
   const { analysis } = result;
   const [selected, setSelected] = useState<AiCheckPassage | null>(null);
   const { rendered, unplaced } = useMemo(() => segmentSections(result), [result]);
@@ -181,6 +185,11 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
         <p className="gds-jc__disclaimer" style={{ marginTop: 8 }} data-testid="coverage-note">
           {analysis.coverage_note}
         </p>
+        {citationVerificationRan && (
+          <p className="gds-jc__disclaimer" style={{ marginTop: 4 }} data-testid="citation-verification-note">
+            Reference verification: enabled for this run.
+          </p>
+        )}
       </Card>
 
       {/* two-way legend */}

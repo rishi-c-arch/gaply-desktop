@@ -20,7 +20,9 @@ import {
   mayUseCloud,
   readAppearance,
   readCloudConsent,
+  readVerifyCitations,
   setCloudConsent,
+  setVerifyCitations,
 } from './settingsStore';
 
 vi.mock('../../design-system/GaplyGlobe', () => ({
@@ -31,6 +33,25 @@ afterEach(cleanup);
 beforeEach(() => localStorage.clear());
 
 const USER = { user: { id: 'u1', email: 'me@lab.edu' } };
+
+describe('AI Check citation opt-in (gaply.settings.aicheck)', () => {
+  it('defaults OFF on fresh state', () => {
+    expect(readVerifyCitations()).toBe(false);
+  });
+  it('persists across reads (write → read true)', () => {
+    setVerifyCitations(true);
+    expect(readVerifyCitations()).toBe(true);
+    expect(JSON.parse(localStorage.getItem('gaply.settings.aicheck')!)).toMatchObject({ verifyCitations: true });
+    setVerifyCitations(false);
+    expect(readVerifyCitations()).toBe(false);
+  });
+  it('is independent of the CloudSuite consent (not a CloudSuite)', () => {
+    // turning the AI-Check opt-in on does not flip any CloudSuite
+    setVerifyCitations(true);
+    expect(mayUseCloud('citation_verification')).toBe(true); // suite still default-on/opt-out
+    expect(readVerifyCitations()).toBe(true);
+  });
+});
 function auth(session: any = USER): AuthService {
   return {
     signUp: vi.fn(), signIn: vi.fn(), signInWithOAuth: vi.fn(), signOut: vi.fn(),
