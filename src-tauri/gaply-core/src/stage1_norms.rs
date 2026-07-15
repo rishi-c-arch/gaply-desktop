@@ -62,7 +62,8 @@ impl Stage1Norms {
 
 /// A document's real-LM perplexity placed against the human norm — a SOFT,
 /// weighted signal, never a verdict (the human range overlaps AI).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PerplexitySignal {
     /// Below the human 10th percentile — unusually predictable (AI-leaning).
     UnusuallyPredictable,

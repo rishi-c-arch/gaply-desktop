@@ -742,8 +742,127 @@ pub const DEFAULT_MAX_DEEP_TOKENS: usize = 700;
 /// worst-case. Paired with the early-stop, real runs concentrate well under
 /// this. The 7B keeps DEFAULT_MAX_DEEP_TOKENS (700) — it is the slow tier.
 pub const COMPACT_MAX_DEEP_TOKENS: usize = 1500;
-/// Reference-sample budget (the document's own baseline).
-const REFERENCE_SAMPLE_TOKENS: usize = 300;
+
+/// Stage-1 real-LM smart-sample token budget. The Stage-1 LM (~0.5B) scores this
+/// many tokens of a PROXY-INDEPENDENT sample to compute the document perplexity
+/// signal — the root-cause fix for the false negative.
+///
+/// COST (the tuning knob): ~1500 tokens at the measured 0.5B throughput is
+/// **~28 s in RELEASE**. Under a `tauri dev` DEBUG build candle runs ~40x
+/// slower, so a dev run is **~19 min** — expected and NOT a regression (recorded
+/// here so it doesn't re-alarm). Revisit only with Set-D end-to-end timing.
+pub const SMART_SAMPLE_TOKENS: usize = 1500;
+/// Aim to spread the stratified part of the sample across ~this many sentences
+/// (section-covering), so proxy-blind text is always represented.
+const SMART_SAMPLE_STRATA: usize = 48;
+/// Min tokens for a span to yield a trustworthy Stage-1 perplexity (H5 guard):
+/// 1-2 token fragments give unstable surprisal.
+const MIN_STAGE1_TOKENS: usize = 3;
+
+/// Inputs for the Stage-1 real-LM signal: the small LM, its ABSOLUTE
+/// human-academic norm (per-model), and whether that norm is still the
+/// provisional Phase-1 seed. Supplied by the app (loads the model, resolves the
+/// per-model norm). Replaces the convicted self-referential baseline.
+pub struct Stage1Config<'a> {
+    pub lm: &'a dyn PerplexityModel,
+    pub norm: &'a crate::stage1_norms::ModelNorm,
+    pub provisional: bool,
+}
+
+/// PROXY-INDEPENDENT smart sample — the sentences the Stage-1 LM scores. The
+/// UNION of (b) the proxy's flagged candidate sentences (sensitivity where the
+/// proxy sees something) and (a) stratified, section-covering sentences (so
+/// proxy-blind AI prose is always represented — the H3 fix), deduped and capped
+/// at `budget_tokens` (approximate word count; the LM tokenizes exactly when
+/// scoring). Candidates come first so they're never crowded out.
+fn smart_sample(
+    result: &crate::extract::ExtractionResult,
+    candidates: &[FlaggedPassage],
+    budget_tokens: usize,
+) -> Vec<String> {
+    let mut ordered: Vec<String> = Vec::new();
+    for c in candidates {
+        for s in &c.sentences {
+            ordered.push(s.text.clone());
+        }
+    }
+    let mut all: Vec<String> = Vec::new();
+    for sec in &result.sections {
+        for s in split_sentences(&sec.paragraphs.join(" ")) {
+            if !s.trim().is_empty() {
+                all.push(s);
+            }
+        }
+    }
+    if !all.is_empty() {
+        let stride = (all.len() / SMART_SAMPLE_STRATA).max(1);
+        let mut i = 0;
+        while i < all.len() {
+            ordered.push(all[i].clone());
+            i += stride;
+        }
+    }
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut chosen: Vec<String> = Vec::new();
+    let mut approx = 0usize;
+    for s in ordered {
+        let t = s.trim().to_string();
+        if t.is_empty() || !seen.insert(t.clone()) {
+            continue;
+        }
+        let toks = t.split_whitespace().count();
+        if approx + toks > budget_tokens {
+            break;
+        }
+        approx += toks;
+        chosen.push(t);
+    }
+    chosen
+}
+
+/// Score a smart sample with the Stage-1 LM → (document log-space perplexity,
+/// median per-sentence surprisal in bits). The median anchors `self_consistency`
+/// (a passage's mean surprisal minus this). Min-token-gated (H5). `(0.0, 0.0)`
+/// if nothing scorable.
+fn stage1_score(lm: &dyn PerplexityModel, sample: &[String]) -> (f64, f64) {
+    // DOCUMENT perplexity: score the JOINED sample with strided windows so
+    // cross-sentence CONTEXT is preserved — this MUST match how the absolute
+    // norms were measured (whole-text scoring). Per-sentence isolation inflates
+    // perplexity (each sentence's first tokens have no left-context) and would
+    // mis-place the document against the norm.
+    let joined = sample.join(" ");
+    let doc_toks = lm.tokenize(&joined);
+    let doc_ppl = if doc_toks.len() >= MIN_STAGE1_TOKENS {
+        document_perplexity(&strided_surprisals(lm, &doc_toks, lm.context_tokens(), lm.stride()))
+    } else {
+        0.0
+    };
+    if doc_toks.len() < MIN_STAGE1_TOKENS {
+        return (0.0, 0.0);
+    }
+    // Per-sentence mean surprisals for the self_consistency anchor (a RELATIVE
+    // feature — every passage uses the same per-span method, so the difference is
+    // meaningful regardless of the isolation offset).
+    let mut sent_means: Vec<f64> = Vec::new();
+    for s in sample {
+        let toks = lm.tokenize(s);
+        if toks.len() < MIN_STAGE1_TOKENS {
+            continue;
+        }
+        let surp = lm.surprisals(&toks);
+        if !surp.is_empty() {
+            sent_means.push(surp.iter().map(|&x| x as f64).sum::<f64>() / surp.len() as f64);
+        }
+    }
+    let median = if sent_means.is_empty() {
+        0.0
+    } else {
+        sent_means.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        sent_means[sent_means.len() / 2]
+    };
+    (doc_ppl, median)
+}
 
 /// A passage with its tier label. Flattened so the wire shape is the Set-2
 /// passage plus `depth` + `depth_note`.
@@ -754,6 +873,11 @@ pub struct TieredPassage {
     pub depth: AnalysisDepth,
     /// REQUIRED tier caution. Never empty.
     pub depth_note: String,
+    /// Multi-signal features for this passage (Phase 1). `Default` = none
+    /// computed; the Stage-1 sample populates `lm_perplexity`/`self_consistency`
+    /// where it scored this passage; cheap signals fill the rest in later sets.
+    #[serde(default)]
+    pub features: crate::ai_features::PassageFeatures,
 }
 
 /// The two-stage result. The honest % (Set 2 semantics) computes over the
@@ -772,6 +896,16 @@ pub struct TieredAnalysis {
     pub candidates_found: usize,
     pub deep_verified: usize,
     pub cleared_by_deep: usize,
+    /// Stage-1 real-LM document perplexity (log-space), computed on a
+    /// proxy-independent smart sample. `None` when the Stage-1 LM wasn't
+    /// supplied. The root-cause replacement for the frequency proxy.
+    pub lm_perplexity: Option<f64>,
+    /// Where `lm_perplexity` falls in the human-academic norm — a SOFT signal,
+    /// never a verdict (the human range overlaps AI). `None` when no LM / no norm.
+    pub lm_perplexity_signal: Option<crate::stage1_norms::PerplexitySignal>,
+    /// True while the shipped norms are the provisional Phase-1 seed (surfaced
+    /// so the report can label the perplexity signal "preliminary").
+    pub norms_provisional: bool,
     /// Honest coverage statement — ALWAYS present ("N candidates;
     /// deep-verified M; cleared K; L heuristic-only beyond the budget").
     pub coverage_note: String,
@@ -793,40 +927,6 @@ fn candidate_rank(p: &FlaggedPassage) -> (u8, f64) {
     (s, p.mean_perplexity)
 }
 
-/// The document's own baseline: the LEAST-suspicious sentences (highest
-/// heuristic perplexity), joined up to the reference token budget.
-fn reference_sample(result: &crate::extract::ExtractionResult, fast: &dyn PerplexityModel) -> String {
-    let mut scored: Vec<SentenceScore> = Vec::new();
-    for sec in &result.sections {
-        let text = sec.paragraphs.join(" ");
-        if text.trim().is_empty() {
-            continue;
-        }
-        let (_, _, s) = score_block(fast, &text);
-        scored.extend(s);
-    }
-    scored.sort_by(|a, b| b.perplexity.partial_cmp(&a.perplexity).unwrap_or(std::cmp::Ordering::Equal));
-    let mut out = String::new();
-    let mut tokens = 0usize;
-    // DEDUPE: a sentence repeated verbatim becomes trivially predictable to
-    // a real model once it has left-context (each repetition is near-free),
-    // which would crush the baseline perplexity and make it unbeatable —
-    // measured on the Set-3 probe. Unique sentences only.
-    let mut seen: HashSet<String> = HashSet::new();
-    for s in scored {
-        if !seen.insert(s.text.clone()) {
-            continue;
-        }
-        if tokens + s.tokens > REFERENCE_SAMPLE_TOKENS {
-            break;
-        }
-        tokens += s.tokens;
-        out.push_str(&s.text);
-        out.push(' ');
-    }
-    out
-}
-
 /// Two-stage tiered analysis. PURE: both models arrive via the trait; the
 /// app crate decides which real models to load (and in what order — the
 /// one-at-a-time lifecycle lives there). `deep: None` = heuristic-only
@@ -841,89 +941,119 @@ pub fn analyze_tiered(
     // the coverage clause. Must agree with `deep`: `Full`/`Compact` with
     // `Some`, `GatedLowRam`/`Absent` with `None`.
     deep_kind: DeepKind,
+    // The Stage-1 real-LM signal (root-cause fix). `None` = the pre-B2 behavior
+    // (proxy only). When `Some`, a proxy-independent smart sample is scored and
+    // placed SOFTLY against the absolute human norm.
+    stage1: Option<Stage1Config>,
 ) -> TieredAnalysis {
     // STAGE 1 — the fast pre-pass over the WHOLE document.
-    let stage1 = analyze_passages(fast, result);
-    let candidates_found = stage1.passages.len();
-    let total_chars = stage1.total_chars;
+    let stage1_pre = analyze_passages(fast, result);
+    let candidates_found = stage1_pre.passages.len();
+    let total_chars = stage1_pre.total_chars;
 
-    let mut ordered: Vec<FlaggedPassage> = stage1.passages;
+    let mut ordered: Vec<FlaggedPassage> = stage1_pre.passages;
     ordered.sort_by(|a, b| {
         candidate_rank(a)
             .partial_cmp(&candidate_rank(b))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // STAGE 2 — deep re-score of the top candidates, within budget.
+    // STAGE-1 REAL-LM SIGNAL (root-cause fix): score a PROXY-INDEPENDENT smart
+    // sample and place its log-space document perplexity against the ABSOLUTE
+    // human-academic norm — a SOFT signal, never a gate (the human range
+    // overlaps AI). This is the replacement for the convicted self-baseline.
+    let (lm_perplexity, lm_perplexity_signal, doc_median_surprisal, norms_provisional) =
+        if let Some(cfg) = &stage1 {
+            let sample = smart_sample(result, &ordered, SMART_SAMPLE_TOKENS);
+            if sample.is_empty() {
+                (None, None, None, cfg.provisional)
+            } else {
+                let (ppl, median) = stage1_score(cfg.lm, &sample);
+                (Some(ppl), Some(cfg.norm.signal(ppl)), Some(median), cfg.provisional)
+            }
+        } else {
+            (None, None, None, false)
+        };
+
+    // Per-passage features: `self_consistency` = passage mean surprisal minus the
+    // document's median surprisal (bits; negative = more predictable than the
+    // document's own norm — the former self-baseline, now a FEATURE, never a
+    // gate). Min-token-gated (H5).
+    let features_for = |text: &str| -> crate::ai_features::PassageFeatures {
+        let mut f = crate::ai_features::PassageFeatures::default();
+        if let (Some(cfg), Some(median)) = (&stage1, doc_median_surprisal) {
+            let toks = cfg.lm.tokenize(text);
+            if toks.len() >= MIN_STAGE1_TOKENS {
+                let surp = cfg.lm.surprisals(&toks);
+                if !surp.is_empty() {
+                    let mean = surp.iter().map(|&x| x as f64).sum::<f64>() / surp.len() as f64;
+                    f.self_consistency = Some(mean - median);
+                    f.lm_perplexity = Some(document_perplexity(&surp));
+                }
+            }
+        }
+        f
+    };
+
+    // STAGE 2 — the deep verifier. NON-DROPPING: the self-baseline clearing
+    // (H2b) is GONE — a passage is never dropped for matching the document's own
+    // (AI) baseline. (In the B2-interim flow the app passes `deep: None`, so this
+    // branch is exercised only by tests until the verifier-feature set re-adds
+    // the mini/7B with its own absolute per-model norms.)
     let mut passages: Vec<TieredPassage> = Vec::new();
     let mut deep_verified = 0usize;
-    let mut cleared = 0usize;
+    let cleared = 0usize; // never cleared any more (self-baseline removed)
     let mut deep_done = 0usize;
 
     if let Some(deep_model) = deep {
-        // Per-tier verified caution: the compact 1.5B is honestly labelled as a
-        // lighter verifier than the 7B.
         let verified_note = if matches!(deep_kind, DeepKind::Compact) {
             DEEP_VERIFIED_MINI_NOTE
         } else {
             DEEP_VERIFIED_NOTE
         };
-        // Self-calibrated baseline: the document's own least-suspicious prose.
-        let reference = reference_sample(result, fast);
-        let (ref_ppl, _, ref_scores) = score_block(deep_model, &reference);
-        let have_reference = !ref_scores.is_empty();
-        let mut tokens_spent: usize =
-            ref_scores.iter().map(|s| s.tokens).sum();
-
+        let mut tokens_spent = 0usize;
         for p in ordered {
             let p_tokens: usize = p.sentences.iter().map(|s| s.tokens).sum();
-            // EARLY-STOP: candidates are sorted strongest-first, so the first
-            // Weak-strength passage means every remaining one is Weak too (a
-            // single flagged sentence — exactly where detection is least
-            // reliable). Don't spend deep tokens on clearly-weak signals; they
-            // stay honestly heuristic-only. This concentrates the budget on the
-            // genuinely ambiguous Strong/Moderate passages.
+            // EARLY-STOP at the first Weak candidate (sorted strongest-first) +
+            // the budget caps — unchanged.
             let within_budget = deep_done < max_deep_passages
                 && tokens_spent + p_tokens <= max_deep_tokens
-                && have_reference
                 && p.strength != PassageStrength::Weak;
             if !within_budget {
+                let feats = features_for(&p.text);
                 passages.push(TieredPassage {
                     passage: p,
                     depth: AnalysisDepth::HeuristicOnly,
                     depth_note: HEURISTIC_ONLY_NOTE.to_string(),
+                    features: feats,
                 });
                 continue;
             }
             let (deep_ppl, deep_burst, deep_scores) = score_block(deep_model, &p.text);
             tokens_spent += deep_scores.iter().map(|s| s.tokens).sum::<usize>();
             deep_done += 1;
-            if !deep_scores.is_empty() && deep_ppl < ref_ppl {
-                // Confirmed: more predictable than the document's own
-                // baseline. Carry the DEEP scores as the evidence.
-                deep_verified += 1;
-                passages.push(TieredPassage {
-                    passage: FlaggedPassage {
-                        mean_perplexity: deep_ppl,
-                        burstiness: deep_burst,
-                        sentences: deep_scores,
-                        ..p
-                    },
-                    depth: AnalysisDepth::DeepVerified,
-                    depth_note: verified_note.to_string(),
-                });
-            } else {
-                // CLEARED: the deep model puts this at/above the document's
-                // own baseline — the false-positive reduction working.
-                cleared += 1;
-            }
+            deep_verified += 1;
+            let feats = features_for(&p.text);
+            passages.push(TieredPassage {
+                passage: FlaggedPassage {
+                    mean_perplexity: deep_ppl,
+                    burstiness: deep_burst,
+                    sentences: deep_scores,
+                    ..p
+                },
+                depth: AnalysisDepth::DeepVerified,
+                depth_note: verified_note.to_string(),
+                features: feats,
+            });
         }
     } else {
         for p in ordered {
+            let feats = features_for(&p.text);
             passages.push(TieredPassage {
                 passage: p,
                 depth: AnalysisDepth::HeuristicOnly,
                 depth_note: HEURISTIC_ONLY_NOTE.to_string(),
+                features: feats,
             });
         }
     }
@@ -937,17 +1067,28 @@ pub fn analyze_tiered(
         .map(|s| s.text.chars().count())
         .sum();
     let heuristic_only = passages.len() - deep_verified;
-    let coverage_note = match deep {
-        // Compact tier: name the lighter verifier and point higher-RAM machines
-        // at the full 7B (approved wording, verbatim clause).
-        Some(_) if matches!(deep_kind, DeepKind::Compact) => format!(
-            "{candidates_found} candidate passage(s) from the fast pre-pass; {deep_verified} deep-verified by the compact 1.5B on-device model (higher-RAM machines use the full 7B); cleared {cleared} as document-baseline; {heuristic_only} remain heuristic-only (analysis budget: {max_deep_passages} passages / {max_deep_tokens} tokens)"
+    // The self-baseline "cleared" clause is GONE (nothing is cleared). When the
+    // Stage-1 real-LM signal ran, the note says so honestly and flags it
+    // PRELIMINARY (provisional norms) — no silent limbo about the deferred deep tier.
+    let coverage_note = match (deep, &stage1) {
+        // B2-interim: Stage-1 signal computed, deep verifier deferred (not "unavailable").
+        (None, Some(_)) if lm_perplexity.is_some() => format!(
+            "{candidates_found} candidate passage(s) from the fast pre-pass; Stage-1 language-model perplexity computed over a proxy-independent sample and placed against human-academic norms (PRELIMINARY — norms not yet held-out-evaluated); deep verification deferred"
         ),
-        Some(_) => format!(
-            "{candidates_found} candidate passage(s) from the fast pre-pass; deep-verified {deep_verified}; cleared {cleared} as document-baseline; {heuristic_only} remain heuristic-only (analysis budget: {max_deep_passages} passages / {max_deep_tokens} tokens)"
+        // Stage-1 LM available but nothing scorable (e.g. an unstructured document
+        // whose text never lands in a section) — honest about that.
+        (None, Some(_)) => format!(
+            "{candidates_found} candidate passage(s) from the fast pre-pass; no scorable text for the Stage-1 language-model signal; deep verification deferred"
         ),
-        None if matches!(deep_kind, DeepKind::GatedLowRam) => DEEP_GATED_LOW_RAM_NOTE.to_string(),
-        None => format!(
+        // Deep verifier ran (non-dropping) — exercised by the verifier-feature set.
+        (Some(_), _) if matches!(deep_kind, DeepKind::Compact) => format!(
+            "{candidates_found} candidate passage(s) from the fast pre-pass; {deep_verified} deep-verified by the compact 1.5B on-device model (higher-RAM machines use the full 7B); {heuristic_only} remain heuristic-only (analysis budget: {max_deep_passages} passages / {max_deep_tokens} tokens)"
+        ),
+        (Some(_), _) => format!(
+            "{candidates_found} candidate passage(s) from the fast pre-pass; deep-verified {deep_verified}; {heuristic_only} remain heuristic-only (analysis budget: {max_deep_passages} passages / {max_deep_tokens} tokens)"
+        ),
+        (None, None) if matches!(deep_kind, DeepKind::GatedLowRam) => DEEP_GATED_LOW_RAM_NOTE.to_string(),
+        (None, None) => format!(
             "{candidates_found} candidate passage(s) from the fast pre-pass; the deep model was not available — ALL flags are heuristic-only preliminary signals"
         ),
     };
@@ -976,6 +1117,9 @@ pub fn analyze_tiered(
         candidates_found,
         deep_verified,
         cleared_by_deep: cleared,
+        lm_perplexity,
+        lm_perplexity_signal,
+        norms_provisional,
         coverage_note,
         language,
         disclaimer: AI_DISCLAIMER.to_string(),
@@ -1146,6 +1290,14 @@ pub struct ClassifiedAnalysis {
     pub candidates_found: usize,
     pub deep_verified: usize,
     pub cleared_by_deep: usize,
+    /// Stage-1 real-LM document perplexity (log-space), carried through from the
+    /// tiered analysis. `None` when no Stage-1 LM ran.
+    pub lm_perplexity: Option<f64>,
+    /// Soft placement of `lm_perplexity` in the human-academic norm — never a
+    /// verdict (the human range overlaps AI).
+    pub lm_perplexity_signal: Option<crate::stage1_norms::PerplexitySignal>,
+    /// True while the norms are the provisional Phase-1 seed.
+    pub norms_provisional: bool,
     pub coverage_note: String,
     /// Passages successfully classified (each cost one model call).
     pub classified: usize,
@@ -1363,6 +1515,9 @@ pub fn classify_passages(
         candidates_found: analysis.candidates_found,
         deep_verified: analysis.deep_verified,
         cleared_by_deep: analysis.cleared_by_deep,
+        lm_perplexity: analysis.lm_perplexity,
+        lm_perplexity_signal: analysis.lm_perplexity_signal,
+        norms_provisional: analysis.norms_provisional,
         coverage_note: analysis.coverage_note.clone(),
         classified,
         ai_generated_chars,
@@ -1947,9 +2102,10 @@ mod tiered_tests {
     }
 
     #[test]
-    fn stage2_confirms_and_clears_by_the_documents_own_baseline() {
-        // Candidates: [AI_MARKED×3] and [AI_UNMARKED×3]; human prose is the
-        // baseline reference.
+    fn stage2_is_non_dropping_the_self_baseline_clearing_is_gone() {
+        // B2: the H2b self-baseline clearing is REMOVED. Both candidate runs are
+        // deep-scored and KEPT — a passage is NEVER dropped for matching the
+        // document's own (AI) baseline.
         let ex = doc(&[
             HUMAN_SENT, HUMAN_SENT,
             AI_MARKED, AI_MARKED, AI_MARKED,
@@ -1957,18 +2113,86 @@ mod tiered_tests {
             AI_UNMARKED, AI_UNMARKED, AI_UNMARKED,
             HUMAN_SENT,
         ]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full, None);
         assert_eq!(out.candidates_found, 2, "{}", out.coverage_note);
-        assert_eq!(out.deep_verified, 1, "the marked run is below baseline → confirmed");
-        assert_eq!(out.cleared_by_deep, 1, "the unmarked run is AT baseline → cleared (false-positive reduction)");
-        assert_eq!(out.passages.len(), 1);
-        let p = &out.passages[0];
-        assert_eq!(p.depth, AnalysisDepth::DeepVerified);
-        assert!(p.passage.text.contains("results show"));
-        // the deep evidence replaced the heuristic scores
-        assert!(p.passage.sentences.iter().all(|s| s.perplexity < 200.0));
-        // the CLEARED passage no longer counts toward the honest %
-        assert!(out.flagged_chars < out.total_chars / 2);
+        // NON-DROPPING: nothing is cleared; both candidates are kept + deep-scored.
+        assert_eq!(out.cleared_by_deep, 0, "self-baseline clearing removed → never cleared");
+        assert_eq!(out.deep_verified, 2, "both candidates deep-scored and kept");
+        assert_eq!(out.passages.len(), 2);
+        assert!(out.passages.iter().all(|p| p.depth == AnalysisDepth::DeepVerified));
+        assert!(out.coverage_note.contains("deep-verified"));
+        assert!(!out.coverage_note.contains("cleared"), "no clearing wording remains");
+    }
+
+    // A Stage-1 LM that emits a CONSTANT surprisal → deterministic
+    // document_perplexity = 2^c, so we can pin the norm placement exactly.
+    struct ConstSurprisal(f32);
+    impl PerplexityModel for ConstSurprisal {
+        fn name(&self) -> &str { "const-surprisal" }
+        fn context_tokens(&self) -> usize { 512 }
+        fn stride(&self) -> usize { 256 }
+        fn tokenize(&self, t: &str) -> Vec<String> { HeuristicModel::default().tokenize(t) }
+        fn surprisals(&self, toks: &[String]) -> Vec<f32> { vec![self.0; toks.len()] }
+    }
+
+    // A norm matching the MEASURED 0.5B seed (p10=8.6, median=17.5).
+    fn test_norm() -> crate::stage1_norms::ModelNorm {
+        crate::stage1_norms::ModelNorm {
+            human_academic_perplexity: crate::stage1_norms::PerplexityNorm {
+                n: 20, median: 17.5, mean: 20.4, p10: 8.6, p90: 48.3, min: 7.0, max: 50.4,
+            },
+            notes: "test".into(),
+        }
+    }
+
+    /// PINNED H3 REGRESSION: lexically-rich prose the frequency PROXY cannot flag
+    /// (0 candidates — the exact false-negative). The Stage-1 LM, scored on the
+    /// PROXY-INDEPENDENT sample and scripted to the MEASURED dense-AI value
+    /// (11.46), still yields a REAL below-human-median signal where the proxy
+    /// gave literally zero.
+    #[test]
+    fn dense_ai_gets_a_real_perplexity_signal_where_the_proxy_gave_zero() {
+        let ex = doc(&[HUMAN_SENT, HUMAN_SENT, HUMAN_SENT, HUMAN_SENT]); // dense → proxy blind
+        let norm = test_norm();
+        let lm = ConstSurprisal(3.519); // 2^3.519 ≈ 11.46
+        let cfg = Stage1Config { lm: &lm, norm: &norm, provisional: true };
+        let out = analyze_tiered(
+            &fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent, Some(cfg),
+        );
+        assert_eq!(out.candidates_found, 0, "the proxy is blind to this dense prose (the H3 bug)");
+        let ppl = out.lm_perplexity.expect("Stage-1 LM ran on the proxy-independent sample");
+        assert!((ppl - 11.46).abs() < 0.6, "lm_perplexity ≈ 11.46: {ppl}");
+        assert_eq!(
+            out.lm_perplexity_signal,
+            Some(crate::stage1_norms::PerplexitySignal::BelowHumanMedian),
+            "a real AI-leaning signal (soft) where the proxy gave 0%"
+        );
+        assert!(out.norms_provisional);
+        assert!(out.coverage_note.contains("PRELIMINARY"), "provisional signal labelled in-line");
+    }
+
+    /// PINNED HUMAN-OVERLAP GUARD: a terse, low-perplexity HUMAN passage (like the
+    /// math abstracts measured at 7-8 in the calibration sample) gets the
+    /// STRONGEST perplexity signal ("unusually predictable") — yet it must remain
+    /// SOFT: no clearing, no drop, no verdict. Perplexity alone cannot accuse.
+    #[test]
+    fn terse_low_perplexity_human_is_a_soft_signal_not_a_conviction() {
+        let ex = doc(&[HUMAN_SENT, HUMAN_SENT, HUMAN_SENT]);
+        let norm = test_norm();
+        let lm = ConstSurprisal(2.907); // 2^2.907 ≈ 7.5, BELOW p10=8.6
+        let cfg = Stage1Config { lm: &lm, norm: &norm, provisional: true };
+        let out = analyze_tiered(
+            &fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent, Some(cfg),
+        );
+        // Strongest perplexity tier...
+        assert_eq!(
+            out.lm_perplexity_signal,
+            Some(crate::stage1_norms::PerplexitySignal::UnusuallyPredictable)
+        );
+        // ...but NO conviction: nothing cleared/dropped, and the honest proportion
+        // is untouched by perplexity (the proxy flagged this human prose 0%).
+        assert_eq!(out.cleared_by_deep, 0, "perplexity never clears/drops");
+        assert_eq!(out.ai_signal_proportion, 0.0, "a soft signal does not accuse a human");
     }
 
     #[test]
@@ -1978,7 +2202,7 @@ mod tiered_tests {
             AI_MARKED, AI_MARKED, HUMAN_SENT,
         ]);
         // budget of 1 passage: the second candidate stays heuristic-only.
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full, None);
         assert_eq!(out.candidates_found, 2);
         assert_eq!(out.deep_verified + out.cleared_by_deep, 1, "only one deep re-score");
         assert_eq!(
@@ -1992,7 +2216,7 @@ mod tiered_tests {
     #[test]
     fn no_deep_model_is_honestly_all_heuristic_only() {
         let ex = doc(&[HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT]);
-        let out = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent);
+        let out = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent, None);
         assert!(out.deep_model.is_none());
         assert!(out.passages.iter().all(|p| p.depth == AnalysisDepth::HeuristicOnly));
         assert!(out.coverage_note.contains("deep model was") && out.coverage_note.contains("not available"));
@@ -2004,7 +2228,7 @@ mod tiered_tests {
         let ex = doc(&[HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT]);
         // deep=None BUT gated for low RAM → the RAM-specific note, distinct from
         // the generic "deep model was not available" case above.
-        let gated = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::GatedLowRam);
+        let gated = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::GatedLowRam, None);
         assert_eq!(gated.coverage_note, DEEP_GATED_LOW_RAM_NOTE);
         assert!(gated.coverage_note.contains("16 GB of RAM"));
         assert!(!gated.coverage_note.contains("not available"), "must NOT reuse the generic note");
@@ -2013,7 +2237,7 @@ mod tiered_tests {
         assert!(gated.passages.iter().all(|p| p.depth == AnalysisDepth::HeuristicOnly));
         assert_eq!(gated.deep_verified, 0);
         // and the two None-cases are genuinely different notes
-        let absent = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent);
+        let absent = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent, None);
         assert_ne!(gated.coverage_note, absent.coverage_note);
     }
 
@@ -2023,8 +2247,8 @@ mod tiered_tests {
             HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_UNMARKED, AI_UNMARKED, HUMAN_SENT,
         ]);
         // Same deep double, but labelled Compact → the compact wording.
-        let mini = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Compact);
-        let full = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
+        let mini = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Compact, None);
+        let full = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full, None);
         assert!(mini.deep_verified >= 1, "fixture: at least one deep-verified passage");
 
         // Per-passage: deep-verified passages carry the COMPACT note, not the 7B one.
@@ -2058,7 +2282,7 @@ mod tiered_tests {
         // 100k tokens) so ONLY the early-stop can leave the Weak candidate
         // unverified.
         let ex = doc(&[AI_MARKED, AI_MARKED, HUMAN_SENT, AI_MARKED, HUMAN_SENT]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 100, 100_000, DeepKind::Full);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 100, 100_000, DeepKind::Full, None);
 
         // Sanity: the fixture really has one Weak and at least one non-Weak.
         let weak: Vec<_> = out
@@ -2094,7 +2318,7 @@ mod tiered_tests {
         assert!(COMPACT_MAX_DEEP_TOKENS > DEFAULT_MAX_DEEP_TOKENS);
         // The larger budget rides through to the coverage note verbatim.
         let ex = doc(&[AI_MARKED, AI_MARKED, HUMAN_SENT]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, COMPACT_MAX_DEEP_TOKENS, DeepKind::Compact);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, COMPACT_MAX_DEEP_TOKENS, DeepKind::Compact, None);
         assert!(out.coverage_note.contains("1500 tokens"), "note: {}", out.coverage_note);
     }
 
@@ -2103,7 +2327,7 @@ mod tiered_tests {
         let ex = doc(&[
             HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_UNMARKED, AI_UNMARKED, HUMAN_SENT,
         ]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full, None);
         for p in &out.passages {
             assert!(!p.depth_note.is_empty(), "the tier caution is REQUIRED");
             match p.depth {
@@ -2128,7 +2352,7 @@ mod tiered_tests {
     #[test]
     fn the_honest_percentage_computes_over_surviving_passages() {
         let ex = doc(&[HUMAN_SENT, AI_MARKED, AI_MARKED, AI_MARKED, HUMAN_SENT]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full, None);
         let expected_flagged: usize = out
             .passages
             .iter()
@@ -2139,7 +2363,7 @@ mod tiered_tests {
         assert!(out.ai_signal_proportion > 0.0 && out.ai_signal_proportion < 1.0);
         assert_eq!(out.disclaimer, AI_DISCLAIMER);
         // deterministic
-        let again = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
+        let again = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full, None);
         assert_eq!(out, again);
     }
 }
@@ -2201,6 +2425,7 @@ mod classify_tests {
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
             DeepKind::Full,
+            None,
         );
         assert_eq!(out.deep_verified, 1, "fixture: exactly one deep-verified passage");
         out
@@ -2212,7 +2437,7 @@ mod classify_tests {
         let ex = doc(&[
             HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT,
         ]);
-        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full);
+        let out = analyze_tiered(&fast(), Some(&ScriptedDeep), &ex, 1, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Full, None);
         assert_eq!(out.deep_verified, 1);
         assert!(out.passages.iter().any(|p| p.depth == AnalysisDepth::HeuristicOnly));
         out
@@ -2366,6 +2591,7 @@ mod classify_tests {
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
             DeepKind::Full,
+            None,
         );
         assert_eq!(tiered.deep_verified, 2, "fixture: two deep-verified passages");
 
@@ -2560,6 +2786,7 @@ mod language_tests {
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
             DeepKind::Absent,
+            None,
         );
         assert_eq!(out.language.detected, "english");
         assert!(out.language.calibration_reliable);
@@ -2583,6 +2810,7 @@ mod language_tests {
             DEFAULT_MAX_DEEP_PASSAGES,
             DEFAULT_MAX_DEEP_TOKENS,
             DeepKind::Absent,
+            None,
         );
         assert!(!out.language.calibration_reliable, "spanish must downgrade");
         let classified = classify_passages(None, &out, DEFAULT_MAX_CLASSIFIED_PASSAGES);

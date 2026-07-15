@@ -332,6 +332,13 @@ pub fn stage1_lm_present() -> bool {
     stage1_lm_paths().map(|(g, t)| g.exists() && t.exists()).unwrap_or(false)
 }
 
+/// The Stage-1 LM's norms key (derived from its GGUF filename), for looking up
+/// the per-model absolute human-academic norm. `None` when no GGUF resolves.
+pub fn stage1_lm_model_id() -> Option<String> {
+    let (gguf, _) = stage1_lm_paths()?;
+    Some(gaply_core::stage1_norms::model_id_from_gguf(&gguf.to_string_lossy()))
+}
+
 /// Parse `GAPLY_FORCE_DEEP`: `full` / `mini` / `1` → the matching override;
 /// anything else (unset/other) → `None`.
 fn force_deep_from_env() -> Option<ForceTier> {

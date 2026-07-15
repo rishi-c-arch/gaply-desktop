@@ -92,6 +92,7 @@ yet there it sputtered, magnificent, absurd, and quietly triumphant against expe
         DEFAULT_MAX_DEEP_PASSAGES,
         DEFAULT_MAX_DEEP_TOKENS,
         ai_detect::DeepKind::Full,
+        None,
     );
     let total_secs = t2.elapsed().as_secs_f64();
     drop(deep); // one-at-a-time: the model drops here

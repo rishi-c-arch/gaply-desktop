@@ -52,43 +52,42 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
     // at the closing brace (one-at-a-time).
     let tiered = {
         let fast = HeuristicModel::default();
-        // Tier gate: the full 7B deep pass is proven-fatal on 8GB (candle-CPU
-        // swap death-spiral), so machines below ~16GB get the compact tier or
-        // heuristic-only. Overridable via GAPLY_FORCE_DEEP / GAPLY_DISABLE_DEEP.
-        let tier = crate::models::deep_tier_from_env();
-        tracing::info!(?tier, "AI Check: deep tier resolved");
-        // Load the model the tier selected (7B on ≥16GB, the compact 1.5B on
-        // <16GB, or none). `deep_kind` labels the report HONESTLY: Full/Compact
-        // when a model ran, GatedLowRam/Absent otherwise.
-        let (deep, deep_kind) = match tier {
-            crate::models::DeepTier::Full7B => match crate::models::slm1_model() {
-                Some(m) => (Some(m), ai_detect::DeepKind::Full),
+        // STAGE-1 real-LM signal (root-cause fix): load the small on-device LM
+        // and resolve its ABSOLUTE per-model human-academic norm. The deep
+        // VERIFIER (mini/7B via DeepTier) is DEFERRED to the verifier-feature set
+        // — it is IDLE here (`deep: None`); its convicted self-baseline clearing
+        // is gone and its absolute-norm replacement isn't wired yet, so running
+        // it would be limbo. Model scoped to this block (candle memory released
+        // at the brace).
+        let stage1_lm = crate::models::stage1_lm_model();
+        let stage1_id = crate::models::stage1_lm_model_id();
+        let norms = gaply_core::stage1_norms::Stage1Norms::bundled();
+        let stage1_cfg = match (&stage1_lm, &stage1_id) {
+            (Some(m), Some(id)) => match norms.for_model(id) {
+                Some(norm) => {
+                    tracing::info!(model_id = %id, "AI Check: Stage-1 LM signal enabled");
+                    Some(ai_detect::Stage1Config { lm: m.as_ref(), norm, provisional: norms.provisional })
+                }
                 None => {
-                    tracing::warn!("AI Check: SLM-1 (7B) selected but absent — heuristic-only");
-                    (None, ai_detect::DeepKind::Absent)
+                    tracing::warn!(model_id = %id, "AI Check: Stage-1 LM present but no norm for it — proxy-only");
+                    None
                 }
             },
-            crate::models::DeepTier::Mini => match crate::models::slm1_mini_model() {
-                Some(m) => (Some(m), ai_detect::DeepKind::Compact),
-                None => {
-                    tracing::warn!("AI Check: SLM-1-MINI (1.5B) selected but absent — heuristic-only");
-                    (None, ai_detect::DeepKind::Absent)
-                }
-            },
-            crate::models::DeepTier::HeuristicOnly => {
-                tracing::warn!("AI Check: deep pass gated off — heuristic-only");
-                (None, ai_detect::DeepKind::GatedLowRam)
+            _ => {
+                tracing::warn!("AI Check: Stage-1 LM absent — proxy-only pre-pass (no real-LM signal)");
+                None
             }
         };
         ai_detect::analyze_tiered(
             &fast,
-            deep.as_deref(),
+            None, // deep verifier IDLE in the B2-interim (deferred)
             extraction,
             DEFAULT_MAX_DEEP_PASSAGES,
-            deep_budget_tokens(deep_kind),
-            deep_kind,
+            DEFAULT_MAX_DEEP_TOKENS,
+            ai_detect::DeepKind::Absent,
+            stage1_cfg,
         )
-    }; // ← the deep model is dropped HERE
+    }; // ← the Stage-1 model is dropped HERE
 
     // TWO-WAY collapse (probe decision): `None` is deliberate, even when
     // Ollama is running — no supported local model makes the
@@ -120,6 +119,8 @@ mod tests {
     fn flow_is_two_way_and_honest_with_or_without_ollama() {
         std::env::set_var("GAPLY_DISABLE_DEEP", "1");
         std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
+        // Stage-1 LM absent → no candle load of the 0.5B (installed on dev machines).
+        std::env::set_var("GAPLY_STAGE1_LM_GGUF", "/nonexistent/stage1.gguf");
         let ex = extract_from_text(&format!(
             "Introduction\n\n{h} {a} {a} {a} {h}\n",
             a = AI_SENT,
@@ -189,9 +190,10 @@ mod tests {
     /// Non-English input downgrades the whole report, un-strippably.
     #[test]
     fn non_english_document_is_downgraded() {
-        // Disable the deep tier so an installed mini can't load candle here.
+        // Disable the deep tier + Stage-1 LM so no installed model loads candle here.
         std::env::set_var("GAPLY_DISABLE_DEEP", "1");
         std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-aicheck-test.gguf");
+        std::env::set_var("GAPLY_STAGE1_LM_GGUF", "/nonexistent/stage1.gguf");
         let ex = extract_from_text(
             "Introducción\n\nLos resultados de este estudio muestran que el método es eficaz y \
              los datos son consistentes con la interpretación de los hallazgos en la muestra.\n",
