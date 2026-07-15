@@ -121,6 +121,23 @@ pub struct DocumentFeatures {
     pub citation_style_consistency: Option<f64>,
     /// Fraction of DOI-bearing references with syntactically-valid DOIs.
     pub doi_syntax_validity: Option<f64>,
+    /// The NETWORK citation-verification summary (Set C2), when the lane ran.
+    /// `None` here means the local-signal-only build (C1); the C2 lane always
+    /// sets a summary (incl. `not_enabled`/`offline`) so no state is silent.
+    pub citation_verification: Option<CitationVerificationSummary>,
+}
+
+/// Distilled outcome of the network citation-verification lane (Set C2). Data
+/// only — the evidence rows are built separately (`ai_signals`). `status` is one
+/// of `not_enabled` / `offline` / `no_references` / `ran`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CitationVerificationSummary {
+    pub status: String,
+    pub total: usize,
+    pub checked: usize,
+    pub not_found: usize,
+    pub doi_mismatch: usize,
+    pub retracted: usize,
 }
 
 /// Document-level score slot. `value` (0-100) is `None` until the trained

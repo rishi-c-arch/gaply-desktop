@@ -346,6 +346,8 @@ pub fn document_features(
         citation_density: Some(citation_density(result.citations.len(), word_count)),
         citation_style_consistency: citation_style_consistency(&result.citations),
         doi_syntax_validity: doi_syntax_validity(&result.references),
+        // The network lane (C2) fills this in the app crate; local build = None.
+        citation_verification: None,
     }
 }
 
@@ -407,6 +409,137 @@ pub fn document_evidence(
         ev.push(row("DOI syntax validity", lvl, BiasTier::Structural, format!("{:.0}% of DOIs well-formed", v * 100.0)));
     }
     ev
+}
+
+// ---------------------------------------------------------------------------
+// Citation verification — the NETWORK lane's evidence mapping (Set C2, PURE)
+// ---------------------------------------------------------------------------
+
+/// One reference's distilled network verdict. Built by the app crate from a
+/// `refverify::ReferenceVerification` (metadata-only); kept pure here so the
+/// mapping is testable without network.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CitationVerdict {
+    /// Found in a scholarly database (CrossRef/OpenAlex).
+    pub found: bool,
+    /// Found, but the reference's DOI/authors/year don't match the record
+    /// (the "chimera" — a real-looking but wrong citation).
+    pub doi_mismatch: bool,
+    /// The source flagged the work as retracted.
+    pub retracted: bool,
+    /// The check could not complete (offline/error/rate-limited) — counts toward
+    /// "M of N checked", never silently dropped.
+    pub unchecked: bool,
+}
+
+/// The outcome of the citation-verification lane — every variant renders an
+/// evidence row (no state is ever silent).
+#[derive(Debug, Clone, PartialEq)]
+pub enum CitationLane {
+    /// Opted out (the default — AI Check's verifyCitations is OFF).
+    NotEnabled,
+    /// Opted in, but no network (all checks failed with nothing succeeding).
+    Offline,
+    /// Opted in, but the document has no parseable reference list.
+    NoReferences,
+    /// Ran (possibly partially) — one verdict per reference.
+    Verified(Vec<CitationVerdict>),
+}
+
+fn ev(signal: &str, level: crate::ai_features::SignalLevel, detail: String) -> crate::ai_features::SignalEvidence {
+    crate::ai_features::SignalEvidence {
+        signal: signal.to_string(),
+        level,
+        // Citation verification is world-verifiable fact — the fairest signal.
+        bias_tier: crate::ai_features::BiasTier::Factual,
+        detail,
+    }
+}
+
+/// Map a citation-verification outcome to Evidence rows. Approved strings; every
+/// state (opted-out / offline / no refs / partial / verified / retracted) is
+/// represented — no silence. All rows are `BiasTier::Factual`.
+pub fn citation_verification_evidence(lane: &CitationLane) -> Vec<crate::ai_features::SignalEvidence> {
+    use crate::ai_features::SignalLevel;
+    match lane {
+        CitationLane::NotEnabled => vec![ev(
+            "Citation verification",
+            SignalLevel::Unavailable,
+            "not enabled".to_string(),
+        )],
+        CitationLane::Offline => vec![ev(
+            "Citation verification",
+            SignalLevel::Unavailable,
+            "unavailable (offline)".to_string(),
+        )],
+        CitationLane::NoReferences => vec![ev(
+            "Citation verification",
+            SignalLevel::Unavailable,
+            "no reference list detected".to_string(),
+        )],
+        CitationLane::Verified(verdicts) => {
+            let total = verdicts.len();
+            let checked = verdicts.iter().filter(|v| !v.unchecked).count();
+            let not_found = verdicts.iter().filter(|v| !v.unchecked && !v.found).count();
+            let mismatch = verdicts.iter().filter(|v| !v.unchecked && v.found && v.doi_mismatch).count();
+            let retracted = verdicts.iter().filter(|v| v.retracted).count();
+            let mut rows = Vec::new();
+
+            if checked < total {
+                // Partial (rate-limited) — honest counts, its own row.
+                rows.push(ev(
+                    "Citation verification",
+                    SignalLevel::Moderate,
+                    format!("{checked} of {total} checked (rate-limited)"),
+                ));
+            } else {
+                let unverifiable = not_found + mismatch;
+                if unverifiable == 0 {
+                    rows.push(ev(
+                        "Citation verification",
+                        SignalLevel::Low,
+                        format!("all {total} references verified"),
+                    ));
+                } else {
+                    rows.push(ev(
+                        "Citation verification",
+                        SignalLevel::High,
+                        format!(
+                            "{unverifiable} of {total} references could not be verified ({not_found} not found; {mismatch} DOI mismatch)"
+                        ),
+                    ));
+                }
+            }
+            if retracted > 0 {
+                rows.push(ev(
+                    "Retraction check",
+                    SignalLevel::High,
+                    format!("{retracted} cited work(s) retracted"),
+                ));
+            }
+            rows
+        }
+    }
+}
+
+/// Distil the lane into the typed `DocumentFeatures.citation_verification` data.
+pub fn citation_verification_summary(
+    lane: &CitationLane,
+) -> crate::ai_features::CitationVerificationSummary {
+    use crate::ai_features::CitationVerificationSummary as S;
+    match lane {
+        CitationLane::NotEnabled => S { status: "not_enabled".into(), total: 0, checked: 0, not_found: 0, doi_mismatch: 0, retracted: 0 },
+        CitationLane::Offline => S { status: "offline".into(), total: 0, checked: 0, not_found: 0, doi_mismatch: 0, retracted: 0 },
+        CitationLane::NoReferences => S { status: "no_references".into(), total: 0, checked: 0, not_found: 0, doi_mismatch: 0, retracted: 0 },
+        CitationLane::Verified(v) => S {
+            status: "ran".into(),
+            total: v.len(),
+            checked: v.iter().filter(|x| !x.unchecked).count(),
+            not_found: v.iter().filter(|x| !x.unchecked && !x.found).count(),
+            doi_mismatch: v.iter().filter(|x| !x.unchecked && x.found && x.doi_mismatch).count(),
+            retracted: v.iter().filter(|x| x.retracted).count(),
+        },
+    }
 }
 
 #[cfg(test)]
@@ -511,5 +644,61 @@ mod tests {
         assert!(ev.iter().any(|e| e.signal.contains("template")));
         assert!(ev.iter().any(|e| matches!(e.bias_tier, crate::ai_features::BiasTier::Stylometric)));
         assert!(ev.iter().any(|e| matches!(e.bias_tier, crate::ai_features::BiasTier::Structural)));
+    }
+
+    #[test]
+    fn citation_verification_evidence_covers_every_state() {
+        use crate::ai_features::SignalLevel;
+        // opted-out (default) — approved string "not enabled" (no "(reference checking is off)")
+        let r = citation_verification_evidence(&CitationLane::NotEnabled);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].detail, "not enabled");
+        assert_eq!(r[0].level, SignalLevel::Unavailable);
+        assert!(matches!(r[0].bias_tier, crate::ai_features::BiasTier::Factual), "citation = factual anchor");
+        // offline
+        assert_eq!(citation_verification_evidence(&CitationLane::Offline)[0].detail, "unavailable (offline)");
+        // no references
+        assert_eq!(citation_verification_evidence(&CitationLane::NoReferences)[0].detail, "no reference list detected");
+
+        // all verified
+        let verds = vec![CitationVerdict { found: true, ..Default::default() }; 5];
+        let r = citation_verification_evidence(&CitationLane::Verified(verds));
+        assert_eq!(r[0].detail, "all 5 references verified");
+        assert_eq!(r[0].level, SignalLevel::Low);
+
+        // fabricated + chimera → "K of N could not be verified (…)"
+        let verds = vec![
+            CitationVerdict { found: true, ..Default::default() },           // ok
+            CitationVerdict { found: false, ..Default::default() },          // fabricated (not found)
+            CitationVerdict { found: true, doi_mismatch: true, ..Default::default() }, // chimera
+        ];
+        let r = citation_verification_evidence(&CitationLane::Verified(verds));
+        assert_eq!(r[0].level, SignalLevel::High);
+        assert!(r[0].detail.contains("2 of 3 references could not be verified"));
+        assert!(r[0].detail.contains("1 not found") && r[0].detail.contains("1 DOI mismatch"));
+
+        // retracted → its own row
+        let verds = vec![
+            CitationVerdict { found: true, ..Default::default() },
+            CitationVerdict { found: true, retracted: true, ..Default::default() },
+        ];
+        let r = citation_verification_evidence(&CitationLane::Verified(verds));
+        let retr = r.iter().find(|e| e.signal == "Retraction check").expect("retraction row present");
+        assert_eq!(retr.detail, "1 cited work(s) retracted");
+        assert_eq!(retr.level, SignalLevel::High);
+
+        // partial (rate-limited) — honest counts, edited string (no "— retry later")
+        let verds = vec![
+            CitationVerdict { found: true, ..Default::default() },
+            CitationVerdict { unchecked: true, ..Default::default() },
+            CitationVerdict { unchecked: true, ..Default::default() },
+        ];
+        let r = citation_verification_evidence(&CitationLane::Verified(verds));
+        assert_eq!(r[0].detail, "1 of 3 checked (rate-limited)");
+        assert_eq!(r[0].level, SignalLevel::Moderate);
+
+        // summary distillation
+        let s = citation_verification_summary(&CitationLane::NotEnabled);
+        assert_eq!(s.status, "not_enabled");
     }
 }

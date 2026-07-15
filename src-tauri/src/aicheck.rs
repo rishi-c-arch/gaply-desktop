@@ -43,6 +43,107 @@ fn deep_budget_tokens(kind: ai_detect::DeepKind) -> usize {
     }
 }
 
+/// Map one `ReferenceVerification` (metadata-only) to a distilled verdict. PURE
+/// (no network) so it's unit-testable. `exists=Some` = found; `exists=None` with
+/// a "no match" warning = genuinely not found (fabricated); a network problem
+/// (rate-limit/unavailable) = unchecked (never silently a "not found").
+fn to_verdict(
+    rv: &gaply_core::refverify::ReferenceVerification,
+    reference: &gaply_core::extract::citations::Reference,
+) -> gaply_core::ai_signals::CitationVerdict {
+    use gaply_core::ai_signals::CitationVerdict;
+    let retracted = rv.retraction.as_ref().map(|r| r.retracted).unwrap_or(false)
+        || rv.exists.as_ref().and_then(|e| e.is_retracted_hint).unwrap_or(false);
+    let norm = |d: &str| d.trim().to_lowercase();
+    match &rv.exists {
+        Some(e) => {
+            let doi_mismatch = e.found
+                && match (reference.doi.as_deref(), e.doi.as_deref()) {
+                    (Some(a), Some(b)) => norm(a) != norm(b),
+                    _ => false,
+                };
+            CitationVerdict { found: e.found, doi_mismatch, retracted, unchecked: false }
+        }
+        None => {
+            let w = rv.warnings.join(" ").to_lowercase();
+            let network_problem = w.is_empty()
+                || w.contains("rate-limit")
+                || w.contains("unavailable")
+                || w.contains("timeout");
+            if network_problem {
+                CitationVerdict { unchecked: true, retracted, ..Default::default() }
+            } else {
+                // A definite "no match" from a reachable source → not found.
+                CitationVerdict { found: false, unchecked: false, retracted, doi_mismatch: false }
+            }
+        }
+    }
+}
+
+/// Pure lane decision — the network is a `verify_one` CLOSURE so tests can
+/// assert exactly how many times it's invoked (0 on opt-out). Returns
+/// `NotEnabled`/`NoReferences` WITHOUT ever calling `verify_one`; otherwise runs
+/// it per reference and folds all-unchecked → `Offline`.
+fn build_citation_lane<F>(
+    verify_citations: bool,
+    references: &[gaply_core::extract::citations::Reference],
+    mut verify_one: F,
+) -> gaply_core::ai_signals::CitationLane
+where
+    F: FnMut(&gaply_core::extract::citations::Reference) -> gaply_core::ai_signals::CitationVerdict,
+{
+    use gaply_core::ai_signals::CitationLane;
+    if !verify_citations {
+        return CitationLane::NotEnabled;
+    }
+    if references.is_empty() {
+        return CitationLane::NoReferences;
+    }
+    let verdicts: Vec<_> = references.iter().map(&mut verify_one).collect();
+    if verdicts.iter().all(|v| v.unchecked) {
+        CitationLane::Offline
+    } else {
+        CitationLane::Verified(verdicts)
+    }
+}
+
+/// The NETWORK citation-verification lane (Set C2). Merges its evidence into an
+/// AI-Check result. Metadata-only (RefVerifier sends author/year/title/DOI,
+/// never manuscript text), cache-first, rate-limited. `verify_citations` is the
+/// AND of the user's opt-in and the global cloud gate (decided by the caller).
+/// EVERY outcome yields an evidence row — no state is silent.
+pub fn apply_citation_verification(
+    analysis: &mut ClassifiedAnalysis,
+    extraction: &ExtractionResult,
+    db: &gaply_core::Database,
+    now: i64,
+    verify_citations: bool,
+) {
+    use gaply_core::ai_signals::{
+        citation_verification_evidence, citation_verification_summary, CitationLane, CitationVerdict,
+    };
+    let lane = if verify_citations && !extraction.references.is_empty() {
+        match crate::http_fetcher::RefVerifier::new() {
+            Err(_) => CitationLane::Offline,
+            Ok(verifier) => build_citation_lane(true, &extraction.references, |r| {
+                match verifier.verify(db, r, now) {
+                    Ok(rv) => to_verdict(&rv, r),
+                    Err(_) => CitationVerdict { unchecked: true, ..Default::default() },
+                }
+            }),
+        }
+    } else {
+        // Opted-out or no references: the verifier is NEVER constructed and the
+        // closure is NEVER called — zero network by construction.
+        build_citation_lane(verify_citations, &extraction.references, |_| CitationVerdict::default())
+    };
+    analysis
+        .document_score
+        .evidence
+        .extend(citation_verification_evidence(&lane));
+    analysis.document_features.citation_verification = Some(citation_verification_summary(&lane));
+}
+
 /// Run the full AI Check over an extraction. Never fails: an absent SLM-1
 /// means honest heuristic-only labels — degraded tiers are data in the
 /// result, not errors.
@@ -104,6 +205,99 @@ mod tests {
     use crate::models::ollama_verify::scripted::scripted_ollama;
 
     use super::*;
+
+    // --- Set C2a: citation verification ---
+    use gaply_core::extract::citations::Reference;
+    use gaply_core::refverify::{ExistenceCheck, Provenance, ReferenceVerification, RetractionCheck};
+
+    fn prov() -> Provenance {
+        Provenance { source: "crossref".into(), url: "x".into(), fetched_at: 0, checksum: "".into(), from_cache: false }
+    }
+    fn rv(exists: Option<ExistenceCheck>, retraction: Option<RetractionCheck>, warnings: Vec<&str>) -> ReferenceVerification {
+        ReferenceVerification {
+            reference_raw: "ref".into(),
+            exists,
+            retraction,
+            open_access: None,
+            enrichment: None,
+            provenance: vec![],
+            warnings: warnings.into_iter().map(|w| w.to_string()).collect(),
+        }
+    }
+    fn found_check(doi: Option<&str>) -> ExistenceCheck {
+        ExistenceCheck {
+            source: "crossref", found: true, doi: doi.map(|d| d.to_string()),
+            title: None, matched_authors: None, matched_year: None, is_retracted_hint: None, provenance: prov(),
+        }
+    }
+    fn refr(doi: Option<&str>) -> Reference {
+        Reference { raw: "r".into(), authors: "".into(), year: None, title: None, doi: doi.map(|d| d.to_string()) }
+    }
+
+    #[test]
+    fn to_verdict_maps_found_notfound_ratelimited_retracted_and_chimera() {
+        // found, DOIs agree → clean
+        let v = super::to_verdict(&rv(Some(found_check(Some("10.1/x"))), None, vec![]), &refr(Some("10.1/x")));
+        assert!(v.found && !v.doi_mismatch && !v.unchecked);
+        // found, DOIs DISAGREE → chimera
+        let v = super::to_verdict(&rv(Some(found_check(Some("10.9/other"))), None, vec![]), &refr(Some("10.1/x")));
+        assert!(v.found && v.doi_mismatch, "wrong-DOI chimera");
+        // exists=None + "no match" → genuinely not found (fabricated), CHECKED
+        let v = super::to_verdict(&rv(None, None, vec!["crossref: no match"]), &refr(None));
+        assert!(!v.found && !v.unchecked, "not found = checked-and-absent");
+        // exists=None + rate-limited → UNCHECKED (never silently 'not found')
+        let v = super::to_verdict(&rv(None, None, vec!["crossref: rate-limited, retry after 5s"]), &refr(None));
+        assert!(v.unchecked, "network problem = unchecked, not fabricated");
+        // retracted flows through
+        let v = super::to_verdict(&rv(Some(found_check(None)), Some(RetractionCheck { retracted: true, reasons: vec![], notice_url: None, provenance: prov() }), vec![]), &refr(None));
+        assert!(v.retracted);
+    }
+
+    /// DIRECT zero-network pin: a call-counting closure proves the verifier is
+    /// invoked EXACTLY 0 times when opted-out (and when there are no references),
+    /// and once per reference otherwise. This is the "mock counting 0 calls".
+    #[test]
+    fn opt_out_invokes_the_verifier_zero_times() {
+        use gaply_core::ai_signals::{CitationLane, CitationVerdict};
+        let refs = vec![refr(Some("10.1/x")), refr(Some("10.2/y"))];
+
+        // OPT-OUT → NotEnabled, verify_one NEVER called.
+        let mut calls = 0usize;
+        let lane = build_citation_lane(false, &refs, |_| { calls += 1; CitationVerdict::default() });
+        assert_eq!(lane, CitationLane::NotEnabled);
+        assert_eq!(calls, 0, "opt-out does ZERO network work");
+
+        // No references → NoReferences, still 0 calls.
+        calls = 0;
+        let lane = build_citation_lane(true, &[], |_| { calls += 1; CitationVerdict::default() });
+        assert_eq!(lane, CitationLane::NoReferences);
+        assert_eq!(calls, 0);
+
+        // Enabled + references → verify_one called once per reference.
+        calls = 0;
+        let lane = build_citation_lane(true, &refs, |_| { calls += 1; CitationVerdict { found: true, ..Default::default() } });
+        assert_eq!(calls, 2, "one lookup per reference");
+        assert!(matches!(lane, CitationLane::Verified(_)));
+
+        // All unchecked (network down) → Offline.
+        let lane = build_citation_lane(true, &refs, |_| CitationVerdict { unchecked: true, ..Default::default() });
+        assert_eq!(lane, CitationLane::Offline);
+    }
+
+    /// The full command wiring still reports the opt-out summary honestly.
+    #[test]
+    fn apply_citation_verification_opt_out_summary_is_not_enabled() {
+        let db = gaply_core::Database::in_memory().unwrap();
+        let ex = extract_from_text("Introduction\n\nThe results are clear (Smith, 2020).\n\nReferences\n\nSmith, J. (2020). A study. doi:10.1/x\n");
+        let tiered = ai_detect::analyze_tiered(
+            &HeuristicModel::default(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS,
+            ai_detect::DeepKind::Absent, None,
+        );
+        let mut analysis = ai_detect::classify_passages(None, &tiered, DEFAULT_MAX_CLASSIFIED_PASSAGES);
+        apply_citation_verification(&mut analysis, &ex, &db, 0, false);
+        assert_eq!(analysis.document_features.citation_verification.as_ref().unwrap().status, "not_enabled");
+        assert!(analysis.document_score.evidence.iter().any(|e| e.signal == "Citation verification" && e.detail == "not enabled"));
+    }
 
     // Common-word AI-like prose the heuristic pre-pass reliably flags.
     const AI_SENT: &str = "The results show that the model can do the work well.";

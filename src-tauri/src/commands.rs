@@ -305,12 +305,25 @@ pub struct AiCheckResult {
 /// CPU — so async + spawn_blocking, like `run_full_analysis`. Never fails for
 /// a missing model: degraded tiers come back as honest labels in the result.
 #[tauri::command]
-#[tracing::instrument]
-pub async fn run_aicheck(path: String) -> Result<AiCheckResult, GaplyError> {
+#[tracing::instrument(skip(state))]
+pub async fn run_aicheck(
+    state: State<'_, AppState>,
+    path: String,
+    // The NETWORK citation-verification opt-in (Set C2). `None`/`false` (the
+    // default) keeps AI Check fully on-device; `true` is the AND of the user's
+    // explicit AI-Check opt-in and the global cloud gate, decided by the caller.
+    verify_citations: Option<bool>,
+) -> Result<AiCheckResult, GaplyError> {
+    let db = state.db.clone();
+    let verify_citations = verify_citations.unwrap_or(false);
     tokio::task::spawn_blocking(move || {
         let text = docparse::parse_path(std::path::Path::new(&path))?;
         let extraction = extract::extract_from_text(&text);
-        let analysis = crate::aicheck::run_aicheck_flow(&extraction);
+        let mut analysis = crate::aicheck::run_aicheck_flow(&extraction);
+        // C2: merge the citation-verification lane (metadata-only, cache-first).
+        crate::aicheck::apply_citation_verification(
+            &mut analysis, &extraction, &db, now_epoch(), verify_citations,
+        );
         // The same join analyze_passages uses — offsets line up by construction.
         let sections = extraction
             .sections
