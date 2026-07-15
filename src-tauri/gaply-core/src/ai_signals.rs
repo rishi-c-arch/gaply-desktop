@@ -360,6 +360,7 @@ pub fn document_features(
         citation_density: Some(citation_density(in_text_citation_count(&result.citations), word_count)),
         citation_style_consistency: citation_style_consistency(&result.citations),
         doi_syntax_validity: doi_syntax_validity(&result.references),
+        reference_count: Some(result.references.len()),
         // The network lane (C2) fills this in the app crate; local build = None.
         citation_verification: None,
     }
@@ -375,11 +376,8 @@ pub fn document_evidence(
     use crate::ai_features::{BiasTier, SignalEvidence, SignalLevel};
     let h = &norms.human_academic;
     let mut ev = Vec::new();
-    let row = |signal: &str, level: SignalLevel, bias: BiasTier, detail: String| SignalEvidence {
-        signal: signal.to_string(),
-        level,
-        bias_tier: bias,
-        detail,
+    let row = |signal: &str, level: SignalLevel, bias: BiasTier, detail: String| {
+        SignalEvidence::measured(signal, level, bias, detail)
     };
 
     // Sentence-length burstiness — low = AI-leaning (stylometric, soft).
@@ -413,9 +411,30 @@ pub fn document_evidence(
         ev.push(row("n-gram repetition", lvl, BiasTier::Structural, format!("{:.0}% repeated 3-grams", r * 100.0)));
     }
     // Citation density — the fair anchor's local component (structural).
+    // HONESTY: zero in-text density while a reference list EXISTS is a PARSE
+    // FAILURE (some in-text style we don't recognize), NOT a citation-sparse
+    // document — render Unavailable, never a false HIGH. Applies to the whole
+    // class of unparseable in-text styles, not just bracket-numeric.
     if let Some(d) = f.citation_density {
-        let lvl = if d < 1.0 { SignalLevel::High } else if d < 5.0 { SignalLevel::Moderate } else { SignalLevel::Low };
-        ev.push(row("citation density", lvl, BiasTier::Structural, format!("{d:.1} citations / 1000 words")));
+        if d == 0.0 && f.reference_count.unwrap_or(0) > 0 {
+            ev.push(SignalEvidence::unavailable(
+                "citation density",
+                BiasTier::Structural,
+                "references present but in-text citations could not be attributed — density unreliable",
+            ));
+        } else if d == 0.0 {
+            // Genuinely no in-text citations AND no reference list (Phase 1: HIGH,
+            // naming the world; softening awaits document classification).
+            ev.push(row(
+                "citation density",
+                SignalLevel::High,
+                BiasTier::Structural,
+                "no in-text citations and no reference list detected".to_string(),
+            ));
+        } else {
+            let lvl = if d < 1.0 { SignalLevel::High } else if d < 5.0 { SignalLevel::Moderate } else { SignalLevel::Low };
+            ev.push(row("citation density", lvl, BiasTier::Structural, format!("{d:.1} citations / 1000 words")));
+        }
     }
     // DOI syntax validity — structural.
     if let Some(v) = f.doi_syntax_validity {
@@ -460,14 +479,20 @@ pub enum CitationLane {
     Verified(Vec<CitationVerdict>),
 }
 
+/// A MEASURED citation-verification row (world-verifiable fact — the fairest,
+/// `Factual`-tier signal).
 fn ev(signal: &str, level: crate::ai_features::SignalLevel, detail: String) -> crate::ai_features::SignalEvidence {
-    crate::ai_features::SignalEvidence {
-        signal: signal.to_string(),
-        level,
-        // Citation verification is world-verifiable fact — the fairest signal.
-        bias_tier: crate::ai_features::BiasTier::Factual,
+    crate::ai_features::SignalEvidence::measured(signal, level, crate::ai_features::BiasTier::Factual, detail)
+}
+
+/// An UNAVAILABLE citation-verification row (opted out / offline / no refs — the
+/// lane produced no measurement, honestly said so).
+fn ev_unavailable(detail: &str) -> crate::ai_features::SignalEvidence {
+    crate::ai_features::SignalEvidence::unavailable(
+        "Citation verification",
+        crate::ai_features::BiasTier::Factual,
         detail,
-    }
+    )
 }
 
 /// Map a citation-verification outcome to Evidence rows. Approved strings; every
@@ -476,21 +501,9 @@ fn ev(signal: &str, level: crate::ai_features::SignalLevel, detail: String) -> c
 pub fn citation_verification_evidence(lane: &CitationLane) -> Vec<crate::ai_features::SignalEvidence> {
     use crate::ai_features::SignalLevel;
     match lane {
-        CitationLane::NotEnabled => vec![ev(
-            "Citation verification",
-            SignalLevel::Unavailable,
-            "not enabled".to_string(),
-        )],
-        CitationLane::Offline => vec![ev(
-            "Citation verification",
-            SignalLevel::Unavailable,
-            "unavailable (offline)".to_string(),
-        )],
-        CitationLane::NoReferences => vec![ev(
-            "Citation verification",
-            SignalLevel::Unavailable,
-            "no reference list detected".to_string(),
-        )],
+        CitationLane::NotEnabled => vec![ev_unavailable("not enabled")],
+        CitationLane::Offline => vec![ev_unavailable("unavailable (offline)")],
+        CitationLane::NoReferences => vec![ev_unavailable("no reference list detected")],
         CitationLane::Verified(verdicts) => {
             let total = verdicts.len();
             let checked = verdicts.iter().filter(|v| !v.unchecked).count();
@@ -683,7 +696,8 @@ mod tests {
         let r = citation_verification_evidence(&CitationLane::NotEnabled);
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].detail, "not enabled");
-        assert_eq!(r[0].level, SignalLevel::Unavailable);
+        assert_eq!(r[0].status, crate::ai_features::SignalStatus::Unavailable);
+        assert_eq!(r[0].level, None, "Unavailable carries no strength level");
         assert!(matches!(r[0].bias_tier, crate::ai_features::BiasTier::Factual), "citation = factual anchor");
         // offline
         assert_eq!(citation_verification_evidence(&CitationLane::Offline)[0].detail, "unavailable (offline)");
@@ -694,7 +708,7 @@ mod tests {
         let verds = vec![CitationVerdict { found: true, ..Default::default() }; 5];
         let r = citation_verification_evidence(&CitationLane::Verified(verds));
         assert_eq!(r[0].detail, "all 5 references verified");
-        assert_eq!(r[0].level, SignalLevel::Low);
+        assert_eq!(r[0].level, Some(SignalLevel::Low));
 
         // fabricated + chimera → "K of N could not be verified (…)"
         let verds = vec![
@@ -703,7 +717,7 @@ mod tests {
             CitationVerdict { found: true, doi_mismatch: true, ..Default::default() }, // chimera
         ];
         let r = citation_verification_evidence(&CitationLane::Verified(verds));
-        assert_eq!(r[0].level, SignalLevel::High);
+        assert_eq!(r[0].level, Some(SignalLevel::High));
         assert!(r[0].detail.contains("2 of 3 references could not be verified"));
         assert!(r[0].detail.contains("1 not found") && r[0].detail.contains("1 DOI mismatch"));
 
@@ -715,7 +729,7 @@ mod tests {
         let r = citation_verification_evidence(&CitationLane::Verified(verds));
         let retr = r.iter().find(|e| e.signal == "Retraction check").expect("retraction row present");
         assert_eq!(retr.detail, "1 cited work(s) retracted");
-        assert_eq!(retr.level, SignalLevel::High);
+        assert_eq!(retr.level, Some(SignalLevel::High));
 
         // partial (rate-limited) — honest counts, edited string (no "— retry later")
         let verds = vec![
@@ -725,10 +739,75 @@ mod tests {
         ];
         let r = citation_verification_evidence(&CitationLane::Verified(verds));
         assert_eq!(r[0].detail, "1 of 3 checked (rate-limited)");
-        assert_eq!(r[0].level, SignalLevel::Moderate);
+        assert_eq!(r[0].level, Some(SignalLevel::Moderate));
 
         // summary distillation
         let s = citation_verification_summary(&CitationLane::NotEnabled);
         assert_eq!(s.status, "not_enabled");
+    }
+
+    #[test]
+    fn citation_density_evidence_distinguishes_parse_failure_from_true_zero() {
+        use crate::ai_features::{DocumentFeatures, SignalLevel, SignalStatus};
+        let norms = StyloNorms::bundled();
+        let density_row = |f: &DocumentFeatures| {
+            document_evidence(f, &norms)
+                .into_iter()
+                .find(|e| e.signal == "citation density")
+                .expect("a citation-density row is always emitted")
+        };
+
+        // (a) PARSE FAILURE: 0 in-text density while a reference list EXISTS ->
+        // Unavailable, NOT a false HIGH. (Any unparseable in-text style.)
+        let f = DocumentFeatures { citation_density: Some(0.0), reference_count: Some(35), ..Default::default() };
+        let row = density_row(&f);
+        assert_eq!(row.status, SignalStatus::Unavailable);
+        assert_eq!(row.level, None);
+        assert!(row.detail.contains("could not be attributed"), "detail: {}", row.detail);
+
+        // (b) TRUE ZERO: no in-text AND no references -> HIGH, naming the world.
+        let f = DocumentFeatures { citation_density: Some(0.0), reference_count: Some(0), ..Default::default() };
+        let row = density_row(&f);
+        assert_eq!(row.status, SignalStatus::Measured);
+        assert_eq!(row.level, Some(SignalLevel::High));
+        assert!(row.detail.contains("no in-text citations and no reference list detected"));
+
+        // (c) A citation-dense paper -> Measured, and NOT High (dense = human-like).
+        let f = DocumentFeatures { citation_density: Some(8.0), reference_count: Some(35), ..Default::default() };
+        let row = density_row(&f);
+        assert_eq!(row.status, SignalStatus::Measured);
+        assert_eq!(row.level, Some(SignalLevel::Low));
+    }
+
+    /// REGRESSION for the real failing case: a bracket-numeric (Vancouver/IEEE)
+    /// manuscript must now parse in-text citations, yield density > 0, and NOT
+    /// produce a false HIGH citation-density signal.
+    #[test]
+    fn bracket_numeric_manuscript_is_not_a_false_high() {
+        use crate::ai_features::SignalStatus;
+        // Drop the leading `<!-- provenance -->` block; keep the manuscript body.
+        let raw = include_str!("../eval/bracket_numeric.txt");
+        let body = raw.rsplit("-->").next().unwrap_or(raw).trim_start();
+        let ex = crate::extract::extract_from_text(body);
+
+        // Parser now finds the numeric in-text citations.
+        assert!(!ex.citations.is_empty(), "bracket-numeric in-text citations are parsed");
+        assert!(
+            ex.citations.iter().any(|c| c.style == crate::extract::citations::CitationStyle::Numeric),
+            "at least one Numeric-style citation"
+        );
+        assert!(!ex.references.is_empty(), "the reference list parses too");
+
+        let norms = StyloNorms::bundled();
+        let f = document_features(&ex, &norms);
+        let d = f.citation_density.unwrap();
+        assert!(d > 0.0, "citation density is now non-zero (was 0.0 -> false HIGH): {d}");
+
+        let row = document_evidence(&f, &norms)
+            .into_iter()
+            .find(|e| e.signal == "citation density")
+            .expect("density row present");
+        assert_eq!(row.status, SignalStatus::Measured, "measured, not Unavailable");
+        assert_ne!(row.level, Some(crate::ai_features::SignalLevel::High), "a cited paper is NOT a HIGH AI signal");
     }
 }

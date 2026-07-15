@@ -12,15 +12,36 @@ use serde::{Deserialize, Serialize};
 
 use crate::ai_detect::DeepKind;
 
-/// Qualitative evidence level for one signal (Phase 1 — no numeric score yet).
+/// Qualitative STRENGTH of a signal — meaningful ONLY when the signal was
+/// actually computed (`SignalStatus::Measured`). Not-computed / not-applicable
+/// states live in [`SignalStatus`], never here (so "weak signal" and "no signal"
+/// can never be confused).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SignalLevel {
     High,
     Moderate,
     Low,
-    /// The signal could not be computed (e.g. citation verification offline).
+}
+
+/// Three-state computation status for a signal — the honesty layer. A signal is
+/// only scored when `Measured`; the other two states are rendered honestly and
+/// NEVER collapsed into a (mis)leading level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SignalStatus {
+    /// Computed — `SignalEvidence::level` carries its strength.
+    Measured,
+    /// Could not be computed for THIS document (e.g. references present but the
+    /// in-text citation style is unparseable; a model was skipped for memory).
+    /// Distinct from a weak/low measurement — we simply don't know.
     Unavailable,
+    /// The signal does not APPLY to this document class (e.g. citation density
+    /// for a non-scholarly document). Requires document classification to
+    /// produce — which does NOT exist yet, so Phase 1 emits this from NO
+    /// producer. Defined + rendered so the honesty layer is complete; the
+    /// classifier that unlocks it is a recorded follow-up.
+    NotApplicable,
 }
 
 /// Ensemble bias tier. Fairness is the load-bearing constraint: factual,
@@ -53,16 +74,41 @@ impl BiasTier {
 }
 
 /// One signal's evidence, surfaced in the Evidence Summary. Never a verdict.
+/// `level` is `Some` iff `status == Measured` — the type makes "weak signal" and
+/// "no signal" un-confusable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SignalEvidence {
     /// Generic, model-agnostic label (e.g. "real language-model perplexity") so
     /// the underlying model can be upgraded without renaming.
     pub signal: String,
-    pub level: SignalLevel,
+    pub status: SignalStatus,
+    /// Strength — `Some` ONLY when `status == Measured`, else `None`.
+    pub level: Option<SignalLevel>,
     pub bias_tier: BiasTier,
     /// Short human-readable detail — never empty (e.g. "2 of 14 references
     /// could not be verified").
     pub detail: String,
+}
+
+impl SignalEvidence {
+    /// A computed signal with a strength level.
+    pub fn measured(
+        signal: impl Into<String>,
+        level: SignalLevel,
+        bias_tier: BiasTier,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self { signal: signal.into(), status: SignalStatus::Measured, level: Some(level), bias_tier, detail: detail.into() }
+    }
+    /// A signal we could not compute for this document (no level).
+    pub fn unavailable(signal: impl Into<String>, bias_tier: BiasTier, detail: impl Into<String>) -> Self {
+        Self { signal: signal.into(), status: SignalStatus::Unavailable, level: None, bias_tier, detail: detail.into() }
+    }
+    /// A signal that does not apply to this document class (no level). NO Phase-1
+    /// producer — needs document classification.
+    pub fn not_applicable(signal: impl Into<String>, bias_tier: BiasTier, detail: impl Into<String>) -> Self {
+        Self { signal: signal.into(), status: SignalStatus::NotApplicable, level: None, bias_tier, detail: detail.into() }
+    }
 }
 
 /// The deep verifier as ONE ensemble feature — NEVER the gatekeeper. Tier
@@ -121,6 +167,11 @@ pub struct DocumentFeatures {
     pub citation_style_consistency: Option<f64>,
     /// Fraction of DOI-bearing references with syntactically-valid DOIs.
     pub doi_syntax_validity: Option<f64>,
+    /// Size of the parsed reference list. Context for the citation-density
+    /// signal: references present + zero in-text citations = a PARSE FAILURE
+    /// (density Unavailable), not a genuinely uncited document.
+    #[serde(default)]
+    pub reference_count: Option<usize>,
     /// The NETWORK citation-verification summary (Set C2), when the lane ran.
     /// `None` here means the local-signal-only build (C1); the C2 lane always
     /// sets a summary (incl. `not_enabled`/`offline`) so no state is silent.
@@ -179,14 +230,22 @@ mod tests {
         assert!(!doc.has_score(), "no headline number until Phase 3");
         assert!(doc.band.is_none());
         // Evidence Summary ships in Phase 1 without any numeric score.
-        doc.evidence.push(SignalEvidence {
-            signal: "real language-model perplexity".into(),
-            level: SignalLevel::High,
-            bias_tier: BiasTier::Stylometric,
-            detail: "sample perplexity below the human academic norm".into(),
-        });
+        doc.evidence.push(SignalEvidence::measured(
+            "real language-model perplexity",
+            SignalLevel::High,
+            BiasTier::Stylometric,
+            "sample perplexity below the human academic norm",
+        ));
         assert!(!doc.has_score(), "evidence present, still no score");
         assert_eq!(doc.evidence.len(), 1);
+
+        // The three-state honesty layer: level is Some ONLY when Measured.
+        let m = SignalEvidence::measured("x", SignalLevel::Low, BiasTier::Structural, "d");
+        let u = SignalEvidence::unavailable("y", BiasTier::Structural, "could not compute");
+        let na = SignalEvidence::not_applicable("z", BiasTier::Structural, "not a scholarly document");
+        assert_eq!((m.status, m.level), (SignalStatus::Measured, Some(SignalLevel::Low)));
+        assert_eq!((u.status, u.level), (SignalStatus::Unavailable, None));
+        assert_eq!((na.status, na.level), (SignalStatus::NotApplicable, None));
     }
 
     #[test]

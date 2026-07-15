@@ -1237,12 +1237,12 @@ pub fn apply_verifier_norm(
         "{model} on-device verifier re-scored {placed} flagged passage(s); {confirmed} fell below the \
          human academic perplexity norm (the human range overlaps AI — a soft, down-weighted signal)"
     );
-    tiered.document_score.evidence.push(SignalEvidence {
-        signal: "Deep-verifier perplexity".into(),
+    tiered.document_score.evidence.push(SignalEvidence::measured(
+        "Deep-verifier perplexity",
         level,
-        bias_tier: BiasTier::Stylometric,
+        BiasTier::Stylometric,
         detail,
-    });
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -2315,7 +2315,8 @@ mod tiered_tests {
             BiasTier::Stylometric,
             "a bigger-model perplexity signal is STYLE-BASED / down-weighted, never factual"
         );
-        assert_eq!(row.level, SignalLevel::High, "majority confirmed → High");
+        assert_eq!(row.level, Some(SignalLevel::High), "majority confirmed → High");
+        assert_eq!(row.status, crate::ai_features::SignalStatus::Measured);
         assert!(row.detail.contains("compact 1.5B"), "detail names the tier: {}", row.detail);
         assert!(row.detail.contains("overlaps AI"), "the softness caveat rides in the row");
 
@@ -2330,7 +2331,7 @@ mod tiered_tests {
         for p in t2.passages.iter().filter(|p| p.depth == AnalysisDepth::DeepVerified) {
             assert!(!p.features.verifier.unwrap().confirmed, "2^5=32 is above the human median");
         }
-        assert_eq!(t2.document_score.evidence.last().unwrap().level, SignalLevel::Low, "0 confirmed → Low");
+        assert_eq!(t2.document_score.evidence.last().unwrap().level, Some(SignalLevel::Low), "0 confirmed → Low");
 
         // (c) NO-OP when the deep verifier did not run (kind Absent) — no row,
         // no per-passage opinion fabricated.

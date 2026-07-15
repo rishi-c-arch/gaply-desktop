@@ -1,0 +1,40 @@
+<!-- STAND-IN for the real pharmaceutics failing case: a Vancouver/IEEE-style
+     manuscript whose in-text citations are ALL bracket-numeric ([1,2] / [3,5]).
+     Pre-Set-1 this parsed to ZERO in-text citations -> density 0.0 -> false HIGH,
+     while the 35-entry reference list verified fine. Provenance: hand-authored to
+     mirror the observed shape; not copied from any source. -->
+Introduction
+
+Poorly water-soluble active pharmaceutical ingredients remain a central formulation
+challenge, and amorphous solid dispersions have emerged as a leading strategy to
+improve apparent solubility and oral bioavailability [1]. Spray drying and hot-melt
+extrusion are the two dominant manufacturing routes, each with distinct advantages
+for thermally labile compounds [1,2]. Polymer selection governs both the physical
+stability of the dispersion and the extent of supersaturation maintained in the
+gastrointestinal tract [3,5]. Recent work has shown that ternary systems combining a
+cellulosic polymer with a surfactant can prolong the supersaturated state well beyond
+what either excipient achieves alone [4-6].
+
+Results
+
+Dissolution testing under non-sink conditions showed that the extruded dispersions
+maintained supersaturation for at least four hours, whereas the crystalline reference
+fell to equilibrium solubility within thirty minutes [7,8]. Powder X-ray diffraction
+confirmed the absence of crystalline drug in all freshly prepared batches [9]. After
+twelve weeks of accelerated storage, the binary dispersions showed partial
+recrystallization, while the ternary formulations remained amorphous [10-12].
+
+References
+
+1. Smith J, Kumar R. Amorphous solid dispersions: a review. J Pharm Sci. 2018;107(1):10-25. doi:10.1016/j.jps.2017.09.001
+2. Lee H, Okonkwo A. Hot-melt extrusion of thermolabile drugs. Int J Pharm. 2019;560:112-130.
+3. Garcia M, Chen L. Polymer selection for supersaturation. Eur J Pharm Biopharm. 2020;150:1-14.
+4. Novak P, Idris B. Ternary dispersions with surfactants. Mol Pharm. 2021;18(3):900-915.
+5. Oyelaran T, Wang Q. Cellulosic carriers in ASD. Pharm Res. 2017;34(5):1000-1012.
+6. Dubois F, Ahmed S. Maintaining supersaturation in vivo. J Control Release. 2019;301:1-12.
+7. Rossi G, Bello K. Non-sink dissolution methods. Dissolution Technol. 2018;25(2):20-28.
+8. Haldar S, Meyer T. Supersaturation kinetics. AAPS PharmSciTech. 2020;21(4):130.
+9. Patel N, Owusu D. XRPD of amorphous systems. J Pharm Biomed Anal. 2016;120:50-58.
+10. Kim S, Adeyemi O. Physical stability of ASD. Int J Pharm. 2021;600:120-135.
+11. Bianchi L, Rahman M. Recrystallization on storage. Eur J Pharm Sci. 2019;135:80-90.
+12. Ferreira J, Nwosu C. Long-term amorphous stability. J Pharm Sci. 2022;111(2):400-412.

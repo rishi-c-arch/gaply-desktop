@@ -268,12 +268,11 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
     let mut analysis = ai_detect::classify_passages(None, &tiered, DEFAULT_MAX_CLASSIFIED_PASSAGES);
     // The RAM-skip is surfaced as an honest Evidence row (never silent).
     if stage1_skipped_for_memory {
-        analysis.document_score.evidence.push(gaply_core::ai_features::SignalEvidence {
-            signal: "Language-model perplexity".into(),
-            level: gaply_core::ai_features::SignalLevel::Unavailable,
-            bias_tier: gaply_core::ai_features::BiasTier::Stylometric,
-            detail: "skipped this run: insufficient free memory".into(),
-        });
+        analysis.document_score.evidence.push(gaply_core::ai_features::SignalEvidence::unavailable(
+            "Language-model perplexity",
+            gaply_core::ai_features::BiasTier::Stylometric,
+            "skipped this run: insufficient free memory",
+        ));
     }
     analysis
 }

@@ -163,8 +163,12 @@ export interface LanguageAssessment {
   note: string; // REQUIRED, never empty
 }
 
-/** One signal's evidence level = the STRENGTH of the AI-associated signal. */
-export type SignalLevel = 'high' | 'moderate' | 'low' | 'unavailable';
+/** STRENGTH of a MEASURED signal — only meaningful when status === 'measured'. */
+export type SignalLevel = 'high' | 'moderate' | 'low';
+/** Three-state honesty layer: a signal is scored only when 'measured'.
+ *  'unavailable' = could not compute for this doc; 'not_applicable' = does not
+ *  apply to this document class (no Phase-1 producer — needs classification). */
+export type SignalStatus = 'measured' | 'unavailable' | 'not_applicable';
 /** Fairness tier — factual signals are trusted; stylometric are down-weighted
  *  (they over-flag non-native English writing). */
 export type BiasTier = 'factual' | 'structural' | 'stylometric';
@@ -172,7 +176,9 @@ export type PerplexitySignal = 'unusually_predictable' | 'below_human_median' | 
 
 export interface SignalEvidence {
   signal: string;
-  level: SignalLevel;
+  status: SignalStatus;
+  /** The strength — non-null ONLY when status === 'measured'. */
+  level: SignalLevel | null;
   bias_tier: BiasTier;
   detail: string; // never empty
 }

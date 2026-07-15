@@ -129,8 +129,15 @@ const LEVEL_LABEL: Record<SignalLevel, string> = {
   high: 'High',
   moderate: 'Moderate',
   low: 'Low',
-  unavailable: 'Unavailable',
 };
+
+/** The left-column label = the measured strength, or the honest non-measured
+ *  state ('Unavailable' / 'Not applicable'). */
+function statusLabel(e: SignalEvidence): string {
+  if (e.status === 'measured' && e.level) return LEVEL_LABEL[e.level];
+  if (e.status === 'unavailable') return 'Unavailable';
+  return 'Not applicable';
+}
 
 // Bias-tiered groups: factual signals are trusted; stylometric are down-weighted
 // (they over-flag non-native English) — the caveat makes that honest, verbally.
@@ -150,7 +157,7 @@ function perplexityRow(a: AiCheckAnalysis): SignalEvidence | null {
     within_or_above_human: { level: 'low', detail: 'within/above the human academic range' },
   };
   const m = map[a.lm_perplexity_signal];
-  return { signal: 'Language-model perplexity', level: m.level, bias_tier: 'stylometric', detail: m.detail };
+  return { signal: 'Language-model perplexity', status: 'measured', level: m.level, bias_tier: 'stylometric', detail: m.detail };
 }
 
 /** The multi-signal Evidence Summary (Phase 1). Qualitative levels only — the
@@ -180,7 +187,7 @@ const EvidenceSummary: React.FC<{ analysis: AiCheckAnalysis }> = ({ analysis }) 
             </div>
             {groupRows.map((r, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, fontSize: 13, marginTop: 4 }} data-testid="evidence-row">
-                <span style={{ minWidth: 84, color: 'var(--g-text-2)' }}>{LEVEL_LABEL[r.level]}</span>
+                <span style={{ minWidth: 84, color: 'var(--g-text-2)' }}>{statusLabel(r)}</span>
                 <span>
                   <strong>{r.signal}</strong> — {r.detail}
                   {(r.signal === 'Language-model perplexity' || r.signal === 'Deep-verifier perplexity') &&

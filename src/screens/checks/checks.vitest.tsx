@@ -17,6 +17,7 @@ import {
   validationToReport,
 } from './adapters';
 import {
+  AiCheckResult,
   AiDetectionReport,
   PlagiarismReport,
   StatsValidityReport,
@@ -144,6 +145,10 @@ describe('AI Check', () => {
     expect(styleGroup.textContent).toMatch(/Deep-verifier perplexity/);
     expect(styleGroup.textContent).toMatch(/human range overlaps AI/);
     expect(screen.getByTestId('evidence-group-factual').textContent).not.toMatch(/Deep-verifier/);
+    // Set 2: the citation-density PARSE-FAILURE row renders honestly as
+    // "Unavailable" with its reason — NOT a fabricated level.
+    expect(screen.getByTestId('evidence-group-structural').textContent).toMatch(/Unavailable/);
+    expect(summary.textContent).toMatch(/could not be attributed — density unreliable/);
     screen.getAllByTestId('evidence-row').forEach((row) => {
       expect(row.textContent).toMatch(/—/); // "Level  Signal — detail"
     });
@@ -155,6 +160,29 @@ describe('AI Check', () => {
     expect(summary.textContent).not.toMatch(/AI Signal Score/);
     // the C2b interim ack line is GONE (replaced by the real citation rows)
     expect(screen.queryByTestId('citation-verification-note')).toBeNull();
+  });
+
+  it('renders a NotApplicable signal honestly (render path exists; no Phase-1 producer)', async () => {
+    // NotApplicable has no backend producer yet (needs document classification);
+    // the render must still handle it honestly. Hand-authored row proves that.
+    const withNA: AiCheckResult = {
+      ...AICHECK_FIXTURE,
+      analysis: {
+        ...AICHECK_FIXTURE.analysis,
+        document_score: {
+          value: null,
+          band: null,
+          evidence: [
+            { signal: 'citation density', status: 'not_applicable', level: null, bias_tier: 'structural', detail: 'not a scholarly document' },
+          ],
+        },
+      },
+    };
+    renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: withNA })} />);
+    await runFile();
+    const structural = screen.getByTestId('evidence-group-structural');
+    expect(structural.textContent).toMatch(/Not applicable/);
+    expect(structural.textContent).toMatch(/not a scholarly document/);
   });
 });
 
