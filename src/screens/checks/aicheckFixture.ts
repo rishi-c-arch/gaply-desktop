@@ -55,7 +55,7 @@ const heuristicPassage: AiCheckPassage = {
 
 export const AICHECK_FIXTURE: AiCheckResult = {
   analysis: {
-    fast_model: 'heuristic-frequency-proxy (interim)',
+    fast_model: 'heuristic frequency proxy (fast pre-pass)',
     deep_model: 'candle-slm1-q3',
     classifier_model: null,
     passages: [deepPassage, heuristicPassage],

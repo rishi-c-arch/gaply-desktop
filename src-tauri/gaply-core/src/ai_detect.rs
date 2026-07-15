@@ -147,7 +147,7 @@ impl Default for HeuristicModel {
 
 impl PerplexityModel for HeuristicModel {
     fn name(&self) -> &str {
-        "heuristic-frequency-proxy (interim; GPT-2 via candle pending)"
+        "heuristic frequency proxy (fast pre-pass)"
     }
     fn context_tokens(&self) -> usize {
         self.context
