@@ -232,6 +232,136 @@ pub fn total_physical_ram_bytes() -> Option<u64> {
     }
 }
 
+/// Free + reclaimable memory in bytes (the RAM courtesy check — the Chrome
+/// lesson, mechanized). macOS PRIMARY: mach `host_statistics64` (VM_INFO64) →
+/// (free + inactive + purgeable + speculative) pages × page size, i.e. the
+/// working set the OS can hand a new model without swap-thrashing. On any mach
+/// error, FALL BACK to `sysctlbyname("vm.page_free_count")` (FREE-ONLY —
+/// under-counts, so it skips too eagerly; used only when the primary fails).
+/// Non-macOS → `None` (the caller treats `None` as "allow", current behaviour).
+pub fn free_memory_bytes() -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        // mach vm_statistics64 layout (mach/vm_statistics.h). natural_t = u32.
+        #[repr(C)]
+        #[derive(Default)]
+        struct VmStatistics64 {
+            free_count: u32,
+            active_count: u32,
+            inactive_count: u32,
+            wire_count: u32,
+            zero_fill_count: u64,
+            reactivations: u64,
+            pageins: u64,
+            pageouts: u64,
+            faults: u64,
+            cow_faults: u64,
+            lookups: u64,
+            hits: u64,
+            purges: u64,
+            purgeable_count: u32,
+            speculative_count: u32,
+            decompressions: u64,
+            compressions: u64,
+            swapins: u64,
+            swapouts: u64,
+            compressor_page_count: u32,
+            throttled_count: u32,
+            external_page_count: u32,
+            internal_page_count: u32,
+            total_uncompressed_pages_in_compressor: u64,
+        }
+        const HOST_VM_INFO64: libc::c_int = 4;
+
+        extern "C" {
+            fn mach_host_self() -> libc::mach_port_t;
+            fn host_statistics64(
+                host: libc::mach_port_t,
+                flavor: libc::c_int,
+                info: *mut libc::c_void,
+                count: *mut libc::mach_msg_type_number_t,
+            ) -> libc::c_int;
+        }
+
+        let page = page_size_bytes();
+        let mut vm = VmStatistics64::default();
+        let mut count =
+            (std::mem::size_of::<VmStatistics64>() / std::mem::size_of::<libc::integer_t>())
+                as libc::mach_msg_type_number_t;
+        // SAFETY: `vm` is a valid, correctly-sized out-param for HOST_VM_INFO64;
+        // `count` holds its length in integer_t units; host_statistics64 writes at
+        // most `count` units. Non-zero return = mach failure → fall back.
+        let rc = unsafe {
+            host_statistics64(
+                mach_host_self(),
+                HOST_VM_INFO64,
+                &mut vm as *mut VmStatistics64 as *mut libc::c_void,
+                &mut count,
+            )
+        };
+        if rc == 0 {
+            let reclaimable = vm.free_count as u64
+                + vm.inactive_count as u64
+                + vm.purgeable_count as u64
+                + vm.speculative_count as u64;
+            return Some(reclaimable * page);
+        }
+        // FALLBACK: free pages only (conservative — under-counts).
+        let mut free_pages: u32 = 0;
+        let mut size = std::mem::size_of::<u32>();
+        let rc = unsafe {
+            libc::sysctlbyname(
+                b"vm.page_free_count\0".as_ptr() as *const libc::c_char,
+                &mut free_pages as *mut u32 as *mut libc::c_void,
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if rc == 0 {
+            Some(free_pages as u64 * page)
+        } else {
+            None
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// VM page size in bytes (macOS: `hw.pagesize`; default 16384 on Apple silicon).
+#[cfg(target_os = "macos")]
+fn page_size_bytes() -> u64 {
+    let mut ps: u64 = 0;
+    let mut size = std::mem::size_of::<u64>();
+    let rc = unsafe {
+        libc::sysctlbyname(
+            b"hw.pagesize\0".as_ptr() as *const libc::c_char,
+            &mut ps as *mut u64 as *mut libc::c_void,
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if rc == 0 && ps > 0 {
+        ps
+    } else {
+        16384
+    }
+}
+
+/// The RAM courtesy check: is there enough free+reclaimable memory to load a
+/// model with `resident_bytes` working set (require ~1.5×, so activations +
+/// the aarch64 repack cache fit without swap-thrashing)? `None` free (non-macOS
+/// or query failure) → `true` (allow — unchanged behaviour).
+pub fn enough_free_memory(resident_bytes: u64) -> bool {
+    match free_memory_bytes() {
+        Some(free) => free >= resident_bytes.saturating_mul(3) / 2,
+        None => true,
+    }
+}
+
 /// Minimum total RAM to run the SLM-1 7B deep pass: 15 GiB (framed to users as
 /// "16 GB"). Below this the deep pass is proven-fatal on 8GB (a candle-CPU swap
 /// death-spiral), so it is gated OFF and AI Check runs the fast heuristic
@@ -366,6 +496,27 @@ pub fn deep_tier_from_env() -> DeepTier {
         slm1_present(),
         slm1_mini_present(),
     )
+}
+
+#[cfg(test)]
+mod ram_courtesy_tests {
+    use super::{enough_free_memory, free_memory_bytes, total_physical_ram_bytes};
+
+    #[test]
+    fn free_memory_is_plausible_and_gate_is_directional() {
+        // 0 resident always fits; an impossible ask never does.
+        assert!(enough_free_memory(0), "zero working set always fits");
+        assert!(!enough_free_memory(u64::MAX / 2), "an impossible ask is refused");
+
+        #[cfg(target_os = "macos")]
+        {
+            let free = free_memory_bytes().expect("macOS reports free memory");
+            assert!(free > 0, "free memory is non-zero");
+            if let Some(total) = total_physical_ram_bytes() {
+                assert!(free <= total, "free ({free}) cannot exceed total ({total})");
+            }
+        }
+    }
 }
 
 #[cfg(test)]

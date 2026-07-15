@@ -163,6 +163,28 @@ export interface LanguageAssessment {
   note: string; // REQUIRED, never empty
 }
 
+/** One signal's evidence level = the STRENGTH of the AI-associated signal. */
+export type SignalLevel = 'high' | 'moderate' | 'low' | 'unavailable';
+/** Fairness tier — factual signals are trusted; stylometric are down-weighted
+ *  (they over-flag non-native English writing). */
+export type BiasTier = 'factual' | 'structural' | 'stylometric';
+export type PerplexitySignal = 'unusually_predictable' | 'below_human_median' | 'within_or_above_human';
+
+export interface SignalEvidence {
+  signal: string;
+  level: SignalLevel;
+  bias_tier: BiasTier;
+  detail: string; // never empty
+}
+
+export interface DocumentScore {
+  /** The 0-100 AI Signal Score — Phase 3 ONLY. `null` until trained (honesty
+   *  gate: when null, NO number renders anywhere). */
+  value: number | null;
+  band: [number, number] | null;
+  evidence: SignalEvidence[];
+}
+
 export interface AiCheckAnalysis {
   fast_model: string;
   deep_model: string | null;
@@ -176,6 +198,12 @@ export interface AiCheckAnalysis {
   candidates_found: number;
   deep_verified: number;
   cleared_by_deep: number;
+  /** Stage-1 real-LM perplexity + its soft placement + provisional flag (C1/B2). */
+  lm_perplexity: number | null;
+  lm_perplexity_signal: PerplexitySignal | null;
+  norms_provisional: boolean;
+  /** The multi-signal Evidence Summary (Set D renders `document_score.evidence`). */
+  document_score: DocumentScore;
   coverage_note: string; // ALWAYS present
   classified: number;
   ai_generated_chars: number;

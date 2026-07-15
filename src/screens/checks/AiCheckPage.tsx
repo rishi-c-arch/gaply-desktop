@@ -46,9 +46,6 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
   // C2: the AI-Check-owned opt-in (default OFF, persisted). The network lane runs
   // only when this AND the global cloud gate are both on.
   const [verifyCitations, setVerify] = useState<boolean>(() => readVerifyCitations());
-  // Whether the citation lane actually ran for the LAST run (for the interim
-  // acknowledgment line, until Set D renders the full Evidence Summary).
-  const [citationRan, setCitationRan] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const acceptFile = async (file: File) => {
@@ -95,7 +92,6 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
     const doVerify = verifyCitations && mayUseCloud('citation_verification');
     try {
       setResult(await b.aicheck(selected.path, doVerify));
-      setCitationRan(doVerify);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'check failed');
     } finally {
@@ -181,7 +177,7 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
               </>
             ) : (
               <div data-testid="check-report">
-                <AiCheckReport result={result} citationVerificationRan={citationRan} />
+                <AiCheckReport result={result} />
                 <div style={{ marginTop: 12 }}>
                   <Button variant="ghost" onClick={() => setResult(null)} data-testid="run-another">
                     ← Run another

@@ -2223,6 +2223,55 @@ mod tiered_tests {
         assert_eq!(out.ai_signal_proportion, 0.0, "a soft signal does not accuse a human");
     }
 
+    /// EVAL-FIXTURE REGRESSION (Set D): the pinned H3 + human-overlap pattern run
+    /// against the committed fixtures (`gaply-core/eval/`), with each AI doc's LM
+    /// scripted to its MEASURED 0.5B perplexity.
+    #[test]
+    fn eval_fixtures_pin_the_false_negative_fix() {
+        use crate::stage1_norms::PerplexitySignal;
+        // Strip the stand-in header comment, and wrap with a heading so a raw
+        // single-paragraph fixture extracts into a section (the fixtures are kept
+        // pristine — as measured — and the wrapper only affects extraction).
+        let strip = |s: &str| {
+            let body: String =
+                s.lines().filter(|l| !l.trim_start().starts_with("<!--")).collect::<Vec<_>>().join("\n");
+            format!("Manuscript\n\n{body}")
+        };
+        let norm = test_norm();
+        let dense = strip(include_str!("../eval/dense_ai.txt"));
+        let dense_full = strip(include_str!("../eval/dense_ai_full.txt"));
+        let human = strip(include_str!("../eval/human_ref.txt"));
+        let mixed = strip(include_str!("../eval/mixed_ai.txt"));
+
+        // H3: AI docs the proxy is blind to still get a real below-human-median
+        // perplexity signal + AI template phrasing.
+        for (text, label) in [(&dense, "dense_ai"), (&dense_full, "dense_ai_full")] {
+            let ex = extract_from_text(text);
+            let lm = ConstSurprisal(3.519); // 2^3.519 ≈ 11.46 (measured)
+            let cfg = Stage1Config { lm: &lm, norm: &norm, provisional: true };
+            let out = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent, Some(cfg));
+            assert_eq!(out.lm_perplexity_signal, Some(PerplexitySignal::BelowHumanMedian), "{label}: real AI-leaning signal");
+            assert!(out.document_features.template_density.unwrap() > 0.0, "{label}: template markers present");
+        }
+
+        // HUMAN-OVERLAP GUARD: genuinely human prose (measured 18.54) places
+        // within/above human, is not accused, and has no AI template markers.
+        let ex = extract_from_text(&human);
+        let lm = ConstSurprisal(4.212); // 2^4.212 ≈ 18.54 (measured)
+        let cfg = Stage1Config { lm: &lm, norm: &norm, provisional: true };
+        let out = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent, Some(cfg));
+        // The perplexity SIGNAL does not lean AI (the guard's point) — regardless
+        // of the crude proxy proportion, which can flag simple human sentences.
+        assert_eq!(out.lm_perplexity_signal, Some(PerplexitySignal::WithinOrAboveHuman), "human: not AI-leaning");
+        assert_eq!(out.document_features.template_density.unwrap(), 0.0, "human: no AI template markers");
+
+        // All four fixtures parse and compute document features without panic.
+        for text in [&dense, &dense_full, &human, &mixed] {
+            let f = crate::ai_signals::document_features(&extract_from_text(text), &crate::ai_signals::StyloNorms::bundled());
+            assert!(f.citation_density.is_some());
+        }
+    }
+
     #[test]
     fn budget_caps_deep_analysis_with_an_honest_note() {
         let ex = doc(&[

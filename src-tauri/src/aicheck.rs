@@ -149,6 +149,9 @@ pub fn apply_citation_verification(
 /// result, not errors.
 #[tracing::instrument(skip(extraction), fields(sections = extraction.sections.len()))]
 pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
+    // Measured resident of the Stage-1 LM (Qwen2.5-0.5B Q4) ≈ 385MB → guard ~400MB.
+    const STAGE1_LM_RESIDENT_BYTES: u64 = 400 * 1024 * 1024;
+    let mut stage1_skipped_for_memory = false;
     // Stage 1+2 — SLM-1 is scoped to this block: candle's memory is RELEASED
     // at the closing brace (one-at-a-time).
     let tiered = {
@@ -160,7 +163,18 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
         // is gone and its absolute-norm replacement isn't wired yet, so running
         // it would be limbo. Model scoped to this block (candle memory released
         // at the brace).
-        let stage1_lm = crate::models::stage1_lm_model();
+        // RAM COURTESY CHECK (the Chrome lesson): don't load the model if there
+        // isn't enough free+reclaimable memory to hold its working set — skip it
+        // this run with an honest note rather than swap-thrashing at 0.1 tok/s.
+        let stage1_lm = if crate::models::stage1_lm_present()
+            && !crate::models::enough_free_memory(STAGE1_LM_RESIDENT_BYTES)
+        {
+            stage1_skipped_for_memory = true;
+            tracing::warn!("AI Check: Stage-1 LM skipped this run — insufficient free memory");
+            None
+        } else {
+            crate::models::stage1_lm_model()
+        };
         let stage1_id = crate::models::stage1_lm_model_id();
         let norms = gaply_core::stage1_norms::Stage1Norms::bundled();
         let stage1_cfg = match (&stage1_lm, &stage1_id) {
@@ -194,7 +208,17 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
     // Ollama is running — no supported local model makes the
     // generated-vs-paraphrased distinction reliably, so it is never asked.
     // The result honestly reports the distinction as unavailable.
-    ai_detect::classify_passages(None, &tiered, DEFAULT_MAX_CLASSIFIED_PASSAGES)
+    let mut analysis = ai_detect::classify_passages(None, &tiered, DEFAULT_MAX_CLASSIFIED_PASSAGES);
+    // The RAM-skip is surfaced as an honest Evidence row (never silent).
+    if stage1_skipped_for_memory {
+        analysis.document_score.evidence.push(gaply_core::ai_features::SignalEvidence {
+            signal: "Language-model perplexity".into(),
+            level: gaply_core::ai_features::SignalLevel::Unavailable,
+            bias_tier: gaply_core::ai_features::BiasTier::Stylometric,
+            detail: "skipped this run: insufficient free memory".into(),
+        });
+    }
+    analysis
 }
 
 #[cfg(test)]

@@ -65,6 +65,18 @@ export const AICHECK_FIXTURE: AiCheckResult = {
     candidates_found: 3,
     deep_verified: 1,
     cleared_by_deep: 1,
+    lm_perplexity: 11.5,
+    lm_perplexity_signal: 'below_human_median',
+    norms_provisional: true,
+    document_score: {
+      value: null,
+      band: null,
+      evidence: [
+        { signal: 'Citation verification', level: 'high', bias_tier: 'factual', detail: '2 of 14 references could not be verified (2 not found; 0 DOI mismatch)' },
+        { signal: 'template phrasing', level: 'high', bias_tier: 'structural', detail: '3.1 markers / 1000 words (≥2 distinct)' },
+        { signal: 'sentence-length burstiness', level: 'moderate', bias_tier: 'stylometric', detail: 'CV 0.26 (human ≈ 0.43)' },
+      ],
+    },
     coverage_note:
       '3 candidate passage(s) from the fast pre-pass; deep-verified 1; cleared 1 as document-baseline; 1 remain heuristic-only (analysis budget: 16 passages / 2000 tokens)',
     classified: 0,

@@ -13,7 +13,16 @@
 import React, { useMemo, useState } from 'react';
 import { Badge, Card } from '../../design-system';
 import '../report/report.css';
-import { AiCheckPassage, AiCheckResult, AiCheckSection } from './agentTypes';
+import {
+  AiCheckAnalysis,
+  AiCheckPassage,
+  AiCheckResult,
+  AiCheckSection,
+  BiasTier,
+  PerplexitySignal,
+  SignalEvidence,
+  SignalLevel,
+} from './agentTypes';
 
 /** Empty-guard backstop for the un-strippable AI disclaimer. The wire normally
  *  carries `analysis.disclaimer` VERBATIM from the Rust core's `AI_DISCLAIMER`
@@ -116,15 +125,85 @@ const PassageInspector: React.FC<{ passage: AiCheckPassage }> = ({ passage }) =>
   </div>
 );
 
-export interface AiCheckReportProps {
-  result: AiCheckResult;
-  /** C2b interim: true when the online citation-verification lane ran for this
-   *  run. Surfaces one honest acknowledgment line until Set D renders the full
-   *  Evidence Summary (which replaces it). */
-  citationVerificationRan?: boolean;
+const LEVEL_LABEL: Record<SignalLevel, string> = {
+  high: 'High',
+  moderate: 'Moderate',
+  low: 'Low',
+  unavailable: 'Unavailable',
+};
+
+// Bias-tiered groups: factual signals are trusted; stylometric are down-weighted
+// (they over-flag non-native English) — the caveat makes that honest, verbally.
+const EVIDENCE_GROUPS: Array<{ tier: BiasTier; label: string; caveat?: string }> = [
+  { tier: 'factual', label: 'VERIFIABLE (world-checkable)' },
+  { tier: 'structural', label: 'STRUCTURAL' },
+  { tier: 'stylometric', label: 'STYLE-BASED', caveat: 'less reliable; can over-flag non-native English writing' },
+];
+
+/** The Stage-1 perplexity placement as an Evidence row (it's a separate wire
+ *  field, not part of document_score.evidence). */
+function perplexityRow(a: AiCheckAnalysis): SignalEvidence | null {
+  if (!a.lm_perplexity_signal) return null;
+  const map: Record<PerplexitySignal, { level: SignalLevel; detail: string }> = {
+    unusually_predictable: { level: 'high', detail: 'unusually predictable for human academic writing' },
+    below_human_median: { level: 'moderate', detail: 'below the human academic median' },
+    within_or_above_human: { level: 'low', detail: 'within/above the human academic range' },
+  };
+  const m = map[a.lm_perplexity_signal];
+  return { signal: 'Language-model perplexity', level: m.level, bias_tier: 'stylometric', detail: m.detail };
 }
 
-const AiCheckReport: React.FC<AiCheckReportProps> = ({ result, citationVerificationRan }) => {
+/** The multi-signal Evidence Summary (Phase 1). Qualitative levels only — the
+ *  honesty gate keeps ANY 0-100 score off the screen (document_score.value is
+ *  null until Phase 3). Rows are grouped by bias tier; the perplexity row (from
+ *  provisional norms) carries the in-row "preliminary" footnote. */
+const EvidenceSummary: React.FC<{ analysis: AiCheckAnalysis }> = ({ analysis }) => {
+  const pRow = perplexityRow(analysis);
+  const rows: SignalEvidence[] = [...(pRow ? [pRow] : []), ...(analysis.document_score?.evidence ?? [])];
+  if (rows.length === 0) return null;
+  const provisional = analysis.norms_provisional;
+  return (
+    <Card title="Evidence Summary" data-testid="evidence-summary">
+      <p style={{ margin: '0 0 8px', color: 'var(--g-text-3)', fontSize: 12 }}>
+        Individual signals — not a verdict, and not combined into a score. A calibrated 0–100 score
+        isn't shown: it requires evaluation Gaply hasn't completed yet. Each level below is the
+        STRENGTH of the AI-associated signal.
+      </p>
+      {EVIDENCE_GROUPS.map((g) => {
+        const groupRows = rows.filter((r) => r.bias_tier === g.tier);
+        if (groupRows.length === 0) return null;
+        return (
+          <div key={g.tier} style={{ marginTop: 10 }} data-testid={`evidence-group-${g.tier}`}>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', color: 'var(--g-text-3)' }}>
+              {g.label}
+              {g.caveat && <span style={{ fontWeight: 400 }}> — {g.caveat}</span>}
+            </div>
+            {groupRows.map((r, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, fontSize: 13, marginTop: 4 }} data-testid="evidence-row">
+                <span style={{ minWidth: 84, color: 'var(--g-text-2)' }}>{LEVEL_LABEL[r.level]}</span>
+                <span>
+                  <strong>{r.signal}</strong> — {r.detail}
+                  {r.signal === 'Language-model perplexity' && provisional && <sup>¹</sup>}
+                </span>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+      {provisional && (
+        <p style={{ marginTop: 10, color: 'var(--g-text-3)', fontSize: 11 }} data-testid="provisional-footnote">
+          ¹ preliminary — norms not yet held-out-evaluated
+        </p>
+      )}
+    </Card>
+  );
+};
+
+export interface AiCheckReportProps {
+  result: AiCheckResult;
+}
+
+const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
   const { analysis } = result;
   const [selected, setSelected] = useState<AiCheckPassage | null>(null);
   const { rendered, unplaced } = useMemo(() => segmentSections(result), [result]);
@@ -185,12 +264,9 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result, citationVerificat
         <p className="gds-jc__disclaimer" style={{ marginTop: 8 }} data-testid="coverage-note">
           {analysis.coverage_note}
         </p>
-        {citationVerificationRan && (
-          <p className="gds-jc__disclaimer" style={{ marginTop: 4 }} data-testid="citation-verification-note">
-            Reference verification: enabled for this run.
-          </p>
-        )}
       </Card>
+
+      <EvidenceSummary analysis={analysis} />
 
       {/* two-way legend */}
       <p style={{ fontSize: 12, color: 'var(--g-text-3)', margin: 0 }} data-testid="aicheck-legend">

@@ -123,6 +123,32 @@ describe('AI Check', () => {
     // the paraphrase lane is honestly unavailable — never a fake category
     expect(screen.getByTestId('paraphrase-unavailable').textContent).toContain('UNAVAILABLE');
   });
+
+  it('renders the Evidence Summary grouped by bias tier, every row with its detail, no score (honesty gate)', async () => {
+    renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE })} />);
+    await runFile();
+    const summary = screen.getByTestId('evidence-summary');
+    // three bias-tier groups
+    expect(screen.getByTestId('evidence-group-factual')).toBeTruthy();
+    expect(screen.getByTestId('evidence-group-structural')).toBeTruthy();
+    expect(screen.getByTestId('evidence-group-stylometric')).toBeTruthy();
+    // the style group carries the non-native caveat (verbal down-weighting)
+    expect(screen.getByTestId('evidence-group-stylometric').textContent).toMatch(/over-flag non-native/i);
+    // EVERY row shows its detail string (no bare levels)
+    expect(summary.textContent).toMatch(/2 of 14 references could not be verified/); // citation row detail
+    expect(summary.textContent).toMatch(/CV 0.26/); // stylometry row detail
+    screen.getAllByTestId('evidence-row').forEach((row) => {
+      expect(row.textContent).toMatch(/—/); // "Level  Signal — detail"
+    });
+    // the perplexity row's in-row provisional footnote
+    expect(screen.getByTestId('provisional-footnote').textContent).toMatch(/preliminary/);
+    // HONESTY GATE: document_score.value is null → no score is presented — the
+    // gate line says so, and no "AI Signal Score" label renders.
+    expect(summary.textContent).toMatch(/isn't shown/); // the gate line
+    expect(summary.textContent).not.toMatch(/AI Signal Score/);
+    // the C2b interim ack line is GONE (replaced by the real citation rows)
+    expect(screen.queryByTestId('citation-verification-note')).toBeNull();
+  });
 });
 
 describe('AI Check — citation verification opt-in (C2b)', () => {
