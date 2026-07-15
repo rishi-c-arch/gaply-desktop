@@ -127,6 +127,30 @@ mod tests {
     }
 
     #[test]
+    fn compact_deep_verifier_norm_is_present_and_lower_than_the_05b() {
+        // Set E: the 1.5B deep-verifier norm ships under its own model id.
+        let norms = Stage1Norms::bundled();
+        let mini = norms
+            .for_model("qwen2.5-1.5b-instruct-q4_k_m")
+            .expect("1.5B deep-verifier norms present");
+        let small = norms.for_model("qwen2.5-0.5b-instruct-q4_k_m").unwrap();
+        assert_eq!(mini.human_academic_perplexity.n, 20);
+        // The bigger model predicts human text more confidently → lower norm.
+        assert!(
+            mini.human_academic_perplexity.median < small.human_academic_perplexity.median,
+            "1.5B median ({}) < 0.5B median ({})",
+            mini.human_academic_perplexity.median,
+            small.human_academic_perplexity.median
+        );
+        assert!(mini.notes.to_lowercase().contains("overlaps ai"), "records the softness caveat");
+        assert!(mini.notes.to_lowercase().contains("stylometric"), "records the down-weighted tier");
+        // The soft placement still works against the mini's own p10/median.
+        let n = &mini.human_academic_perplexity;
+        assert_eq!(mini.signal(n.p10 - 1.0), PerplexitySignal::UnusuallyPredictable);
+        assert_eq!(mini.signal(n.median + 1.0), PerplexitySignal::WithinOrAboveHuman);
+    }
+
+    #[test]
     fn model_id_derives_from_gguf_filename() {
         assert_eq!(
             model_id_from_gguf("/Users/x/gaply-models/stage1-lm/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"),

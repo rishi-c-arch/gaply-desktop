@@ -75,6 +75,7 @@ export const AICHECK_FIXTURE: AiCheckResult = {
         { signal: 'Citation verification', level: 'high', bias_tier: 'factual', detail: '2 of 14 references could not be verified (2 not found; 0 DOI mismatch)' },
         { signal: 'template phrasing', level: 'high', bias_tier: 'structural', detail: '3.1 markers / 1000 words (≥2 distinct)' },
         { signal: 'sentence-length burstiness', level: 'moderate', bias_tier: 'stylometric', detail: 'CV 0.26 (human ≈ 0.43)' },
+        { signal: 'Deep-verifier perplexity', level: 'high', bias_tier: 'stylometric', detail: 'compact 1.5B on-device verifier re-scored 2 flagged passage(s); 2 fell below the human academic perplexity norm (the human range overlaps AI — a soft, down-weighted signal)' },
       ],
     },
     coverage_note:

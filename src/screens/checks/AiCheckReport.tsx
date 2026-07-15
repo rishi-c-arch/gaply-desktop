@@ -183,7 +183,8 @@ const EvidenceSummary: React.FC<{ analysis: AiCheckAnalysis }> = ({ analysis }) 
                 <span style={{ minWidth: 84, color: 'var(--g-text-2)' }}>{LEVEL_LABEL[r.level]}</span>
                 <span>
                   <strong>{r.signal}</strong> — {r.detail}
-                  {r.signal === 'Language-model perplexity' && provisional && <sup>¹</sup>}
+                  {(r.signal === 'Language-model perplexity' || r.signal === 'Deep-verifier perplexity') &&
+                    provisional && <sup>¹</sup>}
                 </span>
               </div>
             ))}

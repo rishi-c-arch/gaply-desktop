@@ -709,8 +709,14 @@ pub enum DeepKind {
     Full,
     /// The compact 1.5B ran — a lighter verifier.
     Compact,
-    /// No deep model — the RAM gate skipped the (proven-fatal) 7B.
+    /// No deep model — the STRUCTURAL RAM gate skipped the (proven-fatal) 7B on a
+    /// machine below the ~16GB floor with no compact model to fall back to.
     GatedLowRam,
+    /// No deep model — a present, runnable model was skipped THIS RUN because
+    /// free memory was low (the RAM courtesy check — the Chrome lesson). Distinct
+    /// from `GatedLowRam` (a machine that *can't* run it) — close some apps and
+    /// re-run and the deep pass returns.
+    SkippedLowMemory,
     /// No deep model — the files were simply not present.
     Absent,
 }
@@ -721,6 +727,14 @@ pub enum DeepKind {
 pub const DEEP_GATED_LOW_RAM_NOTE: &str = "Deep verification was skipped on this device because \
 the local 7B model requires approximately 16 GB of RAM to run reliably. All findings below are \
 heuristic-only preliminary signals.";
+
+/// Coverage note when a present, runnable deep model was skipped THIS RUN by the
+/// RAM courtesy check (free memory was low — other apps holding the RAM), NOT a
+/// structural machine limit. Actionable + honest; distinct from the gated note.
+/// Verbatim, un-strippable.
+pub const DEEP_SKIPPED_LOW_MEMORY_NOTE: &str = "Deep verification was skipped this run because \
+free memory was low — other applications are using most of the RAM. Close some apps and re-run to \
+get the deep pass. All findings below are heuristic-only preliminary signals.";
 
 /// Default deep-analysis budget: passages and tokens. Both caps are parameters
 /// — these are defaults, not policy.
@@ -1076,30 +1090,35 @@ pub fn analyze_tiered(
         .map(|s| s.text.chars().count())
         .sum();
     let heuristic_only = passages.len() - deep_verified;
-    // The self-baseline "cleared" clause is GONE (nothing is cleared). When the
-    // Stage-1 real-LM signal ran, the note says so honestly and flags it
-    // PRELIMINARY (provisional norms) — no silent limbo about the deferred deep tier.
-    let coverage_note = match (deep, &stage1) {
-        // B2-interim: Stage-1 signal computed, deep verifier deferred (not "unavailable").
-        (None, Some(_)) if lm_perplexity.is_some() => format!(
-            "{candidates_found} candidate passage(s) from the fast pre-pass; Stage-1 language-model perplexity computed over a proxy-independent sample and placed against human-academic norms (PRELIMINARY — norms not yet held-out-evaluated); deep verification deferred"
-        ),
-        // Stage-1 LM available but nothing scorable (e.g. an unstructured document
-        // whose text never lands in a section) — honest about that.
-        (None, Some(_)) => format!(
-            "{candidates_found} candidate passage(s) from the fast pre-pass; no scorable text for the Stage-1 language-model signal; deep verification deferred"
-        ),
-        // Deep verifier ran (non-dropping) — exercised by the verifier-feature set.
-        (Some(_), _) if matches!(deep_kind, DeepKind::Compact) => format!(
-            "{candidates_found} candidate passage(s) from the fast pre-pass; {deep_verified} deep-verified by the compact 1.5B on-device model (higher-RAM machines use the full 7B); {heuristic_only} remain heuristic-only (analysis budget: {max_deep_passages} passages / {max_deep_tokens} tokens)"
-        ),
-        (Some(_), _) => format!(
-            "{candidates_found} candidate passage(s) from the fast pre-pass; deep-verified {deep_verified}; {heuristic_only} remain heuristic-only (analysis budget: {max_deep_passages} passages / {max_deep_tokens} tokens)"
-        ),
-        (None, None) if matches!(deep_kind, DeepKind::GatedLowRam) => DEEP_GATED_LOW_RAM_NOTE.to_string(),
-        (None, None) => format!(
-            "{candidates_found} candidate passage(s) from the fast pre-pass; the deep model was not available — ALL flags are heuristic-only preliminary signals"
-        ),
+    // WORDING SWEEP (Set E): the deep verifier RUNS again, so the deep clause is
+    // driven by `deep_kind` (the honest deep-tier outcome) and the Stage-1 clause
+    // is appended. The self-baseline "cleared" clause is GONE (nothing is
+    // cleared). The two low-memory states are standalone, un-strippable,
+    // exact-match-tested notes — a structural machine limit (GatedLowRam) reads
+    // differently from a this-run courtesy skip (SkippedLowMemory).
+    let coverage_note = match deep_kind {
+        DeepKind::GatedLowRam => DEEP_GATED_LOW_RAM_NOTE.to_string(),
+        DeepKind::SkippedLowMemory => DEEP_SKIPPED_LOW_MEMORY_NOTE.to_string(),
+        _ => {
+            let deep_clause = match deep_kind {
+                DeepKind::Compact => format!(
+                    "{deep_verified} deep-verified by the compact 1.5B on-device model (higher-RAM machines use the full 7B); {heuristic_only} remain heuristic-only (analysis budget: {max_deep_passages} passages / {max_deep_tokens} tokens)"
+                ),
+                DeepKind::Full => format!(
+                    "deep-verified {deep_verified}; {heuristic_only} remain heuristic-only (analysis budget: {max_deep_passages} passages / {max_deep_tokens} tokens)"
+                ),
+                // Absent: no deep model ran (files not present, or a test double
+                // with `deep: None`). Those flags stay heuristic-only.
+                _ => "the deep model was not available — those flags stay heuristic-only preliminary signals".to_string(),
+            };
+            // Stage-1 real-LM clause — honest about whether it produced a signal.
+            let stage1_clause = match (stage1.is_some(), lm_perplexity.is_some()) {
+                (true, true) => " Stage-1 language-model perplexity was computed over a proxy-independent sample and placed against human-academic norms (PRELIMINARY — norms not yet held-out-evaluated).",
+                (true, false) => " No scorable text for the Stage-1 language-model signal.",
+                (false, _) => "",
+            };
+            format!("{candidates_found} candidate passage(s) from the fast pre-pass; {deep_clause}.{stage1_clause}")
+        }
     };
 
     // Set 5: deterministic language assessment over the analyzed text —
@@ -1146,6 +1165,84 @@ pub fn analyze_tiered(
         language,
         disclaimer: AI_DISCLAIMER.to_string(),
     }
+}
+
+/// SET E — the deep verifier as ONE ensemble FEATURE, never the gatekeeper.
+///
+/// Places each deep-verified passage against the deep model's OWN absolute
+/// human-academic norm (the per-model `stage1_norms` entry), producing the
+/// per-passage [`crate::ai_features::VerifierFeature`] and appending ONE
+/// Evidence-Summary row. Must be called INSIDE the deep model's scoped lifetime
+/// (the model is still alive), after [`analyze_tiered`], before it drops.
+///
+/// The passage is re-scored with the deep model as a LOG-SPACE document
+/// perplexity (one strided pass — the same metric the norms were measured with,
+/// so the placement is apples-to-apples). The extra pass is cheap on the compact
+/// tier — the only tier with a calibrated norm today — and the app only calls
+/// this when a norm resolved, so the slow 7B never pays for it.
+///
+/// The bias tier is deliberately **Stylometric**: a bigger-model perplexity
+/// signal is still a fluency/predictability measure — style-based and
+/// down-weighted (the human academic range OVERLAPS AI-written text), NEVER a
+/// world-verifiable fact. `confirmed` = the passage's deep perplexity fell below
+/// the human median (a soft "leans predictable"), never a verdict. No-op unless
+/// the deep verifier actually ran (`Full`/`Compact`).
+pub fn apply_verifier_norm(
+    tiered: &mut TieredAnalysis,
+    deep: &dyn PerplexityModel,
+    norm: &crate::stage1_norms::ModelNorm,
+    kind: DeepKind,
+) {
+    use crate::ai_features::{BiasTier, SignalEvidence, SignalLevel, VerifierFeature};
+    use crate::stage1_norms::PerplexitySignal;
+    if !matches!(kind, DeepKind::Full | DeepKind::Compact) {
+        return;
+    }
+    let mut placed = 0usize;
+    let mut confirmed = 0usize;
+    for tp in tiered
+        .passages
+        .iter_mut()
+        .filter(|tp| tp.depth == AnalysisDepth::DeepVerified)
+    {
+        let toks = deep.tokenize(&tp.passage.text);
+        if toks.len() < MIN_STAGE1_TOKENS {
+            continue; // H5 guard — too short for a trustworthy perplexity.
+        }
+        let ppl =
+            document_perplexity(&strided_surprisals(deep, &toks, deep.context_tokens(), deep.stride()));
+        // "leans predictable" = below the human median (overlaps AI — SOFT).
+        let is_confirmed = !matches!(norm.signal(ppl), PerplexitySignal::WithinOrAboveHuman);
+        tp.features.verifier = Some(VerifierFeature { confirmed: is_confirmed, tier: kind });
+        placed += 1;
+        if is_confirmed {
+            confirmed += 1;
+        }
+    }
+    // No fabricated row: only speak when at least one passage was placeable.
+    if placed == 0 {
+        return;
+    }
+    // Level = the STRENGTH of the (down-weighted) signal, by how many of the
+    // re-scored passages the bigger model also found unusually predictable.
+    let level = if confirmed == 0 {
+        SignalLevel::Low
+    } else if confirmed * 2 >= placed {
+        SignalLevel::High
+    } else {
+        SignalLevel::Moderate
+    };
+    let model = if matches!(kind, DeepKind::Compact) { "compact 1.5B" } else { "7B" };
+    let detail = format!(
+        "{model} on-device verifier re-scored {placed} flagged passage(s); {confirmed} fell below the \
+         human academic perplexity norm (the human range overlaps AI — a soft, down-weighted signal)"
+    );
+    tiered.document_score.evidence.push(SignalEvidence {
+        signal: "Deep-verifier perplexity".into(),
+        level,
+        bias_tier: BiasTier::Stylometric,
+        detail,
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -2173,6 +2270,79 @@ mod tiered_tests {
         }
     }
 
+    /// SET E: the deep verifier places its re-scored passages against its OWN
+    /// absolute norm → per-passage VerifierFeature + ONE Stylometric evidence row.
+    /// A CONSTANT-surprisal deep model pins document_perplexity = 2^c exactly, so
+    /// both the confirmed and the not-confirmed placements are deterministic.
+    #[test]
+    fn deep_verifier_places_passages_against_its_own_norm_and_emits_one_row() {
+        use crate::ai_features::{BiasTier, SignalLevel};
+        let ex = doc(&[
+            HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT, AI_UNMARKED, AI_UNMARKED, HUMAN_SENT,
+        ]);
+        let norm = test_norm(); // p10 8.6, median 17.5
+
+        // (a) A deep model that finds every passage UNUSUALLY predictable
+        // (2^2 = 4, below p10) → confirmed; majority-confirmed → High.
+        let confirming = ConstSurprisal(2.0);
+        let mut t = analyze_tiered(
+            &fast(), Some(&confirming), &ex, DEFAULT_MAX_DEEP_PASSAGES, COMPACT_MAX_DEEP_TOKENS,
+            DeepKind::Compact, None,
+        );
+        assert!(t.deep_verified >= 1, "fixture: at least one deep-verified passage");
+        assert!(
+            t.passages.iter().all(|p| p.features.verifier.is_none()),
+            "no verifier feature until placement runs"
+        );
+        let before = t.document_score.evidence.len();
+
+        apply_verifier_norm(&mut t, &confirming, &norm, DeepKind::Compact);
+
+        for p in t.passages.iter().filter(|p| p.depth == AnalysisDepth::DeepVerified) {
+            let v = p.features.verifier.expect("verifier feature set on deep-verified passages");
+            assert!(v.confirmed, "2^2=4 is below p10 → confirmed (soft)");
+            assert_eq!(v.tier, DeepKind::Compact, "records WHICH tier verified");
+        }
+        assert!(
+            t.passages.iter().filter(|p| p.depth == AnalysisDepth::HeuristicOnly).all(|p| p.features.verifier.is_none()),
+            "heuristic-only passages are never given a verifier opinion"
+        );
+        assert_eq!(t.document_score.evidence.len(), before + 1, "exactly ONE new row");
+        let row = t.document_score.evidence.last().unwrap();
+        assert_eq!(row.signal, "Deep-verifier perplexity");
+        assert_eq!(
+            row.bias_tier,
+            BiasTier::Stylometric,
+            "a bigger-model perplexity signal is STYLE-BASED / down-weighted, never factual"
+        );
+        assert_eq!(row.level, SignalLevel::High, "majority confirmed → High");
+        assert!(row.detail.contains("compact 1.5B"), "detail names the tier: {}", row.detail);
+        assert!(row.detail.contains("overlaps AI"), "the softness caveat rides in the row");
+
+        // (b) A deep model that finds them human-range (2^5 = 32, above the
+        // median) → NOT confirmed; 0 confirmed → Low.
+        let human_range = ConstSurprisal(5.0);
+        let mut t2 = analyze_tiered(
+            &fast(), Some(&human_range), &ex, DEFAULT_MAX_DEEP_PASSAGES, COMPACT_MAX_DEEP_TOKENS,
+            DeepKind::Compact, None,
+        );
+        apply_verifier_norm(&mut t2, &human_range, &norm, DeepKind::Compact);
+        for p in t2.passages.iter().filter(|p| p.depth == AnalysisDepth::DeepVerified) {
+            assert!(!p.features.verifier.unwrap().confirmed, "2^5=32 is above the human median");
+        }
+        assert_eq!(t2.document_score.evidence.last().unwrap().level, SignalLevel::Low, "0 confirmed → Low");
+
+        // (c) NO-OP when the deep verifier did not run (kind Absent) — no row,
+        // no per-passage opinion fabricated.
+        let mut t3 = analyze_tiered(
+            &fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent, None,
+        );
+        let base = t3.document_score.evidence.len();
+        apply_verifier_norm(&mut t3, &confirming, &norm, DeepKind::Absent);
+        assert_eq!(t3.document_score.evidence.len(), base, "no verifier row when the deep tier didn't run");
+        assert!(t3.passages.iter().all(|p| p.features.verifier.is_none()));
+    }
+
     /// PINNED H3 REGRESSION: lexically-rich prose the frequency PROXY cannot flag
     /// (0 candidates — the exact false-negative). The Stage-1 LM, scored on the
     /// PROXY-INDEPENDENT sample and scripted to the MEASURED dense-AI value
@@ -2316,6 +2486,24 @@ mod tiered_tests {
         // and the two None-cases are genuinely different notes
         let absent = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent, None);
         assert_ne!(gated.coverage_note, absent.coverage_note);
+    }
+
+    #[test]
+    fn skipped_low_memory_note_is_distinct_and_actionable() {
+        // Set E: a present, runnable deep model skipped THIS RUN by the RAM
+        // courtesy check reads differently from the STRUCTURAL 16GB gate and from
+        // the generic "not available" — three genuinely distinct states.
+        let ex = doc(&[HUMAN_SENT, AI_MARKED, AI_MARKED, HUMAN_SENT]);
+        let skipped = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::SkippedLowMemory, None);
+        assert_eq!(skipped.coverage_note, DEEP_SKIPPED_LOW_MEMORY_NOTE);
+        assert!(skipped.coverage_note.contains("Close some apps"), "actionable: {}", skipped.coverage_note);
+        assert!(!skipped.coverage_note.contains("16 GB"), "not the structural-gate wording");
+        let gated = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::GatedLowRam, None);
+        let absent = analyze_tiered(&fast(), None, &ex, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS, DeepKind::Absent, None);
+        assert_ne!(skipped.coverage_note, gated.coverage_note);
+        assert_ne!(skipped.coverage_note, absent.coverage_note);
+        assert!(skipped.passages.iter().all(|p| p.depth == AnalysisDepth::HeuristicOnly));
+        assert_eq!(skipped.deep_verified, 0);
     }
 
     #[test]

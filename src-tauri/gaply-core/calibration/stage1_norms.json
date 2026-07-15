@@ -13,6 +13,18 @@
         "max": 50.4
       },
       "notes": "PROVISIONAL Phase-1 seed. Measured (Qwen2.5-0.5B-Instruct Q4_K_M, release) on 20 pre-2015 open-access arXiv abstracts spanning disciplines (hep-th, cond-mat, astro-ph, math.AG, math.PR, cs.DS, cs.LO, q-bio.PE, stat.ME, econ.GN, q-fin.GN, nlin.CD) committed under calibration/human_academic/. WIDE human range (7-50) OVERLAPS AI-written text (a dense-AI reference measured 11.46, at the 30th human percentile) — so real-LM perplexity is a SOFT, down-weighted signal, NEVER a standalone gate. This seed is STEM/quant-heavy and NOT held-out-evaluated; Phase 3 replaces it with dataset-derived, humanities-inclusive, non-native-inclusive norms (GPABench2/CHEAT human halves + PELIC/ELLIPSE) and disclosed per-subgroup FPR, then flips provisional to false."
+    },
+    "qwen2.5-1.5b-instruct-q4_k_m": {
+      "human_academic_perplexity": {
+        "n": 20,
+        "median": 14.7,
+        "mean": 16.7,
+        "p10": 6.9,
+        "p90": 25.5,
+        "min": 5.5,
+        "max": 53.2
+      },
+      "notes": "PROVISIONAL Phase-1 seed for the COMPACT DEEP VERIFIER (Set E). Measured (Qwen2.5-1.5B-Instruct Q4_K_M, release, examples/stage1_norms_probe) with the SAME log-space document-perplexity metric analyze_tiered/apply_verifier_norm place against — over the same 20 pre-2015 open-access arXiv abstracts under calibration/human_academic/. The 1.5B is a bigger, more capable model than the 0.5B, so it predicts human academic text more confidently: its human median (14.7) and p10 (6.9) sit BELOW the 0.5B's (17.5 / 8.6). The human range (5.5-53.2) is still WIDE and OVERLAPS AI-written text — perplexity from the deep verifier is a SOFT, down-weighted STYLOMETRIC signal (bias tier Stylometric, not Factual), NEVER a gate. STEM/quant-heavy, NOT held-out-evaluated; superseded in Phase 3 alongside the 0.5B norm. No 7B norm is measured yet (the 7B verifies without a perplexity-placement row until a higher-RAM measurement lands)."
     }
   }
 }

@@ -28,7 +28,7 @@
 //! the Set-5 language downgrade) live in gaply-core.
 
 use gaply_core::ai_detect::{
-    self, ClassifiedAnalysis, HeuristicModel, COMPACT_MAX_DEEP_TOKENS,
+    self, ClassifiedAnalysis, HeuristicModel, PerplexityModel, COMPACT_MAX_DEEP_TOKENS,
     DEFAULT_MAX_CLASSIFIED_PASSAGES, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS,
 };
 use gaply_core::extract::ExtractionResult;
@@ -151,21 +151,25 @@ pub fn apply_citation_verification(
 pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
     // Measured resident of the Stage-1 LM (Qwen2.5-0.5B Q4) ≈ 385MB → guard ~400MB.
     const STAGE1_LM_RESIDENT_BYTES: u64 = 400 * 1024 * 1024;
+    // Compact 1.5B deep verifier (Q4 GGUF 986MB + candle repack cache/activations)
+    // ≈ 1.5GB working set → guard 1.6GB (the courtesy check then asks ~2.4GB free).
+    const MINI_RESIDENT_BYTES: u64 = 1600 * 1024 * 1024;
+    // Full 7B: a conservative TRANSIENT guard on top of the structural ≥16GB
+    // total-RAM gate (deep_tier) — ~6GB → the courtesy check asks ~9GB free.
+    const FULL_7B_RESIDENT_BYTES: u64 = 6 * 1024 * 1024 * 1024;
     let mut stage1_skipped_for_memory = false;
-    // Stage 1+2 — SLM-1 is scoped to this block: candle's memory is RELEASED
-    // at the closing brace (one-at-a-time).
+    // Stage 1+2 — BOTH candle models (the Stage-1 LM and the deep verifier) are
+    // scoped to this block: their memory is RELEASED at the closing brace.
     let tiered = {
         let fast = HeuristicModel::default();
         // STAGE-1 real-LM signal (root-cause fix): load the small on-device LM
-        // and resolve its ABSOLUTE per-model human-academic norm. The deep
-        // VERIFIER (mini/7B via DeepTier) is DEFERRED to the verifier-feature set
-        // — it is IDLE here (`deep: None`); its convicted self-baseline clearing
-        // is gone and its absolute-norm replacement isn't wired yet, so running
-        // it would be limbo. Model scoped to this block (candle memory released
-        // at the brace).
-        // RAM COURTESY CHECK (the Chrome lesson): don't load the model if there
-        // isn't enough free+reclaimable memory to hold its working set — skip it
-        // this run with an honest note rather than swap-thrashing at 0.1 tok/s.
+        // (~0.5B) and resolve its ABSOLUTE per-model human-academic norm.
+        //
+        // The RAM COURTESY CHECK (the Chrome lesson) guards EACH candle load: if
+        // free+reclaimable memory can't hold the working set, skip that model
+        // THIS RUN with an honest note rather than swap-thrashing at 0.1 tok/s.
+        // The Stage-1 LM is loaded first, so the free-memory reading for the deep
+        // verifier already accounts for it (natural sequential budgeting).
         let stage1_lm = if crate::models::stage1_lm_present()
             && !crate::models::enough_free_memory(STAGE1_LM_RESIDENT_BYTES)
         {
@@ -193,16 +197,69 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
                 None
             }
         };
-        ai_detect::analyze_tiered(
+
+        // DEEP VERIFIER (Set E — un-idled): the DeepTier gate (unchanged) decides
+        // which model the machine is entitled to; the RAM courtesy check guards
+        // the actual load. `deep_kind` carries the honest outcome (incl. the two
+        // low-memory states) into the coverage note. `deep_norm` places the
+        // re-scored passages against the deep model's OWN norm (mini only today).
+        let (deep_lm, deep_kind, deep_norm_id): (
+            Option<Box<dyn PerplexityModel>>,
+            ai_detect::DeepKind,
+            Option<String>,
+        ) = match crate::models::deep_tier_from_env() {
+            crate::models::DeepTier::Full7B => {
+                if crate::models::enough_free_memory(FULL_7B_RESIDENT_BYTES) {
+                    match crate::models::slm1_model() {
+                        Some(m) => (Some(m), ai_detect::DeepKind::Full, crate::models::slm1_model_id()),
+                        None => (None, ai_detect::DeepKind::Absent, None),
+                    }
+                } else {
+                    tracing::warn!("AI Check: 7B deep verifier skipped this run — low free memory");
+                    (None, ai_detect::DeepKind::SkippedLowMemory, None)
+                }
+            }
+            crate::models::DeepTier::Mini => {
+                if crate::models::enough_free_memory(MINI_RESIDENT_BYTES) {
+                    match crate::models::slm1_mini_model() {
+                        Some(m) => (Some(m), ai_detect::DeepKind::Compact, crate::models::slm1_mini_model_id()),
+                        None => (None, ai_detect::DeepKind::Absent, None),
+                    }
+                } else {
+                    tracing::warn!("AI Check: compact deep verifier skipped this run — low free memory");
+                    (None, ai_detect::DeepKind::SkippedLowMemory, None)
+                }
+            }
+            crate::models::DeepTier::HeuristicOnly => {
+                // A present-but-RAM-gated 7B (machine below the ~16GB floor with
+                // no compact fallback) reads as GatedLowRam; anything else Absent.
+                let kind = if crate::models::slm1_present() && !crate::models::slm1_mini_present() {
+                    ai_detect::DeepKind::GatedLowRam
+                } else {
+                    ai_detect::DeepKind::Absent
+                };
+                (None, kind, None)
+            }
+        };
+        let deep_norm = deep_norm_id.as_deref().and_then(|id| norms.for_model(id));
+
+        let mut tiered = ai_detect::analyze_tiered(
             &fast,
-            None, // deep verifier IDLE in the B2-interim (deferred)
+            deep_lm.as_deref(),
             extraction,
             DEFAULT_MAX_DEEP_PASSAGES,
-            DEFAULT_MAX_DEEP_TOKENS,
-            ai_detect::DeepKind::Absent,
+            deep_budget_tokens(deep_kind),
+            deep_kind,
             stage1_cfg,
-        )
-    }; // ← the Stage-1 model is dropped HERE
+        );
+        // Place the deep verifier's re-scored passages against its own norm WHILE
+        // the model is still alive (before the block drops it). No-op unless a
+        // norm resolved (the 7B has none yet → verifies without a placement row).
+        if let (Some(dm), Some(n)) = (deep_lm.as_deref(), deep_norm) {
+            ai_detect::apply_verifier_norm(&mut tiered, dm, n, deep_kind);
+        }
+        tiered
+    }; // ← both candle models are dropped HERE
 
     // TWO-WAY collapse (probe decision): `None` is deliberate, even when
     // Ollama is running — no supported local model makes the

@@ -469,6 +469,21 @@ pub fn stage1_lm_model_id() -> Option<String> {
     Some(gaply_core::stage1_norms::model_id_from_gguf(&gguf.to_string_lossy()))
 }
 
+/// The full 7B deep verifier's norms key. `None` when no GGUF resolves. (No 7B
+/// norm is calibrated yet — the lookup simply misses, so the 7B verifies without
+/// a perplexity-placement row until a higher-RAM measurement lands.)
+pub fn slm1_model_id() -> Option<String> {
+    let (gguf, _) = slm1_paths()?;
+    Some(gaply_core::stage1_norms::model_id_from_gguf(&gguf.to_string_lossy()))
+}
+
+/// The compact 1.5B deep verifier's norms key (Set E), for placing its
+/// re-scored passages against its OWN absolute human-academic norm.
+pub fn slm1_mini_model_id() -> Option<String> {
+    let (gguf, _) = slm1_mini_paths()?;
+    Some(gaply_core::stage1_norms::model_id_from_gguf(&gguf.to_string_lossy()))
+}
+
 /// Parse `GAPLY_FORCE_DEEP`: `full` / `mini` / `1` → the matching override;
 /// anything else (unset/other) → `None`.
 fn force_deep_from_env() -> Option<ForceTier> {

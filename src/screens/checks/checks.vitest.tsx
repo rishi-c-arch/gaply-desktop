@@ -137,6 +137,13 @@ describe('AI Check', () => {
     // EVERY row shows its detail string (no bare levels)
     expect(summary.textContent).toMatch(/2 of 14 references could not be verified/); // citation row detail
     expect(summary.textContent).toMatch(/CV 0.26/); // stylometry row detail
+    // Set E: the deep-verifier perplexity row groups under STYLE-BASED (a
+    // bigger-model perplexity signal is style-based / down-weighted, NOT factual)
+    // and carries the softness caveat in its detail.
+    const styleGroup = screen.getByTestId('evidence-group-stylometric');
+    expect(styleGroup.textContent).toMatch(/Deep-verifier perplexity/);
+    expect(styleGroup.textContent).toMatch(/human range overlaps AI/);
+    expect(screen.getByTestId('evidence-group-factual').textContent).not.toMatch(/Deep-verifier/);
     screen.getAllByTestId('evidence-row').forEach((row) => {
       expect(row.textContent).toMatch(/—/); // "Level  Signal — detail"
     });
