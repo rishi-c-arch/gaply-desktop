@@ -82,6 +82,19 @@ fn slm1_mini_paths() -> Option<(PathBuf, PathBuf)> {
     Some((gguf, slm1_tokenizer_path()?))
 }
 
+/// Resolve the Stage-1 language-model GGUF + tokenizer paths. This is the small
+/// real LM (a Qwen2.5-family model) that replaces the frequency proxy as the
+/// Stage-1 perplexity SIGNAL — deliberately named generically so the model can
+/// be upgraded without renaming. `GAPLY_STAGE1_LM_GGUF` wins; otherwise the
+/// conventional `~/gaply-models/stage1-lm/*.gguf`. Shared Qwen2.5 tokenizer.
+fn stage1_lm_paths() -> Option<(PathBuf, PathBuf)> {
+    let gguf = match std::env::var_os("GAPLY_STAGE1_LM_GGUF") {
+        Some(p) => PathBuf::from(p),
+        None => first_gguf(&home_dir()?.join("gaply-models").join("stage1-lm"))?,
+    };
+    Some((gguf, slm1_tokenizer_path()?))
+}
+
 /// The REAL SLM-1 (candle), or honestly `None`. `Some` only when the GGUF +
 /// tokenizer are present AND load — never a silent stand-in. The AI-Check
 /// tiered flow needs this distinction: `analyze_tiered(deep: None)` labels
@@ -147,6 +160,40 @@ pub fn slm1_mini_model() -> Option<Box<dyn PerplexityModel>> {
             tracing::warn!(
                 "SLM-1-MINI: model files absent (set GAPLY_SLM1_MINI_GGUF or populate \
                  ~/gaply-models/slm1-mini)"
+            );
+            None
+        }
+    }
+}
+
+/// The Stage-1 language model (candle), or honestly `None`. This small real LM
+/// (~0.5B) supplies the Stage-1 perplexity SIGNAL that replaces the frequency
+/// proxy — the root-cause fix for the false negative on lexically-rich AI prose.
+/// Generic display name so the model can be upgraded without renaming. Same
+/// honesty contract as [`slm1_model`]: `Some` only when files are present AND
+/// load. (Not wired into the flow yet — the smart-sample scoring lands in B2.)
+pub fn stage1_lm_model() -> Option<Box<dyn PerplexityModel>> {
+    match stage1_lm_paths() {
+        Some((gguf, tokenizer)) if gguf.exists() && tokenizer.exists() => {
+            match CandlePerplexityModel::from_paths_named(
+                &gguf,
+                &tokenizer,
+                "stage-1 language model (on-device)",
+            ) {
+                Ok(m) => {
+                    tracing::info!(gguf = %gguf.display(), "Stage-1 LM: loaded perplexity model");
+                    Some(Box::new(m))
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Stage-1 LM: model present but failed to load");
+                    None
+                }
+            }
+        }
+        _ => {
+            tracing::warn!(
+                "Stage-1 LM: model files absent (set GAPLY_STAGE1_LM_GGUF or populate \
+                 ~/gaply-models/stage1-lm)"
             );
             None
         }
@@ -280,6 +327,11 @@ pub fn slm1_mini_present() -> bool {
     slm1_mini_paths().map(|(g, t)| g.exists() && t.exists()).unwrap_or(false)
 }
 
+/// True when the Stage-1 LM GGUF + tokenizer are both present.
+pub fn stage1_lm_present() -> bool {
+    stage1_lm_paths().map(|(g, t)| g.exists() && t.exists()).unwrap_or(false)
+}
+
 /// Parse `GAPLY_FORCE_DEEP`: `full` / `mini` / `1` → the matching override;
 /// anything else (unset/other) → `None`.
 fn force_deep_from_env() -> Option<ForceTier> {
@@ -401,6 +453,24 @@ mod mini_loader_tests {
         assert!(slm1_mini_model().is_none(), "absent mini GGUF => None");
 
         std::env::remove_var("GAPLY_SLM1_MINI_GGUF");
+        std::env::remove_var("GAPLY_SLM1_TOKENIZER");
+    }
+
+    /// The Stage-1 LM resolver honors `GAPLY_STAGE1_LM_GGUF`, shares the SLM-1
+    /// tokenizer, and `stage1_lm_model` honestly returns `None` when absent —
+    /// never a silent stand-in, never loads a real model in tests.
+    #[test]
+    fn stage1_lm_paths_honor_env_and_absent_model_is_none() {
+        std::env::set_var("GAPLY_STAGE1_LM_GGUF", "/nonexistent/stage1.gguf");
+        std::env::set_var("GAPLY_SLM1_TOKENIZER", "/nonexistent/tokenizer.json");
+
+        let (gguf, tok) = super::stage1_lm_paths().expect("env overrides form a path pair");
+        assert_eq!(gguf.to_str(), Some("/nonexistent/stage1.gguf"));
+        assert_eq!(tok.to_str(), Some("/nonexistent/tokenizer.json"), "shares the SLM-1 tokenizer");
+        assert!(super::stage1_lm_model().is_none(), "absent Stage-1 GGUF => None");
+        assert!(!super::stage1_lm_present());
+
+        std::env::remove_var("GAPLY_STAGE1_LM_GGUF");
         std::env::remove_var("GAPLY_SLM1_TOKENIZER");
     }
 }

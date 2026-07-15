@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "provisional": true,
+  "models": {
+    "qwen2.5-0.5b-instruct-q4_k_m": {
+      "human_academic_perplexity": {
+        "n": 20,
+        "median": 17.5,
+        "mean": 20.4,
+        "p10": 8.6,
+        "p90": 48.3,
+        "min": 7.0,
+        "max": 50.4
+      },
+      "notes": "PROVISIONAL Phase-1 seed. Measured (Qwen2.5-0.5B-Instruct Q4_K_M, release) on 20 pre-2015 open-access arXiv abstracts spanning disciplines (hep-th, cond-mat, astro-ph, math.AG, math.PR, cs.DS, cs.LO, q-bio.PE, stat.ME, econ.GN, q-fin.GN, nlin.CD) committed under calibration/human_academic/. WIDE human range (7-50) OVERLAPS AI-written text (a dense-AI reference measured 11.46, at the 30th human percentile) — so real-LM perplexity is a SOFT, down-weighted signal, NEVER a standalone gate. This seed is STEM/quant-heavy and NOT held-out-evaluated; Phase 3 replaces it with dataset-derived, humanities-inclusive, non-native-inclusive norms (GPABench2/CHEAT human halves + PELIC/ELLIPSE) and disclosed per-subgroup FPR, then flips provisional to false."
+    }
+  }
+}

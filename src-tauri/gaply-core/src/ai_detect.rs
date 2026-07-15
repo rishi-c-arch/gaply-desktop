@@ -379,6 +379,21 @@ fn score_block(model: &dyn PerplexityModel, text: &str) -> (f64, f64, Vec<Senten
     (mean(&ppls), std_dev(&ppls), scores)
 }
 
+/// Log-space (geometric) document perplexity: `2^(mean per-token surprisal)`,
+/// clamped. This is the standard corpus perplexity and is robust where
+/// `mean(&per_sentence_2^bits)` is NOT — a few high-surprisal tokens raise the
+/// mean surprisal only modestly, so one degenerate span can't obliterate it
+/// (the H5 failure mode). Pairs with the Set-A `PERPLEXITY_CLAMP`. Used by the
+/// Stage-1 real-LM signal to compare a document against the absolute human
+/// norms; `[]` → 0.0.
+pub fn document_perplexity(surprisals: &[f32]) -> f64 {
+    if surprisals.is_empty() {
+        return 0.0;
+    }
+    let mean_bits = surprisals.iter().map(|&s| s as f64).sum::<f64>() / surprisals.len() as f64;
+    2f64.powf(mean_bits).min(PERPLEXITY_CLAMP)
+}
+
 fn build_report(
     model: &dyn PerplexityModel,
     sections: Vec<SectionAiScore>,
@@ -1578,6 +1593,22 @@ mod tests {
         let (m2, _, s2) = score_block(&LowSurprisal, "This sentence is here.");
         assert!(s2.iter().all(|s| (s.perplexity - 8.0).abs() < 1e-6), "clamp doesn't touch real signal");
         assert!(m2 < 12.0);
+    }
+
+    /// Log-space document perplexity is robust where mean-of-2^bits is not:
+    /// a few 20-bit outlier tokens among mostly-3.5-bit tokens must NOT blow the
+    /// document perplexity up to ~10^6 — it stays near 2^(modest mean).
+    #[test]
+    fn document_perplexity_is_robust_to_outlier_tokens() {
+        let mut surps = vec![3.5f32; 250];
+        surps.extend(std::iter::repeat(20.0f32).take(8)); // degenerate spans
+        let dp = document_perplexity(&surps);
+        // mean bits ≈ (250*3.5 + 8*20)/258 ≈ 4.0 → 2^4 ≈ 16, NOT 2^20.
+        assert!(dp < 40.0, "outliers don't obliterate the doc perplexity: {dp}");
+        assert!(dp > 8.0);
+        // Empty is 0.0, all-huge is clamped.
+        assert_eq!(document_perplexity(&[]), 0.0);
+        assert!(document_perplexity(&[30.0; 10]) <= PERPLEXITY_CLAMP);
     }
 
     // Predictable, common-word, uniform prose — AI-like.
