@@ -4,6 +4,7 @@
 //! lives here. The Tauri layer only adapts these functions to IPC.
 
 pub mod ai_detect;
+pub mod ai_features;
 pub mod app_check;
 pub mod cache;
 pub mod chat_agent;

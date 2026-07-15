@@ -322,6 +322,17 @@ const AI_LIKE_BURSTINESS: f64 = 8.0;
 const HUMAN_LIKE_PPL: f64 = 20.0;
 const HUMAN_LIKE_BURSTINESS: f64 = 15.0;
 
+/// H5 stability guard. Per-sentence perplexity is `2^mean_surprisal`, which
+/// EXPLODES for a high-surprisal block (a real model was observed emitting
+/// mean surprisal ~19 bits → 2^19 ≈ 625,000 on a short/degenerate block),
+/// obliterating any mean it enters. Clamp it to a sane ceiling: legitimate
+/// human/AI sentence perplexity sits well under this (flagged AI < 12; the
+/// report caps display well under 200), so the clamp touches only degenerate
+/// outliers and never the flagging signal. The proper log-space DOCUMENT
+/// perplexity (geometric, one exponentiation over all tokens) lands with the
+/// absolute-norm metric in the next set.
+const PERPLEXITY_CLAMP: f64 = 1000.0;
+
 fn classify(mean_ppl: f64, burstiness: f64) -> AiSignal {
     if mean_ppl < AI_LIKE_PPL && burstiness < AI_LIKE_BURSTINESS {
         AiSignal::LeansAiLike
@@ -358,7 +369,8 @@ fn score_block(model: &dyn PerplexityModel, text: &str) -> (f64, f64, Vec<Senten
         let mean_surp = surp[a..b].iter().map(|x| *x as f64).sum::<f64>() / (b - a) as f64;
         scores.push(SentenceScore {
             text: s.clone(),
-            perplexity: 2f64.powf(mean_surp),
+            // H5: clamp so a single degenerate block can't obliterate a mean.
+            perplexity: 2f64.powf(mean_surp).min(PERPLEXITY_CLAMP),
             tokens: b - a,
         });
     }
@@ -675,7 +687,8 @@ never treat as proof.";
 /// threads in. Pairs with the `deep` argument of [`analyze_tiered`]:
 /// `Full`/`Compact` accompany `Some(model)`; `GatedLowRam`/`Absent` accompany
 /// `None`. Keeps the per-tier verified note + coverage clause truthful.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DeepKind {
     /// The full 7B ran.
     Full,
@@ -1534,6 +1547,38 @@ pub fn assess_language(text: &str) -> LanguageAssessment {
 mod tests {
     use super::*;
     use crate::extract::extract_from_text;
+
+    /// H5: a model emitting very high surprisal must NOT produce a ~10^6
+    /// perplexity that obliterates any mean it enters — it's clamped.
+    #[test]
+    fn h5_high_surprisal_perplexity_is_clamped() {
+        struct HighSurprisal;
+        impl PerplexityModel for HighSurprisal {
+            fn name(&self) -> &str { "high-surprisal" }
+            fn context_tokens(&self) -> usize { 512 }
+            fn stride(&self) -> usize { 256 }
+            fn tokenize(&self, t: &str) -> Vec<String> { HeuristicModel::default().tokenize(t) }
+            // 20 bits/token → 2^20 ≈ 1,048,576 unclamped (the 625k-class bug).
+            fn surprisals(&self, toks: &[String]) -> Vec<f32> { vec![20.0; toks.len()] }
+        }
+        let (mean_ppl, _, scores) =
+            score_block(&HighSurprisal, "This sentence is here. Another one follows it.");
+        assert!(!scores.is_empty());
+        assert!(scores.iter().all(|s| s.perplexity <= PERPLEXITY_CLAMP), "each sentence clamped");
+        assert!(mean_ppl <= PERPLEXITY_CLAMP, "block mean bounded, not ~10^6: {mean_ppl}");
+        // A normal low-surprisal block is untouched by the clamp.
+        struct LowSurprisal;
+        impl PerplexityModel for LowSurprisal {
+            fn name(&self) -> &str { "low" }
+            fn context_tokens(&self) -> usize { 512 }
+            fn stride(&self) -> usize { 256 }
+            fn tokenize(&self, t: &str) -> Vec<String> { HeuristicModel::default().tokenize(t) }
+            fn surprisals(&self, toks: &[String]) -> Vec<f32> { vec![3.0; toks.len()] } // 2^3 = 8
+        }
+        let (m2, _, s2) = score_block(&LowSurprisal, "This sentence is here.");
+        assert!(s2.iter().all(|s| (s.perplexity - 8.0).abs() < 1e-6), "clamp doesn't touch real signal");
+        assert!(m2 < 12.0);
+    }
 
     // Predictable, common-word, uniform prose — AI-like.
     const AI_SAMPLE: &str = "The results show that the model is able to process the data in a \
