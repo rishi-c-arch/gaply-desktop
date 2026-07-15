@@ -158,18 +158,18 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
     // total-RAM gate (deep_tier) — ~6GB → the courtesy check asks ~9GB free.
     const FULL_7B_RESIDENT_BYTES: u64 = 6 * 1024 * 1024 * 1024;
     let mut stage1_skipped_for_memory = false;
-    // Stage 1+2 — BOTH candle models (the Stage-1 LM and the deep verifier) are
-    // scoped to this block: their memory is RELEASED at the closing brace.
-    let tiered = {
+    // Bundled norms (no model) — used by BOTH phases.
+    let norms = gaply_core::stage1_norms::Stage1Norms::bundled();
+
+    // PHASE A — fast pre-pass + the Stage-1 LM (0.5B). The model is scoped to
+    // THIS block and DROPS at the closing brace, so its ~1GB working set returns
+    // to the OS BEFORE the deep verifier's memory check + load. The two candle
+    // models NEVER coexist (true one-at-a-time; Set 1 made the phases model-
+    // disjoint so this is enforceable).
+    let stage1_analysis = {
         let fast = HeuristicModel::default();
-        // STAGE-1 real-LM signal (root-cause fix): load the small on-device LM
-        // (~0.5B) and resolve its ABSOLUTE per-model human-academic norm.
-        //
-        // The RAM COURTESY CHECK (the Chrome lesson) guards EACH candle load: if
-        // free+reclaimable memory can't hold the working set, skip that model
-        // THIS RUN with an honest note rather than swap-thrashing at 0.1 tok/s.
-        // The Stage-1 LM is loaded first, so the free-memory reading for the deep
-        // verifier already accounts for it (natural sequential budgeting).
+        // RAM COURTESY CHECK (the Chrome lesson): skip the load if free memory
+        // can't hold the working set, rather than swap-thrashing at 0.1 tok/s.
         let stage1_lm = if crate::models::stage1_lm_present()
             && !crate::models::enough_free_memory(STAGE1_LM_RESIDENT_BYTES)
         {
@@ -180,7 +180,6 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
             crate::models::stage1_lm_model()
         };
         let stage1_id = crate::models::stage1_lm_model_id();
-        let norms = gaply_core::stage1_norms::Stage1Norms::bundled();
         let stage1_cfg = match (&stage1_lm, &stage1_id) {
             (Some(m), Some(id)) => match norms.for_model(id) {
                 Some(norm) => {
@@ -197,7 +196,13 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
                 None
             }
         };
+        ai_detect::analyze_stage1(&fast, stage1_cfg, extraction)
+    }; // ← the 0.5B Stage-1 LM is DROPPED HERE (memory returned before phase B)
 
+    // PHASE B — the deep verifier (1.5B/7B). Its RAM courtesy check now reads the
+    // memory FREED by phase A's drop — a LOWER bar than when the 0.5B was still
+    // resident. Model scoped to this block, dropped at the brace.
+    let tiered = {
         // DEEP VERIFIER (Set E — un-idled): the DeepTier gate (unchanged) decides
         // which model the machine is entitled to; the RAM courtesy check guards
         // the actual load. `deep_kind` carries the honest outcome (incl. the two
@@ -243,14 +248,13 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
         };
         let deep_norm = deep_norm_id.as_deref().and_then(|id| norms.for_model(id));
 
-        let mut tiered = ai_detect::analyze_tiered(
-            &fast,
+        let mut tiered = ai_detect::analyze_deep(
+            stage1_analysis,
             deep_lm.as_deref(),
-            extraction,
             DEFAULT_MAX_DEEP_PASSAGES,
             deep_budget_tokens(deep_kind),
             deep_kind,
-            stage1_cfg,
+            extraction,
         );
         // Place the deep verifier's re-scored passages against its own norm WHILE
         // the model is still alive (before the block drops it). No-op unless a
@@ -259,7 +263,7 @@ pub fn run_aicheck_flow(extraction: &ExtractionResult) -> ClassifiedAnalysis {
             ai_detect::apply_verifier_norm(&mut tiered, dm, n, deep_kind);
         }
         tiered
-    }; // ← both candle models are dropped HERE
+    }; // ← the deep verifier is DROPPED HERE
 
     // TWO-WAY collapse (probe decision): `None` is deliberate, even when
     // Ollama is running — no supported local model makes the
