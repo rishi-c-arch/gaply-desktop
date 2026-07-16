@@ -1,0 +1,140 @@
+/* Gaply — AI Check page redesign. Scoped to `.gds-aicheck` (a child of
+   `.gds-root`). Everything here reads the REAL `--g-*` tokens (never literal hex,
+   never phantom tokens), so a future APP-WIDE light theme — one block of the form
+
+     html[data-theme="light"] .gds-root { --g-bg-base: …; --g-text: …; … }
+
+   — lights this page up with NO rework here. The app-wide-light project (a single
+   light `--g-*` override for `.gds-root`, reconciling ThemeContext's `data-theme`
+   with the Settings `Appearance` darkest/dark into one control, and a per-screen
+   visual pass) is recorded as a follow-up; this page is built ready for it.
+
+   Set 1 = scaffold + idle state (below). Set 2 adds the running-state checklist,
+   Set 3 the report + evidence table. */
+
+.gds-aicheck {
+  display: grid;
+  gap: var(--g-space-2);
+}
+
+/* Calm lead-in — a quiet paragraph, comfortable measure. */
+.gds-aicheck .aic-lead {
+  margin: 0 0 var(--g-space-1);
+  max-width: 68ch;
+  color: var(--g-text-2);
+  font-size: var(--g-text-size-sm);
+  line-height: 1.6;
+}
+.gds-aicheck .aic-lead .aic-hint {
+  color: var(--g-text-3);
+}
+
+/* ---- On-device capacity ------------------------------------------------- */
+
+.gds-aicheck .aic-capacity__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--g-space-1);
+}
+
+/* Status chip: a calm dot + label, colored by the ATTAINABLE tier. */
+.gds-aicheck .aic-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--g-text-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.gds-aicheck .aic-chip::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.gds-aicheck .aic-chip--ready { color: var(--g-certain); }
+.gds-aicheck .aic-chip--needs { color: var(--g-assessed); }
+.gds-aicheck .aic-chip--pre   { color: var(--g-text-3); }
+
+/* Gap meter — ILLUSTRATES; the text alongside STATES. A track with the current
+   free level as a fill and the "needed" threshold as a marker, so the gap the
+   user must close is visible. Purely decorative (aria-hidden); the numbers carry
+   the real information for assistive tech. */
+.gds-aicheck .aic-meter {
+  position: relative;
+  height: 8px;
+  margin: var(--g-space-1) 0 6px;
+  background: var(--g-bg-layer2);
+  border: 1px solid var(--g-border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.gds-aicheck .aic-meter__fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 240ms ease;
+}
+.gds-aicheck .aic-meter__fill--ready { background: var(--g-certain); }
+.gds-aicheck .aic-meter__fill--needs { background: var(--g-assessed); }
+/* The "needed" threshold marker sits ABOVE the fill (overflow visible on it). */
+.gds-aicheck .aic-meter__marker {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--g-text-2);
+  border-radius: 2px;
+}
+
+.gds-aicheck .aic-capacity__nums {
+  margin: 0;
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+}
+.gds-aicheck .aic-capacity__nums strong { color: var(--g-text); }
+.gds-aicheck .aic-tier {
+  margin: 6px 0 0;
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+}
+.gds-aicheck .aic-hint-line {
+  margin: 4px 0 0;
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+}
+
+/* ---- Manuscript picker + opt-in ---------------------------------------- */
+
+.gds-aicheck .aic-picker {
+  display: flex;
+  gap: var(--g-space-1);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.gds-aicheck .aic-optin {
+  display: flex;
+  gap: var(--g-space-1);
+  align-items: flex-start;
+  margin-top: var(--g-space-2);
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+  cursor: pointer;
+}
+.gds-aicheck .aic-optin input { margin-top: 2px; }
+.gds-aicheck .aic-optin__help {
+  display: block;
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-xs);
+}
+.gds-aicheck .aic-error {
+  margin: var(--g-space-1) 0 0;
+  color: var(--g-flagged);
+  font-size: var(--g-text-size-sm);
+}
+.gds-aicheck .aic-back {
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-sm);
+}

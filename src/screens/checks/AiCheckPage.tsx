@@ -25,6 +25,7 @@ import { CheckBridge, TauriCheckBridge } from './checkBridge';
 import { AiCheckEvent, AiCheckMemoryStatus, AiCheckResult } from './agentTypes';
 import { mayUseCloud } from '../settings/settingsStore';
 import { readVerifyCitations, setVerifyCitations } from '../settings/settingsStore';
+import './aicheck.css';
 
 export interface AiCheckPageProps {
   bridge?: CheckBridge;
@@ -187,12 +188,12 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
   };
 
   const memChip = (m: AiCheckMemoryStatus) =>
-    m.deep_fits ? { text: 'Ready', color: 'var(--g-certain, #1f8a4c)' }
-    : m.tier_attainable === 'heuristic_only' ? { text: 'Pre-pass only', color: 'var(--g-text-3)' }
-    : { text: 'Needs memory', color: 'var(--g-flagged, #b26a00)' };
+    m.deep_fits ? { text: 'Ready', cls: 'aic-chip--ready' }
+    : m.tier_attainable === 'heuristic_only' ? { text: 'Pre-pass only', cls: 'aic-chip--pre' }
+    : { text: 'Needs memory', cls: 'aic-chip--needs' };
 
   return (
-    <div className="gds-root" style={{ height: '100vh' }} data-testid="ai-check">
+    <div className="gds-root gds-aicheck" style={{ height: '100vh' }} data-testid="ai-check">
       <AppShell
         rail={
           <NavRail
@@ -238,17 +239,17 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
               </>
             ) : busy ? (
               <Card title="Analyzing…" data-testid="progress">
-                <p style={{ margin: '0 0 10px', fontSize: 14, color: 'var(--g-text-1)' }} data-testid="progress-stage">
+                <p style={{ margin: '0 0 10px', fontSize: 14, color: 'var(--g-text)' }} data-testid="progress-stage">
                   {stage?.label ?? 'Starting…'}
                 </p>
                 {stage?.total ? (
                   <div style={{ marginBottom: 10 }} data-testid="progress-bar">
-                    <div style={{ height: 8, background: 'var(--g-surface-3, #e6e6e6)', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: 8, background: 'var(--g-border)', borderRadius: 4, overflow: 'hidden' }}>
                       <div
                         style={{
                           height: '100%',
                           width: `${Math.round(((stage.done ?? 0) / Math.max(stage.total, 1)) * 100)}%`,
-                          background: 'var(--g-accent, #3a6ea5)',
+                          background: 'var(--g-accent)',
                         }}
                       />
                     </div>
@@ -268,40 +269,56 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
               </Card>
             ) : (
               <>
-                {mem && (
-                  <Card title="On-device capacity" data-testid="memory-status">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: memChip(mem).color }}>
-                        ● {memChip(mem).text}
-                      </span>
-                      <Button variant="ghost" onClick={() => void refreshMemory()} data-testid="memory-recheck">
-                        Re-check
-                      </Button>
-                    </div>
-                    <p style={{ margin: '6px 0 2px', fontSize: 13, color: 'var(--g-text-2)' }} data-testid="memory-tier">
-                      This device runs {mem.tier_label}.
-                    </p>
-                    <p style={{ margin: 0, fontSize: 13, color: 'var(--g-text-3)' }}>
-                      {(mem.free_mb / 1024).toFixed(1)} GB free of {mem.total_gb.toFixed(1)} GB.
-                    </p>
-                    {/* HINT GUARD: never contradict a "Ready" chip with a "free memory" nudge. */}
-                    {!mem.deep_fits && (
-                      <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--g-text-2)' }} data-testid="memory-hint">
-                        {mem.hint}
+                {/* Calm lead-in — locked copy, restyled quiet. */}
+                <p className="aic-lead">
+                  Up to two analysis stages — Every manuscript receives a fast local pre-pass. On
+                  devices with approximately 16 GB or more RAM, Gaply also performs an additional
+                  local deep verification using the 7B model. Findings remain signals—not
+                  verdicts—and your manuscript never leaves your device. Optionally, Gaply can check
+                  your reference list's details — author, year, title, DOI (never your text) —
+                  against public scholarly databases to flag citations it can't verify.{' '}
+                  <span className="aic-hint">· {ACCEPT_HINT}</span>
+                </p>
+
+                {mem && (() => {
+                  const chip = memChip(mem);
+                  const freeGb = mem.free_mb / 1024;
+                  const needGb = mem.deep_need_mb ? mem.deep_need_mb / 1024 : 0;
+                  const scale = Math.max(needGb * 1.3, freeGb, 1);
+                  const freePct = Math.min(100, (freeGb / scale) * 100);
+                  const needPct = Math.min(100, (needGb / scale) * 100);
+                  return (
+                    <Card title="On-device capacity" data-testid="memory-status">
+                      <div className="aic-capacity__head">
+                        <span className={`aic-chip ${chip.cls}`}>{chip.text}</span>
+                        <Button variant="ghost" onClick={() => void refreshMemory()} data-testid="memory-recheck">
+                          Re-check
+                        </Button>
+                      </div>
+                      <p className="aic-tier" data-testid="memory-tier">This device runs {mem.tier_label}.</p>
+                      {/* Meter ILLUSTRATES the gap; the numbers below STATE it. */}
+                      {needGb > 0 && (
+                        <div className="aic-meter" aria-hidden="true">
+                          <div
+                            className={`aic-meter__fill ${mem.deep_fits ? 'aic-meter__fill--ready' : 'aic-meter__fill--needs'}`}
+                            style={{ width: `${freePct}%` }}
+                          />
+                          <div className="aic-meter__marker" style={{ left: `${needPct}%` }} />
+                        </div>
+                      )}
+                      <p className="aic-capacity__nums">
+                        <strong>{freeGb.toFixed(1)} GB</strong> free of {mem.total_gb.toFixed(1)} GB.
                       </p>
-                    )}
-                  </Card>
-                )}
+                      {/* HINT GUARD: never contradict a "Ready" chip with a "free memory" nudge. */}
+                      {!mem.deep_fits && (
+                        <p className="aic-hint-line" data-testid="memory-hint">{mem.hint}</p>
+                      )}
+                    </Card>
+                  );
+                })()}
+
                 <Card title="Select a manuscript">
-                  <p style={{ margin: '0 0 12px', color: 'var(--g-text-3)', fontSize: 13 }}>
-                    Up to two analysis stages — Every manuscript receives a fast local pre-pass. On
-                    devices with approximately 16 GB or more RAM, Gaply also performs an additional
-                    local deep verification using the 7B model. Findings remain signals—not
-                    verdicts—and your manuscript never leaves your device. Optionally, Gaply can check
-                    your reference list's details — author, year, title, DOI (never your text) —
-                    against public scholarly databases to flag citations it can't verify. · {ACCEPT_HINT}
-                  </p>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div className="aic-picker">
                     <Button variant="secondary" onClick={() => void pickFile()} data-testid="pick-file">
                       Choose file
                     </Button>
@@ -318,7 +335,7 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
                       Run check
                     </Button>
                   </div>
-                  <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 12, fontSize: 13, color: 'var(--g-text-2)', cursor: 'pointer' }}>
+                  <label className="aic-optin">
                     <input
                       type="checkbox"
                       checked={verifyCitations}
@@ -327,19 +344,18 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
                         setVerify(e.target.checked);
                         setVerifyCitations(e.target.checked);
                       }}
-                      style={{ marginTop: 2 }}
                     />
                     <span>
                       Verify references online
-                      <span style={{ display: 'block', color: 'var(--g-text-3)', fontSize: 12 }}>
+                      <span className="aic-optin__help">
                         Sends only citation details (author, year, title, DOI) to CrossRef/OpenAlex — never your
                         manuscript. Off by default. You can turn this off anytime.
                       </span>
                     </span>
                   </label>
-                  {error && <p style={{ color: 'var(--g-flagged)', fontSize: 13 }} role="alert" data-testid="check-error">{error}</p>}
+                  {error && <p className="aic-error" role="alert" data-testid="check-error">{error}</p>}
                 </Card>
-                <Link to="/app">← Back to Home</Link>
+                <Link className="aic-back" to="/app">← Back to Home</Link>
               </>
             )}
           </div>
