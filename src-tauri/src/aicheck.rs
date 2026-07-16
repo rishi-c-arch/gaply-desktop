@@ -65,6 +65,10 @@ pub struct AiCheckMemoryStatus {
     pub total_gb: f64,
     pub stage1_fits: bool,
     pub deep_fits: bool,
+    /// FREE memory the attainable deep model needs (its 1.5× courtesy guard), in
+    /// MB. `None` when no deep tier applies (heuristic-only). Names the gap so a
+    /// warning becomes an action.
+    pub deep_need_mb: Option<u64>,
     /// Machine-matchable: "full_7b" | "compact_1_5b" | "heuristic_only".
     pub tier_attainable: String,
     pub tier_label: String,
@@ -92,19 +96,25 @@ pub fn memory_status(
     };
     let stage1_fits = fits(STAGE1);
     let deep_fits = deep_need.map(fits).unwrap_or(false);
-    // TRUTHFUL: the hint is keyed on the ATTAINABLE tier — on an 8GB machine
-    // `tier_label` is "the compact 1.5B", so we never tell them freeing memory
-    // unlocks the 7B (it can't; the deep_tier gate is structural, not motivational).
+    // The FREE memory the deep model needs = 1.5× its resident guard (the
+    // courtesy-check threshold). NAMES THE GAP so a warning becomes an action.
+    let deep_need_mb = deep_need.map(|n| n.saturating_mul(3) / 2 / MB);
+    // TRUTHFUL: keyed on the ATTAINABLE tier — on an 8GB machine `tier_label` is
+    // "the compact 1.5B", so we never tell them freeing memory unlocks the 7B.
     let hint = match (deep_need, deep_fits) {
         (None, _) => "This machine runs the fast pre-pass only — no on-device deep model is available.".to_string(),
         (Some(_), true) => format!("Ready — {tier_label} will run."),
-        (Some(_), false) => format!("Free up memory so {tier_label} can run — closing browsers usually frees the most."),
+        (Some(n), false) => {
+            let need_gb = (n.saturating_mul(3) / 2) as f64 / 1_073_741_824.0;
+            format!("Needs about {need_gb:.1} GB free to run — closing browsers usually frees the most.")
+        }
     };
     AiCheckMemoryStatus {
         free_mb: free.map(|b| b / MB).unwrap_or(0),
         total_gb: total.map(|b| (b as f64 / 1_073_741_824.0 * 10.0).round() / 10.0).unwrap_or(0.0),
         stage1_fits,
         deep_fits,
+        deep_need_mb,
         tier_attainable: tier_attainable.to_string(),
         tier_label: tier_label.to_string(),
         hint,
@@ -664,12 +674,14 @@ mod tests {
         use crate::models::DeepTier;
         let gb = 1024 * 1024 * 1024u64;
 
-        // 8GB machine, tight memory, mini attainable → hint names the COMPACT 1.5B,
-        // NEVER the 7B (freeing memory can't unlock a tier this machine lacks).
+        // 8GB machine, tight memory, mini attainable → tier_label names the
+        // COMPACT 1.5B (never the 7B); the hint NAMES THE GAP (~2.4 GB).
         let s = memory_status(Some(gb), Some(8 * gb), DeepTier::Mini);
         assert_eq!(s.tier_attainable, "compact_1_5b");
+        assert!(s.tier_label.contains("compact 1.5B"));
         assert!(!s.deep_fits, "1GB free < ~2.4GB needed for the mini");
-        assert!(s.hint.contains("compact 1.5B"), "hint: {}", s.hint);
+        assert_eq!(s.deep_need_mb, Some(2400), "1.5x the 1.6GB mini guard = 2400 MiB free");
+        assert!(s.hint.contains("2.3 GB"), "hint names the gap (2400 MiB ≈ 2.3 GiB): {}", s.hint);
         assert!(!s.hint.contains("7B"), "must NOT dangle the 7B on an 8GB machine: {}", s.hint);
         assert!(s.hint.contains("closing browsers"));
 
@@ -677,10 +689,12 @@ mod tests {
         let s = memory_status(Some(4 * gb), Some(8 * gb), DeepTier::Mini);
         assert!(s.deep_fits && s.hint.starts_with("Ready"), "hint: {}", s.hint);
 
-        // 16GB machine → the 7B is genuinely attainable; the hint may name it.
+        // 16GB machine → the 7B is genuinely attainable (named in tier_label);
+        // the gap is ~9 GB (1.5x the 6GB guard).
         let s = memory_status(Some(2 * gb), Some(16 * gb), DeepTier::Full7B);
         assert_eq!(s.tier_attainable, "full_7b");
-        assert!(s.hint.contains("7B"));
+        assert!(s.tier_label.contains("7B"));
+        assert_eq!(s.deep_need_mb, Some(9216));
 
         // No deep model → honest "fast pre-pass only", never a "free memory" nudge.
         let s = memory_status(Some(gb), Some(8 * gb), DeepTier::HeuristicOnly);

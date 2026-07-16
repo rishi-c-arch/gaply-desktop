@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GaplySessionProvider } from '../session/SessionProvider';
 import type { AuthService } from '../../services/supabase';
 import PlagiarismCheckPage from './PlagiarismCheckPage';
-import AiCheckPage from './AiCheckPage';
+import AiCheckPage, { stageLabel } from './AiCheckPage';
 import StatsCheckPage from './StatsCheckPage';
 import { makeMockCheckBridge } from './checkBridge';
 import {
@@ -17,6 +17,7 @@ import {
   validationToReport,
 } from './adapters';
 import {
+  AiCheckMemoryStatus,
   AiCheckResult,
   AiDetectionReport,
   PlagiarismReport,
@@ -186,6 +187,102 @@ describe('AI Check', () => {
   });
 });
 
+describe('AI Check — progress, cancel, pre-flight (Set 3)', () => {
+  const pickAndRun = async (name = 'paper.pdf') => {
+    fireEvent.change(await screen.findByTestId('file-input'), {
+      target: { files: [new File(['x'], name, { type: 'application/pdf' })] },
+    });
+    await screen.findByTestId('selected-name');
+    fireEvent.click(screen.getByTestId('run-check'));
+  };
+
+  it('pre-flight names the attainable tier + the gap, and guards the hint so Ready shows no nudge', async () => {
+    const needsMem: AiCheckMemoryStatus = {
+      free_mb: 1024, total_gb: 8, stage1_fits: true, deep_fits: false, deep_need_mb: 2400,
+      tier_attainable: 'compact_1_5b', tier_label: 'the compact 1.5B deep verifier',
+      hint: 'Needs about 2.3 GB free to run — closing browsers usually frees the most.',
+    };
+    renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE, memoryStatus: needsMem })} />);
+    const panel = await screen.findByTestId('memory-status');
+    expect(panel.textContent).toMatch(/Needs memory/);
+    expect(screen.getByTestId('memory-tier').textContent).toMatch(/compact 1\.5B deep verifier/);
+    expect(screen.getByTestId('memory-hint').textContent).toMatch(/2\.3 GB free to run/); // NAMES THE GAP
+    expect(panel.textContent).toMatch(/1\.0 GB free of 8\.0 GB/);
+
+    // Ready → NO hint line (no contradiction with the Ready chip).
+    cleanup();
+    const ready: AiCheckMemoryStatus = { ...needsMem, deep_fits: true, hint: 'Ready — the compact 1.5B deep verifier will run.' };
+    renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE, memoryStatus: ready })} />);
+    expect((await screen.findByTestId('memory-status')).textContent).toMatch(/Ready/);
+    expect(screen.queryByTestId('memory-hint')).toBeNull();
+  });
+
+  it('Re-check re-queries the memory status (the empowerment loop)', async () => {
+    const calls: string[] = [];
+    renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE, onCall: (c) => calls.push(c) })} />);
+    await screen.findByTestId('memory-status');
+    expect(calls.filter((c) => c === 'aicheck_memory_status')).toHaveLength(1); // mount
+    fireEvent.click(screen.getByTestId('memory-recheck'));
+    await waitFor(() => expect(calls.filter((c) => c === 'aicheck_memory_status')).toHaveLength(2));
+  });
+
+  it('live events drive the stage UI (deep 7 of 16 + bar) and surface memory-skip notes', async () => {
+    const bridge = makeMockCheckBridge({
+      aicheck: AICHECK_FIXTURE,
+      aicheckPending: true, // stay at the last event so the mid-run UI is observable
+      aicheckEvents: [
+        { type: 'pre_pass' },
+        { type: 'stage1_lm' },
+        { type: 'memory_skip', model: '7B deep verifier', reason: 'this machine has under ~16 GB of RAM' },
+        { type: 'deep_verify', done: 7, total: 16 },
+      ],
+    });
+    renderScreen(<AiCheckPage bridge={bridge} />);
+    await pickAndRun();
+    expect((await screen.findByTestId('progress-stage')).textContent).toMatch(/Deep verification — passage 7 of 16/);
+    expect(screen.getByTestId('progress-bar').textContent).toMatch(/7 \/ 16/);
+    expect(screen.getByTestId('memory-skip-note').textContent).toMatch(/7B deep verifier skipped/);
+    expect(screen.getByTestId('cancel-run')).toBeTruthy();
+    expect(screen.queryByTestId('check-report')).toBeNull();
+  });
+
+  it('Cancel calls the command and renders the honest Cancelled state — no toast, no numbers', async () => {
+    const calls: string[] = [];
+    const bridge = makeMockCheckBridge({
+      aicheck: AICHECK_FIXTURE,
+      aicheckEvents: [
+        { type: 'pre_pass' },
+        { type: 'stage1_lm' },
+        { type: 'deep_verify', done: 4, total: 16 },
+        { type: 'cancelled', stage: 'deep verification', done: 4, total: 16 },
+      ],
+      onCall: (c) => calls.push(c),
+    });
+    renderScreen(<AiCheckPage bridge={bridge} />);
+    await pickAndRun();
+    // The run is in-flight at deep_verify{4,16}; clicking Cancel releases the
+    // mock's gate → the cancelled event + reject with code 'cancelled'.
+    fireEvent.click(await screen.findByTestId('cancel-run'));
+    expect(calls).toContain('cancel_aicheck');
+    const cancelled = await screen.findByTestId('cancelled-state');
+    expect(cancelled.textContent).toMatch(/Cancelled during deep verification; 4 of 16 passages scored/);
+    expect(cancelled.textContent).toMatch(/partial analysis isn't a valid signal/);
+    // PIN #5 — a cancelled run renders NO report, NO evidence, NO numbers, and
+    // NO error toast (the "cancelled" code is a benign stop).
+    expect(screen.queryByTestId('check-report')).toBeNull();
+    expect(screen.queryByTestId('evidence-summary')).toBeNull();
+    expect(screen.queryByTestId('check-error')).toBeNull();
+  });
+
+  it('stageLabel maps events to their labels (pure)', () => {
+    expect(stageLabel({ type: 'pre_pass' })).toBe('Fast pre-pass…');
+    expect(stageLabel({ type: 'stage1_lm' })).toBe('Stage-1 language model…');
+    expect(stageLabel({ type: 'deep_verify', done: 3, total: 9 })).toBe('Deep verification — passage 3 of 9');
+    expect(stageLabel({ type: 'report' })).toBe('Finishing…');
+    expect(stageLabel({ type: 'memory_skip', model: 'x', reason: 'y' })).toBeNull();
+  });
+});
+
 describe('AI Check — citation verification opt-in (C2b)', () => {
   const box = () => screen.getByTestId('verify-citations') as HTMLInputElement;
   const lastVerify = (calls: Array<[string, string, boolean | undefined]>) =>
@@ -292,7 +389,9 @@ describe('locality: local checks carry no manuscript over the network', () => {
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(xhrOpen).not.toHaveBeenCalled();
-    expect(handed).toHaveLength(1); // only a path string was handed over
+    // Only a PATH crossed (the pre-flight aicheck_memory_status hands '', no
+    // path and no bytes) — filter it out and the manuscript path is the only one.
+    expect(handed.filter((p) => p.length > 0)).toHaveLength(1);
     global.fetch = origFetch;
     xhrOpen.mockRestore();
   });

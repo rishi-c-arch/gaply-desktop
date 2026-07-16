@@ -1,16 +1,10 @@
-// Gaply — AI Check (Set 5). Local, free: the TWO-WAY tiered analysis —
-// human-written vs AI-associated — over the run_aicheck command. 2-color
-// in-document highlighting, the honest proportion, per-passage evidence, and
-// the un-strippable cautions, all verbatim from the Rust core.
-//
-// Two-way is the Set-4 live-probe decision: no supported local model makes
-// the AI-generated vs AI-paraphrased distinction reliably, so this page
-// renders the paraphrase lane as honestly UNAVAILABLE (see AiCheckReport),
-// never a fake third category.
-//
-// Keeps CheckScreen's scaffold shape (file-pick testids, shell) but renders
-// its own report — the tiered wire doesn't fit the F6 PublishReadyReport.
-import React, { useMemo, useRef, useState } from 'react';
+// Gaply — AI Check (Set 5 two-way tiered analysis + Sets 1-3 progress/cancel).
+// Local, free. Renders the honest two-way report over run_aicheck, plus:
+//  - a re-checkable pre-flight memory panel (truthful about the attainable tier),
+//  - a live progress UI consuming the event channel (stage + memory-skip notes),
+//  - a Cancel button that stops in seconds,
+//  - an honest Cancelled state (nothing renders — partial isn't a valid signal).
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   AppShell,
@@ -28,12 +22,50 @@ import { isTauri } from '../../utils/isTauri';
 import { isFeatureEnabled } from '../../config/featureFlags';
 import AiCheckReport from './AiCheckReport';
 import { CheckBridge, TauriCheckBridge } from './checkBridge';
-import { AiCheckResult } from './agentTypes';
+import { AiCheckEvent, AiCheckMemoryStatus, AiCheckResult } from './agentTypes';
 import { mayUseCloud } from '../settings/settingsStore';
 import { readVerifyCitations, setVerifyCitations } from '../settings/settingsStore';
 
 export interface AiCheckPageProps {
   bridge?: CheckBridge;
+}
+
+/** Current live stage (from the event channel). `total` present → show the bar. */
+interface Stage {
+  label: string;
+  done?: number;
+  total?: number;
+}
+interface Cancelled {
+  stage: string;
+  done: number;
+  total: number;
+}
+
+/** The stage label for an event — pure, so it's unit-testable + reused. */
+export function stageLabel(ev: AiCheckEvent): string | null {
+  switch (ev.type) {
+    case 'extract':
+      return 'Reading the document…';
+    case 'pre_pass':
+      return 'Fast pre-pass…';
+    case 'stage1_lm':
+      return 'Stage-1 language model…';
+    case 'deep_verify':
+      return `Deep verification — passage ${ev.done} of ${ev.total}`;
+    case 'report':
+      return 'Finishing…';
+    default:
+      return null; // memory_skip / cancelled don't move the stage
+  }
+}
+
+/** The honest Cancelled detail — stage-aware (Stage-1 isn't passage-scoring). */
+function cancelledDetail(c: Cancelled): string {
+  if (c.stage.includes('deep')) {
+    return `Cancelled during deep verification; ${c.done} of ${c.total} passages scored — results not shown, as partial analysis isn't a valid signal.`;
+  }
+  return `Cancelled during the Stage-1 language-model pass — results not shown, as partial analysis isn't a valid signal.`;
 }
 
 const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
@@ -43,10 +75,28 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
   const [result, setResult] = useState<AiCheckResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // C2: the AI-Check-owned opt-in (default OFF, persisted). The network lane runs
-  // only when this AND the global cloud gate are both on.
   const [verifyCitations, setVerify] = useState<boolean>(() => readVerifyCitations());
+  // Progress + cancel state.
+  const [mem, setMem] = useState<AiCheckMemoryStatus | null>(null);
+  const [stage, setStage] = useState<Stage | null>(null);
+  const [skipNotes, setSkipNotes] = useState<string[]>([]);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelled, setCancelled] = useState<Cancelled | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Pre-flight memory status on mount (re-checkable). Silent on failure — this
+  // is a desktop feature; a non-Tauri context simply shows no panel.
+  const refreshMemory = async () => {
+    try {
+      setMem(await b.aicheckMemoryStatus());
+    } catch {
+      setMem(null);
+    }
+  };
+  useEffect(() => {
+    void refreshMemory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [b]);
 
   const acceptFile = async (file: File) => {
     setError(null);
@@ -60,8 +110,6 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
     setResult(null);
   };
 
-  // Desktop: an ABSOLUTE path from the Tauri dialog (the real fix — the core can
-  // open it). Size/pages are enforced by the core; validate the extension only.
   const acceptPath = (path: string) => {
     setError(null);
     const name = basenameOf(path);
@@ -74,7 +122,6 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
     setResult(null);
   };
 
-  // Tauri → native picker (absolute path); browser/vitest → the hidden <input>.
   const pickFile = async () => {
     if (isTauri) {
       const p = await pickManuscriptPath(['pdf', 'docx'], 'Manuscript');
@@ -84,20 +131,65 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
     }
   };
 
+  const onEvent = (ev: AiCheckEvent) => {
+    const label = stageLabel(ev);
+    if (label) {
+      setStage(ev.type === 'deep_verify' ? { label, done: ev.done, total: ev.total } : { label });
+    } else if (ev.type === 'memory_skip') {
+      setSkipNotes((n) => [...n, `${ev.model} skipped — ${ev.reason}`]);
+    } else if (ev.type === 'cancelled') {
+      setCancelled({ stage: ev.stage, done: ev.done, total: ev.total });
+    }
+  };
+
   const runNow = async () => {
     if (!selected) return;
     setBusy(true);
     setError(null);
-    // AND-gate: the AI-Check opt-in AND the global cloud consent for the suite.
+    setResult(null);
+    setCancelled(null);
+    setStage(null);
+    setSkipNotes([]);
+    setCancelling(false);
     const doVerify = verifyCitations && mayUseCloud('citation_verification');
     try {
-      setResult(await b.aicheck(selected.path, doVerify));
+      setResult(await b.aicheck(selected.path, doVerify, onEvent));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'check failed');
+      // The "cancelled" code is a benign stop — no error toast; the Cancelled
+      // state (set by the cancelled event) renders instead.
+      if ((e as { code?: string })?.code === 'cancelled') {
+        setCancelled((c) => c ?? { stage: 'deep verification', done: 0, total: 0 });
+      } else {
+        setError(e instanceof Error ? e.message : 'check failed');
+      }
     } finally {
       setBusy(false);
+      setCancelling(false);
     }
   };
+
+  const doCancel = async () => {
+    setCancelling(true);
+    try {
+      await b.cancelAicheck();
+    } catch {
+      /* the run's own rejection carries the terminal state */
+    }
+  };
+
+  const reset = () => {
+    setResult(null);
+    setCancelled(null);
+    setError(null);
+    setStage(null);
+    setSkipNotes([]);
+    void refreshMemory();
+  };
+
+  const memChip = (m: AiCheckMemoryStatus) =>
+    m.deep_fits ? { text: 'Ready', color: 'var(--g-certain, #1f8a4c)' }
+    : m.tier_attainable === 'heuristic_only' ? { text: 'Pre-pass only', color: 'var(--g-text-3)' }
+    : { text: 'Needs memory', color: 'var(--g-flagged, #b26a00)' };
 
   return (
     <div className="gds-root" style={{ height: '100vh' }} data-testid="ai-check">
@@ -124,8 +216,82 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
       >
         <Panel title="AI Check">
           <div style={{ display: 'grid', gap: 16 }}>
-            {!result ? (
+            {result ? (
+              <div data-testid="check-report">
+                <AiCheckReport result={result} />
+                <div style={{ marginTop: 12 }}>
+                  <Button variant="ghost" onClick={reset} data-testid="run-another">
+                    ← Run another
+                  </Button>
+                </div>
+              </div>
+            ) : cancelled ? (
               <>
+                <Card title="Analysis cancelled" data-testid="cancelled-state">
+                  <p style={{ margin: 0, color: 'var(--g-text-2)', fontSize: 13 }}>
+                    {cancelledDetail(cancelled)}
+                  </p>
+                  <div style={{ marginTop: 12 }}>
+                    <Button onClick={reset} data-testid="run-another">Run again</Button>
+                  </div>
+                </Card>
+              </>
+            ) : busy ? (
+              <Card title="Analyzing…" data-testid="progress">
+                <p style={{ margin: '0 0 10px', fontSize: 14, color: 'var(--g-text-1)' }} data-testid="progress-stage">
+                  {stage?.label ?? 'Starting…'}
+                </p>
+                {stage?.total ? (
+                  <div style={{ marginBottom: 10 }} data-testid="progress-bar">
+                    <div style={{ height: 8, background: 'var(--g-surface-3, #e6e6e6)', borderRadius: 4, overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${Math.round(((stage.done ?? 0) / Math.max(stage.total, 1)) * 100)}%`,
+                          background: 'var(--g-accent, #3a6ea5)',
+                        }}
+                      />
+                    </div>
+                    <span style={{ fontSize: 12, color: 'var(--g-text-3)' }}>{stage.done} / {stage.total}</span>
+                  </div>
+                ) : null}
+                {skipNotes.map((n, i) => (
+                  <p key={i} data-testid="memory-skip-note" style={{ margin: '2px 0', fontSize: 12, color: 'var(--g-flagged, #b26a00)' }}>
+                    ⚠ {n}
+                  </p>
+                ))}
+                <div style={{ marginTop: 12 }}>
+                  <Button variant="secondary" onClick={() => void doCancel()} disabled={cancelling} data-testid="cancel-run">
+                    {cancelling ? 'Cancelling…' : 'Cancel'}
+                  </Button>
+                </div>
+              </Card>
+            ) : (
+              <>
+                {mem && (
+                  <Card title="On-device capacity" data-testid="memory-status">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: memChip(mem).color }}>
+                        ● {memChip(mem).text}
+                      </span>
+                      <Button variant="ghost" onClick={() => void refreshMemory()} data-testid="memory-recheck">
+                        Re-check
+                      </Button>
+                    </div>
+                    <p style={{ margin: '6px 0 2px', fontSize: 13, color: 'var(--g-text-2)' }} data-testid="memory-tier">
+                      This device runs {mem.tier_label}.
+                    </p>
+                    <p style={{ margin: 0, fontSize: 13, color: 'var(--g-text-3)' }}>
+                      {(mem.free_mb / 1024).toFixed(1)} GB free of {mem.total_gb.toFixed(1)} GB.
+                    </p>
+                    {/* HINT GUARD: never contradict a "Ready" chip with a "free memory" nudge. */}
+                    {!mem.deep_fits && (
+                      <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--g-text-2)' }} data-testid="memory-hint">
+                        {mem.hint}
+                      </p>
+                    )}
+                  </Card>
+                )}
                 <Card title="Select a manuscript">
                   <p style={{ margin: '0 0 12px', color: 'var(--g-text-3)', fontSize: 13 }}>
                     Up to two analysis stages — Every manuscript receives a fast local pre-pass. On
@@ -149,7 +315,7 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
                       onChange={(e) => e.target.files?.[0] && void acceptFile(e.target.files[0])}
                     />
                     <Button onClick={runNow} disabled={!selected || busy} data-testid="run-check">
-                      {busy ? 'Running…' : 'Run check'}
+                      Run check
                     </Button>
                   </div>
                   <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 12, fontSize: 13, color: 'var(--g-text-2)', cursor: 'pointer' }}>
@@ -175,15 +341,6 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
                 </Card>
                 <Link to="/app">← Back to Home</Link>
               </>
-            ) : (
-              <div data-testid="check-report">
-                <AiCheckReport result={result} />
-                <div style={{ marginTop: 12 }}>
-                  <Button variant="ghost" onClick={() => setResult(null)} data-testid="run-another">
-                    ← Run another
-                  </Button>
-                </div>
-              </div>
             )}
           </div>
         </Panel>

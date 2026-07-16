@@ -250,6 +250,8 @@ export interface AiCheckMemoryStatus {
   total_gb: number;
   stage1_fits: boolean;
   deep_fits: boolean;
+  /** Free MB the attainable deep model needs (1.5× guard); null = heuristic-only. */
+  deep_need_mb: number | null;
   tier_attainable: 'full_7b' | 'compact_1_5b' | 'heuristic_only';
   tier_label: string;
   hint: string;

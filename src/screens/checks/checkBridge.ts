@@ -88,14 +88,20 @@ export function makeMockCheckBridge(reports: {
   library?: LibraryPaper[];
   ai?: AiDetectionReport;
   aicheck?: AiCheckResult;
-  /** Events the mock replays to `onEvent` before resolving (Set 2). */
+  /** Events the mock replays to `onEvent` before resolving (Set 2). If they
+   *  include a `cancelled` event, the run stays in-flight until `cancelAicheck`
+   *  is called, then emits it and rejects with code `cancelled` (mirrors the
+   *  backend). */
   aicheckEvents?: AiCheckEvent[];
+  /** Keep the run pending after replaying events (to assert the mid-run UI). */
+  aicheckPending?: boolean;
   memoryStatus?: AiCheckMemoryStatus;
   validation?: StatsValidityReport;
   onCall?: (cmd: string, path: string, verifyCitations?: boolean) => void;
 }): CheckBridge {
   const library: LibraryPaper[] = reports.library ? [...reports.library] : [];
   let nextId = library.reduce((m, p) => Math.max(m, p.id), 0) + 1;
+  let resolveCancelGate: (() => void) | null = null;
   return {
     async plagiarism(path) {
       reports.onCall?.('check_plagiarism', path);
@@ -131,11 +137,24 @@ export function makeMockCheckBridge(reports: {
     },
     async aicheck(path, verifyCitations, onEvent) {
       reports.onCall?.('run_aicheck', path, verifyCitations);
-      (reports.aicheckEvents ?? []).forEach((ev) => onEvent?.(ev));
+      const evs = reports.aicheckEvents ?? [];
+      const cancelIdx = evs.findIndex((e) => e.type === 'cancelled');
+      if (cancelIdx !== -1) {
+        evs.slice(0, cancelIdx).forEach((ev) => onEvent?.(ev));
+        await new Promise<void>((res) => {
+          resolveCancelGate = res;
+        });
+        onEvent?.(evs[cancelIdx]);
+        // eslint-disable-next-line no-throw-literal
+        throw { code: 'cancelled', message: 'cancelled' };
+      }
+      evs.forEach((ev) => onEvent?.(ev));
+      if (reports.aicheckPending) return new Promise<AiCheckResult>(() => {});
       return reports.aicheck!;
     },
     async cancelAicheck() {
       reports.onCall?.('cancel_aicheck', '');
+      resolveCancelGate?.();
     },
     async aicheckMemoryStatus() {
       reports.onCall?.('aicheck_memory_status', '');
@@ -145,6 +164,7 @@ export function makeMockCheckBridge(reports: {
           total_gb: 8,
           stage1_fits: true,
           deep_fits: true,
+          deep_need_mb: 2400,
           tier_attainable: 'compact_1_5b',
           tier_label: 'the compact 1.5B deep verifier',
           hint: 'Ready — the compact 1.5B deep verifier will run.',
