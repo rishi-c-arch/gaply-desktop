@@ -139,6 +139,13 @@ function statusLabel(e: SignalEvidence): string {
   return 'Not applicable';
 }
 
+/** The level chip's strength/muted class — measured levels carry their strength,
+ *  Unavailable / Not-applicable read muted (but the row stays legible). */
+function levelClass(e: SignalEvidence): string {
+  if (e.status === 'measured' && e.level) return `aic-ev__level--${e.level}`;
+  return 'aic-ev__level--muted';
+}
+
 // Bias-tiered groups: factual signals are trusted; stylometric are down-weighted
 // (they over-flag non-native English) — the caveat makes that honest, verbally.
 const EVIDENCE_GROUPS: Array<{ tier: BiasTier; label: string; caveat?: string }> = [
@@ -171,7 +178,7 @@ const EvidenceSummary: React.FC<{ analysis: AiCheckAnalysis }> = ({ analysis }) 
   const provisional = analysis.norms_provisional;
   return (
     <Card title="Evidence Summary" data-testid="evidence-summary">
-      <p style={{ margin: '0 0 8px', color: 'var(--g-text-3)', fontSize: 12 }}>
+      <p className="aic-ev__gate">
         Individual signals — not a verdict, and not combined into a score. A calibrated 0–100 score
         isn't shown: it requires evaluation Gaply hasn't completed yet. Each level below is the
         STRENGTH of the AI-associated signal.
@@ -180,16 +187,17 @@ const EvidenceSummary: React.FC<{ analysis: AiCheckAnalysis }> = ({ analysis }) 
         const groupRows = rows.filter((r) => r.bias_tier === g.tier);
         if (groupRows.length === 0) return null;
         return (
-          <div key={g.tier} style={{ marginTop: 10 }} data-testid={`evidence-group-${g.tier}`}>
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', color: 'var(--g-text-3)' }}>
-              {g.label}
-              {g.caveat && <span style={{ fontWeight: 400 }}> — {g.caveat}</span>}
+          <div key={g.tier} className={`aic-ev__band aic-ev__band--${g.tier}`} data-testid={`evidence-group-${g.tier}`}>
+            <div className="aic-ev__bandhead">
+              <span className="aic-ev__bandlabel">{g.label}</span>
+              {g.caveat && <span className="aic-ev__caveat">— {g.caveat}</span>}
             </div>
             {groupRows.map((r, i) => (
-              <div key={i} style={{ display: 'flex', gap: 8, fontSize: 13, marginTop: 4 }} data-testid="evidence-row">
-                <span style={{ minWidth: 84, color: 'var(--g-text-2)' }}>{statusLabel(r)}</span>
+              <div key={i} className="aic-ev__row" data-testid="evidence-row">
+                <span className={`aic-ev__level ${levelClass(r)}`}>{statusLabel(r)}</span>
                 <span>
-                  <strong>{r.signal}</strong> — {r.detail}
+                  <span className="aic-ev__signal">{r.signal}</span> —{' '}
+                  <span className="aic-ev__detail">{r.detail}</span>
                   {(r.signal === 'Language-model perplexity' || r.signal === 'Deep-verifier perplexity') &&
                     provisional && <sup>¹</sup>}
                 </span>
@@ -199,7 +207,7 @@ const EvidenceSummary: React.FC<{ analysis: AiCheckAnalysis }> = ({ analysis }) 
         );
       })}
       {provisional && (
-        <p style={{ marginTop: 10, color: 'var(--g-text-3)', fontSize: 11 }} data-testid="provisional-footnote">
+        <p className="aic-ev__footnote" data-testid="provisional-footnote">
           ¹ preliminary — norms not yet held-out-evaluated
         </p>
       )}
@@ -220,14 +228,7 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
   return (
     <div className="gds-report" data-testid="aicheck-report" style={{ display: 'grid', gap: 12 }}>
       {/* THE un-strippable caution — first thing on the report, verbatim */}
-      <section
-        data-testid="ai-caution"
-        style={{
-          border: '1px solid var(--g-flagged, #e93)',
-          borderRadius: 8,
-          padding: '10px 12px',
-        }}
-      >
+      <section data-testid="ai-caution" className="aic-callout">
         <Badge status="flagged">signal, not proof</Badge>
         <p className="gds-report__disclaimer" style={{ marginTop: 6 }} data-testid="ai-disclaimer">
           {analysis.disclaimer && analysis.disclaimer.trim()
@@ -242,14 +243,7 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
           {lang.note}
         </p>
       ) : (
-        <section
-          data-testid="language-downgrade"
-          style={{
-            border: '1px dashed var(--g-flagged, #e93)',
-            borderRadius: 8,
-            padding: '10px 12px',
-          }}
-        >
+        <section data-testid="language-downgrade" className="aic-callout">
           <Badge status="flagged">non-English text — low confidence</Badge>
           <p className="gds-jc__disclaimer" style={{ marginTop: 6 }}>
             {lang.note}
@@ -339,14 +333,7 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
       {selected && <PassageInspector passage={selected} />}
 
       {/* the paraphrase lane — HONESTLY unavailable, never a fake category */}
-      <section
-        data-testid="paraphrase-unavailable"
-        style={{
-          border: '1px dashed var(--g-text-3, #888)',
-          borderRadius: 8,
-          padding: '10px 12px',
-        }}
-      >
+      <section data-testid="paraphrase-unavailable" className="aic-callout aic-callout--muted">
         <h4 style={{ margin: '0 0 6px' }}>
           <Badge status="neutral">AI-generated vs AI-paraphrased</Badge>
         </h4>

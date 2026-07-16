@@ -226,3 +226,101 @@
   .gds-aicheck .aic-stage__fill,
   .gds-aicheck .aic-meter__fill { transition: none; }
 }
+
+/* ---- Report: calm callouts + comfortable reading ----------------------- */
+
+/* The cautions read as quiet callouts (a left accent), not alarming boxes —
+   present, never hidden. Scoped to this page; the shared report.css is untouched. */
+.gds-aicheck .aic-callout {
+  border: 1px solid var(--g-border);
+  border-left: 3px solid var(--g-assessed);
+  border-radius: var(--g-radius-panel);
+  padding: 10px 14px;
+}
+.gds-aicheck .aic-callout--muted { border-left-color: var(--g-text-3); }
+
+/* Comfortable reading for the highlighted manuscript — scoped, no report.css edit. */
+.gds-aicheck .gds-manuscript { max-width: 74ch; }
+.gds-aicheck .gds-ms-section__body { line-height: 1.75; }
+
+/* ---- Report: Evidence Summary as a trust-ordered table ----------------- */
+
+.gds-aicheck .aic-ev__gate {
+  margin: 0 0 var(--g-space-2);
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-xs);
+  line-height: 1.55;
+  max-width: 72ch;
+}
+
+/* Each tier is a BAND, ordered by trust; the left accent fades with trust
+   (verifiable = certain, style-based = muted) — RESTRAINED (less trustworthy is
+   not unimportant; rows stay fully legible). */
+.gds-aicheck .aic-ev__band {
+  border-left: 2px solid var(--g-border);
+  padding-left: var(--g-space-2);
+  margin-top: var(--g-space-2);
+}
+.gds-aicheck .aic-ev__band--factual { border-left-color: var(--g-certain); }
+.gds-aicheck .aic-ev__band--structural { border-left-color: var(--g-border-strong); }
+.gds-aicheck .aic-ev__band--stylometric { border-left-color: var(--g-border); }
+
+.gds-aicheck .aic-ev__bandhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.gds-aicheck .aic-ev__bandlabel {
+  font-size: var(--g-text-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--g-text-2);
+}
+/* The band caveat stays PROMINENT (edit 2) — a real color, not faint chrome. */
+.gds-aicheck .aic-ev__caveat {
+  font-size: var(--g-text-size-xs);
+  color: var(--g-assessed);
+}
+
+.gds-aicheck .aic-ev__row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: var(--g-space-1);
+  padding: 6px 0;
+  font-size: var(--g-text-size-sm);
+  border-top: 1px solid color-mix(in srgb, var(--g-border) 55%, transparent);
+}
+.gds-aicheck .aic-ev__row:first-of-type { border-top: none; }
+
+.gds-aicheck .aic-ev__level {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--g-text-2);
+  white-space: nowrap;
+}
+.gds-aicheck .aic-ev__level::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.gds-aicheck .aic-ev__level--high { color: var(--g-assessed); }
+.gds-aicheck .aic-ev__level--moderate { color: var(--g-text-2); }
+.gds-aicheck .aic-ev__level--low { color: var(--g-text-3); }
+/* Unavailable / Not-applicable: the LEVEL is muted (italic), but the signal +
+   detail stay fully legible (edit 2 — dimmed rows stay readable). */
+.gds-aicheck .aic-ev__level--muted { color: var(--g-text-3); font-weight: 400; font-style: italic; }
+
+.gds-aicheck .aic-ev__signal { color: var(--g-text); font-weight: 600; }
+.gds-aicheck .aic-ev__detail { color: var(--g-text-2); }
+.gds-aicheck .aic-ev__footnote {
+  margin: var(--g-space-2) 0 0;
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-xs);
+}
