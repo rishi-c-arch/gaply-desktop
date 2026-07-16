@@ -138,3 +138,91 @@
   color: var(--g-text-3);
   font-size: var(--g-text-size-sm);
 }
+
+/* ---- Running: the stage checklist (the centerpiece) -------------------- */
+
+.gds-aicheck .aic-stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--g-space-2);
+}
+.gds-aicheck .aic-stage {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  column-gap: var(--g-space-1);
+  align-items: start;
+}
+.gds-aicheck .aic-stage__dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 50%;
+  border: 2px solid var(--g-border-strong);
+  box-sizing: border-box;
+}
+.gds-aicheck .aic-stage__label {
+  font-size: var(--g-text-size-sm);
+}
+/* done — recedes; the dot fills (a quiet "complete"). */
+.gds-aicheck .aic-stage--done .aic-stage__label { color: var(--g-text-3); }
+.gds-aicheck .aic-stage--done .aic-stage__dot {
+  background: var(--g-certain);
+  border-color: var(--g-certain);
+}
+/* running — emphasized; the dot pulses softly. */
+.gds-aicheck .aic-stage--running .aic-stage__label { color: var(--g-text); font-weight: 600; }
+.gds-aicheck .aic-stage--running .aic-stage__dot {
+  background: var(--g-accent);
+  border-color: var(--g-accent);
+  animation: aic-pulse 1.6s ease-in-out infinite;
+}
+/* pending — dimmed, waiting its turn. */
+.gds-aicheck .aic-stage--pending .aic-stage__label { color: var(--g-text-3); opacity: 0.55; }
+
+/* Deep verification expands: live passage counter + a slim animated fill. */
+.gds-aicheck .aic-stage__deep {
+  margin-top: 6px;
+  display: grid;
+  gap: 5px;
+}
+.gds-aicheck .aic-stage__counter {
+  font-size: var(--g-text-size-xs);
+  color: var(--g-text-3);
+}
+.gds-aicheck .aic-stage__track {
+  height: 6px;
+  background: var(--g-bg-layer2);
+  border: 1px solid var(--g-border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.gds-aicheck .aic-stage__fill {
+  height: 100%;
+  background: var(--g-accent);
+  border-radius: 999px;
+  transition: width 300ms ease;
+}
+/* memory-skip note — inline, under the stage it belongs to (amber, not alarming). */
+.gds-aicheck .aic-stage__skip {
+  margin: 6px 0 0;
+  font-size: var(--g-text-size-xs);
+  color: var(--g-assessed);
+}
+.gds-aicheck .aic-progress__actions {
+  margin-top: var(--g-space-3);
+}
+
+@keyframes aic-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.4); opacity: 0.6; }
+}
+
+/* Motion is decoration only — kill it entirely for reduced-motion users:
+   static dot, instant fill. */
+@media (prefers-reduced-motion: reduce) {
+  .gds-aicheck .aic-stage--running .aic-stage__dot { animation: none; }
+  .gds-aicheck .aic-stage__fill,
+  .gds-aicheck .aic-meter__fill { transition: none; }
+}

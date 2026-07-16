@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GaplySessionProvider } from '../session/SessionProvider';
 import type { AuthService } from '../../services/supabase';
 import PlagiarismCheckPage from './PlagiarismCheckPage';
-import AiCheckPage, { stageLabel } from './AiCheckPage';
+import AiCheckPage, { STAGES, EVENT_STAGE } from './AiCheckPage';
 import StatsCheckPage from './StatsCheckPage';
 import { makeMockCheckBridge } from './checkBridge';
 import {
@@ -239,8 +239,10 @@ describe('AI Check — progress, cancel, pre-flight (Set 3)', () => {
     });
     renderScreen(<AiCheckPage bridge={bridge} />);
     await pickAndRun();
-    expect((await screen.findByTestId('progress-stage')).textContent).toMatch(/Deep verification — passage 7 of 16/);
-    expect(screen.getByTestId('progress-bar').textContent).toMatch(/7 \/ 16/);
+    // The running stage is "Deep verification"; the counter lives in its bar.
+    expect((await screen.findByTestId('progress-stage')).textContent).toMatch(/Deep verification/);
+    expect(screen.getByTestId('progress-bar').textContent).toMatch(/passage 7 of 16/);
+    // The memory-skip note is rendered inline under the deep stage it's about.
     expect(screen.getByTestId('memory-skip-note').textContent).toMatch(/7B deep verifier skipped/);
     expect(screen.getByTestId('cancel-run')).toBeTruthy();
     expect(screen.queryByTestId('check-report')).toBeNull();
@@ -274,12 +276,15 @@ describe('AI Check — progress, cancel, pre-flight (Set 3)', () => {
     expect(screen.queryByTestId('check-error')).toBeNull();
   });
 
-  it('stageLabel maps events to their labels (pure)', () => {
-    expect(stageLabel({ type: 'pre_pass' })).toBe('Fast pre-pass…');
-    expect(stageLabel({ type: 'stage1_lm' })).toBe('Stage-1 language model…');
-    expect(stageLabel({ type: 'deep_verify', done: 3, total: 9 })).toBe('Deep verification — passage 3 of 9');
-    expect(stageLabel({ type: 'report' })).toBe('Finishing…');
-    expect(stageLabel({ type: 'memory_skip', model: 'x', reason: 'y' })).toBeNull();
+  it('STAGES + EVENT_STAGE map the event channel to the checklist (pure)', () => {
+    expect(STAGES[EVENT_STAGE.extract!]).toBe('Reading the document');
+    expect(STAGES[EVENT_STAGE.pre_pass!]).toBe('Fast pre-pass');
+    expect(STAGES[EVENT_STAGE.stage1_lm!]).toBe('Stage-1 language model');
+    expect(STAGES[EVENT_STAGE.deep_verify!]).toBe('Deep verification');
+    expect(STAGES[EVENT_STAGE.report!]).toBe('Finishing');
+    // memory_skip / cancelled don't advance the stage.
+    expect(EVENT_STAGE.memory_skip).toBeUndefined();
+    expect(EVENT_STAGE.cancelled).toBeUndefined();
   });
 });
 

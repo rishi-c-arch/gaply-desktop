@@ -31,35 +31,33 @@ export interface AiCheckPageProps {
   bridge?: CheckBridge;
 }
 
-/** Current live stage (from the event channel). `total` present → show the bar. */
-interface Stage {
-  label: string;
-  done?: number;
-  total?: number;
-}
 interface Cancelled {
   stage: string;
   done: number;
   total: number;
 }
 
-/** The stage label for an event — pure, so it's unit-testable + reused. */
-export function stageLabel(ev: AiCheckEvent): string | null {
-  switch (ev.type) {
-    case 'extract':
-      return 'Reading the document…';
-    case 'pre_pass':
-      return 'Fast pre-pass…';
-    case 'stage1_lm':
-      return 'Stage-1 language model…';
-    case 'deep_verify':
-      return `Deep verification — passage ${ev.done} of ${ev.total}`;
-    case 'report':
-      return 'Finishing…';
-    default:
-      return null; // memory_skip / cancelled don't move the stage
-  }
-}
+/** The fixed analysis stages, in order — the checklist backbone. */
+export const STAGES = [
+  'Reading the document',
+  'Fast pre-pass',
+  'Stage-1 language model',
+  'Deep verification',
+  'Finishing',
+] as const;
+
+/** Which stage index an event advances to (memory_skip / cancelled don't move). */
+export const EVENT_STAGE: Partial<Record<AiCheckEvent['type'], number>> = {
+  extract: 0,
+  pre_pass: 1,
+  stage1_lm: 2,
+  deep_verify: 3,
+  report: 4,
+};
+
+/** A memory-skip note belongs UNDER the stage it's ABOUT, not the running one
+ *  (the deep skip fires while Stage-1 is still the current stage). */
+const skipTargetStage = (model: string): number => (model.includes('Stage-1') ? 2 : 3);
 
 /** The honest Cancelled detail — stage-aware (Stage-1 isn't passage-scoring). */
 function cancelledDetail(c: Cancelled): string {
@@ -79,8 +77,9 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
   const [verifyCitations, setVerify] = useState<boolean>(() => readVerifyCitations());
   // Progress + cancel state.
   const [mem, setMem] = useState<AiCheckMemoryStatus | null>(null);
-  const [stage, setStage] = useState<Stage | null>(null);
-  const [skipNotes, setSkipNotes] = useState<string[]>([]);
+  const [stageIdx, setStageIdx] = useState(-1);
+  const [deep, setDeep] = useState<{ done: number; total: number } | null>(null);
+  const [skipByStage, setSkipByStage] = useState<Record<number, string[]>>({});
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState<Cancelled | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -133,13 +132,16 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
   };
 
   const onEvent = (ev: AiCheckEvent) => {
-    const label = stageLabel(ev);
-    if (label) {
-      setStage(ev.type === 'deep_verify' ? { label, done: ev.done, total: ev.total } : { label });
+    if (ev.type === 'deep_verify') {
+      setStageIdx(3);
+      setDeep({ done: ev.done, total: ev.total });
     } else if (ev.type === 'memory_skip') {
-      setSkipNotes((n) => [...n, `${ev.model} skipped — ${ev.reason}`]);
+      const at = skipTargetStage(ev.model);
+      setSkipByStage((m) => ({ ...m, [at]: [...(m[at] ?? []), `${ev.model} skipped — ${ev.reason}`] }));
     } else if (ev.type === 'cancelled') {
       setCancelled({ stage: ev.stage, done: ev.done, total: ev.total });
+    } else if (EVENT_STAGE[ev.type] !== undefined) {
+      setStageIdx(EVENT_STAGE[ev.type]!);
     }
   };
 
@@ -149,8 +151,9 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
     setError(null);
     setResult(null);
     setCancelled(null);
-    setStage(null);
-    setSkipNotes([]);
+    setStageIdx(-1);
+    setDeep(null);
+    setSkipByStage({});
     setCancelling(false);
     const doVerify = verifyCitations && mayUseCloud('citation_verification');
     try {
@@ -182,8 +185,9 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
     setResult(null);
     setCancelled(null);
     setError(null);
-    setStage(null);
-    setSkipNotes([]);
+    setStageIdx(-1);
+    setDeep(null);
+    setSkipByStage({});
     void refreshMemory();
   };
 
@@ -239,29 +243,40 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
               </>
             ) : busy ? (
               <Card title="Analyzing…" data-testid="progress">
-                <p style={{ margin: '0 0 10px', fontSize: 14, color: 'var(--g-text)' }} data-testid="progress-stage">
-                  {stage?.label ?? 'Starting…'}
-                </p>
-                {stage?.total ? (
-                  <div style={{ marginBottom: 10 }} data-testid="progress-bar">
-                    <div style={{ height: 8, background: 'var(--g-border)', borderRadius: 4, overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          height: '100%',
-                          width: `${Math.round(((stage.done ?? 0) / Math.max(stage.total, 1)) * 100)}%`,
-                          background: 'var(--g-accent)',
-                        }}
-                      />
-                    </div>
-                    <span style={{ fontSize: 12, color: 'var(--g-text-3)' }}>{stage.done} / {stage.total}</span>
-                  </div>
-                ) : null}
-                {skipNotes.map((n, i) => (
-                  <p key={i} data-testid="memory-skip-note" style={{ margin: '2px 0', fontSize: 12, color: 'var(--g-flagged, #b26a00)' }}>
-                    ⚠ {n}
-                  </p>
-                ))}
-                <div style={{ marginTop: 12 }}>
+                <ol className="aic-stages">
+                  {STAGES.map((label, i) => {
+                    const status = i < stageIdx ? 'done' : i === stageIdx ? 'running' : 'pending';
+                    const notes = skipByStage[i] ?? [];
+                    return (
+                      <li
+                        key={i}
+                        className={`aic-stage aic-stage--${status}`}
+                        data-testid={status === 'running' ? 'progress-stage' : undefined}
+                      >
+                        <span className="aic-stage__dot" aria-hidden="true" />
+                        <div>
+                          <span className="aic-stage__label">{label}</span>
+                          {/* Deep verification expands to the live counter + slim fill. */}
+                          {i === 3 && deep && status !== 'pending' && (
+                            <div className="aic-stage__deep" data-testid="progress-bar">
+                              <span className="aic-stage__counter">passage {deep.done} of {deep.total}</span>
+                              <div className="aic-stage__track">
+                                <div
+                                  className="aic-stage__fill"
+                                  style={{ width: `${Math.round((deep.done / Math.max(deep.total, 1)) * 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                          {notes.map((n, k) => (
+                            <p key={k} className="aic-stage__skip" data-testid="memory-skip-note">⚠ {n}</p>
+                          ))}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+                <div className="aic-progress__actions">
                   <Button variant="secondary" onClick={() => void doCancel()} disabled={cancelling} data-testid="cancel-run">
                     {cancelling ? 'Cancelling…' : 'Cancel'}
                   </Button>
