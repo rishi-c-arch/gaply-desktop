@@ -41,7 +41,7 @@ import { pickManuscriptPath } from '../common/pickFile';
 import { isTauri } from '../../utils/isTauri';
 import { exportBibliographyText, exportSerialized, saveExportToFile } from './exporters';
 import { findDuplicate, normalizeDoi } from './dedupe';
-import { planImport, detectFormat, ImportPlan, IMPORT_ENTRY_CAP } from './importCitations';
+import { planImport, detectFormat, ImportPlan, SkippedEntry, IMPORT_ENTRY_CAP } from './importCitations';
 import './citations.css';
 
 export interface CitationManagerPageProps {
@@ -64,6 +64,22 @@ type CollectionId = 'all' | 'retracted' | 'orphans' | 'manuscript';
  *  (via the Set 2b-iii verify pass or add-by-DOI). It must NEVER look verified. */
 const importedUnverified = (c: Citation): boolean =>
   c.source === 'imported' && !(c.provenance ?? []).some((p) => p.toLowerCase().includes('crossref'));
+
+/** A compact citation line (title · authors · year · DOI) for the review panel. */
+const CiteLine: React.FC<{ c: Citation }> = ({ c }) => {
+  const authors = (c.csl.author ?? []).map((a) => a.family).filter(Boolean);
+  const doi = c.doi ?? c.csl.DOI ?? null;
+  return (
+    <div className="gds-cite-review__cite">
+      <p className="gds-cite-review__title">{c.csl.title || 'Untitled'}</p>
+      <p className="gds-cite-review__sub">
+        {authors.slice(0, 3).join(', ') || 'Unknown'}
+        {authors.length > 3 ? ' et al.' : ''} · {c.csl.issued?.year ?? 'n.d.'}
+        {doi ? ` · ${doi}` : ''}
+      </p>
+    </div>
+  );
+};
 
 /** Render *italic* / **bold** markers from the formatter as em/strong. */
 const Formatted: React.FC<{ text: string }> = ({ text }) => {
@@ -113,6 +129,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [importReport, setImportReport] = useState<ImportPlan | null>(null);
+  // Fuzzy (Tier-2) review queue (Set 2b-ii). These are ALREADY applied (keep-both
+  // default), so abandoning the panel loses nothing; the panel only lets the user
+  // Skip (remove) confirmed dups. Never a gate.
+  const [reviewQueue, setReviewQueue] = useState<SkippedEntry[]>([]);
 
   // LOCAL-FIRST hydrate: the sqlite library is the source of truth. Failures
   // (e.g. plain browser, no Tauri) degrade to in-memory state — never fatal.
@@ -420,6 +440,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
       // — inspectable, with Add-anyway. All local; no network, ever.
       await applyImported([...plan.added, ...plan.review.map((r) => r.candidate)]);
       setImportReport(plan);
+      setReviewQueue(plan.review); // the fuzzy set, applied but open to refinement
+
       if (plan.capped) {
         toast(`Imported the first ${IMPORT_ENTRY_CAP} of ${plan.total} — import the rest in a second file`, 'assessed');
       }
@@ -443,6 +465,31 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     setImportReport((r) => (r ? { ...r, skipped: r.skipped.filter((s) => s.candidate.id !== candidate.id) } : r));
     toast('Added anyway — a duplicate now exists in your library', 'assessed');
   };
+
+  /* ------- fuzzy review (Set 2b-ii): refine the keep-both defaults --------- */
+  // Remove a citation that was kept-both but is a real duplicate.
+  const removeCitations = async (ids: string[]) => {
+    for (const id of ids) {
+      try {
+        await local.remove(id);
+      } catch {
+        /* in-memory only */
+      }
+    }
+    const set = new Set(ids);
+    setCitations((xs) => xs.filter((c) => !set.has(c.id)));
+  };
+  const reviewSkip = async (candidateId: string) => {
+    await removeCitations([candidateId]);
+    setReviewQueue((q) => q.filter((r) => r.candidate.id !== candidateId));
+  };
+  const reviewKeep = (candidateId: string) =>
+    setReviewQueue((q) => q.filter((r) => r.candidate.id !== candidateId)); // it stays (already applied)
+  const reviewSkipAll = async () => {
+    await removeCitations(reviewQueue.map((r) => r.candidate.id));
+    setReviewQueue([]);
+  };
+  const reviewKeepAll = () => setReviewQueue([]); // all stay — the default, made explicit
 
   /* -------------------------- add way #3: manual ------------------------- */
   const addManual = async () => {
@@ -756,6 +803,51 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                 <Button variant="ghost" data-testid="import-dismiss" onClick={() => setImportReport(null)}>
                   Dismiss
                 </Button>
+              </div>
+            )}
+
+            {reviewQueue.length > 0 && (
+              <div className="gds-cite-review" data-testid="review-panel">
+                <div className="gds-cite-review__head">
+                  <span data-testid="review-count">
+                    {reviewQueue.length} to review — kept by default (each looks similar to an entry you already have)
+                  </span>
+                  <span className="gds-cite-review__bulk">
+                    <Button variant="ghost" data-testid="review-keep-all" onClick={reviewKeepAll}>
+                      Keep all both
+                    </Button>
+                    <Button variant="ghost" data-testid="review-skip-all" onClick={() => void reviewSkipAll()}>
+                      Skip all
+                    </Button>
+                    <Button variant="secondary" data-testid="review-done" onClick={reviewKeepAll}>
+                      Done
+                    </Button>
+                  </span>
+                </div>
+                <div className="gds-cite-review__list">
+                  {reviewQueue.map((r) => (
+                    <div key={r.candidate.id} className="gds-cite-review__item" data-testid="review-item">
+                      <div className="gds-cite-review__cols">
+                        <div className="gds-cite-review__col">
+                          <span className="gds-cite-review__tag">In your library</span>
+                          <CiteLine c={r.match} />
+                        </div>
+                        <div className="gds-cite-review__col">
+                          <span className="gds-cite-review__tag">Imported</span>
+                          <CiteLine c={r.candidate} />
+                        </div>
+                      </div>
+                      <div className="gds-cite-review__actions">
+                        <Button variant="ghost" data-testid="review-keep" onClick={() => reviewKeep(r.candidate.id)}>
+                          Keep both
+                        </Button>
+                        <Button variant="ghost" data-testid="review-skip" onClick={() => void reviewSkip(r.candidate.id)}>
+                          Skip
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

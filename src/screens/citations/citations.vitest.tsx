@@ -270,6 +270,77 @@ describe('import — parse/dedupe/report, never a network call', () => {
   });
 });
 
+/* ------------------ import fuzzy review panel (Set 2b-ii) ---------------- */
+describe('import — fuzzy review panel', () => {
+  // A library entry with a title+year and NO DOI → an import of the same
+  // title+year (also no DOI) is a Tier-2 fuzzy match (not Tier-1).
+  const libEntry = (n: number): Citation => ({
+    id: `lib-${n}`,
+    csl: { id: `lib-${n}`, type: 'article-journal', title: `Review Paper ${n}`, author: [{ family: 'Doe', given: 'J' }], issued: { year: 2020 } },
+    doi: null,
+    retracted: false,
+    source: 'manual',
+  });
+  const bibEntry = (n: number) => `@article{k${n}, title={Review Paper ${n}}, author={Roe, Ann}, year={2020}}`;
+  const importN = async (n: number, extra = '') => {
+    const lib = Array.from({ length: n }, (_, i) => libEntry(i + 1));
+    renderCM({ localLibrary: makeMockLocalLibrary(), initialCitations: lib });
+    await screen.findByTestId('citation-manager');
+    const bib = Array.from({ length: n }, (_, i) => bibEntry(i + 1)).join('\n') + extra;
+    fireEvent.change(screen.getByTestId('import-input'), { target: { files: [new File([bib], 'lib.bib')] } });
+    await screen.findByTestId('import-report');
+  };
+  const inList = (t: string) => within(screen.getByTestId('citation-list')).getAllByText(t);
+
+  it('renders 8 fuzzy matches side-by-side (existing vs imported)', async () => {
+    await importN(8);
+    expect(screen.getByTestId('review-panel')).toBeTruthy();
+    const items = screen.getAllByTestId('review-item');
+    expect(items.length).toBe(8);
+    expect(within(items[0]).getByText('In your library')).toBeTruthy();
+    expect(within(items[0]).getByText('Imported')).toBeTruthy();
+    expect(within(items[0]).getAllByText('Review Paper 1').length).toBe(2); // both sides
+  });
+
+  it('80 fuzzy matches → the bulk path: "Skip all" removes all kept-both dups at once', async () => {
+    await importN(80);
+    expect(screen.getByTestId('review-count').textContent).toMatch(/80 to review/);
+    // each title is present twice pre-skip (library original + kept-both import)
+    expect(inList('Review Paper 1').length).toBe(2);
+    fireEvent.click(screen.getByTestId('review-skip-all'));
+    await waitFor(() => expect(screen.queryByTestId('review-panel')).toBeNull());
+    // the imported copies are gone; the library originals remain (never touched)
+    expect(inList('Review Paper 1').length).toBe(1);
+    expect(inList('Review Paper 80').length).toBe(1);
+  });
+
+  it('per-item Skip removes ONLY that entry; the rest stay', async () => {
+    await importN(8);
+    const first = screen.getAllByTestId('review-item')[0];
+    fireEvent.click(within(first).getByTestId('review-skip'));
+    await waitFor(() => expect(screen.getAllByTestId('review-item').length).toBe(7));
+    expect(inList('Review Paper 1').length).toBe(1); // this one's import copy removed
+    expect(inList('Review Paper 2').length).toBe(2); // untouched — still kept-both
+  });
+
+  it('Done without deciding keeps everything (default keep-both, not a gate)', async () => {
+    await importN(8);
+    fireEvent.click(screen.getByTestId('review-done'));
+    await waitFor(() => expect(screen.queryByTestId('review-panel')).toBeNull());
+    // every import copy survived — each title still appears twice
+    expect(inList('Review Paper 1').length).toBe(2);
+    expect(inList('Review Paper 8').length).toBe(2);
+  });
+
+  it('the panel never blocks the import: non-fuzzy adds are applied immediately', async () => {
+    // 8 fuzzy + 1 brand-new entry that has no match at all
+    await importN(8, '\n@article{fresh, title={A Fresh Unique Paper}, author={New, A}, year={2024}, doi={10.1/fresh}}');
+    // the fresh one is in the library even though the review panel is open
+    expect(screen.getByTestId('review-panel')).toBeTruthy();
+    expect(inList('A Fresh Unique Paper').length).toBe(1);
+  });
+});
+
 /* --------- consent: the from-file lane honors citation_verification ------ */
 // The from-file add resolves a paper's DOI against CrossRef — the SAME cloud
 // lane as add-by-DOI + the retraction sweep. Opt-out must be a HARD door:

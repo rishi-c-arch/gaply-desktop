@@ -71,3 +71,42 @@
   border-top: 1px solid color-mix(in srgb, var(--g-border) 55%, transparent);
 }
 .gds-cite-import-fail code { font-size: 11px; color: var(--g-text-3); }
+
+/* Fuzzy review panel (Set 2b-ii) — side-by-side existing vs imported. */
+.gds-cite-review {
+  margin: 10px 0;
+  border: 1px solid var(--g-border);
+  border-left: 3px solid var(--g-assessed);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.gds-cite-review__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--g-assessed) 8%, var(--g-bg-layer1));
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--g-text);
+}
+.gds-cite-review__bulk { display: flex; gap: 4px; }
+.gds-cite-review__list { max-height: 340px; overflow-y: auto; }
+.gds-cite-review__item {
+  padding: 8px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--g-border) 55%, transparent);
+}
+.gds-cite-review__cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .gds-cite-review__cols { grid-template-columns: 1fr; } }
+.gds-cite-review__tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--g-text-3);
+}
+.gds-cite-review__title { margin: 2px 0 0; font-size: 13px; color: var(--g-text); }
+.gds-cite-review__sub { margin: 1px 0 0; font-size: 12px; color: var(--g-text-2); }
+.gds-cite-review__actions { display: flex; gap: 4px; margin-top: 6px; justify-content: flex-end; }
