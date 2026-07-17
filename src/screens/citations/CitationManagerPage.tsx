@@ -133,6 +133,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   // default), so abandoning the panel loses nothing; the panel only lets the user
   // Skip (remove) confirmed dups. Never a gate.
   const [reviewQueue, setReviewQueue] = useState<SkippedEntry[]>([]);
+  // Online verify pass (Set 2b-iii)
+  const [verifying, setVerifying] = useState(false);
+  const [verifyProgress, setVerifyProgress] = useState<{ done: number; total: number } | null>(null);
+  const verifyCancelRef = useRef(false);
 
   // LOCAL-FIRST hydrate: the sqlite library is the source of truth. Failures
   // (e.g. plain browser, no Tauri) degrade to in-memory state — never fatal.
@@ -490,6 +494,74 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     setReviewQueue([]);
   };
   const reviewKeepAll = () => setReviewQueue([]); // all stay — the default, made explicit
+
+  /* ------- online verify pass (Set 2b-iii): imported-unverified → verified -- */
+  // Update one citation in place (same id) after a verify result.
+  const persistUpdate = async (c: Citation) => {
+    try {
+      await local.upsert(c, c.tags ?? []);
+    } catch {
+      /* in-memory only */
+    }
+    setCitations((xs) => xs.map((x) => (x.id === c.id ? { ...c, syncStatus: 'local_only' as const } : x)));
+  };
+
+  const verifyImported = async () => {
+    // Same gate + string as add-by-DOI — off means no call.
+    if (!mayUseCloud('citation_verification')) {
+      toast('Citation verification is turned off in Settings → Sync & Privacy', 'assessed');
+      return;
+    }
+    const targets = citations.filter((c) => importedUnverified(c) && (c.doi ?? c.csl.DOI));
+    if (targets.length === 0) return;
+    setVerifying(true);
+    verifyCancelRef.current = false;
+    setVerifyProgress({ done: 0, total: targets.length });
+    let done = 0;
+    for (const c of targets) {
+      // CANCELLATION SEMANTICS — the OPPOSITE of AI Check's: partial VERIFICATION
+      // is valid. Each entry's CrossRef result stands alone (verified/not-found/
+      // failed), so on cancel every entry checked so far KEEPS its state; only the
+      // not-yet-reached entries stay untouched. (AI Check discards partials because
+      // a partial DOCUMENT score is not a valid signal; a per-entry check is.)
+      if (verifyCancelRef.current) break;
+      const doi = (c.doi ?? c.csl.DOI)!;
+      try {
+        const v = await rv.verify({ raw: c.csl.title || doi, doi });
+        if (v.exists?.found) {
+          let updated = applyVerification(c, v); // gains CrossRef provenance + retraction
+          updated = { ...updated, verifyOutcome: undefined };
+          // Full-metadata enrich (parity with add-by-DOI; guarded — existence stands on failure).
+          try {
+            const full = await resolver.resolve({ doi });
+            if (full.status === 'verified') {
+              updated = { ...updated, csl: { ...metadataToCslItem(full.metadata, updated.id), id: updated.csl.id } };
+            }
+          } catch {
+            /* the existence-check metadata already stands */
+          }
+          await persistUpdate(updated);
+        } else {
+          // CrossRef reached, DOI does not resolve — a real problem for a researcher.
+          await persistUpdate({ ...c, verifyOutcome: 'not_found' });
+        }
+      } catch {
+        // Network/transport error — transient, retriable; NOT the same as not-found.
+        await persistUpdate({ ...c, verifyOutcome: 'check_failed' });
+      }
+      done += 1;
+      setVerifyProgress({ done, total: targets.length });
+    }
+    const stopped = verifyCancelRef.current;
+    setVerifying(false);
+    setVerifyProgress(null);
+    toast(
+      stopped
+        ? `Verification stopped — ${done} checked (kept), the rest unchanged`
+        : `Verified ${done} imported ${done === 1 ? 'entry' : 'entries'} online`,
+      'certain',
+    );
+  };
 
   /* -------------------------- add way #3: manual ------------------------- */
   const addManual = async () => {
@@ -851,6 +923,37 @@ const Inner: React.FC<CitationManagerPageProps> = ({
               </div>
             )}
 
+            {(() => {
+              const n = citations.filter((c) => importedUnverified(c) && (c.doi ?? c.csl.DOI)).length;
+              if (n === 0 && !verifying) return null;
+              const off = !mayUseCloud('citation_verification');
+              return (
+                <div className="gds-cite-verify-bar" data-testid="verify-bar">
+                  {verifying ? (
+                    <>
+                      <span data-testid="verify-progress">
+                        Verifying {verifyProgress?.done ?? 0} of {verifyProgress?.total ?? 0}…
+                      </span>
+                      <Button variant="ghost" data-testid="verify-cancel" onClick={() => { verifyCancelRef.current = true; }}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button variant="secondary" data-testid="verify-imported" disabled={off} onClick={() => void verifyImported()}>
+                        Verify {n} online
+                      </Button>
+                      {off && (
+                        <span className="gds-cite-verify-note" data-testid="verify-off-note">
+                          Citation verification is turned off in Settings → Sync &amp; Privacy
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="gds-cite-list" data-testid="citation-list">
               {visible.length === 0 ? (
                 <p style={{ color: 'var(--g-text-3)', fontSize: 13 }} data-testid="empty">
@@ -877,9 +980,14 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                           {c.retracted && ' · '}
                           {c.retracted && <Badge status="flagged">retracted</Badge>}
                           {importedUnverified(c) && ' · '}
-                          {importedUnverified(c) && (
-                            <Badge status="assessed" data-testid="unverified-badge">imported · not verified online</Badge>
-                          )}
+                          {importedUnverified(c) &&
+                            (c.verifyOutcome === 'not_found' ? (
+                              <Badge status="flagged" data-testid="badge-not-found">not found on CrossRef</Badge>
+                            ) : c.verifyOutcome === 'check_failed' ? (
+                              <Badge status="assessed" data-testid="badge-check-failed">check failed — try again</Badge>
+                            ) : (
+                              <Badge status="assessed" data-testid="unverified-badge">imported · not verified online</Badge>
+                            ))}
                         </span>
                       </span>
                     </button>

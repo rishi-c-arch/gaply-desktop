@@ -34,6 +34,11 @@ export interface Citation {
   provenance?: string[];
   /** Retraction notice URL, when retracted. */
   noticeUrl?: string;
+  /** Set 2b-iii: the outcome of the last online verify for an imported entry
+   *  that CrossRef could NOT confirm — 'not_found' (the DOI doesn't resolve) vs
+   *  'check_failed' (a network error; retriable). Absent = never attempted, or
+   *  verified (verification adds CrossRef provenance instead). */
+  verifyOutcome?: 'not_found' | 'check_failed';
   /** Local-first (Set 4): tags on this reference. */
   tags?: string[];
   /** Local-first (Set 4): honest sync marker (local sqlite is the truth). */

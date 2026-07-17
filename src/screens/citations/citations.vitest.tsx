@@ -341,6 +341,94 @@ describe('import — fuzzy review panel', () => {
   });
 });
 
+/* ------------------ import online verify pass (Set 2b-iii) --------------- */
+describe('import — gated online verify', () => {
+  const doiEntry = (n: number, doi: string) =>
+    `@article{k${n}, title={Paper ${n}}, author={Doe, Jane}, year={20${20 + n}}, doi={${doi}}}`;
+  const foundFor = (doi?: string): ReferenceVerification => ({ ...okVerify, exists: { ...okVerify.exists!, doi: doi ?? '10.1/x' } });
+  // resolver returns UNVERIFIED so the enrich step is skipped (keeps titles stable);
+  // the badge still flips via rv.verify's CrossRef provenance.
+  const noEnrich = () => makeMockResolve(() => ({ status: 'unverified', reason: 'skip', unverified_title_hint: null }));
+  const importDois = async (bridge: any) => {
+    const bib = `${doiEntry(1, '10.1/p1')}\n${doiEntry(2, '10.1/p2')}\n${doiEntry(3, '10.1/p3')}`;
+    renderCM(bridge);
+    await screen.findByTestId('citation-manager');
+    fireEvent.change(screen.getByTestId('import-input'), { target: { files: [new File([bib], 'l.bib')] } });
+    await screen.findByTestId('import-report');
+  };
+
+  it('consent OFF → verify button disabled, honest note, zero fetches', async () => {
+    setCloudConsent('citation_verification', false);
+    let calls = 0;
+    const rv = { async verify() { calls += 1; return okVerify; } };
+    await importDois({ refverify: rv, metadataResolver: noEnrich(), localLibrary: makeMockLocalLibrary() });
+
+    expect((screen.getByTestId('verify-imported') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('verify-off-note').textContent).toMatch(/turned off in Settings/i);
+    expect(calls).toBe(0);
+    setCloudConsent('citation_verification', true);
+  });
+
+  it('consent ON → verifies and flips the badge from unverified to verified', async () => {
+    setCloudConsent('citation_verification', true);
+    let calls = 0;
+    const rv = { async verify(ref: any) { calls += 1; return foundFor(ref.doi); } };
+    await importDois({ refverify: rv, metadataResolver: noEnrich(), localLibrary: makeMockLocalLibrary() });
+
+    expect(screen.getAllByTestId('unverified-badge').length).toBe(3);
+    fireEvent.click(screen.getByTestId('verify-imported'));
+    await waitFor(() => expect(screen.queryByTestId('unverified-badge')).toBeNull());
+    expect(calls).toBe(3);
+  });
+
+  it('not-found renders DISTINCTLY from a network-failure', async () => {
+    setCloudConsent('citation_verification', true);
+    const rv = {
+      async verify(ref: any) {
+        if (ref.doi === '10.1/fail') throw new Error('network down');
+        return { ...okVerify, exists: { found: false, source: 'crossref', doi: ref.doi, title: null, is_retracted_hint: false } };
+      },
+    };
+    const bib = `${doiEntry(1, '10.1/nf')}\n${doiEntry(2, '10.1/fail')}`;
+    renderCM({ refverify: rv, metadataResolver: noEnrich(), localLibrary: makeMockLocalLibrary() });
+    await screen.findByTestId('citation-manager');
+    fireEvent.change(screen.getByTestId('import-input'), { target: { files: [new File([bib], 'l.bib')] } });
+    await screen.findByTestId('import-report');
+
+    fireEvent.click(screen.getByTestId('verify-imported'));
+    await waitFor(() => expect(screen.getByTestId('badge-not-found')).toBeTruthy());
+    expect(screen.getByTestId('badge-not-found').textContent).toMatch(/not found on CrossRef/i);
+    expect(screen.getByTestId('badge-check-failed').textContent).toMatch(/check failed/i);
+  });
+
+  it('cancel mid-pass: verified entries KEEP their state; unreached ones untouched', async () => {
+    setCloudConsent('citation_verification', true);
+    const gates: Array<() => void> = [];
+    let calls = 0;
+    const rv = {
+      async verify(ref: any) {
+        await new Promise<void>((r) => gates.push(r)); // wait for the test to release
+        calls += 1;
+        return foundFor(ref.doi);
+      },
+    };
+    await importDois({ refverify: rv, metadataResolver: noEnrich(), localLibrary: makeMockLocalLibrary() });
+    expect(screen.getAllByTestId('unverified-badge').length).toBe(3);
+
+    fireEvent.click(screen.getByTestId('verify-imported'));
+    await waitFor(() => expect(gates.length).toBe(1)); // entry 1 in-flight
+    gates[0]();                                        // release entry 1
+    await waitFor(() => expect(gates.length).toBe(2)); // entry 2 in-flight
+    fireEvent.click(screen.getByTestId('verify-cancel')); // cancel while entry 2 is in-flight
+    gates[1]();                                        // entry 2 completes; loop then breaks before entry 3
+
+    await waitFor(() => expect(screen.queryByTestId('verify-progress')).toBeNull()); // pass ended
+    expect(calls).toBe(2);                              // entry 3 was never verified
+    // entries 1+2 verified (kept), entry 3 still unverified — partial verification is VALID
+    expect(screen.getAllByTestId('unverified-badge').length).toBe(1);
+  });
+});
+
 /* --------- consent: the from-file lane honors citation_verification ------ */
 // The from-file add resolves a paper's DOI against CrossRef — the SAME cloud
 // lane as add-by-DOI + the retraction sweep. Opt-out must be a HARD door:
