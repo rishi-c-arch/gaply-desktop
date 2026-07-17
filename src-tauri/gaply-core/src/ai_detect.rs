@@ -565,7 +565,7 @@ fn flag_passages_in_block(
 
     let mut passages = Vec::new();
     let mut run: Vec<usize> = Vec::new();
-    let mut flush = |run: &mut Vec<usize>, passages: &mut Vec<FlaggedPassage>| {
+    let flush = |run: &mut Vec<usize>, passages: &mut Vec<FlaggedPassage>| {
         if run.is_empty() {
             return;
         }
@@ -662,22 +662,22 @@ pub fn analyze_passages(
 // across the WHOLE document (seconds), then the deep model re-scores ONLY
 // the candidates within an explicit budget (bounded minutes).
 //
-// DEEP VERIFICATION IS SELF-CALIBRATED: SLM-1's absolute perplexity scale
-// differs from the heuristic's (the documented per-tier calibration
-// problem), so no absolute threshold is reused. Instead the deep model
-// scores each candidate AND a reference sample of the document's own
-// LEAST-suspicious sentences; a candidate is DEEP-VERIFIED only when its
-// deep perplexity is lower than the document's own baseline (more
-// predictable than the author's normal prose). A candidate the deep model
-// does NOT confirm is CLEARED — the false-positive reduction this stage
-// exists for. Candidates beyond the budget stay HEURISTIC-ONLY, honestly
-// labeled.
+// DEEP VERIFICATION IS NON-DROPPING (B2): the self-referential baseline —
+// score a reference sample of the document's own prose and CLEAR candidates
+// that match it — was removed as the convicted H2b false-negative mechanism
+// (an all-AI document IS its own baseline). The deep model now RE-SCORES each
+// candidate within the budget (a stronger measurement than the fast proxy);
+// nothing is cleared. Absolute placement against per-model human-academic
+// norms is a separate, additive step (`apply_verifier_norm`, Set E) that runs
+// only where a norm exists. Candidates beyond the budget stay HEURISTIC-ONLY,
+// honestly labeled.
 
 /// Which analysis tier produced/confirmed a passage — STRUCTURAL, required.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AnalysisDepth {
-    /// SLM-1 re-scored this passage against the document's own baseline.
+    /// The deep on-device model re-scored this passage (B2: no baseline
+    /// clearing — a stronger measurement, not a self-referential comparison).
     DeepVerified,
     /// Flagged by the fast pre-pass but NOT deep-verified (budget or no
     /// deep model available) — a preliminary, lower-confidence signal.
@@ -686,8 +686,9 @@ pub enum AnalysisDepth {
 
 /// Per-tier caution lines. REQUIRED, never empty — the Set-2 un-strippable
 /// pattern extended to the tier dimension.
-pub const DEEP_VERIFIED_NOTE: &str = "Deep-verified: the local model re-scored this passage \
-against this document's own baseline. Still a SIGNAL, not proof of AI authorship.";
+pub const DEEP_VERIFIED_NOTE: &str = "Deep-verified: the full on-device model (7B) re-scored \
+this passage, a stronger measurement than the fast pre-pass. Still a SIGNAL, not proof of AI \
+authorship.";
 /// The COMPACT-tier verified note (1.5B). Honest that the verifier is lighter
 /// than the full 7B — a <16GB machine gets real model verification, but the
 /// user deserves to know it's the smaller model. Verbatim, un-strippable.
@@ -2895,7 +2896,7 @@ mod classify_tests {
     use crate::extract::extract_from_text;
 
     // Same scripted setup as tiered_tests: AI_MARKED deep-verifies (below the
-    // document's own baseline), AI_UNMARKED clears, HUMAN is the baseline.
+    // document's own baseline), AI_UNMARKED scores AT baseline; both are KEPT (B2 non-dropping).
     const AI_MARKED: &str = "The results show that the data can do the work well.";
     const AI_UNMARKED: &str = "The user can see the way to go and do the work now.";
     const HUMAN_SENT: &str =

@@ -132,7 +132,7 @@ pub fn validate_manuscript(
 /// Offline AI-text detection: parse → extract → per-section perplexity /
 /// burstiness scoring. Returns a report that is an explicit statistical
 /// signal (never proof — see the mandatory disclaimer field). No network,
-/// no LLM call. Uses the interim heuristic scorer until GPT-2 is wired.
+/// no LLM call.
 /// Offline plagiarism / semantic-similarity check. Parses the manuscript,
 /// embeds its chunks into a PER-SESSION ISOLATED store (never the shared
 /// corpus), and compares against the shared corpus and against itself.

@@ -18,10 +18,10 @@
 //! # Stages (at most ONE model in memory at any point)
 //!
 //! 1. **Stage 1** — heuristic pre-pass over the whole document (seconds).
-//! 2. **Stage 2** — SLM-1 (candle, in-process) deep re-scores the top
-//!    candidates within the Set-3 budget, self-calibrated against the
-//!    document's own baseline. SLM-1 is scoped to this block and DROPS at its
-//!    end. No other model is ever loaded by this flow.
+//! 2. **Stage 2** — the on-device deep verifier (candle, in-process) re-scores
+//!    the top candidates within the budget (B2: non-dropping, no self-baseline;
+//!    absolute norm placement is the separate `apply_verifier_norm` step). The
+//!    model is scoped to its block and DROPS at its end.
 //!
 //! LOCAL-ONLY: AI Check is free and never touches the cloud proxy. All
 //! honesty guarantees (signal labels, tiers, cautions, the deterministic %,
@@ -102,11 +102,11 @@ pub fn memory_status(
     // TRUTHFUL: keyed on the ATTAINABLE tier — on an 8GB machine `tier_label` is
     // "the compact 1.5B", so we never tell them freeing memory unlocks the 7B.
     let hint = match (deep_need, deep_fits) {
-        (None, _) => "This machine runs the fast pre-pass only — no on-device deep model is available.".to_string(),
-        (Some(_), true) => format!("Ready — {tier_label} will run."),
+        (None, _) => "This machine runs the fast pre-pass only; no on-device deep model is available.".to_string(),
+        (Some(_), true) => format!("Ready: {tier_label} will run."),
         (Some(n), false) => {
             let need_gb = (n.saturating_mul(3) / 2) as f64 / 1_073_741_824.0;
-            format!("Needs about {need_gb:.1} GB free to run — closing browsers usually frees the most.")
+            format!("Needs about {need_gb:.1} GB free to run; closing browsers usually frees the most.")
         }
     };
     AiCheckMemoryStatus {
