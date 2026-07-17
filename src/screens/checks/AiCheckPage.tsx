@@ -75,6 +75,27 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verifyCitations, setVerify] = useState<boolean>(() => readVerifyCitations());
+  // Page-scoped light/dark (INTERIM — AI Check is the only light-capable gds
+  // screen; shipping needs the app-wide light project first). The global toggle
+  // is hidden on /app, so this page carries its own. Persisted.
+  const [aiTheme, setAiTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      return localStorage.getItem('gaply.aicheck.theme') === 'light' ? 'light' : 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+  const toggleAiTheme = () => {
+    setAiTheme((t) => {
+      const next = t === 'dark' ? 'light' : 'dark';
+      try {
+        localStorage.setItem('gaply.aicheck.theme', next);
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
   // Progress + cancel state.
   const [mem, setMem] = useState<AiCheckMemoryStatus | null>(null);
   const [stageIdx, setStageIdx] = useState(-1);
@@ -202,7 +223,7 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
     : { text: 'Needs memory', cls: 'aic-chip--needs' };
 
   return (
-    <div className="gds-root gds-aicheck" style={{ height: '100vh' }} data-testid="ai-check">
+    <div className="gds-root gds-aicheck" data-theme={aiTheme} style={{ height: '100vh' }} data-testid="ai-check">
       <AppShell
         rail={
           <NavRail
@@ -220,6 +241,16 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
         }
         header={
           <HeaderBar title="AI Check">
+            <Button
+              variant="ghost"
+              className="aic-theme-toggle"
+              onClick={toggleAiTheme}
+              data-testid="theme-toggle"
+              aria-label={aiTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              title={aiTheme === 'dark' ? 'Light theme' : 'Dark theme'}
+            >
+              {aiTheme === 'dark' ? '☀' : '☾'}
+            </Button>
             <Badge status="certain">local · free</Badge>
           </HeaderBar>
         }

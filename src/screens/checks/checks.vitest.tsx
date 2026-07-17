@@ -307,6 +307,18 @@ describe('AI Check — progress, cancel, pre-flight (Set 3)', () => {
     expect(EVENT_STAGE.cancelled).toBeUndefined();
   });
 
+  it('the in-page theme toggle flips the page data-theme and persists', () => {
+    localStorage.removeItem('gaply.aicheck.theme');
+    renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE })} />);
+    const root = screen.getByTestId('ai-check');
+    expect(root.getAttribute('data-theme')).toBe('dark'); // default
+    fireEvent.click(screen.getByTestId('theme-toggle'));
+    expect(root.getAttribute('data-theme')).toBe('light');
+    expect(localStorage.getItem('gaply.aicheck.theme')).toBe('light');
+    fireEvent.click(screen.getByTestId('theme-toggle'));
+    expect(root.getAttribute('data-theme')).toBe('dark');
+  });
+
 });
 
 describe('AI Check — citation verification opt-in (C2b)', () => {
