@@ -167,7 +167,7 @@ export function makeMockCheckBridge(reports: {
           deep_need_mb: 2400,
           tier_attainable: 'compact_1_5b',
           tier_label: 'the compact 1.5B deep verifier',
-          hint: 'Ready — the compact 1.5B deep verifier will run.',
+          hint: 'Ready: the compact 1.5B deep verifier will run.',
         }
       );
     },

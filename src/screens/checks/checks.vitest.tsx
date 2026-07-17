@@ -151,7 +151,7 @@ describe('AI Check', () => {
     expect(screen.getByTestId('evidence-group-structural').textContent).toMatch(/Unavailable/);
     expect(summary.textContent).toMatch(/could not be attributed — density unreliable/);
     screen.getAllByTestId('evidence-row').forEach((row) => {
-      expect(row.textContent).toMatch(/—/); // "Level  Signal — detail"
+      expect(row.textContent).toMatch(/: /); // "Level  Signal: detail"
     });
     // the perplexity row's in-row provisional footnote
     expect(screen.getByTestId('provisional-footnote').textContent).toMatch(/preliminary/);
@@ -200,7 +200,7 @@ describe('AI Check — progress, cancel, pre-flight (Set 3)', () => {
     const needsMem: AiCheckMemoryStatus = {
       free_mb: 1024, total_gb: 8, stage1_fits: true, deep_fits: false, deep_need_mb: 2400,
       tier_attainable: 'compact_1_5b', tier_label: 'the compact 1.5B deep verifier',
-      hint: 'Needs about 2.3 GB free to run — closing browsers usually frees the most.',
+      hint: 'Needs about 2.3 GB free to run; closing browsers usually frees the most.',
     };
     renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE, memoryStatus: needsMem })} />);
     const panel = await screen.findByTestId('memory-status');
@@ -211,7 +211,7 @@ describe('AI Check — progress, cancel, pre-flight (Set 3)', () => {
 
     // Ready → NO hint line (no contradiction with the Ready chip).
     cleanup();
-    const ready: AiCheckMemoryStatus = { ...needsMem, deep_fits: true, hint: 'Ready — the compact 1.5B deep verifier will run.' };
+    const ready: AiCheckMemoryStatus = { ...needsMem, deep_fits: true, hint: 'Ready: the compact 1.5B deep verifier will run.' };
     renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE, memoryStatus: ready })} />);
     expect((await screen.findByTestId('memory-status')).textContent).toMatch(/Ready/);
     expect(screen.queryByTestId('memory-hint')).toBeNull();
@@ -286,6 +286,7 @@ describe('AI Check — progress, cancel, pre-flight (Set 3)', () => {
     expect(EVENT_STAGE.memory_skip).toBeUndefined();
     expect(EVENT_STAGE.cancelled).toBeUndefined();
   });
+
 });
 
 describe('AI Check — citation verification opt-in (C2b)', () => {

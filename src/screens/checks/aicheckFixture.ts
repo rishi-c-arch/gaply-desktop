@@ -28,7 +28,7 @@ const deepPassage: AiCheckPassage = {
     'AI-associated SIGNAL, not a determination of authorship. High false-positive rates.',
   depth: 'deep_verified',
   depth_note:
-    'Deep-verified: the local model re-scored this passage against this document’s own baseline. Still a SIGNAL, not proof of AI authorship.',
+    'Deep-verified: the full on-device model (7B) re-scored this passage, a stronger measurement than the fast pre-pass. Still a SIGNAL, not proof of AI authorship.',
   category: 'unclassified',
   category_strength: null,
   evidence_quote: null,

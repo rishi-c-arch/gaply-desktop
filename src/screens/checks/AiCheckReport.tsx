@@ -179,7 +179,7 @@ const EvidenceSummary: React.FC<{ analysis: AiCheckAnalysis }> = ({ analysis }) 
   return (
     <Card title="Evidence Summary" data-testid="evidence-summary">
       <p className="aic-ev__gate">
-        Individual signals — not a verdict, and not combined into a score. A calibrated 0–100 score
+        Individual signals: not a verdict, and not combined into a score. A calibrated 0–100 score
         isn't shown: it requires evaluation Gaply hasn't completed yet. Each level below is the
         STRENGTH of the AI-associated signal.
       </p>
@@ -190,13 +190,13 @@ const EvidenceSummary: React.FC<{ analysis: AiCheckAnalysis }> = ({ analysis }) 
           <div key={g.tier} className={`aic-ev__band aic-ev__band--${g.tier}`} data-testid={`evidence-group-${g.tier}`}>
             <div className="aic-ev__bandhead">
               <span className="aic-ev__bandlabel">{g.label}</span>
-              {g.caveat && <span className="aic-ev__caveat">— {g.caveat}</span>}
+              {g.caveat && <span className="aic-ev__caveat">({g.caveat})</span>}
             </div>
             {groupRows.map((r, i) => (
               <div key={i} className="aic-ev__row" data-testid="evidence-row">
                 <span className={`aic-ev__level ${levelClass(r)}`}>{statusLabel(r)}</span>
                 <span>
-                  <span className="aic-ev__signal">{r.signal}</span> —{' '}
+                  <span className="aic-ev__signal">{r.signal}</span>:{' '}
                   <span className="aic-ev__detail">{r.detail}</span>
                   {(r.signal === 'Language-model perplexity' || r.signal === 'Deep-verifier perplexity') &&
                     provisional && <sup>¹</sup>}
@@ -208,7 +208,7 @@ const EvidenceSummary: React.FC<{ analysis: AiCheckAnalysis }> = ({ analysis }) 
       })}
       {provisional && (
         <p className="aic-ev__footnote" data-testid="provisional-footnote">
-          ¹ preliminary — norms not yet held-out-evaluated
+          ¹ preliminary: norms not yet held-out-evaluated
         </p>
       )}
     </Card>
@@ -244,7 +244,7 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
         </p>
       ) : (
         <section data-testid="language-downgrade" className="aic-callout">
-          <Badge status="flagged">non-English text — low confidence</Badge>
+          <Badge status="flagged">non-English text: low confidence</Badge>
           <p className="gds-jc__disclaimer" style={{ marginTop: 6 }}>
             {lang.note}
           </p>
@@ -259,7 +259,7 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
           </span>
           <span style={{ color: 'var(--g-text-3)', fontSize: 13, maxWidth: 560 }}>
             of the analyzed text shows AI-associated signals. This is a deterministic proportion
-            of flagged text — it is NOT the chance that this document was AI-written, and no such
+            of flagged text; it is NOT the chance that this document was AI-written, and no such
             number exists in this report.
           </span>
         </div>
@@ -280,7 +280,7 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
         <span className="gds-highlight" data-tier="flagged" style={{ cursor: 'default' }}>
           red
         </span>
-        : deep-verified against this document's own baseline. All are signal levels — never
+        : deep-verified (re-scored by the on-device deep model). All are signal levels, never
         verdicts. Click a highlight for its evidence.
       </p>
 
@@ -348,7 +348,7 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
       {/* provenance: which models actually ran */}
       <p className="gds-mono" style={{ fontSize: 11, color: 'var(--g-text-3)', margin: 0 }} data-testid="aicheck-models">
         fast: {analysis.fast_model} · deep:{' '}
-        {analysis.deep_model ?? 'not available — all flags heuristic-only'}
+        {analysis.deep_model ?? 'not available; all flags heuristic-only'}
       </p>
     </div>
   );

@@ -62,9 +62,9 @@ const skipTargetStage = (model: string): number => (model.includes('Stage-1') ? 
 /** The honest Cancelled detail — stage-aware (Stage-1 isn't passage-scoring). */
 function cancelledDetail(c: Cancelled): string {
   if (c.stage.includes('deep')) {
-    return `Cancelled during deep verification; ${c.done} of ${c.total} passages scored — results not shown, as partial analysis isn't a valid signal.`;
+    return `Cancelled during deep verification; ${c.done} of ${c.total} passages scored. Results not shown, as partial analysis isn't a valid signal.`;
   }
-  return `Cancelled during the Stage-1 language-model pass — results not shown, as partial analysis isn't a valid signal.`;
+  return `Cancelled during the Stage-1 language-model pass. Results not shown, as partial analysis isn't a valid signal.`;
 }
 
 const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
@@ -124,7 +124,7 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
 
   const pickFile = async () => {
     if (isTauri) {
-      const p = await pickManuscriptPath(['pdf', 'docx'], 'Manuscript');
+      const p = await pickManuscriptPath(['pdf', 'docx', 'txt', 'md'], 'Manuscript');
       if (p) acceptPath(p);
     } else {
       inputRef.current?.click();
@@ -137,7 +137,7 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
       setDeep({ done: ev.done, total: ev.total });
     } else if (ev.type === 'memory_skip') {
       const at = skipTargetStage(ev.model);
-      setSkipByStage((m) => ({ ...m, [at]: [...(m[at] ?? []), `${ev.model} skipped — ${ev.reason}`] }));
+      setSkipByStage((m) => ({ ...m, [at]: [...(m[at] ?? []), `${ev.model} skipped: ${ev.reason}`] }));
     } else if (ev.type === 'cancelled') {
       setCancelled({ stage: ev.stage, done: ev.done, total: ev.total });
     } else if (EVENT_STAGE[ev.type] !== undefined) {
@@ -283,18 +283,54 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
                 </div>
               </Card>
             ) : (
-              <>
-                {/* Calm lead-in — locked copy, restyled quiet. */}
-                <p className="aic-lead">
-                  Up to two analysis stages — Every manuscript receives a fast local pre-pass. On
-                  devices with approximately 16 GB or more RAM, Gaply also performs an additional
-                  local deep verification using the 7B model. Findings remain signals—not
-                  verdicts—and your manuscript never leaves your device. Optionally, Gaply can check
-                  your reference list's details — author, year, title, DOI (never your text) —
-                  against public scholarly databases to flag citations it can't verify.{' '}
-                  <span className="aic-hint">· {ACCEPT_HINT}</span>
-                </p>
+              <div className="aic-idle">
+                <div className="aic-hero">
+                  <p className="aic-hero__eyebrow">AI Check</p>
+                  <h2 className="aic-hero__title">Check your manuscript</h2>
+                </div>
 
+                {/* The centered input card — the picker as the focal object. */}
+                <div className="aic-inputcard">
+                  <div className="aic-inputcard__row">
+                    <Button variant="secondary" onClick={() => void pickFile()} data-testid="pick-file">
+                      Choose file
+                    </Button>
+                    {selected && <span className="gds-mono" data-testid="selected-name">{selected.name}</span>}
+                    <input
+                      ref={inputRef}
+                      type="file"
+                      accept=".pdf,.docx,.txt,.md"
+                      style={{ display: 'none' }}
+                      data-testid="file-input"
+                      onChange={(e) => e.target.files?.[0] && void acceptFile(e.target.files[0])}
+                    />
+                    <span className="aic-inputcard__spacer" />
+                    <Button onClick={runNow} disabled={!selected || busy} data-testid="run-check">
+                      Run check
+                    </Button>
+                  </div>
+                  <label className="aic-optin">
+                    <input
+                      type="checkbox"
+                      checked={verifyCitations}
+                      data-testid="verify-citations"
+                      onChange={(e) => {
+                        setVerify(e.target.checked);
+                        setVerifyCitations(e.target.checked);
+                      }}
+                    />
+                    <span>
+                      Verify references online
+                      <span className="aic-optin__help">
+                        Sends only citation details (author, year, title, DOI) to CrossRef/OpenAlex, never your
+                        manuscript. Off by default. You can turn this off anytime.
+                      </span>
+                    </span>
+                  </label>
+                  {error && <p className="aic-error" role="alert" data-testid="check-error">{error}</p>}
+                </div>
+
+                <div className="aic-duo">
                 {mem && (() => {
                   const chip = memChip(mem);
                   const freeGb = mem.free_mb / 1024;
@@ -332,46 +368,24 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
                   );
                 })()}
 
-                <Card title="Select a manuscript">
-                  <div className="aic-picker">
-                    <Button variant="secondary" onClick={() => void pickFile()} data-testid="pick-file">
-                      Choose file
-                    </Button>
-                    {selected && <span className="gds-mono" data-testid="selected-name">{selected.name}</span>}
-                    <input
-                      ref={inputRef}
-                      type="file"
-                      accept=".pdf,.docx"
-                      style={{ display: 'none' }}
-                      data-testid="file-input"
-                      onChange={(e) => e.target.files?.[0] && void acceptFile(e.target.files[0])}
-                    />
-                    <Button onClick={runNow} disabled={!selected || busy} data-testid="run-check">
-                      Run check
-                    </Button>
+                  {/* How it works — the locked intro copy, verbatim. */}
+                  <div className="aic-infocard">
+                    <h3 className="aic-infocard__title">How it works</h3>
+                    <p className="aic-lead">
+                      Every manuscript gets a fast local pre-pass and a reading by a small on-device
+                      language model. Where memory allows, flagged passages also get deep verification
+                      by a larger on-device model: the compact 1.5B on most machines, the full 7B on
+                      devices with about 16 GB of RAM or more. Findings remain signals, not verdicts,
+                      and your manuscript never leaves your device. Optionally, Gaply can check your
+                      reference list's details (author, year, title, DOI; never your text) against
+                      public scholarly databases to flag citations it can't verify.{' '}
+                      <span className="aic-hint">· {ACCEPT_HINT}</span>
+                    </p>
                   </div>
-                  <label className="aic-optin">
-                    <input
-                      type="checkbox"
-                      checked={verifyCitations}
-                      data-testid="verify-citations"
-                      onChange={(e) => {
-                        setVerify(e.target.checked);
-                        setVerifyCitations(e.target.checked);
-                      }}
-                    />
-                    <span>
-                      Verify references online
-                      <span className="aic-optin__help">
-                        Sends only citation details (author, year, title, DOI) to CrossRef/OpenAlex — never your
-                        manuscript. Off by default. You can turn this off anytime.
-                      </span>
-                    </span>
-                  </label>
-                  {error && <p className="aic-error" role="alert" data-testid="check-error">{error}</p>}
-                </Card>
+                </div>
+
                 <Link className="aic-back" to="/app">← Back to Home</Link>
-              </>
+              </div>
             )}
           </div>
         </Panel>

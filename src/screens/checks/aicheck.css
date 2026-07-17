@@ -69,6 +69,112 @@
   color: var(--g-text-3);
 }
 
+/* ---- Idle: the centered hero (Perplexity-calm) -------------------------- */
+
+.gds-aicheck .aic-idle {
+  min-height: 62vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--g-space-3);
+  padding: var(--g-space-4) 0;
+}
+.gds-aicheck .aic-hero {
+  text-align: center;
+  display: grid;
+  gap: 6px;
+}
+.gds-aicheck .aic-hero__eyebrow {
+  margin: 0;
+  font-size: var(--g-text-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--g-text-3);
+}
+.gds-aicheck .aic-hero__title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--g-text);
+}
+
+/* The big centered "input" card — the manuscript picker as the focal object. */
+.gds-aicheck .aic-inputcard {
+  width: min(680px, 100%);
+  background: var(--g-bg-layer1);
+  border: 1px solid var(--g-border);
+  border-radius: 16px;
+  box-shadow: var(--g-shadow-1);
+  padding: var(--g-space-2) var(--g-space-2) var(--g-space-2);
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+.gds-aicheck .aic-inputcard:focus-within,
+.gds-aicheck .aic-inputcard:hover {
+  border-color: color-mix(in srgb, var(--g-accent) 45%, var(--g-border));
+  box-shadow: var(--g-shadow-2);
+}
+.gds-aicheck .aic-inputcard__row {
+  display: flex;
+  gap: var(--g-space-1);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.gds-aicheck .aic-inputcard__row .gds-mono {
+  color: var(--g-text-2);
+  font-size: var(--g-text-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40ch;
+}
+.gds-aicheck .aic-inputcard__spacer { flex: 1; }
+.gds-aicheck .aic-inputcard .aic-optin { margin-top: var(--g-space-2); }
+
+/* The duo of quiet gradient cards under the input (capacity + how-it-works). */
+.gds-aicheck .aic-duo {
+  width: min(680px, 100%);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--g-space-2);
+  align-items: stretch;
+}
+@media (max-width: 760px) {
+  .gds-aicheck .aic-duo { grid-template-columns: 1fr; }
+}
+/* Both duo cards share the soft, token-driven gradient treatment (flips with
+   the theme because everything is color-mix over the tokens). */
+.gds-aicheck .aic-duo > .gds-card,
+.gds-aicheck .aic-duo > .aic-infocard {
+  margin: 0;
+  border: 1px solid var(--g-border);
+  border-radius: 14px;
+  padding: var(--g-space-2);
+}
+.gds-aicheck .aic-duo > .gds-card {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--g-accent) 9%, var(--g-bg-layer1)),
+    var(--g-bg-layer1) 62%
+  );
+}
+.gds-aicheck .aic-infocard {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--g-certain) 8%, var(--g-bg-layer1)),
+    var(--g-bg-layer1) 62%
+  );
+}
+.gds-aicheck .aic-infocard__title {
+  margin: 0 0 var(--g-space-1);
+  font-size: var(--g-text-size-sm);
+  font-weight: 600;
+  color: var(--g-text);
+}
+.gds-aicheck .aic-idle .aic-back { text-align: center; }
+
 /* ---- On-device capacity ------------------------------------------------- */
 
 .gds-aicheck .aic-capacity__head {
@@ -148,12 +254,6 @@
 
 /* ---- Manuscript picker + opt-in ---------------------------------------- */
 
-.gds-aicheck .aic-picker {
-  display: flex;
-  gap: var(--g-space-1);
-  align-items: center;
-  flex-wrap: wrap;
-}
 .gds-aicheck .aic-optin {
   display: flex;
   gap: var(--g-space-1);
