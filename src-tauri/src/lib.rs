@@ -51,11 +51,19 @@ pub fn run() {
             config.validate()?;
             logging::init(&config.log_filter);
 
+            // Point model resolution at the BUNDLED models (Set 1) as the
+            // last-resort source: <resource_dir>/models/{stage1-lm,slm1-adapter}.
+            // A stranger with no ~/gaply-models falls through to the packaged 0.5B.
+            if let Ok(res) = app.path().resource_dir() {
+                crate::models::set_bundled_models_dir(res.join("models"));
+            }
+
             let db = Arc::new(Database::open(&config.db_path)?);
             let embedder = Arc::new(gaply_core::embed::HashEmbedder);
             app.manage(AppState::new(config, db.clone(), db, embedder));
 
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "gaply desktop started");
+            crate::models::log_model_resolution(); // proof the bundled model is reachable
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

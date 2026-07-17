@@ -163,6 +163,7 @@ export function makeMockCheckBridge(reports: {
           free_mb: 4096,
           total_gb: 8,
           stage1_fits: true,
+          stage1_available: true,
           deep_fits: true,
           deep_need_mb: 2400,
           tier_attainable: 'compact_1_5b',

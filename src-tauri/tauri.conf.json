@@ -52,12 +52,19 @@
     "android": {
       "debugApplicationIdSuffix": ".debug"
     },
-    "createUpdaterArtifacts": false
+    "createUpdaterArtifacts": false,
+    "resources": {
+      "bundled-models/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf": "models/stage1-lm/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
+      "bundled-models/tokenizer.json": "models/slm1-adapter/tokenizer.json",
+      "bundled-models/THIRD-PARTY-LICENSES.txt": "THIRD-PARTY-LICENSES.txt"
+    }
   },
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["gaply"]
+        "schemes": [
+          "gaply"
+        ]
       }
     },
     "updater": {

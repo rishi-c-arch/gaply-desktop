@@ -198,7 +198,7 @@ describe('AI Check — progress, cancel, pre-flight (Set 3)', () => {
 
   it('pre-flight names the attainable tier + the gap, and guards the hint so Ready shows no nudge', async () => {
     const needsMem: AiCheckMemoryStatus = {
-      free_mb: 1024, total_gb: 8, stage1_fits: true, deep_fits: false, deep_need_mb: 2400,
+      free_mb: 1024, total_gb: 8, stage1_fits: true, stage1_available: true, deep_fits: false, deep_need_mb: 2400,
       tier_attainable: 'compact_1_5b', tier_label: 'the compact 1.5B deep verifier',
       hint: 'Needs about 2.3 GB free to run; closing browsers usually frees the most.',
     };
@@ -215,6 +215,26 @@ describe('AI Check — progress, cancel, pre-flight (Set 3)', () => {
     renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE, memoryStatus: ready })} />);
     expect((await screen.findByTestId('memory-status')).textContent).toMatch(/Ready/);
     expect(screen.queryByTestId('memory-hint')).toBeNull();
+  });
+
+  it('no deep model but the bundled Stage-1 LM present → NOT mislabeled "Pre-pass only"', async () => {
+    // The post-Set-1 stranger state: no deep model, but the 0.5B runs.
+    const stage1: AiCheckMemoryStatus = {
+      free_mb: 1024, total_gb: 8, stage1_fits: true, stage1_available: true, deep_fits: false, deep_need_mb: null,
+      tier_attainable: 'heuristic_only', tier_label: 'the fast pre-pass only',
+      hint: 'This device runs the fast pre-pass and the on-device Stage-1 language model. Deep verification by a larger model isn’t available on this machine.',
+    };
+    renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE, memoryStatus: stage1 })} />);
+    const panel = await screen.findByTestId('memory-status');
+    expect(panel.textContent).toMatch(/Stage-1 · no deep model/); // honest chip
+    expect(panel.textContent).not.toMatch(/Pre-pass only/); // NOT the weak-detector label
+    expect(screen.getByTestId('memory-hint').textContent).toMatch(/on-device Stage-1 language model/);
+
+    // Truly model-less (not even Stage-1) → the honest "Pre-pass only".
+    cleanup();
+    const none: AiCheckMemoryStatus = { ...stage1, stage1_available: false, hint: 'This device runs the fast pre-pass only; no on-device model is available.' };
+    renderScreen(<AiCheckPage bridge={makeMockCheckBridge({ aicheck: AICHECK_FIXTURE, memoryStatus: none })} />);
+    expect((await screen.findByTestId('memory-status')).textContent).toMatch(/Pre-pass only/);
   });
 
   it('Re-check re-queries the memory status (the empowerment loop)', async () => {

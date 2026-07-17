@@ -46,3 +46,9 @@ yarn-error.log*
 src-tauri/target/
 src-tauri/gen/schemas/
 gaply-proxy/.env
+
+# Bundled model binaries (huge; populated on the build machine from ~/gaply-models
+# or via scripts/fetch-bundled-models.sh). The THIRD-PARTY-LICENSES + README ARE
+# committed. See src-tauri/bundled-models/README.md.
+src-tauri/bundled-models/*.gguf
+src-tauri/bundled-models/tokenizer.json

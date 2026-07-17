@@ -249,6 +249,9 @@ export interface AiCheckMemoryStatus {
   free_mb: number;
   total_gb: number;
   stage1_fits: boolean;
+  /** The Stage-1 LM (bundled 0.5B) is present → the heuristic-only DEEP tier
+   *  still runs a real on-device language model, not just the frequency proxy. */
+  stage1_available: boolean;
   deep_fits: boolean;
   /** Free MB the attainable deep model needs (1.5× guard); null = heuristic-only. */
   deep_need_mb: number | null;

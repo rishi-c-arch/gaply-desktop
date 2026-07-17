@@ -382,6 +382,7 @@ pub fn aicheck_memory_status() -> crate::aicheck::AiCheckMemoryStatus {
         crate::models::free_memory_bytes(),
         crate::models::total_physical_ram_bytes(),
         crate::models::deep_tier_from_env(),
+        crate::models::stage1_lm_present(),
     )
 }
 

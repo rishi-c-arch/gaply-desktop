@@ -64,6 +64,10 @@ pub struct AiCheckMemoryStatus {
     pub free_mb: u64,
     pub total_gb: f64,
     pub stage1_fits: bool,
+    /// Whether the Stage-1 LM (the bundled 0.5B) is present on disk — so the
+    /// "heuristic-only" DEEP tier isn't misreported as "no language model": with
+    /// the 0.5B bundled, the pre-pass includes a real on-device LM reading.
+    pub stage1_available: bool,
     pub deep_fits: bool,
     /// FREE memory the attainable deep model needs (its 1.5× courtesy guard), in
     /// MB. `None` when no deep tier applies (heuristic-only). Names the gap so a
@@ -82,6 +86,7 @@ pub fn memory_status(
     free: Option<u64>,
     total: Option<u64>,
     tier: crate::models::DeepTier,
+    stage1_available: bool,
 ) -> AiCheckMemoryStatus {
     const MB: u64 = 1024 * 1024;
     const STAGE1: u64 = 400 * MB;
@@ -102,7 +107,12 @@ pub fn memory_status(
     // TRUTHFUL: keyed on the ATTAINABLE tier — on an 8GB machine `tier_label` is
     // "the compact 1.5B", so we never tell them freeing memory unlocks the 7B.
     let hint = match (deep_need, deep_fits) {
-        (None, _) => "This machine runs the fast pre-pass only; no on-device deep model is available.".to_string(),
+        // No deep model. Distinguish the Stage-1 LM (bundled 0.5B) being present —
+        // the machine still runs a real language-model reading — from the truly
+        // degraded case (no on-device model at all). Conflating them would tell a
+        // post-bundle stranger they get the weak detector when they don't.
+        (None, _) if stage1_available => "This device runs the fast pre-pass and the on-device Stage-1 language model. Deep verification by a larger model isn't available on this machine.".to_string(),
+        (None, _) => "This device runs the fast pre-pass only; no on-device model is available.".to_string(),
         (Some(_), true) => format!("Ready: {tier_label} will run."),
         (Some(n), false) => {
             let need_gb = (n.saturating_mul(3) / 2) as f64 / 1_073_741_824.0;
@@ -113,6 +123,7 @@ pub fn memory_status(
         free_mb: free.map(|b| b / MB).unwrap_or(0),
         total_gb: total.map(|b| (b as f64 / 1_073_741_824.0 * 10.0).round() / 10.0).unwrap_or(0.0),
         stage1_fits,
+        stage1_available,
         deep_fits,
         deep_need_mb,
         tier_attainable: tier_attainable.to_string(),
@@ -676,7 +687,7 @@ mod tests {
 
         // 8GB machine, tight memory, mini attainable → tier_label names the
         // COMPACT 1.5B (never the 7B); the hint NAMES THE GAP (~2.4 GB).
-        let s = memory_status(Some(gb), Some(8 * gb), DeepTier::Mini);
+        let s = memory_status(Some(gb), Some(8 * gb), DeepTier::Mini, true);
         assert_eq!(s.tier_attainable, "compact_1_5b");
         assert!(s.tier_label.contains("compact 1.5B"));
         assert!(!s.deep_fits, "1GB free < ~2.4GB needed for the mini");
@@ -686,20 +697,29 @@ mod tests {
         assert!(s.hint.contains("closing browsers"));
 
         // Ample memory → deep fits, "Ready".
-        let s = memory_status(Some(4 * gb), Some(8 * gb), DeepTier::Mini);
+        let s = memory_status(Some(4 * gb), Some(8 * gb), DeepTier::Mini, true);
         assert!(s.deep_fits && s.hint.starts_with("Ready"), "hint: {}", s.hint);
 
         // 16GB machine → the 7B is genuinely attainable (named in tier_label);
         // the gap is ~9 GB (1.5x the 6GB guard).
-        let s = memory_status(Some(2 * gb), Some(16 * gb), DeepTier::Full7B);
+        let s = memory_status(Some(2 * gb), Some(16 * gb), DeepTier::Full7B, true);
         assert_eq!(s.tier_attainable, "full_7b");
         assert!(s.tier_label.contains("7B"));
         assert_eq!(s.deep_need_mb, Some(9216));
 
-        // No deep model → honest "fast pre-pass only", never a "free memory" nudge.
-        let s = memory_status(Some(gb), Some(8 * gb), DeepTier::HeuristicOnly);
+        // No deep model, but the bundled 0.5B Stage-1 LM IS present → the hint must
+        // say a real language model runs, NOT conflate it with the weak detector.
+        let s = memory_status(Some(gb), Some(8 * gb), DeepTier::HeuristicOnly, true);
         assert_eq!(s.tier_attainable, "heuristic_only");
-        assert!(s.hint.contains("fast pre-pass only"));
+        assert!(s.stage1_available);
+        assert!(s.hint.contains("Stage-1 language model"), "Stage-1 present → says so: {}", s.hint);
+        assert!(!s.hint.contains("no on-device model"), "not the degraded message: {}", s.hint);
         assert!(!s.hint.contains("Free up memory"));
+
+        // Truly no on-device model (not even Stage-1) → the honest degraded message.
+        let s = memory_status(Some(gb), Some(8 * gb), DeepTier::HeuristicOnly, false);
+        assert!(!s.stage1_available);
+        assert!(s.hint.contains("fast pre-pass only"), "hint: {}", s.hint);
+        assert!(s.hint.contains("no on-device model"), "hint: {}", s.hint);
     }
 }

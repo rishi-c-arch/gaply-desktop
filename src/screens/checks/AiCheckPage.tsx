@@ -193,7 +193,12 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
 
   const memChip = (m: AiCheckMemoryStatus) =>
     m.deep_fits ? { text: 'Ready', cls: 'aic-chip--ready' }
-    : m.tier_attainable === 'heuristic_only' ? { text: 'Pre-pass only', cls: 'aic-chip--pre' }
+    : m.tier_attainable === 'heuristic_only'
+      ? // Stage-1 LM present (bundled 0.5B) → a real on-device LM runs; don't
+        // mislabel it "pre-pass only". Only the truly model-less case is that.
+        m.stage1_available
+        ? { text: 'Stage-1 · no deep model', cls: 'aic-chip--pre' }
+        : { text: 'Pre-pass only', cls: 'aic-chip--pre' }
     : { text: 'Needs memory', cls: 'aic-chip--needs' };
 
   return (

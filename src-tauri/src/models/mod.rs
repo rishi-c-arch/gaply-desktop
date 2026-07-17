@@ -12,6 +12,7 @@ pub mod proxy_client;
 pub mod quantized_qwen2_lowmem;
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use gaply_core::ai_detect::{ClassifyClient, HeuristicModel, PerplexityModel};
 use gaply_core::verify_agent::{MockProxyClient, ProxyClient};
@@ -42,20 +43,59 @@ fn first_gguf(dir: &Path) -> Option<PathBuf> {
         .find(|p| p.extension().and_then(|s| s.to_str()) == Some("gguf"))
 }
 
+/// The BUNDLED models dir (`<resource_dir>/models`), set once at app startup
+/// from the Tauri handle. This is the LAST-resort source (Set 1) — a stranger's
+/// fresh install has no `~/gaply-models`, so the app falls through to the 0.5B +
+/// tokenizer packaged in the installer. gaply-core stays Tauri-free; the app
+/// layer injects this path (like the `ReqwestFetcher` seam).
+static BUNDLED_MODELS_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Record the bundled models dir. Call once from the Tauri `setup` with
+/// `app.path().resource_dir()?.join("models")`. Idempotent (later calls no-op).
+pub fn set_bundled_models_dir(dir: PathBuf) {
+    let _ = BUNDLED_MODELS_DIR.set(dir);
+}
+
+fn bundled_models_dir() -> Option<&'static PathBuf> {
+    BUNDLED_MODELS_DIR.get()
+}
+
+/// Resolve a model GGUF by PRECEDENCE: env var (wins, taken as-is so a dev
+/// override always applies) → `~/gaply-models/<sub>/*.gguf` → bundled
+/// `<resource_dir>/models/<sub>/*.gguf`. So Rishi's dev models win, and a
+/// stranger falls through to the bundled file.
+fn resolve_gguf(env_key: &str, sub: &str) -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os(env_key) {
+        return Some(PathBuf::from(p));
+    }
+    if let Some(g) = home_dir().and_then(|h| first_gguf(&h.join("gaply-models").join(sub))) {
+        return Some(g);
+    }
+    bundled_models_dir().and_then(|d| first_gguf(&d.join(sub)))
+}
+
 /// Resolve the shared Qwen2.5 `tokenizer.json`. The Qwen2.5 tokenizer is
 /// IDENTICAL across every size (0.5B … 7B), so SLM-1 (7B) and SLM-1-MINI (1.5B)
 /// use the same file. `GAPLY_SLM1_TOKENIZER` wins; otherwise the conventional
 /// `~/gaply-models/slm1-adapter/tokenizer.json`.
 fn slm1_tokenizer_path() -> Option<PathBuf> {
-    match std::env::var_os("GAPLY_SLM1_TOKENIZER") {
-        Some(p) => Some(PathBuf::from(p)),
-        None => Some(
-            home_dir()?
-                .join("gaply-models")
-                .join("slm1-adapter")
-                .join("tokenizer.json"),
-        ),
+    if let Some(p) = std::env::var_os("GAPLY_SLM1_TOKENIZER") {
+        return Some(PathBuf::from(p));
     }
+    // env → ~/gaply-models (dev) → bundled (stranger). Prefer a path that EXISTS;
+    // otherwise return the home path so the honest "absent" message points there.
+    let home = home_dir().map(|h| h.join("gaply-models").join("slm1-adapter").join("tokenizer.json"));
+    if let Some(ref h) = home {
+        if h.exists() {
+            return home;
+        }
+    }
+    if let Some(b) = bundled_models_dir().map(|d| d.join("slm1-adapter").join("tokenizer.json")) {
+        if b.exists() {
+            return Some(b);
+        }
+    }
+    home
 }
 
 /// Resolve the SLM-1 (full 7B) GGUF + tokenizer paths. `GAPLY_SLM1_GGUF` wins
@@ -63,10 +103,9 @@ fn slm1_tokenizer_path() -> Option<PathBuf> {
 /// tokenizer is the shared Qwen2.5 one ([`slm1_tokenizer_path`]). Returns `None`
 /// if paths can't be formed (no home dir, or no GGUF present).
 fn slm1_paths() -> Option<(PathBuf, PathBuf)> {
-    let gguf = match std::env::var_os("GAPLY_SLM1_GGUF") {
-        Some(p) => PathBuf::from(p),
-        None => first_gguf(&home_dir()?.join("gaply-models").join("slm1"))?,
-    };
+    // The 7B is NOT bundled (Set 1 bundles only the 0.5B) — resolve_gguf's bundled
+    // fallback simply finds nothing here until the on-demand downloader lands.
+    let gguf = resolve_gguf("GAPLY_SLM1_GGUF", "slm1")?;
     Some((gguf, slm1_tokenizer_path()?))
 }
 
@@ -75,10 +114,9 @@ fn slm1_paths() -> Option<(PathBuf, PathBuf)> {
 /// `~/gaply-models/slm1-mini/*.gguf`. The tokenizer is the SAME shared Qwen2.5
 /// one as SLM-1 ([`slm1_tokenizer_path`]) — no separate download.
 fn slm1_mini_paths() -> Option<(PathBuf, PathBuf)> {
-    let gguf = match std::env::var_os("GAPLY_SLM1_MINI_GGUF") {
-        Some(p) => PathBuf::from(p),
-        None => first_gguf(&home_dir()?.join("gaply-models").join("slm1-mini"))?,
-    };
+    // Not bundled in Set 1 (downloads on demand later); the bundled fallback in
+    // resolve_gguf is a no-op until then.
+    let gguf = resolve_gguf("GAPLY_SLM1_MINI_GGUF", "slm1-mini")?;
     Some((gguf, slm1_tokenizer_path()?))
 }
 
@@ -88,11 +126,36 @@ fn slm1_mini_paths() -> Option<(PathBuf, PathBuf)> {
 /// be upgraded without renaming. `GAPLY_STAGE1_LM_GGUF` wins; otherwise the
 /// conventional `~/gaply-models/stage1-lm/*.gguf`. Shared Qwen2.5 tokenizer.
 fn stage1_lm_paths() -> Option<(PathBuf, PathBuf)> {
-    let gguf = match std::env::var_os("GAPLY_STAGE1_LM_GGUF") {
-        Some(p) => PathBuf::from(p),
-        None => first_gguf(&home_dir()?.join("gaply-models").join("stage1-lm"))?,
-    };
+    // BUNDLED in Set 1: env → ~/gaply-models/stage1-lm → the packaged 0.5B.
+    let gguf = resolve_gguf("GAPLY_STAGE1_LM_GGUF", "stage1-lm")?;
     Some((gguf, slm1_tokenizer_path()?))
+}
+
+/// One-line startup log of how the Stage-1 LM resolves — the packaged proof that
+/// the bundled model is reachable in a BUILT app (a resource that works in
+/// `tauri dev` but silently isn't in the `.app` is the failure this guards).
+/// Also a support diagnostic: a user's log shows whether models were found.
+pub fn log_model_resolution() {
+    match stage1_lm_paths() {
+        Some((gguf, tok)) => {
+            let source = if std::env::var_os("GAPLY_STAGE1_LM_GGUF").is_some() {
+                "env"
+            } else if bundled_models_dir().map_or(false, |d| gguf.starts_with(d)) {
+                "bundled"
+            } else {
+                "home(~/gaply-models)"
+            };
+            tracing::info!(
+                source,
+                gguf = %gguf.display(),
+                gguf_exists = gguf.exists(),
+                tokenizer = %tok.display(),
+                tokenizer_exists = tok.exists(),
+                "model resolution: stage-1 LM"
+            );
+        }
+        None => tracing::info!("model resolution: stage-1 LM — no path resolved (no home dir?)"),
+    }
 }
 
 /// The REAL SLM-1 (candle), or honestly `None`. `Some` only when the GGUF +
