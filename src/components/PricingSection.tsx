@@ -73,7 +73,7 @@ const PricingSection: React.FC = () => {
     }}>
       <SEO 
         title="Gaply Pricing - Affordable Academic Research Plans | Thesis Writing & Journal Matching"
-        description="Choose from Gaply's affordable academic research plans: Basic (₹471), Plus (₹1,061), Pro (₹2,241). Get AI content detection, thesis writing help, journal matching, and research support for PhD students and researchers."
+        description="Gaply Premium Pro: a one-time ₹7,999 for lifetime credits across PublishReady, DataMaestro, Journal Verification, and Research Deep Analysis. Gaply Enterprise: custom pricing for institutions, labs, and research teams. Built for PhD students and researchers."
         keywords="academic research pricing, thesis writing cost, journal matching price, AI content detection cost, research paper editing price, dissertation writing assistance pricing, PhD thesis support cost, academic proofreading price, plagiarism checker cost, statistical analysis help pricing, Scopus journal finder cost, research methodology guidance price, academic writing service cost, literature review help price, conference paper preparation cost, research proposal writing price, data analysis support cost, academic consultation pricing"
       />
       {/* Header */}
