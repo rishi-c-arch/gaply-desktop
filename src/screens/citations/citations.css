@@ -122,3 +122,27 @@
   color: var(--g-text-2);
 }
 .gds-cite-verify-note { color: var(--g-text-3); font-size: 12px; }
+
+/* Searchable style picker (Set 2c-ii). */
+.gds-style-picker { position: relative; display: inline-block; }
+.gds-style-picker__current {
+  min-width: 160px; text-align: left; cursor: pointer;
+  padding: 6px 10px; font-size: 13px;
+  background: var(--g-bg-layer2); color: var(--g-text);
+  border: 1px solid var(--g-border); border-radius: 6px;
+}
+.gds-style-picker__pop {
+  position: absolute; z-index: 20; margin-top: 4px; width: 320px; max-width: 80vw;
+  background: var(--g-bg-layer1); border: 1px solid var(--g-border-strong);
+  border-radius: 8px; box-shadow: var(--g-shadow-2); padding: 8px;
+}
+.gds-style-picker__pop input { width: 100%; box-sizing: border-box; }
+.gds-style-picker__list { list-style: none; margin: 6px 0 0; padding: 0; max-height: 300px; overflow-y: auto; }
+.gds-style-picker__list button {
+  width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+  padding: 5px 8px; font-size: 13px; color: var(--g-text-2); border-radius: 4px;
+}
+.gds-style-picker__list button:hover { background: var(--g-bg-layer2); color: var(--g-text); }
+.gds-style-picker__list button[aria-current='true'] { color: var(--g-accent); font-weight: 600; }
+.gds-style-picker__note { margin: 6px 0 0; padding: 5px 8px; font-size: 12px; color: var(--g-text-3); }
+.gds-style-picker__error { margin: 0; font-size: 13px; color: var(--g-flagged); }

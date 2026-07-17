@@ -130,14 +130,13 @@ describe('CSL formatting', () => {
   it('style switch reformats the preview', async () => {
     renderCM({ initialCitations: [seed()] });
     await screen.findByTestId('detail');
-    const preview = screen.getByTestId('preview');
-    const apa = preview.textContent;
+    const apa = screen.getByTestId('preview').textContent;
 
-    fireEvent.change(screen.getByTestId('preview-style'), { target: { value: 'ieee' } });
-    const ieee = screen.getByTestId('preview').textContent;
-    expect(ieee).not.toBe(apa);
+    fireEvent.click(screen.getByTestId('preview-style-current'));
+    fireEvent.click(screen.getByTestId('preview-style-opt-ieee'));
+    await waitFor(() => expect(screen.getByTestId('preview').textContent).not.toBe(apa));
     // IEEE puts the year at the end; APA puts it near the front in parens
-    expect(ieee).toMatch(/2022\.$/);
+    expect(screen.getByTestId('preview').textContent).toMatch(/2022\.$/);
   });
 
   it('formatCitation renders distinct output per style (unit)', () => {
@@ -149,7 +148,8 @@ describe('CSL formatting', () => {
   it('bulk reformat changes the style applied across the library + preview', async () => {
     renderCM({ initialCitations: [seed()] });
     await screen.findByTestId('detail');
-    fireEvent.change(screen.getByTestId('bulk-style'), { target: { value: 'vancouver' } });
+    fireEvent.click(screen.getByTestId('bulk-style-current'));
+    fireEvent.click(screen.getByTestId('bulk-style-opt-vancouver'));
     // preview follows the bulk style (they share the `style` state)
     await waitFor(() => expect(screen.getByTestId('preview').textContent).toMatch(/Doe J\. Seed Paper\. J\. Rest\. 2022/));
   });
@@ -539,11 +539,105 @@ describe('CSL engine goes live (Set 2c-i)', () => {
     try {
       renderCM({ localLibrary: makeMockLocalLibrary(), initialCitations: [rich()] });
       await screen.findByTestId('citation-manager');
-      fireEvent.change(await screen.findByTestId('preview-style'), { target: { value: 'ieee' } });
+      fireEvent.click(await screen.findByTestId('preview-style-current'));
+      fireEvent.click(screen.getByTestId('preview-style-opt-ieee'));
       await waitFor(() => expect(screen.getByTestId('preview').getAttribute('data-style-source')).toBe('citeproc'));
       const text = screen.getByTestId('preview').textContent ?? '';
       expect(text).toMatch(/^\[1\]/); // IEEE numbered — honest: it IS entry 1
       expect(text).toMatch(/doi: 10\.1089\/cmb\.2019\.0420/); // legacy IEEE OMITTED this
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+});
+
+/* -------- Set 2c-ii: the searchable style picker over all 2,856 ---------- */
+describe('style picker (Set 2c-ii)', () => {
+  // Serve the REAL manifest + .csl from disk; optionally fail one style id.
+  const mockCslFetch = (failStyle?: string) => {
+    global.fetch = vi.fn(async (url: any) => {
+      const s = String(url);
+      if (/\/csl\/manifest\.json$/.test(s)) {
+        return { ok: true, json: async () => JSON.parse(_readFileSync(_join(process.cwd(), 'public', 'csl', 'manifest.json'), 'utf-8')) } as any;
+      }
+      const style = s.match(/\/csl\/styles\/(.+)\.csl$/);
+      if (style) {
+        if (failStyle && style[1] === failStyle) return { ok: false, text: async () => '' } as any;
+        return { ok: true, text: async () => _readFileSync(_join(process.cwd(), 'public', 'csl', 'styles', `${style[1]}.csl`), 'utf-8') } as any;
+      }
+      return { ok: false, text: async () => '' } as any;
+    }) as any;
+  };
+  const richCite = (): Citation => ({
+    id: 'r', csl: { id: 'r', type: 'article-journal', title: 'A Study', author: [{ family: 'Ng', given: 'A' }], issued: { year: 2020 }, containerTitle: 'Cell', volume: '1', issue: '1', page: '1-9', DOI: '10.1/x' },
+    doi: '10.1/x', retracted: false, source: 'manual',
+  });
+
+  it('the pinned 8 render without searching', async () => {
+    renderCM({ initialCitations: [richCite()] });
+    await screen.findByTestId('detail');
+    fireEvent.click(screen.getByTestId('preview-style-current'));
+    // all 8 pinned present; a catalog-only style is NOT (no search yet)
+    ['apa', 'mla', 'chicago-author-date', 'vancouver', 'harvard', 'ieee', 'nature', 'ama'].forEach((id) =>
+      expect(screen.getByTestId(`preview-style-opt-${id}`)).toBeTruthy(),
+    );
+    expect(screen.queryByTestId('preview-style-opt-cell')).toBeNull();
+  });
+
+  it('search finds a style beyond the 8, and selecting it prepares citeproc', async () => {
+    const realFetch = global.fetch;
+    mockCslFetch();
+    try {
+      renderCM({ localLibrary: makeMockLocalLibrary(), initialCitations: [richCite()] });
+      await screen.findByTestId('detail');
+      fireEvent.click(screen.getByTestId('preview-style-current'));
+      fireEvent.change(screen.getByTestId('preview-style-search'), { target: { value: 'cell' } });
+      // "Cell" (id cell) is not one of the pinned 8 but is findable
+      await screen.findByTestId('preview-style-opt-cell');
+      fireEvent.click(screen.getByTestId('preview-style-opt-cell'));
+      // it prepares and the preview goes citeproc for that catalog style
+      await waitFor(() => expect(screen.getByTestId('preview').getAttribute('data-style-source')).toBe('citeproc'));
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  it('a search matching hundreds renders the CAP, not all of them', async () => {
+    const realFetch = global.fetch;
+    mockCslFetch();
+    try {
+      renderCM({ initialCitations: [richCite()] });
+      await screen.findByTestId('detail');
+      fireEvent.click(screen.getByTestId('preview-style-current'));
+      // wait for the catalog to load, then a broad query
+      fireEvent.change(screen.getByTestId('preview-style-search'), { target: { value: 'journal' } });
+      await waitFor(() => {
+        const items = within(screen.getByTestId('preview-style-results')).getAllByRole('button');
+        expect(items.length).toBeGreaterThan(0);
+        expect(items.length).toBeLessThanOrEqual(50); // MAX_STYLE_RESULTS — 629 match, ≤50 render
+      });
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  it('a style whose .csl is missing shows the honest error, never a wrong render', async () => {
+    const realFetch = global.fetch;
+    // 'bmj' is used ONLY here (module-global readyStyles persists across tests,
+    // so a style another test registered would already be ready) and is a
+    // narrow search term so the exact id lands within the 50-result cap.
+    mockCslFetch('bmj'); // manifest ok, but bmj.csl fails
+    try {
+      renderCM({ localLibrary: makeMockLocalLibrary(), initialCitations: [richCite()] });
+      await screen.findByTestId('detail');
+      fireEvent.click(screen.getByTestId('preview-style-current'));
+      fireEvent.change(screen.getByTestId('preview-style-search'), { target: { value: 'bmj' } });
+      await screen.findByTestId('preview-style-opt-bmj');
+      fireEvent.click(screen.getByTestId('preview-style-opt-bmj'));
+      await screen.findByTestId('preview-error');
+      // honest error, and NOT a silently-wrong formatted render
+      expect(screen.getByTestId('preview-error').textContent).toMatch(/isn.t in the bundled set/i);
+      expect(screen.getByTestId('preview').getAttribute('data-style-source')).not.toBe('citeproc');
     } finally {
       global.fetch = realFetch;
     }

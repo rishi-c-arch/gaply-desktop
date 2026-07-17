@@ -27,8 +27,9 @@ import {
   STATUS_ICON,
   STATUS_LABEL,
 } from './citationTypes';
-import { CSL_STYLES, formatBibliography, formatCitation } from './formatCitation';
+import { formatBibliography, formatCitation, canFormatStyle } from './formatCitation';
 import { prepareStyle, isStyleReady } from './cslEngine';
+import { StylePicker } from './StylePicker';
 import {
   applyVerification,
   makeMockRefVerify,
@@ -125,6 +126,9 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   // re-routes from the legacy fallback to real citeproc. `styleTick` is a version
   // counter — reading it in the preview subscribes it to style readiness.
   const [styleTick, setStyleTick] = useState(0);
+  // Non-null when the selected catalog style failed to load (honest error, no
+  // fallback for a non-legacy style → never a silently-wrong render).
+  const [styleError, setStyleError] = useState<string | null>(null);
   const [doiInput, setDoiInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
@@ -172,12 +176,16 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   // formatter stays — pre-prepare fallback, no regression while a style loads.
   useEffect(() => {
     let cancelled = false;
+    setStyleError(null);
     prepareStyle(style)
       .then(() => {
         if (!cancelled) setStyleTick((t) => t + 1);
       })
       .catch(() => {
-        /* legacy fallback stands */
+        if (cancelled) return;
+        // A legacy id still formats via the hand-rolled fallback; a catalog
+        // style with no .csl has none → honest error, never a wrong render.
+        if (!canFormatStyle(style)) setStyleError(style);
       });
     return () => {
       cancelled = true;
@@ -665,20 +673,14 @@ const Inner: React.FC<CitationManagerPageProps> = ({
         }
         header={
           <HeaderBar title="Citation Manager">
-            <select
-              className="gds-cite-input"
-              style={{ maxWidth: 180 }}
+            <StylePicker
               value={style}
-              data-testid="bulk-style"
-              onChange={(e) => {
-                setStyle(e.target.value);
-                toast(`Reformatted all to ${e.target.value.toUpperCase()}`, 'neutral');
+              testid="bulk-style"
+              onSelect={(id) => {
+                setStyle(id);
+                toast(`Reformatted all to ${id}`, 'neutral');
               }}
-            >
-              {CSL_STYLES.map((s) => (
-                <option key={s.id} value={s.id}>{`Reformat all → ${s.label}`}</option>
-              ))}
-            </select>
+            />
             <Button variant="secondary" onClick={() => void exportBibliography()} data-testid="export-biblio">Export bibliography</Button>
             <Button variant="secondary" onClick={() => void exportAs('bibtex')} data-testid="export-bibtex">Export BibTeX</Button>
             <Button variant="secondary" onClick={() => void exportAs('ris')} data-testid="export-ris">Export RIS</Button>
@@ -722,18 +724,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                     </div>
                   )}
                   <div className="gds-cite-detail-field" style={{ marginTop: 10 }}>
-                    <label htmlFor="cite-style">Preview style — any journal worldwide</label>
-                    <select
-                      id="cite-style"
-                      className="gds-cite-input"
-                      value={style}
-                      data-testid="preview-style"
-                      onChange={(e) => setStyle(e.target.value)}
-                    >
-                      {CSL_STYLES.map((s) => (
-                        <option key={s.id} value={s.id}>{s.label}</option>
-                      ))}
-                    </select>
+                    <label>Preview style — any journal worldwide</label>
+                    <StylePicker value={style} testid="preview-style" onSelect={setStyle} />
                   </div>
                   <div
                     className="gds-cite-preview"
@@ -741,7 +733,15 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                     data-style-source={isStyleReady(style) ? 'citeproc' : 'legacy'}
                     data-tick={styleTick}
                   >
-                    <Formatted text={formatCitation(selected.csl, style)} />
+                    {styleError ? (
+                      <p className="gds-style-picker__error" data-testid="preview-error">
+                        Couldn’t load the “{styleError}” style — it isn’t in the bundled set. Pick another.
+                      </p>
+                    ) : !canFormatStyle(style) ? (
+                      <p className="gds-style-picker__note" data-testid="preview-loading">Loading style…</p>
+                    ) : (
+                      <Formatted text={formatCitation(selected.csl, style)} />
+                    )}
                   </div>
                   <div style={{ marginTop: 10 }} data-testid="cm-tags">
                     {(selected.tags ?? []).map((t) => (

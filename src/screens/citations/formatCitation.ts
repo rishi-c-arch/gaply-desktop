@@ -80,6 +80,14 @@ export function cslHtmlToMarkers(html: string): string {
     .trim();
 }
 
+/** Can the preview format this style RIGHT NOW without throwing? True if citeproc
+ *  has it registered, or it's one of the 8 legacy ids the hand-rolled fallback
+ *  covers. A catalog style that isn't yet prepared returns false → the UI shows
+ *  "loading style…" instead of calling formatCitation (which would throw). */
+export function canFormatStyle(styleId: string): boolean {
+  return isStyleReady(styleId) || styleId in LEGACY_STYLE_ALIASES;
+}
+
 export function formatCitation(c: CslItem, styleId: string): string {
   if (isStyleReady(styleId)) {
     return cslHtmlToMarkers(formatWithCsl([c], styleId, 'en-US', 'html'));
