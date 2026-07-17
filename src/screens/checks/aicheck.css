@@ -1,13 +1,11 @@
 /* Gaply — AI Check page redesign. Scoped to `.gds-aicheck` (a child of
    `.gds-root`). Everything here reads the REAL `--g-*` tokens (never literal hex,
-   never phantom tokens), so a future APP-WIDE light theme — one block of the form
-
-     html[data-theme="light"] .gds-root { --g-bg-base: …; --g-text: …; … }
-
-   — lights this page up with NO rework here. The app-wide-light project (a single
-   light `--g-*` override for `.gds-root`, reconciling ThemeContext's `data-theme`
-   with the Settings `Appearance` darkest/dark into one control, and a per-screen
-   visual pass) is recorded as a follow-up; this page is built ready for it.
+   never phantom tokens), so the future APP-WIDE light sprint — lifting the
+   dormant seed block below (`.gds-root[data-gds-theme='light']`) into tokens.css
+   and adding 'light' as a third option on the Settings Appearance control that
+   already writes that attribute — lights this page up with NO rework here. The
+   app-wide-light project ([[app-wide-light-theme]]) is recorded as a follow-up;
+   this page is built ready for it.
 
    Set 1 = scaffold + idle state (below). Set 2 adds the running-state checklist,
    Set 3 the report + evidence table. */
@@ -17,9 +15,51 @@
   gap: var(--g-space-2);
 }
 
+/* ---- Light theme — DORMANT SEED (do not wire up here) ------------------ *
+ * The PROVEN light --g-* values from the AI Check redesign, kept as the seed
+ * for the future app-wide light sprint ([[app-wide-light-theme]]). Theme C was
+ * chosen (dark now, light-ready): a per-page toggle would make AI Check the one
+ * light screen in a dark app, so the in-page toggle was removed.
+ *
+ * The selector below is the sprint's INTENDED FINAL FORM — `.gds-root[
+ * data-gds-theme='light']`, the attribute Settings ALREADY writes (darkest|dark
+ * today; +light is a third option on that existing control, not a new
+ * subsystem). NOTHING emits 'light' yet, so this rule NEVER matches: AI Check —
+ * and every gds screen — renders dark today. The sprint lifts this block
+ * verbatim into tokens.css and adds the Settings 'light' option.
+ *
+ * Block is fully generic (only --g-* tokens) → it flips every gds screen when
+ * applied globally. Nesting caveat for the sprint: AppShell renders its own
+ * nested .gds-root and custom props resolve per-element, so the light values
+ * must reach every nested .gds-root — apply the attribute at a GLOBAL wrapper
+ * (the real gap: today Settings sets data-gds-theme on its own .gds-root only)
+ * or re-assert per wrapper. */
+.gds-root[data-gds-theme='light'] {
+  --g-bg-base: #f6f7f9;
+  --g-bg-layer1: #ffffff;
+  --g-bg-layer2: #ffffff;
+  --g-border: #e4e4e9;
+  --g-border-strong: #c8c8d0;
+
+  --g-text: #1b1b1f;
+  --g-text-2: #45454d;
+  --g-text-3: #86868b;
+
+  --g-accent: #7c3aed;
+  --g-accent-hover: #6d28d9;
+  --g-certain: #12805c;
+  --g-assessed: #b4530b;
+  --g-flagged: #cf3323;
+
+  --g-shadow-1: 0 1px 3px rgba(20, 20, 40, 0.08);
+  --g-shadow-2: 0 8px 24px rgba(20, 20, 40, 0.10);
+  --g-glass-bg: rgba(255, 255, 255, 0.72);
+  --g-glass-border: rgba(0, 0, 0, 0.08);
+}
+
 /* Calm lead-in — a quiet paragraph, comfortable measure. */
 .gds-aicheck .aic-lead {
-  margin: 0 0 var(--g-space-1);
+  margin: 0;
   max-width: 68ch;
   color: var(--g-text-2);
   font-size: var(--g-text-size-sm);
