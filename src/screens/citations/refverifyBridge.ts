@@ -1,8 +1,8 @@
 // Gaply — refverify bridge for the Citation Manager. Runs the existing
 // gaply_core refverify pipeline (CrossRef / OpenAlex / Retraction Watch /
 // Unpaywall / Semantic Scholar) to confirm a DOI exists, flag retractions, and
-// enrich metadata. Real path calls a `verify_reference` Tauri command (not yet
-// wired — same deferral as compile_report); tests use makeMockRefVerify.
+// enrich metadata. Real path calls the `verify_reference` Tauri command
+// (commands.rs:398, registered lib.rs:95); tests use makeMockRefVerify.
 import { Citation, CslItem } from './citationTypes';
 
 /** Minimal mirror of gaply_core::refverify::ReferenceVerification. Free-text

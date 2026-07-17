@@ -8,6 +8,9 @@ import { GaplySessionProvider } from '../session/SessionProvider';
 import type { AuthService } from '../../services/supabase';
 import CitationManagerPage from './CitationManagerPage';
 import { makeMockRefVerify, ReferenceVerification } from './refverifyBridge';
+import { makeMockResolve } from './metadataBridge';
+import { makeMockLocalLibrary } from './localLibrary';
+import { setCloudConsent } from '../settings/settingsStore';
 import { formatCitation } from './formatCitation';
 import { Citation } from './citationTypes';
 
@@ -180,5 +183,46 @@ describe('offline', () => {
     fireEvent.click(screen.getByTestId('add-manual'));
     await waitFor(() => expect(within(screen.getByTestId('citation-list')).getByText(/Untitled/)).toBeTruthy());
     expect(lib.add).not.toHaveBeenCalled();
+  });
+});
+
+/* --------- consent: the from-file lane honors citation_verification ------ */
+// The from-file add resolves a paper's DOI against CrossRef — the SAME cloud
+// lane as add-by-DOI + the retraction sweep. Opt-out must be a HARD door:
+// zero fetches, the way AI Check's zero-network promise is pinned.
+describe('consent gate — from-file resolution', () => {
+  const verified = () =>
+    makeMockResolve(() => ({
+      status: 'verified',
+      metadata: { source: 'crossref', matched_by: 'doi', csl_type: 'article-journal', doi: '10.1/x', title: 'X', authors: [], container_title: null, year: null, volume: null, issue: null, page: null },
+    }));
+
+  afterEach(() => setCloudConsent('citation_verification', true)); // restore default
+
+  it('opt-out → the from-file add makes ZERO resolver fetches and says why', async () => {
+    setCloudConsent('citation_verification', false);
+    const resolver = verified();
+    renderCM({ metadataResolver: resolver, localLibrary: makeMockLocalLibrary() });
+    await screen.findByTestId('citation-manager');
+
+    fireEvent.change(screen.getByTestId('add-file'), {
+      target: { files: [new File(['x'], 'paper.pdf', { type: 'application/pdf' })] },
+    });
+
+    await screen.findByText(/turned off in Settings/i);
+    expect(resolver.calls.length).toBe(0); // the hard door: no network, ever
+  });
+
+  it('opt-in → the same add DOES resolve (control — proves the gate, not a broken lane)', async () => {
+    setCloudConsent('citation_verification', true);
+    const resolver = verified();
+    renderCM({ metadataResolver: resolver, localLibrary: makeMockLocalLibrary() });
+    await screen.findByTestId('citation-manager');
+
+    fireEvent.change(screen.getByTestId('add-file'), {
+      target: { files: [new File(['x'], 'paper.pdf', { type: 'application/pdf' })] },
+    });
+
+    await waitFor(() => expect(resolver.calls.length).toBe(1));
   });
 });

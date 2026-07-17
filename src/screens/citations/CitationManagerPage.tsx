@@ -288,6 +288,13 @@ const Inner: React.FC<CitationManagerPageProps> = ({
 
   /* --------------------- add way #4: from a paper file ------------------- */
   const addFromPath = async (path: string) => {
+    // F14 privacy gate — resolving a paper's DOI hits CrossRef/OpenAlex; off
+    // means no call. Identical gate + treatment to add-by-DOI and the
+    // retraction sweep (same lane, same network, one door was left unlocked).
+    if (!mayUseCloud('citation_verification')) {
+      toast('Citation verification is turned off in Settings → Sync & Privacy', 'assessed');
+      return;
+    }
     setBusy(true);
     try {
       const res = await resolver.resolve({ path });

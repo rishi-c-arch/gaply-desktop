@@ -91,6 +91,10 @@ pub const MIGRATIONS: &[Migration] = &[
                 source          TEXT NOT NULL DEFAULT '',
                 created_at      INTEGER NOT NULL
             );
+            -- SUPERSEDED (reserved, intentionally unused): CSL styles ship as a frontend
+            -- bundle (public/csl/, ~2,856 styles) rendered by citeproc-js — no Rust reads
+            -- this table. Kept, not dropped: migrations are append-only, so removal would
+            -- need a new DROP migration on every existing DB for zero functional gain.
             CREATE TABLE reference_styles (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 name       TEXT NOT NULL UNIQUE,
