@@ -15,9 +15,11 @@
 // the four UX states; the REAL gate is server-side (the JWT rides every
 // cloud command). Constraints accumulate in FRONTEND state only
 // (chat-history-stays-local); prices appear nowhere.
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppShell, Badge, Button, Card, HeaderBar, NavRail, Panel } from '../../design-system';
+import { pickManuscriptPaths, basenameOf } from '../common/pickFile';
+import { isTauri } from '../../utils/isTauri';
 import { createSubscriptionService } from '../../services/supabase';
 import { useGaplySession } from '../session/SessionProvider';
 import { useEntitlement, EntitlementStatus } from '../subscription/entitlement';
@@ -78,6 +80,15 @@ const GapFinderPage: React.FC<GapFinderPageProps> = ({ bridge, subscriptionServi
   const [fit, setFit] = useState<FitResult | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const filesInputRef = useRef<HTMLInputElement>(null);
+
+  // Tauri desktop: acquire ABSOLUTE paths from the native multi-picker (the M6
+  // fix — the <input>'s File has no usable .path in the webview). Cap at 8, same
+  // as the browser fallback below.
+  const pickPapers = async () => {
+    const paths = await pickManuscriptPaths(['pdf', 'docx', 'txt'], 'Base papers');
+    if (paths.length) setFiles(paths.slice(0, 8).map((p) => ({ name: basenameOf(p), path: p })));
+  };
 
   const run = async (stage: string, f: () => Promise<void>) => {
     setBusy(stage);
@@ -151,10 +162,19 @@ const GapFinderPage: React.FC<GapFinderPageProps> = ({ bridge, subscriptionServi
 
         {/* Stage 1 — papers */}
         <Panel title="1 · Base papers">
+          <Button
+            variant="secondary"
+            data-testid="gf-pick"
+            onClick={() => (isTauri ? void pickPapers() : filesInputRef.current?.click())}
+          >
+            Choose files
+          </Button>
           <input
+            ref={filesInputRef}
             type="file"
             accept=".pdf,.docx,.txt"
             multiple
+            style={{ display: 'none' }}
             data-testid="gf-files"
             onChange={(e) => {
               const list = Array.from(e.target.files ?? []).slice(0, 8);

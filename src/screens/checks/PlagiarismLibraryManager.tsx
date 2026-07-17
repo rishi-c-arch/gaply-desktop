@@ -4,6 +4,8 @@
 // Path-only over IPC; the text never crosses the seam here.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Card } from '../../design-system';
+import { pickManuscriptPath } from '../common/pickFile';
+import { isTauri } from '../../utils/isTauri';
 import './plagiarism.css';
 import { CheckBridge } from './checkBridge';
 import { LibraryPaper } from './agentTypes';
@@ -50,11 +52,13 @@ const PlagiarismLibraryManager: React.FC<PlagiarismLibraryManagerProps> = ({ bri
     citations.list().then(setRefs).catch(() => setRefs([]));
   }, [citations]);
 
-  const onPick = async (file: File) => {
+  // Core add: takes the ABSOLUTE path the core will open. The Tauri dialog
+  // supplies a real path; the browser <input> can only supply a bare name (bytes
+  // never cross in a browser, so the fallback is harmless).
+  const addByPath = async (path: string) => {
     setBusy(true);
     setError(null);
     try {
-      const path = (file as any).path ?? file.name;
       // Explicit optional link: pass the picked citation id, or undefined when
       // "— none —" (→ Set-2A's optional param → NULL, unchanged behavior).
       await bridge.libraryAdd(path, undefined, linkCitationId || undefined);
@@ -66,6 +70,16 @@ const PlagiarismLibraryManager: React.FC<PlagiarismLibraryManagerProps> = ({ bri
     } finally {
       setBusy(false);
     }
+  };
+
+  // Browser fallback (non-Tauri): the <input>'s File has no usable .path.
+  const onPick = (file: File) => void addByPath((file as any).path ?? file.name);
+
+  // Tauri desktop: acquire an ABSOLUTE path from the native dialog (the M6 fix —
+  // a bare filename can't be opened by the core).
+  const pickAndAdd = async () => {
+    const p = await pickManuscriptPath(['pdf', 'docx', 'txt', 'md'], 'Paper');
+    if (p) await addByPath(p);
   };
 
   const onRemove = async (id: number) => {
@@ -108,7 +122,12 @@ const PlagiarismLibraryManager: React.FC<PlagiarismLibraryManagerProps> = ({ bri
             </option>
           ))}
         </select>
-        <Button variant="secondary" onClick={() => inputRef.current?.click()} disabled={busy} data-testid="library-pick">
+        <Button
+          variant="secondary"
+          onClick={() => (isTauri ? void pickAndAdd() : inputRef.current?.click())}
+          disabled={busy}
+          data-testid="library-pick"
+        >
           {busy ? 'Working…' : 'Add a paper'}
         </Button>
         <input
