@@ -186,6 +186,30 @@ describe('offline', () => {
   });
 });
 
+/* ----------------- dedupe: same DOI twice never duplicates --------------- */
+describe('dedupe (Set 2a) — add-by-DOI is a library invariant', () => {
+  it('adding a DOI already in the library is skipped (no dup, no fetch) and says so', async () => {
+    let verifyCalls = 0;
+    const rv = {
+      async verify(ref: any) {
+        verifyCalls += 1;
+        return { ...okVerify, exists: { ...okVerify.exists!, doi: ref.doi } };
+      },
+    };
+    // Seed the library with a DOI'd citation; then add the SAME DOI by hand.
+    renderCM({ refverify: rv, initialCitations: [seed({ id: 's1', doi: '10.1/dup' })] });
+    await screen.findByTestId('citation-manager');
+
+    fireEvent.change(screen.getByTestId('doi-input'), { target: { value: 'https://doi.org/10.1/DUP' } });
+    fireEvent.click(screen.getByTestId('add-doi'));
+
+    await screen.findByText(/Already in your library/i);
+    // no second row, and the verify network was never called (skipped before it)
+    expect(within(screen.getByTestId('citation-list')).getAllByText(/Seed Paper/).length).toBe(1);
+    expect(verifyCalls).toBe(0);
+  });
+});
+
 /* --------- consent: the from-file lane honors citation_verification ------ */
 // The from-file add resolves a paper's DOI against CrossRef — the SAME cloud
 // lane as add-by-DOI + the retraction sweep. Opt-out must be a HARD door:

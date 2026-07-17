@@ -40,6 +40,7 @@ import { CitationResolveBridge, metadataToCslItem, TauriCitationResolve } from '
 import { pickManuscriptPath } from '../common/pickFile';
 import { isTauri } from '../../utils/isTauri';
 import { exportBibliographyText, exportSerialized, saveExportToFile } from './exporters';
+import { findDuplicate, normalizeDoi } from './dedupe';
 import './citations.css';
 
 export interface CitationManagerPageProps {
@@ -185,7 +186,17 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   /** LOCAL-FIRST persist: sqlite first (the truth), then the OPTIONAL cloud
    *  push — a failed/unavailable sync NEVER loses local data, and the
    *  sync status stays honest. */
-  const persistAndAdd = async (c: Citation) => {
+  const persistAndAdd = async (c: Citation): Promise<'added' | 'duplicate'> => {
+    // Dedupe (Set 2a) — the shared safety net every add-path routes through.
+    // A DOI-exact match is unambiguous → auto-skip, VISIBLY (toast + select the
+    // existing one). A fuzzy title+year match does NOT block a deliberate single
+    // add (default keep-both); batch import (Set 2b) surfaces fuzzy for review.
+    const dup = findDuplicate(c, citations);
+    if (dup?.tier === 'doi') {
+      toast('Already in your library — not added again', 'assessed');
+      setSelectedId(dup.match.id);
+      return 'duplicate';
+    }
     let status: Citation['syncStatus'] = 'local_only';
     try {
       await local.upsert(c, c.tags ?? []);
@@ -209,6 +220,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     }
     setCitations((xs) => [{ ...c, syncStatus: status }, ...xs]);
     setSelectedId(c.id);
+    return 'added';
   };
 
   /** Tag management on the selected reference — fully local. */
@@ -226,6 +238,16 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     const doi = parseDoi(doiInput);
     if (!doi) {
       toast('Enter a valid DOI or DOI URL', 'flagged');
+      return;
+    }
+    // Dedupe (Set 2a): already in the library? Skip before any network OR consent
+    // — a DOI-exact match needs neither a fetch nor the cloud gate.
+    const nd = normalizeDoi(doi);
+    const existing = citations.find((e) => normalizeDoi(e.doi ?? e.csl.DOI ?? null) === nd);
+    if (existing) {
+      toast('Already in your library — not added again', 'assessed');
+      setSelectedId(existing.id);
+      setDoiInput('');
       return;
     }
     // F14 privacy gate — verification is the cloud path; off means no call.
@@ -265,9 +287,11 @@ const Inner: React.FC<CitationManagerPageProps> = ({
       } catch (err) {
         console.warn('[citations] full-metadata enrich unavailable:', err);
       }
-      await persistAndAdd(enriched);
+      const r = await persistAndAdd(enriched);
       setDoiInput('');
-      toast(enriched.retracted ? 'Added — but this work is RETRACTED' : 'Citation verified & added', enriched.retracted ? 'flagged' : 'certain');
+      if (r === 'added') {
+        toast(enriched.retracted ? 'Added — but this work is RETRACTED' : 'Citation verified & added', enriched.retracted ? 'flagged' : 'certain');
+      }
     } catch (e) {
       // Previously swallowed: the verify bridge can reject (e.g. the backend
       // command isn't available yet). Surface a real error instead of nothing.
@@ -281,9 +305,16 @@ const Inner: React.FC<CitationManagerPageProps> = ({
 
   /* ------------------------- add way #1: extracted ----------------------- */
   const importExtracted = async () => {
-    for (const c of extractedCitations) await persistAndAdd(c);
+    // Dedupe against the EXISTING library (Set 2a). Batch-internal dedupe (the
+    // same entry twice within extractedCitations) is Set 2b's import loop; here
+    // the snapshot of `citations` is the pre-loop library.
+    let added = 0;
+    let dup = 0;
+    for (const c of extractedCitations) {
+      (await persistAndAdd(c)) === 'added' ? (added += 1) : (dup += 1);
+    }
     setCollection('manuscript');
-    toast(`Imported ${extractedCitations.length} extracted citation(s)`, 'certain');
+    toast(`Imported ${added} extracted citation(s)${dup ? `, ${dup} already present` : ''}`, 'certain');
   };
 
   /* --------------------- add way #4: from a paper file ------------------- */
@@ -315,8 +346,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
         source: 'doi',
         provenance: [`source:${res.metadata.source}`, `matched_by:${res.metadata.matched_by}`],
       };
-      await persistAndAdd(c);
-      toast('Paper resolved & added from verified metadata', 'certain');
+      const r = await persistAndAdd(c);
+      if (r === 'added') toast('Paper resolved & added from verified metadata', 'certain');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       toast(`Couldn’t resolve this paper: ${msg}`, 'flagged');
@@ -341,8 +372,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
       retracted: false,
       source: 'manual',
     };
-    await persistAndAdd(c);
-    toast('Manual entry added — fill in the details', 'neutral');
+    const r = await persistAndAdd(c);
+    if (r === 'added') toast('Manual entry added — fill in the details', 'neutral');
   };
 
   /* ----------------------------- bulk actions --------------------------- */
