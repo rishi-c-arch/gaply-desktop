@@ -41,16 +41,17 @@ export function normalizeTitle(title: string | null | undefined): string {
     .trim();
 }
 
-/** The DOI of a citation, checking the top-level field then the CSL body. */
-function doiOf(c: Citation): string | null {
+/** The Tier-1 key: the normalized DOI (top-level field, else the CSL body), or
+ *  null when there's no DOI. Two citations with the same key are DOI-duplicates. */
+export function doiKeyOf(c: Citation): string | null {
   return normalizeDoi(c.doi ?? c.csl?.DOI ?? null);
 }
-function titleOf(c: Citation): string {
-  return normalizeTitle(c.csl?.title ?? null);
-}
-function yearOf(c: Citation): number | null {
+/** The Tier-2 key: `normalizedTitle::year`, or null unless BOTH exist — a title
+ *  alone is too weak, a year alone meaningless (two untitled stubs never collide). */
+export function titleYearKeyOf(c: Citation): string | null {
+  const t = normalizeTitle(c.csl?.title ?? null);
   const y = c.csl?.issued?.year;
-  return typeof y === 'number' ? y : null;
+  return t && typeof y === 'number' ? `${t}::${y}` : null;
 }
 
 export type DuplicateTier = 'doi' | 'title-year';
@@ -61,20 +62,53 @@ export interface DuplicateMatch {
 
 /** Find the first existing citation the candidate duplicates, or null.
  *  Tier 1 (DOI exact) is checked first and wins over Tier 2 (title+year) —
- *  a DOI match is certain even when titles were entered differently. */
+ *  a DOI match is certain even when titles were entered differently.
+ *  O(n) scan — used by the single add-paths. For batch import, prefer the
+ *  index below (O(1) lookups). */
 export function findDuplicate(candidate: Citation, existing: Citation[]): DuplicateMatch | null {
-  const cDoi = doiOf(candidate);
+  const cDoi = doiKeyOf(candidate);
   if (cDoi) {
-    const m = existing.find((e) => doiOf(e) === cDoi);
+    const m = existing.find((e) => doiKeyOf(e) === cDoi);
     if (m) return { tier: 'doi', match: m };
   }
-  const cTitle = titleOf(candidate);
-  const cYear = yearOf(candidate);
-  // Tier 2 requires BOTH a title and a year — a title alone is too weak, and a
-  // year alone is meaningless. (Two untitled manual stubs never collide.)
-  if (cTitle && cYear != null) {
-    const m = existing.find((e) => titleOf(e) === cTitle && yearOf(e) === cYear);
+  const cKey = titleYearKeyOf(candidate);
+  if (cKey) {
+    const m = existing.find((e) => titleYearKeyOf(e) === cKey);
     if (m) return { tier: 'title-year', match: m };
   }
   return null;
+}
+
+/* ---- Index (Set 2b): O(1) dedupe for batch import ----------------------- *
+ * findDuplicate is O(n); a 5,000-entry import against a growing accumulator
+ * would be O(n²). The index gives the identical semantics via two maps keyed by
+ * the SAME key functions, so batch import stays linear. First-writer-wins so the
+ * `match` returned is the earliest existing entry. */
+export interface DedupeIndex {
+  byDoi: Map<string, Citation>;
+  byTitleYear: Map<string, Citation>;
+}
+export function buildDedupeIndex(cites: Citation[]): DedupeIndex {
+  const index: DedupeIndex = { byDoi: new Map(), byTitleYear: new Map() };
+  for (const c of cites) addToDedupeIndex(index, c);
+  return index;
+}
+export function lookupDuplicate(index: DedupeIndex, candidate: Citation): DuplicateMatch | null {
+  const dk = doiKeyOf(candidate);
+  if (dk) {
+    const m = index.byDoi.get(dk);
+    if (m) return { tier: 'doi', match: m };
+  }
+  const tk = titleYearKeyOf(candidate);
+  if (tk) {
+    const m = index.byTitleYear.get(tk);
+    if (m) return { tier: 'title-year', match: m };
+  }
+  return null;
+}
+export function addToDedupeIndex(index: DedupeIndex, c: Citation): void {
+  const dk = doiKeyOf(c);
+  if (dk && !index.byDoi.has(dk)) index.byDoi.set(dk, c);
+  const tk = titleYearKeyOf(c);
+  if (tk && !index.byTitleYear.has(tk)) index.byTitleYear.set(tk, c);
 }

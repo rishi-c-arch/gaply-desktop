@@ -108,6 +108,7 @@ pub fn run() {
             commands::note_set_tags,
             commands::note_delete,
             commands::note_paper_fulltext,
+            commands::read_import_file,
             commands::get_report,
             commands::sample_manuscript_path,
             commands::ingest_guidelines,

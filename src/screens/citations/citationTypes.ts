@@ -18,7 +18,7 @@ export interface CslItem {
 
 export type CitationStatus = 'ok' | 'orphan' | 'unused' | 'malformed' | 'retracted';
 
-export type CitationSource = 'extracted' | 'doi' | 'manual';
+export type CitationSource = 'extracted' | 'doi' | 'manual' | 'imported';
 
 export interface Citation {
   /** Local id (uuid-ish); mirrors citation_library.id once persisted. */

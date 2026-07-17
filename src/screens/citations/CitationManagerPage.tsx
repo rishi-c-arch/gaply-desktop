@@ -3,7 +3,7 @@
 // (add/list/search/tag fully offline, no sign-in); the Supabase sync is an
 // OPTIONAL layer (push when signed-in + online, honest per-ref sync status,
 // local data never lost to a failed sync). The manuscript never syncs.
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AppShell,
@@ -41,6 +41,7 @@ import { pickManuscriptPath } from '../common/pickFile';
 import { isTauri } from '../../utils/isTauri';
 import { exportBibliographyText, exportSerialized, saveExportToFile } from './exporters';
 import { findDuplicate, normalizeDoi } from './dedupe';
+import { planImport, detectFormat, ImportPlan, IMPORT_ENTRY_CAP } from './importCitations';
 import './citations.css';
 
 export interface CitationManagerPageProps {
@@ -58,6 +59,11 @@ export interface CitationManagerPageProps {
 }
 
 type CollectionId = 'all' | 'retracted' | 'orphans' | 'manuscript';
+
+/** An imported entry is "not verified online" until it gains CrossRef provenance
+ *  (via the Set 2b-iii verify pass or add-by-DOI). It must NEVER look verified. */
+const importedUnverified = (c: Citation): boolean =>
+  c.source === 'imported' && !(c.provenance ?? []).some((p) => p.toLowerCase().includes('crossref'));
 
 /** Render *italic* / **bold** markers from the formatter as em/strong. */
 const Formatted: React.FC<{ text: string }> = ({ text }) => {
@@ -103,6 +109,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const [query, setQuery] = useState('');
   const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
   const [tagInput, setTagInput] = useState('');
+  // Import (Set 2b-i)
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
+  const [importReport, setImportReport] = useState<ImportPlan | null>(null);
 
   // LOCAL-FIRST hydrate: the sqlite library is the source of truth. Failures
   // (e.g. plain browser, no Tauri) degrade to in-memory state — never fatal.
@@ -363,6 +373,77 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     if (p) await addFromPath(p);
   };
 
+  /* ------------------ import (Set 2b-i): .bib / .ris / .json -------------- */
+  // PARSE + DEDUPE + STORE are fully LOCAL — import never touches the network,
+  // consent state is irrelevant here (online verification is Set 2b-iii).
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  // Read the picked file's TEXT: the client-side parse needs text, not a path.
+  // Tauri → the scoped read_import_file command; browser → File.text().
+  const readImportText = async (fileOrPath: File | string): Promise<string> => {
+    if (typeof fileOrPath === 'string') {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return invoke<string>('read_import_file', { path: fileOrPath });
+    }
+    return fileOrPath.text();
+  };
+
+  // Batch-apply survivors: local upsert + ONE state update, marked local_only
+  // (no per-entry cloud sync — a 400-entry import is not 400 network calls).
+  const applyImported = async (cites: Citation[]) => {
+    for (const c of cites) {
+      try {
+        await local.upsert(c, c.tags ?? []);
+      } catch {
+        /* no local store (browser) → in-memory only */
+      }
+    }
+    if (cites.length) {
+      setCitations((xs) => [...cites.map((c) => ({ ...c, syncStatus: 'local_only' as const })), ...xs]);
+    }
+  };
+
+  const runImport = async (fileOrPath: File | string) => {
+    const fmt = detectFormat(typeof fileOrPath === 'string' ? fileOrPath : fileOrPath.name);
+    if (!fmt) {
+      toast('Import a .bib, .ris, or .json file', 'flagged');
+      return;
+    }
+    setImporting(true);
+    setImportProgress({ done: 0, total: 0 });
+    try {
+      const text = await readImportText(fileOrPath);
+      const plan = await planImport(text, fmt, citations, {
+        onProgress: (done, total) => setImportProgress({ done, total }),
+      });
+      // Apply added + review (keep-both default). Tier-1 skipped are NOT applied
+      // — inspectable, with Add-anyway. All local; no network, ever.
+      await applyImported([...plan.added, ...plan.review.map((r) => r.candidate)]);
+      setImportReport(plan);
+      if (plan.capped) {
+        toast(`Imported the first ${IMPORT_ENTRY_CAP} of ${plan.total} — import the rest in a second file`, 'assessed');
+      }
+    } catch (e) {
+      toast(`Import failed: ${e instanceof Error ? e.message : String(e)}`, 'flagged');
+    } finally {
+      setImporting(false);
+      setImportProgress(null);
+    }
+  };
+
+  const pickAndImport = async () => {
+    const p = await pickManuscriptPath(['bib', 'bibtex', 'ris', 'json'], 'Citations');
+    if (p) await runImport(p);
+  };
+
+  // Override a Tier-1 auto-skip: force the entry in as a NEW row (a real,
+  // user-chosen duplicate) and drop it from the skipped list so the report stays honest.
+  const addAnyway = async (candidate: Citation) => {
+    await applyImported([{ ...candidate, id: newId('import') }]);
+    setImportReport((r) => (r ? { ...r, skipped: r.skipped.filter((s) => s.candidate.id !== candidate.id) } : r));
+    toast('Added anyway — a duplicate now exists in your library', 'assessed');
+  };
+
   /* -------------------------- add way #3: manual ------------------------- */
   const addManual = async () => {
     const c: Citation = {
@@ -616,7 +697,67 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                   />
                 </label>
               </div>
+              <div className="gds-cite-add__row">
+                <Button
+                  variant="secondary"
+                  data-testid="import-file"
+                  disabled={importing}
+                  onClick={() => (isTauri ? void pickAndImport() : importInputRef.current?.click())}
+                >
+                  {importing
+                    ? `Importing… ${importProgress?.done ?? 0}/${importProgress?.total ?? 0}`
+                    : 'Import .bib / .ris / .json'}
+                </Button>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".bib,.bibtex,.ris,.json"
+                  style={{ display: 'none' }}
+                  data-testid="import-input"
+                  onChange={(e) => e.target.files?.[0] && void runImport(e.target.files[0])}
+                />
+              </div>
             </div>
+
+            {importReport && (
+              <div className="gds-cite-import-report" data-testid="import-report">
+                <p className="gds-cite-import-tally" data-testid="import-tally">
+                  {importReport.added.length} added
+                  {importReport.review.length > 0 && ` · ${importReport.review.length} kept as possible duplicates`}
+                  {' · '}{importReport.skipped.length} skipped as duplicates
+                  {' · '}{importReport.failed.length} failed to parse
+                  {importReport.capped && ` · capped at ${IMPORT_ENTRY_CAP} of ${importReport.total}`}
+                </p>
+                {importReport.skipped.length > 0 && (
+                  <details data-testid="import-skipped">
+                    <summary>{importReport.skipped.length} skipped as duplicates — inspect</summary>
+                    {importReport.skipped.map((s, i) => (
+                      <div key={i} className="gds-cite-import-skip" data-testid="import-skipped-item">
+                        <span>
+                          {s.candidate.csl.title || s.candidate.doi || 'Untitled'} — matches “{s.match.csl.title}”
+                        </span>
+                        <Button variant="ghost" data-testid="import-add-anyway" onClick={() => void addAnyway(s.candidate)}>
+                          Add anyway
+                        </Button>
+                      </div>
+                    ))}
+                  </details>
+                )}
+                {importReport.failed.length > 0 && (
+                  <details data-testid="import-failed">
+                    <summary>{importReport.failed.length} failed to parse — why</summary>
+                    {importReport.failed.map((f, i) => (
+                      <div key={i} className="gds-cite-import-fail">
+                        <code>{f.raw.slice(0, 80)}</code> — {f.error}
+                      </div>
+                    ))}
+                  </details>
+                )}
+                <Button variant="ghost" data-testid="import-dismiss" onClick={() => setImportReport(null)}>
+                  Dismiss
+                </Button>
+              </div>
+            )}
 
             <div className="gds-cite-list" data-testid="citation-list">
               {visible.length === 0 ? (
@@ -643,6 +784,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                           {c.csl.author[0]?.family ?? 'Unknown'} · {c.csl.issued?.year ?? 'n.d.'}
                           {c.retracted && ' · '}
                           {c.retracted && <Badge status="flagged">retracted</Badge>}
+                          {importedUnverified(c) && ' · '}
+                          {importedUnverified(c) && (
+                            <Badge status="assessed" data-testid="unverified-badge">imported · not verified online</Badge>
+                          )}
                         </span>
                       </span>
                     </button>

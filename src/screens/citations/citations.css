@@ -47,3 +47,27 @@
 }
 .gds-root .gds-cite-detail-field { display: grid; gap: 2px; margin-bottom: 8px; }
 .gds-root .gds-cite-detail-field label { font-size: var(--g-text-size-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--g-text-3); }
+
+/* Import report (Set 2b-i) — tally + inspectable skip/failed lists. */
+.gds-cite-import-report {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--g-border);
+  border-left: 3px solid var(--g-accent);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.gds-cite-import-tally { margin: 0 0 6px; font-weight: 600; color: var(--g-text); }
+.gds-cite-import-report details { margin: 4px 0; }
+.gds-cite-import-report summary { cursor: pointer; color: var(--g-text-2); }
+.gds-cite-import-skip,
+.gds-cite-import-fail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  color: var(--g-text-2);
+  border-top: 1px solid color-mix(in srgb, var(--g-border) 55%, transparent);
+}
+.gds-cite-import-fail code { font-size: 11px; color: var(--g-text-3); }

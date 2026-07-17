@@ -782,6 +782,40 @@ pub fn note_paper_fulltext(
     gaply_core::plagiarism_library::full_text_for_note(&state.db, &title, paper_id.as_deref())
 }
 
+/// Read a citation-IMPORT file's TEXT for client-side parsing (Citation Manager,
+/// Set 2b). The Citation Manager parses .bib / .ris / CSL-JSON in the webview
+/// (citation-js), which needs the file's text — every other file lane hands a
+/// PATH to the core, but import is client-side.
+///
+/// PURPOSE-SCOPED, NOT a general file reader — do NOT widen it into
+/// `read_text_file`: it accepts ONLY the import extensions (.bib/.bibtex/.ris/
+/// .json), returns TEXT (never bytes), and refuses files over IMPORT_MAX_BYTES
+/// (the size cap enforced server-side, mirroring importCitations' entry cap). A
+/// future need for a different file's text gets its OWN scoped command.
+#[tauri::command]
+pub fn read_import_file(path: String) -> Result<String, GaplyError> {
+    const IMPORT_MAX_BYTES: u64 = 16 * 1024 * 1024; // 16 MiB — even a huge .bib is small text
+    let p = std::path::Path::new(&path);
+    let ext = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !matches!(ext.as_str(), "bib" | "bibtex" | "ris" | "json") {
+        return Err(GaplyError::Validation(format!(
+            "Unsupported import file type: .{ext} — Gaply imports .bib, .ris, or .json"
+        )));
+    }
+    let meta = std::fs::metadata(p)?;
+    if meta.len() > IMPORT_MAX_BYTES {
+        return Err(GaplyError::Validation(format!(
+            "Import file is too large ({} bytes; max {IMPORT_MAX_BYTES}). Split it and import in batches.",
+            meta.len()
+        )));
+    }
+    Ok(std::fs::read_to_string(p)?)
+}
+
 /// Research Gap Finder (Set 2): build the session's paper corpus — N uploaded
 /// files + N links → bounded, llm_safe per-paper digests (stable ids p1…pN)
 /// + a per-session RAG ingest. NO reasoning, NO LLM, NO model load (the

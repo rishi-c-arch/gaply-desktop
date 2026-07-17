@@ -210,6 +210,66 @@ describe('dedupe (Set 2a) — add-by-DOI is a library invariant', () => {
   });
 });
 
+/* ---------------------- import (Set 2b-i) — the UI flow ------------------ */
+describe('import — parse/dedupe/report, never a network call', () => {
+  const bibFile = (text: string) => new File([text], 'lib.bib', { type: 'text/plain' });
+  const TWO = `@article{a, title={Alpha Study}, author={Doe, Jane}, year={2020}, doi={10.1/alpha}}
+@article{b, title={Beta Study}, author={Roe, Ann}, year={2021}, doi={10.1/beta}}`;
+
+  it('pin a: import makes ZERO resolver/verify calls — consent ON and OFF', async () => {
+    for (const consent of [true, false]) {
+      setCloudConsent('citation_verification', consent);
+      const resolver = makeMockResolve(() => ({
+        status: 'verified',
+        metadata: { source: 'crossref', matched_by: 'doi', csl_type: 'article-journal', doi: '10.1/x', title: 'X', authors: [], container_title: null, year: null, volume: null, issue: null, page: null },
+      }));
+      let verifyCalls = 0;
+      const rv = { async verify() { verifyCalls += 1; return okVerify; } };
+      renderCM({ metadataResolver: resolver, refverify: rv, localLibrary: makeMockLocalLibrary() });
+      await screen.findByTestId('citation-manager');
+
+      fireEvent.change(screen.getByTestId('import-input'), { target: { files: [bibFile(TWO)] } });
+      await screen.findByTestId('import-report');
+
+      expect(resolver.calls.length).toBe(0); // structural: import never resolves
+      expect(verifyCalls).toBe(0);
+      expect(screen.getByTestId('import-tally').textContent).toMatch(/2 added/);
+      cleanup();
+    }
+    setCloudConsent('citation_verification', true);
+  });
+
+  it('pin e: imported entries show "not verified online" and cannot look verified', async () => {
+    renderCM({ localLibrary: makeMockLocalLibrary() });
+    await screen.findByTestId('citation-manager');
+    fireEvent.change(screen.getByTestId('import-input'), { target: { files: [bibFile(TWO)] } });
+    await screen.findByTestId('import-report');
+    expect(screen.getAllByTestId('unverified-badge').length).toBe(2);
+    expect(screen.getAllByTestId('unverified-badge')[0].textContent).toMatch(/not verified online/i);
+  });
+
+  it('pin d: a duplicate DOI is auto-skipped, INSPECTABLE, with Add anyway', async () => {
+    renderCM({ localLibrary: makeMockLocalLibrary(), initialCitations: [seed({ id: 'have', doi: '10.1/alpha' })] });
+    await screen.findByTestId('citation-manager');
+
+    fireEvent.change(screen.getByTestId('import-input'), { target: { files: [bibFile(TWO)] } });
+    await screen.findByTestId('import-report');
+
+    // Alpha collides (DOI 10.1/alpha already present) → skipped + inspectable; Beta added
+    expect(screen.getByTestId('import-tally').textContent).toMatch(/1 added.*1 skipped as duplicates/);
+    const skip = screen.getByTestId('import-skipped-item');
+    expect(skip.textContent).toMatch(/Alpha Study — matches “Seed Paper”/);
+    expect(within(screen.getByTestId('citation-list')).getByText(/Beta Study/)).toBeTruthy();
+    // Alpha is NOT in the list yet (auto-skipped)
+    expect(within(screen.getByTestId('citation-list')).queryByText(/Alpha Study/)).toBeNull();
+
+    // Add anyway → the user's override forces it in
+    fireEvent.click(screen.getByTestId('import-add-anyway'));
+    await screen.findByText(/Added anyway/i);
+    await waitFor(() => expect(within(screen.getByTestId('citation-list')).getByText(/Alpha Study/)).toBeTruthy());
+  });
+});
+
 /* --------- consent: the from-file lane honors citation_verification ------ */
 // The from-file add resolves a paper's DOI against CrossRef — the SAME cloud
 // lane as add-by-DOI + the retraction sweep. Opt-out must be a HARD door:
