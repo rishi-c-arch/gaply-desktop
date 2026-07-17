@@ -37,6 +37,8 @@ import {
 import { mayUseCloud } from '../settings/settingsStore';
 import { LocalLibrary, storedToCitation, TauriLocalLibrary } from './localLibrary';
 import { CitationResolveBridge, metadataToCslItem, TauriCitationResolve } from './metadataBridge';
+import { pickManuscriptPath } from '../common/pickFile';
+import { isTauri } from '../../utils/isTauri';
 import { exportBibliographyText, exportSerialized, saveExportToFile } from './exporters';
 import './citations.css';
 
@@ -285,8 +287,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   };
 
   /* --------------------- add way #4: from a paper file ------------------- */
-  const addFromFile = async (file: File) => {
-    const path = (file as any).path ?? file.name;
+  const addFromPath = async (path: string) => {
     setBusy(true);
     try {
       const res = await resolver.resolve({ path });
@@ -315,6 +316,13 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     } finally {
       setBusy(false);
     }
+  };
+  // Browser fallback: the <input>'s File has no usable .path in the app webview.
+  const addFromFile = (file: File) => void addFromPath((file as any).path ?? file.name);
+  // Tauri desktop: an ABSOLUTE path from the native dialog (the M6 fix).
+  const pickAndAddFromFile = async () => {
+    const p = await pickManuscriptPath(['pdf', 'docx', 'txt'], 'Paper');
+    if (p) await addFromPath(p);
   };
 
   /* -------------------------- add way #3: manual ------------------------- */
@@ -548,7 +556,18 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                   Import from manuscript ({extractedCitations.length})
                 </Button>
                 <Button variant="ghost" onClick={addManual} data-testid="add-manual">+ Manual entry</Button>
-                <label className="gds-cite-input" style={{ cursor: 'pointer' }}>
+                <label
+                  className="gds-cite-input"
+                  style={{ cursor: 'pointer' }}
+                  onClick={(e) => {
+                    // Tauri desktop: intercept the label click → native dialog
+                    // (absolute path). Browser: fall through to the <input>.
+                    if (isTauri) {
+                      e.preventDefault();
+                      void pickAndAddFromFile();
+                    }
+                  }}
+                >
                   From paper file…
                   <input
                     type="file"

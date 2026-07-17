@@ -2,8 +2,10 @@
 // journal → full simulated peer review with a publish/no-publish verdict. The
 // manuscript stays on device; only the structured payload leaves (via proxy).
 // Gated behind premium (F12): free users get a blurred teaser + upgrade CTA.
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { pickManuscriptPath, basenameOf } from '../common/pickFile';
+import { isTauri } from '../../utils/isTauri';
 import {
   AppShell,
   Badge,
@@ -89,6 +91,7 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
   );
 
   const [file, setFile] = useState<{ name: string; path: string } | null>(null);
+  const prInputRef = useRef<HTMLInputElement>(null);
   const [journalQuery, setJournalQuery] = useState('');
   const [journal, setJournal] = useState<TargetJournal | null>(null);
   // H4: the target journal's author-guidelines URL. Prefilled from the picked
@@ -112,6 +115,20 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
     const res = validateFile({ name: f.name, sizeBytes: f.size, pageCount });
     if (!res.ok) { setError(res.error); return; }
     setFile({ name: f.name, path: (f as any).path ?? f.name });
+  };
+
+  // Tauri desktop: an ABSOLUTE path from the dialog. No File object, so skip the
+  // page-count validation (validate sizeBytes:1) — exactly as AiCheckPage.acceptPath;
+  // behavior matches a working upload.
+  const acceptPath = (path: string) => {
+    setError(null);
+    const res = validateFile({ name: basenameOf(path), sizeBytes: 1 });
+    if (!res.ok) { setError(res.error); return; }
+    setFile({ name: basenameOf(path), path });
+  };
+  const pickManuscript = async () => {
+    const p = await pickManuscriptPath(['pdf', 'docx'], 'Manuscript');
+    if (p) acceptPath(p);
   };
 
   const run = async () => {
@@ -262,7 +279,10 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
     <Shell navigate={navigate}>
       <div className="gds-pr-entry" data-testid="pr-entry">
         <Card title="1 · Choose your manuscript">
-          <input type="file" accept=".pdf,.docx" data-testid="pr-file" onChange={(e) => e.target.files?.[0] && void acceptFile(e.target.files[0])} />
+          <Button variant="secondary" data-testid="pr-pick" onClick={() => (isTauri ? void pickManuscript() : prInputRef.current?.click())}>
+            Choose file
+          </Button>
+          <input ref={prInputRef} type="file" accept=".pdf,.docx" style={{ display: 'none' }} data-testid="pr-file" onChange={(e) => e.target.files?.[0] && void acceptFile(e.target.files[0])} />
           {file && <span className="gds-mono" style={{ marginLeft: 8 }}>{file.name}</span>}
           {error && <p style={{ color: 'var(--g-flagged)', fontSize: 13 }} data-testid="pr-error">{error}</p>}
         </Card>

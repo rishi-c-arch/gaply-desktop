@@ -4,9 +4,11 @@
 // (Set 2/3 engine); the chat is the only cloud hop. Entitlement gating mirrors
 // PublishReady EXACTLY — this is UX; the real gate is server-side at the proxy
 // (the JWT rides the chat request; the server verifies + consumes uses).
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppShell, Badge, Button, Card, GaplyGlobe, HeaderBar, NavRail, Panel } from '../../design-system';
+import { pickManuscriptPath, basenameOf } from '../common/pickFile';
+import { isTauri } from '../../utils/isTauri';
 import { createSubscriptionService } from '../../services/supabase';
 import { useGaplySession } from '../session/SessionProvider';
 import { useEntitlement } from '../subscription/entitlement';
@@ -58,24 +60,38 @@ const StatsVerifierPage: React.FC<StatsVerifierPageProps> = ({ bridge, subscript
 
   const [dataFile, setDataFile] = useState<{ name: string; path: string } | null>(null);
   const [manuscriptPath, setManuscriptPath] = useState<string | undefined>();
+  const dataInputRef = useRef<HTMLInputElement>(null);
+  const manuscriptInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<StatsPreview | null>(null);
   const [spec, setSpec] = useState<AnalysisSpec | null>(null);
   const [report, setReport] = useState<VerificationReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const acceptData = async (f: File) => {
+  const acceptDataPath = async (name: string, path: string) => {
     setError(null);
     setReport(null);
     setSpec(null);
-    const path = (f as any).path ?? f.name;
-    setDataFile({ name: f.name, path });
+    setDataFile({ name, path });
     try {
       setPreview(await b.preview(path, manuscriptPath));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not read the data file');
       setPreview(null);
     }
+  };
+  // Browser fallback: the <input>'s File has no usable .path in the app webview.
+  const acceptData = (f: File) => void acceptDataPath(f.name, (f as any).path ?? f.name);
+  // Tauri desktop: an ABSOLUTE path from the native dialog — DATA extensions,
+  // NOT pdf/docx (this is the CSV/spreadsheet picker).
+  const pickData = async () => {
+    const p = await pickManuscriptPath(['csv', 'tsv', 'xlsx', 'xls', 'ods'], 'Data');
+    if (p) await acceptDataPath(basenameOf(p), p);
+  };
+  // Tauri desktop: the OPTIONAL manuscript picker — pdf/docx.
+  const pickManuscript = async () => {
+    const p = await pickManuscriptPath(['pdf', 'docx'], 'Manuscript');
+    if (p) setManuscriptPath(p);
   };
 
   const runVerify = async (s: AnalysisSpec) => {
@@ -194,9 +210,14 @@ const StatsVerifierPage: React.FC<StatsVerifierPageProps> = ({ bridge, subscript
     <Shell navigate={navigate}>
       <div style={{ display: 'grid', gap: 12 }} data-testid="sv-entry">
         <Card title="Upload your data (CSV or spreadsheet)">
+          <Button variant="secondary" data-testid="sv-data-pick" onClick={() => (isTauri ? void pickData() : dataInputRef.current?.click())}>
+            Choose data file
+          </Button>
           <input
+            ref={dataInputRef}
             type="file"
             accept=".csv,.tsv,.xlsx,.xls,.ods"
+            style={{ display: 'none' }}
             data-testid="sv-data-file"
             onChange={(e) => e.target.files?.[0] && void acceptData(e.target.files[0])}
           />
@@ -205,9 +226,14 @@ const StatsVerifierPage: React.FC<StatsVerifierPageProps> = ({ bridge, subscript
             Optionally attach the manuscript (.pdf/.docx) to pre-fill your reported p-value and add
             methodology advisory. Your files stay on this device — the recompute is fully local.
           </p>
+          <Button variant="secondary" data-testid="sv-manuscript-pick" onClick={() => (isTauri ? void pickManuscript() : manuscriptInputRef.current?.click())}>
+            Attach manuscript
+          </Button>
           <input
+            ref={manuscriptInputRef}
             type="file"
             accept=".pdf,.docx"
+            style={{ display: 'none' }}
             data-testid="sv-manuscript-file"
             onChange={(e) => {
               const f = e.target.files?.[0];
