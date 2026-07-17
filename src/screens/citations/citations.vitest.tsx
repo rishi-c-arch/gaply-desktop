@@ -469,3 +469,83 @@ describe('consent gate — from-file resolution', () => {
     await waitFor(() => expect(resolver.calls.length).toBe(1));
   });
 });
+
+/* ---------- Set 2c-i: the citeproc engine goes LIVE in the app ----------- */
+// Proof that wiring prepareStyle actually routes the preview through citeproc
+// (not the legacy hand-rolled formatter). We serve the bundled .csl from disk
+// via a fetch mock — the app's own-origin fetch is unavailable in jsdom, which
+// is exactly why the legacy fallback holds in every other test. LAST in the
+// file so its style registrations can't leak into earlier legacy-path tests.
+import { readFileSync as _readFileSync } from 'fs';
+import { join as _join } from 'path';
+
+describe('CSL engine goes live (Set 2c-i)', () => {
+  const rich = (): Citation => ({
+    id: 'rich',
+    csl: {
+      id: 'rich',
+      type: 'article-journal',
+      title: 'Deep learning approaches to protein folding prediction',
+      author: [
+        { family: 'Smith', given: 'John A' },
+        { family: 'Doe', given: 'Jane B' },
+        { family: 'Nguyen', given: 'Anh' },
+      ],
+      issued: { year: 2020 },
+      containerTitle: 'Journal of Computational Biology',
+      volume: '27',
+      issue: '4',
+      page: '523-541',
+      DOI: '10.1089/cmb.2019.0420',
+    },
+    doi: '10.1089/cmb.2019.0420',
+    retracted: false,
+    source: 'manual',
+  });
+
+  it('a style prepares → the preview routes through citeproc, not legacy', async () => {
+    const realFetch = global.fetch;
+    global.fetch = vi.fn(async (url: any) => {
+      const s = String(url);
+      const style = s.match(/\/csl\/styles\/(.+)\.csl$/);
+      if (style) return { ok: true, text: async () => _readFileSync(_join(process.cwd(), 'public', 'csl', 'styles', `${style[1]}.csl`), 'utf-8') } as any;
+      return { ok: false, text: async () => '' } as any;
+    }) as any;
+    try {
+      renderCM({ localLibrary: makeMockLocalLibrary(), initialCitations: [rich()] });
+      await screen.findByTestId('citation-manager');
+      // starts on the legacy formatter, then flips once apa.csl loads
+      await waitFor(() => expect(screen.getByTestId('preview').getAttribute('data-style-source')).toBe('citeproc'));
+      // citeproc-specific output: en-dash page range (legacy used a hyphen)
+      expect(screen.getByTestId('preview').textContent).toMatch(/523–541/);
+      expect(screen.getByTestId('preview').textContent).not.toMatch(/523-541/);
+      // the DOI the LEGACY APA formatter kept, still present…
+      expect(screen.getByTestId('preview').textContent).toMatch(/10\.1089\/cmb\.2019\.0420/);
+      // …and italics are preserved (html→markers → the Formatted <em>), not dropped
+      const em = screen.getByTestId('preview').querySelector('em, i');
+      expect(em?.textContent).toMatch(/Journal of Computational Biology/);
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  it('a numbered style keeps its leading number, and the DOI the legacy formatter DROPPED now appears', async () => {
+    const realFetch = global.fetch;
+    global.fetch = vi.fn(async (url: any) => {
+      const style = String(url).match(/\/csl\/styles\/(.+)\.csl$/);
+      if (style) return { ok: true, text: async () => _readFileSync(_join(process.cwd(), 'public', 'csl', 'styles', `${style[1]}.csl`), 'utf-8') } as any;
+      return { ok: false, text: async () => '' } as any;
+    }) as any;
+    try {
+      renderCM({ localLibrary: makeMockLocalLibrary(), initialCitations: [rich()] });
+      await screen.findByTestId('citation-manager');
+      fireEvent.change(await screen.findByTestId('preview-style'), { target: { value: 'ieee' } });
+      await waitFor(() => expect(screen.getByTestId('preview').getAttribute('data-style-source')).toBe('citeproc'));
+      const text = screen.getByTestId('preview').textContent ?? '';
+      expect(text).toMatch(/^\[1\]/); // IEEE numbered — honest: it IS entry 1
+      expect(text).toMatch(/doi: 10\.1089\/cmb\.2019\.0420/); // legacy IEEE OMITTED this
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+});

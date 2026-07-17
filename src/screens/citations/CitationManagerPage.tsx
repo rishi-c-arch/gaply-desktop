@@ -28,6 +28,7 @@ import {
   STATUS_LABEL,
 } from './citationTypes';
 import { CSL_STYLES, formatBibliography, formatCitation } from './formatCitation';
+import { prepareStyle, isStyleReady } from './cslEngine';
 import {
   applyVerification,
   makeMockRefVerify,
@@ -120,6 +121,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const [collection, setCollection] = useState<CollectionId>('all');
   const [selectedId, setSelectedId] = useState<string | null>(initialCitations[0]?.id ?? null);
   const [style, setStyle] = useState<string>('apa'); // global (bulk) style
+  // Set 2c-i: bump to re-render once a style's .csl has loaded, so formatCitation
+  // re-routes from the legacy fallback to real citeproc. `styleTick` is a version
+  // counter — reading it in the preview subscribes it to style readiness.
+  const [styleTick, setStyleTick] = useState(0);
   const [doiInput, setDoiInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
@@ -161,6 +166,24 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   }, [local]);
 
   // Deterministic LOCAL search (title/author/year/DOI/tag) via the bridge.
+  // Set 2c-i: load the selected style's .csl (offline app asset). On success,
+  // bump styleTick so the preview/export re-render through real citeproc. On
+  // failure (no asset origin in a plain browser / jsdom), the legacy 8-style
+  // formatter stays — pre-prepare fallback, no regression while a style loads.
+  useEffect(() => {
+    let cancelled = false;
+    prepareStyle(style)
+      .then(() => {
+        if (!cancelled) setStyleTick((t) => t + 1);
+      })
+      .catch(() => {
+        /* legacy fallback stands */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [style]);
+
   useEffect(() => {
     let alive = true;
     if (!query.trim()) {
@@ -712,7 +735,12 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                       ))}
                     </select>
                   </div>
-                  <div className="gds-cite-preview" data-testid="preview">
+                  <div
+                    className="gds-cite-preview"
+                    data-testid="preview"
+                    data-style-source={isStyleReady(style) ? 'citeproc' : 'legacy'}
+                    data-tick={styleTick}
+                  >
                     <Formatted text={formatCitation(selected.csl, style)} />
                   </div>
                   <div style={{ marginTop: 10 }} data-testid="cm-tags">

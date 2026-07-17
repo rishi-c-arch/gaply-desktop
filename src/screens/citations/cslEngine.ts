@@ -131,7 +131,12 @@ export function toCslJson(c: CslItem): Record<string, unknown> {
 /** SYNC citeproc formatting — callable once `prepareStyle` (or a direct
  *  registration) has run. Refuses unknown styles honestly: citation-js's
  *  silent fall-back-to-APA is deliberately bypassed. */
-export function formatWithCsl(items: CslItem[], styleId: string, locale = 'en-US'): string {
+export function formatWithCsl(
+  items: CslItem[],
+  styleId: string,
+  locale = 'en-US',
+  outputFormat: 'text' | 'html' = 'text',
+): string {
   if (!CiteClass || !cslConfig) {
     throw new Error('CSL engine not loaded — call prepareStyle(styleId) first');
   }
@@ -142,6 +147,6 @@ export function formatWithCsl(items: CslItem[], styleId: string, locale = 'en-US
   }
   const cite = new CiteClass(items.map(toCslJson));
   return cite
-    .format('bibliography', { template: styleId, lang: locale, format: 'text' })
+    .format('bibliography', { template: styleId, lang: locale, format: outputFormat })
     .trim();
 }

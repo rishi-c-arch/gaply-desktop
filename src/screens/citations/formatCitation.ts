@@ -60,9 +60,29 @@ function ieeeAuthors(c: CslItem): string {
 /** Format one citation in the given style id. Full-CSL (citeproc) once the
  *  style is prepared; the legacy hand-rolled path covers the original 8 ids
  *  before that; anything else errs honestly. */
+/** citeproc 'html' → the preview's lightweight *italic* / **bold** markers, so
+ *  the same `Formatted` component renders italics/bold whether the string came
+ *  from the legacy formatter or citeproc. Italic journal names ARE the spec in
+ *  these styles — dropping them (as plain 'text' would) while claiming
+ *  spec-correctness would be its own small lie. Export stays plain 'text'
+ *  (a .txt bibliography should have no markup — see exporters.ts). */
+export function cslHtmlToMarkers(html: string): string {
+  return html
+    .replace(/<\/?i>/gi, '*')
+    .replace(/<\/?(?:b|strong)>/gi, '**')
+    .replace(/<[^>]+>/g, '') // strip the csl-bib-body / csl-entry / left-margin wrappers
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#0?38;|&#x0?26;/gi, '&')
+    .replace(/&nbsp;|&#0?160;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function formatCitation(c: CslItem, styleId: string): string {
   if (isStyleReady(styleId)) {
-    return formatWithCsl([c], styleId);
+    return cslHtmlToMarkers(formatWithCsl([c], styleId, 'en-US', 'html'));
   }
   if (!(styleId in LEGACY_STYLE_ALIASES)) {
     throw new Error(

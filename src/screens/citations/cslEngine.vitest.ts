@@ -162,8 +162,11 @@ describe('the stable formatCitation seam', () => {
   it('a prepared style routes through full citeproc via the SAME seam', () => {
     expect(isStyleReady('apa')).toBe(true);
     const seam = formatCitation(WATSON, 'apa');
-    const direct = formatWithCsl([WATSON], 'apa');
-    expect(seam).toBe(direct);
+    const direct = formatWithCsl([WATSON], 'apa'); // plain 'text' (the export path)
+    // Same citeproc CONTENT, but formatCitation (the preview) preserves italics
+    // as the *marker* the Formatted component renders; direct/export stays plain.
+    expect(seam.replace(/\*/g, '')).toBe(direct);
+    expect(seam).toMatch(/\*Nature\*/); // italic journal name kept for the preview
   });
 
   it('an unknown, unprepared style id errs honestly — no silent wrong-style fallback', () => {
