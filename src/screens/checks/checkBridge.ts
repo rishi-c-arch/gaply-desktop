@@ -37,6 +37,10 @@ export interface CheckBridge {
   /** Pre-flight memory status (re-checkable) — free vs needed + attainable tier. */
   aicheckMemoryStatus(): Promise<AiCheckMemoryStatus>;
   validation(path: string, title?: string): Promise<StatsValidityReport>;
+  /** Export the AI Check report as a PDF the user saves themselves: writes the
+   *  already-built self-contained HTML to a temp file and opens it in the DEFAULT
+   *  BROWSER (print is a no-op in the Tauri webview), where ⌘P → "Save as PDF". */
+  exportReport(html: string): Promise<void>;
 }
 
 export class TauriCheckBridge implements CheckBridge {
@@ -77,6 +81,9 @@ export class TauriCheckBridge implements CheckBridge {
   validation(path: string, title?: string) {
     return this.invoke<StatsValidityReport>('validate_manuscript', { path, title });
   }
+  exportReport(html: string) {
+    return this.invoke<void>('export_report', { html });
+  }
 }
 
 /** Test/dev double — returns canned reports, records the paths it was handed
@@ -97,6 +104,8 @@ export function makeMockCheckBridge(reports: {
   aicheckPending?: boolean;
   memoryStatus?: AiCheckMemoryStatus;
   validation?: StatsValidityReport;
+  /** Captures the HTML handed to exportReport (to assert the report crossed the seam). */
+  onExport?: (html: string) => void;
   onCall?: (cmd: string, path: string, verifyCitations?: boolean) => void;
 }): CheckBridge {
   const library: LibraryPaper[] = reports.library ? [...reports.library] : [];
@@ -175,6 +184,10 @@ export function makeMockCheckBridge(reports: {
     async validation(path) {
       reports.onCall?.('validate_manuscript', path);
       return reports.validation!;
+    },
+    async exportReport(html) {
+      reports.onCall?.('export_report', '');
+      reports.onExport?.(html);
     },
   };
 }

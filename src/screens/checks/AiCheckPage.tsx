@@ -21,6 +21,7 @@ import { basenameOf, pickManuscriptPath } from '../common/pickFile';
 import { isTauri } from '../../utils/isTauri';
 import { isFeatureEnabled } from '../../config/featureFlags';
 import AiCheckReport from './AiCheckReport';
+import { buildAiCheckReportHtml } from './aicheckReportHtml';
 import { CheckBridge, TauriCheckBridge } from './checkBridge';
 import { AiCheckEvent, AiCheckMemoryStatus, AiCheckResult } from './agentTypes';
 import { mayUseCloud } from '../settings/settingsStore';
@@ -212,6 +213,26 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
     void refreshMemory();
   };
 
+  // Export the report as a PDF the user saves themselves. Print is a no-op in the
+  // Tauri webview (window.print / webview.print / ⌘P all dead in wry), so we build
+  // the same report as ONE self-contained HTML file (the emitter reuses every
+  // on-screen honesty string) and hand it to the backend, which opens it in the
+  // default BROWSER — where ⌘P → "Save as PDF" produces the paginated document.
+  const [exportBusy, setExportBusy] = useState(false);
+  const exportPdf = async () => {
+    if (!result) return;
+    setExportBusy(true);
+    setError(null);
+    try {
+      const html = buildAiCheckReportHtml(result, { documentName: selected?.name ?? 'manuscript' });
+      await b.exportReport(html);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'could not open the report for printing');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   const memChip = (m: AiCheckMemoryStatus) =>
     m.deep_fits ? { text: 'Ready', cls: 'aic-chip--ready' }
     : m.tier_attainable === 'heuristic_only'
@@ -260,9 +281,18 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
             {result ? (
               <div data-testid="check-report">
                 <AiCheckReport result={result} />
-                <div style={{ marginTop: 12 }}>
+                <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
                   <Button variant="ghost" onClick={reset} data-testid="run-another">
                     ← Run another
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => void exportPdf()}
+                    disabled={exportBusy}
+                    data-testid="export-pdf"
+                    title="Opens the report in your browser; press ⌘P → Save as PDF"
+                  >
+                    {exportBusy ? 'Opening…' : 'Save as PDF'}
                   </Button>
                 </div>
               </div>

@@ -832,6 +832,52 @@ pub fn read_import_file(path: String) -> Result<String, GaplyError> {
     Ok(std::fs::read_to_string(p)?)
 }
 
+/// Export the AI Check report as a PDF the user saves themselves. Takes the
+/// already-built, SELF-CONTAINED report HTML (inline CSS, no assets — produced by
+/// the frontend's `buildAiCheckReportHtml`), writes it to a temp file, and opens
+/// it in the DEFAULT BROWSER via the opener plugin's Rust API, where the user
+/// presses ⌘P → "Save as PDF".
+///
+/// WHY the browser: JS `window.print()`, the framework's `webview.print()`, AND
+/// ⌘P are all no-ops in wry/WKWebView (empirically proven) — the Tauri webview
+/// simply has no print surface. The browser is the honest print path.
+///
+/// The opener plugin's Rust API (`open_path`) is called here, in trusted backend
+/// code, so it is NOT bound by the webview opener scope (which forbids `file://`
+/// and `open_path`); no capability change is needed. PURPOSE-SCOPED: it accepts
+/// report HTML and writes+opens ONE temp file, nothing else — not a general file
+/// writer. Sweeps prior `gaply-aicheck-*.html` first so temp never accumulates.
+#[tauri::command]
+pub fn export_report(app: tauri::AppHandle, html: String) -> Result<(), GaplyError> {
+    use tauri_plugin_opener::OpenerExt;
+    const MAX_HTML_BYTES: usize = 8 * 1024 * 1024; // a report is small; guard runaway input
+    if html.len() > MAX_HTML_BYTES {
+        return Err(GaplyError::Validation(format!(
+            "Report HTML too large ({} bytes; max {MAX_HTML_BYTES}).",
+            html.len()
+        )));
+    }
+    let dir = std::env::temp_dir();
+    // Sweep prior exports so the temp dir doesn't grow one stale report per click.
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("gaply-aicheck-") && name.ends_with(".html") {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    // Fresh file name per export (epoch) → the browser never serves a cached
+    // older report from the same file:// URL.
+    let file = dir.join(format!("gaply-aicheck-{}.html", now_epoch()));
+    std::fs::write(&file, html.as_bytes())?;
+    app.opener()
+        .open_path(file.to_string_lossy().to_string(), None::<String>)
+        .map_err(|e| GaplyError::Internal(format!("failed to open report in browser: {e}")))?;
+    Ok(())
+}
+
 /// Research Gap Finder (Set 2): build the session's paper corpus — N uploaded
 /// files + N links → bounded, llm_safe per-paper digests (stable ids p1…pN)
 /// + a per-session RAG ingest. NO reasoning, NO LLM, NO model load (the

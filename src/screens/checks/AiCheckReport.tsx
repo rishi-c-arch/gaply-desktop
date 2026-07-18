@@ -13,75 +13,25 @@
 import React, { useMemo, useState } from 'react';
 import { Badge, Card } from '../../design-system';
 import '../report/report.css';
+import { AiCheckAnalysis, AiCheckPassage, AiCheckResult, SignalEvidence } from './agentTypes';
 import {
-  AiCheckAnalysis,
-  AiCheckPassage,
-  AiCheckResult,
-  AiCheckSection,
-  BiasTier,
-  PerplexitySignal,
-  SignalEvidence,
-  SignalLevel,
-} from './agentTypes';
+  EVIDENCE_GATE_NOTE,
+  EVIDENCE_GROUPS,
+  FOOTER_TAGLINE,
+  LEGEND,
+  PROPORTION_EXPLAINER,
+  evidenceRows,
+  resolveDisclaimer,
+  segmentSections,
+  splitSentence,
+  statusLabel,
+  tierLabel,
+  tierOf,
+} from './aicheckReportModel';
 
-/** Empty-guard backstop for the un-strippable AI disclaimer. The wire normally
- *  carries `analysis.disclaimer` VERBATIM from the Rust core's `AI_DISCLAIMER`
- *  (ai_detect.rs); this hardcoded copy renders ONLY if that field ever regresses
- *  to empty, so the signal-not-verdict disclaimer can never silently vanish. */
-const AI_DISCLAIMER_FALLBACK =
-  'STATISTICAL SIGNAL ONLY — NOT proof of AI authorship. Perplexity and ' +
-  'burstiness are probabilistic indicators with high false-positive and ' +
-  'false-negative rates. They vary by domain, genre, and individual writing ' +
-  'style, can be deliberately evaded, and are unreliable on short texts, ' +
-  'non-native English, and heavily edited writing. These scores must never be ' +
-  'used as sole or definitive evidence that text was AI-generated — treat them ' +
-  'as one weak input to human judgement.';
-
-type Segment =
-  | { kind: 'plain'; text: string }
-  | { kind: 'passage'; passage: AiCheckPassage; index: number };
-
-interface RenderedSection {
-  section: AiCheckSection;
-  segments: Segment[];
-}
-
-/** Assign each passage to the first section whose text contains it (kind must
- *  match), and split section text into plain/highlighted segments. Matching is
- *  TEXT-anchored (indexOf), not offset-anchored: the wire's start/end are Rust
- *  byte offsets, which disagree with JS UTF-16 indices on non-ASCII text. */
-export function segmentSections(result: AiCheckResult): {
-  rendered: RenderedSection[];
-  unplaced: AiCheckPassage[];
-} {
-  const used = new Set<number>();
-  const rendered = result.sections.map((section) => {
-    const segments: Segment[] = [];
-    let cursor = 0;
-    const candidates = result.analysis.passages
-      .map((passage, index) => ({ passage, index }))
-      .filter(({ passage, index }) => !used.has(index) && passage.section === section.kind)
-      .sort((a, b) => a.passage.start_char - b.passage.start_char);
-    for (const { passage, index } of candidates) {
-      const at = section.text.indexOf(passage.text, cursor);
-      if (at === -1) continue;
-      used.add(index);
-      if (at > cursor) segments.push({ kind: 'plain', text: section.text.slice(cursor, at) });
-      segments.push({ kind: 'passage', passage, index });
-      cursor = at + passage.text.length;
-    }
-    if (cursor < section.text.length) {
-      segments.push({ kind: 'plain', text: section.text.slice(cursor) });
-    }
-    return { section, segments };
-  });
-  const unplaced = result.analysis.passages.filter((_, i) => !used.has(i));
-  return { rendered, unplaced };
-}
-
-const tierOf = (p: AiCheckPassage) => (p.depth === 'deep_verified' ? 'flagged' : 'assessed');
-const tierLabel = (p: AiCheckPassage) =>
-  p.depth === 'deep_verified' ? 'deep-verified signal' : 'heuristic-only (preliminary)';
+// segmentSections now lives in the shared model (so the HTML emitter can reuse it
+// without pulling in React); re-exported here for the report tests that import it.
+export { segmentSections };
 
 /** One passage's evidence — the badges, the tier + passage cautions (VERBATIM),
  *  gate flags, and the per-sentence perplexity table. Shared by the click
@@ -142,8 +92,7 @@ const PerPassageFindings: React.FC<{ passages: AiCheckPassage[]; selected: AiChe
   return (
     <Card title="Per-passage findings" data-testid="per-passage-findings">
       <p className="gds-jc__disclaimer" data-testid="findings-split">
-        {deep} of {total} flagged passages were deep-verified by the on-device model; the remaining{' '}
-        {heuristic} carry heuristic-only flags and are preliminary.
+        {splitSentence(deep, total, heuristic)}
       </p>
       {passages.map((p, i) => (
         <div
@@ -162,46 +111,12 @@ const PerPassageFindings: React.FC<{ passages: AiCheckPassage[]; selected: AiChe
   );
 };
 
-const LEVEL_LABEL: Record<SignalLevel, string> = {
-  high: 'High',
-  moderate: 'Moderate',
-  low: 'Low',
-};
-
-/** The left-column label = the measured strength, or the honest non-measured
- *  state ('Unavailable' / 'Not applicable'). */
-function statusLabel(e: SignalEvidence): string {
-  if (e.status === 'measured' && e.level) return LEVEL_LABEL[e.level];
-  if (e.status === 'unavailable') return 'Unavailable';
-  return 'Not applicable';
-}
-
 /** The level chip's strength/muted class — measured levels carry their strength,
- *  Unavailable / Not-applicable read muted (but the row stays legible). */
+ *  Unavailable / Not-applicable read muted (but the row stays legible). This is
+ *  CSS-specific (on-screen only), so it stays in the component, not the model. */
 function levelClass(e: SignalEvidence): string {
   if (e.status === 'measured' && e.level) return `aic-ev__level--${e.level}`;
   return 'aic-ev__level--muted';
-}
-
-// Bias-tiered groups: factual signals are trusted; stylometric are down-weighted
-// (they over-flag non-native English) — the caveat makes that honest, verbally.
-const EVIDENCE_GROUPS: Array<{ tier: BiasTier; label: string; caveat?: string }> = [
-  { tier: 'factual', label: 'VERIFIABLE (world-checkable)' },
-  { tier: 'structural', label: 'STRUCTURAL' },
-  { tier: 'stylometric', label: 'STYLE-BASED', caveat: 'less reliable; can over-flag non-native English writing' },
-];
-
-/** The Stage-1 perplexity placement as an Evidence row (it's a separate wire
- *  field, not part of document_score.evidence). */
-function perplexityRow(a: AiCheckAnalysis): SignalEvidence | null {
-  if (!a.lm_perplexity_signal) return null;
-  const map: Record<PerplexitySignal, { level: SignalLevel; detail: string }> = {
-    unusually_predictable: { level: 'high', detail: 'unusually predictable for human academic writing' },
-    below_human_median: { level: 'moderate', detail: 'below the human academic median' },
-    within_or_above_human: { level: 'low', detail: 'within/above the human academic range' },
-  };
-  const m = map[a.lm_perplexity_signal];
-  return { signal: 'Language-model perplexity', status: 'measured', level: m.level, bias_tier: 'stylometric', detail: m.detail };
 }
 
 /** The multi-signal Evidence Summary (Phase 1). Qualitative levels only — the
@@ -209,17 +124,12 @@ function perplexityRow(a: AiCheckAnalysis): SignalEvidence | null {
  *  null until Phase 3). Rows are grouped by bias tier; the perplexity row (from
  *  provisional norms) carries the in-row "preliminary" footnote. */
 const EvidenceSummary: React.FC<{ analysis: AiCheckAnalysis }> = ({ analysis }) => {
-  const pRow = perplexityRow(analysis);
-  const rows: SignalEvidence[] = [...(pRow ? [pRow] : []), ...(analysis.document_score?.evidence ?? [])];
+  const rows = evidenceRows(analysis);
   if (rows.length === 0) return null;
   const provisional = analysis.norms_provisional;
   return (
     <Card title="Evidence Summary" data-testid="evidence-summary">
-      <p className="aic-ev__gate">
-        Individual signals: not a verdict, and not combined into a score. A calibrated 0–100 score
-        isn't shown: it requires evaluation Gaply hasn't completed yet. Each level below is the
-        STRENGTH of the AI-associated signal.
-      </p>
+      <p className="aic-ev__gate">{EVIDENCE_GATE_NOTE}</p>
       {EVIDENCE_GROUPS.map((g) => {
         const groupRows = rows.filter((r) => r.bias_tier === g.tier);
         if (groupRows.length === 0) return null;
@@ -280,11 +190,9 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
     <div className="gds-report" data-testid="aicheck-report" style={{ display: 'grid', gap: 12 }}>
       {/* THE un-strippable caution — first thing on the report, verbatim */}
       <section data-testid="ai-caution" className="aic-callout">
-        <Badge status="flagged">signal, not proof</Badge>
+        <Badge status="flagged">{FOOTER_TAGLINE}</Badge>
         <p className="gds-report__disclaimer" style={{ marginTop: 6 }} data-testid="ai-disclaimer">
-          {analysis.disclaimer && analysis.disclaimer.trim()
-            ? analysis.disclaimer
-            : AI_DISCLAIMER_FALLBACK}
+          {resolveDisclaimer(analysis)}
         </p>
       </section>
 
@@ -309,9 +217,7 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
             {(analysis.ai_signal_proportion * 100).toFixed(1)}%
           </span>
           <span style={{ color: 'var(--g-text-3)', fontSize: 13, maxWidth: 560 }}>
-            of the analyzed text shows AI-associated signals. This is a deterministic proportion
-            of flagged text; it is NOT the chance that this document was AI-written, and no such
-            number exists in this report.
+            {PROPORTION_EXPLAINER}
           </span>
         </div>
         <p className="gds-jc__disclaimer" style={{ marginTop: 8 }} data-testid="coverage-note">
@@ -323,16 +229,15 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
 
       {/* two-way legend */}
       <p style={{ fontSize: 12, color: 'var(--g-text-3)', margin: 0 }} data-testid="aicheck-legend">
-        Plain text: no AI-associated signal.{' '}
+        {LEGEND.plain}{' '}
         <span className="gds-highlight" data-tier="assessed" style={{ cursor: 'default' }}>
           amber
         </span>
-        : heuristic-only flag (preliminary).{' '}
+        : {LEGEND.assessedTail}{' '}
         <span className="gds-highlight" data-tier="flagged" style={{ cursor: 'default' }}>
           red
         </span>
-        : deep-verified (re-scored by the on-device deep model). All are signal levels, never
-        verdicts. Click a highlight for its evidence.
+        : {LEGEND.flaggedTail} {LEGEND.levels} Click a highlight for its evidence.
       </p>
 
       {/* the manuscript, 2-color highlighted */}
