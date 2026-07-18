@@ -5,6 +5,8 @@
 import React, { useState } from 'react';
 import { Badge, Button, Card } from '../../design-system';
 import { Note, NoteDraft } from './notesBridge';
+import { noteToMarkdown, exportFileName } from './noteExport';
+import { saveNoteFile } from './saveNoteFile';
 
 export interface ProjectNoteEditorProps {
   /** The note id (a fresh uuid for new, or the existing note's id). */
@@ -21,6 +23,8 @@ const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onS
   const [body, setBody] = useState(existing?.body ?? '');
   const [tags, setTags] = useState((existing?.tags ?? []).join(', '));
 
+  const splitTags = () => tags.split(',').map((t) => t.trim()).filter(Boolean);
+
   const save = () =>
     onSave({
       id,
@@ -29,9 +33,18 @@ const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onS
       paper_title: '',
       title: title.trim(),
       body: body.trim(),
-      tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+      tags: splitTags(),
       // no `fields` → the store keeps fields_json {}
     });
+
+  // Export the current note as Markdown (title + body + tags). Pure emit → save.
+  const exportMd = async () => {
+    const md = noteToMarkdown(
+      { note_type: 'project', title: title.trim(), paper_title: '', body: body.trim(), tags: splitTags() },
+      {},
+    );
+    await saveNoteFile(exportFileName(title, 'note'), md);
+  };
 
   return (
     <Card title="Project note">
@@ -46,6 +59,7 @@ const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onS
         <div style={{ display: 'flex', gap: 8 }}>
           <Button onClick={save} disabled={busy} data-testid="project-save">{busy ? 'Saving…' : existing ? 'Save changes' : 'Save note'}</Button>
           <Button variant="secondary" onClick={onClose} data-testid="project-close">Close</Button>
+          <Button variant="ghost" onClick={() => void exportMd()} disabled={busy || (!title.trim() && !body.trim())} data-testid="project-export">Export (.md)</Button>
           {existing && onDelete && (
             <Button variant="secondary" onClick={onDelete} data-testid="project-delete" style={{ marginLeft: 'auto', color: 'var(--g-flagged)' }}>Delete</Button>
           )}

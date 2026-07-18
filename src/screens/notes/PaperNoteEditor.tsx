@@ -8,6 +8,8 @@
 import React, { useMemo, useState } from 'react';
 import { Badge, Button, Card } from '../../design-system';
 import { NoteDraft, PaperNoteFields, parseFields, Note } from './notesBridge';
+import { noteToMarkdown, exportFileName } from './noteExport';
+import { saveNoteFile } from './saveNoteFile';
 
 export interface PaperNoteEditorProps {
   /** The note being created/edited — paper_id + paper_title preset by the picker. */
@@ -44,7 +46,9 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
     (initial.notable_quotes ?? []).map((q) => ({ text: q.text ?? '', page: q.page != null ? String(q.page) : '' }))
   );
 
-  const save = () => {
+  // Assemble the current field values into the template shape (skip-empties).
+  // Shared by save() and export so the two never drift.
+  const currentFields = (): PaperNoteFields => {
     const trimmedQuotes = quotes
       .map((q) => ({ text: q.text.trim(), page: q.page.trim() }))
       .filter((q) => q.text !== '')
@@ -58,16 +62,30 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
     if (limitations.trim()) fields.limitations = limitations.trim();
     if (myEvaluation.trim()) fields.my_evaluation = myEvaluation.trim();
     if (trimmedQuotes.length) fields.notable_quotes = trimmedQuotes;
+    return fields;
+  };
 
+  const splitTags = () => tags.split(',').map((t) => t.trim()).filter(Boolean);
+
+  const save = () => {
     onSave({
       id: base.id,
       note_type: 'paper',
       paper_id: base.paper_id,
       paper_title: base.paper_title,
       title: title.trim(),
-      fields,
-      tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+      fields: currentFields(),
+      tags: splitTags(),
     });
+  };
+
+  // Export the current note as structured Markdown (heading per filled field).
+  const exportMd = async () => {
+    const md = noteToMarkdown(
+      { note_type: 'paper', title: title.trim(), paper_title: base.paper_title, body: '', tags: splitTags() },
+      currentFields(),
+    );
+    await saveNoteFile(exportFileName(title || base.paper_title, 'paper-note'), md);
   };
 
   const field = (label: string, node: React.ReactNode, hint?: string) => (
@@ -129,6 +147,7 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
       <div style={{ display: 'flex', gap: 8 }}>
         <Button onClick={save} disabled={busy} data-testid="note-save">{busy ? 'Saving…' : existing ? 'Save changes' : 'Save note'}</Button>
         <Button variant="secondary" onClick={onClose} data-testid="note-close">Close</Button>
+        <Button variant="ghost" onClick={() => void exportMd()} disabled={busy} data-testid="note-export">Export (.md)</Button>
         {existing && onDelete && (
           <Button variant="secondary" onClick={onDelete} data-testid="note-delete" style={{ marginLeft: 'auto', color: 'var(--g-flagged)' }}>Delete</Button>
         )}

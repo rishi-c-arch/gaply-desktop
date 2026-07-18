@@ -12,6 +12,8 @@ import { PaperSource, TauriPaperSource, PaperOption } from './paperSource';
 import PaperNoteEditor from './PaperNoteEditor';
 import ProjectNoteEditor from './ProjectNoteEditor';
 import RecommendedToolsPanel from './RecommendedToolsPanel';
+import { notesToMarkdown } from './noteExport';
+import { saveNoteFile } from './saveNoteFile';
 import './notes.css';
 
 export interface NoteCreatorPageProps {
@@ -126,6 +128,13 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
     } finally {
       setBusy(false);
     }
+  };
+
+  // Bulk export: every note currently SHOWN (the active search/type/tag filter),
+  // joined by a --- rule. Respects the filter because it emits from `list`.
+  const exportAllShown = async () => {
+    if (!list || list.length === 0) return;
+    await saveNoteFile(tagFilter ? `notes-${tagFilter}.md` : 'notes.md', notesToMarkdown(list));
   };
 
   const quickCapture = async () => {
@@ -246,6 +255,11 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
                       </button>
                     ))}
                   </div>
+                  {list && list.length > 0 && (
+                    <Button variant="ghost" data-testid="notes-export-all" onClick={() => void exportAllShown()} style={{ marginLeft: 'auto' }}>
+                      Export all shown (.md)
+                    </Button>
+                  )}
                 </div>
                 {allTags.length > 0 && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} data-testid="tag-filter">
