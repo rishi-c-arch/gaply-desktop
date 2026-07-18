@@ -30,7 +30,14 @@ function makeCitations(refs: StoredReference[]): LocalLibrary {
 }
 
 function citationRef(id: string, title: string, authors = '', year: number | null = null): StoredReference {
-  return { id, csl_json: '{}', doi: null, title, authors, year, tags: [], sync_status: 'local_only', created_at: 0, updated_at: 0 };
+  return {
+    id, csl_json: '{}', doi: null, title, authors, year, tags: [],
+    // Scope B: the "pre-migration / unknown" defaults — this fixture behaves like
+    // an existing row (not retracted, unverified). verify_provenance is [] not
+    // null because the type is string[] (Rust serializes a NULL column as []).
+    retracted: false, source: null, verify_provenance: [], verify_outcome: null, verified_at: null,
+    sync_status: 'local_only', created_at: 0, updated_at: 0,
+  };
 }
 
 // Exercise the RUNNABLE plagiarism path: mock the free-check flags ON (Set 1
