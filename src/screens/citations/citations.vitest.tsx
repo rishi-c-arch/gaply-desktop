@@ -429,6 +429,68 @@ describe('import — gated online verify', () => {
   });
 });
 
+/* -------- verification label — the two-axis honesty fix (Scope A) -------- */
+// Completeness ("has all fields") and verification ("confirmed against
+// CrossRef") are DIFFERENT facts and must never share a word. computeStatus's
+// 'ok' now reads "complete", NOT "verified"; "verified · CrossRef" means
+// verified-against-the-world only. The badge is source-agnostic — a hand-typed
+// entry can never look verified.
+describe('verification label — completeness vs verification (never conflated)', () => {
+  it('a complete hand-typed entry reads "complete · not verified online", never "verified"', async () => {
+    // seed() is a fully-complete manual entry (all fields) with NO provenance.
+    renderCM({ localLibrary: makeMockLocalLibrary(), initialCitations: [seed({ id: 'm1', source: 'manual' })] });
+    await screen.findByTestId('citation-manager');
+
+    // list badge: "not verified online" — and NO "verified" chip
+    expect(screen.getByTestId('unverified-badge').textContent).toMatch(/not verified online/i);
+    expect(screen.queryByTestId('verified-badge')).toBeNull();
+
+    // detail panel splits the two axes explicitly
+    fireEvent.click(screen.getByTestId('cite-m1'));
+    expect(screen.getByTestId('detail-metadata').textContent).toMatch(/Metadata:\s*complete/i);
+    expect(screen.getByTestId('detail-verification').textContent).toMatch(/Verification:\s*not verified online/i);
+    // the dangerous conflation is gone: metadata-complete is NOT labeled "verified"
+    expect(screen.getByTestId('detail-metadata').textContent).not.toMatch(/verified/i);
+  });
+
+  it('a CrossRef-verified entry reads "verified · CrossRef" (existence confirmed)', async () => {
+    const verifiedEntry = seed({ id: 'v1', source: 'imported', provenance: ['crossref:https://api.crossref.org/works/10.1/seed'] });
+    renderCM({ localLibrary: makeMockLocalLibrary(), initialCitations: [verifiedEntry] });
+    await screen.findByTestId('citation-manager');
+
+    expect(screen.getByTestId('verified-badge').textContent).toMatch(/verified · CrossRef/i);
+    expect(screen.queryByTestId('unverified-badge')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('cite-v1'));
+    expect(screen.getByTestId('detail-verification').textContent).toMatch(/Verification:\s*verified · CrossRef/i);
+  });
+
+  it('the "not verified online" badge shows for EVERY source, not just imported', async () => {
+    const mk = (id: string, source: Citation['source']) => seed({ id, source });
+    renderCM({
+      localLibrary: makeMockLocalLibrary(),
+      initialCitations: [mk('c-manual', 'manual'), mk('c-extracted', 'extracted'), mk('c-doi', 'doi')],
+    });
+    await screen.findByTestId('citation-manager');
+    // all three unverified sources carry the badge — the old code showed it for 'imported' only
+    expect(screen.getAllByTestId('unverified-badge').length).toBe(3);
+  });
+
+  it('not_found and check_failed each render their own distinct state', async () => {
+    renderCM({
+      localLibrary: makeMockLocalLibrary(),
+      initialCitations: [
+        seed({ id: 'nf', source: 'imported', verifyOutcome: 'not_found' }),
+        seed({ id: 'cf', source: 'imported', verifyOutcome: 'check_failed' }),
+      ],
+    });
+    await screen.findByTestId('citation-manager');
+    expect(screen.getByTestId('badge-not-found').textContent).toMatch(/not found on CrossRef/i);
+    expect(screen.getByTestId('badge-check-failed').textContent).toMatch(/check failed/i);
+    expect(screen.queryByTestId('verified-badge')).toBeNull();
+  });
+});
+
 /* --------- consent: the from-file lane honors citation_verification ------ */
 // The from-file add resolves a paper's DOI against CrossRef — the SAME cloud
 // lane as add-by-DOI + the retraction sweep. Opt-out must be a HARD door:

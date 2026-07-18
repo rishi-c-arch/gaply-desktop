@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   AppShell,
   Badge,
+  BadgeStatus,
   Button,
   Card,
   GaplyGlobe,
@@ -26,6 +27,9 @@ import {
   parseDoi,
   STATUS_ICON,
   STATUS_LABEL,
+  verificationState,
+  VerificationState,
+  VERIFY_LABEL,
 } from './citationTypes';
 import { formatBibliography, formatCitation, canFormatStyle } from './formatCitation';
 import { prepareStyle, isStyleReady } from './cslEngine';
@@ -62,10 +66,13 @@ export interface CitationManagerPageProps {
 
 type CollectionId = 'all' | 'retracted' | 'orphans' | 'manuscript';
 
-/** An imported entry is "not verified online" until it gains CrossRef provenance
- *  (via the Set 2b-iii verify pass or add-by-DOI). It must NEVER look verified. */
-const importedUnverified = (c: Citation): boolean =>
-  c.source === 'imported' && !(c.provenance ?? []).some((p) => p.toLowerCase().includes('crossref'));
+/** Which entries the online-verify pass should target: anything not already
+ *  CrossRef-verified that carries a DOI to check. Source-agnostic — a manual or
+ *  extracted entry with a DOI is a valid target, not just imported ones. The
+ *  displayed state (verified / unverified / not-found / check-failed) comes from
+ *  verificationState(); this predicate just picks what's still worth checking. */
+const needsOnlineVerify = (c: Citation): boolean =>
+  verificationState(c) !== 'verified' && Boolean(c.doi ?? c.csl.DOI);
 
 /** A compact citation line (title · authors · year · DOI) for the review panel. */
 const CiteLine: React.FC<{ c: Citation }> = ({ c }) => {
@@ -543,7 +550,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
       toast('Citation verification is turned off in Settings → Sync & Privacy', 'assessed');
       return;
     }
-    const targets = citations.filter((c) => importedUnverified(c) && (c.doi ?? c.csl.DOI));
+    const targets = citations.filter(needsOnlineVerify);
     if (targets.length === 0) return;
     setVerifying(true);
     verifyCancelRef.current = false;
@@ -589,7 +596,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     toast(
       stopped
         ? `Verification stopped — ${done} checked (kept), the rest unchanged`
-        : `Verified ${done} imported ${done === 1 ? 'entry' : 'entries'} online`,
+        : `Verified ${done} ${done === 1 ? 'entry' : 'entries'} online`,
       'certain',
     );
   };
@@ -780,7 +787,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                           : 'Local only — sign in to enable optional sync'}
                   </div>
                   <div style={{ marginTop: 10, fontSize: 12, color: 'var(--g-text-3)' }}>
-                    Status: {STATUS_LABEL[computeStatus(selected)]}
+                    <div data-testid="detail-metadata">Metadata: {STATUS_LABEL[computeStatus(selected)]}</div>
+                    <div data-testid="detail-verification">Verification: {VERIFY_LABEL[verificationState(selected)]}</div>
                     {selected.provenance && selected.provenance.length > 0 && (
                       <div className="gds-mono" style={{ marginTop: 6 }} data-testid="detail-provenance">
                         {selected.provenance.slice(0, 3).join('  ·  ')}
@@ -952,7 +960,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
             )}
 
             {(() => {
-              const n = citations.filter((c) => importedUnverified(c) && (c.doi ?? c.csl.DOI)).length;
+              const n = citations.filter(needsOnlineVerify).length;
               if (n === 0 && !verifying) return null;
               const off = !mayUseCloud('citation_verification');
               return (
@@ -1007,15 +1015,29 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                           {c.csl.author[0]?.family ?? 'Unknown'} · {c.csl.issued?.year ?? 'n.d.'}
                           {c.retracted && ' · '}
                           {c.retracted && <Badge status="flagged">retracted</Badge>}
-                          {importedUnverified(c) && ' · '}
-                          {importedUnverified(c) &&
-                            (c.verifyOutcome === 'not_found' ? (
-                              <Badge status="flagged" data-testid="badge-not-found">not found on CrossRef</Badge>
-                            ) : c.verifyOutcome === 'check_failed' ? (
-                              <Badge status="assessed" data-testid="badge-check-failed">check failed — try again</Badge>
-                            ) : (
-                              <Badge status="assessed" data-testid="unverified-badge">imported · not verified online</Badge>
-                            ))}
+                          {' · '}
+                          {(() => {
+                            // Axis B — verification, shown for EVERY source. A complete
+                            // hand-typed entry reads "not verified online", never "verified".
+                            const vs = verificationState(c);
+                            const tone: Record<VerificationState, BadgeStatus> = {
+                              verified: 'certain',
+                              unverified: 'neutral',
+                              not_found: 'flagged',
+                              check_failed: 'assessed',
+                            };
+                            const tid: Record<VerificationState, string> = {
+                              verified: 'verified-badge',
+                              unverified: 'unverified-badge',
+                              not_found: 'badge-not-found',
+                              check_failed: 'badge-check-failed',
+                            };
+                            return (
+                              <Badge status={tone[vs]} data-testid={tid[vs]}>
+                                {VERIFY_LABEL[vs]}
+                              </Badge>
+                            );
+                          })()}
                         </span>
                       </span>
                     </button>
