@@ -47,11 +47,35 @@ describe('AiCheckReport — two-way in-document highlighting', () => {
     );
     expect(tiers.length).toBeGreaterThan(0);
     expect(new Set(tiers)).toEqual(new Set(['flagged', 'assessed']));
-    // "paraphrased" appears ONLY inside the honest unavailable lane, never
-    // as a passage label or color
-    const lane = screen.getByTestId('paraphrase-unavailable');
-    const outsideLane = container.textContent!.replace(lane.textContent!, '');
-    expect(outsideLane.toLowerCase()).not.toContain('paraphras');
+    // "paraphrased" appears ONLY inside honest "unavailable" cautions — the
+    // dedicated lane AND each passage's category-note (which SAYS the paraphrase
+    // distinction is unavailable, the opposite of surfacing a paraphrased
+    // verdict) — never as a determined passage label or a highlight color.
+    const excluded = [
+      screen.getByTestId('paraphrase-unavailable'),
+      ...Array.from(container.querySelectorAll('[data-testid$="category-note"]')),
+    ].map((el) => (el as HTMLElement).textContent ?? '');
+    let outside = container.textContent ?? '';
+    for (const t of excluded) outside = outside.replace(t, '');
+    expect(outside.toLowerCase()).not.toContain('paraphras');
+  });
+
+  it('Per-passage findings lists every flagged passage, numbered, with tier + evidence + cautions', () => {
+    render(<AiCheckReport result={AICHECK_FIXTURE} />);
+    const section = screen.getByTestId('per-passage-findings');
+    // the honest split sentence (deep-verified vs heuristic-only, templated)
+    expect(screen.getByTestId('findings-split').textContent).toMatch(
+      /1 of 2 flagged passages were deep-verified by the on-device model; the remaining 1 carry heuristic-only flags and are preliminary\./,
+    );
+    // one numbered finding per passage in the fixture (2)
+    const findings = within(section).getAllByText(/^Passage \d+$/);
+    expect(findings.map((n) => n.textContent)).toEqual(['Passage 1', 'Passage 2']);
+    // passage 1 is deep-verified, passage 2 heuristic-only — verbatim tier cautions
+    expect(screen.getByTestId('finding-0-depth-note').textContent).toMatch(/Deep-verified: the full on-device model/);
+    expect(screen.getByTestId('finding-1-depth-note').textContent).toMatch(/Heuristic-only: flagged by the fast pre-pass/);
+    // evidence (sentence perplexity table) rendered per finding, not click-gated
+    expect(screen.getByTestId('finding-0-sentences')).toBeTruthy();
+    expect(screen.getByTestId('finding-1-sentences')).toBeTruthy();
   });
 
   it('an all-clear document still renders every caution (nothing is flag-gated)', () => {
@@ -118,25 +142,26 @@ describe('AiCheckReport — the honest %', () => {
   });
 });
 
-describe('AiCheckReport — evidence inspector', () => {
-  it('clicking a highlight opens verbatim per-passage cautions and sentence evidence', () => {
+describe('AiCheckReport — highlight scrolls to its finding', () => {
+  it('evidence lives in the findings (no click-gated inspector); a highlight click emphasizes the matching finding', () => {
     render(<AiCheckReport result={AICHECK_FIXTURE} />);
+    // the click-one-at-a-time inspector is gone — evidence is ALWAYS present in
+    // the numbered findings (verbatim cautions + per-sentence table).
     expect(screen.queryByTestId('passage-inspector')).toBeNull();
-    fireEvent.click(screen.getByTestId('aicheck-highlight-0'));
-    const inspector = screen.getByTestId('passage-inspector');
-    expect(within(inspector).getByTestId('inspector-depth-note').textContent).toBe(
+    const f0 = screen.getByTestId('finding-0');
+    expect(within(f0).getByTestId('finding-0-depth-note').textContent).toBe(
       AICHECK_FIXTURE.analysis.passages[0].depth_note
     );
-    expect(within(inspector).getByTestId('inspector-uncertainty').textContent).toBe(
-      AICHECK_FIXTURE.analysis.passages[0].uncertainty
-    );
-    expect(within(inspector).getByTestId('inspector-category-note').textContent).toBe(
+    expect(within(f0).getByTestId('finding-0-category-note').textContent).toBe(
       AICHECK_FIXTURE.analysis.passages[0].category_note
     );
-    // per-sentence evidence rides along
-    expect(within(inspector).getByTestId('inspector-sentences').textContent).toContain('4.2');
-    // tier label is a signal level, not a verdict
-    expect(within(inspector).getByText('deep-verified signal')).toBeTruthy();
+    expect(within(f0).getByTestId('finding-0-sentences').textContent).toContain('4.2');
+    expect(within(f0).getByText('deep-verified signal')).toBeTruthy();
+    // a manuscript highlight click emphasizes (aria-current) its finding — the
+    // scroll target is unambiguous (id finding-0).
+    expect(f0.getAttribute('aria-current')).toBe('false');
+    fireEvent.click(screen.getByTestId('aicheck-highlight-0'));
+    expect(screen.getByTestId('finding-0').getAttribute('aria-current')).toBe('true');
   });
 });
 

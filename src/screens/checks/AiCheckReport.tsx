@@ -83,47 +83,84 @@ const tierOf = (p: AiCheckPassage) => (p.depth === 'deep_verified' ? 'flagged' :
 const tierLabel = (p: AiCheckPassage) =>
   p.depth === 'deep_verified' ? 'deep-verified signal' : 'heuristic-only (preliminary)';
 
-const PassageInspector: React.FC<{ passage: AiCheckPassage }> = ({ passage }) => (
-  <div data-testid="passage-inspector">
-    <Card title="Passage evidence">
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Badge status={tierOf(passage)}>{tierLabel(passage)}</Badge>
-        <Badge status="neutral">strength: {passage.strength}</Badge>
-        <span className="gds-mono" style={{ fontSize: 12, color: 'var(--g-text-3)' }}>
-          mean perplexity {passage.mean_perplexity.toFixed(1)} · burstiness{' '}
-          {passage.burstiness.toFixed(1)}
-        </span>
-      </div>
-      {/* the tier + passage cautions, verbatim */}
-      <p className="gds-jc__disclaimer" data-testid="inspector-depth-note">{passage.depth_note}</p>
-      <p className="gds-jc__disclaimer" data-testid="inspector-uncertainty">{passage.uncertainty}</p>
-      <p className="gds-jc__disclaimer" data-testid="inspector-category-note">{passage.category_note}</p>
-      {passage.gate_flags.length > 0 && (
-        <ul style={{ fontSize: 12, color: 'var(--g-text-3)' }} data-testid="inspector-gate-flags">
-          {passage.gate_flags.map((g, i) => (
-            <li key={i}>{g}</li>
-          ))}
-        </ul>
-      )}
-      <table style={{ width: '100%', fontSize: 12, marginTop: 8, borderCollapse: 'collapse' }} data-testid="inspector-sentences">
-        <thead>
-          <tr style={{ textAlign: 'left', color: 'var(--g-text-3)' }}>
-            <th style={{ paddingRight: 8 }}>sentence</th>
-            <th>perplexity</th>
+/** One passage's evidence — the badges, the tier + passage cautions (VERBATIM),
+ *  gate flags, and the per-sentence perplexity table. Shared by the click
+ *  inspector and each row of the Per-passage findings list; `prefix` keeps their
+ *  testids distinct (inspector-* vs finding-N-*). */
+const PassageEvidence: React.FC<{ passage: AiCheckPassage; prefix?: string }> = ({ passage, prefix = 'inspector' }) => (
+  <>
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      <Badge status={tierOf(passage)}>{tierLabel(passage)}</Badge>
+      <Badge status="neutral">strength: {passage.strength}</Badge>
+      <span className="gds-mono" style={{ fontSize: 12, color: 'var(--g-text-3)' }}>
+        mean perplexity {passage.mean_perplexity.toFixed(1)} · burstiness {passage.burstiness.toFixed(1)}
+      </span>
+    </div>
+    {/* the tier + passage cautions, verbatim */}
+    <p className="gds-jc__disclaimer" data-testid={`${prefix}-depth-note`}>{passage.depth_note}</p>
+    <p className="gds-jc__disclaimer" data-testid={`${prefix}-uncertainty`}>{passage.uncertainty}</p>
+    <p className="gds-jc__disclaimer" data-testid={`${prefix}-category-note`}>{passage.category_note}</p>
+    {passage.gate_flags.length > 0 && (
+      <ul style={{ fontSize: 12, color: 'var(--g-text-3)' }} data-testid={`${prefix}-gate-flags`}>
+        {passage.gate_flags.map((g, i) => (
+          <li key={i}>{g}</li>
+        ))}
+      </ul>
+    )}
+    <table style={{ width: '100%', fontSize: 12, marginTop: 8, borderCollapse: 'collapse' }} data-testid={`${prefix}-sentences`}>
+      <thead>
+        <tr style={{ textAlign: 'left', color: 'var(--g-text-3)' }}>
+          <th style={{ paddingRight: 8 }}>sentence</th>
+          <th>perplexity</th>
+        </tr>
+      </thead>
+      <tbody>
+        {passage.sentences.map((s, i) => (
+          <tr key={i}>
+            <td style={{ paddingRight: 8 }}>{s.text}</td>
+            <td className="gds-mono">{s.perplexity.toFixed(1)}</td>
           </tr>
-        </thead>
-        <tbody>
-          {passage.sentences.map((s, i) => (
-            <tr key={i}>
-              <td style={{ paddingRight: 8 }}>{s.text}</td>
-              <td className="gds-mono">{s.perplexity.toFixed(1)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Card>
-  </div>
+        ))}
+      </tbody>
+    </table>
+  </>
 );
+
+/** The Per-passage findings list — every flagged passage numbered, with its tier,
+ *  text, evidence, and cautions, so a supervisor can reference "passage 7". The
+ *  print report's §5, and the SINGLE evidence view on screen: a manuscript
+ *  highlight click scrolls to + emphasizes the matching finding here (no separate
+ *  inspector). Numbering matches the highlight index (`aicheck-highlight-N` → N+1). */
+const PerPassageFindings: React.FC<{ passages: AiCheckPassage[]; selected: AiCheckPassage | null }> = ({
+  passages,
+  selected,
+}) => {
+  if (passages.length === 0) return null;
+  const total = passages.length;
+  const deep = passages.filter((p) => p.depth === 'deep_verified').length;
+  const heuristic = total - deep;
+  return (
+    <Card title="Per-passage findings" data-testid="per-passage-findings">
+      <p className="gds-jc__disclaimer" data-testid="findings-split">
+        {deep} of {total} flagged passages were deep-verified by the on-device model; the remaining{' '}
+        {heuristic} carry heuristic-only flags and are preliminary.
+      </p>
+      {passages.map((p, i) => (
+        <div
+          key={i}
+          id={`finding-${i}`}
+          className={`gds-finding${p === selected ? ' gds-finding--current' : ''}`}
+          data-testid={`finding-${i}`}
+          aria-current={p === selected}
+        >
+          <p className="gds-finding__num">Passage {i + 1}</p>
+          <blockquote className="gds-finding__text">{p.text}</blockquote>
+          <PassageEvidence passage={p} prefix={`finding-${i}`} />
+        </div>
+      ))}
+    </Card>
+  );
+};
 
 const LEVEL_LABEL: Record<SignalLevel, string> = {
   high: 'High',
@@ -225,6 +262,20 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
   const { rendered, unplaced } = useMemo(() => segmentSections(result), [result]);
   const lang = analysis.language;
 
+  // A manuscript highlight click emphasizes + scrolls to the matching numbered
+  // finding (the single evidence view). scrolls even on re-click of the same
+  // passage; honors prefers-reduced-motion; guarded for jsdom (no scrollIntoView).
+  const emphasizeFinding = (passage: AiCheckPassage) => {
+    setSelected(passage);
+    const idx = analysis.passages.indexOf(passage);
+    if (idx < 0) return;
+    const el = typeof document !== 'undefined' ? document.getElementById(`finding-${idx}`) : null;
+    if (el && typeof el.scrollIntoView === 'function') {
+      const reduce = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+    }
+  };
+
   return (
     <div className="gds-report" data-testid="aicheck-report" style={{ display: 'grid', gap: 12 }}>
       {/* THE un-strippable caution — first thing on the report, verbatim */}
@@ -300,7 +351,7 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
                     data-tier={tierOf(seg.passage)}
                     data-testid={`aicheck-highlight-${seg.index}`}
                     aria-current={selected === seg.passage}
-                    onClick={() => setSelected(seg.passage)}
+                    onClick={() => emphasizeFinding(seg.passage)}
                     title="click to see the evidence"
                   >
                     {seg.passage.text}
@@ -321,7 +372,7 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
               className="gds-highlight"
               data-tier={tierOf(p)}
               data-testid={`aicheck-unplaced-${i}`}
-              onClick={() => setSelected(p)}
+              onClick={() => emphasizeFinding(p)}
               style={{ display: 'block', textAlign: 'left', marginBottom: 6 }}
             >
               {p.text}
@@ -330,7 +381,10 @@ const AiCheckReport: React.FC<AiCheckReportProps> = ({ result }) => {
         </Card>
       )}
 
-      {selected && <PassageInspector passage={selected} />}
+      {/* the full, referenceable findings list (print §5; the single on-screen
+          evidence view — a highlight click scrolls to + emphasizes its finding) */}
+      <PerPassageFindings passages={analysis.passages} selected={selected} />
+
 
       {/* the paraphrase lane — HONESTLY unavailable, never a fake category */}
       <section data-testid="paraphrase-unavailable" className="aic-callout aic-callout--muted">
