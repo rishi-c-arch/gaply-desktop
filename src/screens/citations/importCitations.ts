@@ -13,7 +13,7 @@
 // Worker is meaningful extra setup (citation-js in a worker) we don't need yet.
 import type { Cite as CiteType } from '@citation-js/core';
 import { Citation, CitationSource, CslItem } from './citationTypes';
-import { DedupeIndex, buildDedupeIndex, lookupDuplicate, addToDedupeIndex } from './dedupe';
+import { DedupeIndex, buildDedupeIndex, lookupDuplicate, addToDedupeIndex, fieldDelta, EnrichField } from './dedupe';
 
 export type ImportFormat = 'bibtex' | 'ris' | 'csl-json';
 
@@ -26,13 +26,21 @@ export interface SkippedEntry {
   candidate: Citation;
   match: Citation;
 }
+/** Set 2b-iv: a DOI-exact dup where the incoming entry has fields the existing
+ *  one LACKS — an OFFER to fill (never applied automatically). */
+export interface EnrichCandidate {
+  candidate: Citation; // the incoming, richer entry (its fields feed the fill)
+  match: Citation; // the existing entry that could be enriched (same DOI)
+  missingFields: EnrichField[]; // fields existing lacks that incoming supplies
+}
 export interface FailedEntry {
   raw: string;
   error: string;
 }
 export interface ImportPlan {
   added: Citation[]; // no match — safe to add
-  skipped: SkippedEntry[]; // Tier-1 DOI-exact dup (auto-skip, inspectable)
+  enrich: EnrichCandidate[]; // Tier-1 DOI dup, incoming is richer → OFFER to fill (2b-iv)
+  skipped: SkippedEntry[]; // Tier-1 DOI-exact dup, no new fields (auto-skip, inspectable)
   review: SkippedEntry[]; // Tier-2 title+year fuzzy — the user decides (2b-ii)
   failed: FailedEntry[]; // per-entry parse failures
   total: number; // raw entries seen (before the cap)
@@ -134,6 +142,7 @@ export async function planImport(
   const cap = opts.cap ?? IMPORT_ENTRY_CAP;
   const index: DedupeIndex = buildDedupeIndex(existing);
   const added: Citation[] = [];
+  const enrich: EnrichCandidate[] = [];
   const skipped: SkippedEntry[] = [];
   const review: SkippedEntry[] = [];
   const failed: FailedEntry[] = [];
@@ -150,6 +159,7 @@ export async function planImport(
     } catch (e) {
       return {
         added,
+        enrich,
         skipped,
         review,
         failed: [{ raw: text.slice(0, 200), error: `Not valid JSON: ${(e as Error).message}` }],
@@ -194,7 +204,15 @@ export async function planImport(
         added.push(cand);
         addToDedupeIndex(index, cand); // batch-internal: the next same entry now collides
       } else if (dup.tier === 'doi') {
-        skipped.push({ candidate: cand, match: dup.match });
+        // Same paper (DOI-certain). If the incoming carries fields the existing
+        // lacks, OFFER to fill them (2b-iv); otherwise it's a true no-op dup and
+        // is auto-skipped as before. Never a silent drop of useful data.
+        const missingFields = fieldDelta(dup.match, cand);
+        if (missingFields.length > 0) {
+          enrich.push({ candidate: cand, match: dup.match, missingFields });
+        } else {
+          skipped.push({ candidate: cand, match: dup.match });
+        }
       } else {
         review.push({ candidate: cand, match: dup.match });
         addToDedupeIndex(index, cand); // keep-both default: it exists for later matches too
@@ -207,5 +225,5 @@ export async function planImport(
     }
   }
   opts.onProgress?.(limit, limit);
-  return { added, skipped, review, failed, total, capped };
+  return { added, enrich, skipped, review, failed, total, capped };
 }

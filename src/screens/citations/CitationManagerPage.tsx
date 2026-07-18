@@ -46,8 +46,8 @@ import { CitationResolveBridge, metadataToCslItem, TauriCitationResolve } from '
 import { pickManuscriptPath } from '../common/pickFile';
 import { isTauri } from '../../utils/isTauri';
 import { exportBibliographyText, exportSerialized, saveExportToFile } from './exporters';
-import { findDuplicate, normalizeDoi } from './dedupe';
-import { planImport, detectFormat, ImportPlan, SkippedEntry, IMPORT_ENTRY_CAP } from './importCitations';
+import { findDuplicate, normalizeDoi, applyEnrichment, ENRICH_FIELD_LABEL } from './dedupe';
+import { planImport, detectFormat, ImportPlan, SkippedEntry, EnrichCandidate, IMPORT_ENTRY_CAP } from './importCitations';
 import './citations.css';
 
 export interface CitationManagerPageProps {
@@ -149,6 +149,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   // default), so abandoning the panel loses nothing; the panel only lets the user
   // Skip (remove) confirmed dups. Never a gate.
   const [reviewQueue, setReviewQueue] = useState<SkippedEntry[]>([]);
+  const [enrichQueue, setEnrichQueue] = useState<EnrichCandidate[]>([]);
   // Online verify pass (Set 2b-iii)
   const [verifying, setVerifying] = useState(false);
   const [verifyProgress, setVerifyProgress] = useState<{ done: number; total: number } | null>(null);
@@ -483,6 +484,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
       await applyImported([...plan.added, ...plan.review.map((r) => r.candidate)]);
       setImportReport(plan);
       setReviewQueue(plan.review); // the fuzzy set, applied but open to refinement
+      setEnrichQueue(plan.enrich); // DOI-exact dups with richer incoming — offered, NOT applied
 
       if (plan.capped) {
         toast(`Imported the first ${IMPORT_ENTRY_CAP} of ${plan.total} — import the rest in a second file`, 'assessed');
@@ -532,6 +534,24 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     setReviewQueue([]);
   };
   const reviewKeepAll = () => setReviewQueue([]); // all stay — the default, made explicit
+
+  /* ------- enrichment (Set 2b-iv): fill-only, DOI-exact, user-decided ------ *
+   * Default is NO change — enrichment mutates a possibly hand-edited row, so it
+   * applies NOTHING until the user clicks Fill. Index-keyed (a file could hold
+   * the same DOI twice → same match), and applyEnrichment is fill-only, so even
+   * that edge can never overwrite a populated field. */
+  const enrichFillAt = async (i: number) => {
+    const item = enrichQueue[i];
+    if (!item) return;
+    await persistUpdate(applyEnrichment(item.match, item.candidate)); // same id → fills gaps in place
+    setEnrichQueue((q) => q.filter((_, j) => j !== i));
+  };
+  const enrichKeepAt = (i: number) => setEnrichQueue((q) => q.filter((_, j) => j !== i)); // leave existing as-is
+  const enrichFillAll = async () => {
+    for (const item of enrichQueue) await persistUpdate(applyEnrichment(item.match, item.candidate));
+    setEnrichQueue([]);
+  };
+  const enrichKeepAll = () => setEnrichQueue([]); // all left as-is — the default, made explicit
 
   /* ------- online verify pass (Set 2b-iii): imported-unverified → verified -- */
   // Update one citation in place (same id) after a verify result.
@@ -878,6 +898,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
               <div className="gds-cite-import-report" data-testid="import-report">
                 <p className="gds-cite-import-tally" data-testid="import-tally">
                   {importReport.added.length} added
+                  {importReport.enrich.length > 0 && ` · ${importReport.enrich.length} can be enriched`}
                   {importReport.review.length > 0 && ` · ${importReport.review.length} kept as possible duplicates`}
                   {' · '}{importReport.skipped.length} skipped as duplicates
                   {' · '}{importReport.failed.length} failed to parse
@@ -951,6 +972,51 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                         </Button>
                         <Button variant="ghost" data-testid="review-skip" onClick={() => void reviewSkip(r.candidate.id)}>
                           Skip
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {enrichQueue.length > 0 && (
+              <div className="gds-cite-review" data-testid="enrich-panel">
+                <div className="gds-cite-review__head">
+                  <span data-testid="enrich-count">
+                    {enrichQueue.length} can be enriched — your entry is missing fields the import has (nothing changes until you choose)
+                  </span>
+                  <span className="gds-cite-review__bulk">
+                    <Button variant="secondary" data-testid="enrich-fill-all" onClick={() => void enrichFillAll()}>
+                      Fill all
+                    </Button>
+                    <Button variant="ghost" data-testid="enrich-keep-all" onClick={enrichKeepAll}>
+                      Keep all as-is
+                    </Button>
+                  </span>
+                </div>
+                <div className="gds-cite-review__list">
+                  {enrichQueue.map((e, i) => (
+                    <div key={i} className="gds-cite-review__item" data-testid="enrich-item">
+                      <div className="gds-cite-review__cols">
+                        <div className="gds-cite-review__col">
+                          <span className="gds-cite-review__tag">In your library</span>
+                          <CiteLine c={e.match} />
+                        </div>
+                        <div className="gds-cite-review__col">
+                          <span className="gds-cite-review__tag">Imported (same DOI)</span>
+                          <CiteLine c={e.candidate} />
+                        </div>
+                      </div>
+                      <p style={{ fontSize: 12, margin: '6px 0', color: 'var(--g-text-3)' }} data-testid="enrich-missing">
+                        Your entry is missing: {e.missingFields.map((f) => ENRICH_FIELD_LABEL[f]).join(', ')} — fill from the import?
+                      </p>
+                      <div className="gds-cite-review__actions">
+                        <Button variant="secondary" data-testid="enrich-fill" onClick={() => void enrichFillAt(i)}>
+                          Fill missing fields
+                        </Button>
+                        <Button variant="ghost" data-testid="enrich-keep" onClick={() => enrichKeepAt(i)}>
+                          Keep as-is
                         </Button>
                       </div>
                     </div>

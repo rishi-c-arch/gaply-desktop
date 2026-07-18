@@ -270,6 +270,59 @@ describe('import — parse/dedupe/report, never a network call', () => {
   });
 });
 
+/* ----------- import enrichment offer (Set 2b-iv, fill-only) -------------- */
+// A DOI-exact dup whose incoming entry is RICHER than the existing one is no
+// longer silently dropped — it's OFFERED as a fill-only enrichment. Nothing
+// changes until the user clicks Fill; a populated field is never overwritten.
+describe('import — enrichment offer (fill-only, never silent)', () => {
+  const bibFile = (text: string) => new File([text], 'lib.bib', { type: 'text/plain' });
+  // a THIN existing entry: title/author/year/DOI, but NO journal/volume/pages
+  const thin = (): Citation => ({
+    id: 'thin',
+    csl: { id: 's', type: 'article-journal', title: 'Thin Paper', author: [{ family: 'Doe', given: 'Jane' }], issued: { year: 2020 }, DOI: '10.1/e' },
+    doi: '10.1/e',
+    retracted: false,
+    source: 'imported',
+  });
+  // same DOI, richer: adds journal + volume + pages
+  const RICH = `@article{e, title={Thin Paper}, author={Doe, Jane}, journal={J. Enrich}, volume={5}, pages={10--20}, year={2020}, doi={10.1/e}}`;
+
+  const importRich = async () => {
+    const lib = makeMockLocalLibrary();
+    renderCM({ localLibrary: lib, initialCitations: [thin()] });
+    await screen.findByTestId('citation-manager');
+    fireEvent.change(screen.getByTestId('import-input'), { target: { files: [bibFile(RICH)] } });
+    await screen.findByTestId('import-report');
+    return lib;
+  };
+
+  it('never silent: shows "can be enriched" in the tally + a prominent panel, and changes NOTHING yet', async () => {
+    const lib = await importRich();
+    expect(screen.getByTestId('import-tally').textContent).toMatch(/can be enriched/i);
+    expect(screen.getByTestId('enrich-panel')).toBeTruthy();
+    expect(screen.getByTestId('enrich-missing').textContent).toMatch(/journal/i);
+    // default = no change: the existing row was never written
+    expect(lib.rows.get('thin')).toBeUndefined();
+  });
+
+  it('Fill fills the gaps in place (same id), keeps the title, and dismisses the offer', async () => {
+    const lib = await importRich();
+    fireEvent.click(screen.getByTestId('enrich-fill'));
+    await waitFor(() => expect(screen.queryByTestId('enrich-panel')).toBeNull());
+    const row = lib.rows.get('thin'); // persisted under the SAME id
+    expect(row).toBeTruthy();
+    expect(row?.csl_json).toMatch(/J\. Enrich/); // journal filled from the import
+    expect(row?.csl_json).toMatch(/Thin Paper/); // existing title untouched
+  });
+
+  it('Keep as-is leaves the existing entry exactly as-is (no write)', async () => {
+    const lib = await importRich();
+    fireEvent.click(screen.getByTestId('enrich-keep'));
+    await waitFor(() => expect(screen.queryByTestId('enrich-panel')).toBeNull());
+    expect(lib.rows.get('thin')).toBeUndefined(); // never written — left exactly as-is
+  });
+});
+
 /* ------------------ import fuzzy review panel (Set 2b-ii) ---------------- */
 describe('import — fuzzy review panel', () => {
   // A library entry with a title+year and NO DOI → an import of the same

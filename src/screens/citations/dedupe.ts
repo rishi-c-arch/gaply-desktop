@@ -15,7 +15,7 @@
 // it. The robust long-term guarantee is a DOI-normalized guard in
 // `gaply_core::citation_library::upsert` (recorded as optional hardening); until
 // then, dedupe lives here and only here.
-import { Citation } from './citationTypes';
+import { Citation, CslItem } from './citationTypes';
 
 /** Normalize a DOI for comparison: lowercase, strip the doi.org / dx.doi.org
  *  URL and `doi:` prefixes, a trailing slash, and surrounding whitespace.
@@ -111,4 +111,89 @@ export function addToDedupeIndex(index: DedupeIndex, c: Citation): void {
   if (dk && !index.byDoi.has(dk)) index.byDoi.set(dk, c);
   const tk = titleYearKeyOf(c);
   if (tk && !index.byTitleYear.has(tk)) index.byTitleYear.set(tk, c);
+}
+
+/* ---- Enrichment (Set 2b-iv): fill-only merge for DOI-exact duplicates --- *
+ * A Tier-1 DOI match is a CERTAIN same-paper identity, so when the incoming
+ * entry carries fields the existing one lacks, we can safely OFFER to fill them.
+ * The rule is FILL-ONLY: enrichment fills fields the existing entry is MISSING
+ * and NEVER overwrites a field it already has. That exclusion is the whole
+ * safety story — a hand-edited title/journal that differs from the import is
+ * left exactly as-is, because it is never in the delta. Pure + deterministic;
+ * the page decides WHEN to apply (never silent, never automatic). */
+
+/** The enrichable CSL fields, in a stable order (deterministic delta + UI). */
+export type EnrichField = 'title' | 'author' | 'issued' | 'containerTitle' | 'volume' | 'issue' | 'page' | 'URL';
+const ENRICH_FIELDS: EnrichField[] = ['title', 'author', 'issued', 'containerTitle', 'volume', 'issue', 'page', 'URL'];
+
+/** Human-readable names for the enrichment offer UI ("missing: journal, pages"). */
+export const ENRICH_FIELD_LABEL: Record<EnrichField, string> = {
+  title: 'title',
+  author: 'authors',
+  issued: 'year',
+  containerTitle: 'journal',
+  volume: 'volume',
+  issue: 'issue',
+  page: 'pages',
+  URL: 'URL',
+};
+
+/** Is an enrichable field empty (missing / blank) on this citation? */
+function isFieldEmpty(c: Citation, f: EnrichField): boolean {
+  const m = c.csl;
+  switch (f) {
+    case 'author':
+      return (m.author?.length ?? 0) === 0;
+    case 'issued':
+      return m.issued?.year == null;
+    case 'title':
+      return !m.title;
+    default:
+      return !m[f]; // containerTitle | volume | issue | page | URL
+  }
+}
+
+/** Fields the EXISTING entry lacks but the INCOMING one has. Never includes a
+ *  field the existing already holds — that exclusion is what keeps fill-only
+ *  enrichment from clobbering hand-edits. */
+export function fieldDelta(existing: Citation, incoming: Citation): EnrichField[] {
+  return ENRICH_FIELDS.filter((f) => isFieldEmpty(existing, f) && !isFieldEmpty(incoming, f));
+}
+
+/** Fill-only merge: a NEW citation = existing with ONLY its missing fields
+ *  filled from incoming. Keeps existing's id / doi / source / tags / retracted;
+ *  touches ONLY the csl gaps in fieldDelta. A populated field is NEVER changed. */
+export function applyEnrichment(existing: Citation, incoming: Citation): Citation {
+  const delta = fieldDelta(existing, incoming);
+  if (delta.length === 0) return existing;
+  const csl: CslItem = { ...existing.csl };
+  for (const f of delta) {
+    switch (f) {
+      case 'author':
+        csl.author = incoming.csl.author;
+        break;
+      case 'issued':
+        csl.issued = { year: incoming.csl.issued?.year };
+        break;
+      case 'title':
+        if (incoming.csl.title) csl.title = incoming.csl.title;
+        break;
+      case 'containerTitle':
+        csl.containerTitle = incoming.csl.containerTitle;
+        break;
+      case 'volume':
+        csl.volume = incoming.csl.volume;
+        break;
+      case 'issue':
+        csl.issue = incoming.csl.issue;
+        break;
+      case 'page':
+        csl.page = incoming.csl.page;
+        break;
+      case 'URL':
+        csl.URL = incoming.csl.URL;
+        break;
+    }
+  }
+  return { ...existing, csl };
 }

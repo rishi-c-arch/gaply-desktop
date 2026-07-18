@@ -10,7 +10,7 @@ const existing = (over: Partial<Citation> & { title?: string; year?: number; doi
     id: 's',
     type: 'article-journal',
     title: over.title ?? 'Existing',
-    author: [],
+    author: [{ family: 'Prior' }], // populated → a same-DOI import that only re-supplies authors adds nothing
     ...(over.year != null ? { issued: { year: over.year } } : {}),
     ...(over.doi ? { DOI: over.doi } : {}),
   },
@@ -95,6 +95,36 @@ describe('planImport — dedupe', () => {
     expect(plan.added.length).toBe(1);
     expect(plan.skipped.length).toBe(0);
     expect(plan.review.length).toBe(0);
+  });
+});
+
+describe('planImport — enrichment routing (2b-iv)', () => {
+  // a rich .bib entry (journal/volume/issue/pages) for the SAME DOI as a thin lib entry
+  const RICH = `@article{r, title={Rich Paper}, author={Doe, Jane}, journal={J. Rest}, volume={12}, number={3}, pages={1--9}, year={2020}, doi={10.1/rich}}`;
+
+  it('pin b: richer incoming on a THIN existing → enrich (NOT skipped), with the right missingFields', async () => {
+    const lib = [existing({ id: 'thin', doi: '10.1/rich', title: 'Rich Paper', year: 2020 })]; // no journal/vol/issue/page
+    const plan = await planImport(RICH, 'bibtex', lib);
+    expect(plan.added.length).toBe(0);
+    expect(plan.skipped.length).toBe(0);
+    expect(plan.enrich.length).toBe(1);
+    expect(plan.enrich[0].match.id).toBe('thin');
+    expect(plan.enrich[0].missingFields).toEqual(expect.arrayContaining(['containerTitle', 'volume', 'issue', 'page']));
+  });
+
+  it('pin b: thinner/equal incoming on a RICH existing → skipped (true no-op dup, NOT offered)', async () => {
+    const rich: Citation = {
+      id: 'rich',
+      csl: { id: 's', type: 'article-journal', title: 'Rich Paper', author: [{ family: 'Doe', given: 'Jane' }], issued: { year: 2020 }, DOI: '10.1/rich', containerTitle: 'J. Rest', volume: '12', issue: '3', page: '1-9' },
+      doi: '10.1/rich',
+      retracted: false,
+      source: 'manual',
+    };
+    const thinBib = `@article{t, title={Rich Paper}, author={Doe, Jane}, year={2020}, doi={10.1/rich}}`;
+    const plan = await planImport(thinBib, 'bibtex', [rich]);
+    expect(plan.enrich.length).toBe(0);
+    expect(plan.skipped.length).toBe(1);
+    expect(plan.skipped[0].match.id).toBe('rich');
   });
 });
 
