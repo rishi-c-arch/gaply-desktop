@@ -39,6 +39,9 @@ export interface Citation {
    *  'check_failed' (a network error; retriable). Absent = never attempted, or
    *  verified (verification adds CrossRef provenance instead). */
   verifyOutcome?: 'not_found' | 'check_failed';
+  /** Scope B: epoch (ms) of the CrossRef confirmation, persisted so a verified
+   *  entry can show when it was verified. Absent = never verified online. */
+  verifiedAt?: number | null;
   /** Local-first (Set 4): tags on this reference. */
   tags?: string[];
   /** Local-first (Set 4): honest sync marker (local sqlite is the truth). */

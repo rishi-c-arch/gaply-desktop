@@ -600,13 +600,28 @@ pub fn citation_lib_upsert(
     csl_json: serde_json::Value,
     doi: Option<String>,
     tags: Option<Vec<String>>,
+    // Scope B: the persisted verification/retraction facts. All optional so an
+    // omitting caller defaults to a not-retracted, unverified entry.
+    retracted: Option<bool>,
+    source: Option<String>,
+    verify_provenance: Option<Vec<String>>,
+    verify_outcome: Option<String>,
+    verified_at: Option<i64>,
 ) -> Result<gaply_core::citation_library::StoredReference, GaplyError> {
+    let verify = gaply_core::citation_library::VerificationWrite {
+        retracted: retracted.unwrap_or(false),
+        source,
+        verify_provenance: verify_provenance.unwrap_or_default(),
+        verify_outcome,
+        verified_at,
+    };
     gaply_core::citation_library::upsert(
         &state.db,
         &id,
         &csl_json.to_string(),
         doi.as_deref(),
         &tags.unwrap_or_default(),
+        &verify,
     )
 }
 

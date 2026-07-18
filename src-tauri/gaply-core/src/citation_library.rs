@@ -35,13 +35,35 @@ pub struct StoredReference {
     pub authors: String,
     pub year: Option<i64>,
     pub tags: Vec<String>,
+    /// Scope B: persisted verification + retraction facts (EXTERNAL — from
+    /// refverify/CrossRef/Retraction Watch — NOT derived from csl_json). These
+    /// survive a reload so a retracted paper never reads clean after restart and
+    /// a verified entry stays verified.
+    pub retracted: bool,
+    pub source: Option<String>,
+    pub verify_provenance: Vec<String>,
+    pub verify_outcome: Option<String>,
+    pub verified_at: Option<i64>,
     pub sync_status: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
+/// The external verification/retraction facts written alongside a reference
+/// (Scope B). Default = a fresh, unverified, not-retracted entry — what every
+/// pre-Scope-B call site wants, so those pass `&Default::default()`.
+#[derive(Debug, Clone, Default)]
+pub struct VerificationWrite {
+    pub retracted: bool,
+    pub source: Option<String>,
+    pub verify_provenance: Vec<String>,
+    pub verify_outcome: Option<String>,
+    pub verified_at: Option<i64>,
+}
+
 fn row_to_reference(row: &rusqlite::Row) -> rusqlite::Result<StoredReference> {
     let tags_json: String = row.get(6)?;
+    let prov_json: Option<String> = row.get(12)?;
     Ok(StoredReference {
         id: row.get(0)?,
         csl_json: row.get(1)?,
@@ -53,11 +75,18 @@ fn row_to_reference(row: &rusqlite::Row) -> rusqlite::Result<StoredReference> {
         sync_status: row.get(7)?,
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
+        // Scope B columns (10..14). NULL/absent → not-retracted, unverified.
+        retracted: row.get::<_, i64>(10)? != 0,
+        source: row.get(11)?,
+        verify_provenance: prov_json.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+        verify_outcome: row.get(13)?,
+        verified_at: row.get(14)?,
     })
 }
 
 const COLS: &str =
-    "id, csl_json, doi, title, authors, year, tags, sync_status, created_at, updated_at";
+    "id, csl_json, doi, title, authors, year, tags, sync_status, created_at, updated_at, \
+     retracted, source, verify_provenance, verify_outcome, verified_at";
 
 /// Derive the search columns from the verified CSL-JSON. Absent → empty/None
 /// (parsed, never invented).
@@ -94,6 +123,7 @@ pub fn upsert(
     csl_json: &str,
     doi: Option<&str>,
     tags: &[String],
+    verify: &VerificationWrite,
 ) -> Result<StoredReference, GaplyError> {
     if id.trim().is_empty() {
         return Err(GaplyError::Validation("reference id must not be empty".into()));
@@ -104,11 +134,15 @@ pub fn upsert(
     let doi = doi.map(str::to_string).or(doi_from_json);
     let tags_json = serde_json::to_string(tags)
         .map_err(|e| GaplyError::Internal(format!("tags serialize: {e}")))?;
+    // Provenance persists as a JSON array string; empty → "[]".
+    let prov_json = serde_json::to_string(&verify.verify_provenance)
+        .map_err(|e| GaplyError::Internal(format!("provenance serialize: {e}")))?;
     let now = now_epoch();
     db.conn()?.execute(
         "INSERT INTO citation_library
-             (id, csl_json, doi, title, authors, year, tags, sync_status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'local_only', ?8, ?8)
+             (id, csl_json, doi, title, authors, year, tags, sync_status, created_at, updated_at,
+              retracted, source, verify_provenance, verify_outcome, verified_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'local_only', ?8, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(id) DO UPDATE SET
              csl_json = excluded.csl_json,
              doi = excluded.doi,
@@ -117,8 +151,16 @@ pub fn upsert(
              year = excluded.year,
              tags = excluded.tags,
              sync_status = 'local_only',
-             updated_at = excluded.updated_at",
-        params![id, csl_json, doi, title, authors, year, tags_json, now],
+             updated_at = excluded.updated_at,
+             retracted = excluded.retracted,
+             source = excluded.source,
+             verify_provenance = excluded.verify_provenance,
+             verify_outcome = excluded.verify_outcome,
+             verified_at = excluded.verified_at",
+        params![
+            id, csl_json, doi, title, authors, year, tags_json, now,
+            verify.retracted as i64, verify.source, prov_json, verify.verify_outcome, verify.verified_at
+        ],
     )?;
     get(db, id)?.ok_or_else(|| GaplyError::Internal("upsert lost the row".into()))
 }
@@ -230,15 +272,15 @@ mod tests {
         let d = db();
         // in_memory() runs migrations; prove the table by using it.
         assert!(list(&d).unwrap().is_empty());
-        let conn_check = upsert(&d, "wc1953", WATSON_CSL, None, &[]);
+        let conn_check = upsert(&d, "wc1953", WATSON_CSL, None, &[], &Default::default());
         assert!(conn_check.is_ok());
     }
 
     #[test]
     fn add_list_search_tag_fully_local() {
         let d = db();
-        upsert(&d, "wc1953", WATSON_CSL, None, &["dna".into()]).unwrap();
-        upsert(&d, "sp1", SPARSE_CSL, None, &[]).unwrap();
+        upsert(&d, "wc1953", WATSON_CSL, None, &["dna".into()], &Default::default()).unwrap();
+        upsert(&d, "sp1", SPARSE_CSL, None, &[], &Default::default()).unwrap();
 
         // list
         let all = list(&d).unwrap();
@@ -271,7 +313,7 @@ mod tests {
     #[test]
     fn sparse_csl_derives_empty_search_columns_never_invented() {
         let d = db();
-        let r = upsert(&d, "sp1", SPARSE_CSL, None, &[]).unwrap();
+        let r = upsert(&d, "sp1", SPARSE_CSL, None, &[], &Default::default()).unwrap();
         assert_eq!(r.doi, None, "no DOI in the JSON → no DOI column, not a guess");
         assert_eq!(r.year, Some(2024));
     }
@@ -279,14 +321,14 @@ mod tests {
     #[test]
     fn mutations_reset_sync_status_and_markers_are_honest() {
         let d = db();
-        let r = upsert(&d, "wc1953", WATSON_CSL, None, &[]).unwrap();
+        let r = upsert(&d, "wc1953", WATSON_CSL, None, &[], &Default::default()).unwrap();
         assert_eq!(r.sync_status, "local_only", "new refs are honestly local-only");
 
         set_sync_status(&d, "wc1953", "synced").unwrap();
         assert_eq!(get(&d, "wc1953").unwrap().unwrap().sync_status, "synced");
 
         // an edit makes 'synced' a lie — the row resets to local_only
-        upsert(&d, "wc1953", WATSON_CSL, None, &["edited".into()]).unwrap();
+        upsert(&d, "wc1953", WATSON_CSL, None, &["edited".into()], &Default::default()).unwrap();
         assert_eq!(get(&d, "wc1953").unwrap().unwrap().sync_status, "local_only");
 
         set_sync_status(&d, "wc1953", "pending").unwrap();
@@ -300,11 +342,43 @@ mod tests {
     #[test]
     fn delete_and_invalid_input_paths() {
         let d = db();
-        upsert(&d, "wc1953", WATSON_CSL, None, &[]).unwrap();
+        upsert(&d, "wc1953", WATSON_CSL, None, &[], &Default::default()).unwrap();
         delete(&d, "wc1953").unwrap();
         assert!(list(&d).unwrap().is_empty());
-        assert!(upsert(&d, " ", WATSON_CSL, None, &[]).is_err());
-        assert!(upsert(&d, "x", "not json", None, &[]).is_err());
+        assert!(upsert(&d, " ", WATSON_CSL, None, &[], &Default::default()).is_err());
+        assert!(upsert(&d, "x", "not json", None, &[], &Default::default()).is_err());
         assert!(set_tags(&d, "missing", &[]).is_err());
+    }
+
+    #[test]
+    fn scope_b_verification_and_retraction_round_trip() {
+        let d = db();
+        let verify = VerificationWrite {
+            retracted: true,
+            source: Some("doi".into()),
+            verify_provenance: vec!["crossref:https://api.crossref.org/works/x".into()],
+            verify_outcome: None,
+            verified_at: Some(1234),
+        };
+        upsert(&d, "wc1953", WATSON_CSL, None, &[], &verify).unwrap();
+
+        // The facts survive the write → read round-trip, via both get() and list().
+        let r = get(&d, "wc1953").unwrap().unwrap();
+        assert!(r.retracted, "retracted MUST survive — a retracted paper cannot read clean");
+        assert_eq!(r.source.as_deref(), Some("doi"));
+        assert_eq!(r.verify_provenance, vec!["crossref:https://api.crossref.org/works/x".to_string()]);
+        assert_eq!(r.verify_outcome, None);
+        assert_eq!(r.verified_at, Some(1234));
+
+        let from_list = list(&d).unwrap().into_iter().find(|x| x.id == "wc1953").unwrap();
+        assert!(from_list.retracted);
+        assert_eq!(from_list.verify_provenance.len(), 1);
+
+        // A default (unverified, not-retracted) upsert reads back honest.
+        upsert(&d, "sp1", SPARSE_CSL, None, &[], &Default::default()).unwrap();
+        let plain = get(&d, "sp1").unwrap().unwrap();
+        assert!(!plain.retracted);
+        assert!(plain.verify_provenance.is_empty());
+        assert_eq!((plain.verify_outcome, plain.verified_at), (None, None));
     }
 }

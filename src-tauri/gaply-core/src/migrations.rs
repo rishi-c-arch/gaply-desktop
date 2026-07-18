@@ -291,6 +291,39 @@ pub const MIGRATIONS: &[Migration] = &[
             ALTER TABLE plagiarism_library DROP COLUMN citation_id;
         ",
     },
+    Migration {
+        version: 11,
+        name: "citation_library_verification_persist",
+        // Citation Manager Scope B: persist the VERIFICATION + RETRACTION facts
+        // that were session-only and vanished on reload. The top bug this fixes:
+        // a CrossRef+Retraction-Watch-confirmed retracted paper read CLEAN after
+        // a restart because the frontend storedToCitation hardcoded retracted:false.
+        // These are EXTERNAL facts (from refverify), NOT derivable from csl_json,
+        // so they get their own columns.
+        //
+        // ADDITIVE + SAFE: every column is nullable or NOT NULL DEFAULT 0 (a
+        // constant SQLite applies to existing rows). No UNIQUE, no backfill, no
+        // rewrite — existing rows read back retracted=0 / unverified, identical to
+        // today's behavior (zero regression). It CANNOT half-apply into corruption:
+        // nothing existing is modified, and migrate_up is version-gated so a re-run
+        // resumes cleanly. The DOI-normalized upsert guard is DELIBERATELY a
+        // separate later migration (a UNIQUE index can abort on pre-existing
+        // duplicate DOIs — a different risk needing a dedup-existing-rows step).
+        up: "
+            ALTER TABLE citation_library ADD COLUMN retracted INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE citation_library ADD COLUMN source TEXT;
+            ALTER TABLE citation_library ADD COLUMN verify_provenance TEXT;
+            ALTER TABLE citation_library ADD COLUMN verify_outcome TEXT;
+            ALTER TABLE citation_library ADD COLUMN verified_at INTEGER;
+        ",
+        down: "
+            ALTER TABLE citation_library DROP COLUMN verified_at;
+            ALTER TABLE citation_library DROP COLUMN verify_outcome;
+            ALTER TABLE citation_library DROP COLUMN verify_provenance;
+            ALTER TABLE citation_library DROP COLUMN source;
+            ALTER TABLE citation_library DROP COLUMN retracted;
+        ",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -433,6 +466,7 @@ mod tests {
         assert_eq!(
             reverted,
             vec![
+                "citation_library_verification_persist",
                 "plagiarism_library_citation_link",
                 "notes",
                 "plagiarism_library",
@@ -489,7 +523,7 @@ mod tests {
         // citation_id = NULL (additive, no data loss).
         let mut conn = test_connection();
         migrate_up(&mut conn).unwrap(); // reaches latest, but we re-check post-state
-        // roll back the single v10 to stand at v9 with a pre-existing row
+        // roll back to v9 (peels v11 + v10) to stand with a pre-existing row
         migrate_down(&mut conn, 9).unwrap();
         assert_eq!(current_version(&conn).unwrap(), 9);
         assert!(!column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -500,10 +534,11 @@ mod tests {
         )
         .unwrap();
 
-        // apply v10
+        // re-apply: v10 adds citation_id (the subject here); v11 rides along and
+        // does not touch plagiarism_library. The pre-existing row survives either way.
         let applied = migrate_up(&mut conn).unwrap();
-        assert_eq!(applied, vec!["plagiarism_library_citation_link"]);
-        assert_eq!(current_version(&conn).unwrap(), 10);
+        assert_eq!(applied, vec!["plagiarism_library_citation_link", "citation_library_verification_persist"]);
+        assert_eq!(current_version(&conn).unwrap(), 11);
 
         // the column + index now exist; the pre-existing row is intact, NULL id
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -526,16 +561,79 @@ mod tests {
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
         assert!(index_exists(&conn, "idx_plagiarism_library_citation"));
 
-        // down one version: the column + index are gone, the table remains
+        // peel v11 off first so this test stays isolated to v10's down.
+        migrate_down(&mut conn, 10).unwrap();
+        // down one more: v10's column + index are gone, the table remains
         let reverted = migrate_down(&mut conn, 9).unwrap();
         assert_eq!(reverted, vec!["plagiarism_library_citation_link"]);
         assert!(!column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
         assert!(!index_exists(&conn, "idx_plagiarism_library_citation"));
         assert!(table_names(&conn).iter().any(|t| t == "plagiarism_library"));
 
-        // and it re-applies cleanly (idempotent up after a partial down)
+        // and it re-applies cleanly (idempotent up after a partial down): v10 + v11
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["plagiarism_library_citation_link"]);
+        assert_eq!(reapplied, vec!["plagiarism_library_citation_link", "citation_library_verification_persist"]);
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
+    }
+
+    #[test]
+    fn v11_adds_five_verification_columns_additively_no_data_loss() {
+        // Simulate an EXISTING db that predates v11: stand at v10 with a citation
+        // row, THEN apply v11 — the row must survive with retracted defaulting to
+        // 0 and the verification columns NULL (additive, no rewrite).
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        migrate_down(&mut conn, 10).unwrap(); // roll back the single v11 → stand at v10
+        assert_eq!(current_version(&conn).unwrap(), 10);
+        for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
+            assert!(!column_names(&conn, "citation_library").iter().any(|n| n == c), "{c} should not exist yet");
+        }
+        conn.execute(
+            "INSERT INTO citation_library (id, csl_json, doi, title, authors, year, tags, sync_status, created_at, updated_at)
+             VALUES ('old', '{}', NULL, 'Old Ref', '', NULL, '[]', 'local_only', 1, 1)",
+            [],
+        )
+        .unwrap();
+
+        // apply v11
+        let applied = migrate_up(&mut conn).unwrap();
+        assert_eq!(applied, vec!["citation_library_verification_persist"]);
+        assert_eq!(current_version(&conn).unwrap(), 11);
+        for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
+            assert!(column_names(&conn, "citation_library").iter().any(|n| n == c), "missing column {c}");
+        }
+
+        // the pre-existing row is intact: retracted defaulted to 0, verify cols NULL
+        let (title, retracted, source, prov, outcome, vat): (String, i64, Option<String>, Option<String>, Option<String>, Option<i64>) = conn
+            .query_row(
+                "SELECT title, retracted, source, verify_provenance, verify_outcome, verified_at
+                 FROM citation_library WHERE id = 'old'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+            )
+            .unwrap();
+        assert_eq!(title, "Old Ref");
+        assert_eq!(retracted, 0, "existing row is not-retracted by default — no regression");
+        assert_eq!((source, prov, outcome, vat), (None, None, None, None), "verify cols NULL, no guess");
+    }
+
+    #[test]
+    fn v11_down_removes_the_five_columns_reversibly() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
+            assert!(column_names(&conn, "citation_library").iter().any(|n| n == c));
+        }
+
+        let reverted = migrate_down(&mut conn, 10).unwrap();
+        assert_eq!(reverted, vec!["citation_library_verification_persist"]);
+        for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
+            assert!(!column_names(&conn, "citation_library").iter().any(|n| n == c), "{c} should be dropped");
+        }
+        assert!(table_names(&conn).iter().any(|t| t == "citation_library"), "table itself remains");
+
+        // re-applies cleanly (idempotent up after a partial down)
+        let reapplied = migrate_up(&mut conn).unwrap();
+        assert_eq!(reapplied, vec!["citation_library_verification_persist"]);
     }
 }

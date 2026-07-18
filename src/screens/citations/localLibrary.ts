@@ -3,7 +3,7 @@
 // citation_library service is demoted to an OPTIONAL sync layer the page
 // drives on top, with honest per-reference sync status. No LLM, no proxy.
 import { isTauri } from '../../utils/isTauri';
-import { Citation, CslItem } from './citationTypes';
+import { Citation, CitationSource, CslItem, verificationState } from './citationTypes';
 
 export type SyncStatus = 'local_only' | 'pending' | 'synced';
 
@@ -16,6 +16,12 @@ export interface StoredReference {
   authors: string;
   year: number | null;
   tags: string[];
+  // Scope B: persisted verification + retraction facts (durable across reload).
+  retracted: boolean;
+  source: string | null;
+  verify_provenance: string[];
+  verify_outcome: string | null;
+  verified_at: number | null;
   sync_status: SyncStatus;
   created_at: number;
   updated_at: number;
@@ -58,8 +64,13 @@ export function storedToCitation(r: StoredReference): Citation {
     id: r.id,
     csl,
     doi: r.doi,
-    retracted: false,
-    source: 'manual',
+    // Scope B: read the persisted facts instead of hardcoding. A retracted paper
+    // stays flagged after reload; a verified entry keeps its CrossRef provenance.
+    retracted: !!r.retracted,
+    source: (r.source ?? 'manual') as CitationSource,
+    provenance: r.verify_provenance ?? [],
+    verifyOutcome: (r.verify_outcome as 'not_found' | 'check_failed' | null) ?? undefined,
+    verifiedAt: r.verified_at ?? undefined,
     tags: r.tags,
     syncStatus: r.sync_status,
   };
@@ -93,11 +104,21 @@ export class TauriLocalLibrary implements LocalLibrary {
   }
 
   upsert(c: Citation, tags: string[]) {
+    // Scope B: persist the verification/retraction facts alongside the CSL-JSON.
+    // verifiedAt is stamped once, the first time an entry is CrossRef-verified,
+    // and preserved thereafter (storedToCitation reads it back into c.verifiedAt).
+    const verifiedAt =
+      c.verifiedAt ?? (verificationState(c) === 'verified' ? Date.now() : null);
     return this.invoke<StoredReference>('citation_lib_upsert', {
       id: c.id,
       cslJson: citationToCslJson(c),
       doi: c.doi,
       tags,
+      retracted: c.retracted,
+      source: c.source,
+      verifyProvenance: c.provenance ?? [],
+      verifyOutcome: c.verifyOutcome ?? null,
+      verifiedAt,
     });
   }
   list() {
@@ -131,6 +152,12 @@ export function makeMockLocalLibrary(): LocalLibrary & { rows: Map<string, Store
       authors: c.csl.author.map((a) => [a.family, a.given].filter(Boolean).join(', ')).join('; '),
       year: c.csl.issued?.year ?? null,
       tags,
+      // Scope B: mirror the Rust store — persist the verification/retraction facts.
+      retracted: c.retracted,
+      source: c.source ?? null,
+      verify_provenance: c.provenance ?? [],
+      verify_outcome: c.verifyOutcome ?? null,
+      verified_at: c.verifiedAt ?? null,
       sync_status: 'local_only',
       created_at: prev?.created_at ?? 1,
       updated_at: (prev?.updated_at ?? 0) + 1,

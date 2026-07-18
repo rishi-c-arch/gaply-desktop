@@ -10,8 +10,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GaplySessionProvider } from '../session/SessionProvider';
 import type { AuthService } from '../../services/supabase';
 import CitationManagerPage from './CitationManagerPage';
-import { makeMockLocalLibrary, StoredReference } from './localLibrary';
-import { Citation } from './citationTypes';
+import { makeMockLocalLibrary, StoredReference, storedToCitation } from './localLibrary';
+import { Citation, verificationState } from './citationTypes';
 
 vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
@@ -158,5 +158,48 @@ describe('optional Supabase sync (local is the truth)', () => {
       expect(row.sync_status).toBe('pending');
     });
     expect(screen.getByTestId('cm-sync-status').textContent).not.toMatch(/Synced/);
+  });
+});
+
+/* -------- Scope B: verification + retraction survive a reload ------------ */
+// The persistence round-trip through the local store: upsert → list →
+// storedToCitation. Before Scope B, storedToCitation hardcoded retracted:false
+// and dropped provenance, so a retracted paper read CLEAN after restart.
+describe('Scope B — verification + retraction survive a reload', () => {
+  const mk = (over: Partial<Citation>): Citation => ({
+    id: 'r1',
+    csl: { id: 's', type: 'article-journal', title: 'Paper', author: [{ family: 'Doe' }], issued: { year: 2020 }, DOI: '10.1/x' },
+    doi: '10.1/x',
+    retracted: false,
+    source: 'imported',
+    ...over,
+  });
+  const roundTrip = async (c: Citation): Promise<Citation> => {
+    const local = makeMockLocalLibrary();
+    await local.upsert(c, []);
+    return storedToCitation((await local.list())[0]); // reload from the store
+  };
+
+  it('RETRACTED survives: a retracted entry reads back retracted — never clean after restart', async () => {
+    const reloaded = await roundTrip(mk({ id: 'ret', retracted: true }));
+    expect(reloaded.retracted).toBe(true); // THE safety fix
+  });
+
+  it('VERIFIED survives: CrossRef provenance persists → still "verified · CrossRef"', async () => {
+    const reloaded = await roundTrip(mk({ id: 'ver', provenance: ['crossref:https://api.crossref.org/works/x'] }));
+    expect(verificationState(reloaded)).toBe('verified');
+    expect(reloaded.provenance).toContain('crossref:https://api.crossref.org/works/x');
+  });
+
+  it('UNCHECKED stays honest: no provenance → "not verified online"', async () => {
+    const reloaded = await roundTrip(mk({ id: 'plain' }));
+    expect(verificationState(reloaded)).toBe('unverified');
+    expect(reloaded.retracted).toBe(false);
+  });
+
+  it('verify_outcome (not_found) and source survive the reload too', async () => {
+    const reloaded = await roundTrip(mk({ id: 'nf', source: 'imported', verifyOutcome: 'not_found' }));
+    expect(verificationState(reloaded)).toBe('not_found');
+    expect(reloaded.source).toBe('imported'); // no longer hardcoded to 'manual'
   });
 });
