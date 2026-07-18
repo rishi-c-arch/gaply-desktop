@@ -356,3 +356,133 @@ fn verify_reference_aggregates_all_connectors_and_flags_retraction() {
         assert!(sources.contains(&s), "missing provenance for {s}: {sources:?}");
     }
 }
+
+// --- retraction detection (the Wakefield bug fix) ---------------------------
+
+#[test]
+fn crossref_retracted_title_prefix_sets_hint() {
+    let db = Database::in_memory().unwrap();
+    let http = MockHttpFetcher::new().route(
+        "api.crossref.org/works/",
+        200,
+        r#"{"message":{"DOI":"10.1/abc","title":["RETRACTED: Ileal-lymphoid-nodular hyperplasia"]}}"#,
+    );
+    let lim = ApiRateLimiters::default();
+    match crossref_lookup(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap() {
+        ConnectorOutcome::Found(c) => assert_eq!(c.is_retracted_hint, Some(true)),
+        other => panic!("expected Found, got {other:?}"),
+    }
+}
+
+#[test]
+fn crossref_updated_by_retraction_sets_hint() {
+    // The signal on the ORIGINAL paper's record — a clean title but updated-by has it.
+    let db = Database::in_memory().unwrap();
+    let http = MockHttpFetcher::new().route(
+        "api.crossref.org/works/",
+        200,
+        r#"{"message":{"DOI":"10.1/abc","title":["A Clean-Looking Title"],
+            "updated-by":[{"type":"correction"},{"type":"retraction","DOI":"10.1/notice"}]}}"#,
+    );
+    let lim = ApiRateLimiters::default();
+    match crossref_lookup(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap() {
+        ConnectorOutcome::Found(c) => assert_eq!(c.is_retracted_hint, Some(true)),
+        other => panic!("expected Found, got {other:?}"),
+    }
+}
+
+#[test]
+fn crossref_clean_paper_hint_is_none() {
+    let db = Database::in_memory().unwrap();
+    let http = MockHttpFetcher::new().route(
+        "api.crossref.org/works/",
+        200,
+        r#"{"message":{"DOI":"10.1/abc","title":["A Perfectly Fine Study"]}}"#,
+    );
+    let lim = ApiRateLimiters::default();
+    match crossref_lookup(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap() {
+        ConnectorOutcome::Found(c) => assert_eq!(c.is_retracted_hint, None),
+        other => panic!("expected Found, got {other:?}"),
+    }
+}
+
+#[test]
+fn crossref_title_mentioning_retracted_does_not_trip() {
+    // NO FALSE POSITIVE: a paper ABOUT retractions — "retracted" mid-title, no
+    // anchored prefix, no updated-by — must stay unknown (None), not flagged.
+    let db = Database::in_memory().unwrap();
+    let http = MockHttpFetcher::new().route(
+        "api.crossref.org/works/",
+        200,
+        r#"{"message":{"DOI":"10.1/abc","title":["A systematic review of retracted papers in oncology"]}}"#,
+    );
+    let lim = ApiRateLimiters::default();
+    match crossref_lookup(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap() {
+        ConnectorOutcome::Found(c) => assert_eq!(c.is_retracted_hint, None, "mid-title 'retracted' must not trip"),
+        other => panic!("expected Found, got {other:?}"),
+    }
+}
+
+#[test]
+fn retraction_watch_reads_updated_by_on_original_paper() {
+    // The original-paper lookup carries the relation in updated-by, not update-to.
+    let db = Database::in_memory().unwrap();
+    let http = MockHttpFetcher::new().route(
+        "api.labs.crossref.org/works/",
+        200,
+        r#"{"message":{"updated-by":[{"type":"retraction","DOI":"10.1/notice","label":"Retraction"}]}}"#,
+    );
+    let lim = ApiRateLimiters::default();
+    match retraction_watch_check(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap() {
+        ConnectorOutcome::Found(r) => {
+            assert!(r.retracted, "updated-by retraction must be read");
+            assert_eq!(r.notice_url.as_deref(), Some("https://doi.org/10.1/notice"));
+        }
+        other => panic!("expected Found, got {other:?}"),
+    }
+}
+
+#[test]
+fn verify_reference_openalex_is_retracted_flags_when_crossref_found_clean() {
+    // CrossRef finds the work with NO retraction signal, retraction_watch clean —
+    // but OpenAlex says is_retracted. It must still flag (dedicated OpenAlex signal,
+    // not just an existence fallback).
+    let db = Database::in_memory().unwrap();
+    let http = MockHttpFetcher::new()
+        .route("api.crossref.org/works/", 200, r#"{"message":{"DOI":"10.1/abc","title":["A Clean Title"]}}"#)
+        .route("api.labs.crossref.org/works/", 200, r#"{"message":{}}"#)
+        .route("api.openalex.org/works/", 200, r#"{"id":"https://openalex.org/W1","doi":"https://doi.org/10.1/abc","title":"A Clean Title","is_retracted":true,"publication_year":2019}"#);
+    let lim = ApiRateLimiters::default();
+    let report = verify_reference(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap();
+    assert!(report.verified_exists());
+    assert!(report.is_retracted(), "OpenAlex is_retracted must flag even when CrossRef found the work");
+}
+
+#[test]
+fn verify_reference_clean_paper_is_not_retracted() {
+    // NO OVER-CLAIM (the Naidu case): every signal says clean → must NOT flag.
+    let db = Database::in_memory().unwrap();
+    let http = MockHttpFetcher::new()
+        .route("api.crossref.org/works/", 200, r#"{"message":{"DOI":"10.1/abc","title":["A Legitimate Needlestick Injury Study"]}}"#)
+        .route("api.labs.crossref.org/works/", 200, r#"{"message":{}}"#)
+        .route("api.openalex.org/works/", 200, r#"{"id":"https://openalex.org/W2","doi":"https://doi.org/10.1/abc","title":"A Legitimate Needlestick Injury Study","is_retracted":false,"publication_year":2023}"#);
+    let lim = ApiRateLimiters::default();
+    let report = verify_reference(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap();
+    assert!(report.verified_exists());
+    assert!(!report.is_retracted(), "a clean paper must NOT be flagged retracted");
+}
+
+#[test]
+fn verify_reference_flags_the_wakefield_failure_mode_end_to_end() {
+    // The exact bug: found by DOI, CrossRef title carries the RETRACTED: prefix +
+    // updated-by[retraction]; retraction_watch (labs) updated-by; OpenAlex is_retracted.
+    // Every independent signal fires — the report must flag retracted.
+    let db = Database::in_memory().unwrap();
+    let http = MockHttpFetcher::new()
+        .route("api.crossref.org/works/", 200, r#"{"message":{"DOI":"10.1/abc","title":["RETRACTED: Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children"],"updated-by":[{"type":"retraction","DOI":"10.1/notice"}]}}"#)
+        .route("api.labs.crossref.org/works/", 200, r#"{"message":{"updated-by":[{"type":"retraction","DOI":"10.1/notice","label":"Retraction"}]}}"#)
+        .route("api.openalex.org/works/", 200, r#"{"id":"https://openalex.org/W3","doi":"https://doi.org/10.1/abc","title":"RETRACTED: ...","is_retracted":true,"publication_year":1998}"#);
+    let lim = ApiRateLimiters::default();
+    let report = verify_reference(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap();
+    assert!(report.is_retracted(), "the Wakefield failure mode must now flag retracted");
+}

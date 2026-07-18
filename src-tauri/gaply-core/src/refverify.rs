@@ -587,6 +587,35 @@ pub struct Enrichment {
 // Connectors
 // ============================================================================
 
+/// Detect retraction from a CrossRef work, using the two signals CrossRef puts
+/// on the ORIGINAL paper's own `/works/{doi}` record:
+///   1. the canonical `"RETRACTED:"` / `"RETRACTED ARTICLE:"` title PREFIX, and
+///   2. an `updated-by[]` entry of `type == "retraction"` (the `update-to`
+///      relation lives on the retraction NOTICE, not the original — which is
+///      why checking `update-to` alone missed it).
+/// The prefix match is ANCHORED (starts_with, with the colon) so a title that
+/// merely mentions "retracted" — e.g. a paper ABOUT retractions — never trips.
+/// Returns `Some(true)` when detected, else `None` (unknown — never `Some(false)`,
+/// which would over-claim "confirmed not retracted").
+fn crossref_retraction_hint(work: &serde_json::Value) -> Option<bool> {
+    let title_prefixed = work["title"][0]
+        .as_str()
+        .map(|t| {
+            let u = t.trim_start().to_ascii_uppercase();
+            u.starts_with("RETRACTED:") || u.starts_with("RETRACTED ARTICLE:")
+        })
+        .unwrap_or(false);
+    let updated_by_retraction = work["updated-by"]
+        .as_array()
+        .map(|arr| {
+            arr.iter().any(|u| {
+                u["type"].as_str().map(|t| t.eq_ignore_ascii_case("retraction")).unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+    if title_prefixed || updated_by_retraction { Some(true) } else { None }
+}
+
 /// CrossRef — existence by DOI (`/works/{doi}`) or bibliographic title query.
 pub fn crossref_lookup(
     ctx: &VerifyContext,
@@ -637,7 +666,7 @@ pub fn crossref_lookup(
                 title,
                 matched_authors,
                 matched_year,
-                is_retracted_hint: None,
+                is_retracted_hint: crossref_retraction_hint(work),
                 provenance,
             }))
         }
@@ -731,16 +760,21 @@ pub fn retraction_watch_check(
             }
             notice_url = notice_url.or_else(|| v["notice_url"].as_str().map(|s| s.to_string()));
 
-            // CrossRef-Labs shape: message.update-to[] with type "retraction"
-            if let Some(updates) = v["message"]["update-to"].as_array() {
-                for u in updates {
-                    let is_retraction = u["type"].as_str().map(|t| t.eq_ignore_ascii_case("retraction")).unwrap_or(false);
-                    if is_retraction {
-                        retracted = true;
-                        if let Some(label) = u["label"].as_str() {
-                            reasons.push(UntrustedText::new(label, provenance.clone()));
+            // CrossRef shape: message.update-to[] carries the relation on the
+            // retraction NOTICE; message.updated-by[] carries it on the ORIGINAL
+            // paper (the DOI users actually look up). Both use {type:"retraction"}
+            // — read BOTH so an original-paper lookup is not missed.
+            for key in ["update-to", "updated-by"] {
+                if let Some(updates) = v["message"][key].as_array() {
+                    for u in updates {
+                        let is_retraction = u["type"].as_str().map(|t| t.eq_ignore_ascii_case("retraction")).unwrap_or(false);
+                        if is_retraction {
+                            retracted = true;
+                            if let Some(label) = u["label"].as_str() {
+                                reasons.push(UntrustedText::new(label, provenance.clone()));
+                            }
+                            notice_url = notice_url.or_else(|| u["DOI"].as_str().map(|d| format!("https://doi.org/{d}")));
                         }
-                        notice_url = notice_url.or_else(|| u["DOI"].as_str().map(|d| format!("https://doi.org/{d}")));
                     }
                 }
             }
@@ -923,6 +957,25 @@ pub fn verify_reference(
             report.warnings.push(format!("retraction_watch: rate-limited, retry after {retry_after_secs}s"))
         }
         ConnectorOutcome::Unavailable { detail } => report.warnings.push(detail),
+    }
+
+    // OpenAlex tracks retractions explicitly (`is_retracted`), but its existence
+    // lookup only runs as a CrossRef FALLBACK — so when CrossRef confirmed the
+    // work, that flag was never fetched. Consult OpenAlex here as a dedicated,
+    // independent retraction signal (cached + rate-limited) and OR a positive
+    // verdict into the report. Skip the extra call when OpenAlex was already the
+    // existence source (its hint is already in `exists`). Only ever sets
+    // Some(true) — never overrides toward "clean".
+    if report.exists.as_ref().map(|e| e.source) != Some("openalex") {
+        if let ConnectorOutcome::Found(c) = openalex_lookup(ctx, reference, now)? {
+            if c.is_retracted_hint == Some(true) {
+                report.provenance.push(c.provenance.clone());
+                match report.exists.as_mut() {
+                    Some(e) => e.is_retracted_hint = Some(true),
+                    None => report.exists = Some(c),
+                }
+            }
+        }
     }
 
     // --- open access --------------------------------------------------------
