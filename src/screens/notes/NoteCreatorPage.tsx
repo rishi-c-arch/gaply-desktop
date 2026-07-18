@@ -134,7 +134,14 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
   // joined by a --- rule. Respects the filter because it emits from `list`.
   const exportAllShown = async () => {
     if (!list || list.length === 0) return;
-    await saveNoteFile(tagFilter ? `notes-${tagFilter}.md` : 'notes.md', notesToMarkdown(list));
+    setError(null);
+    try {
+      // saveNoteFile returns null on cancel (silent no-op) and only THROWS on a
+      // real write failure — so this catch surfaces genuine failures, not cancels.
+      await saveNoteFile(tagFilter ? `notes-${tagFilter}.md` : 'notes.md', notesToMarkdown(list));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save the export');
+    }
   };
 
   const quickCapture = async () => {
@@ -236,11 +243,12 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
                 onSave={save}
                 onDelete={editing.kind === 'paper-edit' ? () => remove(editing.note.id) : undefined}
                 onClose={() => setEditing(null)}
+                onError={setError}
                 busy={busy}
               />
             )}
             {editing && editing.kind === 'project-edit' && (
-              <ProjectNoteEditor id={editing.note.id} existing={editing.note} onSave={save} onDelete={() => remove(editing.note.id)} onClose={() => setEditing(null)} busy={busy} />
+              <ProjectNoteEditor id={editing.note.id} existing={editing.note} onSave={save} onDelete={() => remove(editing.note.id)} onClose={() => setEditing(null)} busy={busy} onError={setError} />
             )}
 
             {/* Unified search across BOTH note types */}

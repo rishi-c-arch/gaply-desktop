@@ -27,11 +27,13 @@ export interface PaperNoteEditorProps {
   onDelete?: () => void;
   onClose: () => void;
   busy?: boolean;
+  /** Surface a genuine export write-failure (null clears). Cancel stays silent. */
+  onError?: (msg: string | null) => void;
 }
 
 type Quote = { text: string; page: string };
 
-const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paperText, fullTextExpected, onSave, onDelete, onClose, busy }) => {
+const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paperText, fullTextExpected, onSave, onDelete, onClose, busy, onError }) => {
   const initial = useMemo<PaperNoteFields>(() => (existing ? parseFields(existing) : {}), [existing]);
 
   const [title, setTitle] = useState(existing?.title ?? '');
@@ -81,11 +83,18 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
 
   // Export the current note as structured Markdown (heading per filled field).
   const exportMd = async () => {
-    const md = noteToMarkdown(
-      { note_type: 'paper', title: title.trim(), paper_title: base.paper_title, body: '', tags: splitTags() },
-      currentFields(),
-    );
-    await saveNoteFile(exportFileName(title || base.paper_title, 'paper-note'), md);
+    onError?.(null); // clear any prior export error
+    try {
+      const md = noteToMarkdown(
+        { note_type: 'paper', title: title.trim(), paper_title: base.paper_title, body: '', tags: splitTags() },
+        currentFields(),
+      );
+      // saveNoteFile returns null on cancel (silent) and only THROWS on a real
+      // write failure — so only genuine failures reach this catch.
+      await saveNoteFile(exportFileName(title || base.paper_title, 'paper-note'), md);
+    } catch (e) {
+      onError?.(e instanceof Error ? e.message : 'Could not save the export');
+    }
   };
 
   const field = (label: string, node: React.ReactNode, hint?: string) => (

@@ -11,11 +11,18 @@ vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
 }));
 
-const { saved } = vi.hoisted(() => ({ saved: [] as Array<{ name: string; md: string }> }));
+// The mock models saveNoteFile's real contract: 'throw' = a genuine write
+// failure (rejects); 'cancel' = dialog dismissed (resolves null); 'ok' = written
+// (resolves a path). Cancel and success are both silent to the caller.
+const { saved, behavior } = vi.hoisted(() => ({
+  saved: [] as Array<{ name: string; md: string }>,
+  behavior: { mode: 'ok' as 'ok' | 'cancel' | 'throw' },
+}));
 vi.mock('./saveNoteFile', () => ({
   saveNoteFile: (name: string, md: string) => {
     saved.push({ name, md });
-    return Promise.resolve(null);
+    if (behavior.mode === 'throw') return Promise.reject(new Error('disk full: No space left on device'));
+    return Promise.resolve(behavior.mode === 'cancel' ? null : '/Users/x/notes.md');
   },
 }));
 
@@ -24,7 +31,7 @@ import { makeMockNotesBridge, Note } from './notesBridge';
 import { makeMockPaperSource } from './paperSource';
 
 afterEach(cleanup);
-beforeEach(() => { saved.length = 0; });
+beforeEach(() => { saved.length = 0; behavior.mode = 'ok'; });
 
 const seed = (): Note[] => [
   { id: 'p1', note_type: 'paper', paper_id: 'cite-w', paper_title: 'Nucleic Acids', title: 'Watson notes',
@@ -110,5 +117,45 @@ describe('Note export — per-note from the editor', () => {
     expect(saved[0].md).toContain('# Watson notes');
     expect(saved[0].md).toContain('## Key findings');
     expect(saved[0].md).toContain('> a structure (p. 737)');
+  });
+});
+
+describe('Note export — write failures surface honestly; cancel & success stay silent', () => {
+  it('a genuine write failure (saveNoteFile throws) shows an error message', async () => {
+    behavior.mode = 'throw';
+    renderPage();
+    await screen.findByTestId('note-list');
+    fireEvent.click(screen.getByTestId('notes-export-all'));
+    const err = await screen.findByTestId('note-error'); // the honest failure message
+    expect(err.textContent).toMatch(/no space|disk full|could not save/i);
+  });
+
+  it('CANCEL (saveNoteFile returns null) shows NOTHING — a silent no-op', async () => {
+    behavior.mode = 'cancel';
+    renderPage();
+    await screen.findByTestId('note-list');
+    fireEvent.click(screen.getByTestId('notes-export-all'));
+    await waitFor(() => expect(saved.length).toBe(1)); // export ran…
+    expect(screen.queryByTestId('note-error')).toBeNull(); // …and stayed silent (not an error)
+  });
+
+  it('SUCCESS (saveNoteFile resolves a path) shows NOTHING', async () => {
+    behavior.mode = 'ok';
+    renderPage();
+    await screen.findByTestId('note-list');
+    fireEvent.click(screen.getByTestId('notes-export-all'));
+    await waitFor(() => expect(saved.length).toBe(1));
+    expect(screen.queryByTestId('note-error')).toBeNull();
+  });
+
+  it('per-note editor export also surfaces a write failure', async () => {
+    behavior.mode = 'throw';
+    renderPage();
+    await screen.findByTestId('note-list');
+    fireEvent.click(screen.getByTestId('note-row-j1')); // open the project editor
+    await screen.findByTestId('project-note-editor');
+    fireEvent.click(screen.getByTestId('project-export'));
+    const err = await screen.findByTestId('note-error');
+    expect(err.textContent).toMatch(/no space|disk full|could not save/i);
   });
 });

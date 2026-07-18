@@ -16,9 +16,11 @@ export interface ProjectNoteEditorProps {
   onDelete?: () => void;
   onClose: () => void;
   busy?: boolean;
+  /** Surface a genuine export write-failure (null clears). Cancel stays silent. */
+  onError?: (msg: string | null) => void;
 }
 
-const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onSave, onDelete, onClose, busy }) => {
+const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onSave, onDelete, onClose, busy, onError }) => {
   const [title, setTitle] = useState(existing?.title ?? '');
   const [body, setBody] = useState(existing?.body ?? '');
   const [tags, setTags] = useState((existing?.tags ?? []).join(', '));
@@ -39,11 +41,18 @@ const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onS
 
   // Export the current note as Markdown (title + body + tags). Pure emit → save.
   const exportMd = async () => {
-    const md = noteToMarkdown(
-      { note_type: 'project', title: title.trim(), paper_title: '', body: body.trim(), tags: splitTags() },
-      {},
-    );
-    await saveNoteFile(exportFileName(title, 'note'), md);
+    onError?.(null); // clear any prior export error
+    try {
+      const md = noteToMarkdown(
+        { note_type: 'project', title: title.trim(), paper_title: '', body: body.trim(), tags: splitTags() },
+        {},
+      );
+      // saveNoteFile returns null on cancel (silent) and only THROWS on a real
+      // write failure — so only genuine failures reach this catch.
+      await saveNoteFile(exportFileName(title, 'note'), md);
+    } catch (e) {
+      onError?.(e instanceof Error ? e.message : 'Could not save the export');
+    }
   };
 
   return (
