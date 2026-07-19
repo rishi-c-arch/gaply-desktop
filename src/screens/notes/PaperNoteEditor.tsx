@@ -1,16 +1,23 @@
-// Gaply — the per-paper structured note editor (Set 4). A GUIDED 8-field
-// template (all OPTIONAL / free-form) that encourages the researcher's OWN
-// words: key_findings + my_evaluation are framed "in your own words"; exact
-// copied text goes ONLY in the distinct, page-numbered notable_quotes field, so
-// copying is deliberate and citable — never the default. NOTHING auto-summarizes
-// the paper: there is no model and NO "generate my notes" button anywhere. The
-// thinking stays the researcher's.
+// Gaply — the per-paper structured note editor (Set 4), "Academic Focus"
+// redesign ported from the Stitch paper_note_editor_desktop screen. The GUIDED
+// 8-field template (all OPTIONAL / free-form) that encourages the researcher's
+// OWN words: key_findings + my_evaluation are framed "in your own words"; exact
+// copied text goes ONLY in the distinct, page-numbered notable_quotes field.
+// NOTHING auto-summarizes the paper: no model, no "generate" button — the
+// mock's "Scholar Assistant" AI bubble is deliberately NOT ported ("Gaply never
+// writes your notes for you"). Same props/testids/behavior as before.
 import React, { useMemo, useState } from 'react';
-import { Badge, Button, Card } from '../../design-system';
 import MarkdownRenderer from '../../components/MarkdownRenderer';
 import { NoteDraft, PaperNoteFields, parseFields, Note } from './notesBridge';
 import { noteToMarkdown, exportFileName, ExportableNote } from './noteExport';
 import { saveNoteFile } from './saveNoteFile';
+import { IcBack, IcEye, IcExport, IcTrash, IcSave, IcAdd, IcEditNote } from './NotesIcons';
+import FontScale from './FontScale';
+import './notes.css';
+
+/** Honest reading time from the actual export text (~200 wpm, ceil). */
+export const readingMinutes = (text: string): number =>
+  Math.max(1, Math.ceil(text.split(/\s+/).filter(Boolean).length / 200));
 
 export interface PaperNoteEditorProps {
   /** The note being created/edited — paper_id + paper_title preset by the picker. */
@@ -48,6 +55,7 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
   const [quotes, setQuotes] = useState<Quote[]>(
     (initial.notable_quotes ?? []).map((q) => ({ text: q.text ?? '', page: q.page != null ? String(q.page) : '' }))
   );
+  const [preview, setPreview] = useState(false);
 
   // Assemble the current field values into the template shape (skip-empties).
   // Shared by save() and export so the two never drift.
@@ -69,7 +77,6 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
   };
 
   const splitTags = () => tags.split(',').map((t) => t.trim()).filter(Boolean);
-  const [preview, setPreview] = useState(false);
 
   // The exact ExportableNote both export AND preview use — one source, no drift.
   const buildExportable = (): ExportableNote => ({
@@ -105,111 +112,176 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
     }
   };
 
-  const field = (label: string, node: React.ReactNode, hint?: string) => (
-    <label style={{ display: 'grid', gap: 4 }}>
-      <span style={{ fontWeight: 600, fontSize: 13 }}>{label}</span>
-      {hint && <span className="gds-jc__disclaimer" style={{ margin: 0 }}>{hint}</span>}
-      {node}
-    </label>
-  );
-  const area = (v: string, set: (s: string) => void, placeholder: string, testid: string) => (
-    <textarea className="gds-note__area" rows={3} value={v} placeholder={placeholder} data-testid={testid} onChange={(e) => set(e.target.value)} />
-  );
-
   const editor = (
-    <div style={{ display: 'grid', gap: 14 }} data-testid="paper-note-editor">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Badge status="certain">🟢 your reading notes</Badge>
+    <div className="an-canvas" data-testid="paper-note-editor">
+      {/* Context line: which paper these reading notes anchor to */}
+      <div className="an-crumbs-path" style={{ marginBottom: -16 }}>
+        <span>Reading notes on</span>
         <strong data-testid="editor-paper-title">{base.paper_title || 'Untitled paper'}</strong>
-        {!base.paper_id && <Badge status="neutral">free-typed paper</Badge>}
+        {!base.paper_id && <span>· free-typed paper</span>}
+      </div>
+      {/* 1. Note title */}
+      <section>
+        <label className="an-label">Note Title</label>
+        <input className="an-title-input" value={title} placeholder="Enter the focus of this paper note…" data-testid="note-title" onChange={(e) => setTitle(e.target.value)} />
+      </section>
+
+      {/* 2. Citation */}
+      <section>
+        <label className="an-label">Citation (APA/MLA)</label>
+        <input className="an-cite-input" value={citation} placeholder="Add source details…" data-testid="field-citation" onChange={(e) => setCitation(e.target.value)} />
+      </section>
+
+      {/* 3+4. Research question / methodology */}
+      <div className="an-two-col">
+        <section>
+          <label className="an-label">Research Question</label>
+          <textarea className="an-field" rows={3} value={researchQuestion} placeholder="What is this paper trying to answer?" data-testid="field-research_question" onChange={(e) => setResearchQuestion(e.target.value)} />
+        </section>
+        <section>
+          <label className="an-label">Methodology</label>
+          <textarea className="an-field" rows={3} value={methodology} placeholder="How was the research conducted?" data-testid="field-methodology" onChange={(e) => setMethodology(e.target.value)} />
+        </section>
       </div>
 
-      {preview ? (
-        // Read-only preview — the assembled note, exactly what export produces.
-        <div className="gds-note__preview" data-testid="paper-preview">
-          <MarkdownRenderer content={noteToMarkdown(buildExportable(), currentFields())} />
-        </div>
-      ) : (<>
-      {field('Note title', <input className="gds-jc__input" value={title} placeholder="e.g. My notes on this paper" data-testid="note-title" onChange={(e) => setTitle(e.target.value)} />)}
-      {field('Citation', <input className="gds-jc__input" value={citation} placeholder="How you'd cite this paper" data-testid="field-citation" onChange={(e) => setCitation(e.target.value)} />)}
-      {field('Research question', area(researchQuestion, setResearchQuestion, 'What question does the paper ask?', 'field-research_question'))}
-      {field('Methodology', area(methodology, setMethodology, 'Design, sample, methods…', 'field-methodology'))}
+      {/* 5. Key findings — in your own words */}
+      <section>
+        {/* Sentence case in the DOM (the design's uppercase comes from CSS). */}
+        <label className="an-label">Key findings — in your own words</label>
+        <textarea className="an-field" rows={5} value={keyFindings} placeholder="Summarize the main findings in your own words…" data-testid="field-key_findings" onChange={(e) => setKeyFindings(e.target.value)} />
+        <p className="an-disclaimer">Process it, don’t copy it — writing findings in your words is how they stick.</p>
+      </section>
 
-      {field(
-        'Key findings — in your own words',
-        area(keyFindings, setKeyFindings, 'Summarize the main findings in your own words…', 'field-key_findings'),
-        'Process it, don’t copy it — writing findings in your words is how they stick.'
-      )}
-
-      {/* Exact copied text lives ONLY here — distinct + page-numbered so it's deliberate and citable. */}
-      <div style={{ display: 'grid', gap: 6 }} data-testid="field-notable_quotes">
-        <span style={{ fontWeight: 600, fontSize: 13 }}>Notable quotes (exact text + page)</span>
-        <span className="gds-jc__disclaimer" style={{ margin: 0 }}>
-          The one place for exact wording — always with a page number, so a quote is deliberate and citable.
-        </span>
+      {/* 6. Notable quotes — exact copied text lives ONLY here, page-numbered */}
+      <section data-testid="field-notable_quotes">
+        <label className="an-label">Notable Quotes</label>
         {quotes.map((q, i) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 80px auto', gap: 6 }} data-testid={`quote-row-${i}`}>
-            <input className="gds-jc__input" value={q.text} placeholder="“exact quoted text”" data-testid={`quote-text-${i}`}
+          <div key={i} className="an-quote-block" style={{ marginBottom: 12 }} data-testid={`quote-row-${i}`}>
+            <input className="an-quote-text" value={q.text} placeholder="“exact quoted text”" data-testid={`quote-text-${i}`}
               onChange={(e) => setQuotes((qs) => qs.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
-            <input className="gds-jc__input" value={q.page} placeholder="p." data-testid={`quote-page-${i}`}
-              onChange={(e) => setQuotes((qs) => qs.map((x, j) => (j === i ? { ...x, page: e.target.value } : x)))} />
-            <button className="gds-note__quote-x" data-testid={`quote-remove-${i}`} onClick={() => setQuotes((qs) => qs.filter((_, j) => j !== i))}>✕</button>
+            <div className="an-quote-meta">
+              <span>— Page</span>
+              <input className="an-quote-page" value={q.page} placeholder="…" data-testid={`quote-page-${i}`}
+                onChange={(e) => setQuotes((qs) => qs.map((x, j) => (j === i ? { ...x, page: e.target.value } : x)))} />
+              <button className="an-quote-x" data-testid={`quote-remove-${i}`} onClick={() => setQuotes((qs) => qs.filter((_, j) => j !== i))}>✕ remove</button>
+            </div>
           </div>
         ))}
-        <Button variant="secondary" data-testid="quote-add" onClick={() => setQuotes((qs) => [...qs, { text: '', page: '' }])}>+ Add a quote</Button>
-      </div>
+        <button className="an-addquote" data-testid="quote-add" onClick={() => setQuotes((qs) => [...qs, { text: '', page: '' }])}>
+          <IcAdd size={18} /> Add Quote
+        </button>
+        <p className="an-disclaimer">The one place for exact wording — always with a page number, so a quote is deliberate and citable.</p>
+      </section>
 
-      {field('Limitations', area(limitations, setLimitations, 'Weaknesses, threats to validity, scope…', 'field-limitations'))}
-      {field(
-        'My evaluation — in your own words',
-        area(myEvaluation, setMyEvaluation, 'What do you think? Strengths, weaknesses, how it fits your work…', 'field-my_evaluation'),
-        'Your judgement — the part only you can write.'
-      )}
-      {field('Tags', <input className="gds-jc__input" value={tags} placeholder="comma, separated, tags" data-testid="note-tags" onChange={(e) => setTags(e.target.value)} />)}
-      </>)}
+      {/* 7. Limitations */}
+      <section>
+        <label className="an-label">Limitations</label>
+        <textarea className="an-field" rows={3} value={limitations} placeholder="What are the gaps or weaknesses?" data-testid="field-limitations" onChange={(e) => setLimitations(e.target.value)} />
+      </section>
 
-      <div style={{ display: 'flex', gap: 8 }}>
-        <Button onClick={save} disabled={busy} data-testid="note-save">{busy ? 'Saving…' : existing ? 'Save changes' : 'Save note'}</Button>
-        <Button variant="secondary" onClick={onClose} data-testid="note-close">Close</Button>
-        <Button variant="ghost" onClick={() => setPreview((p) => !p)} data-testid="note-preview-toggle">{preview ? 'Edit' : 'Preview'}</Button>
-        <Button variant="ghost" onClick={() => void exportMd()} disabled={busy} data-testid="note-export">Export (.md)</Button>
-        {existing && onDelete && (
-          <Button variant="secondary" onClick={onDelete} data-testid="note-delete" style={{ marginLeft: 'auto', color: 'var(--g-flagged)' }}>Delete</Button>
-        )}
+      {/* 8. Personal evaluation — the Critical Reflection block */}
+      <section>
+        <label className="an-label">Personal Evaluation</label>
+        <div className="an-reflect">
+          <h3>Critical Reflection</h3>
+          <textarea rows={3} value={myEvaluation} placeholder="What do you think? Strengths, weaknesses, how it fits your work…" data-testid="field-my_evaluation" onChange={(e) => setMyEvaluation(e.target.value)} />
+        </div>
+        <p className="an-disclaimer">My evaluation — in your own words: the part only you can write.</p>
+      </section>
+
+      {/* Footer — honest meta (no fake history/collaborators) + tags */}
+      <div className="an-edit-foot">
+        <div className="an-foot-meta"><span>Saved locally · on device</span></div>
+        <div className="an-tagpills">
+          {splitTags().map((t) => <span key={t} className="an-pill">#{t}</span>)}
+          <input className="an-tags-input" value={tags} placeholder="comma, separated, tags" data-testid="note-tags" onChange={(e) => setTags(e.target.value)} />
+        </div>
       </div>
-      <p className="gds-jc__disclaimer" data-testid="own-words-note">
+      <p className="an-disclaimer" data-testid="own-words-note">
         Every field is optional. Gaply never writes your notes for you — no summaries, no autofill. These are your words.
       </p>
     </div>
   );
 
-  // Optional side-by-side: the paper's full text (when available) beside the editor.
   return (
-    <Card title="Reading notes">
-      {paperText ? (
-        <div className="gds-note__split" data-testid="note-split">
-          <div className="gds-note__paper" data-testid="paper-fulltext">
-            <div className="gds-note__paper-label">The paper</div>
-            <pre className="gds-note__paper-text">{paperText}</pre>
-          </div>
-          <div className="gds-note__editor-pane">{editor}</div>
+    <div>
+      {/* Header / toolbar (mock: Paper Editor top bar) */}
+      <header className="an-edit-head">
+        <div className="an-edit-head-left">
+          <button className="an-backbtn" onClick={onClose} data-testid="note-close" title="Back to your library"><IcBack /></button>
+          <h1>Paper Editor</h1>
         </div>
-      ) : (
-        <>
-          {fullTextExpected && (
-            <p
-              className="gds-jc__disclaimer"
-              data-testid="paper-fulltext-unavailable"
-              style={{ marginBottom: 10 }}
-            >
-              Full text isn’t available for this paper in your plagiarism library — showing your
-              notes only. (It matches by title, so a differently-named or duplicate entry won’t link.)
-            </p>
+        <div className="an-edit-actions">
+          <FontScale />
+          <button className="an-ghostbtn" onClick={() => setPreview((p) => !p)} data-testid="note-preview-toggle">
+            <IcEye /> {preview ? 'Edit' : 'Preview'}
+          </button>
+          <button className="an-ghostbtn" onClick={() => void exportMd()} disabled={busy} data-testid="note-export">
+            <IcExport /> Export
+          </button>
+          <div className="an-divider" />
+          {existing && onDelete && (
+            <button className="an-deletebtn" onClick={onDelete} data-testid="note-delete" title="Delete note"><IcTrash /></button>
           )}
-          {editor}
-        </>
-      )}
-    </Card>
+          <button className="an-savebtn" onClick={save} disabled={busy} data-testid="note-save">
+            <IcSave /> {busy ? 'Saving…' : existing ? 'Save Changes' : 'Save Note'}
+          </button>
+        </div>
+      </header>
+
+      <div className={`an-edit-wrap${paperText ? ' an-edit-wrap--wide' : ''}`}>
+        {/* Breadcrumbs + honest storage status */}
+        <div className="an-crumbs">
+          <div className="an-crumbs-path">
+            <span>My Library</span><span>›</span>
+            <strong>{base.paper_title || 'Untitled paper'}</strong>
+          </div>
+          <div className="an-synced">Saved locally · on device</div>
+        </div>
+
+        {fullTextExpected && !paperText && (
+          <p className="an-hint" data-testid="paper-fulltext-unavailable" style={{ marginBottom: 16 }}>
+            Full text isn’t available for this paper in your plagiarism library — showing your
+            notes only. (It matches by title, so a differently-named or duplicate entry won’t link.)
+          </p>
+        )}
+
+        {preview ? (
+          <>
+            <div className="an-preview-card" data-testid="paper-preview">
+              <MarkdownRenderer content={noteToMarkdown(buildExportable(), currentFields())} />
+              {/* Meta footer (mock: LAST EDITED / READING TIME / tags) — honest values */}
+              <div className="an-preview-foot">
+                <div className="an-preview-meta">
+                  {existing && existing.updated_at > 1e9 && (
+                    <div><b>Last edited</b><span>{new Date(existing.updated_at * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span></div>
+                  )}
+                  <div><b>Reading time</b><span>{readingMinutes(noteToMarkdown(buildExportable(), currentFields()))} min</span></div>
+                </div>
+                <div className="an-tagpills">{splitTags().map((t) => <span key={t} className="an-pill">#{t}</span>)}</div>
+              </div>
+            </div>
+            {/* Floating dock (mock: note_preview_desktop) */}
+            <div className="an-dock">
+              <button className="an-dock-edit" data-testid="note-preview-edit-pill" onClick={() => setPreview(false)}><IcEditNote size={18} /> Edit Note</button>
+              <div className="an-dock-divider" />
+              <button className="an-dock-icon" data-testid="note-preview-export" title="Export (.md)" onClick={() => void exportMd()}><IcExport size={18} /></button>
+            </div>
+          </>
+        ) : paperText ? (
+          // Read & write view (mock: read_write_view_desktop) — the paper beside the notes.
+          <div className="an-split" data-testid="note-split">
+            <div className="an-paperpane" data-testid="paper-fulltext">
+              <div className="an-paperpane-label">The paper</div>
+              <pre>{paperText}</pre>
+            </div>
+            <div>{editor}</div>
+          </div>
+        ) : (
+          editor
+        )}
+      </div>
+    </div>
   );
 };
 

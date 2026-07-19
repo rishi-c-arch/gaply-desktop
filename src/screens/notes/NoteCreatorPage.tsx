@@ -1,19 +1,26 @@
-// Gaply — Note Creator (Sets 4 + 5). FREE + LOCAL: note_creator is in
+// Gaply — Note Creator (Sets 4 + 5), "Academic Focus" redesign ported from the
+// Stitch export (gaply_desktop_dashboard). FREE + LOCAL: note_creator is in
 // OFFLINE_FEATURES, RequireAuth-wrapped, no entitlement, no proxy. Two note
-// types: per-paper structured reading notes (Set 4) and project quick-capture
-// (Set 5, the researcher's own ideas/hypotheses/todos). A unified search across
-// BOTH. Consumes the Set 3 bridge; NO model, nothing auto-summarizes. Plus a
-// static recommended-tools panel (honest third-party links).
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+// types (paper reading notes + project quick-capture), unified search across
+// both, tag/type filters, per-note + bulk export, paper full-text side-by-side.
+// NO model, nothing auto-summarizes. Honesty adaptations from the mock: the
+// fake "pending citations / drafts" greeting uses REAL counts; the AI assistant
+// bubble, fake profile, Archive, and sync/history/collaborator chrome are NOT
+// ported (no capability theater). Fonts are BUNDLED (@fontsource) — the mock's
+// Google-Fonts CDN is blocked by CSP + the offline promise.
+import '@fontsource-variable/hanken-grotesk';
+import '@fontsource-variable/source-serif-4';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppShell, Badge, Button, Card, GaplyGlobe, HeaderBar, NavRail, Panel } from '../../design-system';
-import { NotesBridge, TauriNotesBridge, Note, NoteDraft, NoteType } from './notesBridge';
+import { NotesBridge, TauriNotesBridge, Note, NoteDraft, NoteType, parseFields } from './notesBridge';
 import { PaperSource, TauriPaperSource, PaperOption } from './paperSource';
 import PaperNoteEditor from './PaperNoteEditor';
 import ProjectNoteEditor from './ProjectNoteEditor';
 import RecommendedToolsPanel from './RecommendedToolsPanel';
 import { notesToMarkdown } from './noteExport';
 import { saveNoteFile } from './saveNoteFile';
+import { IcDoc, IcBulb, IcArticle, IcQuote, IcTag, IcGear, IcSearch, IcAdd, IcEditNote, IcBook, IcExport } from './NotesIcons';
+import FontScale from './FontScale';
 import './notes.css';
 
 export interface NoteCreatorPageProps {
@@ -34,6 +41,25 @@ const newId = (): string =>
 const uniqueTags = (notes: Note[]): string[] =>
   Array.from(new Set(notes.flatMap((n) => n.tags))).sort();
 
+/** Real greeting (the mock hardcodes "Good morning"). */
+const timeGreeting = (): string => {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+};
+
+/** A serif snippet for a note card — the note's own words, never invented. */
+const snippetOf = (n: Note): string => {
+  if (n.note_type === 'project') return n.body;
+  const f = parseFields(n);
+  return f.key_findings || f.research_question || f.citation || f.methodology || '';
+};
+
+/** Date chip for cards — only for plausible epoch-second timestamps. */
+const dateOf = (n: Note): string | null => {
+  if (n.updated_at < 1e9) return null;
+  return new Date(n.updated_at * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
 const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
   const navigate = useNavigate();
   const bridge = useMemo(() => notes ?? new TauriNotesBridge(), [notes]);
@@ -41,6 +67,7 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
 
   const [list, setList] = useState<Note[] | null>(null);
   const [universe, setUniverse] = useState(0);
+  const [counts, setCounts] = useState({ paper: 0, project: 0 });
   const [allTags, setAllTags] = useState<string[]>([]);
   const [options, setOptions] = useState<PaperOption[]>([]);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -56,6 +83,7 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
   // quick-capture project note (one action, minimal friction)
   const [quickTitle, setQuickTitle] = useState('');
   const [quickBody, setQuickBody] = useState('');
+  const quickRef = useRef<HTMLInputElement | null>(null);
 
   // paper picker
   const [pickId, setPickId] = useState('');
@@ -63,8 +91,9 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
 
   const reload = useCallback(async () => {
     try {
-      const all = await bridge.search(''); // the universe — for tags + empty detection
+      const all = await bridge.search(''); // the universe — for tags + counts + empty detection
       setUniverse(all.length);
+      setCounts({ paper: all.filter((n) => n.note_type === 'paper').length, project: all.filter((n) => n.note_type === 'project').length });
       setAllTags(uniqueTags(all));
       const found = await bridge.search(query.trim(), tagFilter ?? undefined);
       setList(typeFilter === 'all' ? found : found.filter((n) => n.note_type === typeFilter));
@@ -88,9 +117,6 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
     const title =
       editing?.kind === 'paper-new' ? editing.base.paper_title :
       editing?.kind === 'paper-edit' ? editing.note.paper_title : '';
-    // M2 Set 2C: thread the note's paper_id (→ citation_id) so the read resolves
-    // by the RELIABLE id first, then the title fallback. Free-typed notes
-    // (paper_id '' / null) fall through to the title path exactly as before.
     const paperId =
       editing?.kind === 'paper-new' ? editing.base.paper_id :
       editing?.kind === 'paper-edit' ? editing.note.paper_id : null;
@@ -172,143 +198,214 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
     }
   };
 
-  const rail = (
-    <NavRail
-      items={[
-        { id: 'home', label: 'Home', icon: '◫', onSelect: () => navigate('/app') },
-        { id: 'notes', label: 'Note Creator', icon: '✎' },
-      ]}
-      activeId="notes"
-      brand={<GaplyGlobe scale="mark" />}
-    />
-  );
+  /* ------------------------- editor view (full-page swap) ------------------ */
+  if (editing) {
+    return (
+      <div className="an-root" data-testid="note-creator" style={{ display: 'block' }}>
+        <div className="an-main" style={{ height: '100vh' }}>
+          {error && <div style={{ padding: '12px 48px 0' }}><p className="an-error" role="alert" data-testid="note-error">{error}</p></div>}
+          {(editing.kind === 'paper-new' || editing.kind === 'paper-edit') ? (
+            <PaperNoteEditor
+              base={editing.kind === 'paper-edit' ? { id: editing.note.id, paper_id: editing.note.paper_id, paper_title: editing.note.paper_title } : editing.base}
+              existing={editing.kind === 'paper-edit' ? editing.note : null}
+              paperText={paperText}
+              fullTextExpected={
+                !!options.find(
+                  (o) => o.id === (editing.kind === 'paper-edit' ? editing.note.paper_id : editing.base.paper_id)
+                )?.hasFullText
+              }
+              onSave={save}
+              onDelete={editing.kind === 'paper-edit' ? () => remove(editing.note.id) : undefined}
+              onClose={() => setEditing(null)}
+              onError={setError}
+              busy={busy}
+            />
+          ) : (
+            <ProjectNoteEditor id={editing.note.id} existing={editing.note} onSave={save} onDelete={() => remove(editing.note.id)} onClose={() => setEditing(null)} busy={busy} onError={setError} />
+          )}
+        </div>
+      </div>
+    );
+  }
 
+  /* ------------------------------- dashboard ------------------------------ */
   return (
-    <div className="gds-root" style={{ height: '100vh', overflow: 'auto' }} data-testid="note-creator">
-      <AppShell rail={rail} header={<HeaderBar title="Note Creator"><Badge status="certain">free · on device</Badge></HeaderBar>}>
-        <Panel title="Your notes — your papers, your ideas, your words">
-          <div style={{ display: 'grid', gap: 16 }}>
-            {/* Quick-capture project note (one action) */}
-            <Card title="Quick note" data-testid="quick-capture">
-              <div style={{ display: 'grid', gap: 8 }}>
-                <input className="gds-jc__input" placeholder="An idea, a hypothesis, a to-do…" value={quickTitle} data-testid="quick-title" onChange={(e) => setQuickTitle(e.target.value)} />
-                <textarea className="gds-note__area" rows={2} placeholder="Capture it before it’s gone (optional details)…" value={quickBody} data-testid="quick-body" onChange={(e) => setQuickBody(e.target.value)} />
-                <div>
-                  <Button onClick={quickCapture} disabled={busy || (!quickTitle.trim() && !quickBody.trim())} data-testid="quick-save">Save project note</Button>
-                </div>
+    <div className="an-root" data-testid="note-creator">
+      {/* Navigation drawer (left sidebar) */}
+      <aside className="an-sidebar">
+        <button className="an-brand" onClick={() => navigate('/app')} title="Back to Gaply home">
+          <h1>Gaply</h1>
+          <p>Research Intelligence</p>
+        </button>
+        <div className="an-profile">
+          <div className="an-avatar">R</div>
+          <div>
+            <p className="an-profile-name" style={{ margin: 0 }}>Researcher</p>
+            <p className="an-profile-sub" style={{ margin: 0 }}>{universe} {universe === 1 ? 'note' : 'notes'} on device</p>
+          </div>
+        </div>
+        <nav className="an-nav">
+          <button className={`an-nav-item${typeFilter === 'all' ? ' an-active' : ''}`} data-testid="filter-all" onClick={() => setTypeFilter('all')}>
+            <IcDoc /> All Notes <span className="an-nav-count">{universe}</span>
+          </button>
+          <button className={`an-nav-item${typeFilter === 'project' ? ' an-active' : ''}`} data-testid="filter-project" onClick={() => setTypeFilter('project')}>
+            <IcBulb /> Project Notes <span className="an-nav-count">{counts.project}</span>
+          </button>
+          <button className={`an-nav-item${typeFilter === 'paper' ? ' an-active' : ''}`} data-testid="filter-paper" onClick={() => setTypeFilter('paper')}>
+            <IcArticle /> Paper Notes <span className="an-nav-count">{counts.paper}</span>
+          </button>
+          <button className="an-nav-item" onClick={() => navigate('/app/citations')}>
+            <IcQuote /> Citations
+          </button>
+          <div className="an-nav-section">Library</div>
+          <button className="an-nav-item" onClick={() => setTagFilter(null)}>
+            <IcTag /> Tags <span className="an-nav-count">{allTags.length}</span>
+          </button>
+        </nav>
+        <div className="an-side-foot">
+          <button className="an-nav-item" onClick={() => navigate('/app/settings')}>
+            <IcGear /> Settings
+          </button>
+          {/* SPIKE (Set 0, rich editor) — temporary entry, removed in Set 1 */}
+          <button className="an-nav-item" data-testid="spike-entry" onClick={() => navigate('/app/notes/spike')}>🧪 Editor spike</button>
+          <div className="an-free-pill">free · on device — your notes never leave this machine</div>
+        </div>
+      </aside>
+
+      {/* Main canvas */}
+      <main className="an-main">
+        <header className="an-topbar">
+          <div className="an-search">
+            <IcSearch />
+            <input placeholder="Search your library..." value={query} data-testid="notes-search" onChange={(e) => setQuery(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <FontScale />
+            <button className="an-btn-primary" onClick={() => quickRef.current?.focus()}>
+              <IcAdd size={18} /> New Entry
+            </button>
+          </div>
+        </header>
+
+        <div className="an-content">
+          {error && <p className="an-error" role="alert" data-testid="note-error">{error}</p>}
+
+          {/* Hero / greeting — real counts, not the mock's fake ones */}
+          <section className="an-greet">
+            <h2>{timeGreeting()}, Researcher.</h2>
+            <p>
+              Your library holds {counts.paper} paper {counts.paper === 1 ? 'note' : 'notes'} and {counts.project} project {counts.project === 1 ? 'idea' : 'ideas'} — all on this device.
+            </p>
+          </section>
+
+          {/* Quick-entry widgets */}
+          <section className="an-widgets">
+            {/* Quick Note (project quick-capture) */}
+            <div className="an-widget an-widget--idea" data-testid="quick-capture">
+              <div className="an-widget-head">
+                <h3><IcEditNote /> Quick Note</h3>
+                <span className="an-widget-kind">Freeform Sketch</span>
               </div>
-            </Card>
-
-            {/* Paper picker (Set 4): from the library OR free-typed */}
-            <Card title="Start notes on a paper" data-testid="paper-picker">
-              <div style={{ display: 'grid', gap: 10 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <select className="gds-jc__input" data-testid="picker-select" value={pickId} onChange={(e) => setPickId(e.target.value)} style={{ minWidth: 260 }}>
-                    <option value="">Pick a paper from your library…</option>
-                    {options.map((o) => (
-                      <option key={o.id} value={o.id}>{o.title}{o.year ? ` (${o.year})` : ''}{o.hasFullText ? '  📄' : ''}</option>
-                    ))}
-                  </select>
-                  <Button onClick={startFromLibrary} disabled={!pickId} data-testid="picker-start">Start notes</Button>
-                  {pickId && options.find((o) => o.id === pickId)?.hasFullText && (
-                    <Badge status="neutral" data-testid="picker-fulltext">📄 full text available</Badge>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <input className="gds-jc__input" placeholder="…or type any paper title" value={freeTitle} data-testid="picker-freetype" onChange={(e) => setFreeTitle(e.target.value)} style={{ minWidth: 260 }} />
-                  <Button variant="secondary" onClick={startFreeTyped} disabled={!freeTitle.trim()} data-testid="picker-freestart">Start notes</Button>
-                </div>
-                {options.length === 0 && (
-                  <p className="gds-jc__disclaimer" data-testid="picker-nolib">No papers in your citation library yet — add references in the Citation Manager, or just type a title above.</p>
-                )}
+              <input ref={quickRef} className="an-quick-title" placeholder="An idea, a hypothesis, a to-do…" value={quickTitle} data-testid="quick-title" onChange={(e) => setQuickTitle(e.target.value)} />
+              <textarea className="an-quick-body" placeholder="Capture a fleeting thought or research lead..." value={quickBody} data-testid="quick-body" onChange={(e) => setQuickBody(e.target.value)} spellCheck={false} />
+              <div className="an-widget-foot">
+                <button className="an-textbtn" onClick={quickCapture} disabled={busy || (!quickTitle.trim() && !quickBody.trim())} data-testid="quick-save">Save project note</button>
               </div>
-            </Card>
+            </div>
 
-            {error && <p style={{ color: 'var(--g-flagged)', fontSize: 13 }} role="alert" data-testid="note-error">{error}</p>}
+            {/* Reference Note (paper picker: library OR free-typed) */}
+            <div className="an-widget" data-testid="paper-picker">
+              <div className="an-widget-head">
+                <h3><IcBook /> Reference Note</h3>
+                <span className="an-widget-kind">Structured Entry</span>
+              </div>
+              <div className="an-ref-row">
+                <select className="an-ref-input" data-testid="picker-select" value={pickId} onChange={(e) => setPickId(e.target.value)}>
+                  <option value="">Pick a paper from your library…</option>
+                  {options.map((o) => (
+                    <option key={o.id} value={o.id}>{o.title}{o.year ? ` (${o.year})` : ''}{o.hasFullText ? '  📄' : ''}</option>
+                  ))}
+                </select>
+                <button className="an-textbtn" onClick={startFromLibrary} disabled={!pickId} data-testid="picker-start">Start notes</button>
+              </div>
+              {pickId && options.find((o) => o.id === pickId)?.hasFullText && (
+                <p className="an-hint" data-testid="picker-fulltext">📄 full text available — it will open beside your notes.</p>
+              )}
+              <div className="an-ref-row">
+                <input className="an-ref-input" placeholder="…or type any paper title" value={freeTitle} data-testid="picker-freetype" onChange={(e) => setFreeTitle(e.target.value)} />
+                <button className="an-textbtn" onClick={startFreeTyped} disabled={!freeTitle.trim()} data-testid="picker-freestart">Start notes</button>
+              </div>
+              {options.length === 0 && (
+                <p className="an-hint" data-testid="picker-nolib">No papers in your citation library yet — add references in the Citation Manager, or just type a title above.</p>
+              )}
+            </div>
+          </section>
 
-            {/* The editor (create or edit), routed by note type */}
-            {editing && (editing.kind === 'paper-new' || editing.kind === 'paper-edit') && (
-              <PaperNoteEditor
-                base={editing.kind === 'paper-edit' ? { id: editing.note.id, paper_id: editing.note.paper_id, paper_title: editing.note.paper_title } : editing.base}
-                existing={editing.kind === 'paper-edit' ? editing.note : null}
-                paperText={paperText}
-                // The picked paper's badge promised full text → if the read comes
-                // back null (case/format mismatch or an ambiguous collision the
-                // backend refused to guess), the editor shows an honest note (M2).
-                fullTextExpected={
-                  !!options.find(
-                    (o) => o.id === (editing.kind === 'paper-edit' ? editing.note.paper_id : editing.base.paper_id)
-                  )?.hasFullText
-                }
-                onSave={save}
-                onDelete={editing.kind === 'paper-edit' ? () => remove(editing.note.id) : undefined}
-                onClose={() => setEditing(null)}
-                onError={setError}
-                busy={busy}
-              />
+          {/* Recent scholarly work — the real note library */}
+          <section>
+            <div className="an-section-head">
+              <h3>Recent Scholarly Work</h3>
+              {list && list.length > 0 && (
+                <button className="an-iconbtn" data-testid="notes-export-all" onClick={() => void exportAllShown()}>
+                  <IcExport size={16} /> Export all shown (.md)
+                </button>
+              )}
+            </div>
+
+            {allTags.length > 0 && (
+              <div className="an-chiprow" data-testid="tag-filter">
+                <button className={`an-chip${tagFilter === null ? ' an-chip--on' : ''}`} data-testid="tag-all" onClick={() => setTagFilter(null)}>all tags</button>
+                {allTags.map((t) => (
+                  <button key={t} className={`an-chip${tagFilter === t ? ' an-chip--on' : ''}`} data-testid={`tag-${t}`} onClick={() => setTagFilter(t)}>#{t}</button>
+                ))}
+              </div>
             )}
-            {editing && editing.kind === 'project-edit' && (
-              <ProjectNoteEditor id={editing.note.id} existing={editing.note} onSave={save} onDelete={() => remove(editing.note.id)} onClose={() => setEditing(null)} busy={busy} onError={setError} />
-            )}
 
-            {/* Unified search across BOTH note types */}
-            <Card title="Your notes" data-testid="note-list-card">
-              <div style={{ display: 'grid', gap: 10 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <input className="gds-jc__input" placeholder="Search all your notes…" value={query} data-testid="notes-search" onChange={(e) => setQuery(e.target.value)} style={{ minWidth: 220 }} />
-                  <div style={{ display: 'flex', gap: 4 }} data-testid="type-filter">
-                    {(['all', 'paper', 'project'] as TypeFilter[]).map((t) => (
-                      <button key={t} className={`gds-note-chip${typeFilter === t ? ' gds-note-chip--on' : ''}`} data-testid={`filter-${t}`} onClick={() => setTypeFilter(t)}>
-                        {t === 'all' ? 'All' : t === 'paper' ? '📄 Paper' : '💡 Project'}
-                      </button>
-                    ))}
-                  </div>
-                  {list && list.length > 0 && (
-                    <Button variant="ghost" data-testid="notes-export-all" onClick={() => void exportAllShown()} style={{ marginLeft: 'auto' }}>
-                      Export all shown (.md)
-                    </Button>
-                  )}
-                </div>
-                {allTags.length > 0 && (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} data-testid="tag-filter">
-                    <button className={`gds-note-chip${tagFilter === null ? ' gds-note-chip--on' : ''}`} data-testid="tag-all" onClick={() => setTagFilter(null)}>all tags</button>
-                    {allTags.map((t) => (
-                      <button key={t} className={`gds-note-chip${tagFilter === t ? ' gds-note-chip--on' : ''}`} data-testid={`tag-${t}`} onClick={() => setTagFilter(t)}>#{t}</button>
-                    ))}
-                  </div>
-                )}
-
-                {list === null ? (
-                  <p className="gds-note__empty">Loading…</p>
-                ) : universe === 0 ? (
-                  <p className="gds-note__empty" data-testid="note-empty">No notes yet — capture an idea, a hypothesis, a to-do, or pick a paper to annotate.</p>
-                ) : list.length === 0 ? (
-                  <p className="gds-note__empty" data-testid="note-nomatch">No notes match your search.</p>
-                ) : (
-                  <div className="gds-note-list" data-testid="note-list">
-                    {list.map((n) => (
-                      <button
-                        key={n.id}
-                        className="gds-note-list__row"
-                        data-testid={`note-row-${n.id}`}
-                        onClick={() => setEditing(n.note_type === 'paper' ? { kind: 'paper-edit', note: n } : { kind: 'project-edit', note: n })}
-                      >
-                        <div className="gds-note-list__title">
-                          <span data-testid={`note-type-${n.id}`}>{n.note_type === 'paper' ? '📄' : '💡'}</span> {n.title || '(untitled note)'}
-                        </div>
-                        <div className="gds-note-list__paper">{n.note_type === 'paper' ? (n.paper_title || 'free-typed paper') : 'project note'}</div>
-                        {n.tags.length > 0 && <div className="gds-note-list__tags">{n.tags.map((t) => <span key={t}>#{t}</span>)}</div>}
-                      </button>
-                    ))}
-                  </div>
-                )}
+            {list === null ? (
+              <p className="an-empty">Loading…</p>
+            ) : universe === 0 ? (
+              <p className="an-empty" data-testid="note-empty">No notes yet — capture an idea, a hypothesis, a to-do, or pick a paper to annotate.</p>
+            ) : list.length === 0 ? (
+              <p className="an-empty" data-testid="note-nomatch">No notes match your search.</p>
+            ) : (
+              <div className="an-grid" data-testid="note-list">
+                {list.map((n, i) => {
+                  const snippet = snippetOf(n);
+                  const date = dateOf(n);
+                  const idea = n.note_type === 'project';
+                  return (
+                    <button
+                      key={n.id}
+                      className={`an-card${i === 0 ? ' an-card--lg' : ''}${idea ? ' an-card--idea' : ' an-card--paper'}`}
+                      data-testid={`note-row-${n.id}`}
+                      onClick={() => setEditing(n.note_type === 'paper' ? { kind: 'paper-edit', note: n } : { kind: 'project-edit', note: n })}
+                    >
+                      <div className="an-card-meta">
+                        <span className={`an-badge ${idea ? 'an-badge--idea' : 'an-badge--paper'}`}>
+                          <span data-testid={`note-type-${n.id}`}>{idea ? '💡' : '📄'}</span> {idea ? 'Idea' : 'Paper'}
+                        </span>
+                        {date && <span className="an-card-date">{date}</span>}
+                      </div>
+                      <h4>{n.title || '(untitled note)'}</h4>
+                      {snippet && <p className="an-card-snippet">{snippet}</p>}
+                      {n.tags.length > 0 && (
+                        <div className="an-card-tags">{n.tags.map((t) => <span key={t}>#{t}</span>)}</div>
+                      )}
+                      <div className="an-card-paperline">
+                        <span>{n.note_type === 'paper' ? (n.paper_title || 'free-typed paper') : 'project note'}</span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
-            </Card>
+            )}
+          </section>
 
+          <div style={{ marginTop: 56 }}>
             <RecommendedToolsPanel />
           </div>
-        </Panel>
-      </AppShell>
+        </div>
+      </main>
     </div>
   );
 };
