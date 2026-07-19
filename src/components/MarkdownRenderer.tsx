@@ -69,6 +69,12 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
     text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     // Handle italic *text* (simplified - avoid conflicts)
     text = text.replace(/(?<!\*)\*(?!\*)([^*]+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+    // Handle italic _text_ — CommonMark WORD-BOUNDARY emphasis ONLY. The opening
+    // `_` must follow start-or-a-non-word char and the closing `_` must not be
+    // followed by a word char, so INTRAWORD underscores in identifiers
+    // (snake_case, p_value, t_test, chi_square) are NEVER italicized or mangled —
+    // only true boundary emphasis like `_Tags: …_` renders as <em>.
+    text = text.replace(/(^|[^A-Za-z0-9_])_([^\s_](?:[^_]*[^\s_])?)_(?![A-Za-z0-9_])/g, '$1<em>$2</em>');
     // Handle code `code`
     text = text.replace(/`([^`]+)`/g, '<code class="md-inline-code">$1</code>');
     
@@ -99,6 +105,14 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
 
     if (inCodeBlock) {
       codeBlockContent.push(line);
+      return;
+    }
+
+    // Horizontal rule: --- / *** / ___ (the bulk-export separator between notes).
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      flushList();
+      flushTable();
+      elements.push(<hr key={`hr-${index}`} className="md-hr" />);
       return;
     }
 
@@ -135,6 +149,19 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
       flushTable();
       elements.push(
         <h1 key={`h1-${index}`} className="md-h1">{trimmed.replace(/^#\s+/, '')}</h1>
+      );
+      return;
+    }
+
+    // Blockquotes: `> text` — one per line. noteExport emits notable quotes as
+    // `> {text} (p. N)`; each renders as a <blockquote>, marker consumed.
+    if (trimmed.startsWith('> ')) {
+      flushList();
+      flushTable();
+      elements.push(
+        <blockquote key={`quote-${index}`} className="md-blockquote">
+          {renderInlineMarkdown(trimmed.replace(/^>\s+/, ''))}
+        </blockquote>
       );
       return;
     }

@@ -7,8 +7,9 @@
 // thinking stays the researcher's.
 import React, { useMemo, useState } from 'react';
 import { Badge, Button, Card } from '../../design-system';
+import MarkdownRenderer from '../../components/MarkdownRenderer';
 import { NoteDraft, PaperNoteFields, parseFields, Note } from './notesBridge';
-import { noteToMarkdown, exportFileName } from './noteExport';
+import { noteToMarkdown, exportFileName, ExportableNote } from './noteExport';
 import { saveNoteFile } from './saveNoteFile';
 
 export interface PaperNoteEditorProps {
@@ -68,6 +69,16 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
   };
 
   const splitTags = () => tags.split(',').map((t) => t.trim()).filter(Boolean);
+  const [preview, setPreview] = useState(false);
+
+  // The exact ExportableNote both export AND preview use — one source, no drift.
+  const buildExportable = (): ExportableNote => ({
+    note_type: 'paper',
+    title: title.trim(),
+    paper_title: base.paper_title,
+    body: '',
+    tags: splitTags(),
+  });
 
   const save = () => {
     onSave({
@@ -85,10 +96,7 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
   const exportMd = async () => {
     onError?.(null); // clear any prior export error
     try {
-      const md = noteToMarkdown(
-        { note_type: 'paper', title: title.trim(), paper_title: base.paper_title, body: '', tags: splitTags() },
-        currentFields(),
-      );
+      const md = noteToMarkdown(buildExportable(), currentFields());
       // saveNoteFile returns null on cancel (silent) and only THROWS on a real
       // write failure — so only genuine failures reach this catch.
       await saveNoteFile(exportFileName(title || base.paper_title, 'paper-note'), md);
@@ -116,6 +124,12 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
         {!base.paper_id && <Badge status="neutral">free-typed paper</Badge>}
       </div>
 
+      {preview ? (
+        // Read-only preview — the assembled note, exactly what export produces.
+        <div className="gds-note__preview" data-testid="paper-preview">
+          <MarkdownRenderer content={noteToMarkdown(buildExportable(), currentFields())} />
+        </div>
+      ) : (<>
       {field('Note title', <input className="gds-jc__input" value={title} placeholder="e.g. My notes on this paper" data-testid="note-title" onChange={(e) => setTitle(e.target.value)} />)}
       {field('Citation', <input className="gds-jc__input" value={citation} placeholder="How you'd cite this paper" data-testid="field-citation" onChange={(e) => setCitation(e.target.value)} />)}
       {field('Research question', area(researchQuestion, setResearchQuestion, 'What question does the paper ask?', 'field-research_question'))}
@@ -152,10 +166,12 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
         'Your judgement — the part only you can write.'
       )}
       {field('Tags', <input className="gds-jc__input" value={tags} placeholder="comma, separated, tags" data-testid="note-tags" onChange={(e) => setTags(e.target.value)} />)}
+      </>)}
 
       <div style={{ display: 'flex', gap: 8 }}>
         <Button onClick={save} disabled={busy} data-testid="note-save">{busy ? 'Saving…' : existing ? 'Save changes' : 'Save note'}</Button>
         <Button variant="secondary" onClick={onClose} data-testid="note-close">Close</Button>
+        <Button variant="ghost" onClick={() => setPreview((p) => !p)} data-testid="note-preview-toggle">{preview ? 'Edit' : 'Preview'}</Button>
         <Button variant="ghost" onClick={() => void exportMd()} disabled={busy} data-testid="note-export">Export (.md)</Button>
         {existing && onDelete && (
           <Button variant="secondary" onClick={onDelete} data-testid="note-delete" style={{ marginLeft: 'auto', color: 'var(--g-flagged)' }}>Delete</Button>
