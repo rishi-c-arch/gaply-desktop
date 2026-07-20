@@ -41,7 +41,13 @@
   min-height: 100vh;
   display: flex;
   -webkit-font-smoothing: antialiased;
+  /* Option A — ease the light "reading room" IN so navigating from the dark app
+     doesn't flash white. Fires once on route mount (the .an-root persists across
+     dashboard↔editor swaps), not on every internal transition. */
+  animation: an-enter 0.3s ease-out both;
 }
+@keyframes an-enter { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .an-root { animation: none; } }
 .an-root[data-anscale='compact'] { --an-content: 14.5px; --an-content-lh: 23px; }
 .an-root[data-anscale='large'] { --an-content: 18px; --an-content-lh: 30px; }
 
@@ -251,6 +257,28 @@
   content: attr(data-placeholder); color: var(--an-surface-dim); float: left; height: 0; pointer-events: none;
   font-family: var(--an-serif);
 }
+/* tables (Set 2) */
+.an-richbody .ProseMirror table { border-collapse: collapse; width: 100%; margin: 14px 0; table-layout: fixed; overflow: hidden; }
+.an-richbody .ProseMirror th, .an-richbody .ProseMirror td {
+  border: 1px solid var(--an-outline-variant); padding: 7px 10px; vertical-align: top;
+  font-family: var(--an-serif); font-size: var(--an-content); position: relative;
+}
+.an-richbody .ProseMirror th { background: var(--an-surface-high); font-family: var(--an-ui); font-weight: 600; text-align: left; }
+.an-richbody .ProseMirror td > *, .an-richbody .ProseMirror th > * { margin: 0; }
+.an-richbody .ProseMirror .selectedCell::after {
+  content: ''; position: absolute; inset: 0; background: rgba(252, 223, 70, 0.28); pointer-events: none;
+}
+/* the rich-surface toolbar (table controls) */
+.an-rb-toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.an-rb-btn { border: 1px solid var(--an-outline-variant); background: none; cursor: pointer; border-radius: 8px; padding: 4px 11px; font: 600 12px/16px var(--an-ui); color: var(--an-on-surface-variant); }
+.an-rb-btn:hover { background: var(--an-surface-high); }
+.an-rb-btn--danger { color: var(--an-error); }
+.an-rb-btn--danger:hover { background: var(--an-error-container); }
+/* preview tables (mirror the editor look) */
+.an-preview-card .md-table-container { display: grid; border: 1px solid var(--an-outline-variant); border-radius: 8px; overflow: hidden; margin: 12px 0; }
+.an-preview-card .md-table-row { display: grid; grid-auto-flow: column; }
+.an-preview-card .md-table-cell { padding: 7px 10px; border-right: 1px solid var(--an-outline-variant); border-bottom: 1px solid var(--an-outline-variant); }
+.an-preview-card .md-table-header { background: var(--an-surface-high); font-family: var(--an-ui); font-weight: 600; }
 .an-savebtn {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer; border: none;
   background: var(--an-primary); color: var(--an-on-primary); border-radius: 8px;

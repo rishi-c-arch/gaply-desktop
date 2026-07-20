@@ -116,6 +116,62 @@ describe('anti-substitution attributes on the production editor (pin c)', () => 
   });
 });
 
+/* -------------------------- Set 2: GFM tables --------------------------- */
+describe('GFM tables round-trip losslessly (Set 2 key pin)', () => {
+  const GFM = '| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |';
+
+  it('a table typed/parsed → md → reopened → IDENTICAL table', () => {
+    const e1 = headless(GFM);
+    expect(JSON.stringify(e1.getJSON())).toContain('"type":"table"'); // really a table node
+    const md1 = mdOf(e1);
+    e1.destroy();
+    expect(md1).toBe(GFM); // serialize back = byte-identical
+
+    const e2 = headless(md1); // reopen
+    const md2 = mdOf(e2);
+    e2.destroy();
+    expect(md2).toBe(GFM); // round-trip stable
+  });
+
+  it('programmatic insertTable → serializes to a valid GFM table', () => {
+    const e = new Editor({ extensions: richExtensions() });
+    e.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: true });
+    const md = mdOf(e);
+    e.destroy();
+    // header row + separator row + one body row, all pipe-delimited
+    const lines = md.trim().split('\n');
+    expect(lines.length).toBe(3);
+    expect(lines[1]).toMatch(/^\|\s*---\s*\|\s*---\s*\|$/);
+    expect(lines.every((l) => l.startsWith('|') && l.endsWith('|'))).toBe(true);
+  });
+
+  it('idempotence with a table present: s(p(s(p(x)))) == s(p(x))', () => {
+    const doc = `Intro paragraph.\n\n${GFM}\n\nOutro paragraph.`;
+    const a = mdOf(headless(doc));
+    const b = mdOf(headless(a));
+    expect(b).toBe(a);
+  });
+
+  it('BACKWARD COMPAT: a note with NO table is untouched by the table extension', () => {
+    for (const x of ['Sleep helps recall.', '# H\n\n- a\n- b', '> quote']) {
+      const e = headless(x);
+      expect(mdOf(e)).toBe(x); // table extension present, but plain notes unchanged
+      e.destroy();
+    }
+  });
+});
+
+describe('export contract — a table body flows through noteToMarkdown as GFM (Set 2)', () => {
+  it('noteToMarkdown embeds the GFM table verbatim', () => {
+    const body = '| A | B |\n| --- | --- |\n| 1 | 2 |';
+    const md = noteToMarkdown(
+      { note_type: 'project', title: 'Data', paper_title: '', body, tags: [] },
+      {},
+    );
+    expect(md).toBe(`# Data\n\n${body}`); // the export contract carries the table unchanged
+  });
+});
+
 describe('export contract unchanged (pin e)', () => {
   it('typed plain text serializes to itself, and noteToMarkdown output is the pre-swap shape', () => {
     const e = headless();

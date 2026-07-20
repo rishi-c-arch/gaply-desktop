@@ -198,39 +198,40 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
     }
   };
 
-  /* ------------------------- editor view (full-page swap) ------------------ */
-  if (editing) {
-    return (
-      <div className="an-root" data-testid="note-creator" style={{ display: 'block' }}>
-        <div className="an-main" style={{ height: '100vh' }}>
-          {error && <div style={{ padding: '12px 48px 0' }}><p className="an-error" role="alert" data-testid="note-error">{error}</p></div>}
-          {(editing.kind === 'paper-new' || editing.kind === 'paper-edit') ? (
-            <PaperNoteEditor
-              base={editing.kind === 'paper-edit' ? { id: editing.note.id, paper_id: editing.note.paper_id, paper_title: editing.note.paper_title } : editing.base}
-              existing={editing.kind === 'paper-edit' ? editing.note : null}
-              paperText={paperText}
-              fullTextExpected={
-                !!options.find(
-                  (o) => o.id === (editing.kind === 'paper-edit' ? editing.note.paper_id : editing.base.paper_id)
-                )?.hasFullText
-              }
-              onSave={save}
-              onDelete={editing.kind === 'paper-edit' ? () => remove(editing.note.id) : undefined}
-              onClose={() => setEditing(null)}
-              onError={setError}
-              busy={busy}
-            />
-          ) : (
-            <ProjectNoteEditor id={editing.note.id} existing={editing.note} onSave={save} onDelete={() => remove(editing.note.id)} onClose={() => setEditing(null)} busy={busy} onError={setError} />
-          )}
-        </div>
-      </div>
-    );
-  }
+  /* ---------- editor view (full-page swap, SAME persistent .an-root) ------- *
+   * Both the dashboard and the editor live under ONE .an-root so the dark→light
+   * fade fires once on route mount, not on every open/close (no dark flash
+   * between dashboard and editor). */
+  const editorPane = editing ? (
+    <div className="an-main" style={{ height: '100vh' }}>
+      {error && <div style={{ padding: '12px 48px 0' }}><p className="an-error" role="alert" data-testid="note-error">{error}</p></div>}
+      {(editing.kind === 'paper-new' || editing.kind === 'paper-edit') ? (
+        <PaperNoteEditor
+          base={editing.kind === 'paper-edit' ? { id: editing.note.id, paper_id: editing.note.paper_id, paper_title: editing.note.paper_title } : editing.base}
+          existing={editing.kind === 'paper-edit' ? editing.note : null}
+          paperText={paperText}
+          fullTextExpected={
+            !!options.find(
+              (o) => o.id === (editing.kind === 'paper-edit' ? editing.note.paper_id : editing.base.paper_id)
+            )?.hasFullText
+          }
+          onSave={save}
+          onDelete={editing.kind === 'paper-edit' ? () => remove(editing.note.id) : undefined}
+          onClose={() => setEditing(null)}
+          onError={setError}
+          busy={busy}
+        />
+      ) : (
+        <ProjectNoteEditor id={editing.note.id} existing={editing.note} onSave={save} onDelete={() => remove(editing.note.id)} onClose={() => setEditing(null)} busy={busy} onError={setError} />
+      )}
+    </div>
+  ) : null;
 
-  /* ------------------------------- dashboard ------------------------------ */
+  /* ------------------------------- render --------------------------------- */
   return (
-    <div className="an-root" data-testid="note-creator">
+    <div className="an-root" data-testid="note-creator" style={editing ? { display: 'block' } : undefined}>
+      {editing ? editorPane : (
+      <>
       {/* Navigation drawer (left sidebar) */}
       <aside className="an-sidebar">
         <button className="an-brand" onClick={() => navigate('/app')} title="Back to Gaply home">
@@ -404,6 +405,8 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
           </div>
         </div>
       </main>
+      </>
+      )}
     </div>
   );
 };
