@@ -6,7 +6,7 @@
 // NOTHING auto-summarizes the paper: no model, no "generate" button — the
 // mock's "Scholar Assistant" AI bubble is deliberately NOT ported ("Gaply never
 // writes your notes for you"). Same props/testids/behavior as before.
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import MarkdownRenderer from '../../components/MarkdownRenderer';
 import { NoteDraft, PaperNoteFields, parseFields, Note } from './notesBridge';
 import { noteToMarkdown, exportFileName, ExportableNote } from './noteExport';
@@ -56,6 +56,20 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
     (initial.notable_quotes ?? []).map((q) => ({ text: q.text ?? '', page: q.page != null ? String(q.page) : '' }))
   );
   const [preview, setPreview] = useState(false);
+
+  // Two-step delete: first click ARMS for 3s, second click deletes.
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const disarmTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(disarmTimer.current), []);
+  const onDeleteClick = () => {
+    if (!deleteArmed) {
+      setDeleteArmed(true);
+      disarmTimer.current = window.setTimeout(() => setDeleteArmed(false), 3000);
+    } else {
+      window.clearTimeout(disarmTimer.current);
+      onDelete?.();
+    }
+  };
 
   // Assemble the current field values into the template shape (skip-empties).
   // Shared by save() and export so the two never drift.
@@ -221,7 +235,14 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
           </button>
           <div className="an-divider" />
           {existing && onDelete && (
-            <button className="an-deletebtn" onClick={onDelete} data-testid="note-delete" title="Delete note"><IcTrash /></button>
+            <button
+              className={`an-deletebtn${deleteArmed ? ' an-deletebtn--armed' : ''}`}
+              onClick={onDeleteClick}
+              data-testid="note-delete"
+              title={deleteArmed ? 'Click again to delete' : 'Delete note'}
+            >
+              {deleteArmed ? 'Really delete?' : <IcTrash />}
+            </button>
           )}
           <button className="an-savebtn" onClick={save} disabled={busy} data-testid="note-save">
             <IcSave /> {busy ? 'Saving…' : existing ? 'Save Changes' : 'Save Note'}

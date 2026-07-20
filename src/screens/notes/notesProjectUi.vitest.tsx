@@ -63,10 +63,14 @@ describe('Note Creator — project quick-capture (one action)', () => {
     fireEvent.click(screen.getByTestId('note-row-j1'));
 
     const editor = await screen.findByTestId('project-note-editor');
-    expect((within(editor).getByTestId('project-body') as HTMLTextAreaElement).value).toMatch(/Sleep extension/);
+    // body renders in the rich writing surface (Set 1: TipTap over canonical md)
+    expect(within(editor).getByTestId('project-body').textContent).toMatch(/Sleep extension/);
     // it is NOT the 8-field paper template
     expect(screen.queryByTestId('field-key_findings')).toBeNull();
 
+    // two-step delete: first click ARMS, second click deletes
+    fireEvent.click(screen.getByTestId('project-delete'));
+    expect(notes.rows.has('j1')).toBe(true); // armed, not deleted
     fireEvent.click(screen.getByTestId('project-delete'));
     await waitFor(() => expect(notes.rows.has('j1')).toBe(false));
   });

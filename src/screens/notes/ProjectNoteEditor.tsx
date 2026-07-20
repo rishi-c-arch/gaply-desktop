@@ -4,8 +4,9 @@
 // Visual language: the mock's paper-editor screen with the idea-yellow accent;
 // same props/testids/behavior as before (save / close / delete / export /
 // preview==export via buildExportable + noteToMarkdown).
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import MarkdownRenderer from '../../components/MarkdownRenderer';
+import RichBody from './RichBody';
 import { Note, NoteDraft } from './notesBridge';
 import { noteToMarkdown, exportFileName, ExportableNote } from './noteExport';
 import { saveNoteFile } from './saveNoteFile';
@@ -28,9 +29,25 @@ export interface ProjectNoteEditorProps {
 
 const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onSave, onDelete, onClose, busy, onError }) => {
   const [title, setTitle] = useState(existing?.title ?? '');
+  // body stays CANONICAL MARKDOWN. RichBody only calls setBody on real user
+  // edits, so opening a note without touching it never rewrites its bytes.
   const [body, setBody] = useState(existing?.body ?? '');
   const [tags, setTags] = useState((existing?.tags ?? []).join(', '));
   const [preview, setPreview] = useState(false);
+
+  // Two-step delete: first click ARMS for 3s, second click deletes.
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const disarmTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(disarmTimer.current), []);
+  const onDeleteClick = () => {
+    if (!deleteArmed) {
+      setDeleteArmed(true);
+      disarmTimer.current = window.setTimeout(() => setDeleteArmed(false), 3000);
+    } else {
+      window.clearTimeout(disarmTimer.current);
+      onDelete?.();
+    }
+  };
 
   const splitTags = () => tags.split(',').map((t) => t.trim()).filter(Boolean);
 
@@ -86,7 +103,14 @@ const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onS
           </button>
           <div className="an-divider" />
           {existing && onDelete && (
-            <button className="an-deletebtn" onClick={onDelete} data-testid="project-delete" title="Delete note"><IcTrash /></button>
+            <button
+              className={`an-deletebtn${deleteArmed ? ' an-deletebtn--armed' : ''}`}
+              onClick={onDeleteClick}
+              data-testid="project-delete"
+              title={deleteArmed ? 'Click again to delete' : 'Delete note'}
+            >
+              {deleteArmed ? 'Really delete?' : <IcTrash />}
+            </button>
           )}
           <button className="an-savebtn" onClick={save} disabled={busy} data-testid="project-save">
             <IcSave /> {busy ? 'Saving…' : existing ? 'Save Changes' : 'Save Note'}
@@ -130,12 +154,13 @@ const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onS
             </section>
             <section>
               <label className="an-label">Freeform Sketch</label>
-              <textarea
-                className="an-field an-body-input"
+              {/* Rich writing surface (Set 1): "- " → bullet, "# " → heading,
+                  "> " → quote, ⌘B/⌘I — stored as canonical markdown. */}
+              <RichBody
                 value={body}
+                onChange={setBody}
                 placeholder="Capture it — an idea, a hypothesis, a next step…"
-                data-testid="project-body"
-                onChange={(e) => setBody(e.target.value)}
+                testid="project-body"
               />
             </section>
             <div className="an-edit-foot">

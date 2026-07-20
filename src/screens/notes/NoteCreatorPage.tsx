@@ -266,8 +266,6 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
           <button className="an-nav-item" onClick={() => navigate('/app/settings')}>
             <IcGear /> Settings
           </button>
-          {/* SPIKE (Set 0, rich editor) — temporary entry, removed in Set 1 */}
-          <button className="an-nav-item" data-testid="spike-entry" onClick={() => navigate('/app/notes/spike')}>🧪 Editor spike</button>
           <div className="an-free-pill">free · on device — your notes never leave this machine</div>
         </div>
       </aside>

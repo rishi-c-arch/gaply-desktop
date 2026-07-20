@@ -241,6 +241,10 @@ describe('Note Creator — list / edit / delete + empty state', () => {
     expect((within(editor).getByTestId('note-title') as HTMLInputElement).value).toBe('My Watson notes');
     expect((within(editor).getByTestId('field-key_findings') as HTMLTextAreaElement).value).toBe('Double helix');
 
+    // two-step delete: first click ARMS ("Really delete?"), second click deletes
+    fireEvent.click(screen.getByTestId('note-delete'));
+    expect(notes.rows.has('n1')).toBe(true); // armed, not deleted
+    expect(screen.getByTestId('note-delete').textContent).toMatch(/Really delete\?/);
     fireEvent.click(screen.getByTestId('note-delete'));
     await waitFor(() => expect(notes.rows.has('n1')).toBe(false));
     await screen.findByTestId('note-empty');
