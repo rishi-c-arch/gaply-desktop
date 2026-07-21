@@ -2,7 +2,7 @@
 // no model, no network, no file I/O. Pins: skip-empties, structure preserved,
 // quotes with/without page, bulk joined by ---.
 import { describe, expect, it } from 'vitest';
-import { noteToMarkdown, notesToMarkdown, exportFileName, honestImagePlaceholders, ExportableNote } from './noteExport';
+import { noteToMarkdown, notesToMarkdown, exportFileName, bulkExportFileName, honestImagePlaceholders, ExportableNote } from './noteExport';
 import { Note, PaperNoteFields } from './notesBridge';
 
 const project = (over: Partial<ExportableNote> = {}): ExportableNote => ({
@@ -120,5 +120,30 @@ describe('exportFileName', () => {
     expect(exportFileName('My Notes on X!')).toBe('my-notes-on-x.md');
     expect(exportFileName('   ', 'paper-note')).toBe('paper-note.md');
     expect(exportFileName('')).toBe('note.md');
+  });
+});
+
+describe('bulkExportFileName — encodes the full active filter (Phase 4a)', () => {
+  it('no filters → plain notes.md', () => {
+    expect(bulkExportFileName('all', null, '')).toBe('notes.md');
+    expect(bulkExportFileName('all', null, '   ')).toBe('notes.md');
+  });
+  it('type-only / tag-only / search-only', () => {
+    expect(bulkExportFileName('paper', null, '')).toBe('notes-paper.md');
+    expect(bulkExportFileName('manuscript', null, '')).toBe('notes-manuscript.md');
+    expect(bulkExportFileName('all', 'writing', '')).toBe('notes-writing.md');
+    expect(bulkExportFileName('all', null, 'sleep recall')).toBe('notes-sleep-recall.md');
+  });
+  it('combinations encode type + tag + search in order', () => {
+    expect(bulkExportFileName('manuscript', 'thesis', 'attention')).toBe('notes-manuscript-thesis-attention.md');
+    expect(bulkExportFileName('project', 'ideas', '')).toBe('notes-project-ideas.md');
+  });
+  it('a search query with ILLEGAL filename chars is slugged (always a valid name)', () => {
+    const name = bulkExportFileName('all', null, 'a/b: c*d?<e>');
+    expect(name).toBe('notes-a-b-c-d-e.md');
+    expect(name).not.toMatch(/[/\\:*?"<>|]/); // no illegal filename characters
+  });
+  it('a tag with special chars is also slugged', () => {
+    expect(bulkExportFileName('paper', 'C++ / ML', 'x')).toBe('notes-paper-c-ml-x.md');
   });
 });

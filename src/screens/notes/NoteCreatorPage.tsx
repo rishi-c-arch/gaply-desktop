@@ -18,7 +18,7 @@ import PaperNoteEditor from './PaperNoteEditor';
 import ProjectNoteEditor from './ProjectNoteEditor';
 import ManuscriptEditor from './ManuscriptEditor';
 import RecommendedToolsPanel from './RecommendedToolsPanel';
-import { notesToMarkdown } from './noteExport';
+import { notesToMarkdown, bulkExportFileName } from './noteExport';
 import { saveNoteFile } from './saveNoteFile';
 import { imageRefsIn, gcOrphans } from './noteImages';
 import { IcDoc, IcBulb, IcArticle, IcQuote, IcTag, IcGear, IcSearch, IcAdd, IcEditNote, IcBook, IcExport } from './NotesIcons';
@@ -187,7 +187,7 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
     try {
       // saveNoteFile returns null on cancel (silent no-op) and only THROWS on a
       // real write failure — so this catch surfaces genuine failures, not cancels.
-      await saveNoteFile(tagFilter ? `notes-${tagFilter}.md` : 'notes.md', notesToMarkdown(list));
+      await saveNoteFile(bulkExportFileName(typeFilter, tagFilter, query), notesToMarkdown(list));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save the export');
     }

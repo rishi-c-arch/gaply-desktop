@@ -86,13 +86,23 @@ export function notesToMarkdown(notes: Note[]): string {
   return notes.map((n) => noteToMarkdown(n, parseFields(n))).join('\n\n---\n\n');
 }
 
+/** Slug an arbitrary string to safe filename chars (letters/numbers/hyphens). */
+const slugify = (s: string, max = 60): string =>
+  s.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, max);
+
 /** A safe, readable `.md` filename from a title (slugged), with a fallback. */
 export function exportFileName(title: string, fallback = 'note'): string {
-  const slug = title
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60);
-  return `${slug || fallback}.md`;
+  return `${slugify(title) || fallback}.md`;
+}
+
+/** The bulk-export filename, encoding the FULL active filter (type + tag +
+ *  search) so a filtered export is self-describing. Every part is slugged, so a
+ *  search query with illegal chars (e.g. "a/b: c") can never break the name. */
+export function bulkExportFileName(typeFilter: string, tagFilter: string | null, query: string): string {
+  const parts: string[] = [];
+  if (typeFilter && typeFilter !== 'all') parts.push(slugify(typeFilter, 20));
+  if (tagFilter) { const t = slugify(tagFilter, 30); if (t) parts.push(t); }
+  const q = slugify(query, 30);
+  if (q) parts.push(q);
+  return `notes${parts.length ? `-${parts.join('-')}` : ''}.md`;
 }
