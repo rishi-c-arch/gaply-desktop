@@ -150,3 +150,64 @@ export function formatWithCsl(
     .format('bibliography', { template: styleId, lang: locale, format: outputFormat })
     .trim();
 }
+
+export interface RenderedCitations {
+  /** One rendered in-text marker per input cluster, in document order (e.g.
+   *  "[1]", "[2]", "[1]" for a reuse; or "(Smith, 2020)" for author-date). */
+  inText: string[];
+  /** The reference list, ordered to MATCH the in-text markers for numbered
+   *  styles (citation order) or alphabetically for author-date (citeproc's rule). */
+  bibliography: string;
+  /** The ids actually cited, in first-appearance order (= numbered order). */
+  citationOrder: string[];
+}
+
+/**
+ * Render a whole document's in-text citations + a matching bibliography (Set B).
+ *
+ * THE PROVEN RECIPE (spike-verified against IEEE + APA): each `.format()` call
+ * spins up a fresh citeproc engine, so a bibliography formatted separately numbers
+ * by ARRAY order, NOT citation order — mismatching the in-text markers. The fix:
+ *   1. compute first-citation order across all clusters,
+ *   2. reorder the cited items into that order,
+ *   3. format each in-text cluster WITH its pre/post context (so citeproc numbers
+ *      by document order; a reused citation keeps its first number),
+ *   4. format the bibliography from the reordered items.
+ * Numbered styles then match [1][2][3]; author-date styles sort the bib
+ * alphabetically and link by name/year (correct, no numbering to match).
+ *
+ * `library` is the superset of available references; only ids that appear in
+ * `clusters` are cited/rendered. Requires the style to be prepared/registered.
+ */
+export function renderCitations(
+  library: CslItem[],
+  clusters: string[][],
+  styleId: string,
+  locale = 'en-US',
+  outputFormat: 'text' | 'html' = 'text',
+): RenderedCitations {
+  if (!CiteClass || !cslConfig) {
+    throw new Error('CSL engine not loaded — call prepareStyle(styleId) first');
+  }
+  if (!cslConfig.templates.has(styleId)) {
+    throw new Error(`CSL style "${styleId}" is not registered — prepareStyle it first (no silent fallback)`);
+  }
+  const byId = new Map(library.map((c) => [c.id, c]));
+  // (1) first-appearance order of cited ids that actually exist in the library.
+  const citationOrder: string[] = [];
+  for (const cluster of clusters) {
+    for (const id of cluster) {
+      if (!citationOrder.includes(id) && byId.has(id)) citationOrder.push(id);
+    }
+  }
+  // (2) reorder cited items into citation order.
+  const ordered = citationOrder.map((id) => byId.get(id)!);
+  const cite = new CiteClass(ordered.map(toCslJson));
+  const opts = { template: styleId, lang: locale, format: outputFormat } as const;
+  // (3) in-text, each with document context so numbers follow document order.
+  const inText = clusters.map((entry, i) =>
+    (cite.format('citation', { ...opts, entry, citationsPre: clusters.slice(0, i), citationsPost: clusters.slice(i + 1) }) as string));
+  // (4) bibliography from the reordered items (matches numbered in-text).
+  const bibliography = citationOrder.length ? (cite.format('bibliography', opts) as string).trim() : '';
+  return { inText, bibliography, citationOrder };
+}
