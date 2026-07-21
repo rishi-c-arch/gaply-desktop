@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import RichBody from './RichBody';
 import ScaffoldPicker from './ScaffoldPicker';
 import { CitationProvider, CitationPickItem } from './CitationContext';
-import { signatureOf, computeMarkers, MarkerMap } from './manuscriptCitations';
+import { signatureOf, renderManuscriptCitations, CitationRender } from './manuscriptCitations';
 import { LocalLibrary, TauriLocalLibrary, storedToCitation } from '../citations/localLibrary';
 import { CslItem } from '../citations/citationTypes';
 import { Note, NoteDraft } from './notesBridge';
@@ -101,23 +101,24 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
     };
   }, [reloadLibrary]);
 
-  const [markerMap, setMarkerMap] = useState<MarkerMap>(new Map());
+  const EMPTY_RENDER: CitationRender = { markers: new Map(), perToken: [], bibliography: '', dangling: [], hasCitations: false };
+  const [citeRender, setCiteRender] = useState<CitationRender>(EMPTY_RENDER);
   // Signature folds in the library fingerprint (ids + updated_at), so it changes
   // on a citation insert/delete/reorder, a style switch, a ref added/removed, OR
-  // a cited ref's metadata edit — but NOT on prose keystrokes. Gates computeMarkers.
+  // a cited ref's metadata edit — but NOT on prose keystrokes. Gates the render.
   const signature = signatureOf(manuscript.sections, manuscript.cslStyleId, libFingerprint);
   useEffect(() => {
     let alive = true;
-    computeMarkers(manuscript.sections, manuscript.cslStyleId, libMap)
-      .then((mm) => { if (alive) setMarkerMap(mm); })
-      .catch(() => { /* keep the last good map */ });
+    renderManuscriptCitations(manuscript.sections, manuscript.cslStyleId, libMap)
+      .then((r) => { if (alive) setCiteRender(r); })
+      .catch(() => { /* keep the last good render */ });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
 
   const markerFor = useCallback(
-    (refId: string) => markerMap.get(refId) ?? { marker: '', missing: !libMap.has(refId) },
-    [markerMap, libMap],
+    (refId: string) => citeRender.markers.get(refId) ?? { marker: '', missing: !libMap.has(refId) },
+    [citeRender, libMap],
   );
   const searchLib = useCallback(
     async (q: string): Promise<CitationPickItem[]> =>
@@ -145,8 +146,10 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
   const exportDocx = async () => {
     onError?.(null);
     try {
-      // Apply the active scaffold's per-venue manuscript formatting profile.
-      await saveManuscriptDocx(manuscript, exportFileName(manuscript.title, 'manuscript').replace(/\.md$/, '.docx'), scaffold.docxFormat ?? DEFAULT_DOCX_FORMAT);
+      // Resolve citations fresh (same path as live display → export markers match
+      // live), then export with the venue's manuscript formatting profile.
+      const cites = await renderManuscriptCitations(manuscript.sections, manuscript.cslStyleId, libMap);
+      await saveManuscriptDocx(manuscript, exportFileName(manuscript.title, 'manuscript').replace(/\.md$/, '.docx'), scaffold.docxFormat ?? DEFAULT_DOCX_FORMAT, cites);
     } catch (e) {
       onError?.(e instanceof Error ? e.message : 'Could not export the .docx');
     }
@@ -333,9 +336,23 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
                     {active.guidance}{active.typicalWords ? ` (typically ${active.typicalWords})` : ''}
                   </span>
                 </div>
-                {/* Stable key = section key: switching remounts cleanly, no bleed.
-                    withCitations enables the ⌘⇧C picker + live in-text markers. */}
-                <RichBody key={active.key} value={active.body} onChange={(md) => setBody(active.key, md)} placeholder={`Write the ${active.heading.toLowerCase()}…`} testid={`ms-body-${active.key}`} withCitations />
+                {/* The References section auto-generates from citations. When any
+                    exist, show an HONEST banner + a read-only preview instead of an
+                    editable box — so the transition is never a silent overwrite. */}
+                {active.key === 'references' && citeRender.hasCitations ? (
+                  <div data-testid="ms-refs-auto">
+                    <div className="an-ms-notice" data-testid="ms-refs-banner">
+                      📚 <b>Auto-generated from your citations</b> in the <b>{manuscript.cslStyleId}</b> style — this list, not any text you type here, is what exports. Manage references in <b>Citations</b>.
+                    </div>
+                    <div className="an-refs-preview" data-testid="ms-refs-preview">
+                      {citeRender.bibliography.split('\n').filter(Boolean).map((line, i) => (<p key={i}>{line}</p>))}
+                    </div>
+                  </div>
+                ) : (
+                  /* Stable key = section key: switching remounts cleanly, no bleed.
+                     withCitations enables the ⌘⇧C picker + live in-text markers. */
+                  <RichBody key={active.key} value={active.body} onChange={(md) => setBody(active.key, md)} placeholder={`Write the ${active.heading.toLowerCase()}…`} testid={`ms-body-${active.key}`} withCitations />
+                )}
               </div>
             )}
           </div>

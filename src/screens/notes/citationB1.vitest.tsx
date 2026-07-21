@@ -187,6 +187,30 @@ describe('library changes flip the ⚠ chip on return (Phase 0)', () => {
   });
 });
 
+/* -------- (B2 pin f) honest auto-References banner + live preview -------- */
+describe('References section auto-generates honestly when citations exist (B2 pin f)', () => {
+  it('shows the "Auto-generated from your citations" banner + a live bibliography preview', async () => {
+    const note = await noteWith('ieee', 'introduction', 'Intro [[cite:refA]].');
+    render(<ManuscriptEditor id="m1" existing={note} onSave={() => {}} onClose={() => {}} library={mockLib()} />);
+    await waitFor(() => expect(screen.getByTestId('ms-nav-references')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('ms-nav-references'));
+    // the editable box is REPLACED by the honest banner (never a silent overwrite)
+    await waitFor(() => expect(screen.getByTestId('ms-refs-banner')).toBeTruthy());
+    expect(screen.getByTestId('ms-refs-banner').textContent).toMatch(/Auto-generated from your citations/i);
+    expect(screen.queryByTestId('ms-body-references')).toBeNull(); // no editable RichBody here now
+    await waitFor(() => expect(screen.getByTestId('ms-refs-preview').textContent).toMatch(/He|\[1\]/));
+  });
+
+  it('with NO citations the References section stays a normal editable box (backward compat)', async () => {
+    const note = await noteWith('ieee', 'references', 'My manual reference list.');
+    render(<ManuscriptEditor id="m1" existing={note} onSave={() => {}} onClose={() => {}} library={mockLib()} />);
+    await waitFor(() => expect(screen.getByTestId('ms-nav-references')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('ms-nav-references'));
+    await waitFor(() => expect(screen.getByTestId('ms-body-references')).toBeTruthy()); // editable
+    expect(screen.queryByTestId('ms-refs-banner')).toBeNull();
+  });
+});
+
 /* -------- (a) INSERT + live marker in the real editor -------- */
 describe('insert a citation → live marker (pin a)', () => {
   it('pick a reference from the picker → gaplyCite node inserts and renders [1]', async () => {

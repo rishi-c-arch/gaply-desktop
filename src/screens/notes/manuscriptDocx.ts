@@ -15,6 +15,8 @@
 // flags as "corrupted"); an unresolvable image degrades to an honest placeholder.
 import { Manuscript, DocxFormat, DEFAULT_DOCX_FORMAT } from './manuscriptModel';
 import { IMAGE_REF_PREFIX, readImageBytes } from './noteImages';
+import { CITE_TOKEN_RE } from './GaplyCiteNode';
+import { CitationRender } from './manuscriptCitations';
 
 export interface ResolvedImage { data: Uint8Array; width: number; height: number; }
 export type ImageResolver = (ref: string) => Promise<ResolvedImage | null>;
@@ -73,6 +75,7 @@ export async function buildManuscriptDocx(
   m: Manuscript,
   format: DocxFormat = DEFAULT_DOCX_FORMAT,
   resolveImage: ImageResolver = defaultImageResolver,
+  citations?: CitationRender, // resolve-on-export (B2): tokens → markers + auto-References
 ): Promise<Blob> {
   const {
     Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, ImageRun,
@@ -105,14 +108,35 @@ export async function buildManuscriptDocx(
     return { label: '', upper: false };
   };
 
+  // Replace each [[cite:id]] token, IN DOCUMENT ORDER, with its resolved in-text
+  // marker (a dangling token → '[?]'). The counter advances across sections in
+  // the SAME order orderedRefIds walked them — so export markers == live markers.
+  let tokenIdx = 0;
+  const cited = !!citations?.hasCitations;
+  const replaceCites = (text: string): string =>
+    text.replace(CITE_TOKEN_RE, () => (cited ? (citations!.perToken[tokenIdx++] ?? '[?]') : (tokenIdx++, '')));
+
+  // Bibliography paragraphs (hanging indent) for the auto-References section.
+  const bibParagraphs = (): import('docx').Paragraph[] =>
+    citations!.bibliography.split('\n').map((l) => l.trim()).filter(Boolean).map((line) =>
+      new Paragraph({ spacing: bodySpacing, indent: { left: convertInchesToTwip(0.5), hanging: convertInchesToTwip(0.5) }, children: [new TextRun(line)] }));
+
   const bodyChildren: import('docx').Paragraph[] = [];
   let numbered = 0;
+  let refsEmitted = false;
   for (const s of m.sections) {
+    // The References section becomes the AUTO-GENERATED bibliography when the
+    // manuscript has citations; otherwise its manual body is exported as-is.
+    if (s.key === 'references' && cited) {
+      const paras = bibParagraphs();
+      if (paras.length) { bodyChildren.push(heading(s.heading), ...paras); refsEmitted = true; }
+      continue;
+    }
     const kids: import('docx').Paragraph[] = [];
     for (const seg of segmentSectionBody(s.body)) {
       if ('text' in seg) {
         for (const p of seg.text.split(/\n{2,}/).map((x) => x.trim()).filter(Boolean)) {
-          kids.push(new Paragraph({ spacing: bodySpacing, indent: bodyIndent, children: [new TextRun(p)] }));
+          kids.push(new Paragraph({ spacing: bodySpacing, indent: bodyIndent, children: [new TextRun(replaceCites(p))] }));
         }
       } else {
         let img: ResolvedImage | null = null;
@@ -129,6 +153,12 @@ export async function buildManuscriptDocx(
     const { label, upper } = numberable ? numberFor(s.key, numbered) : { label: '', upper: false };
     if (numberable) numbered += 1;
     bodyChildren.push(heading(`${label}${upper ? s.heading.toUpperCase() : s.heading}`), ...kids);
+  }
+  // Citations but the References section was deleted → append one so the
+  // bibliography is never lost.
+  if (cited && !refsEmitted) {
+    const paras = bibParagraphs();
+    if (paras.length) bodyChildren.push(heading('References'), ...paras);
   }
 
   /* ---- Page setup + styles from the profile ---- */
@@ -168,8 +198,8 @@ export async function buildManuscriptDocx(
 /** Save a manuscript as .docx via the native dialog + BINARY writeFile (docx is
  *  binary). Browser fallback: a Blob download. Returns the saved path (Tauri) or
  *  null (browser / cancelled). */
-export async function saveManuscriptDocx(m: Manuscript, suggestedName: string, format: DocxFormat = DEFAULT_DOCX_FORMAT): Promise<string | null> {
-  const blob = await buildManuscriptDocx(m, format);
+export async function saveManuscriptDocx(m: Manuscript, suggestedName: string, format: DocxFormat = DEFAULT_DOCX_FORMAT, citations?: CitationRender): Promise<string | null> {
+  const blob = await buildManuscriptDocx(m, format, undefined, citations);
   const { isTauri } = await import('../../utils/isTauri');
   if (isTauri) {
     const { save } = await import('@tauri-apps/plugin-dialog');

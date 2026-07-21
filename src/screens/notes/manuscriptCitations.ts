@@ -37,21 +37,55 @@ export const signatureOf = (
 export interface Marker { marker: string; missing: boolean }
 export type MarkerMap = Map<string, Marker>;
 
-/** Live in-text markers keyed by refId. For numbered + author-date styles a
- *  reference renders the SAME marker everywhere, so a refId→marker map is exact.
- *  Dangling refs (id not in the library) are flagged missing, never crash. */
+/** The full citation render for a manuscript — the SINGLE path used by BOTH live
+ *  display and .docx export, so in-text markers and the bibliography are always
+ *  produced identically (the correctness guarantee: exported [1] == live [1] ==
+ *  References [1]). Every field derives from one renderCitations pass over
+ *  document-order clusters. */
+export interface CitationRender {
+  /** refId → live in-text marker (numbered/author-date render a ref identically
+   *  everywhere, so a refId map is exact). Dangling refs flagged missing. */
+  markers: MarkerMap;
+  /** The in-text marker for the k-th [[cite]] token in DOCUMENT order — used for
+   *  position-accurate export replacement. A dangling token renders '[?]'. */
+  perToken: string[];
+  /** The reference list in the chosen style (numbered order or alphabetical). */
+  bibliography: string;
+  /** Cited ids not in the library (deleted/dangling). */
+  dangling: string[];
+  /** Any citations present at all (drives auto-References vs manual). */
+  hasCitations: boolean;
+}
+
+export async function renderManuscriptCitations(
+  sections: { body: string }[],
+  cslStyleId: string,
+  library: Map<string, CslItem>,
+): Promise<CitationRender> {
+  const ids = orderedRefIds(sections); // ALL tokens, document order (with repeats)
+  if (ids.length === 0) return { markers: new Map(), perToken: [], bibliography: '', dangling: [], hasCitations: false };
+  const unique = uniqueInOrder(ids);
+  const cited = unique.map((id) => library.get(id)).filter((x): x is CslItem => !!x);
+  await engine.prepareStyle(cslStyleId);
+  // One token = one single-id cluster, in document order (B1-scope: no merged
+  // clusters yet). renderCitations reorders internally + returns inText aligned
+  // to these input positions.
+  const { inText, bibliography, dangling } = engine.renderCitations(cited, ids.map((id) => [id]), cslStyleId);
+  const danglingSet = new Set(dangling);
+  const markers: MarkerMap = new Map();
+  for (const id of unique) {
+    markers.set(id, danglingSet.has(id) ? { marker: '', missing: true } : { marker: inText[ids.indexOf(id)], missing: false });
+  }
+  const perToken = ids.map((id, k) => (danglingSet.has(id) ? '[?]' : inText[k]));
+  return { markers, perToken, bibliography, dangling, hasCitations: true };
+}
+
+/** Live in-text markers keyed by refId (B1 display). Thin view over the shared
+ *  renderer so display and export never diverge. */
 export async function computeMarkers(
   sections: { body: string }[],
   cslStyleId: string,
   library: Map<string, CslItem>,
 ): Promise<MarkerMap> {
-  const map: MarkerMap = new Map();
-  const unique = uniqueInOrder(orderedRefIds(sections));
-  if (unique.length === 0) return map;
-  const cited = unique.map((id) => library.get(id)).filter((x): x is CslItem => !!x);
-  await engine.prepareStyle(cslStyleId);
-  const { inText, citationOrder } = engine.renderCitations(cited, unique.map((id) => [id]), cslStyleId);
-  citationOrder.forEach((id, k) => map.set(id, { marker: inText[k], missing: false }));
-  for (const id of unique) if (!library.has(id)) map.set(id, { marker: '', missing: true });
-  return map;
+  return (await renderManuscriptCitations(sections, cslStyleId, library)).markers;
 }
