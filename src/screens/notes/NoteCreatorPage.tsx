@@ -19,6 +19,7 @@ import ProjectNoteEditor from './ProjectNoteEditor';
 import RecommendedToolsPanel from './RecommendedToolsPanel';
 import { notesToMarkdown } from './noteExport';
 import { saveNoteFile } from './saveNoteFile';
+import { imageRefsIn, gcOrphans } from './noteImages';
 import { IcDoc, IcBulb, IcArticle, IcQuote, IcTag, IcGear, IcSearch, IcAdd, IcEditNote, IcBook, IcExport } from './NotesIcons';
 import FontScale from './FontScale';
 import './notes.css';
@@ -131,13 +132,28 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
     await reload();
   };
 
+  // Reference-COUNTED image GC: a file dies only when NO note still references
+  // its hash. Runs AFTER the mutation commits (so the search reflects the new
+  // world) — a note sharing the hash keeps the file alive. Never blocks/faults
+  // the save itself: GC failure just leaves a harmless orphan.
+  const gcAfter = async (candidates: string[]) => {
+    if (candidates.length === 0) return;
+    try {
+      await gcOrphans(candidates, async (ref) => (await bridge.search(ref)).length > 0);
+    } catch { /* orphan cleanup is best-effort */ }
+  };
+
   const save = async (draft: NoteDraft) => {
     setBusy(true);
     setError(null);
     try {
       const isEdit = editing && (editing.kind === 'paper-edit' || editing.kind === 'project-edit');
+      // Candidates = images that were in the note before this edit but aren't now.
+      const prevBody = isEdit && 'note' in editing ? editing.note.body : '';
+      const removedRefs = imageRefsIn(prevBody).filter((r) => !imageRefsIn(draft.body ?? '').includes(r));
       if (isEdit) await bridge.update(draft);
       else await bridge.create(draft);
+      await gcAfter(removedRefs); // commit-first, then sweep
       await afterMutation();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save the note');
@@ -149,7 +165,11 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
   const remove = async (id: string) => {
     setBusy(true);
     try {
+      // Capture the victim's image refs BEFORE deleting, so we know what to sweep.
+      const victim = await bridge.get(id);
+      const candidates = victim ? imageRefsIn(victim.body) : [];
       await bridge.remove(id);
+      await gcAfter(candidates); // commit-first: a note sharing a hash keeps its file
       await afterMutation();
     } finally {
       setBusy(false);

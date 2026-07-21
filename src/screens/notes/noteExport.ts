@@ -5,6 +5,15 @@
 // absent, never a blank stub, never padded.
 import { Note, NoteType, PaperNoteFields, parseFields } from './notesBridge';
 
+/** Export honesty for pasted images (Set 3): a single portable `.md` can't
+ *  carry binaries, and a bare gaply-image:// ref means nothing outside Gaply.
+ *  Rewrite each image ref to a clearly-labelled placeholder that keeps the ref
+ *  as a breadcrumb — never a broken <img>, never a silent drop. */
+export function honestImagePlaceholders(md: string): string {
+  return md.replace(/!\[[^\]]*\]\((gaply-image:\/\/[A-Za-z0-9]+\.[A-Za-z0-9]+)\)/g,
+    (_m, ref) => `![image stored in Gaply](${ref})`);
+}
+
 /** The minimal shape the emitter needs — a stored Note satisfies it, and so does
  *  a live editor draft (so the per-note Export button can emit unsaved edits). */
 export interface ExportableNote {
@@ -60,8 +69,8 @@ export function noteToMarkdown(note: ExportableNote, fields: PaperNoteFields): s
       }
     }
   } else {
-    // Project note: the body under the title.
-    const body = note.body.trim();
+    // Project note: the body under the title (image refs → honest placeholders).
+    const body = honestImagePlaceholders(note.body.trim());
     if (body) lines.push('', body);
   }
 

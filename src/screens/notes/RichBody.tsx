@@ -12,12 +12,14 @@
 // are the Set 0 spike's PROVEN fix — macOS smart-substitution in WKWebView was
 // eating ProseMirror input rules. NO AI anywhere ("Gaply never writes your
 // notes for you").
-import React, { useEffect, useReducer } from 'react';
+import React, { useEffect, useReducer, useState } from 'react';
 import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Placeholder } from '@tiptap/extensions';
 import { TableKit } from '@tiptap/extension-table';
 import { Markdown } from 'tiptap-markdown';
+import { GaplyImage } from './GaplyImageNode';
+import { storeImageFile } from './noteImages';
 
 /** Serialize the editor back to canonical markdown. Two normalizations:
  *  hardBreak → plain "\n" (keeps multiline plain-text notes byte-stable), and
@@ -35,9 +37,29 @@ export const mdOf = (editor: Editor): string => {
 export const richExtensions = (placeholder = '') => [
   StarterKit,
   TableKit.configure({ table: { resizable: false } }),
+  GaplyImage, // pasted images (Set 3) — renders gaply-image://<hash> refs via blob URL
   Placeholder.configure({ placeholder }),
   Markdown.configure({ html: false, breaks: true }),
 ];
+
+/** The image FILE in a paste, or null. FREE path: clipboardData.items →
+ *  getAsFile(). Proven to deliver real bytes in the WKWebView. Exported for
+ *  the pins. */
+export const pickPastedImage = (data: DataTransfer | null): File | null => {
+  const item = Array.from(data?.items ?? []).find((i) => i.kind === 'file' && i.type.startsWith('image/'));
+  return item ? item.getAsFile() : null;
+};
+
+/** True when a drag carries FILES (not text/html). Drag-drop does NOT deliver
+ *  image bytes in this webview, so we detect the intent and hint honestly
+ *  instead of leaving a silent dead-zone. */
+export const isFileDrag = (data: DataTransfer | null): boolean =>
+  !!data && Array.from(data.types).includes('Files');
+
+/** The honest drop message: a file drag gets the ⌘V hint (bytes don't arrive
+ *  via drop in this webview); anything else returns null (behaves normally). */
+export const imageDropHint = (data: DataTransfer | null): string | null =>
+  isFileDrag(data) ? 'Drag-and-drop isn’t supported here — paste images with ⌘V.' : null;
 
 /** Prevent the mousedown from blurring the editor (which would drop the
  *  in-table selection before the command runs). */
@@ -78,12 +100,46 @@ export interface RichBodyProps {
 
 const RichBody: React.FC<RichBodyProps> = ({ value, onChange, placeholder, testid }) => {
   const [, force] = useReducer((x: number) => x + 1, 0);
+  // One honest inline message channel: image errors (oversize/unsupported) and
+  // the drag-drop hint. Cleared on the next successful paste or on dismiss.
+  const [hint, setHint] = useState<string | null>(null);
+
   const editor = useEditor({
     extensions: richExtensions(placeholder ?? ''),
     content: value,
     editorProps: {
       // The spike-proven WKWebView fix — keep all three exactly as verified.
       attributes: { autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false' },
+      // PASTE an image (Set 3): store to disk by content-hash, then insert the
+      // canonical gaply-image:// ref as an image node. Async, so we consume the
+      // event now and dispatch the node when the write resolves.
+      handlePaste: (view, event) => {
+        const file = pickPastedImage(event.clipboardData);
+        if (!file) return false; // not an image — let normal (text) paste run
+        storeImageFile(file)
+          .then((ref) => {
+            setHint(null);
+            const node = view.state.schema.nodes.image.create({ src: ref });
+            // The dispatch runs through TipTap's dispatchTransaction, so onUpdate
+            // fires and serializes the new body — no explicit onChange needed.
+            view.dispatch(view.state.tr.replaceSelectionWith(node));
+          })
+          // Show the REAL reason (storeImageFile rethrows fs errors with context);
+          // String(e) as a last resort so a non-Error rejection is never masked.
+          .catch((e) => setHint(e instanceof Error ? e.message : String(e)));
+        return true; // consume — we handled the image
+      },
+      // DROP does not deliver image bytes in this webview. Be honest: on a file
+      // drag, show the paste hint instead of silently swallowing it.
+      handleDrop: (_view, event) => {
+        const msg = imageDropHint((event as DragEvent).dataTransfer);
+        if (msg) {
+          setHint(msg);
+          event.preventDefault();
+          return true;
+        }
+        return false; // text/other drags behave normally
+      },
     },
     onUpdate: ({ editor: e }) => onChange(mdOf(e)),
   });
@@ -99,6 +155,12 @@ const RichBody: React.FC<RichBodyProps> = ({ value, onChange, placeholder, testi
   return (
     <div className="an-richbody" data-testid={testid}>
       {editor && <RichToolbar editor={editor} />}
+      {hint && (
+        <div className="an-rb-hint" role="status" data-testid="rb-image-hint">
+          <span>{hint}</span>
+          <button type="button" className="an-rb-hint-x" onClick={() => setHint(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
       <EditorContent editor={editor} />
     </div>
   );

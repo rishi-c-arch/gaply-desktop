@@ -6,9 +6,10 @@ import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Editor } from '@tiptap/core';
 
-import { richExtensions, mdOf } from './RichBody';
+import { richExtensions, mdOf, pickPastedImage, isFileDrag, imageDropHint } from './RichBody';
 import ProjectNoteEditor from './ProjectNoteEditor';
 import { noteToMarkdown } from './noteExport';
+import { imageRefsIn } from './noteImages';
 import { Note } from './notesBridge';
 
 afterEach(cleanup);
@@ -184,6 +185,57 @@ describe('export contract unchanged (pin e)', () => {
       {},
     );
     expect(md).toBe('# Idea\n\nSleep helps recall.\n\n_Tags: x_');
+  });
+});
+
+/* -------------------------- Set 3: pasted images ------------------------ */
+describe('image ref round-trips through markdown-canonical storage (Set 3, pin b)', () => {
+  const REF = 'gaply-image://abc123def.png';
+
+  it('a body with an image parses to an image node → serializes back with the ref → idempotent reopen', () => {
+    const body = `Notes before.\n\n![](${REF})\n\nNotes after.`;
+    const e1 = headless(body);
+    expect(JSON.stringify(e1.getJSON())).toContain('"type":"image"'); // really an image node
+    const md1 = mdOf(e1);
+    e1.destroy();
+    expect(md1).toContain(REF); // the canonical ref survives serialization (persistence)
+
+    const e2 = headless(md1); // reopen the stored body
+    const md2 = mdOf(e2);
+    e2.destroy();
+    expect(md2).toBe(md1); // reopen is stable — the image persists across save/open
+    expect(imageRefsIn(md2)).toContain(REF); // GC + persistence can still find it
+  });
+
+  it('BACKWARD COMPAT: the image extension leaves an image-FREE note byte-identical', () => {
+    for (const x of ['Sleep helps recall.', '# H\n\n- a\n- b', '> quote', 'line one\nline two']) {
+      const e = headless(x);
+      expect(mdOf(e)).toBe(x);
+      e.destroy();
+    }
+  });
+});
+
+describe('paste/drop plumbing is honest (Set 3, pin e)', () => {
+  it('pickPastedImage returns the clipboard image FILE (free path), else null', () => {
+    const imgFile = { type: 'image/png', size: 10 } as File;
+    const withImg = { items: [{ kind: 'file', type: 'image/png', getAsFile: () => imgFile }] } as unknown as DataTransfer;
+    expect(pickPastedImage(withImg)).toBe(imgFile);
+    const textOnly = { items: [{ kind: 'string', type: 'text/plain', getAsFile: () => null }] } as unknown as DataTransfer;
+    expect(pickPastedImage(textOnly)).toBeNull();
+    expect(pickPastedImage(null)).toBeNull();
+  });
+
+  it('isFileDrag detects a file drag so we can HINT, not silently swallow it', () => {
+    expect(isFileDrag({ types: ['Files'] } as unknown as DataTransfer)).toBe(true);
+    expect(isFileDrag({ types: ['text/plain'] } as unknown as DataTransfer)).toBe(false);
+    expect(isFileDrag(null)).toBe(false);
+  });
+
+  it('imageDropHint gives the honest ⌘V message on a file drag, null otherwise (the exact wiring handleDrop uses)', () => {
+    expect(imageDropHint({ types: ['Files'] } as unknown as DataTransfer)).toMatch(/paste images with ⌘V/i);
+    expect(imageDropHint({ types: ['text/plain'] } as unknown as DataTransfer)).toBeNull();
+    expect(imageDropHint(null)).toBeNull();
   });
 });
 

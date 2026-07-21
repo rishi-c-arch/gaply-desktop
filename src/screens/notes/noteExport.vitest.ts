@@ -2,7 +2,7 @@
 // no model, no network, no file I/O. Pins: skip-empties, structure preserved,
 // quotes with/without page, bulk joined by ---.
 import { describe, expect, it } from 'vitest';
-import { noteToMarkdown, notesToMarkdown, exportFileName, ExportableNote } from './noteExport';
+import { noteToMarkdown, notesToMarkdown, exportFileName, honestImagePlaceholders, ExportableNote } from './noteExport';
 import { Note, PaperNoteFields } from './notesBridge';
 
 const project = (over: Partial<ExportableNote> = {}): ExportableNote => ({
@@ -77,6 +77,21 @@ describe('noteToMarkdown — paper note (structure preserved, skip-empties)', ()
   it('paper note with only a title exports just the header (+ tags) — no empty sections', () => {
     const md = noteToMarkdown(paper({ title: 'Bare', paper_title: 'P', tags: ['t'] }), {});
     expect(md).toBe('# Bare\n\n**Paper:** P\n\n_Tags: t_');
+  });
+});
+
+describe('export honesty for pasted images (Set 3, pin 5)', () => {
+  it('a project body with an image ref exports an honest labelled placeholder (never a broken <img>)', () => {
+    const md = noteToMarkdown(project({ title: 'Field notes', body: 'Saw this:\n\n![](gaply-image://abc123.png)\n\nInteresting.' }), {});
+    expect(md).toBe('# Field notes\n\nSaw this:\n\n![image stored in Gaply](gaply-image://abc123.png)\n\nInteresting.');
+  });
+  it('honestImagePlaceholders relabels the alt but keeps the ref as a breadcrumb', () => {
+    expect(honestImagePlaceholders('![](gaply-image://h.png)')).toBe('![image stored in Gaply](gaply-image://h.png)');
+    expect(honestImagePlaceholders('![old alt](gaply-image://h.jpg)')).toBe('![image stored in Gaply](gaply-image://h.jpg)');
+  });
+  it('leaves ordinary (non-gaply) images and image-free text untouched', () => {
+    expect(honestImagePlaceholders('![diagram](https://ex.com/a.png)')).toBe('![diagram](https://ex.com/a.png)');
+    expect(honestImagePlaceholders('plain text, no images')).toBe('plain text, no images');
   });
 });
 
