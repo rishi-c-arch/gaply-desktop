@@ -289,6 +289,24 @@
   font: 500 12.5px/17px var(--an-ui); color: var(--an-on-surface-variant);
 }
 .an-rb-hint-x { margin-left: auto; border: none; background: none; cursor: pointer; font-size: 16px; line-height: 1; color: var(--an-on-surface-variant); }
+/* Research Paper Writer — Set A (manuscript editor) */
+.an-btn-ghost { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--an-outline-variant); background: none; cursor: pointer; border-radius: 10px; padding: 8px 14px; font: 600 13px/1 var(--an-ui); color: var(--an-on-surface); }
+.an-btn-ghost:hover { background: var(--an-surface-high); }
+.an-ms-notice { margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--an-outline-variant); border-left: 3px solid var(--an-primary); border-radius: 8px; background: var(--an-surface-low); font: 400 12.5px/1.5 var(--an-ui); color: var(--an-on-surface-variant); }
+.an-canvas--ms { display: block; }
+.an-ms-meta { display: grid; gap: 6px; margin-bottom: 16px; }
+.an-ms-authors { width: 100%; }
+.an-ms-body { display: grid; grid-template-columns: 210px 1fr; gap: 20px; align-items: start; }
+.an-ms-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 12px; }
+.an-ms-navitem { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: none; background: none; cursor: pointer; border-radius: 8px; padding: 7px 11px; font: 600 13px/1.2 var(--an-ui); color: var(--an-on-surface-variant); text-align: left; }
+.an-ms-navitem:hover { background: var(--an-surface-high); }
+.an-ms-navitem.an-active { background: var(--an-primary-container); color: var(--an-primary); }
+.an-ms-wc { font: 500 11px/1 var(--an-ui); opacity: 0.7; min-width: 22px; text-align: right; }
+.an-ms-total { margin-top: 8px; padding: 6px 11px; font: 600 11px/1 var(--an-ui); color: var(--an-on-surface-variant); border-top: 1px solid var(--an-outline-variant); }
+.an-ms-section-head { margin-bottom: 8px; }
+.an-ms-section-head h2 { font: 700 22px/28px var(--an-ui); color: var(--an-primary); margin: 0 0 2px; }
+.an-ms-guidance { display: block; font: 400 12.5px/1.5 var(--an-serif); color: var(--an-on-surface-variant); font-style: italic; }
+@media (max-width: 720px) { .an-ms-body { grid-template-columns: 1fr; } .an-ms-nav { position: static; flex-flow: row wrap; } }
 /* preview tables (mirror the editor look) */
 .an-preview-card .md-table-container { display: grid; border: 1px solid var(--an-outline-variant); border-radius: 8px; overflow: hidden; margin: 12px 0; }
 .an-preview-card .md-table-row { display: grid; grid-auto-flow: column; }

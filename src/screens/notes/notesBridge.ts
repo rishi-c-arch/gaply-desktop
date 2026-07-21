@@ -5,7 +5,7 @@
 // tests run with no backend.
 import { isTauri } from '../../utils/isTauri';
 
-export type NoteType = 'paper' | 'project';
+export type NoteType = 'paper' | 'project' | 'manuscript';
 export type SyncStatus = 'local_only' | 'pending' | 'synced';
 
 /** The optional, free-form per-paper template fields (stored in fields_json).
@@ -45,7 +45,9 @@ export interface NoteDraft {
   paper_id?: string | null;
   paper_title?: string;
   title?: string;
-  fields?: PaperNoteFields;
+  // Structured JSON for fields_json: the paper-note template, OR a manuscript's
+  // sections+metadata (Research Paper Writer). Stored verbatim as JSON.
+  fields?: PaperNoteFields | Record<string, unknown>;
   body?: string;
   tags?: string[];
 }

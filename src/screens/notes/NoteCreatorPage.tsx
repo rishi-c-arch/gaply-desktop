@@ -16,6 +16,7 @@ import { NotesBridge, TauriNotesBridge, Note, NoteDraft, NoteType, parseFields }
 import { PaperSource, TauriPaperSource, PaperOption } from './paperSource';
 import PaperNoteEditor from './PaperNoteEditor';
 import ProjectNoteEditor from './ProjectNoteEditor';
+import ManuscriptEditor from './ManuscriptEditor';
 import RecommendedToolsPanel from './RecommendedToolsPanel';
 import { notesToMarkdown } from './noteExport';
 import { saveNoteFile } from './saveNoteFile';
@@ -32,7 +33,9 @@ export interface NoteCreatorPageProps {
 type Editing =
   | { kind: 'paper-new'; base: { id: string; paper_id: string | null; paper_title: string } }
   | { kind: 'paper-edit'; note: Note }
-  | { kind: 'project-edit'; note: Note };
+  | { kind: 'project-edit'; note: Note }
+  | { kind: 'manuscript-new'; id: string }
+  | { kind: 'manuscript-edit'; note: Note };
 
 type TypeFilter = 'all' | NoteType;
 
@@ -50,7 +53,7 @@ const timeGreeting = (): string => {
 
 /** A serif snippet for a note card — the note's own words, never invented. */
 const snippetOf = (n: Note): string => {
-  if (n.note_type === 'project') return n.body;
+  if (n.note_type === 'project' || n.note_type === 'manuscript') return n.body;
   const f = parseFields(n);
   return f.key_findings || f.research_question || f.citation || f.methodology || '';
 };
@@ -68,7 +71,7 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
 
   const [list, setList] = useState<Note[] | null>(null);
   const [universe, setUniverse] = useState(0);
-  const [counts, setCounts] = useState({ paper: 0, project: 0 });
+  const [counts, setCounts] = useState({ paper: 0, project: 0, manuscript: 0 });
   const [allTags, setAllTags] = useState<string[]>([]);
   const [options, setOptions] = useState<PaperOption[]>([]);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -94,7 +97,7 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
     try {
       const all = await bridge.search(''); // the universe — for tags + counts + empty detection
       setUniverse(all.length);
-      setCounts({ paper: all.filter((n) => n.note_type === 'paper').length, project: all.filter((n) => n.note_type === 'project').length });
+      setCounts({ paper: all.filter((n) => n.note_type === 'paper').length, project: all.filter((n) => n.note_type === 'project').length, manuscript: all.filter((n) => n.note_type === 'manuscript').length });
       setAllTags(uniqueTags(all));
       const found = await bridge.search(query.trim(), tagFilter ?? undefined);
       setList(typeFilter === 'all' ? found : found.filter((n) => n.note_type === typeFilter));
@@ -241,6 +244,16 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
           onError={setError}
           busy={busy}
         />
+      ) : (editing.kind === 'manuscript-new' || editing.kind === 'manuscript-edit') ? (
+        <ManuscriptEditor
+          id={editing.kind === 'manuscript-edit' ? editing.note.id : editing.id}
+          existing={editing.kind === 'manuscript-edit' ? editing.note : null}
+          onSave={save}
+          onDelete={editing.kind === 'manuscript-edit' ? () => remove(editing.note.id) : undefined}
+          onClose={() => setEditing(null)}
+          onError={setError}
+          busy={busy}
+        />
       ) : (
         <ProjectNoteEditor id={editing.note.id} existing={editing.note} onSave={save} onDelete={() => remove(editing.note.id)} onClose={() => setEditing(null)} busy={busy} onError={setError} />
       )}
@@ -275,6 +288,9 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
           <button className={`an-nav-item${typeFilter === 'paper' ? ' an-active' : ''}`} data-testid="filter-paper" onClick={() => setTypeFilter('paper')}>
             <IcArticle /> Paper Notes <span className="an-nav-count">{counts.paper}</span>
           </button>
+          <button className={`an-nav-item${typeFilter === 'manuscript' ? ' an-active' : ''}`} data-testid="filter-manuscript" onClick={() => setTypeFilter('manuscript')}>
+            <IcArticle /> Research Papers <span className="an-nav-count">{counts.manuscript}</span>
+          </button>
           <button className="an-nav-item" onClick={() => navigate('/app/citations')}>
             <IcQuote /> Citations
           </button>
@@ -300,6 +316,9 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <FontScale />
+            <button className="an-btn-ghost" data-testid="new-manuscript" onClick={() => setEditing({ kind: 'manuscript-new', id: newId() })}>
+              <IcArticle size={18} /> New Research Paper
+            </button>
             <button className="an-btn-primary" onClick={() => quickRef.current?.focus()}>
               <IcAdd size={18} /> New Entry
             </button>
@@ -392,16 +411,22 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
                   const snippet = snippetOf(n);
                   const date = dateOf(n);
                   const idea = n.note_type === 'project';
+                  const manuscript = n.note_type === 'manuscript';
+                  const openNote = () => setEditing(
+                    n.note_type === 'paper' ? { kind: 'paper-edit', note: n }
+                    : n.note_type === 'manuscript' ? { kind: 'manuscript-edit', note: n }
+                    : { kind: 'project-edit', note: n }
+                  );
                   return (
                     <button
                       key={n.id}
                       className={`an-card${i === 0 ? ' an-card--lg' : ''}${idea ? ' an-card--idea' : ' an-card--paper'}`}
                       data-testid={`note-row-${n.id}`}
-                      onClick={() => setEditing(n.note_type === 'paper' ? { kind: 'paper-edit', note: n } : { kind: 'project-edit', note: n })}
+                      onClick={openNote}
                     >
                       <div className="an-card-meta">
                         <span className={`an-badge ${idea ? 'an-badge--idea' : 'an-badge--paper'}`}>
-                          <span data-testid={`note-type-${n.id}`}>{idea ? '💡' : '📄'}</span> {idea ? 'Idea' : 'Paper'}
+                          <span data-testid={`note-type-${n.id}`}>{manuscript ? '📝' : idea ? '💡' : '📄'}</span> {manuscript ? 'Research Paper' : idea ? 'Idea' : 'Paper'}
                         </span>
                         {date && <span className="an-card-date">{date}</span>}
                       </div>

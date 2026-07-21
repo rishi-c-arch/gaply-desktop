@@ -110,6 +110,25 @@ export async function resolveImageRef(ref: string): Promise<string> {
   return url;
 }
 
+/** Read an image's RAW bytes + mime from disk (NOT a blob URL) — the docx export
+ *  path needs the actual bytes to embed via docx's ImageRun. Throws with the real
+ *  reason on a read/ACL failure (never swallowed). */
+export async function readImageBytes(ref: string): Promise<{ data: Uint8Array; mime: string }> {
+  const name = refToFilename(ref);
+  const ext = name.split('.').pop() ?? '';
+  const { readFile, BaseDirectory } = await fs();
+  try {
+    const data = await readFile(`${IMAGE_SUBDIR}/${name}`, { baseDir: BaseDirectory.AppData });
+    return { data, mime: EXT_TO_MIME[ext] ?? 'application/octet-stream' };
+  } catch (e) {
+    throw new Error(`Reading the image bytes failed: ${errText(e)}`);
+  }
+}
+
+/** The on-disk filename behind a ref (e.g. "<hash>.png") — for honest export
+ *  placeholders when bytes can't be embedded. */
+export const imageFilenameOf = (ref: string): string => refToFilename(ref);
+
 /** Delete one image file from disk + drop its cached object URL. Best-effort:
  *  a missing file is a no-op (it may already be gone). Only ever called by GC
  *  on a CONFIRMED orphan. */

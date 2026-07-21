@@ -36,9 +36,10 @@ use serde::Serialize;
 
 use crate::{now_epoch, Database, GaplyError};
 
-/// The two note types. `paper` carries the structured template; `project` is
-/// free quick-capture.
-pub const NOTE_TYPES: &[&str] = &["paper", "project"];
+/// The note types. `paper` carries the structured template; `project` is free
+/// quick-capture; `manuscript` is the Research Paper Writer (sections + metadata
+/// in fields_json). Additive: no schema change — note_type is a plain TEXT column.
+pub const NOTE_TYPES: &[&str] = &["paper", "project", "manuscript"];
 
 /// Honest sync markers (mirrors citation_library). Sync is deferred; every
 /// local mutation resets to 'local_only'.
