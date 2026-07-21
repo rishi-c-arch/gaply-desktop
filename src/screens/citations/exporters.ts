@@ -4,7 +4,7 @@
 // library. No LLM anywhere: a field missing from the library is missing
 // from the export, never invented (Sets 2/3/4's honesty carried through).
 import type { Cite } from '@citation-js/core';
-import { isTauri } from '../../utils/isTauri';
+import { saveTextFile } from '../../utils/saveTextFile';
 import { CslItem } from './citationTypes';
 import { formatWithCsl, toCslJson } from './cslEngine';
 
@@ -41,28 +41,7 @@ export function exportBibliographyText(items: CslItem[], styleId: string): strin
 
 /** Save exported text to a file: the Tauri save dialog in the desktop app,
  *  a plain browser download otherwise. Returns the chosen path (Tauri) or
- *  null (browser download / user cancelled). */
-export async function saveExportToFile(
-  suggestedName: string,
-  text: string
-): Promise<string | null> {
-  if (isTauri) {
-    const { save } = await import('@tauri-apps/plugin-dialog');
-    const path = await save({ defaultPath: suggestedName });
-    if (!path) return null; // user cancelled — honest no-op
-    const { writeTextFile } = await import('@tauri-apps/plugin-fs');
-    await writeTextFile(path, text);
-    return path;
-  }
-  // Browser fallback (marketing/web build): the existing blob pattern.
-  const blob = new Blob([text], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = suggestedName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-  return null;
-}
+ *  null (browser download / user cancelled). Delegates to the shared
+ *  saveTextFile with the citations MIME type (text/plain) — unchanged behaviour. */
+export const saveExportToFile = (suggestedName: string, text: string): Promise<string | null> =>
+  saveTextFile(suggestedName, text, 'text/plain');
