@@ -296,17 +296,51 @@
 .an-canvas--ms { display: block; }
 .an-ms-meta { display: grid; gap: 6px; margin-bottom: 16px; }
 .an-ms-authors { width: 100%; }
+.an-ms-opt { font: 500 10px/1 var(--an-ui); text-transform: uppercase; letter-spacing: 0.04em; color: var(--an-on-surface-variant); opacity: 0.7; }
 .an-ms-body { display: grid; grid-template-columns: 210px 1fr; gap: 20px; align-items: start; }
 .an-ms-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 12px; }
-.an-ms-navitem { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: none; background: none; cursor: pointer; border-radius: 8px; padding: 7px 11px; font: 600 13px/1.2 var(--an-ui); color: var(--an-on-surface-variant); text-align: left; }
+.an-ms-navrow { border-radius: 8px; }
+.an-ms-navrow.an-active { background: var(--an-primary-container); }
+.an-ms-navitem { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; border: none; background: none; cursor: pointer; border-radius: 8px; padding: 7px 11px; font: 600 13px/1.2 var(--an-ui); color: var(--an-on-surface-variant); text-align: left; }
 .an-ms-navitem:hover { background: var(--an-surface-high); }
-.an-ms-navitem.an-active { background: var(--an-primary-container); color: var(--an-primary); }
+.an-ms-navitem.an-active { color: var(--an-primary); }
+.an-ms-rename { width: 100%; box-sizing: border-box; border: 1px solid var(--an-primary); border-radius: 8px; padding: 6px 10px; font: 600 13px/1.2 var(--an-ui); color: var(--an-on-surface); background: var(--an-surface); }
+.an-ms-navctl { display: flex; gap: 2px; padding: 0 6px 6px; }
+.an-ms-navctl button { flex: 1; border: none; background: none; cursor: pointer; border-radius: 6px; padding: 3px 0; font-size: 13px; color: var(--an-on-surface-variant); }
+.an-ms-navctl button:hover:not(:disabled) { background: var(--an-surface-high); }
+.an-ms-navctl button:disabled { opacity: 0.3; cursor: default; }
+.an-ms-navctl-del:hover:not(:disabled) { color: var(--an-error); background: var(--an-error-container) !important; }
+.an-ms-addsec { margin-top: 6px; border: 1px dashed var(--an-outline-variant); background: none; cursor: pointer; border-radius: 8px; padding: 7px 11px; font: 600 12px/1 var(--an-ui); color: var(--an-on-surface-variant); text-align: left; }
+.an-ms-addsec:hover { background: var(--an-surface-high); color: var(--an-primary); border-color: var(--an-primary); }
 .an-ms-wc { font: 500 11px/1 var(--an-ui); opacity: 0.7; min-width: 22px; text-align: right; }
 .an-ms-total { margin-top: 8px; padding: 6px 11px; font: 600 11px/1 var(--an-ui); color: var(--an-on-surface-variant); border-top: 1px solid var(--an-outline-variant); }
 .an-ms-section-head { margin-bottom: 8px; }
 .an-ms-section-head h2 { font: 700 22px/28px var(--an-ui); color: var(--an-primary); margin: 0 0 2px; }
 .an-ms-guidance { display: block; font: 400 12.5px/1.5 var(--an-serif); color: var(--an-on-surface-variant); font-style: italic; }
 @media (max-width: 720px) { .an-ms-body { grid-template-columns: 1fr; } .an-ms-nav { position: static; flex-flow: row wrap; } }
+.an-linkbtn { border: none; background: none; padding: 0; cursor: pointer; color: var(--an-primary); font: inherit; text-decoration: underline; }
+/* Set C — venue-scaffold picker */
+.an-scaffold-picker { max-width: 1000px; margin: 0 auto; padding: 8px 4px 32px; }
+.an-sp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.an-sp-head h2 { font: 700 24px/30px var(--an-ui); color: var(--an-primary); margin: 0; }
+.an-sp-notice { padding: 11px 14px; border: 1px solid var(--an-outline-variant); border-left: 3px solid var(--an-primary); border-radius: 8px; background: var(--an-surface-low); font: 400 13px/1.55 var(--an-ui); color: var(--an-on-surface-variant); margin: 0 0 18px; }
+.an-sp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.an-sp-card { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--an-outline-variant); border-radius: 12px; padding: 14px; background: var(--an-surface); }
+.an-sp-card--current { border-color: var(--an-primary); box-shadow: 0 0 0 1px var(--an-primary); }
+.an-sp-card-head { display: flex; align-items: center; gap: 8px; }
+.an-sp-label { font: 700 15px/1.2 var(--an-ui); color: var(--an-on-surface); }
+.an-sp-badge { font: 700 10px/1 var(--an-ui); text-transform: uppercase; letter-spacing: 0.04em; color: var(--an-on-surface-variant); background: var(--an-surface-high); border: 1px solid var(--an-outline-variant); border-radius: 999px; padding: 3px 7px; }
+.an-sp-notice-text { font: 400 12px/1.5 var(--an-serif); color: var(--an-on-surface-variant); margin: 0; flex: 1; }
+.an-sp-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.an-sp-style { font: 600 11px/1 var(--an-ui); color: var(--an-on-surface-variant); background: var(--an-surface-high); border-radius: 6px; padding: 4px 7px; }
+.an-sp-verify { font: 600 12px/1 var(--an-ui); color: var(--an-primary); text-decoration: none; }
+.an-sp-verify:hover { text-decoration: underline; }
+.an-sp-pick { margin-top: 4px; border: 1px solid var(--an-primary); background: var(--an-primary); color: var(--an-on-primary); cursor: pointer; border-radius: 9px; padding: 8px 12px; font: 700 13px/1 var(--an-ui); }
+.an-sp-pick:hover { filter: brightness(1.05); }
+/* Set C — drop-content warning */
+.an-ms-dropwarn { max-width: 640px; margin: 0 auto 18px; padding: 14px 16px; border: 1px solid var(--an-error); border-radius: 12px; background: var(--an-error-container); color: var(--an-on-surface); font: 400 13px/1.5 var(--an-ui); }
+.an-ms-dropwarn ul { margin: 6px 0; padding-left: 20px; }
+.an-ms-dropwarn-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
 /* preview tables (mirror the editor look) */
 .an-preview-card .md-table-container { display: grid; border: 1px solid var(--an-outline-variant); border-radius: 8px; overflow: hidden; margin: 12px 0; }
 .an-preview-card .md-table-row { display: grid; grid-auto-flow: column; }

@@ -1,18 +1,18 @@
-// Gaply — Research Paper Writer, Set A: the manuscript editor shell.
-// Section navigation + per-section RichBody (the proven TipTap surface, each
-// with a STABLE key so switching/reordering never corrupts content) + per-section
-// word counts + document metadata (title/authors) + honest scaffold guidance +
-// a basic .docx export. NO model writes here beyond the note; NO AI.
-//
-// HONESTY: the scaffold is Gaply's own "Generic IMRaD structure" (not a publisher
-// template); export is "submission structure", never "camera-ready".
+// Gaply — Research Paper Writer: the manuscript editor shell.
+// Set A: section nav + per-section RichBody (stable-keyed) + word counts +
+// metadata + basic .docx export. Set C: a versioned venue-scaffold picker on
+// create, and a "Change structure" switch that NEVER silently drops content —
+// it warns which sections would be dropped and requires confirmation.
 import React, { useEffect, useRef, useState } from 'react';
 import RichBody from './RichBody';
+import ScaffoldPicker from './ScaffoldPicker';
 import { Note, NoteDraft } from './notesBridge';
 import {
-  Manuscript, ManuscriptSection, manuscriptFromNote, manuscriptToDraft, newManuscript,
-  scaffoldById, wordCount,
+  Manuscript, Scaffold, DEFAULT_DOCX_FORMAT, manuscriptFromNote, manuscriptToDraft, newManuscript,
+  switchScaffold, storedScaffoldId, wordCount,
+  renameSection, addSection, deleteSection, moveSection,
 } from './manuscriptModel';
+import { loadScaffoldCatalog, pickScaffold } from './manuscriptScaffolds';
 import { saveManuscriptDocx } from './manuscriptDocx';
 import { exportFileName } from './noteExport';
 import { IcBack, IcExport, IcTrash, IcSave } from './NotesIcons';
@@ -29,13 +29,39 @@ export interface ManuscriptEditorProps {
   onError?: (msg: string | null) => void;
 }
 
-const ManuscriptEditor: React.FC<ManuscriptEditorProps> = ({ id, existing, onSave, onDelete, onClose, busy, onError }) => {
-  const initial: Manuscript = existing ? manuscriptFromNote(existing) : newManuscript(id);
-  const [title, setTitle] = useState(initial.title);
-  const [authors, setAuthors] = useState(initial.authors);
-  const [sections, setSections] = useState<ManuscriptSection[]>(initial.sections);
-  const [activeKey, setActiveKey] = useState(initial.sections[0]?.key ?? '');
-  const scaffold = scaffoldById(initial.scaffoldId);
+/** Loader shell: fetch the scaffold catalog once, then hand a resolved list to
+ *  the workspace. Never blocks the app — loadScaffoldCatalog falls back to the
+ *  bundled generic on any failure. */
+const ManuscriptEditor: React.FC<ManuscriptEditorProps> = (props) => {
+  const [scaffolds, setScaffolds] = useState<Scaffold[] | null>(null);
+  const [notice, setNotice] = useState('');
+  useEffect(() => {
+    let alive = true;
+    loadScaffoldCatalog().then((c) => { if (alive) { setScaffolds(c.scaffolds); setNotice(c.globalNotice); } });
+    return () => { alive = false; };
+  }, []);
+  if (!scaffolds) {
+    return <div className="an-edit-wrap"><p className="an-empty" data-testid="ms-loading">Loading structures…</p></div>;
+  }
+  return <ManuscriptWorkspace {...props} scaffolds={scaffolds} notice={notice} />;
+};
+
+type Pending = { next: Scaffold; dropped: Array<{ heading: string; body: string }> };
+
+const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffold[]; notice: string }> = ({
+  id, existing, onSave, onDelete, onClose, busy, onError, scaffolds, notice,
+}) => {
+  // Single source of truth for the live document.
+  const [manuscript, setManuscript] = useState<Manuscript>(() =>
+    existing ? manuscriptFromNote(existing, pickScaffold(scaffolds, storedScaffoldId(existing))) : newManuscript(id));
+  // Picker is shown first for a NEW manuscript ('new'), or on demand ('switch').
+  const [pickerMode, setPickerMode] = useState<null | 'new' | 'switch'>(existing ? null : 'new');
+  const [pending, setPending] = useState<Pending | null>(null); // scaffold-switch drop-warning
+  const [pendingDelete, setPendingDelete] = useState<{ key: string; heading: string; words: number } | null>(null);
+  const [renamingKey, setRenamingKey] = useState<string | null>(null);
+  const [activeKey, setActiveKey] = useState(manuscript.sections[0]?.key ?? '');
+
+  const scaffold = pickScaffold(scaffolds, manuscript.scaffoldId);
 
   // Two-step delete (mirrors the other editors).
   const [deleteArmed, setDeleteArmed] = useState(false);
@@ -45,31 +71,104 @@ const ManuscriptEditor: React.FC<ManuscriptEditorProps> = ({ id, existing, onSav
     if (!deleteArmed) {
       setDeleteArmed(true);
       disarmTimer.current = window.setTimeout(() => setDeleteArmed(false), 3000);
-    } else {
-      window.clearTimeout(disarmTimer.current);
-      onDelete?.();
-    }
+    } else { window.clearTimeout(disarmTimer.current); onDelete?.(); }
   };
 
-  const active = sections.find((s) => s.key === activeKey) ?? sections[0];
+  const active = manuscript.sections.find((s) => s.key === activeKey) ?? manuscript.sections[0];
   const setBody = (key: string, body: string) =>
-    setSections((prev) => prev.map((s) => (s.key === key ? { ...s, body } : s)));
+    setManuscript((m) => ({ ...m, sections: m.sections.map((s) => (s.key === key ? { ...s, body } : s)) }));
 
-  const current = (): Manuscript => ({ ...initial, title, authors, sections });
-  const save = () => onSave(manuscriptToDraft(current()));
-
+  const save = () => onSave(manuscriptToDraft(manuscript));
   const exportDocx = async () => {
     onError?.(null);
     try {
-      // saveManuscriptDocx returns null on cancel (silent) — only real failures throw.
-      await saveManuscriptDocx(current(), exportFileName(title, 'manuscript').replace(/\.md$/, '.docx'));
+      // Apply the active scaffold's per-venue manuscript formatting profile.
+      await saveManuscriptDocx(manuscript, exportFileName(manuscript.title, 'manuscript').replace(/\.md$/, '.docx'), scaffold.docxFormat ?? DEFAULT_DOCX_FORMAT);
     } catch (e) {
       onError?.(e instanceof Error ? e.message : 'Could not export the .docx');
     }
   };
 
-  const totalWords = sections.reduce((n, s) => n + wordCount(s.body), 0);
+  /* ---- custom section editing (rename / add / delete / reorder) ---- */
+  const commitRename = (key: string, value: string) => {
+    const h = value.trim();
+    if (h) setManuscript((m) => renameSection(m, key, h));
+    setRenamingKey(null);
+  };
+  const onAddSection = () => {
+    const idx = manuscript.sections.findIndex((s) => s.key === activeKey);
+    const at = idx < 0 ? manuscript.sections.length : idx + 1;
+    const nm = addSection(manuscript, at, 'New Section');
+    setManuscript(nm);
+    setActiveKey(nm.sections[at].key);
+    setRenamingKey(nm.sections[at].key); // let the user name it immediately
+  };
+  const requestDelete = (key: string) => {
+    const s = manuscript.sections.find((x) => x.key === key);
+    if (!s) return;
+    if (s.body.trim()) setPendingDelete({ key, heading: s.heading, words: wordCount(s.body) }); // warn — never silent
+    else applyDelete(key);
+  };
+  const applyDelete = (key: string) => {
+    setManuscript((m) => {
+      const next = deleteSection(m, key);
+      if (activeKey === key) setActiveKey(next.sections[0]?.key ?? '');
+      return next;
+    });
+    setPendingDelete(null);
+  };
+  const move = (key: string, dir: -1 | 1) => setManuscript((m) => moveSection(m, key, dir));
 
+  // Apply a resolved manuscript from a scaffold switch/new pick.
+  const applyManuscript = (m: Manuscript) => {
+    setManuscript(m);
+    setActiveKey(m.sections[0]?.key ?? '');
+    setPickerMode(null);
+    setPending(null);
+  };
+
+  const onPick = (next: Scaffold) => {
+    if (pickerMode === 'new') { applyManuscript(newManuscript(id, next)); return; }
+    // switch mode
+    if (next.id === manuscript.scaffoldId) { setPickerMode(null); return; }
+    const { manuscript: switched, dropped } = switchScaffold(manuscript, next);
+    if (dropped.length > 0) setPending({ next, dropped }); // warn — never silent
+    else applyManuscript(switched);
+  };
+
+  const confirmSwitch = () => { if (pending) applyManuscript(switchScaffold(manuscript, pending.next).manuscript); };
+
+  const totalWords = manuscript.sections.reduce((n, s) => n + wordCount(s.body), 0);
+
+  /* ---- the venue-scaffold picker (create OR switch) ---- */
+  if (pickerMode) {
+    return (
+      <div className="an-edit-wrap" data-testid="manuscript-editor">
+        {pending && (
+          <div className="an-ms-dropwarn" role="alertdialog" data-testid="ms-dropwarn">
+            <p><b>Switching to {pending.next.label}</b> would drop your writing in {pending.dropped.length} section{pending.dropped.length > 1 ? 's' : ''} the new structure doesn’t have:</p>
+            <ul>{pending.dropped.map((d) => <li key={d.heading}><b>{d.heading}</b> — {wordCount(d.body)} words</li>)}</ul>
+            <p>Copy that text elsewhere first if you need it. This can’t be undone.</p>
+            <div className="an-ms-dropwarn-actions">
+              <button className="an-ghostbtn" data-testid="ms-dropwarn-cancel" onClick={() => setPending(null)}>Keep current structure</button>
+              <button className="an-deletebtn an-deletebtn--armed" data-testid="ms-dropwarn-confirm" onClick={confirmSwitch}>Switch anyway (drop {pending.dropped.length})</button>
+            </div>
+          </div>
+        )}
+        <ScaffoldPicker
+          scaffolds={scaffolds}
+          notice={notice}
+          currentId={pickerMode === 'switch' ? manuscript.scaffoldId : undefined}
+          title={pickerMode === 'new' ? 'Choose a structure for your paper' : 'Change structure'}
+          confirmLabel={pickerMode === 'new' ? 'Start writing' : 'Switch to this'}
+          onPick={onPick}
+          onCancel={pickerMode === 'switch' ? () => { setPickerMode(null); setPending(null); } : (existing ? undefined : onClose)}
+        />
+      </div>
+    );
+  }
+
+  /* ---- the editing surface ---- */
   return (
     <div data-testid="manuscript-editor">
       <header className="an-edit-head">
@@ -100,54 +199,78 @@ const ManuscriptEditor: React.FC<ManuscriptEditorProps> = ({ id, existing, onSav
           <div className="an-synced">Saved locally · on device</div>
         </div>
 
-        {/* Honest promise — structure + references, not camera-ready. */}
+        {/* Honest structure banner + change-structure + verify link. */}
         <div className="an-ms-notice" data-testid="ms-notice">
-          Gaply formats your <b>structure and references</b> — your publisher typesets the final camera-ready layout.
-          This is the <b>{scaffold.label}</b> (Gaply’s own scaffold, not an official template). Always check your venue’s author guidelines.
+          Structure: <b>{scaffold.label}</b> (Gaply’s own scaffold, not an official template).{' '}
+          <a href={scaffold.publisherAuthorUrl} target="_blank" rel="noreferrer noopener" data-testid="ms-verify">Verify current requirements ↗</a>{' · '}
+          <button className="an-linkbtn" data-testid="ms-change-structure" onClick={() => setPickerMode('switch')}>Change structure</button>
+          <br />Gaply formats your <b>structure and references</b>; the publisher typesets the final camera-ready layout.
+          <br /><span data-testid="ms-export-note">Exports a clean single-column submission manuscript — for camera-ready typesetting after acceptance, use your publisher’s official template or Overleaf.</span>
         </div>
 
-        {/* Document metadata: title + authors → the .docx title page. */}
+        {pendingDelete && (
+          <div className="an-ms-dropwarn" role="alertdialog" data-testid="ms-deletewarn">
+            <p>Delete <b>{pendingDelete.heading}</b>? It has <b>{pendingDelete.words} words</b> of your writing — this can’t be undone.</p>
+            <div className="an-ms-dropwarn-actions">
+              <button className="an-ghostbtn" data-testid="ms-deletewarn-cancel" onClick={() => setPendingDelete(null)}>Keep it</button>
+              <button className="an-deletebtn an-deletebtn--armed" data-testid="ms-deletewarn-confirm" onClick={() => applyDelete(pendingDelete.key)}>Delete section</button>
+            </div>
+          </div>
+        )}
+
         <div className="an-canvas an-canvas--ms">
           <section className="an-ms-meta">
             <label className="an-label">Manuscript Title</label>
-            <input className="an-title-input" value={title} placeholder="Your paper’s title…" data-testid="ms-title" onChange={(e) => setTitle(e.target.value)} />
+            <input className="an-title-input" value={manuscript.title} placeholder="Your paper’s title…" data-testid="ms-title" onChange={(e) => setManuscript((m) => ({ ...m, title: e.target.value }))} />
             <label className="an-label">Authors</label>
-            <input className="an-tags-input an-ms-authors" value={authors} placeholder="e.g. Ada Lovelace, Alan Turing" data-testid="ms-authors" onChange={(e) => setAuthors(e.target.value)} />
+            <input className="an-tags-input an-ms-authors" value={manuscript.authors} placeholder="e.g. Ada Lovelace, Alan Turing" data-testid="ms-authors" onChange={(e) => setManuscript((m) => ({ ...m, authors: e.target.value }))} />
+            <label className="an-label">Affiliations <span className="an-ms-opt">optional</span></label>
+            <input className="an-tags-input an-ms-authors" value={manuscript.affiliations} placeholder="e.g. ¹Analytical Engine Lab · ²Bletchley Park" data-testid="ms-affiliations" onChange={(e) => setManuscript((m) => ({ ...m, affiliations: e.target.value }))} />
+            <label className="an-label">Corresponding author <span className="an-ms-opt">optional</span></label>
+            <input className="an-tags-input an-ms-authors" value={manuscript.correspondingAuthor} placeholder="e.g. ada@example.edu" data-testid="ms-corresponding" onChange={(e) => setManuscript((m) => ({ ...m, correspondingAuthor: e.target.value }))} />
           </section>
 
           <div className="an-ms-body">
-            {/* Section navigation with per-section word counts. */}
             <nav className="an-ms-nav" data-testid="ms-nav">
-              {sections.map((s) => (
-                <button
-                  key={s.key}
-                  className={`an-ms-navitem${s.key === activeKey ? ' an-active' : ''}`}
-                  data-testid={`ms-nav-${s.key}`}
-                  onClick={() => setActiveKey(s.key)}
-                >
-                  <span>{s.heading}</span>
-                  <span className="an-ms-wc">{wordCount(s.body)}</span>
-                </button>
+              {manuscript.sections.map((s, i) => (
+                <div key={s.key} className={`an-ms-navrow${s.key === activeKey ? ' an-active' : ''}`}>
+                  {renamingKey === s.key ? (
+                    <input
+                      className="an-ms-rename" autoFocus defaultValue={s.heading}
+                      data-testid={`ms-rename-input-${s.key}`}
+                      onKeyDown={(e) => { if (e.key === 'Enter') commitRename(s.key, e.currentTarget.value); if (e.key === 'Escape') setRenamingKey(null); }}
+                      onBlur={(e) => commitRename(s.key, e.currentTarget.value)}
+                    />
+                  ) : (
+                    <button className={`an-ms-navitem${s.key === activeKey ? ' an-active' : ''}`} data-testid={`ms-nav-${s.key}`} onClick={() => setActiveKey(s.key)} onDoubleClick={() => setRenamingKey(s.key)}>
+                      <span>{s.heading}{s.required ? '' : ' ·'}</span>
+                      <span className="an-ms-wc">{wordCount(s.body)}</span>
+                    </button>
+                  )}
+                  {s.key === activeKey && renamingKey !== s.key && (
+                    <div className="an-ms-navctl">
+                      <button title="Move up" data-testid={`ms-up-${s.key}`} disabled={i === 0} onClick={() => move(s.key, -1)}>↑</button>
+                      <button title="Move down" data-testid={`ms-down-${s.key}`} disabled={i === manuscript.sections.length - 1} onClick={() => move(s.key, 1)}>↓</button>
+                      <button title="Rename" data-testid={`ms-rename-${s.key}`} onClick={() => setRenamingKey(s.key)}>✎</button>
+                      <button title="Delete section" className="an-ms-navctl-del" data-testid={`ms-del-${s.key}`} onClick={() => requestDelete(s.key)}>✕</button>
+                    </div>
+                  )}
+                </div>
               ))}
+              <button className="an-ms-addsec" data-testid="ms-add-section" onClick={onAddSection}>+ Add section</button>
               <div className="an-ms-total" data-testid="ms-total-words">{totalWords} words total</div>
             </nav>
 
-            {/* The active section: a per-section RichBody with a STABLE key
-                (=section key) so switching sections remounts cleanly and never
-                bleeds content between sections (the parse-once-on-mount caveat). */}
             {active && (
               <div className="an-ms-section">
                 <div className="an-ms-section-head">
                   <h2>{active.heading}</h2>
-                  <span className="an-ms-guidance" data-testid="ms-guidance">{active.guidance}</span>
+                  <span className="an-ms-guidance" data-testid="ms-guidance">
+                    {active.guidance}{active.typicalWords ? ` (typically ${active.typicalWords})` : ''}
+                  </span>
                 </div>
-                <RichBody
-                  key={active.key}
-                  value={active.body}
-                  onChange={(md) => setBody(active.key, md)}
-                  placeholder={`Write the ${active.heading.toLowerCase()}…`}
-                  testid={`ms-body-${active.key}`}
-                />
+                {/* Stable key = section key: switching remounts cleanly, no bleed. */}
+                <RichBody key={active.key} value={active.body} onChange={(md) => setBody(active.key, md)} placeholder={`Write the ${active.heading.toLowerCase()}…`} testid={`ms-body-${active.key}`} />
               </div>
             )}
           </div>

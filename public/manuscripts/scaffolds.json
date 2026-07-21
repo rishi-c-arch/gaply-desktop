@@ -1,0 +1,887 @@
+{
+  "version": 2,
+  "generatedNote": "Gaply's OWN manuscript scaffolds, informed by publishers' PUBLIC author guidance. NOT copied templates, NOT official. Section keys are shared across scaffolds so switching preserves matching content.",
+  "globalNotice": "These are Gaply's own structures to help you start — not official publisher templates. Always check the venue's current author guidelines (linked). Gaply formats structure + references; the publisher typesets the final layout. Free to use.",
+  "scaffolds": [
+    {
+      "id": "imrad-generic",
+      "label": "Generic IMRaD (journal)",
+      "unofficial": true,
+      "cslDefaultStyle": "apa",
+      "publisherAuthorUrl": "https://www.icmje.org/recommendations/",
+      "noticeText": "A general IMRaD structure (Introduction, Methods, Results, and Discussion) — Gaply's own starting scaffold, not tied to any publisher. Follow your target journal's guidelines.",
+      "sections": [
+        {
+          "key": "abstract",
+          "heading": "Abstract",
+          "guidance": "One paragraph: problem, method, key result, significance. Usually no citations.",
+          "typicalWords": "150–250",
+          "required": true
+        },
+        {
+          "key": "keywords",
+          "heading": "Keywords",
+          "guidance": "3–6 comma-separated indexing terms.",
+          "typicalWords": "3–6 terms",
+          "required": false
+        },
+        {
+          "key": "introduction",
+          "heading": "Introduction",
+          "guidance": "Motivate the problem, state the gap and your contribution.",
+          "typicalWords": "500–800",
+          "required": true
+        },
+        {
+          "key": "methods",
+          "heading": "Methods",
+          "guidance": "Enough detail to reproduce: data, materials, procedures, analysis.",
+          "typicalWords": "600–1200",
+          "required": true
+        },
+        {
+          "key": "results",
+          "heading": "Results",
+          "guidance": "What you found, without interpretation. Figures and tables here.",
+          "typicalWords": "600–1200",
+          "required": true
+        },
+        {
+          "key": "discussion",
+          "heading": "Discussion",
+          "guidance": "Interpret results against the gap; limitations; implications.",
+          "typicalWords": "600–1000",
+          "required": true
+        },
+        {
+          "key": "conclusion",
+          "heading": "Conclusion",
+          "guidance": "Restate the contribution and future work. Keep it short.",
+          "typicalWords": "100–250",
+          "required": false
+        },
+        {
+          "key": "references",
+          "heading": "References",
+          "guidance": "Gaply will insert your library citations in the chosen style (Set B). For now, list manually if needed.",
+          "typicalWords": "",
+          "required": true
+        }
+      ],
+      "docxFormat": {
+        "font": "Times New Roman",
+        "fontSizePt": 12,
+        "marginInch": 1,
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "lineSpacing": "double",
+        "lineNumbers": true,
+        "sectionNumbering": "none",
+        "pageSize": "letter",
+        "source": "Gaply academic default following common IMRaD/ICMJE review-manuscript practice (double-spaced, continuous line numbers, 12pt serif, 1-inch margins). No single publisher owns this format."
+      }
+    },
+    {
+      "id": "ieee",
+      "label": "IEEE-style (unofficial)",
+      "unofficial": true,
+      "cslDefaultStyle": "ieee",
+      "publisherAuthorUrl": "https://journals.ieeeauthorcenter.ieee.org/create-your-ieee-journal-article/authoring-tools-and-templates/tools-for-ieee-authors/ieee-article-templates/",
+      "noticeText": "IEEE-style is Gaply's own scaffold informed by IEEE's public author guidance — not an official IEEE template. Verify current requirements (and pick your exact template) at the IEEE Author Center; a template selector is also linked in the guidance.",
+      "sections": [
+        {
+          "key": "abstract",
+          "heading": "Abstract",
+          "guidance": "Self-contained, no citations, ~150–250 words. IEEE abstracts state purpose, method, results, conclusions.",
+          "typicalWords": "150–250",
+          "required": true
+        },
+        {
+          "key": "keywords",
+          "heading": "Index Terms",
+          "guidance": "IEEE calls keywords 'Index Terms' — alphabetical, from the IEEE taxonomy where possible.",
+          "typicalWords": "4–8 terms",
+          "required": true
+        },
+        {
+          "key": "introduction",
+          "heading": "Introduction",
+          "guidance": "Problem, motivation, and contributions as an explicit list.",
+          "typicalWords": "500–900",
+          "required": true
+        },
+        {
+          "key": "related_work",
+          "heading": "Related Work",
+          "guidance": "Position against prior work; make the delta explicit.",
+          "typicalWords": "400–800",
+          "required": false
+        },
+        {
+          "key": "methods",
+          "heading": "Methodology",
+          "guidance": "System/approach in enough detail to reproduce.",
+          "typicalWords": "600–1200",
+          "required": true
+        },
+        {
+          "key": "results",
+          "heading": "Experiments and Results",
+          "guidance": "Setup, baselines, metrics, and results (tables/figures).",
+          "typicalWords": "600–1200",
+          "required": true
+        },
+        {
+          "key": "discussion",
+          "heading": "Discussion",
+          "guidance": "Interpretation, threats to validity, limitations.",
+          "typicalWords": "300–700",
+          "required": false
+        },
+        {
+          "key": "conclusion",
+          "heading": "Conclusion",
+          "guidance": "Contribution recap + future work.",
+          "typicalWords": "100–250",
+          "required": true
+        },
+        {
+          "key": "references",
+          "heading": "References",
+          "guidance": "IEEE numeric style [1], in citation order. Gaply formats these (Set B).",
+          "typicalWords": "",
+          "required": true
+        }
+      ],
+      "docxFormat": {
+        "font": "Times New Roman",
+        "fontSizePt": 12,
+        "marginInch": 1,
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "lineSpacing": "double",
+        "lineNumbers": false,
+        "sectionNumbering": "roman-upper",
+        "pageSize": "letter",
+        "source": "Section numbering follows IEEE's Roman-numeral convention (I., II., …). Spacing/font/margins are Gaply review-manuscript defaults. IEEE's OFFICIAL article format is a two-column camera-ready template typeset by IEEE — NOT reproduced here (single-column manuscript only)."
+      }
+    },
+    {
+      "id": "acm",
+      "label": "ACM-style (unofficial)",
+      "unofficial": true,
+      "cslDefaultStyle": "acm-sig-proceedings",
+      "publisherAuthorUrl": "https://www.acm.org/publications/authors/submissions",
+      "noticeText": "ACM-style is Gaply's own scaffold informed by ACM's public submission guidance — not an official ACM template (acmart). Verify current requirements at the ACM author page.",
+      "sections": [
+        {
+          "key": "abstract",
+          "heading": "Abstract",
+          "guidance": "Concise, self-contained; ~150–250 words.",
+          "typicalWords": "150–250",
+          "required": true
+        },
+        {
+          "key": "ccs_concepts",
+          "heading": "CCS Concepts",
+          "guidance": "ACM Computing Classification System concepts (generated via the ACM CCS tool).",
+          "typicalWords": "2–5 concepts",
+          "required": false
+        },
+        {
+          "key": "keywords",
+          "heading": "Keywords",
+          "guidance": "Author keywords beyond the CCS concepts.",
+          "typicalWords": "3–6 terms",
+          "required": false
+        },
+        {
+          "key": "introduction",
+          "heading": "Introduction",
+          "guidance": "Problem, motivation, and contributions.",
+          "typicalWords": "500–900",
+          "required": true
+        },
+        {
+          "key": "related_work",
+          "heading": "Related Work",
+          "guidance": "Prior work and your distinction from it.",
+          "typicalWords": "400–800",
+          "required": false
+        },
+        {
+          "key": "methods",
+          "heading": "Method",
+          "guidance": "Approach/system design.",
+          "typicalWords": "600–1200",
+          "required": true
+        },
+        {
+          "key": "results",
+          "heading": "Evaluation",
+          "guidance": "Study/experiment design, metrics, and findings.",
+          "typicalWords": "600–1200",
+          "required": true
+        },
+        {
+          "key": "discussion",
+          "heading": "Discussion",
+          "guidance": "Interpretation and limitations.",
+          "typicalWords": "300–700",
+          "required": false
+        },
+        {
+          "key": "conclusion",
+          "heading": "Conclusion",
+          "guidance": "Recap and future work.",
+          "typicalWords": "100–250",
+          "required": true
+        },
+        {
+          "key": "references",
+          "heading": "References",
+          "guidance": "ACM reference format. Gaply formats these (Set B).",
+          "typicalWords": "",
+          "required": true
+        }
+      ],
+      "docxFormat": {
+        "font": "Times New Roman",
+        "fontSizePt": 12,
+        "marginInch": 1,
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "lineSpacing": "double",
+        "lineNumbers": true,
+        "sectionNumbering": "decimal",
+        "pageSize": "letter",
+        "source": "Line numbers + single-column reflect ACM's 'manuscript/review' submission mode; decimal section numbering per ACM. Spacing/font/margins are Gaply defaults. ACM's camera-ready acmart layout is typeset by ACM — not reproduced."
+      }
+    },
+    {
+      "id": "lncs",
+      "label": "Springer LNCS-style (unofficial)",
+      "unofficial": true,
+      "cslDefaultStyle": "springer-lecture-notes-in-computer-science",
+      "publisherAuthorUrl": "https://link.springer.com/series/558/information-for-authors-and-editors",
+      "noticeText": "LNCS-style is Gaply's own scaffold informed by Springer's public LNCS author guidance — not the official Springer LNCS template. Verify current requirements at the Springer LNCS author page (LaTeX support also linked in the guidance).",
+      "sections": [
+        {
+          "key": "abstract",
+          "heading": "Abstract",
+          "guidance": "LNCS abstracts are short — roughly 70–150 words, no references.",
+          "typicalWords": "70–150",
+          "required": true
+        },
+        {
+          "key": "keywords",
+          "heading": "Keywords",
+          "guidance": "LNCS requires keywords, separated by middle dots.",
+          "typicalWords": "3–6 terms",
+          "required": true
+        },
+        {
+          "key": "introduction",
+          "heading": "Introduction",
+          "guidance": "Context, problem, and contribution.",
+          "typicalWords": "500–900",
+          "required": true
+        },
+        {
+          "key": "related_work",
+          "heading": "Related Work",
+          "guidance": "Prior work and positioning.",
+          "typicalWords": "300–700",
+          "required": false
+        },
+        {
+          "key": "methods",
+          "heading": "Method",
+          "guidance": "Approach and formal/technical detail.",
+          "typicalWords": "600–1200",
+          "required": true
+        },
+        {
+          "key": "results",
+          "heading": "Results and Evaluation",
+          "guidance": "Experiments, proofs, or evaluation.",
+          "typicalWords": "500–1000",
+          "required": true
+        },
+        {
+          "key": "conclusion",
+          "heading": "Conclusion",
+          "guidance": "Summary and outlook.",
+          "typicalWords": "100–250",
+          "required": true
+        },
+        {
+          "key": "references",
+          "heading": "References",
+          "guidance": "LNCS reference style. Gaply formats these (Set B).",
+          "typicalWords": "",
+          "required": true
+        }
+      ],
+      "docxFormat": {
+        "font": "Times New Roman",
+        "fontSizePt": 12,
+        "marginInch": 1,
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "lineSpacing": "1.5",
+        "lineNumbers": false,
+        "sectionNumbering": "decimal",
+        "pageSize": "a4",
+        "source": "Decimal numbered sections + A4 per Springer LNCS convention. Spacing (1.5) / font / margins are Gaply review-manuscript defaults. LNCS's final 10pt template is typeset by Springer — not reproduced."
+      }
+    },
+    {
+      "id": "elsevier",
+      "label": "Elsevier-style (unofficial)",
+      "unofficial": true,
+      "cslDefaultStyle": "elsevier-vancouver",
+      "publisherAuthorUrl": "https://www.elsevier.com/researcher/author",
+      "noticeText": "Elsevier-style is Gaply's own scaffold informed by Elsevier's public author guidance — not an official Elsevier template. Reference styles vary by journal; verify at the Elsevier author page (LaTeX instructions also linked).",
+      "sections": [
+        {
+          "key": "abstract",
+          "heading": "Abstract",
+          "guidance": "Single paragraph (or structured if the journal requires); state purpose, methods, results, conclusions.",
+          "typicalWords": "150–250",
+          "required": true
+        },
+        {
+          "key": "keywords",
+          "heading": "Keywords",
+          "guidance": "Up to ~6 keywords for indexing.",
+          "typicalWords": "4–6 terms",
+          "required": false
+        },
+        {
+          "key": "introduction",
+          "heading": "Introduction",
+          "guidance": "Background and objectives; avoid a detailed literature survey.",
+          "typicalWords": "500–900",
+          "required": true
+        },
+        {
+          "key": "methods",
+          "heading": "Materials and Methods",
+          "guidance": "Sufficient detail to reproduce; cite established methods.",
+          "typicalWords": "600–1200",
+          "required": true
+        },
+        {
+          "key": "results",
+          "heading": "Results",
+          "guidance": "Clear and concise findings.",
+          "typicalWords": "600–1200",
+          "required": true
+        },
+        {
+          "key": "discussion",
+          "heading": "Discussion",
+          "guidance": "Significance without repeating results; a combined Results and Discussion is sometimes allowed.",
+          "typicalWords": "600–1000",
+          "required": true
+        },
+        {
+          "key": "conclusion",
+          "heading": "Conclusions",
+          "guidance": "Main conclusions, possibly as a short standalone section.",
+          "typicalWords": "100–250",
+          "required": false
+        },
+        {
+          "key": "references",
+          "heading": "References",
+          "guidance": "Journal-specific (often Elsevier Vancouver or Harvard). Gaply formats these (Set B).",
+          "typicalWords": "",
+          "required": true
+        }
+      ],
+      "docxFormat": {
+        "font": "Times New Roman",
+        "fontSizePt": 12,
+        "marginInch": 1,
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "lineSpacing": "double",
+        "lineNumbers": true,
+        "sectionNumbering": "decimal",
+        "pageSize": "a4",
+        "source": "Elsevier commonly asks for double-spaced manuscripts with continuous line numbering and decimal numbered sections (1., 2., 2.1) for review. Font/margins/page size are Gaply defaults; exact rules are journal-specific — verify at the link."
+      }
+    },
+    {
+      "id": "nature",
+      "label": "Nature-style (unofficial)",
+      "unofficial": true,
+      "cslDefaultStyle": "nature",
+      "publisherAuthorUrl": "https://www.nature.com/nature/for-authors/formatting-guide",
+      "noticeText": "Nature-style is Gaply's own scaffold informed by Nature's public formatting guide — not an official Nature template. Note Nature places Methods after the main text; verify current requirements at the Nature author page.",
+      "sections": [
+        {
+          "key": "abstract",
+          "heading": "Abstract",
+          "guidance": "Unstructured summary, ~150–200 words, no references, accessible to a broad audience.",
+          "typicalWords": "150–200",
+          "required": true
+        },
+        {
+          "key": "introduction",
+          "heading": "Introduction",
+          "guidance": "Nature main text opens without a heading; keep the context tight and broad.",
+          "typicalWords": "400–700",
+          "required": true
+        },
+        {
+          "key": "results",
+          "heading": "Results",
+          "guidance": "Findings with figures; subheadings allowed.",
+          "typicalWords": "800–1500",
+          "required": true
+        },
+        {
+          "key": "discussion",
+          "heading": "Discussion",
+          "guidance": "Interpretation and significance; Nature keeps this concise.",
+          "typicalWords": "400–800",
+          "required": true
+        },
+        {
+          "key": "methods",
+          "heading": "Methods",
+          "guidance": "Nature places Methods AFTER the main text — reproducible detail, online.",
+          "typicalWords": "800–3000",
+          "required": true
+        },
+        {
+          "key": "references",
+          "heading": "References",
+          "guidance": "Nature numbered style, limited count for Letters. Gaply formats these (Set B).",
+          "typicalWords": "",
+          "required": true
+        }
+      ],
+      "docxFormat": {
+        "font": "Times New Roman",
+        "fontSizePt": 12,
+        "marginInch": 1,
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "lineSpacing": "double",
+        "lineNumbers": true,
+        "sectionNumbering": "none",
+        "pageSize": "a4",
+        "source": "Nature's formatting guide specifies double-spaced manuscripts with continuous line numbering and unnumbered sections (Methods placed after the main text). Font/margins/page size are Gaply defaults (Nature does not mandate a submission font)."
+      }
+    },
+    {
+      "id": "plos",
+      "label": "PLOS-style (unofficial)",
+      "unofficial": true,
+      "cslDefaultStyle": "plos",
+      "publisherAuthorUrl": "https://plos.org/resource/manuscript-formatting-guidelines/",
+      "noticeText": "PLOS-style is Gaply's own scaffold informed by PLOS's public formatting guidelines — not an official PLOS template. Verify current requirements at the PLOS author page.",
+      "sections": [
+        {
+          "key": "abstract",
+          "heading": "Abstract",
+          "guidance": "≤300 words, no citations; structured for clinical trials.",
+          "typicalWords": "≤300",
+          "required": true
+        },
+        {
+          "key": "author_summary",
+          "heading": "Author Summary",
+          "guidance": "Optional non-technical summary (some PLOS journals), ~150–200 words.",
+          "typicalWords": "150–200",
+          "required": false
+        },
+        {
+          "key": "introduction",
+          "heading": "Introduction",
+          "guidance": "Background and rationale for a broad readership.",
+          "typicalWords": "500–900",
+          "required": true
+        },
+        {
+          "key": "methods",
+          "heading": "Materials and Methods",
+          "guidance": "Full detail for reproducibility; ethics statements as required.",
+          "typicalWords": "600–1500",
+          "required": true
+        },
+        {
+          "key": "results",
+          "heading": "Results",
+          "guidance": "Findings with figures/tables.",
+          "typicalWords": "600–1500",
+          "required": true
+        },
+        {
+          "key": "discussion",
+          "heading": "Discussion",
+          "guidance": "Interpretation, limitations, and implications; PLOS may combine with a short Conclusions.",
+          "typicalWords": "600–1200",
+          "required": true
+        },
+        {
+          "key": "references",
+          "heading": "References",
+          "guidance": "PLOS numbered (Vancouver-like) style. Gaply formats these (Set B).",
+          "typicalWords": "",
+          "required": true
+        }
+      ],
+      "docxFormat": {
+        "font": "Times New Roman",
+        "fontSizePt": 12,
+        "marginInch": 1,
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "lineSpacing": "double",
+        "lineNumbers": true,
+        "sectionNumbering": "none",
+        "pageSize": "letter",
+        "source": "Grounded in PLOS submission guidelines (fetched): 'Manuscript text should be double-spaced'; 'Use continuous line numbers'; abstract not exceeding 300 words, no citations. PLOS allows 'any standard font' — so 12pt Times New Roman, 1-inch margins, and Letter are Gaply defaults."
+      }
+    },
+    {
+      "id": "mdpi",
+      "label": "MDPI-style (unofficial)",
+      "unofficial": true,
+      "cslDefaultStyle": "multidisciplinary-digital-publishing-institute",
+      "publisherAuthorUrl": "https://www.mdpi.com/authors/latex",
+      "noticeText": "MDPI-style is Gaply's own scaffold informed by MDPI's public author guidance — not an official MDPI template. Verify current requirements at the MDPI author page.",
+      "sections": [
+        {
+          "key": "abstract",
+          "heading": "Abstract",
+          "guidance": "Single paragraph, ~200 words: background, methods, results, conclusion.",
+          "typicalWords": "≈200",
+          "required": true
+        },
+        {
+          "key": "keywords",
+          "heading": "Keywords",
+          "guidance": "3–10 keywords after the abstract.",
+          "typicalWords": "3–10 terms",
+          "required": true
+        },
+        {
+          "key": "introduction",
+          "heading": "Introduction",
+          "guidance": "Context, state of the art, and aim.",
+          "typicalWords": "500–1000",
+          "required": true
+        },
+        {
+          "key": "methods",
+          "heading": "Materials and Methods",
+          "guidance": "Reproducible detail; MDPI encourages subsections.",
+          "typicalWords": "600–1500",
+          "required": true
+        },
+        {
+          "key": "results",
+          "heading": "Results",
+          "guidance": "Findings; may be combined with Discussion.",
+          "typicalWords": "600–1500",
+          "required": true
+        },
+        {
+          "key": "discussion",
+          "heading": "Discussion",
+          "guidance": "Interpretation in context; limitations.",
+          "typicalWords": "600–1200",
+          "required": true
+        },
+        {
+          "key": "conclusion",
+          "heading": "Conclusions",
+          "guidance": "Main conclusions and future directions.",
+          "typicalWords": "100–300",
+          "required": true
+        },
+        {
+          "key": "references",
+          "heading": "References",
+          "guidance": "MDPI numbered style. Gaply formats these (Set B).",
+          "typicalWords": "",
+          "required": true
+        }
+      ],
+      "docxFormat": {
+        "font": "Times New Roman",
+        "fontSizePt": 12,
+        "marginInch": 1,
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "lineSpacing": "double",
+        "lineNumbers": true,
+        "sectionNumbering": "decimal",
+        "pageSize": "a4",
+        "source": "Decimal numbered sections + line numbers reflect MDPI's review template; A4 per MDPI. Spacing/font/margins are Gaply defaults. MDPI's camera-ready (Palatino template) is typeset by MDPI — not reproduced."
+      }
+    },
+    {
+      "id": "taylor-francis",
+      "label": "Taylor & Francis-style (unofficial)",
+      "unofficial": true,
+      "cslDefaultStyle": "taylor-and-francis-chicago-author-date",
+      "publisherAuthorUrl": "https://authorservices.taylorandfrancis.com/",
+      "noticeText": "Taylor & Francis-style is Gaply's own scaffold informed by T&F's public author guidance — not an official T&F template. T&F journals use several standard reference styles (default here: T&F Chicago author-date); verify your target journal at the T&F author services page.",
+      "sections": [
+        {
+          "key": "abstract",
+          "heading": "Abstract",
+          "guidance": "Single paragraph; check the journal for a word limit (often ~200).",
+          "typicalWords": "150–250",
+          "required": true
+        },
+        {
+          "key": "keywords",
+          "heading": "Keywords",
+          "guidance": "Indexing terms as required by the journal.",
+          "typicalWords": "3–6 terms",
+          "required": false
+        },
+        {
+          "key": "introduction",
+          "heading": "Introduction",
+          "guidance": "Context, gap, and aim.",
+          "typicalWords": "500–900",
+          "required": true
+        },
+        {
+          "key": "methods",
+          "heading": "Methods",
+          "guidance": "Design and procedures.",
+          "typicalWords": "500–1200",
+          "required": true
+        },
+        {
+          "key": "results",
+          "heading": "Results",
+          "guidance": "Findings.",
+          "typicalWords": "500–1200",
+          "required": true
+        },
+        {
+          "key": "discussion",
+          "heading": "Discussion",
+          "guidance": "Interpretation and implications.",
+          "typicalWords": "500–1000",
+          "required": true
+        },
+        {
+          "key": "conclusion",
+          "heading": "Conclusion",
+          "guidance": "Summary and future work.",
+          "typicalWords": "100–250",
+          "required": false
+        },
+        {
+          "key": "references",
+          "heading": "References",
+          "guidance": "Journal-specific T&F standard style. Gaply formats these (Set B).",
+          "typicalWords": "",
+          "required": true
+        }
+      ],
+      "docxFormat": {
+        "font": "Times New Roman",
+        "fontSizePt": 12,
+        "marginInch": 1,
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "lineSpacing": "double",
+        "lineNumbers": true,
+        "sectionNumbering": "none",
+        "pageSize": "a4",
+        "source": "Many Taylor & Francis journals request double-spaced, line-numbered manuscripts for review. Section numbering, font, margins, and page size are Gaply defaults; exact rules are journal-specific — verify at the link."
+      }
+    },
+    {
+      "id": "wiley",
+      "label": "Wiley-style (unofficial)",
+      "unofficial": true,
+      "cslDefaultStyle": "wiley-was",
+      "publisherAuthorUrl": "https://authors.wiley.com/author-resources/index.html",
+      "noticeText": "Wiley-style is Gaply's own scaffold informed by Wiley's public author resources — not an official Wiley template. Wiley journals have no single house reference style (default here is one Wiley style); verify your target journal at the Wiley author resources page.",
+      "sections": [
+        {
+          "key": "abstract",
+          "heading": "Abstract",
+          "guidance": "Single paragraph; check the journal for structure and word limit.",
+          "typicalWords": "150–250",
+          "required": true
+        },
+        {
+          "key": "keywords",
+          "heading": "Keywords",
+          "guidance": "Indexing terms per the journal.",
+          "typicalWords": "3–6 terms",
+          "required": false
+        },
+        {
+          "key": "introduction",
+          "heading": "Introduction",
+          "guidance": "Background and objectives.",
+          "typicalWords": "500–900",
+          "required": true
+        },
+        {
+          "key": "methods",
+          "heading": "Methods",
+          "guidance": "Reproducible detail.",
+          "typicalWords": "500–1200",
+          "required": true
+        },
+        {
+          "key": "results",
+          "heading": "Results",
+          "guidance": "Findings.",
+          "typicalWords": "500–1200",
+          "required": true
+        },
+        {
+          "key": "discussion",
+          "heading": "Discussion",
+          "guidance": "Interpretation and limitations.",
+          "typicalWords": "500–1000",
+          "required": true
+        },
+        {
+          "key": "conclusion",
+          "heading": "Conclusion",
+          "guidance": "Summary and outlook.",
+          "typicalWords": "100–250",
+          "required": false
+        },
+        {
+          "key": "references",
+          "heading": "References",
+          "guidance": "Journal-specific Wiley style. Gaply formats these (Set B).",
+          "typicalWords": "",
+          "required": true
+        }
+      ],
+      "docxFormat": {
+        "font": "Times New Roman",
+        "fontSizePt": 12,
+        "marginInch": 1,
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "lineSpacing": "double",
+        "lineNumbers": true,
+        "sectionNumbering": "none",
+        "pageSize": "a4",
+        "source": "Many Wiley journals request double-spaced, line-numbered manuscripts for review. Section numbering, font, margins, and page size are Gaply defaults; Wiley has no single house format — verify at the link."
+      }
+    },
+    {
+      "id": "sage",
+      "label": "SAGE-style (unofficial)",
+      "unofficial": true,
+      "cslDefaultStyle": "sage-harvard",
+      "publisherAuthorUrl": "https://journals.sagepub.com/author-instructions",
+      "noticeText": "SAGE-style is Gaply's own scaffold informed by SAGE's public author instructions — not an official SAGE template. SAGE journals use SAGE Harvard or SAGE Vancouver (default here: SAGE Harvard); verify your target journal at the SAGE author instructions page.",
+      "sections": [
+        {
+          "key": "abstract",
+          "heading": "Abstract",
+          "guidance": "Single paragraph; check the journal for a word limit.",
+          "typicalWords": "150–250",
+          "required": true
+        },
+        {
+          "key": "keywords",
+          "heading": "Keywords",
+          "guidance": "Indexing terms per the journal.",
+          "typicalWords": "3–6 terms",
+          "required": false
+        },
+        {
+          "key": "introduction",
+          "heading": "Introduction",
+          "guidance": "Context and aim.",
+          "typicalWords": "500–900",
+          "required": true
+        },
+        {
+          "key": "methods",
+          "heading": "Methods",
+          "guidance": "Design and procedures.",
+          "typicalWords": "500–1200",
+          "required": true
+        },
+        {
+          "key": "results",
+          "heading": "Results",
+          "guidance": "Findings.",
+          "typicalWords": "500–1200",
+          "required": true
+        },
+        {
+          "key": "discussion",
+          "heading": "Discussion",
+          "guidance": "Interpretation and implications.",
+          "typicalWords": "500–1000",
+          "required": true
+        },
+        {
+          "key": "conclusion",
+          "heading": "Conclusion",
+          "guidance": "Summary and future work.",
+          "typicalWords": "100–250",
+          "required": false
+        },
+        {
+          "key": "references",
+          "heading": "References",
+          "guidance": "SAGE Harvard or SAGE Vancouver per the journal. Gaply formats these (Set B).",
+          "typicalWords": "",
+          "required": true
+        }
+      ],
+      "docxFormat": {
+        "font": "Times New Roman",
+        "fontSizePt": 12,
+        "marginInch": 1,
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "lineSpacing": "double",
+        "lineNumbers": true,
+        "sectionNumbering": "none",
+        "pageSize": "a4",
+        "source": "Many SAGE journals request double-spaced manuscripts, often with line numbering, for review. Section numbering, font, margins, and page size are Gaply defaults; exact rules are journal-specific — verify at the link."
+      }
+    }
+  ]
+}
