@@ -14,8 +14,8 @@
 // bytes + dimensions and embedded via ImageRun (never a ref/blob URL, which Word
 // flags as "corrupted"); an unresolvable image degrades to an honest placeholder.
 import { Manuscript, DocxFormat, DEFAULT_DOCX_FORMAT } from './manuscriptModel';
-import { IMAGE_REF_PREFIX, readImageBytes } from './noteImages';
-import { CITE_TOKEN_RE } from './GaplyCiteNode';
+import { readImageBytes } from './noteImages';
+import { sectionBodyToBlocks, RichDocxCtx, NUMBERING_REF } from './manuscriptRichDocx';
 import { CitationRender } from './manuscriptCitations';
 
 export interface ResolvedImage { data: Uint8Array; width: number; height: number; }
@@ -81,6 +81,7 @@ export async function buildManuscriptDocx(
     Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, ImageRun,
     PageNumber, Footer, PageBreak, LineNumberRestartFormat, LineRuleType,
     convertInchesToTwip, convertMillimetersToTwip,
+    Table, TableRow, TableCell, WidthType, BorderStyle, LevelFormat,
   } = await import('docx');
 
   const half = format.fontSizePt * 2;      // docx sizes are half-points
@@ -108,20 +109,21 @@ export async function buildManuscriptDocx(
     return { label: '', upper: false };
   };
 
-  // Replace each [[cite:id]] token, IN DOCUMENT ORDER, with its resolved in-text
-  // marker (a dangling token → '[?]'). The counter advances across sections in
-  // the SAME order orderedRefIds walked them — so export markers == live markers.
-  let tokenIdx = 0;
   const cited = !!citations?.hasCitations;
-  const replaceCites = (text: string): string =>
-    text.replace(CITE_TOKEN_RE, () => (cited ? (citations!.perToken[tokenIdx++] ?? '[?]') : (tokenIdx++, '')));
+  // The shared, document-order citation counter — advances across every section's
+  // rich content (inside bold/italic/list/table too) in the SAME order
+  // orderedRefIds walked, so perToken[k] alignment (and the B2 match) is preserved.
+  const richCtx: RichDocxCtx = {
+    D: { Paragraph, TextRun, HeadingLevel, AlignmentType, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle } as unknown as typeof import('docx'),
+    bodySpacing, bodyIndent, citations, counter: { i: 0 }, resolveImage, fit, olInstance: { n: 0 },
+  };
 
   // Bibliography paragraphs (hanging indent) for the auto-References section.
   const bibParagraphs = (): import('docx').Paragraph[] =>
     citations!.bibliography.split('\n').map((l) => l.trim()).filter(Boolean).map((line) =>
       new Paragraph({ spacing: bodySpacing, indent: { left: convertInchesToTwip(0.5), hanging: convertInchesToTwip(0.5) }, children: [new TextRun(line)] }));
 
-  const bodyChildren: import('docx').Paragraph[] = [];
+  const bodyChildren: (import('docx').Paragraph | import('docx').Table)[] = [];
   let numbered = 0;
   let refsEmitted = false;
   for (const s of m.sections) {
@@ -132,22 +134,9 @@ export async function buildManuscriptDocx(
       if (paras.length) { bodyChildren.push(heading(s.heading), ...paras); refsEmitted = true; }
       continue;
     }
-    const kids: import('docx').Paragraph[] = [];
-    for (const seg of segmentSectionBody(s.body)) {
-      if ('text' in seg) {
-        for (const p of seg.text.split(/\n{2,}/).map((x) => x.trim()).filter(Boolean)) {
-          kids.push(new Paragraph({ spacing: bodySpacing, indent: bodyIndent, children: [new TextRun(replaceCites(p))] }));
-        }
-      } else {
-        let img: ResolvedImage | null = null;
-        try { img = await resolveImage(seg.ref); } catch { img = null; }
-        if (img && img.data.length) {
-          kids.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 120, after: 120 }, children: [new ImageRun({ data: img.data, transformation: fit(img.width, img.height) })] }));
-        } else {
-          kids.push(new Paragraph({ spacing: bodySpacing, indent: bodyIndent, children: [new TextRun({ text: `[Figure: ${seg.ref.slice(IMAGE_REF_PREFIX.length)}]`, italics: true })] }));
-        }
-      }
-    }
+    // Parse the section markdown → real docx blocks (paragraphs, lists, tables,
+    // images), with citations resolved inline in document order.
+    const kids = await sectionBodyToBlocks(s.body, richCtx);
     if (kids.length === 0) continue; // honest skip — no empty heading
     const numberable = !UNNUMBERED_KEYS.has(s.key) && format.sectionNumbering !== 'none';
     const { label, upper } = numberable ? numberFor(s.key, numbered) : { label: '', upper: false };
@@ -180,7 +169,18 @@ export async function buildManuscriptDocx(
         document: { run: { font: format.font, size: half } }, // body font + size everywhere
         heading1: { run: headingRun, paragraph: { spacing: { before: 240, after: 120 }, keepNext: true } },
         heading2: { run: { ...headingRun, size: (format.fontSizePt + 1) * 2 }, paragraph: { spacing: { before: 180, after: 80 }, keepNext: true } },
+        heading3: { run: { ...headingRun, size: format.fontSizePt * 2, italics: true }, paragraph: { spacing: { before: 140, after: 60 }, keepNext: true } },
       },
+    },
+    // Numbering for ordered lists (per-list restart via a fresh `instance`).
+    numbering: {
+      config: [{
+        reference: NUMBERING_REF,
+        levels: [0, 1, 2, 3].map((lvl) => ({
+          level: lvl, format: LevelFormat.DECIMAL, text: `%${lvl + 1}.`, alignment: AlignmentType.START,
+          style: { paragraph: { indent: { left: convertInchesToTwip(0.25 + lvl * 0.25), hanging: convertInchesToTwip(0.25) } } },
+        })),
+      }],
     },
     sections: [{
       properties: {
