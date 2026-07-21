@@ -312,6 +312,18 @@
 .an-ms-navctl-del:hover:not(:disabled) { color: var(--an-error); background: var(--an-error-container) !important; }
 .an-ms-addsec { margin-top: 6px; border: 1px dashed var(--an-outline-variant); background: none; cursor: pointer; border-radius: 8px; padding: 7px 11px; font: 600 12px/1 var(--an-ui); color: var(--an-on-surface-variant); text-align: left; }
 .an-ms-addsec:hover { background: var(--an-surface-high); color: var(--an-primary); border-color: var(--an-primary); }
+/* Set B1 — in-text citation chip + insert picker */
+.an-richbody .an-cite { display: inline; color: var(--an-primary); font-weight: 600; white-space: nowrap; cursor: default; }
+.an-richbody .an-cite--missing { color: var(--an-error); font-weight: 600; font-size: 0.85em; border: 1px dashed var(--an-error); border-radius: 4px; padding: 0 4px; }
+.an-cite-picker { position: relative; z-index: 20; margin: 0 0 10px; border: 1px solid var(--an-outline-variant); border-radius: 10px; background: var(--an-surface); box-shadow: 0 8px 24px rgba(0,0,0,0.12); overflow: hidden; }
+.an-cite-picker-head { display: flex; gap: 8px; padding: 10px; border-bottom: 1px solid var(--an-outline-variant); }
+.an-cite-search { flex: 1; border: 1px solid var(--an-outline-variant); border-radius: 8px; padding: 7px 11px; font: 500 13px/1.2 var(--an-ui); color: var(--an-on-surface); background: var(--an-surface-low); }
+.an-cite-results { max-height: 260px; overflow-y: auto; }
+.an-cite-empty { padding: 14px; font: 400 12.5px/1.5 var(--an-ui); color: var(--an-on-surface-variant); }
+.an-cite-result { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; border: none; background: none; cursor: pointer; padding: 9px 12px; border-bottom: 1px solid var(--an-surface-high); }
+.an-cite-result:hover { background: var(--an-primary-container); }
+.an-cite-result-title { font: 600 13px/1.3 var(--an-ui); color: var(--an-on-surface); }
+.an-cite-result-meta { font: 400 11.5px/1.3 var(--an-ui); color: var(--an-on-surface-variant); }
 .an-ms-wc { font: 500 11px/1 var(--an-ui); opacity: 0.7; min-width: 22px; text-align: right; }
 .an-ms-total { margin-top: 8px; padding: 6px 11px; font: 600 11px/1 var(--an-ui); color: var(--an-on-surface-variant); border-top: 1px solid var(--an-outline-variant); }
 .an-ms-section-head { margin-bottom: 8px; }

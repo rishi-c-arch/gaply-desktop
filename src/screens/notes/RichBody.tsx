@@ -19,6 +19,8 @@ import { Placeholder } from '@tiptap/extensions';
 import { TableKit } from '@tiptap/extension-table';
 import { Markdown } from 'tiptap-markdown';
 import { GaplyImage } from './GaplyImageNode';
+import { GaplyCiteLive } from './CitationContext';
+import CitationPicker from './CitationPicker';
 import { storeImageFile } from './noteImages';
 
 /** Serialize the editor back to canonical markdown. Two normalizations:
@@ -34,10 +36,13 @@ export const mdOf = (editor: Editor): string => {
 /** THE production extension set — exported so tests pin the real config
  *  (input rules, GFM tables, md round-trip), not a test-local copy. Table
  *  resizing is off (kept simple; tab navigation + toolbar controls edit it). */
-export const richExtensions = (placeholder = '') => [
+export const richExtensions = (placeholder = '', opts: { citations?: boolean } = {}) => [
   StarterKit,
   TableKit.configure({ table: { resizable: false } }),
   GaplyImage, // pasted images (Set 3) — renders gaply-image://<hash> refs via blob URL
+  // In-text citations (Set B1) — manuscript surface only; renders [[cite:id]]
+  // tokens as live, style-aware markers via a NodeView. Off for project notes.
+  ...(opts.citations ? [GaplyCiteLive] : []),
   Placeholder.configure({ placeholder }),
   Markdown.configure({ html: false, breaks: true }),
 ];
@@ -65,10 +70,16 @@ export const imageDropHint = (data: DataTransfer | null): string | null =>
  *  in-table selection before the command runs). */
 const hold = (fn: () => void) => (e: React.MouseEvent) => { e.preventDefault(); fn(); };
 
-const RichToolbar: React.FC<{ editor: Editor }> = ({ editor }) => {
+const RichToolbar: React.FC<{ editor: Editor; onInsertCite?: () => void }> = ({ editor, onInsertCite }) => {
   const inTable = editor.isActive('table');
   return (
     <div className="an-rb-toolbar" data-testid="rb-toolbar">
+      {onInsertCite && !inTable && (
+        <button className="an-rb-btn" data-testid="rb-insert-cite" title="Insert citation (⌘⇧C)"
+          onMouseDown={hold(onInsertCite)}>
+          ❝ Cite
+        </button>
+      )}
       {!inTable ? (
         <button className="an-rb-btn" data-testid="rb-insert-table"
           onMouseDown={hold(() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run())}>
@@ -96,20 +107,33 @@ export interface RichBodyProps {
   onChange: (md: string) => void;
   placeholder?: string;
   testid?: string;
+  /** Manuscript surface only: enables the in-text citation node + insert picker
+   *  (⌘⇧C / toolbar). Project notes leave this off. */
+  withCitations?: boolean;
 }
 
-const RichBody: React.FC<RichBodyProps> = ({ value, onChange, placeholder, testid }) => {
+const RichBody: React.FC<RichBodyProps> = ({ value, onChange, placeholder, testid, withCitations }) => {
   const [, force] = useReducer((x: number) => x + 1, 0);
   // One honest inline message channel: image errors (oversize/unsupported) and
   // the drag-drop hint. Cleared on the next successful paste or on dismiss.
   const [hint, setHint] = useState<string | null>(null);
+  const [citeOpen, setCiteOpen] = useState(false);
 
   const editor = useEditor({
-    extensions: richExtensions(placeholder ?? ''),
+    extensions: richExtensions(placeholder ?? '', { citations: withCitations }),
     content: value,
     editorProps: {
       // The spike-proven WKWebView fix — keep all three exactly as verified.
       attributes: { autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false' },
+      // ⌘⇧C opens the insert-citation picker (manuscript surface only).
+      handleKeyDown: withCitations ? (_view, event) => {
+        if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'c') {
+          event.preventDefault();
+          setCiteOpen(true);
+          return true;
+        }
+        return false;
+      } : undefined,
       // PASTE an image (Set 3): store to disk by content-hash, then insert the
       // canonical gaply-image:// ref as an image node. Async, so we consume the
       // event now and dispatch the node when the write resolves.
@@ -152,15 +176,21 @@ const RichBody: React.FC<RichBodyProps> = ({ value, onChange, placeholder, testi
     return () => { editor.off('selectionUpdate', force); editor.off('transaction', force); };
   }, [editor]);
 
+  const insertCite = (refId: string) => {
+    editor?.chain().focus().insertContent({ type: 'gaplyCite', attrs: { refId } }).run();
+    setCiteOpen(false);
+  };
+
   return (
     <div className="an-richbody" data-testid={testid}>
-      {editor && <RichToolbar editor={editor} />}
+      {editor && <RichToolbar editor={editor} onInsertCite={withCitations ? () => setCiteOpen(true) : undefined} />}
       {hint && (
         <div className="an-rb-hint" role="status" data-testid="rb-image-hint">
           <span>{hint}</span>
           <button type="button" className="an-rb-hint-x" onClick={() => setHint(null)} aria-label="Dismiss">×</button>
         </div>
       )}
+      {citeOpen && withCitations && <CitationPicker onPick={insertCite} onClose={() => setCiteOpen(false)} />}
       <EditorContent editor={editor} />
     </div>
   );

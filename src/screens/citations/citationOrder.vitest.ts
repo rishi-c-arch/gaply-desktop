@@ -59,7 +59,13 @@ describe('author-date style (APA) also works', () => {
 
 describe('honest edge cases', () => {
   it('no citations → empty in-text list + empty bibliography', () => {
-    expect(renderCitations(LIB, [], 'ieee')).toEqual({ inText: [], bibliography: '', citationOrder: [] });
+    expect(renderCitations(LIB, [], 'ieee')).toEqual({ inText: [], bibliography: '', citationOrder: [], dangling: [] });
+  });
+  it('a dangling id (not in the library) is dropped + reported, never crashes citeproc', () => {
+    const r = renderCitations(LIB, [['A'], ['ghost'], ['B']], 'ieee');
+    expect(r.dangling).toEqual(['ghost']);
+    expect(r.inText).toEqual(['[1]', '', '[2]']); // ghost → '' placeholder; A/B still number
+    expect(r.citationOrder).toEqual(['A', 'B']);
   });
   it('an unregistered style throws (no silent APA fallback)', () => {
     expect(() => renderCitations(LIB, [['A']], 'not-a-real-style-xyz')).toThrow(/not registered/);

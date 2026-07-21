@@ -160,6 +160,9 @@ export interface RenderedCitations {
   bibliography: string;
   /** The ids actually cited, in first-appearance order (= numbered order). */
   citationOrder: string[];
+  /** Cited ids NOT found in the library (deleted/dangling). These render as ''
+   *  in inText (caller shows an honest placeholder) and never crash citeproc. */
+  dangling: string[];
 }
 
 /**
@@ -193,21 +196,31 @@ export function renderCitations(
     throw new Error(`CSL style "${styleId}" is not registered — prepareStyle it first (no silent fallback)`);
   }
   const byId = new Map(library.map((c) => [c.id, c]));
-  // (1) first-appearance order of cited ids that actually exist in the library.
+  // (0) DANGLING GUARD: drop ids not in the library from each cluster (citeproc
+  // throws "Cannot find entry" on an unknown id). Report them so the caller can
+  // show an honest placeholder instead of a wrong number or a crash.
+  const dangling: string[] = [];
+  const safe = clusters.map((cluster) => cluster.filter((id) => {
+    if (byId.has(id)) return true;
+    if (!dangling.includes(id)) dangling.push(id);
+    return false;
+  }));
+  // (1) first-appearance order of the surviving (present) ids.
   const citationOrder: string[] = [];
-  for (const cluster of clusters) {
-    for (const id of cluster) {
-      if (!citationOrder.includes(id) && byId.has(id)) citationOrder.push(id);
-    }
+  for (const cluster of safe) {
+    for (const id of cluster) if (!citationOrder.includes(id)) citationOrder.push(id);
   }
   // (2) reorder cited items into citation order.
   const ordered = citationOrder.map((id) => byId.get(id)!);
   const cite = new CiteClass(ordered.map(toCslJson));
   const opts = { template: styleId, lang: locale, format: outputFormat } as const;
-  // (3) in-text, each with document context so numbers follow document order.
-  const inText = clusters.map((entry, i) =>
-    (cite.format('citation', { ...opts, entry, citationsPre: clusters.slice(0, i), citationsPost: clusters.slice(i + 1) }) as string));
+  // (3) in-text, each with document context (non-empty clusters only) so numbers
+  //     follow document order. An all-dangling cluster renders as '' (placeholder).
+  const nonEmptyBefore = (i: number) => safe.slice(0, i).filter((c) => c.length);
+  const nonEmptyAfter = (i: number) => safe.slice(i + 1).filter((c) => c.length);
+  const inText = safe.map((entry, i) =>
+    entry.length === 0 ? '' : (cite.format('citation', { ...opts, entry, citationsPre: nonEmptyBefore(i), citationsPost: nonEmptyAfter(i) }) as string));
   // (4) bibliography from the reordered items (matches numbered in-text).
   const bibliography = citationOrder.length ? (cite.format('bibliography', opts) as string).trim() : '';
-  return { inText, bibliography, citationOrder };
+  return { inText, bibliography, citationOrder, dangling };
 }

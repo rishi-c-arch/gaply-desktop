@@ -3,9 +3,13 @@
 // metadata + basic .docx export. Set C: a versioned venue-scaffold picker on
 // create, and a "Change structure" switch that NEVER silently drops content —
 // it warns which sections would be dropped and requires confirmation.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import RichBody from './RichBody';
 import ScaffoldPicker from './ScaffoldPicker';
+import { CitationProvider, CitationPickItem } from './CitationContext';
+import { signatureOf, computeMarkers, MarkerMap } from './manuscriptCitations';
+import { LocalLibrary, TauriLocalLibrary, storedToCitation } from '../citations/localLibrary';
+import { CslItem } from '../citations/citationTypes';
 import { Note, NoteDraft } from './notesBridge';
 import {
   Manuscript, Scaffold, DEFAULT_DOCX_FORMAT, manuscriptFromNote, manuscriptToDraft, newManuscript,
@@ -27,6 +31,9 @@ export interface ManuscriptEditorProps {
   onClose: () => void;
   busy?: boolean;
   onError?: (msg: string | null) => void;
+  /** The citation library (for insert-picker search + live markers). Injectable
+   *  for tests; defaults to the local Tauri library. */
+  library?: LocalLibrary;
 }
 
 /** Loader shell: fetch the scaffold catalog once, then hand a resolved list to
@@ -49,7 +56,7 @@ const ManuscriptEditor: React.FC<ManuscriptEditorProps> = (props) => {
 type Pending = { next: Scaffold; dropped: Array<{ heading: string; body: string }> };
 
 const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffold[]; notice: string }> = ({
-  id, existing, onSave, onDelete, onClose, busy, onError, scaffolds, notice,
+  id, existing, onSave, onDelete, onClose, busy, onError, scaffolds, notice, library,
 }) => {
   // Single source of truth for the live document.
   const [manuscript, setManuscript] = useState<Manuscript>(() =>
@@ -62,6 +69,62 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
   const [activeKey, setActiveKey] = useState(manuscript.sections[0]?.key ?? '');
 
   const scaffold = pickScaffold(scaffolds, manuscript.scaffoldId);
+
+  /* ---- citations (Set B1): library + signature-gated live markers ---- */
+  const lib = useMemo(() => library ?? new TauriLocalLibrary(), [library]);
+  const [libMap, setLibMap] = useState<Map<string, CslItem>>(new Map());
+  // Fingerprint = `id@updated_at` per ref. Folded into the signature so a ref
+  // added/removed (id set) AND a metadata edit (updated_at bump, same id) both
+  // refresh markers — e.g. an author-date "(He, 2016)" won't render stale.
+  const [libFingerprint, setLibFingerprint] = useState<string[]>([]);
+  const reloadLibrary = useCallback(() => {
+    lib.list().then((rows) => {
+      const m = new Map<string, CslItem>();
+      // Force CslItem.id = the LIBRARY id so cluster refIds (= library ids) match.
+      for (const r of rows) m.set(r.id, { ...storedToCitation(r).csl, id: r.id });
+      setLibMap(m);
+      setLibFingerprint(rows.map((r) => `${r.id}@${r.updated_at}`));
+    }).catch(() => { /* offline / no library — markers just show missing */ });
+  }, [lib]);
+  // Refresh triggers. The DOMINANT in-app path — leaving to the Citation Manager
+  // route and re-opening the manuscript — already REMOUNTS this editor with a
+  // fresh library (NoteCreatorPage is a route that unmounts on navigate). Window
+  // focus + document visibility are OS-level backups (Tauri window show / tab
+  // return). Signature-gating makes any spurious refresh free.
+  useEffect(() => {
+    reloadLibrary();
+    window.addEventListener('focus', reloadLibrary);
+    document.addEventListener('visibilitychange', reloadLibrary);
+    return () => {
+      window.removeEventListener('focus', reloadLibrary);
+      document.removeEventListener('visibilitychange', reloadLibrary);
+    };
+  }, [reloadLibrary]);
+
+  const [markerMap, setMarkerMap] = useState<MarkerMap>(new Map());
+  // Signature folds in the library fingerprint (ids + updated_at), so it changes
+  // on a citation insert/delete/reorder, a style switch, a ref added/removed, OR
+  // a cited ref's metadata edit — but NOT on prose keystrokes. Gates computeMarkers.
+  const signature = signatureOf(manuscript.sections, manuscript.cslStyleId, libFingerprint);
+  useEffect(() => {
+    let alive = true;
+    computeMarkers(manuscript.sections, manuscript.cslStyleId, libMap)
+      .then((mm) => { if (alive) setMarkerMap(mm); })
+      .catch(() => { /* keep the last good map */ });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature]);
+
+  const markerFor = useCallback(
+    (refId: string) => markerMap.get(refId) ?? { marker: '', missing: !libMap.has(refId) },
+    [markerMap, libMap],
+  );
+  const searchLib = useCallback(
+    async (q: string): Promise<CitationPickItem[]> =>
+      (await lib.search(q)).map((r) => ({ id: r.id, title: r.title, authors: r.authors, year: r.year })),
+    [lib],
+  );
+  const citeCtx = useMemo(() => ({ markerFor, search: searchLib }), [markerFor, searchLib]);
 
   // Two-step delete (mirrors the other editors).
   const [deleteArmed, setDeleteArmed] = useState(false);
@@ -170,6 +233,7 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
 
   /* ---- the editing surface ---- */
   return (
+    <CitationProvider value={citeCtx}>
     <div data-testid="manuscript-editor">
       <header className="an-edit-head">
         <div className="an-edit-head-left">
@@ -269,14 +333,16 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
                     {active.guidance}{active.typicalWords ? ` (typically ${active.typicalWords})` : ''}
                   </span>
                 </div>
-                {/* Stable key = section key: switching remounts cleanly, no bleed. */}
-                <RichBody key={active.key} value={active.body} onChange={(md) => setBody(active.key, md)} placeholder={`Write the ${active.heading.toLowerCase()}…`} testid={`ms-body-${active.key}`} />
+                {/* Stable key = section key: switching remounts cleanly, no bleed.
+                    withCitations enables the ⌘⇧C picker + live in-text markers. */}
+                <RichBody key={active.key} value={active.body} onChange={(md) => setBody(active.key, md)} placeholder={`Write the ${active.heading.toLowerCase()}…`} testid={`ms-body-${active.key}`} withCitations />
               </div>
             )}
           </div>
         </div>
       </div>
     </div>
+    </CitationProvider>
   );
 };
 
