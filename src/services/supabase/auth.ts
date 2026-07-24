@@ -25,8 +25,16 @@ export interface SessionResult {
   offline: boolean;
 }
 
+/** Optional researcher identity captured at signup. Stored as Supabase
+ *  user_metadata (works with no session, i.e. even when email confirmation is
+ *  required); the profiles row is materialized from it on the first session. */
+export interface SignUpMeta {
+  displayName?: string;
+  role?: string;
+}
+
 export interface AuthService {
-  signUp(email: string, password: string): Promise<AuthResult>;
+  signUp(email: string, password: string, meta?: SignUpMeta): Promise<AuthResult>;
   signIn(email: string, password: string): Promise<AuthResult>;
   /** Google is a native Supabase provider. ORCID is OIDC-compliant but NOT a
    *  Supabase built-in: the project must register it as a custom/third-party
@@ -47,9 +55,17 @@ const OFFLINE: AuthResult = { ok: false, error: 'offline' };
 
 export function createAuthService(client: SupabaseClient | null = getSupabase()): AuthService {
   return {
-    async signUp(email, password) {
+    async signUp(email, password, meta) {
       if (!client) return OFFLINE;
-      const { error } = await client.auth.signUp({ email, password });
+      // Only send the keys the user actually filled — never fabricate fields.
+      const data: Record<string, string> = {};
+      if (meta?.displayName?.trim()) data.display_name = meta.displayName.trim();
+      if (meta?.role?.trim()) data.role = meta.role.trim();
+      const { error } = await client.auth.signUp({
+        email,
+        password,
+        ...(Object.keys(data).length ? { options: { data } } : {}),
+      });
       return error ? { ok: false, error: error.message } : { ok: true };
     },
 

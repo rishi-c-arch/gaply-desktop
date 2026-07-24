@@ -4,10 +4,10 @@
 // injectable for tests. Free-offline routes never require a session; online
 // routes are wrapped in <RequireSession>.
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import type { Session } from '@supabase/supabase-js';
-import { createAuthService, AuthService } from '../../services/supabase';
+import { createAuthService, AuthService, createProfileService } from '../../services/supabase';
 
 export interface GaplySession {
   /** null = signed out (or offline mode). */
@@ -53,6 +53,34 @@ export const GaplySessionProvider: React.FC<{
       off();
     };
   }, [auth]);
+
+  // Materialize the profiles row on the FIRST session for a user (covers both
+  // autoconfirm-on immediate signup and post-confirm sign-in). The identity
+  // (display_name/role) was captured at signup into user_metadata; we copy it
+  // into the RLS'd profiles table once a session exists. Best-effort — never
+  // blocks the app, and no-ops in offline mode (no Supabase client).
+  const bootstrappedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid || bootstrappedFor.current === uid) return;
+    bootstrappedFor.current = uid;
+    void (async () => {
+      try {
+        const profiles = createProfileService();
+        const existing = await profiles.getOwn(uid);
+        if (existing.offline || existing.data) return; // no client, or already has a row
+        const md = (session?.user.user_metadata ?? {}) as { display_name?: string; role?: string };
+        await profiles.upsertOwn({
+          id: uid,
+          email: session?.user.email ?? '',
+          ...(md.display_name ? { display_name: md.display_name } : {}),
+          ...(md.role ? { role: md.role } : {}),
+        });
+      } catch {
+        /* best-effort profile bootstrap — a failure here must never break auth */
+      }
+    })();
+  }, [session]);
 
   const value = useMemo(
     () => ({ session, loading, offline, auth }),

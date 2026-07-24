@@ -29,12 +29,24 @@ pub fn run() {
     let mut builder = tauri::Builder::default();
 
     // single-instance MUST be registered first, and only on Windows/Linux,
-    // where the deep link spawns a second process we forward to the running app.
+    // where a deep link spawns a SECOND process with the URL in argv. We focus
+    // the running window AND forward any gaply:// URL to the frontend, which
+    // completes the OAuth code exchange (see useDeepLinkAuth). macOS delivers
+    // deep links natively via onOpenUrl and never hits this path.
+    //
+    // NOTE (honest): verified on macOS (which doesn't use this branch) + tests;
+    // the Windows/Linux warm-start forwarding is written to the documented
+    // single-instance argv pattern but is pending a hand-test on real hardware.
+    // It provably replaces the prior code, which discarded argv entirely.
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            use tauri::Emitter;
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_focus();
+            }
+            if let Some(url) = argv.iter().find(|a| a.starts_with("gaply://")) {
+                let _ = app.emit("deep-link-url", url.clone());
             }
         }));
     }

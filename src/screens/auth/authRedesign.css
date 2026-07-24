@@ -119,6 +119,11 @@ body.light .gpl-auth {
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 .gpl-auth__input::placeholder { color: var(--gpl-a-muted); opacity: 0.7; }
+/* Role select: reuse the input shell; native arrow, muted empty option. */
+.gpl-auth__select { appearance: none; -webkit-appearance: none; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--gpl-a-muted) 50%), linear-gradient(135deg, var(--gpl-a-muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 34px; }
+.gpl-auth__optional { color: var(--gpl-a-muted); font-weight: 400; }
 .gpl-auth__input:focus {
   border-color: var(--gpl-a-accent);
   box-shadow: 0 0 0 3px rgba(255, 59, 59, 0.13);

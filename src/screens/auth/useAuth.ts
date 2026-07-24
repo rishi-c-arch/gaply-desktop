@@ -5,6 +5,7 @@
 import { useCallback, useState } from 'react';
 import { useToast } from '../../design-system/Toast';
 import { useGaplySession } from '../session/SessionProvider';
+import type { SignUpMeta } from '../../services/supabase/auth';
 
 export interface UseAuth {
   /** null until the first getSession() settles (from the session provider). */
@@ -13,7 +14,7 @@ export interface UseAuth {
   offline: boolean;
   busy: boolean;
   signInPassword: (email: string, password: string) => Promise<boolean>;
-  signUpPassword: (email: string, password: string) => Promise<boolean>;
+  signUpPassword: (email: string, password: string, meta?: SignUpMeta) => Promise<boolean>;
   signInWithGoogle: () => Promise<boolean>;
   signOut: () => Promise<void>;
 }
@@ -46,9 +47,9 @@ export function useAuth(): UseAuth {
   );
 
   const signUpPassword = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string, meta?: SignUpMeta) => {
       setBusy(true);
-      const res = await auth.signUp(email, password);
+      const res = await auth.signUp(email, password, meta);
       setBusy(false);
       if (!res.ok) {
         toast(humanize(res.error), 'flagged');

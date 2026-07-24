@@ -5,7 +5,7 @@
 // Every handler and testid is preserved.
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ToastProvider } from '../../design-system/Toast';
+import { ToastProvider, useToast } from '../../design-system/Toast';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useGaplySession } from '../session/SessionProvider';
 import { useAuth } from './useAuth';
@@ -23,6 +23,10 @@ import '@fontsource/manrope/700.css';
 import './authRedesign.css';
 
 type Mode = 'signin' | 'signup';
+
+// Optional researcher identity captured at signup. Free-text values (the
+// profiles.role column has no CHECK constraint); kept short and honest.
+const ROLE_OPTIONS = ['Scholar', 'Individual Researcher', 'Student', 'Other'] as const;
 
 // ORCID sign-in is intentionally DEFERRED (flag defaults off): its OIDC has no
 // email claim/scope, so a Supabase custom-OIDC wiring would need a separate
@@ -65,19 +69,32 @@ const ThemeToggle: React.FC = () => {
 const Inner: React.FC = () => {
   const { offline } = useGaplySession();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const { busy, signInPassword, signUpPassword, signInWithGoogle } = useAuth();
   const orcidEnabled = useFeatureFlag('orcid');
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  // Optional signup identity (never blocks signup).
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('');
 
-  // Completes desktop Google OAuth via the gaply:// deep-link callback.
-  useDeepLinkAuth();
+  // Completes desktop Google OAuth via the gaply:// deep-link callback. On an
+  // error callback (e.g. Supabase failed the code exchange with Google), surface
+  // an honest, readable message instead of a silent dead-end.
+  useDeepLinkAuth((r) => {
+    if (!r.ok) {
+      toast(
+        `Google sign-in failed${r.error ? ` — ${r.error}` : ''}. Try email signup, or continue offline.`,
+        'flagged'
+      );
+    }
+  });
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === 'signup') {
-      const ok = await signUpPassword(email, password);
+      const ok = await signUpPassword(email, password, { displayName: name, role });
       if (ok) setMode('signin');
       return;
     }
@@ -103,6 +120,21 @@ const Inner: React.FC = () => {
           </p>
 
           <form onSubmit={submit} data-testid="auth-form">
+            {mode === 'signup' && (
+              <div className="gpl-auth__field">
+                <label className="gpl-auth__label" htmlFor="auth-name">Name <span className="gpl-auth__optional">(optional)</span></label>
+                <input
+                  id="auth-name"
+                  className="gpl-auth__input"
+                  type="text"
+                  autoComplete="name"
+                  placeholder="How should we address you?"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  data-testid="auth-name"
+                />
+              </div>
+            )}
             <div className="gpl-auth__field">
               <label className="gpl-auth__label" htmlFor="auth-email">Email</label>
               <input
@@ -130,6 +162,23 @@ const Inner: React.FC = () => {
                 minLength={8}
               />
             </div>
+            {mode === 'signup' && (
+              <div className="gpl-auth__field">
+                <label className="gpl-auth__label" htmlFor="auth-role">Role <span className="gpl-auth__optional">(optional)</span></label>
+                <select
+                  id="auth-role"
+                  className="gpl-auth__input gpl-auth__select"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  data-testid="auth-role"
+                >
+                  <option value="">Select your role…</option>
+                  {ROLE_OPTIONS.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <button type="submit" className="gpl-auth__submit" disabled={busy} data-testid="auth-submit">
               {mode === 'signin' ? 'Sign in' : 'Sign up'}
             </button>
