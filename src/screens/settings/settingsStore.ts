@@ -17,7 +17,7 @@ export type CloudSuite =
   | 'community_sync';
 
 export const CLOUD_SUITES: Array<{ id: CloudSuite; label: string; sends: string }> = [
-  { id: 'citation_verification', label: 'Citation verification', sends: 'DOIs & titles → CrossRef/OpenAlex via the Gaply proxy' },
+  { id: 'citation_verification', label: 'Citation verification', sends: 'DOIs & titles → CrossRef/OpenAlex (public scholarly APIs)' },
   { id: 'journal_check', label: 'Journal Check online fallback', sends: 'journal names not in the offline directory' },
   { id: 'publishready', label: 'PublishReady ★', sends: 'structured findings only — never manuscript text' },
   { id: 'research_copilot', label: 'Research Copilot ★', sends: 'your questions + structured findings — never manuscript text' },

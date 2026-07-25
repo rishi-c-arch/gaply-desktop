@@ -180,7 +180,7 @@ describe('"Where your data lives" privacy panel', () => {
     renderSettings();
     const panel = await screen.findByTestId('privacy-panel');
     expect(within(panel).getByTestId('device-box').textContent).toMatch(/Manuscripts/i);
-    expect(within(panel).getByTestId('cloud-box').textContent).toMatch(/structured summaries/i);
+    expect(within(panel).getByTestId('cloud-box').textContent).toMatch(/metadata only/i);
     expect(within(panel).getByTestId('cloud-box').textContent).not.toMatch(/manuscript/i);
     expect(screen.getByTestId('on-device-statement').textContent).toMatch(/on-device/i);
     expect(screen.getByTestId('on-device-statement').textContent).toMatch(/never uploaded/i);

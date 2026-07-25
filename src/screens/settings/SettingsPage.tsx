@@ -242,12 +242,11 @@ const Inner: React.FC<SettingsPageProps> = ({ profileService }) => {
                         </ul>
                         <Badge status="certain">never uploaded</Badge>
                       </div>
-                      <div className="gds-set__databox-arrow" aria-hidden="true">→ structured summaries only →</div>
+                      <div className="gds-set__databox-arrow" aria-hidden="true">→ account &amp; usage metadata only →</div>
                       <div className="gds-set__databox" data-testid="cloud-box">
                         <div className="gds-set__databox-head">☁ Gaply cloud</div>
                         <ul>
                           <li>Account info & subscription</li>
-                          <li>Structured summaries for paid checks</li>
                           <li>Usage counters & community posts</li>
                         </ul>
                         <Badge status="neutral">metadata only</Badge>
@@ -255,8 +254,11 @@ const Inner: React.FC<SettingsPageProps> = ({ profileService }) => {
                     </div>
                     <p className="gds-set__datamap-note" data-testid="on-device-statement">
                       Manuscripts are processed <strong>on-device</strong> and never uploaded — the
-                      six analysis agents run locally; only the citation-verification agent may
-                      reach the network, through the Gaply proxy, with structured summaries only.
+                      six analysis agents run locally. Some opt-in features do reach the network:
+                      citation verification and Journal Check send only bibliographic details
+                      (author, year, title, DOI, journal name) directly to public scholarly APIs
+                      (CrossRef, OpenAlex); account and community features sync with Gaply’s
+                      servers. Your manuscript text is never sent.
                     </p>
                   </div>
 
