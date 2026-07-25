@@ -222,7 +222,7 @@ const Inner: React.FC = () => {
         <div className="gpl-auth__visual-overlay" />
         <div className="gpl-auth__visual-copy">
           <p className="gpl-auth__visual-tagline">Research integrity,<br />verified.</p>
-          <p className="gpl-auth__visual-sub">Your manuscripts never leave your device unless you choose cloud verification.</p>
+          <p className="gpl-auth__visual-sub">Your manuscripts never leave your device.</p>
         </div>
       </aside>
     </div>
