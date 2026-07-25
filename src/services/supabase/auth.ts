@@ -9,10 +9,14 @@ import { isTauri } from '../../utils/isTauri';
 
 export type OAuthProvider = 'google' | 'orcid';
 
-/** Hosted hand-off page that immediately 302s the browser to the gaply://
- *  deep link. Overridable per-env; defaults to the production domain. */
-const AUTH_SUCCESS_URL =
-  process.env.REACT_APP_AUTH_SUCCESS_URL || 'https://www.gaply.in/auth-success';
+/** Desktop Google OAuth redirect target. Defaults to the custom scheme DIRECTLY
+ *  (gaply://auth/callback) — no website middleman: Supabase's redirect allow-list
+ *  accepts custom URI schemes, and useDeepLinkAuth completes the session from
+ *  exactly this URL. Overridable per-env (REACT_APP_AUTH_SUCCESS_URL) to route
+ *  through a hosted /auth-success bounce page instead, but the default needs no
+ *  external website to be reachable/current. */
+const DESKTOP_OAUTH_REDIRECT =
+  process.env.REACT_APP_AUTH_SUCCESS_URL || 'gaply://auth/callback';
 
 export interface AuthResult {
   ok: boolean;
@@ -80,12 +84,12 @@ export function createAuthService(client: SupabaseClient | null = getSupabase())
       if (isTauri) {
         // Desktop flow: don't let supabase-js navigate the webview. Ask it to
         // build the provider URL, open it in the SYSTEM browser, and finish via
-        // the gaply:// deep-link callback (see useDeepLinkAuth + /auth-success).
+        // the gaply:// deep-link callback directly (see useDeepLinkAuth).
         const { data, error } = await client.auth.signInWithOAuth({
           provider: provider as 'google',
           options: {
             skipBrowserRedirect: true,
-            redirectTo: AUTH_SUCCESS_URL,
+            redirectTo: DESKTOP_OAUTH_REDIRECT,
             queryParams: { access_type: 'offline', prompt: 'consent' },
           },
         });
