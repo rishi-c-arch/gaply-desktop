@@ -829,6 +829,35 @@ pub fn log_auth_callback(
     );
 }
 
+/// Diagnostic-only companion to `log_auth_callback`: record whether the PKCE
+/// code-verifier is present in the auth store at a given OAuth stage
+/// ("after_signin" = write side / "before_exchange" = read side). Boolean only —
+/// the verifier VALUE is never read or logged. Pins a "verifier not found"
+/// failure to the write side vs the read side.
+#[tauri::command]
+pub fn log_auth_probe(stage: String, verifier_present: bool) {
+    tracing::info!(
+        target: "app_lib::auth",
+        %stage,
+        verifier_present,
+        "oauth verifier probe"
+    );
+}
+
+/// Diagnostic-only: an auth-storage write failed. Logged (not swallowed) so a
+/// failed verifier/session persist is never invisible. REDACTED — logs the KIND
+/// of key and the error message, never the key's value.
+#[tauri::command]
+pub fn log_storage_error(operation: String, key_kind: String, message: String) {
+    tracing::warn!(
+        target: "app_lib::auth",
+        %operation,
+        %key_kind,
+        %message,
+        "auth storage write failed"
+    );
+}
+
 /// Read a citation-IMPORT file's TEXT for client-side parsing (Citation Manager,
 /// Set 2b). The Citation Manager parses .bib / .ris / CSL-JSON in the webview
 /// (citation-js), which needs the file's text — every other file lane hands a

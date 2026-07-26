@@ -129,6 +129,8 @@ pub fn run() {
             commands::note_delete,
             commands::note_paper_fulltext,
             commands::log_auth_callback,
+            commands::log_auth_probe,
+            commands::log_storage_error,
             commands::read_import_file,
             commands::export_report,
             commands::get_report,

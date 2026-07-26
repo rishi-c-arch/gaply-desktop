@@ -18,6 +18,23 @@ export type OAuthProvider = 'google' | 'orcid';
 const DESKTOP_OAUTH_REDIRECT =
   process.env.REACT_APP_AUTH_SUCCESS_URL || 'gaply://auth/callback';
 
+/** Diagnostic-only (desktop): record whether the PKCE code-verifier is present
+ *  in storage at a given OAuth stage — a redacted boolean, logged via the Rust
+ *  tracing infra (terminal/Console). Two calls bracket the browser hop:
+ *  'after_signin' (write side) and 'before_exchange' (read side), which together
+ *  pin a "verifier not found" failure. No-op on web or on any failure. */
+async function logAuthProbe(stage: 'after_signin' | 'before_exchange'): Promise<void> {
+  if (!isTauri) return;
+  try {
+    const { hasCodeVerifier } = await import('./tauriStorage');
+    const verifierPresent = await hasCodeVerifier();
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('log_auth_probe', { stage, verifierPresent });
+  } catch {
+    /* probe is best-effort — never affects the auth flow */
+  }
+}
+
 export interface AuthResult {
   ok: boolean;
   /** 'offline' when the app has no Supabase configuration at all. */
@@ -95,6 +112,9 @@ export function createAuthService(client: SupabaseClient | null = getSupabase())
         });
         if (error) return { ok: false, error: error.message };
         if (!data?.url) return { ok: false, error: 'No OAuth URL returned' };
+        // Probe (write side): did the PKCE verifier actually persist before we
+        // hand the flow off to the system browser?
+        await logAuthProbe('after_signin');
         try {
           const { openUrl } = await import('@tauri-apps/plugin-opener');
           await openUrl(data.url);
@@ -113,6 +133,9 @@ export function createAuthService(client: SupabaseClient | null = getSupabase())
 
     async exchangeCodeForSession(code) {
       if (!client) return OFFLINE;
+      // Probe (read side): is the verifier still present right before we try to
+      // exchange? (write side vs here pins where it was lost.)
+      await logAuthProbe('before_exchange');
       const { error } = await client.auth.exchangeCodeForSession(code);
       return error ? { ok: false, error: error.message } : { ok: true };
     },
