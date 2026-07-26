@@ -429,3 +429,51 @@ fn empty_plagiarism_yields_zero_findings() {
         "empty plagiarism must yield zero findings"
     );
 }
+
+// --- Box 0 wiring: compile_report produces EvidenceRecords 1:1 with findings ----
+
+#[test]
+fn compile_report_produces_evidence_1to1_with_correct_kinds() {
+    use crate::evidence::{ConfidenceKind, RoutingHint};
+    // A RAG soft opinion with a KNOWN raw confidence (0.75) + an extraction one.
+    let mut agents: Vec<Box<dyn SwarmAgent>> = vec![
+        Box::new(PrecomputedAgent::new(opinion(AgentKind::Rag, ANSWER_PASS, 0.75))),
+        Box::new(PrecomputedAgent::new(opinion(AgentKind::Extraction, ANSWER_PASS, 0.9))),
+    ];
+    let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
+    let validation =
+        crate::validate::validate(&crate::extract::extract_from_text("T\n\nAbstract\nNo stats.\n"));
+    let report = compile_report(&outcome, &validation, None, None, vec![]);
+
+    // 1:1, same order; ids are f1..fN.
+    assert_eq!(report.evidence.len(), report.findings.len());
+    assert!(!report.evidence.is_empty());
+    for (i, ev) in report.evidence.iter().enumerate() {
+        assert_eq!(ev.id, format!("f{}", i + 1));
+        assert_eq!(ev.agent, report.findings[i].agent, "evidence[i] tracks findings[i]");
+    }
+
+    // RAG record: WiredReal + ContextOnly, carrying the RAW op.confidence (0.75)
+    // — NOT the swarm-rescaled weight the Finding shows.
+    let rag_i =
+        report.findings.iter().position(|f| f.agent == AgentKind::Rag).expect("rag finding");
+    let rag_ev = &report.evidence[rag_i];
+    assert_eq!(rag_ev.confidence_kind, ConfidenceKind::WiredReal);
+    assert_eq!(rag_ev.routing_hint, RoutingHint::ContextOnly);
+    assert_eq!(rag_ev.confidence, 0.75, "evidence carries RAW op.confidence");
+    assert_ne!(
+        report.findings[rag_i].confidence, 0.75,
+        "the Finding still carries the rescaled weight"
+    );
+
+    // Extraction record: NoSignal + HeldOut, never silently routable.
+    let ext_i = report
+        .findings
+        .iter()
+        .position(|f| f.agent == AgentKind::Extraction)
+        .expect("extraction finding");
+    let ext_ev = &report.evidence[ext_i];
+    assert_eq!(ext_ev.confidence_kind, ConfidenceKind::NoSignal);
+    assert_eq!(ext_ev.routing_hint, RoutingHint::HeldOut);
+    assert!(ext_ev.limitations.is_some());
+}

@@ -24,6 +24,7 @@
 
 use serde::Serialize;
 
+use crate::evidence::EvidenceRecord;
 use crate::extract::sections::SectionKind;
 use crate::extract::ExtractionResult;
 use crate::plagiarism::{MatchSource, MatchSpan, PlagiarismReport};
@@ -149,6 +150,12 @@ pub struct PublishReadyReport {
     pub combined_confidence: f64,
     /// Priority-ordered: CRITICAL hard constraints first.
     pub findings: Vec<Finding>,
+    /// One EvidenceRecord per finding, SAME order and `f{N}` ids as `findings`
+    /// (both derived together from a single paired source — see `ReportFinding`
+    /// — so they cannot desync). EvidenceRecord is produced now so downstream
+    /// components (Evidence Store, Orchestrator) can adopt it incrementally
+    /// without changing report generation again. Nothing consumes it yet.
+    pub evidence: Vec<EvidenceRecord>,
     pub checklist: Vec<ChecklistItem>,
     pub debate: DebateSummary,
     /// Mandatory, never empty: explains the three certainty tiers.
@@ -165,6 +172,35 @@ verification agent after seeing other agents' evidence and remain non-definitive
 // Compiler
 // ============================================================================
 
+/// INTERNAL to compile_report: a finding and its EvidenceRecord, constructed
+/// together at the SAME site so the two public vectors (`findings`, `evidence`)
+/// are derived from one ordered source and can never desync (not merely
+/// asserted equal in length). Never exported.
+struct ReportFinding {
+    finding: Finding,
+    evidence: EvidenceRecord,
+}
+
+/// Pair a freshly-built Finding with its EvidenceRecord. `raw_confidence` is the
+/// agent's REAL pre-rescale signal in scope at the creation site (for soft-loop
+/// agents this differs from the Finding's rescaled `confidence`). A gate-rejected
+/// finding (provenance `swarm:rejected…`) routes through `from_finding`, which
+/// forces NoSignal/HeldOut regardless of agent. Id is assigned post-sort.
+fn paired(finding: Finding, raw_confidence: f64) -> ReportFinding {
+    let evidence = if finding.provenance.iter().any(|p| p.starts_with("swarm:rejected")) {
+        EvidenceRecord::from_finding(&finding, String::new())
+    } else {
+        EvidenceRecord::at_source(
+            String::new(),
+            finding.agent,
+            finding.severity,
+            raw_confidence,
+            finding.provenance.clone(),
+        )
+    };
+    ReportFinding { finding, evidence }
+}
+
 /// Aggregate the debate outcome + underlying agent reports into the final,
 /// priority-ordered report.
 pub fn compile_report(
@@ -174,24 +210,27 @@ pub fn compile_report(
     plagiarism: Option<&PlagiarismReport>,
     checklist: Vec<ChecklistItem>,
 ) -> PublishReadyReport {
-    let mut findings: Vec<Finding> = Vec::new();
+    let mut items: Vec<ReportFinding> = Vec::new();
 
     // --- hard constraints: every deterministic rule flag is CRITICAL ---------
     for flag in &validation.flags {
-        findings.push(Finding {
-            severity: FindingSeverity::Critical,
-            tier: CertaintyTier::MathematicallyCertain,
-            certainty_label: CertaintyTier::MathematicallyCertain.label().into(),
-            agent: AgentKind::ValidationMaths,
-            title: format!("statistical rule failed: {}", flag.rule.label()),
-            detail: flag.explanation.clone(),
-            confidence: 1.0,
-            provenance: vec![
-                format!("rule:{:?} ({})", flag.rule, flag.rule.severity().as_str()),
-                format!("location:{:?} paragraph {}", flag.location.section, flag.location.paragraph),
-                "agent:validation_maths (deterministic)".into(),
-            ],
-        });
+        items.push(paired(
+            Finding {
+                severity: FindingSeverity::Critical,
+                tier: CertaintyTier::MathematicallyCertain,
+                certainty_label: CertaintyTier::MathematicallyCertain.label().into(),
+                agent: AgentKind::ValidationMaths,
+                title: format!("statistical rule failed: {}", flag.rule.label()),
+                detail: flag.explanation.clone(),
+                confidence: 1.0,
+                provenance: vec![
+                    format!("rule:{:?} ({})", flag.rule, flag.rule.severity().as_str()),
+                    format!("location:{:?} paragraph {}", flag.location.section, flag.location.paragraph),
+                    "agent:validation_maths (deterministic)".into(),
+                ],
+            },
+            1.0, // deterministic — raw == Finding.confidence
+        ));
     }
 
     // --- verification verdicts (tier depends on whether a reconsideration ran)
@@ -222,16 +261,19 @@ pub fn compile_report(
             for gf in &v.gate_flags {
                 provenance.push(format!("gate:{gf}"));
             }
-            findings.push(Finding {
-                severity,
-                tier: verification_tier,
-                certainty_label: verification_tier.label().into(),
-                agent: AgentKind::Verification,
-                title,
-                detail: v.rationale.clone(),
-                confidence: v.confidence,
-                provenance,
-            });
+            items.push(paired(
+                Finding {
+                    severity,
+                    tier: verification_tier,
+                    certainty_label: verification_tier.label().into(),
+                    agent: AgentKind::Verification,
+                    title,
+                    detail: v.rationale.clone(),
+                    confidence: v.confidence,
+                    provenance,
+                },
+                v.confidence, // native per-verdict confidence — already raw
+            ));
         }
     }
 
@@ -250,24 +292,27 @@ pub fn compile_report(
                     ("self_manuscript", format!("self · chunk {other_chunk_seq}"))
                 }
             };
-            findings.push(Finding {
-                severity: if m.similarity >= pr.threshold {
-                    FindingSeverity::Major
-                } else {
-                    FindingSeverity::Minor
+            items.push(paired(
+                Finding {
+                    severity: if m.similarity >= pr.threshold {
+                        FindingSeverity::Major
+                    } else {
+                        FindingSeverity::Minor
+                    },
+                    tier: CertaintyTier::AiAssessedModerate,
+                    certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
+                    agent: AgentKind::Plagiarism,
+                    title: format!("{label} — {:.0}% similarity", m.similarity * 100.0),
+                    detail: format!("\u{201c}{}\u{201d} matches {source_label}.", m.manuscript_excerpt),
+                    confidence: m.similarity,
+                    provenance: vec![
+                        format!("similarity:{:.3}", m.similarity),
+                        format!("match_type:{label}"),
+                        format!("source:{source_kind}"),
+                    ],
                 },
-                tier: CertaintyTier::AiAssessedModerate,
-                certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
-                agent: AgentKind::Plagiarism,
-                title: format!("{label} — {:.0}% similarity", m.similarity * 100.0),
-                detail: format!("\u{201c}{}\u{201d} matches {source_label}.", m.manuscript_excerpt),
-                confidence: m.similarity,
-                provenance: vec![
-                    format!("similarity:{:.3}", m.similarity),
-                    format!("match_type:{label}"),
-                    format!("source:{source_kind}"),
-                ],
-            });
+                m.similarity, // raw cosine — already the evidence signal
+            ));
         }
     }
 
@@ -297,52 +342,81 @@ pub fn compile_report(
         } else {
             CertaintyTier::AiAssessedModerate
         };
-        findings.push(Finding {
-            severity,
-            tier,
-            certainty_label: tier.label().into(),
-            agent: op.agent,
-            title: format!("{:?}: {}", op.agent, op.answer),
-            detail: op.explanation.clone(),
-            confidence: weight,
-            provenance: vec![format!(
-                "swarm:round-table ({} round(s), rescaled weight {:.3})",
-                outcome.rounds_run, weight
-            )],
-        });
+        items.push(paired(
+            Finding {
+                severity,
+                tier,
+                certainty_label: tier.label().into(),
+                agent: op.agent,
+                title: format!("{:?}: {}", op.agent, op.answer),
+                detail: op.explanation.clone(),
+                confidence: weight,
+                provenance: vec![format!(
+                    "swarm:round-table ({} round(s), rescaled weight {:.3})",
+                    outcome.rounds_run, weight
+                )],
+            },
+            // RAW pre-rescale signal for the EvidenceRecord — NOT the rescaled
+            // `weight` the Finding shows (Flag B: soft-loop agents differ here).
+            op.confidence,
+        ));
     }
 
     // --- gate-rejected opinions surface as MINOR findings (flagged, not lost)
     for op in &outcome.rejected {
-        findings.push(Finding {
-            severity: FindingSeverity::Minor,
-            tier: CertaintyTier::AiAssessedModerate,
-            certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
-            agent: op.agent,
-            title: format!("{:?} output rejected by its internal gate", op.agent),
-            detail: op.explanation.clone(),
-            confidence: 0.0,
-            provenance: vec!["swarm:rejected-before-debate (internal gate failed)".into()],
-        });
+        items.push(paired(
+            Finding {
+                severity: FindingSeverity::Minor,
+                tier: CertaintyTier::AiAssessedModerate,
+                certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
+                agent: op.agent,
+                title: format!("{:?} output rejected by its internal gate", op.agent),
+                detail: op.explanation.clone(),
+                confidence: 0.0,
+                provenance: vec!["swarm:rejected-before-debate (internal gate failed)".into()],
+            },
+            // Rejected: `paired` detects the provenance and forces NoSignal/HeldOut
+            // via from_finding; raw_confidence is unused for that path.
+            0.0,
+        ));
     }
 
     // --- priority ordering ----------------------------------------------------
     // CRITICAL hard constraints first — severity outranks EVERYTHING, including
     // any soft finding's confidence. Within a band: certainty tier, then
-    // confidence (desc), then agent for determinism.
-    findings.sort_by(|a, b| {
-        a.severity
+    // confidence (desc), then agent for determinism. Sorted ONCE on the paired
+    // items (by `.finding`), so findings + evidence stay in lockstep.
+    items.sort_by(|a, b| {
+        a.finding
+            .severity
             .rank()
-            .cmp(&b.severity.rank())
-            .then(a.tier.rank().cmp(&b.tier.rank()))
-            .then(b.confidence.partial_cmp(&a.confidence).expect("finite confidence"))
-            .then(format!("{:?}", a.agent).cmp(&format!("{:?}", b.agent)))
+            .cmp(&b.finding.severity.rank())
+            .then(a.finding.tier.rank().cmp(&b.finding.tier.rank()))
+            .then(
+                b.finding
+                    .confidence
+                    .partial_cmp(&a.finding.confidence)
+                    .expect("finite confidence"),
+            )
+            .then(format!("{:?}", a.finding.agent).cmp(&format!("{:?}", b.finding.agent)))
     });
+
+    // Assign the `f{N}` ids ONCE, from the sorted paired vec (matches the id
+    // scheme build_review_payload uses when enumerating `findings`).
+    for (i, rf) in items.iter_mut().enumerate() {
+        rf.evidence.id = format!("f{}", i + 1);
+    }
+
+    // Derive BOTH public vectors from the single ordered source, atomically —
+    // they cannot desync because they come from the same paired items in order.
+    let (findings, evidence): (Vec<Finding>, Vec<EvidenceRecord>) =
+        items.into_iter().map(|rf| (rf.finding, rf.evidence)).unzip();
 
     PublishReadyReport {
         verdict: outcome.result.answer.clone(),
         combined_confidence: outcome.result.combined_confidence,
         findings,
+        evidence,
         checklist,
         debate: DebateSummary {
             rounds_run: outcome.rounds_run,
