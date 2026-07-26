@@ -94,10 +94,10 @@ pub struct RoutingDecision {
 
 /// The common record every box consumes/emits.
 ///
-/// NOTE: derives `Serialize` only for now. `Deserialize` is deferred to the
-/// Evidence Store (Box 3), which also needs `AgentKind`/`FindingSeverity` to
-/// derive `Deserialize` — a small change made when that box lands.
-#[derive(Debug, Clone, Serialize)]
+/// Derives `Deserialize` (added in Box 2) so the Orchestrator can reconstruct
+/// records from the cached report JSON (`report["evidence"]`); this also pulled
+/// `Deserialize` onto `AgentKind`/`FindingSeverity`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvidenceRecord {
     /// Stable per-report finding id (reuses the `f{N}` scheme from
     /// `build_review_payload`), assigned by the caller.

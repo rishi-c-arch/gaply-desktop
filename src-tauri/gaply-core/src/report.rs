@@ -22,7 +22,7 @@
 //! keyword/number matching here — it is never placed in an LLM prompt by this
 //! module — and every checklist item carries the guideline's provenance URL.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::evidence::EvidenceRecord;
 use crate::extract::sections::SectionKind;
@@ -79,7 +79,7 @@ impl CertaintyTier {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FindingSeverity {
     /// Hard constraints — deterministic failures. Always first.

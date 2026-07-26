@@ -15,6 +15,7 @@ pub mod config;
 pub mod db;
 pub mod embed;
 pub mod error;
+pub mod escalation;
 pub mod evidence;
 pub mod evidence_store;
 pub mod extract;

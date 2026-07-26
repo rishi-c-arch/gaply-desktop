@@ -1,6 +1,7 @@
 pub mod aicheck;
 pub mod citation_resolver;
 pub mod commands;
+pub mod escalation;
 pub mod guidelines;
 pub mod http_fetcher;
 pub mod logging;

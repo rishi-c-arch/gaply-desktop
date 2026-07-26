@@ -472,6 +472,9 @@ pub struct PublishReadyOutcome {
     pub report: serde_json::Value,
     pub reviewer: gaply_core::reviewer_agent::ReviewerEvaluation,
     pub proxy_payload: serde_json::Value,
+    /// Stable identity for the whole run (== manuscript_id/report_id). Threaded
+    /// to the Evidence Store + escalation so Chat can query this run later.
+    pub run_id: String,
 }
 
 /// PublishReady: run the existing 6-lane pipeline (UNMODIFIED), then layer a
@@ -533,6 +536,30 @@ pub async fn run_publishready(
             })
             .collect();
 
+        // Box 2 (ADDITIVE): targeted escalation — route this run's evidence,
+        // persist it, and ATTEMPT per-finding cloud adjudication. HONEST BOUNDARY:
+        // escalation CALLS degrade to "unavailable" until gaply-proxy implements a
+        // task:"escalate_findings" endpoint (server-side, out of scope) AND the
+        // reviewer-quality spike passes; this ships routing/persistence/idempotency
+        // infra, NOT working per-finding verdicts. The wholesale reviewer below is
+        // UNCHANGED. run_id == report_id == manuscript_id (one id for the whole run).
+        {
+            let esc_policy = gaply_core::orchestrator::DefaultRoutingPolicy::default();
+            let esc_proxy = ProxyReqwestClient::from_env()
+                .map(|c| c.with_user_token(user_token.clone()))
+                .ok()
+                .filter(|c| c.reachable());
+            let summary = crate::escalation::run_targeted_escalation(
+                &db,
+                esc_proxy.as_ref().map(|c| c as &dyn ProxyClient),
+                &report_id,
+                &report,
+                &esc_policy,
+                gaply_core::now_epoch(),
+            );
+            tracing::info!(run_id = %report_id, ?summary, "targeted escalation (degrades until proxy escalate endpoint + reviewer-quality spike)");
+        }
+
         // 3) Build the validator-compliant, privacy-guarded reviewer payload.
         let journal = TargetJournal { name: journal_name, quartile: journal_quartile };
         let (proxy_payload, sent_ids) = reviewer_agent::build_review_payload(&report, &journal, &supp_values);
@@ -554,7 +581,7 @@ pub async fn run_publishready(
             _ => ReviewerEvaluation::unavailable_offline(),
         };
 
-        Ok(PublishReadyOutcome { report, reviewer, proxy_payload })
+        Ok(PublishReadyOutcome { report, reviewer, proxy_payload, run_id: report_id })
     })
     .await
     .map_err(|e| GaplyError::Internal(format!("publishready task panicked: {e}")))?

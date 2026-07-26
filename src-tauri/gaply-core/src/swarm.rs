@@ -32,7 +32,7 @@
 //!      are never subject to the vote — a hard-constraint opinion overrides any
 //!      soft consensus, and the override is recorded.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::GaplyError;
 
@@ -43,7 +43,7 @@ pub const MAX_ROUNDS: usize = 3;
 // Agents + opinions
 // ============================================================================
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentKind {
     Extraction,
