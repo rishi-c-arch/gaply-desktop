@@ -22,6 +22,7 @@ pub mod gap_finder_agent;
 pub mod memory;
 pub mod migrations;
 pub mod notes;
+pub mod orchestrator;
 pub mod perplexity;
 pub mod plagiarism;
 pub mod plagiarism_exact;

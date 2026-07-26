@@ -93,7 +93,9 @@ pub enum FindingSeverity {
 }
 
 impl FindingSeverity {
-    fn rank(&self) -> u8 {
+    /// Priority rank (0 = most urgent). `pub` so the Evidence Orchestrator can
+    /// order escalation candidates severity-first without duplicating the order.
+    pub fn rank(&self) -> u8 {
         match self {
             FindingSeverity::Critical => 0,
             FindingSeverity::Major => 1,
