@@ -324,6 +324,54 @@ pub const MIGRATIONS: &[Migration] = &[
             ALTER TABLE citation_library DROP COLUMN retracted;
         ",
     },
+    Migration {
+        version: 12,
+        name: "evidence_store",
+        // Evidence Store (Box 3): persist EVERY EvidenceRecord per PublishReady run
+        // (not just escalated ones), so the Orchestrator, reviewer synthesis and
+        // Chat can reference a run's full evidence later. confidence_kind and
+        // routing_hint are persisted — the honesty model must survive to the store,
+        // never be re-derived downstream. Escalation columns are NULL until a
+        // finding is escalated (Phase 2, evidence_record_escalation).
+        //
+        // RUN IDENTITY INVARIANT: a PublishReady run has exactly one run_id
+        // (== manuscript_id). All escalation, evidence storage, reviewer synthesis,
+        // and chat interactions for that run operate on this same identity.
+        // Re-running analysis creates a new run_id.
+        //
+        // `verified` is THREE-STATE and NULL/0 MUST NEVER be conflated:
+        //   NULL       = not escalated
+        //   0 (false)  = escalated + gate-rejected
+        //   1 (true)   = escalated + passed
+        //
+        // ADDITIVE + SAFE: brand-new table, no existing data touched, version-gated
+        // re-run resumes cleanly. UNIQUE(run_id, finding_id) is the store's key.
+        up: "
+            CREATE TABLE evidence (
+                run_id                  TEXT    NOT NULL,
+                finding_id              TEXT    NOT NULL,
+                agent                   TEXT    NOT NULL,
+                severity                TEXT    NOT NULL,
+                confidence              REAL    NOT NULL,
+                confidence_kind         TEXT    NOT NULL,
+                routing_hint            TEXT    NOT NULL,
+                provenance              TEXT    NOT NULL,
+                evidence_refs           TEXT    NOT NULL,
+                limitations             TEXT,
+                llm_verdict             TEXT,
+                llm_rationale           TEXT,
+                verified                INTEGER,
+                gate_flags              TEXT,
+                provider                TEXT,
+                provider_model          TEXT,
+                evidence_schema_version INTEGER NOT NULL,
+                created_at              INTEGER NOT NULL,
+                UNIQUE(run_id, finding_id)
+            );
+            CREATE INDEX idx_evidence_run ON evidence(run_id);
+        ",
+        down: "DROP TABLE evidence;",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -466,6 +514,7 @@ mod tests {
         assert_eq!(
             reverted,
             vec![
+                "evidence_store",
                 "citation_library_verification_persist",
                 "plagiarism_library_citation_link",
                 "notes",
@@ -537,8 +586,15 @@ mod tests {
         // re-apply: v10 adds citation_id (the subject here); v11 rides along and
         // does not touch plagiarism_library. The pre-existing row survives either way.
         let applied = migrate_up(&mut conn).unwrap();
-        assert_eq!(applied, vec!["plagiarism_library_citation_link", "citation_library_verification_persist"]);
-        assert_eq!(current_version(&conn).unwrap(), 11);
+        assert_eq!(
+            applied,
+            vec![
+                "plagiarism_library_citation_link",
+                "citation_library_verification_persist",
+                "evidence_store"
+            ]
+        );
+        assert_eq!(current_version(&conn).unwrap(), 12);
 
         // the column + index now exist; the pre-existing row is intact, NULL id
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -570,9 +626,16 @@ mod tests {
         assert!(!index_exists(&conn, "idx_plagiarism_library_citation"));
         assert!(table_names(&conn).iter().any(|t| t == "plagiarism_library"));
 
-        // and it re-applies cleanly (idempotent up after a partial down): v10 + v11
+        // and it re-applies cleanly (idempotent up after a partial down): v10 + v11 + v12
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["plagiarism_library_citation_link", "citation_library_verification_persist"]);
+        assert_eq!(
+            reapplied,
+            vec![
+                "plagiarism_library_citation_link",
+                "citation_library_verification_persist",
+                "evidence_store"
+            ]
+        );
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
     }
 
@@ -583,7 +646,7 @@ mod tests {
         // 0 and the verification columns NULL (additive, no rewrite).
         let mut conn = test_connection();
         migrate_up(&mut conn).unwrap();
-        migrate_down(&mut conn, 10).unwrap(); // roll back the single v11 → stand at v10
+        migrate_down(&mut conn, 10).unwrap(); // roll back v12 + v11 → stand at v10
         assert_eq!(current_version(&conn).unwrap(), 10);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(!column_names(&conn, "citation_library").iter().any(|n| n == c), "{c} should not exist yet");
@@ -595,10 +658,10 @@ mod tests {
         )
         .unwrap();
 
-        // apply v11
+        // apply v11 (+ v12 rides along; it does not touch citation_library)
         let applied = migrate_up(&mut conn).unwrap();
-        assert_eq!(applied, vec!["citation_library_verification_persist"]);
-        assert_eq!(current_version(&conn).unwrap(), 11);
+        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store"]);
+        assert_eq!(current_version(&conn).unwrap(), 12);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(column_names(&conn, "citation_library").iter().any(|n| n == c), "missing column {c}");
         }
@@ -625,15 +688,16 @@ mod tests {
             assert!(column_names(&conn, "citation_library").iter().any(|n| n == c));
         }
 
+        // down to v10 peels v12 (evidence_store) then v11 (the subject here).
         let reverted = migrate_down(&mut conn, 10).unwrap();
-        assert_eq!(reverted, vec!["citation_library_verification_persist"]);
+        assert_eq!(reverted, vec!["evidence_store", "citation_library_verification_persist"]);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(!column_names(&conn, "citation_library").iter().any(|n| n == c), "{c} should be dropped");
         }
         assert!(table_names(&conn).iter().any(|t| t == "citation_library"), "table itself remains");
 
-        // re-applies cleanly (idempotent up after a partial down)
+        // re-applies cleanly (idempotent up after a partial down): v11 + v12
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["citation_library_verification_persist"]);
+        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store"]);
     }
 }
