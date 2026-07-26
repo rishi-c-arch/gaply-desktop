@@ -68,18 +68,8 @@ const SUPP_TEXT_CLAMP: usize = 300;
 const SUPP_TOTAL_BUDGET: usize = 1500;
 
 /// Structured provenance prefixes allowed through — never a raw excerpt.
-/// Mirrors the frontend `structuredProvenance` filter.
-const STRUCTURED_PREFIXES: &[&str] = &[
-    "rule:",
-    "evidence:",
-    "swarm:",
-    "agent:",
-    "gate:",
-    "similarity:",
-    "match_type:",
-    "source:",
-    "signal:",
-];
+// Structured-provenance filtering now lives in `crate::evidence` (the single,
+// canonical convention shared with the Evidence Model) — imported below.
 
 /// Reviewer output format, described in PROSE (the proxy drops `output_schema`,
 /// so we do not rely on it). <= 8 sentences to satisfy the proxy validator.
@@ -230,9 +220,7 @@ fn clamp(s: &str) -> String {
     }
 }
 
-fn is_structured_provenance(p: &str) -> bool {
-    STRUCTURED_PREFIXES.iter().any(|prefix| p.starts_with(prefix))
-}
+use crate::evidence::is_structured_provenance;
 
 /// llm_safe an UNTRUSTED supplementary string (REDACTED if injection-flagged),
 /// then clamp. THE guard of this set: a malicious spreadsheet cell (e.g.

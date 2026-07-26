@@ -15,6 +15,7 @@ pub mod config;
 pub mod db;
 pub mod embed;
 pub mod error;
+pub mod evidence;
 pub mod extract;
 pub mod gap_finder_agent;
 pub mod memory;
