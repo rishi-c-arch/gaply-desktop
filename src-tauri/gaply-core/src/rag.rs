@@ -103,6 +103,23 @@ pub struct RagHit {
     pub checksum: String,
 }
 
+/// Production RAG confidence (Step 0a). Maps retrieval hits to a real,
+/// distance-ordered confidence in (0, 1]: confidence follows the NEAREST hit
+/// (smallest L2 distance from the vec0 KNN), so smaller distance ⇒ higher
+/// confidence; empty retrieval ⇒ 0.5 (neutral). Replaces the former hardcoded
+/// 0.75 in `swarm::adapters::from_rag_hits` — the signal already rode on
+/// `RagHit.distance`; this surfaces it. The `1/(1+d)` L2→score transform is the
+/// one modeling choice; `Database::fetch_embedding` allows an exact-cosine
+/// variant if a future spike shows it's warranted.
+pub fn rag_confidence(hits: &[RagHit]) -> f64 {
+    let nearest = hits.iter().map(|h| h.distance).fold(f64::INFINITY, f64::min);
+    if nearest.is_finite() {
+        1.0 / (1.0 + nearest)
+    } else {
+        0.5
+    }
+}
+
 fn sha256_hex(text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
@@ -307,6 +324,40 @@ mod tests {
             fetched_at: 1_750_000_000,
             content: content.into(),
         }
+    }
+
+    /// SPIKE PROOF: the discarded `RagHit.distance` yields a real, distance-
+    /// ordered confidence — close hits > far hits, and empty → 0.5 — proving RAG
+    /// confidence is recoverable by wiring, not new analysis. (Today
+    /// `from_rag_hits` would return a constant 0.75 for BOTH non-empty sets.)
+    #[test]
+    fn rag_confidence_is_distance_ordered_not_constant() {
+        let hit = |distance: f64| RagHit {
+            chunk_id: 1,
+            document_id: 1,
+            seq: 0,
+            content: String::new(),
+            distance,
+            source_type: "chunk".into(),
+            title: String::new(),
+            source_url: String::new(),
+            fetched_at: 0,
+            checksum: String::new(),
+        };
+        let close = [hit(0.10), hit(0.80)]; // nearest = 0.10
+        let far = [hit(1.50), hit(2.00)]; // nearest = 1.50
+        let c_close = rag_confidence(&close);
+        let c_far = rag_confidence(&far);
+
+        // Real signal: closer retrieval ⇒ strictly higher confidence.
+        assert!(c_close > c_far, "close {c_close} should exceed far {c_far}");
+        // Bounded in (0, 1].
+        assert!(c_close > 0.0 && c_close <= 1.0, "confidence {c_close} out of range");
+        // Empty retrieval ⇒ neutral.
+        assert_eq!(rag_confidence(&[]), 0.5);
+        // The crux: the two non-empty sets are BOTH 0.75 today (hardcoded);
+        // here they differ — the discarded signal is recoverable.
+        assert_ne!(c_close, c_far);
     }
 
     fn guideline_text(topic: &str) -> String {

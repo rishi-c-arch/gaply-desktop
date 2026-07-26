@@ -406,7 +406,9 @@ pub mod adapters {
             agent: AgentKind::Rag,
             answer: ANSWER_PASS.into(),
             explanation: format!("{} provenance-tagged context hit(s) retrieved", hits.len()),
-            confidence: if hits.is_empty() { 0.5 } else { 0.75 },
+            // Real, distance-ordered confidence (Step 0a) — was a hardcoded 0.75.
+            // Reflects actual retrieval quality; empty retrieval → 0.5 (unchanged).
+            confidence: crate::rag::rag_confidence(hits),
             hard_constraint: false,
             gate_passed: true,
         }
