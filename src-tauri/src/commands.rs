@@ -798,6 +798,37 @@ pub fn note_paper_fulltext(
     gaply_core::plagiarism_library::full_text_for_note(&state.db, &title, paper_id.as_deref())
 }
 
+/// Diagnostic-only: record the SHAPE of an OAuth deep-link callback the app
+/// received, so a "silently stuck on login" case is diagnosable from
+/// terminal/Console without guesswork. REDACTED BY CONSTRUCTION — the frontend
+/// passes only structure (scheme/host/path) and boolean presence + location of
+/// params; the actual `code`/token VALUES never cross this boundary and are
+/// never logged. INFO level, one line per callback.
+#[tauri::command]
+pub fn log_auth_callback(
+    scheme: String,
+    host: String,
+    path: String,
+    has_code: bool,
+    has_error: bool,
+    has_access_token: bool,
+    has_refresh_token: bool,
+    param_location: String,
+) {
+    tracing::info!(
+        target: "app_lib::auth",
+        %scheme,
+        %host,
+        %path,
+        has_code,
+        has_error,
+        has_access_token,
+        has_refresh_token,
+        %param_location,
+        "oauth deep-link callback received"
+    );
+}
+
 /// Read a citation-IMPORT file's TEXT for client-side parsing (Citation Manager,
 /// Set 2b). The Citation Manager parses .bib / .ris / CSL-JSON in the webview
 /// (citation-js), which needs the file's text — every other file lane hands a

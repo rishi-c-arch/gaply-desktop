@@ -43,6 +43,49 @@ export function parseCallback(url: string): { code?: string; error?: string; err
   }
 }
 
+/** Redacted STRUCTURAL summary of a callback URL, for diagnostics only. Reports
+ *  the scheme/host/path and the presence + LOCATION (query vs fragment) of the
+ *  auth params — never their secret values. Manual splitting (not `new URL`) so
+ *  it's robust to custom schemes the runtime's URL parser may reject. */
+export function summarizeCallback(url: string): {
+  scheme: string;
+  host: string;
+  path: string;
+  hasCode: boolean;
+  hasError: boolean;
+  hasAccessToken: boolean;
+  hasRefreshToken: boolean;
+  paramLocation: 'query' | 'fragment' | 'both' | 'none';
+} {
+  const hashIdx = url.indexOf('#');
+  const fragment = hashIdx >= 0 ? url.slice(hashIdx + 1) : '';
+  const beforeHash = hashIdx >= 0 ? url.slice(0, hashIdx) : url;
+  const qIdx = beforeHash.indexOf('?');
+  const query = qIdx >= 0 ? beforeHash.slice(qIdx + 1) : '';
+  const base = qIdx >= 0 ? beforeHash.slice(0, qIdx) : beforeHash;
+  let scheme = '';
+  let host = '';
+  let path = '';
+  const m = base.match(/^([^:]+):\/\/([^/]*)(\/.*)?$/);
+  if (m) { scheme = m[1]; host = m[2]; path = m[3] ?? ''; } else { path = base; }
+  const qp = new URLSearchParams(query);
+  const fp = new URLSearchParams(fragment);
+  const has = (k: string): boolean => qp.has(k) || fp.has(k);
+  const anyQuery = Array.from(qp.keys()).length > 0;
+  const anyFragment = Array.from(fp.keys()).length > 0;
+  const paramLocation = anyQuery && anyFragment ? 'both' : anyQuery ? 'query' : anyFragment ? 'fragment' : 'none';
+  return {
+    scheme,
+    host,
+    path,
+    hasCode: has('code'),
+    hasError: has('error'),
+    hasAccessToken: has('access_token'),
+    hasRefreshToken: has('refresh_token'),
+    paramLocation,
+  };
+}
+
 export function useDeepLinkAuth(onResult?: (r: DeepLinkAuthResult) => void): void {
   const { auth } = useGaplySession();
   const navigate = useNavigate();
@@ -59,16 +102,46 @@ export function useDeepLinkAuth(onResult?: (r: DeepLinkAuthResult) => void): voi
     // Handle one callback URL. Returns true if the URL WAS an auth callback
     // (code or error), so the caller can stop processing further URLs.
     const handle = async (url: string): Promise<boolean> => {
+      // Redacted diagnostic log (structure only — never the code/token VALUES),
+      // so a "silently stuck" callback is visible in terminal/Console. Wrapped so
+      // logging can never break the auth flow.
+      const shape = summarizeCallback(url);
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('log_auth_callback', {
+          scheme: shape.scheme,
+          host: shape.host,
+          path: shape.path,
+          hasCode: shape.hasCode,
+          hasError: shape.hasError,
+          hasAccessToken: shape.hasAccessToken,
+          hasRefreshToken: shape.hasRefreshToken,
+          paramLocation: shape.paramLocation,
+        });
+      } catch {
+        /* logging is best-effort */
+      }
+
       const { code, error, errorDescription } = parseCallback(url);
       if (error) {
         onResultRef.current?.({ ok: false, error: errorDescription || error });
         return true;
       }
-      if (!code || !auth.exchangeCodeForSession) return false;
-      const res = await auth.exchangeCodeForSession(code);
-      onResultRef.current?.({ ok: res.ok, error: res.error });
-      if (res.ok) navigate('/app');
-      return true;
+      if (code && auth.exchangeCodeForSession) {
+        const res = await auth.exchangeCodeForSession(code);
+        onResultRef.current?.({ ok: res.ok, error: res.error });
+        if (res.ok) navigate('/app');
+        return true;
+      }
+      // It IS our OAuth callback but carried no usable credentials — surface it
+      // honestly instead of failing silently (item 2). Non-auth deep links fall
+      // through to `return false` so they pass by untouched.
+      const isAuthCallback = shape.host === 'auth' || /auth\/callback/.test(url);
+      if (isAuthCallback) {
+        onResultRef.current?.({ ok: false, error: 'no credentials were returned' });
+        return true;
+      }
+      return false;
     };
 
     const runAll = async (urls: string[]): Promise<void> => {
