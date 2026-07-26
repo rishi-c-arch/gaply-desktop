@@ -26,11 +26,27 @@ use serde::Serialize;
 
 use crate::extract::sections::SectionKind;
 use crate::extract::ExtractionResult;
+use crate::plagiarism::{MatchSource, MatchSpan, PlagiarismReport};
 use crate::rag::RagHit;
 use crate::swarm::{AgentKind, DebateOutcome, ANSWER_CONCERN};
 use crate::validate::StatsValidityReport;
 use crate::verify_agent::{Verdict, VerificationReport};
 use crate::{Database, GaplyError};
+
+/// Human match-type label for a plagiarism span. Mirrors the frontend
+/// `plagiarismToReport` (checks/adapters.ts) EXACTLY so the desktop-app report
+/// and the backend PublishReady report read identically.
+fn match_type_label(m: &MatchSpan) -> &'static str {
+    if matches!(m.source, MatchSource::SelfManuscript { .. }) {
+        "internal duplication (self-plagiarism)"
+    } else if m.similarity >= 0.98 {
+        "verbatim"
+    } else if m.similarity >= 0.85 {
+        "near-verbatim"
+    } else {
+        "paraphrase"
+    }
+}
 
 // ============================================================================
 // Certainty tiers + severity
@@ -155,6 +171,7 @@ pub fn compile_report(
     outcome: &DebateOutcome,
     validation: &StatsValidityReport,
     verification: Option<&VerificationReport>,
+    plagiarism: Option<&PlagiarismReport>,
     checklist: Vec<ChecklistItem>,
 ) -> PublishReadyReport {
     let mut findings: Vec<Finding> = Vec::new();
@@ -218,9 +235,49 @@ pub fn compile_report(
         }
     }
 
-    // --- soft round-table opinions (excluding the two covered in detail above)
+    // --- plagiarism: one finding PER MATCH (not the aggregate opinion) ----------
+    // The swarm still votes with a single plagiarism opinion (consensus); here we
+    // fan the individual spans into per-match findings carrying the RAW cosine
+    // similarity as confidence (the actual evidence signal — deliberately NOT the
+    // swarm-rescaled opinion weight). Empty matches → zero findings (a non-event
+    // is not a finding). Shape mirrors the frontend `plagiarismToReport`.
+    if let Some(pr) = plagiarism {
+        for m in pr.corpus_matches.iter().chain(&pr.self_matches) {
+            let label = match_type_label(m);
+            let (source_kind, source_label) = match &m.source {
+                MatchSource::Corpus { title, .. } => ("corpus", format!("corpus: {title}")),
+                MatchSource::SelfManuscript { other_chunk_seq, .. } => {
+                    ("self_manuscript", format!("self · chunk {other_chunk_seq}"))
+                }
+            };
+            findings.push(Finding {
+                severity: if m.similarity >= pr.threshold {
+                    FindingSeverity::Major
+                } else {
+                    FindingSeverity::Minor
+                },
+                tier: CertaintyTier::AiAssessedModerate,
+                certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
+                agent: AgentKind::Plagiarism,
+                title: format!("{label} — {:.0}% similarity", m.similarity * 100.0),
+                detail: format!("\u{201c}{}\u{201d} matches {source_label}.", m.manuscript_excerpt),
+                confidence: m.similarity,
+                provenance: vec![
+                    format!("similarity:{:.3}", m.similarity),
+                    format!("match_type:{label}"),
+                    format!("source:{source_kind}"),
+                ],
+            });
+        }
+    }
+
+    // --- soft round-table opinions (Verification + Plagiarism are covered in
+    //     detail above, so their aggregate opinions are skipped here) -----------
     for op in &outcome.opinions {
-        if op.hard_constraint || op.agent == AgentKind::Verification {
+        if op.hard_constraint
+            || op.agent == AgentKind::Verification
+            || op.agent == AgentKind::Plagiarism
+        {
             continue;
         }
         let weight = outcome

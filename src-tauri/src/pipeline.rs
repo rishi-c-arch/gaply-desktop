@@ -299,7 +299,7 @@ fn run_pipeline_inner(
                 tracing::warn!(error = %e, "build_checklist failed; empty checklist");
                 Vec::new()
             });
-        Ok(compile_report(&outcome, &validation, Some(&verification), checklist))
+        Ok(compile_report(&outcome, &validation, Some(&verification), Some(&plag), checklist))
     })();
 
     let report = match report {

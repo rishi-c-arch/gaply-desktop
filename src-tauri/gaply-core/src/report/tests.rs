@@ -118,7 +118,7 @@ fn golden_report_for_sample_manuscript() {
     );
     let checklist = checklist_from_guidelines(&extraction, MANUSCRIPT, &[guideline]);
 
-    let report = compile_report(&outcome, &validation, Some(&verification), checklist);
+    let report = compile_report(&outcome, &validation, Some(&verification), Some(&plag), checklist);
 
     // Golden expectations (stable, structural — not a brittle full snapshot).
     assert_eq!(report.verdict, ANSWER_PASS);
@@ -178,7 +178,9 @@ fn hard_constraint_findings_rank_first_regardless_of_soft_confidence() {
         Box::new(PrecomputedAgent::new(adapters::from_validation(&validation))),
     ];
     let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
-    let report = compile_report(&outcome, &validation, None, vec![]);
+    // Synthetic plagiarism OPINION only (no PlagiarismReport) → no per-match
+    // findings; the opinion still votes in consensus but yields no finding.
+    let report = compile_report(&outcome, &validation, None, None, vec![]);
 
     // Every leading finding is the CRITICAL hard constraint tier, before any
     // 1.0-confidence soft finding.
@@ -316,7 +318,7 @@ fn every_finding_carries_provenance_and_correct_tier_including_reconsidered() {
     let validation = crate::validate::validate(&crate::extract::extract_from_text(
         "T\n\nAbstract\nNo stats here.\n",
     ));
-    let report = compile_report(&outcome, &validation, Some(&final_verification), vec![]);
+    let report = compile_report(&outcome, &validation, Some(&final_verification), None, vec![]);
 
     // EVERY finding: non-empty provenance + a label matching its tier.
     assert!(!report.findings.is_empty());
@@ -340,4 +342,90 @@ fn every_finding_carries_provenance_and_correct_tier_including_reconsidered() {
     assert!(report.debate.revised_agents.contains(&AgentKind::Verification));
     assert_eq!(CertaintyTier::MathematicallyCertain.label(), "mathematically certain");
     assert_eq!(CertaintyTier::AiAssessedModerate.label(), "AI-assessed, moderate confidence");
+}
+
+// --- Step 0b: plagiarism fans into ONE finding PER MATCH -------------------------
+
+#[test]
+fn plagiarism_matches_fan_into_per_match_findings() {
+    use crate::plagiarism::{MatchSource, MatchSpan, PlagiarismReport};
+    let pr = PlagiarismReport {
+        chunk_count: 5,
+        threshold: 0.80,
+        corpus_matches: vec![MatchSpan {
+            manuscript_chunk_seq: 2,
+            manuscript_excerpt: "the effect was significant".into(),
+            similarity: 0.91,
+            source: MatchSource::Corpus {
+                document_id: 1,
+                chunk_id: 3,
+                title: "Smith 2019".into(),
+                source_url: "https://ex/smith".into(),
+                source_type: "corpus".into(),
+                excerpt: "prior text".into(),
+            },
+        }],
+        self_matches: vec![MatchSpan {
+            manuscript_chunk_seq: 7,
+            manuscript_excerpt: "as noted above".into(),
+            similarity: 0.62,
+            source: MatchSource::SelfManuscript { other_chunk_seq: 1, excerpt: "earlier".into() },
+        }],
+        note: "test".into(),
+    };
+    // A plagiarism OPINION is also in the debate — it must still VOTE in consensus
+    // but must NOT produce an aggregate finding (only the per-match findings show).
+    let mut agents: Vec<Box<dyn SwarmAgent>> = vec![
+        Box::new(PrecomputedAgent::new(opinion(
+            AgentKind::Plagiarism,
+            crate::swarm::ANSWER_CONCERN,
+            0.91,
+        ))),
+        Box::new(PrecomputedAgent::new(opinion(AgentKind::Extraction, ANSWER_PASS, 0.9))),
+    ];
+    let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
+    let validation =
+        crate::validate::validate(&crate::extract::extract_from_text("T\n\nAbstract\nNo stats.\n"));
+    let report = compile_report(&outcome, &validation, None, Some(&pr), vec![]);
+
+    let plag: Vec<_> = report.findings.iter().filter(|f| f.agent == AgentKind::Plagiarism).collect();
+    // One finding PER MATCH (2), aggregate opinion NOT double-counted.
+    assert_eq!(plag.len(), 2, "one finding per match; opinion not double-counted");
+
+    let corpus = plag.iter().find(|f| f.title.contains("near-verbatim")).expect("corpus finding");
+    assert_eq!(corpus.confidence, 0.91, "RAW cosine similarity, not swarm-rescaled");
+    assert_eq!(corpus.severity, FindingSeverity::Major, ">= threshold ⇒ Major");
+    assert_eq!(corpus.tier, CertaintyTier::AiAssessedModerate);
+    assert!(corpus.provenance.iter().any(|p| p == "similarity:0.910"));
+    assert!(corpus.provenance.iter().any(|p| p == "source:corpus"));
+
+    let selfm = plag.iter().find(|f| f.title.contains("self-plagiarism")).expect("self finding");
+    assert_eq!(selfm.confidence, 0.62);
+    assert_eq!(selfm.severity, FindingSeverity::Minor, "< threshold ⇒ Minor");
+    assert!(selfm.provenance.iter().any(|p| p == "source:self_manuscript"));
+}
+
+#[test]
+fn empty_plagiarism_yields_zero_findings() {
+    use crate::plagiarism::PlagiarismReport;
+    let pr = PlagiarismReport {
+        chunk_count: 3,
+        threshold: 0.80,
+        corpus_matches: vec![],
+        self_matches: vec![],
+        note: "clean".into(),
+    };
+    let mut agents: Vec<Box<dyn SwarmAgent>> = vec![
+        Box::new(PrecomputedAgent::new(opinion(AgentKind::Plagiarism, ANSWER_PASS, 0.7))),
+        Box::new(PrecomputedAgent::new(opinion(AgentKind::Extraction, ANSWER_PASS, 0.9))),
+    ];
+    let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
+    let validation =
+        crate::validate::validate(&crate::extract::extract_from_text("T\n\nAbstract\nNo stats.\n"));
+    let report = compile_report(&outcome, &validation, None, Some(&pr), vec![]);
+    // No matches ⇒ no plagiarism findings (a non-event is not a finding).
+    assert!(
+        !report.findings.iter().any(|f| f.agent == AgentKind::Plagiarism),
+        "empty plagiarism must yield zero findings"
+    );
 }
