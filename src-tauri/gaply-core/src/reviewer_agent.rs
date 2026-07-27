@@ -775,6 +775,13 @@ impl ReviewerRequest {
     pub fn payload(&self) -> &Value {
         &self.payload
     }
+
+    /// How many finding ids were actually sent (post `MAX_FINDINGS` bound) — the
+    /// denominator for issue-coverage. Exposes the COUNT only, never the ids, so
+    /// the grounding set stays private and bound to the payload.
+    pub fn sent_finding_count(&self) -> usize {
+        self.sent_ids.findings.len()
+    }
 }
 
 /// Build the reviewer-synthesis request from assembled evidence. Presents every

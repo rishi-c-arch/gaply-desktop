@@ -574,15 +574,16 @@ pub async fn run_publishready(
         // Box 4 (Stage 1, ADDITIVE SHADOW): synthesize a reviewer letter from the
         // Evidence Store's per-finding verdicts, mirroring Box 2's additive wiring.
         // The deterministic verdict is computed locally; the narrative is a cloud
-        // call that degrades honestly. Returned as `shadow_reviewer` for
-        // comparison — the WHOLESALE reviewer below is still authoritative. Stage 2
-        // (switch) / Stage 3 (remove wholesale) are separate future decisions.
-        let shadow_reviewer = {
+        // call that degrades honestly. Produced for comparison — the WHOLESALE
+        // reviewer below is still authoritative. Stage 2 (switch) / Stage 3
+        // (remove wholesale) are separate future decisions.
+        let (shadow_outcome, shadow_elapsed) = {
             let shadow_proxy = ProxyReqwestClient::from_env()
                 .map(|c| c.with_user_token(user_token.clone()))
                 .ok()
                 .filter(|c| c.reachable());
-            match crate::reviewer_synthesis::run_shadow_synthesis(
+            let started = std::time::Instant::now();
+            let outcome = match crate::reviewer_synthesis::run_shadow_synthesis(
                 &db,
                 shadow_proxy.as_ref().map(|c| c as &dyn ProxyClient),
                 &report_id,
@@ -590,24 +591,27 @@ pub async fn run_publishready(
                 &journal,
                 &supp_values,
             ) {
-                Ok(letter) => {
+                Ok(o) => {
                     tracing::info!(
                         run_id = %report_id,
-                        recommendation = ?letter.recommendation,
+                        recommendation = ?o.letter.recommendation,
+                        narrative_available = o.narrative_available,
                         "box4 shadow synthesis (NOT primary; wholesale reviewer still authoritative)"
                     );
-                    Some(letter)
+                    Some(o)
                 }
                 Err(e) => {
                     tracing::warn!(run_id = %report_id, error = %e, "box4 shadow synthesis failed; skipped");
                     None
                 }
-            }
+            };
+            (outcome, started.elapsed())
         };
 
         // 3) Reviewer: cloud only, honest offline degradation. The user's JWT
         //    rides along so the proxy can run THE REAL entitlement gate + consume
         //    a use server-side (Set 8; enforcement joins the deployed proxy).
+        let wholesale_started = std::time::Instant::now();
         let reviewer = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
             Ok(client) if client.reachable() => match client
                 .verify(&proxy_payload)
@@ -621,7 +625,31 @@ pub async fn run_publishready(
             },
             _ => ReviewerEvaluation::unavailable_offline(),
         };
+        let wholesale_elapsed = wholesale_started.elapsed();
 
+        // Box 4 shadow-comparison harness (Stage 1, LOG-ONLY): compare the shadow
+        // synthesis against the wholesale reviewer. Every metric carries its
+        // provenance by construction; proxy/LLM metrics render `unavailable` until
+        // the live proxy + escalate endpoint land. Drives NO production behavior.
+        if let Some(outcome) = &shadow_outcome {
+            use gaply_core::reviewer_harness::{build_comparison_report, HarnessInputs, HarnessTiming};
+            let report = build_comparison_report(&HarnessInputs {
+                run_id: &report_id,
+                shadow: &outcome.letter,
+                shadow_breakdown: &outcome.aggregation.breakdown,
+                shadow_findings_sent: outcome.findings_sent,
+                shadow_narrative_available: outcome.narrative_available,
+                wholesale: &reviewer,
+                timing: HarnessTiming {
+                    shadow: Some(shadow_elapsed),
+                    wholesale: Some(wholesale_elapsed),
+                },
+                proxy_meta: None, // not surfaced by the proxy/client yet (Tier 2c)
+            });
+            tracing::info!(run_id = %report_id, "box4 shadow-comparison report:\n{}", report.to_markdown());
+        }
+
+        let shadow_reviewer = shadow_outcome.map(|o| o.letter);
         Ok(PublishReadyOutcome { report, reviewer, proxy_payload, run_id: report_id, shadow_reviewer })
     })
     .await

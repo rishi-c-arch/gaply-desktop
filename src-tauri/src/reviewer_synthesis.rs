@@ -32,7 +32,7 @@ use gaply_core::report::FindingSeverity;
 use gaply_core::reviewer_agent::{
     aggregate_reviewer_verdict, build_reviewer_request, gate_reviewer_narrative,
     synthesize_reviewer_letter, ReviewerEvaluation, ReviewerFinding, ReviewerInput, ReviewerMeta,
-    ReviewerNarrative, TargetJournal,
+    ReviewerNarrative, TargetJournal, VerdictAggregation,
 };
 use gaply_core::verify_agent::ProxyClient;
 use gaply_core::{Database, GaplyError};
@@ -105,12 +105,25 @@ pub fn assemble_reviewer_input(
     })
 }
 
+/// Result of a shadow synthesis run. Carries the STRUCTURAL signals the
+/// comparison harness needs — `narrative_available` is set at the point the
+/// narrative is (or isn't) obtained, never inferred from the letter's body text.
+pub struct ShadowOutcome {
+    pub letter: ReviewerEvaluation,
+    pub aggregation: VerdictAggregation,
+    /// True iff the narrative came from a real proxy response (not the honest
+    /// degraded placeholder). The harness reads THIS, not `letter.body`.
+    pub narrative_available: bool,
+    /// Number of finding ids actually sent (issue-coverage denominator).
+    pub findings_sent: usize,
+}
+
 /// Run the Stage-1 shadow synthesis end to end: assemble → deterministic verdict
 /// → build request → (proxy narrative or honest degradation) → gated letter.
 ///
 /// The verdict is deterministic, so a letter is produced even when `proxy` is
-/// `None` or the call fails — only the narrative degrades. `available` stays
-/// true (the verdict is real).
+/// `None` or the call fails — only the narrative degrades (and `narrative_available`
+/// records exactly that). `letter.available` stays true (the verdict is real).
 pub fn run_shadow_synthesis(
     db: &Database,
     proxy: Option<&dyn ProxyClient>,
@@ -118,7 +131,7 @@ pub fn run_shadow_synthesis(
     report: &Value,
     journal: &TargetJournal,
     supplementary: &[Value],
-) -> Result<ReviewerEvaluation, GaplyError> {
+) -> Result<ShadowOutcome, GaplyError> {
     let input = assemble_reviewer_input(db, run_id, report, journal, supplementary)?;
 
     // Deterministic verdict — from the already-decided severities, no LLM.
@@ -126,19 +139,23 @@ pub fn run_shadow_synthesis(
 
     // The SOLE payload/SentIds pair-producer (D4 closed by construction).
     let request = build_reviewer_request(&input);
+    let findings_sent = request.sent_finding_count();
 
-    let narrative = match proxy {
+    // narrative_available is set HERE, from the actual event — never parsed back
+    // out of the letter body.
+    let (narrative, narrative_available) = match proxy {
         Some(p) => match p.verify(request.payload()) {
-            Ok(resp) => gate_reviewer_narrative(&resp, &request),
+            Ok(resp) => (gate_reviewer_narrative(&resp, &request), true),
             Err(e) => {
                 tracing::warn!(error = %e, "shadow synthesis cloud narrative failed; degrading");
-                ReviewerNarrative::unavailable()
+                (ReviewerNarrative::unavailable(), false)
             }
         },
-        None => ReviewerNarrative::unavailable(),
+        None => (ReviewerNarrative::unavailable(), false),
     };
 
-    Ok(synthesize_reviewer_letter(&aggregation, narrative))
+    let letter = synthesize_reviewer_letter(&aggregation, narrative);
+    Ok(ShadowOutcome { letter, aggregation, narrative_available, findings_sent })
 }
 
 #[cfg(test)]
@@ -221,11 +238,12 @@ mod tests {
         evidence_persist(&db, run_id, &records, gaply_core::now_epoch()).unwrap();
 
         // proxy = None -> narrative degrades, verdict still deterministic.
-        let letter =
+        let outcome =
             run_shadow_synthesis(&db, None, run_id, &report(&["impossible SD"]), &journal(), &[]).unwrap();
-        assert_eq!(letter.recommendation, Recommendation::Reject);
-        assert!(letter.available);
-        assert!(letter.body.contains("narrative synthesis unavailable"));
+        assert_eq!(outcome.letter.recommendation, Recommendation::Reject);
+        assert!(outcome.letter.available);
+        assert!(!outcome.narrative_available); // structural flag, not body-string
+        assert!(outcome.letter.body.contains("narrative synthesis unavailable"));
     }
 
     #[test]
@@ -245,7 +263,7 @@ mod tests {
                 { "finding_ref": "f99", "severity": "major", "rationale": "hallucinated" },
             ],
         }));
-        let letter = run_shadow_synthesis(
+        let outcome = run_shadow_synthesis(
             &db,
             Some(&proxy as &dyn ProxyClient),
             run_id,
@@ -255,9 +273,11 @@ mod tests {
         )
         .unwrap();
         // Deterministic verdict from the Major finding, regardless of narrative.
-        assert_eq!(letter.recommendation, Recommendation::MajorRevision);
-        assert_eq!(letter.issues.len(), 1);
-        assert_eq!(letter.issues[0].finding_ref, "f1");
-        assert!(letter.available);
+        assert_eq!(outcome.letter.recommendation, Recommendation::MajorRevision);
+        assert_eq!(outcome.letter.issues.len(), 1);
+        assert_eq!(outcome.letter.issues[0].finding_ref, "f1");
+        assert!(outcome.letter.available);
+        assert!(outcome.narrative_available); // a real proxy response arrived
+        assert_eq!(outcome.findings_sent, 1);
     }
 }

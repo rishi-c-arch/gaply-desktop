@@ -34,6 +34,7 @@ pub mod ratelimit;
 pub mod report;
 pub mod refverify;
 pub mod reviewer_agent;
+pub mod reviewer_harness;
 pub mod sanitize;
 pub mod secrets;
 pub mod stage1_norms;
