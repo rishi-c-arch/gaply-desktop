@@ -569,7 +569,8 @@ pub async fn run_publishready(
 
         // 3) Build the validator-compliant, privacy-guarded reviewer payload.
         let journal = TargetJournal { name: journal_name, quartile: journal_quartile };
-        let (proxy_payload, sent_ids) = reviewer_agent::build_review_payload(&report, &journal, &supp_values);
+        let (proxy_payload, sent_ids) =
+            reviewer_agent::build_review_payload(&report, &journal, &supp_values, &report_id);
 
         // Box 4 (Stage 1, ADDITIVE SHADOW): synthesize a reviewer letter from the
         // Evidence Store's per-finding verdicts, mirroring Box 2's additive wiring.
@@ -611,13 +612,26 @@ pub async fn run_publishready(
         // 3) Reviewer: cloud only, honest offline degradation. The user's JWT
         //    rides along so the proxy can run THE REAL entitlement gate + consume
         //    a use server-side (Set 8; enforcement joins the deployed proxy).
+        let mut proxy_meta: Option<gaply_core::reviewer_harness::ProxyMeta> = None;
         let wholesale_started = std::time::Instant::now();
         let reviewer = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
-            Ok(client) if client.reachable() => match client
-                .verify(&proxy_payload)
-                .and_then(|resp| reviewer_agent::gate_reviewer_response(&resp, &sent_ids))
-            {
-                Ok(ev) => ev,
+            Ok(client) if client.reachable() => match client.verify_with_envelope(&proxy_payload) {
+                Ok((resp, env)) => {
+                    // Surface model/stop_reason for the harness (tokens/latency
+                    // are still absent from the envelope → they stay Unavailable).
+                    proxy_meta = Some(gaply_core::reviewer_harness::ProxyMeta {
+                        model: env.model,
+                        stop_reason: env.stop_reason,
+                        ..Default::default()
+                    });
+                    match reviewer_agent::gate_reviewer_response(&resp, &sent_ids) {
+                        Ok(ev) => ev,
+                        Err(e) => {
+                            tracing::warn!(error = %e, "reviewer gate failed; marking unavailable");
+                            ReviewerEvaluation::unavailable_offline()
+                        }
+                    }
+                }
                 Err(e) => {
                     tracing::warn!(error = %e, "reviewer cloud call failed; marking unavailable");
                     ReviewerEvaluation::unavailable_offline()
@@ -644,7 +658,7 @@ pub async fn run_publishready(
                     shadow: Some(shadow_elapsed),
                     wholesale: Some(wholesale_elapsed),
                 },
-                proxy_meta: None, // not surfaced by the proxy/client yet (Tier 2c)
+                proxy_meta, // model/stop_reason when /verify ran; tokens/latency still Tier 2c
             });
             tracing::info!(run_id = %report_id, "box4 shadow-comparison report:\n{}", report.to_markdown());
         }

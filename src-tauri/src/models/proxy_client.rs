@@ -113,10 +113,16 @@ impl ProxyReqwestClient {
             .map(|r| r.status().is_success())
             .unwrap_or(false)
     }
-}
 
-impl ProxyClient for ProxyReqwestClient {
-    fn verify(&self, payload: &Value) -> Result<Value, GaplyError> {
+    /// Like [`ProxyClient::verify`], but ALSO returns the envelope metadata
+    /// (`result.model` / `result.stop_reason`) that the trait's `verify`
+    /// discards. Used by the Box-4 comparison harness so `model_identifier` and
+    /// `stop_reason` flip from `Unavailable` to `Observed` the moment `/verify`
+    /// is live — at near-zero cost (the datum is already on the wire).
+    pub fn verify_with_envelope(
+        &self,
+        payload: &Value,
+    ) -> Result<(Value, ProxyEnvelope), GaplyError> {
         // Fresh limited-use token per request (single-use; never reuse).
         let (header, token) = proxy_auth_header(&self.signer)?;
 
@@ -137,16 +143,38 @@ impl ProxyClient for ProxyReqwestClient {
         }
 
         // Success envelope: {"result": {"model", "stop_reason", "text"}}.
-        // `text` is Claude's reply string; the trait contract is to return it
-        // already-unwrapped and JSON-parsed (mirrors OllamaVerifyClient).
+        // `text` is Claude's reply string, parsed to JSON (mirrors
+        // OllamaVerifyClient); `model`/`stop_reason` are surfaced as metadata.
         let envelope: Value = resp
             .json()
             .map_err(|e| GaplyError::Internal(format!("proxy response body read failed: {e}")))?;
-        let text = envelope["result"]["text"].as_str().ok_or_else(|| {
+        let result = &envelope["result"];
+        let text = result["text"].as_str().ok_or_else(|| {
             GaplyError::Validation("proxy response missing result.text".into())
         })?;
-        serde_json::from_str(text)
-            .map_err(|e| GaplyError::Validation(format!("proxy reply is not valid JSON: {e}")))
+        let reply = serde_json::from_str(text)
+            .map_err(|e| GaplyError::Validation(format!("proxy reply is not valid JSON: {e}")))?;
+        let meta = ProxyEnvelope {
+            model: result["model"].as_str().map(str::to_string),
+            stop_reason: result["stop_reason"].as_str().map(str::to_string),
+        };
+        Ok((reply, meta))
+    }
+}
+
+/// Envelope metadata the proxy returns alongside the reply. The trait `verify`
+/// discards these; [`ProxyReqwestClient::verify_with_envelope`] surfaces them.
+#[derive(Debug, Clone, Default)]
+pub struct ProxyEnvelope {
+    pub model: Option<String>,
+    pub stop_reason: Option<String>,
+}
+
+impl ProxyClient for ProxyReqwestClient {
+    fn verify(&self, payload: &Value) -> Result<Value, GaplyError> {
+        // The trait contract returns the parsed reply only; the envelope
+        // metadata is dropped here (callers that need it use verify_with_envelope).
+        self.verify_with_envelope(payload).map(|(reply, _)| reply)
     }
 }
 
@@ -364,6 +392,29 @@ mod tests {
         // envelope is unwrapped and result.text parsed into JSON.
         let out = client_for(&proxy).verify(&serde_json::json!({"summary": {}})).unwrap();
         assert_eq!(out, serde_json::json!({"verdicts": []}));
+    }
+
+    #[test]
+    fn verify_with_envelope_surfaces_model_and_stop_reason() {
+        // The mock envelope is {"result":{"model":"stub","stop_reason":"end_turn",...}}.
+        // verify_with_envelope returns the same parsed reply AS verify, PLUS the
+        // envelope metadata that verify discards.
+        let proxy = MockProxy::start(Mode::Ok);
+        let (reply, meta) =
+            client_for(&proxy).verify_with_envelope(&serde_json::json!({"summary": {}})).unwrap();
+        assert_eq!(reply, serde_json::json!({"verdicts": []}));
+        assert_eq!(meta.model.as_deref(), Some("stub"));
+        assert_eq!(meta.stop_reason.as_deref(), Some("end_turn"));
+    }
+
+    #[test]
+    fn verify_is_a_strict_projection_of_verify_with_envelope() {
+        let proxy = MockProxy::start(Mode::Ok);
+        let client = client_for(&proxy);
+        let payload = serde_json::json!({"summary": {}});
+        let plain = client.verify(&payload).unwrap();
+        let (reply, _meta) = client.verify_with_envelope(&payload).unwrap();
+        assert_eq!(plain, reply, "verify() must remain a strict projection of verify_with_envelope() — if this fails, the two parsing paths have drifted apart");
     }
 
     #[test]

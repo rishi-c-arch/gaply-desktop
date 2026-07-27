@@ -244,7 +244,12 @@ fn main() {
             serde_json::to_value(&ev_xlsx).unwrap(),
             serde_json::to_value(&ev_csv).unwrap(),
         ];
-        let (payload, _sent) = reviewer_agent::build_review_payload(&report_json, &journal, &supp_values);
+        let (payload, _sent) = reviewer_agent::build_review_payload(
+            &report_json,
+            &journal,
+            &supp_values,
+            &format!("mem-probe-{run_no}"),
+        );
         // Proxy not deployed → the reviewer is the honest offline letter.
         let reviewer = ReviewerEvaluation::unavailable_offline();
         println!(
