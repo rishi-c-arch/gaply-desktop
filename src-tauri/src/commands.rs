@@ -475,6 +475,13 @@ pub struct PublishReadyOutcome {
     /// Stable identity for the whole run (== manuscript_id/report_id). Threaded
     /// to the Evidence Store + escalation so Chat can query this run later.
     pub run_id: String,
+    /// Box 4 (Stage 1, SHADOW): the reviewer letter synthesized from the
+    /// Evidence Store's per-finding verdicts, produced ALONGSIDE `reviewer` for
+    /// comparison. `None` if assembly failed. NOT authoritative — the wholesale
+    /// `reviewer` above is still primary until Stage 2/3 (switch, then remove
+    /// the wholesale path), which are separate future decisions gated on the
+    /// proxy escalate endpoint + reviewer-quality spike landing.
+    pub shadow_reviewer: Option<gaply_core::reviewer_agent::ReviewerEvaluation>,
 }
 
 /// PublishReady: run the existing 6-lane pipeline (UNMODIFIED), then layer a
@@ -564,6 +571,40 @@ pub async fn run_publishready(
         let journal = TargetJournal { name: journal_name, quartile: journal_quartile };
         let (proxy_payload, sent_ids) = reviewer_agent::build_review_payload(&report, &journal, &supp_values);
 
+        // Box 4 (Stage 1, ADDITIVE SHADOW): synthesize a reviewer letter from the
+        // Evidence Store's per-finding verdicts, mirroring Box 2's additive wiring.
+        // The deterministic verdict is computed locally; the narrative is a cloud
+        // call that degrades honestly. Returned as `shadow_reviewer` for
+        // comparison — the WHOLESALE reviewer below is still authoritative. Stage 2
+        // (switch) / Stage 3 (remove wholesale) are separate future decisions.
+        let shadow_reviewer = {
+            let shadow_proxy = ProxyReqwestClient::from_env()
+                .map(|c| c.with_user_token(user_token.clone()))
+                .ok()
+                .filter(|c| c.reachable());
+            match crate::reviewer_synthesis::run_shadow_synthesis(
+                &db,
+                shadow_proxy.as_ref().map(|c| c as &dyn ProxyClient),
+                &report_id,
+                &report,
+                &journal,
+                &supp_values,
+            ) {
+                Ok(letter) => {
+                    tracing::info!(
+                        run_id = %report_id,
+                        recommendation = ?letter.recommendation,
+                        "box4 shadow synthesis (NOT primary; wholesale reviewer still authoritative)"
+                    );
+                    Some(letter)
+                }
+                Err(e) => {
+                    tracing::warn!(run_id = %report_id, error = %e, "box4 shadow synthesis failed; skipped");
+                    None
+                }
+            }
+        };
+
         // 3) Reviewer: cloud only, honest offline degradation. The user's JWT
         //    rides along so the proxy can run THE REAL entitlement gate + consume
         //    a use server-side (Set 8; enforcement joins the deployed proxy).
@@ -581,7 +622,7 @@ pub async fn run_publishready(
             _ => ReviewerEvaluation::unavailable_offline(),
         };
 
-        Ok(PublishReadyOutcome { report, reviewer, proxy_payload, run_id: report_id })
+        Ok(PublishReadyOutcome { report, reviewer, proxy_payload, run_id: report_id, shadow_reviewer })
     })
     .await
     .map_err(|e| GaplyError::Internal(format!("publishready task panicked: {e}")))?

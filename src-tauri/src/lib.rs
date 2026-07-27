@@ -11,6 +11,7 @@ pub mod journal_site_summary;
 pub mod journal_verify;
 pub mod paper_corpus;
 pub mod pipeline;
+pub mod reviewer_synthesis;
 pub mod state;
 pub mod supplementary;
 

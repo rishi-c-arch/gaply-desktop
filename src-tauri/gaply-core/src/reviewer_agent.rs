@@ -44,6 +44,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::refverify::{Provenance, UntrustedText};
+use crate::report::FindingSeverity;
 use crate::verify_agent::ProxyClient;
 use crate::GaplyError;
 
@@ -553,6 +554,382 @@ pub fn review_manuscript(
     gate_reviewer_response(&response, &sent_ids)
 }
 
+// ============================================================================
+// Box 4 — Reviewer Synthesis (confidence-driven rebuild).
+//
+// Synthesizes the reviewer letter from the Evidence Store's per-finding
+// verdicts (assembled upstream into `ReviewerInput`) instead of one wholesale
+// report dump. PURE like the rest of this module — the DB-reading assembly
+// lives in the app crate; everything here operates on an already-assembled
+// `ReviewerInput`.
+//
+// Two boundaries, both enforced BY CONSTRUCTION (not by comment):
+//   1. `ReviewerRequest` (private fields) is the ONLY producer of a
+//      payload+SentIds PAIR. You cannot get one field without the other, so the
+//      gate can never run against a mismatched grounding set (risk D4 — closed).
+//   2. The recommendation is a deterministic AGGREGATION of already-decided
+//      finding severities; the LLM only ever narrates. See the ARCHITECTURAL
+//      INVARIANT on `aggregate_reviewer_verdict`.
+// ============================================================================
+
+/// Count threshold (a COUNT, never a weight): this many Minor findings warrants
+/// a minor-revision pass; below it, minors are addressable inline. A plain count
+/// over the already-decided Minor tier — no scoring math, no calibration.
+const MINOR_REVISION_THRESHOLD: usize = 3;
+
+// Fixed publication-probability DISPLAY bands, one per recommendation. Each is a
+// 1:1 function of the DECIDED recommendation — NOT an independently computed
+// estimate. The UI's `publication_probability` field requires a number; these
+// supply one honestly, without inventing precision. (Removing the field is a
+// larger UI change, out of scope.)
+const PROB_REJECT: f64 = 0.05; // not publishable as-is
+const PROB_MAJOR_REVISION: f64 = 0.30; // substantial concerns must be resolved first
+const PROB_MINOR_REVISION: f64 = 0.70; // likely publishable after minor fixes
+const PROB_ACCEPT: f64 = 0.92; // no blocking concerns found
+
+const REVIEWER_SYNTHESIS_INSTRUCTION: &str = "You are a peer reviewer writing the review letter for a manuscript. \
+The findings below have ALREADY been decided by a local analysis pipeline: each carries a final severity, confidence, \
+and (where escalated) a verification verdict. Do NOT re-evaluate, re-score, re-classify, or overturn any finding — \
+the verdicts and severities are final and are supplied to you as facts. Your ONLY task is to write the narrative review \
+letter that explains these already-decided findings to the authors, and to attach one issue per finding you discuss. \
+Cite ONLY the finding and checklist ids provided; never invent an id. Do not output a recommendation or any score.";
+
+/// How a finding's status was established. Derived PURELY from the finding's own
+/// `verified: Option<bool>` via [`ReviewerFinding::verification_state`] — the
+/// single partition path, so no second site can diverge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerificationState {
+    /// Never escalated — accepted locally by the Confidence Manager.
+    NotEscalated,
+    /// Escalated, but the cloud response was rejected by the grounding gate.
+    /// This is a fact about the ESCALATION ATTEMPT, not about the finding's
+    /// truth or strength — the two are kept strictly separate.
+    EscalatedRejected,
+    /// Escalated and the cloud verdict passed the grounding gate.
+    EscalatedVerified,
+}
+
+/// One finding assembled for synthesis: the store's decided verdict joined with
+/// the report's presentation `title`, keyed by the shared `f{N}` id.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReviewerFinding {
+    pub id: String,
+    pub agent: String,
+    pub severity: FindingSeverity,
+    pub confidence: f64,
+    pub title: String,
+    pub evidence_refs: Vec<String>,
+    /// Escalation verdict text (None for local findings).
+    pub verdict: Option<String>,
+    /// THREE-STATE escalation outcome: None / Some(false) / Some(true).
+    pub verified: Option<bool>,
+    pub gate_flags: Vec<String>,
+}
+
+impl ReviewerFinding {
+    /// THE sole partition path. Every consumer that needs to distinguish
+    /// escalated from local, or passed from rejected, calls this — no code
+    /// re-derives the distinction from `verified` directly, so it cannot drift.
+    pub fn verification_state(&self) -> VerificationState {
+        match self.verified {
+            None => VerificationState::NotEscalated,
+            Some(false) => VerificationState::EscalatedRejected,
+            Some(true) => VerificationState::EscalatedVerified,
+        }
+    }
+}
+
+/// Run-level metadata for the synthesis (not per-finding).
+#[derive(Debug, Clone, Serialize)]
+pub struct ReviewerMeta {
+    pub run_id: String,
+    pub overall_verdict: String,
+    pub combined_confidence: f64,
+}
+
+/// Flat synthesis input. NO caller-side partition of verified vs local — every
+/// consumer partitions via [`ReviewerFinding::verification_state`]. (Not
+/// `Serialize`: the proxy payload is built explicitly by `build_reviewer_request`,
+/// and `TargetJournal` is not serializable.)
+#[derive(Debug, Clone)]
+pub struct ReviewerInput {
+    pub findings: Vec<ReviewerFinding>,
+    /// Raw checklist items (as JSON) from the compiled report.
+    pub checklist: Vec<Value>,
+    /// Raw supplementary items (as JSON).
+    pub supplementary: Vec<Value>,
+    pub journal: TargetJournal,
+    pub metadata: ReviewerMeta,
+}
+
+/// Per-verification-state counts within one severity tier. TRANSPARENCY ONLY —
+/// surfaced in the breakdown/narrative so users can distinguish a local finding
+/// from a verified one from a gate-rejected escalation. NEVER feeds the
+/// recommendation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct StateCounts {
+    pub not_escalated: usize,
+    pub escalated_verified: usize,
+    pub escalated_rejected: usize,
+}
+
+impl StateCounts {
+    pub fn total(&self) -> usize {
+        self.not_escalated + self.escalated_verified + self.escalated_rejected
+    }
+    fn add(&mut self, state: VerificationState) {
+        match state {
+            VerificationState::NotEscalated => self.not_escalated += 1,
+            VerificationState::EscalatedVerified => self.escalated_verified += 1,
+            VerificationState::EscalatedRejected => self.escalated_rejected += 1,
+        }
+    }
+}
+
+/// Findings counted by (severity tier × verification state). Transparency
+/// output only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct SeverityByStateCounts {
+    pub critical: StateCounts,
+    pub major: StateCounts,
+    pub minor: StateCounts,
+    pub info: StateCounts,
+}
+
+/// The deterministic verdict. `recommendation` + `publication_probability` drive
+/// the letter's headline; `breakdown` is transparency only and MUST NOT be
+/// read back into the recommendation (see `aggregate_reviewer_verdict`).
+#[derive(Debug, Clone, Serialize)]
+pub struct VerdictAggregation {
+    pub recommendation: Recommendation,
+    pub publication_probability: f64,
+    pub breakdown: SeverityByStateCounts,
+}
+
+/// Deterministic reviewer verdict — a rule-based AGGREGATOR, not a scorer. It
+/// counts and categorizes evidence that has ALREADY been decided (by severity,
+/// by escalation outcome, by gate result) and invents no new interpretation:
+/// zero weights, zero calibration constants beyond one named COUNT
+/// (`MINOR_REVISION_THRESHOLD`).
+///
+/// # ARCHITECTURAL INVARIANT
+/// Recommendation is determined ONLY by finding severity.
+/// VerificationState exists solely to describe how the finding was
+/// established (local, verified, or gate-rejected).
+/// VerificationState MUST NOT influence the recommendation.
+/// It is surfaced only in transparency outputs (breakdown, reviewer
+/// narrative, analytics).
+pub fn aggregate_reviewer_verdict(input: &ReviewerInput) -> VerdictAggregation {
+    let mut breakdown = SeverityByStateCounts::default();
+    for f in &input.findings {
+        let state = f.verification_state();
+        match f.severity {
+            FindingSeverity::Critical => breakdown.critical.add(state),
+            FindingSeverity::Major => breakdown.major.add(state),
+            FindingSeverity::Minor => breakdown.minor.add(state),
+            FindingSeverity::Info => breakdown.info.add(state),
+        }
+    }
+
+    // Severity-driven decision tree. `.total()` sums ACROSS all verification
+    // states on purpose: the recommendation reads severity counts ONLY, never
+    // which state a finding is in — that is the invariant above, and the
+    // `recommendation_invariant_under_verification_state` test guards it.
+    let recommendation = if breakdown.critical.total() > 0 {
+        Recommendation::Reject
+    } else if breakdown.major.total() > 0 {
+        Recommendation::MajorRevision
+    } else if breakdown.minor.total() >= MINOR_REVISION_THRESHOLD {
+        Recommendation::MinorRevision
+    } else {
+        Recommendation::Accept
+    };
+
+    let publication_probability = match recommendation {
+        Recommendation::Reject => PROB_REJECT,
+        Recommendation::MajorRevision => PROB_MAJOR_REVISION,
+        Recommendation::MinorRevision => PROB_MINOR_REVISION,
+        Recommendation::Accept => PROB_ACCEPT,
+        // The aggregator never yields Unknown (that is a gate-only downgrade
+        // state); map defensively to the lowest band.
+        Recommendation::Unknown => PROB_REJECT,
+    };
+
+    VerdictAggregation { recommendation, publication_probability, breakdown }
+}
+
+/// The SOLE producer of a reviewer-synthesis payload+SentIds PAIR. Fields are
+/// PRIVATE: there is no way to obtain the payload without the matching grounding
+/// set, so the gate can never be called against a mismatched pair (risk D4,
+/// closed by construction). [`build_reviewer_request`] is the only constructor.
+pub struct ReviewerRequest {
+    payload: Value,
+    sent_ids: SentIds,
+}
+
+impl ReviewerRequest {
+    /// The proxy payload to send. There is deliberately NO public accessor for
+    /// `sent_ids`: the gate takes `&ReviewerRequest` and reads it internally, so
+    /// the (payload, grounding-set) pair stays bound end to end.
+    pub fn payload(&self) -> &Value {
+        &self.payload
+    }
+}
+
+/// Build the reviewer-synthesis request from assembled evidence. Presents every
+/// finding AS ALREADY DECIDED (verdict, verification_state, severity, confidence
+/// all included) and asks the model for NARRATIVE ONLY — the deterministic /
+/// generated boundary is enforced IN THE PAYLOAD, not merely in the prompt.
+pub fn build_reviewer_request(input: &ReviewerInput) -> ReviewerRequest {
+    let mut finding_ids = Vec::new();
+    let mut payload_findings = Vec::new();
+    for f in input.findings.iter().take(MAX_FINDINGS) {
+        // Structured provenance ONLY — a raw excerpt is dropped here (privacy).
+        let evidence: Vec<String> = f
+            .evidence_refs
+            .iter()
+            .filter(|p| is_structured_provenance(p))
+            .map(|p| clamp(p))
+            .collect();
+        payload_findings.push(json!({
+            "id": f.id,
+            "agent": clamp(&f.agent),
+            "severity": f.severity,
+            "confidence": f.confidence,
+            "title": clamp(&f.title),
+            // AS DECIDED — the model explains these facts, never overturns them.
+            "verdict": f.verdict.as_deref().map(clamp),
+            "verification_state": f.verification_state(),
+            "evidence": evidence,
+        }));
+        finding_ids.push(f.id.clone());
+    }
+    let findings_omitted = input.findings.len().saturating_sub(payload_findings.len());
+    if findings_omitted > 0 {
+        tracing::info!(findings_omitted, "reviewer synthesis bounded to top-{MAX_FINDINGS} findings");
+    }
+
+    let mut checklist_ids = Vec::new();
+    let mut checklist = Vec::new();
+    for (i, c) in input.checklist.iter().take(MAX_CHECKLIST).enumerate() {
+        let id = format!("chk{}", i + 1);
+        checklist.push(json!({
+            "id": id,
+            "requirement": clamp(c["requirement"].as_str().unwrap_or("")),
+            "passed": c["passed"],
+        }));
+        checklist_ids.push(id);
+    }
+
+    // Untrusted stats context (every string llm_safe'd inside build_supplementary).
+    let (supp_section, supp_ids) = build_supplementary(&input.supplementary);
+
+    let payload = json!({
+        "task": "publishready_review",
+        // Metering: one run = one metered use (server dedups by run_id).
+        "run_id": clamp(&input.metadata.run_id),
+        "instruction": REVIEWER_SYNTHESIS_INSTRUCTION,
+        "summary": {
+            "journal": { "name": clamp(&input.journal.name), "quartile": clamp(&input.journal.quartile) },
+            "overall_verdict": clamp(&input.metadata.overall_verdict),
+            "findings_omitted": findings_omitted,
+            "findings": payload_findings,
+            "checklist": checklist,
+            "supplementary": supp_section,
+        },
+    });
+
+    ReviewerRequest {
+        payload,
+        sent_ids: SentIds { findings: finding_ids, checklist: checklist_ids, supplementary: supp_ids },
+    }
+}
+
+/// The gated, grounded NARRATIVE half of a synthesized letter (the LLM's part).
+/// No recommendation or scores here — those are deterministic (see
+/// [`aggregate_reviewer_verdict`]).
+#[derive(Debug, Clone, Serialize)]
+pub struct ReviewerNarrative {
+    pub body: String,
+    pub issues: Vec<ReviewerIssue>,
+    pub warnings: Vec<String>,
+}
+
+impl ReviewerNarrative {
+    /// Honest placeholder when the cloud narrative is unavailable — the
+    /// deterministic verdict still stands on its own.
+    pub fn unavailable() -> Self {
+        Self {
+            body: "narrative synthesis unavailable — verdict derived from local + verified evidence"
+                .to_string(),
+            issues: Vec::new(),
+            warnings: vec!["reviewer narrative unavailable: cloud proxy not reachable".to_string()],
+        }
+    }
+}
+
+/// Gate the model's NARRATIVE against the request it was built from. Takes the
+/// whole `&ReviewerRequest` (never a bare `SentIds`) so grounding is always
+/// checked against the exact ids that were sent. Grounding-only: it drops
+/// ungrounded issues (with a warning) and does NO score parsing — the verdict is
+/// deterministic elsewhere.
+pub fn gate_reviewer_narrative(response: &Value, request: &ReviewerRequest) -> ReviewerNarrative {
+    let sent = &request.sent_ids;
+    let mut warnings = Vec::new();
+    let body = response["body"].as_str().unwrap_or("").to_string();
+
+    let mut issues = Vec::new();
+    if let Some(arr) = response["issues"].as_array() {
+        for (i, it) in arr.iter().enumerate() {
+            let Some(finding_ref) = it["finding_ref"].as_str() else {
+                warnings.push(format!("dropped: issues[{i}] missing finding_ref"));
+                continue;
+            };
+            if !sent.grounds_issue(finding_ref) {
+                warnings.push(format!(
+                    "potential_hallucination: issue cites {finding_ref:?} not provided; dropped"
+                ));
+                continue;
+            }
+            issues.push(ReviewerIssue {
+                finding_ref: finding_ref.to_string(),
+                severity: it["severity"].as_str().unwrap_or("").to_string(),
+                rationale: it["rationale"].as_str().unwrap_or("").to_string(),
+                gate_flags: Vec::new(),
+            });
+        }
+    }
+
+    ReviewerNarrative { body, issues, warnings }
+}
+
+/// Compose the final letter: the deterministic verdict (recommendation +
+/// probability, from the aggregator) plus the gated narrative (body + grounded
+/// issues, from the LLM). The verdict comes ONLY from `aggregation`; the model
+/// never sets it. `available` stays true — the deterministic verdict is present
+/// even when the narrative degraded.
+pub fn synthesize_reviewer_letter(
+    aggregation: &VerdictAggregation,
+    narrative: ReviewerNarrative,
+) -> ReviewerEvaluation {
+    ReviewerEvaluation {
+        recommendation: aggregation.recommendation,
+        publication_probability: aggregation.publication_probability,
+        // Novelty / journal-fit are subjective judgments Box 4 does not
+        // deterministically compute and refuses to fake — empty/0 in Stage 1.
+        novelty_score: 0.0,
+        novelty_assessment: String::new(),
+        journal_fit_score: 0.0,
+        journal_fit_note: String::new(),
+        body: narrative.body,
+        issues: narrative.issues,
+        alternatives: Vec::new(),
+        warnings: narrative.warnings,
+        available: true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -874,5 +1251,211 @@ mod tests {
         assert!(!e.available);
         assert_eq!(e.recommendation, Recommendation::Unknown);
         assert!(e.body.contains("unavailable offline"));
+    }
+}
+
+#[cfg(test)]
+mod box4_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn finding(id: &str, severity: FindingSeverity, verified: Option<bool>) -> ReviewerFinding {
+        ReviewerFinding {
+            id: id.to_string(),
+            agent: "verification".to_string(),
+            severity,
+            confidence: 0.8,
+            title: format!("finding {id}"),
+            evidence_refs: vec![],
+            verdict: verified.map(|v| if v { "REFUTED".into() } else { "UNKNOWN".into() }),
+            verified,
+            gate_flags: vec![],
+        }
+    }
+
+    fn input(findings: Vec<ReviewerFinding>) -> ReviewerInput {
+        ReviewerInput {
+            findings,
+            checklist: vec![],
+            supplementary: vec![],
+            journal: TargetJournal { name: "J".into(), quartile: "Q1".into() },
+            metadata: ReviewerMeta {
+                run_id: "run-1".into(),
+                overall_verdict: "concern".into(),
+                combined_confidence: 0.7,
+            },
+        }
+    }
+
+    // verification_state() is the SOLE partition path — assert its full mapping.
+    #[test]
+    fn verification_state_is_the_sole_partition_mapping() {
+        assert_eq!(
+            finding("f1", FindingSeverity::Major, None).verification_state(),
+            VerificationState::NotEscalated
+        );
+        assert_eq!(
+            finding("f2", FindingSeverity::Major, Some(false)).verification_state(),
+            VerificationState::EscalatedRejected
+        );
+        assert_eq!(
+            finding("f3", FindingSeverity::Major, Some(true)).verification_state(),
+            VerificationState::EscalatedVerified
+        );
+    }
+
+    // A Critical is a deterministic Validation failure — NEVER escalated
+    // (Validation is NeverEscalate). It must still drive Reject WITHOUT any
+    // escalation, purely from its severity tier.
+    #[test]
+    fn deterministic_critical_still_rejects_without_escalation() {
+        let agg = aggregate_reviewer_verdict(&input(vec![finding(
+            "f1",
+            FindingSeverity::Critical,
+            None, // never escalated — deterministic
+        )]));
+        assert_eq!(agg.recommendation, Recommendation::Reject);
+        assert_eq!(agg.breakdown.critical.not_escalated, 1);
+        assert_eq!(agg.breakdown.critical.escalated_verified, 0);
+    }
+
+    // An EscalatedRejected Major still contributes as a Major because the
+    // recommendation aggregates the underlying finding's SEVERITY, not the
+    // success or failure of the escalation attempt. A gate rejection is a fact
+    // about the escalation attempt, not about the finding's truth or strength —
+    // the two are kept strictly separate. The breakdown must surface the
+    // rejection so users can distinguish the original local finding from the
+    // failed escalation evidence.
+    #[test]
+    fn escalated_rejected_major_still_counts_as_major() {
+        let agg = aggregate_reviewer_verdict(&input(vec![finding(
+            "f1",
+            FindingSeverity::Major,
+            Some(false), // escalation attempted, gate-rejected
+        )]));
+        // Recommendation reflects the finding's severity, not the rejection.
+        assert_eq!(agg.recommendation, Recommendation::MajorRevision);
+        // The rejection is surfaced explicitly for transparency, NOT folded away.
+        assert_eq!(agg.breakdown.major.escalated_rejected, 1);
+        assert_eq!(agg.breakdown.major.escalated_verified, 0);
+        assert_eq!(agg.breakdown.major.not_escalated, 0);
+    }
+
+    // THE regression guard: mutate ONLY verification_state on one otherwise
+    // identical Major finding across all three states — the recommendation must
+    // be IDENTICAL (MajorRevision) every time; only the breakdown differs. If
+    // anyone ever wires verification-state weighting into the recommendation,
+    // this fails immediately.
+    #[test]
+    fn recommendation_invariant_under_verification_state() {
+        let not_esc = aggregate_reviewer_verdict(&input(vec![finding("f1", FindingSeverity::Major, None)]));
+        let verified = aggregate_reviewer_verdict(&input(vec![finding("f1", FindingSeverity::Major, Some(true))]));
+        let rejected = aggregate_reviewer_verdict(&input(vec![finding("f1", FindingSeverity::Major, Some(false))]));
+
+        // Recommendation is IDENTICAL across all three verification states.
+        assert_eq!(not_esc.recommendation, Recommendation::MajorRevision);
+        assert_eq!(verified.recommendation, Recommendation::MajorRevision);
+        assert_eq!(rejected.recommendation, Recommendation::MajorRevision);
+        assert_eq!(not_esc.publication_probability, verified.publication_probability);
+        assert_eq!(verified.publication_probability, rejected.publication_probability);
+
+        // Only the breakdown differs — the transparency layer records HOW each
+        // was established.
+        assert_eq!(not_esc.breakdown.major.not_escalated, 1);
+        assert_eq!(verified.breakdown.major.escalated_verified, 1);
+        assert_eq!(rejected.breakdown.major.escalated_rejected, 1);
+        assert_ne!(not_esc.breakdown, verified.breakdown);
+        assert_ne!(verified.breakdown, rejected.breakdown);
+    }
+
+    // MINOR_REVISION_THRESHOLD is a COUNT boundary: below it -> Accept, at it ->
+    // MinorRevision.
+    #[test]
+    fn minor_revision_threshold_boundary() {
+        let below: Vec<_> = (0..MINOR_REVISION_THRESHOLD - 1)
+            .map(|i| finding(&format!("f{i}"), FindingSeverity::Minor, None))
+            .collect();
+        assert_eq!(aggregate_reviewer_verdict(&input(below)).recommendation, Recommendation::Accept);
+
+        let at: Vec<_> = (0..MINOR_REVISION_THRESHOLD)
+            .map(|i| finding(&format!("f{i}"), FindingSeverity::Minor, None))
+            .collect();
+        assert_eq!(aggregate_reviewer_verdict(&input(at)).recommendation, Recommendation::MinorRevision);
+    }
+
+    // Info findings never move the recommendation off Accept.
+    #[test]
+    fn only_info_findings_accept() {
+        let agg = aggregate_reviewer_verdict(&input(vec![
+            finding("f1", FindingSeverity::Info, None),
+            finding("f2", FindingSeverity::Info, Some(true)),
+        ]));
+        assert_eq!(agg.recommendation, Recommendation::Accept);
+    }
+
+    // Probability bands map 1:1 with the recommendation, no other input.
+    #[test]
+    fn probability_bands_map_one_to_one() {
+        let reject = aggregate_reviewer_verdict(&input(vec![finding("f1", FindingSeverity::Critical, None)]));
+        assert_eq!(reject.publication_probability, PROB_REJECT);
+
+        let major = aggregate_reviewer_verdict(&input(vec![finding("f1", FindingSeverity::Major, None)]));
+        assert_eq!(major.publication_probability, PROB_MAJOR_REVISION);
+
+        let minor_findings: Vec<_> = (0..MINOR_REVISION_THRESHOLD)
+            .map(|i| finding(&format!("f{i}"), FindingSeverity::Minor, None))
+            .collect();
+        let minor = aggregate_reviewer_verdict(&input(minor_findings));
+        assert_eq!(minor.publication_probability, PROB_MINOR_REVISION);
+
+        let accept = aggregate_reviewer_verdict(&input(vec![]));
+        assert_eq!(accept.publication_probability, PROB_ACCEPT);
+    }
+
+    // ReviewerRequest is the sole pair-producer: payload carries findings AS
+    // DECIDED (verdict + verification_state) and the prompt asks narrative-only.
+    #[test]
+    fn request_presents_findings_as_decided() {
+        let req = build_reviewer_request(&input(vec![finding("f1", FindingSeverity::Major, Some(true))]));
+        let f0 = &req.payload()["summary"]["findings"][0];
+        assert_eq!(f0["id"], "f1");
+        assert_eq!(f0["verdict"], "REFUTED");
+        assert_eq!(f0["verification_state"], "escalated_verified");
+        assert_eq!(f0["severity"], "major");
+        // The instruction forbids re-adjudication.
+        let instr = req.payload()["instruction"].as_str().unwrap();
+        assert!(instr.contains("ALREADY been decided"));
+        assert!(instr.contains("Do NOT re-evaluate"));
+        assert_eq!(req.payload()["run_id"], "run-1");
+    }
+
+    // The gate grounds issues against the request's OWN sent ids (D4 by
+    // construction) — ungrounded citations are dropped.
+    #[test]
+    fn narrative_gate_drops_ungrounded_issues() {
+        let req = build_reviewer_request(&input(vec![finding("f1", FindingSeverity::Major, None)]));
+        let response = json!({
+            "body": "letter text",
+            "issues": [
+                { "finding_ref": "f1", "severity": "major", "rationale": "grounded" },
+                { "finding_ref": "f99", "severity": "major", "rationale": "hallucinated" },
+            ],
+        });
+        let narrative = gate_reviewer_narrative(&response, &req);
+        assert_eq!(narrative.issues.len(), 1);
+        assert_eq!(narrative.issues[0].finding_ref, "f1");
+        assert!(narrative.warnings.iter().any(|w| w.contains("f99")));
+    }
+
+    // synthesize takes the verdict from the aggregator, never from the model;
+    // available stays true even with a degraded narrative.
+    #[test]
+    fn synthesize_uses_deterministic_verdict_even_when_narrative_unavailable() {
+        let agg = aggregate_reviewer_verdict(&input(vec![finding("f1", FindingSeverity::Critical, None)]));
+        let letter = synthesize_reviewer_letter(&agg, ReviewerNarrative::unavailable());
+        assert_eq!(letter.recommendation, Recommendation::Reject);
+        assert_eq!(letter.publication_probability, PROB_REJECT);
+        assert!(letter.available);
+        assert!(letter.body.contains("narrative synthesis unavailable"));
     }
 }
