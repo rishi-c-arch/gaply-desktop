@@ -23,11 +23,11 @@ class FakeChecker:
         self.checked: list[str] = []
         self.consumed: list[str] = []
 
-    def check(self, user_token: str) -> EntitlementResult:
+    async def check(self, user_token: str) -> EntitlementResult:
         self.checked.append(user_token)
         return self.result
 
-    def consume(self, user_token: str) -> None:
+    async def consume(self, user_token: str) -> None:
         self.consumed.append(user_token)
 
 
@@ -82,6 +82,21 @@ def test_not_entitled_is_403_before_any_paid_work():
     assert detail["error"] == "not_entitled"
     assert detail["reason"] == "no_uses_remaining"
     # THE point: the model was never called and nothing was consumed.
+    assert stub.calls == []
+    assert checker.consumed == []
+
+
+def test_identity_reason_is_401_not_403():
+    # A present-but-invalid/expired user token is an IDENTITY failure -> 401,
+    # distinct from a valid user who simply isn't entitled (403).
+    from app.entitlement import REASON_TOKEN_EXPIRED
+
+    checker = FakeChecker(entitled=False, reason=REASON_TOKEN_EXPIRED)
+    client, stub = make_client(entitlement_required=True, entitlement_checker=checker)
+    resp = post(client, {USER_TOKEN_HEADER: "expired.jwt.here"})
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["error"] == "unauthenticated"
+    assert resp.json()["detail"]["reason"] == REASON_TOKEN_EXPIRED
     assert stub.calls == []
     assert checker.consumed == []
 

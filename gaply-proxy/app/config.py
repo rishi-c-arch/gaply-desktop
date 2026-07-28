@@ -34,6 +34,21 @@ class Settings:
     # into create_app — enabled with no checker fails closed (503), never
     # serving unmetered paid work. See app/entitlement.py.
     entitlement_required: bool = False
+    # --- Entitlement identity + metering (Set 8) ---
+    # Supabase project base URL (https://<ref>.supabase.co). The JWKS URL and
+    # the expected issuer are DERIVED from it. User JWTs are ES256, verified
+    # against the public JWKS — there is NO shared JWT secret on the server.
+    supabase_url: str = ""
+    jwt_audience: str = "authenticated"
+    # asyncpg connection string for the entitlement reads + the atomic consume.
+    # Server-side only; never shipped to the client.
+    database_url: str = ""
+    # Per-tier use limits for the metered PublishReady feature — env-tunable,
+    # never a decision baked into code. Free = 0 (premium-only feature);
+    # Premium capped for financial safety on first deploy (raise via env later).
+    publishready_limit_free: int = 0
+    publishready_limit_premium: int = 20
+    entitlement_feature: str = "publishready"
     # Nitro Enclave TEE path (opt-in; requires real AWS Nitro infra to function).
     # When enabled, sensitive processing + the API key live inside the enclave
     # and the proxy forwards summaries over VSOCK after verifying attestation.
@@ -66,6 +81,12 @@ def settings_from_env() -> Settings:
         allow_public_bind=os.getenv("GAPLY_ALLOW_PUBLIC_BIND", "") == "i-accept-public-exposure",
         entitlement_required=os.getenv("GAPLY_ENTITLEMENT_REQUIRED", "").lower()
         in {"1", "true", "yes"},
+        supabase_url=os.getenv("SUPABASE_URL", "").rstrip("/"),
+        jwt_audience=os.getenv("SUPABASE_JWT_AUDIENCE", "authenticated"),
+        database_url=os.getenv("DATABASE_URL", ""),
+        publishready_limit_free=int(os.getenv("PUBLISHREADY_LIMIT_FREE", "0")),
+        publishready_limit_premium=int(os.getenv("PUBLISHREADY_LIMIT_PREMIUM", "20")),
+        entitlement_feature=os.getenv("GAPLY_ENTITLEMENT_FEATURE", "publishready"),
         enclave_enabled=os.getenv("GAPLY_ENCLAVE_ENABLED", "").lower() in {"1", "true", "yes"},
         enclave_cid=int(os.getenv("GAPLY_ENCLAVE_CID", "16")),
         enclave_port=int(os.getenv("GAPLY_ENCLAVE_PORT", "5005")),

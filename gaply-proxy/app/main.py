@@ -24,7 +24,12 @@ from .app_check import HEADER_NAME, AppCheckVerifier, VerifyError, VerifiedToken
 from .bind_guard import BindClassification, InsecureBindError, enforce_private_bind
 from .claude_client import AnthropicClaudeClient, ClaudeClient
 from .config import Settings, settings_from_env
-from .entitlement import USER_TOKEN_HEADER, EntitlementChecker
+from .entitlement import (
+    IDENTITY_REASONS,
+    USER_TOKEN_HEADER,
+    EntitlementChecker,
+    build_supabase_checker,
+)
 from .rate_limit import TokenBucketRateLimiter
 from .validation import ValidationError, validate_structured
 
@@ -42,6 +47,32 @@ def check_bind(settings: Settings) -> BindClassification:
     return enforce_private_bind(settings.bind_host, allow_public=settings.allow_public_bind)
 
 
+def _enforce_public_exposure_guards(
+    settings: Settings, entitlement_checker: EntitlementChecker | None
+) -> None:
+    """Boot-time fail-safe (Set 8, step 4). A PUBLICLY EXPOSED proxy
+    (``allow_public_bind`` accepted) MUST have entitlement fully wired — refuse
+    to start otherwise, so an open paid endpoint can never come up by
+    misconfiguration. Private/loopback binds keep the request-time 503 for the
+    enabled-but-unconfigured case and are exempt here (dev convenience, no
+    financial exposure)."""
+    if not settings.allow_public_bind:
+        return
+    problems = []
+    if not settings.entitlement_required:
+        problems.append("GAPLY_ENTITLEMENT_REQUIRED must be true")
+    if entitlement_checker is None:
+        problems.append("a real EntitlementChecker must be configured (SUPABASE_URL + DATABASE_URL)")
+    if not settings.app_check_signing_key:
+        problems.append("APP_CHECK_SIGNING_KEY must be set")
+    if settings.app_check_debug_tokens:
+        problems.append("APP_CHECK_DEBUG_TOKENS must be empty")
+    if problems:
+        raise RuntimeError(
+            "refusing to start with public exposure — " + "; ".join(problems)
+        )
+
+
 def create_app(
     settings: Settings | None = None,
     claude_client: ClaudeClient | None = None,
@@ -50,6 +81,17 @@ def create_app(
     settings = settings or settings_from_env()
     # Safety net: never come up bound to a public interface (see bind_guard).
     check_bind(settings)
+    # Production wiring: build the real checker from env when enforcement is on
+    # and none was injected (tests inject their own). Requires SUPABASE_URL +
+    # DATABASE_URL.
+    if (
+        entitlement_checker is None
+        and settings.entitlement_required
+        and settings.database_url
+    ):
+        entitlement_checker = build_supabase_checker(settings)
+    # Boot-time fail-safe: a public proxy must have the gate fully wired.
+    _enforce_public_exposure_guards(settings, entitlement_checker)
     verifier = AppCheckVerifier(
         settings.app_check_signing_key.encode("utf-8"),
         settings.app_check_app_id,
@@ -124,14 +166,14 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    def require_entitlement(request: Request) -> str | None:
-        """THE REAL entitlement gate (Set 8) — runs BEFORE any paid Claude
-        work. Returns the user token to consume against on success, or None
-        when enforcement is off (the honest pre-deployment stub state: the
-        proxy is not deployed, so default behavior is unchanged; production
-        MUST flip GAPLY_ENTITLEMENT_REQUIRED=true and inject a checker).
-        Enabled with no checker injected fails CLOSED — the proxy refuses to
-        serve unmetered paid work rather than silently skipping the gate."""
+    async def require_entitlement(request: Request) -> str | None:
+        """THE REAL entitlement gate (Set 8) — runs BEFORE any paid model work.
+        Returns the user token to consume against on success, or None when
+        enforcement is off (the honest pre-deployment stub state; production
+        MUST flip GAPLY_ENTITLEMENT_REQUIRED=true and wire a checker).
+        Enabled with no checker fails CLOSED (503) rather than skipping the
+        gate. Identity failures (missing/invalid/expired token) -> 401;
+        valid-but-not-entitled -> 403."""
         if not settings.entitlement_required:
             return None
         checker: EntitlementChecker | None = app.state.entitlement_checker
@@ -150,8 +192,15 @@ def create_app(
                 status_code=401,
                 detail={"error": "user_token_missing", "reason": "sign in required"},
             )
-        result = checker.check(user_token)
+        result = await checker.check(user_token)
         if not result.entitled:
+            # Identity failure -> 401 (who are you?); otherwise -> 403 (known,
+            # not entitled). Never a generic 500.
+            if result.reason in IDENTITY_REASONS:
+                raise HTTPException(
+                    status_code=401,
+                    detail={"error": "unauthenticated", "reason": result.reason},
+                )
             raise HTTPException(
                 status_code=403,
                 detail={"error": "not_entitled", "reason": result.reason},
@@ -184,7 +233,7 @@ def create_app(
         # Consume a use ONLY after the paid work succeeded — server-side,
         # never a client-side number.
         if entitled_user is not None:
-            app.state.entitlement_checker.consume(entitled_user)
+            await app.state.entitlement_checker.consume(entitled_user)
         return {"result": result}
 
     return app
