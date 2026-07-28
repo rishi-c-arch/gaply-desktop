@@ -22,7 +22,8 @@ from fastapi.responses import JSONResponse
 
 from .app_check import HEADER_NAME, AppCheckVerifier, VerifyError, VerifiedToken
 from .bind_guard import BindClassification, InsecureBindError, enforce_private_bind
-from .claude_client import AnthropicClaudeClient, ClaudeClient
+from .claude_client import AnthropicClaudeClient, LlmProvider
+from .openai_client import OpenAIClient
 from .config import Settings, settings_from_env
 from .entitlement import (
     IDENTITY_REASONS,
@@ -75,8 +76,9 @@ def _enforce_public_exposure_guards(
 
 def create_app(
     settings: Settings | None = None,
-    claude_client: ClaudeClient | None = None,
+    claude_client: LlmProvider | None = None,
     entitlement_checker: EntitlementChecker | None = None,
+    providers: dict[str, LlmProvider] | None = None,
 ) -> FastAPI:
     settings = settings or settings_from_env()
     # Safety net: never come up bound to a public interface (see bind_guard).
@@ -105,7 +107,14 @@ def create_app(
     app.state.settings = settings
     app.state.verifier = verifier
     app.state.limiter = limiter
-    app.state.claude_client = claude_client  # None -> built lazily from env
+    # Provider registry (server-side). The injected `claude_client` (tests, or a
+    # provisioned enclave client) fills the "claude" slot; `providers` lets tests
+    # inject others (e.g. an OpenAI stub). Lazily-built entries are cached here.
+    registry: dict[str, LlmProvider] = dict(providers or {})
+    if claude_client is not None:
+        registry.setdefault("claude", claude_client)
+    app.state.claude_client = claude_client  # back-compat handle
+    app.state.providers = registry
     app.state.entitlement_checker = entitlement_checker  # None -> stub (see below)
 
     @app.middleware("http")
@@ -134,33 +143,54 @@ def create_app(
                 detail={"error": "app_check_failed", "reason": exc.code},
             )
 
-    def get_claude() -> ClaudeClient:
-        if app.state.claude_client is not None:
-            return app.state.claude_client
-        # TEE path: when the enclave is enabled, the API key and the Claude call
-        # live INSIDE the Nitro Enclave; the proxy forwards over VSOCK after
-        # verifying attestation (see enclave.py / deploy/enclave). A real deploy
-        # injects a provisioned EnclaveClaudeClient as `claude_client`; without
-        # one we fail closed rather than silently fall back to a host-side call
-        # that would defeat the enclave's purpose.
-        if settings.enclave_enabled:
+    def get_provider() -> LlmProvider:
+        """Select the LLM provider SERVER-SIDE from config (GAPLY_LLM_PROVIDER).
+        The request body never names a provider — the desktop stays
+        provider-blind. Both providers reach here through the SAME App Check +
+        entitlement dependencies; this only picks the forwarder."""
+        name = settings.llm_provider
+        cached = app.state.providers.get(name)
+        if cached is not None:
+            return cached
+        if name == "claude":
+            # TEE path: when the enclave is enabled, the API key and the Claude
+            # call live INSIDE the Nitro Enclave; a real deploy injects a
+            # provisioned EnclaveClaudeClient as `claude_client`. Without one we
+            # fail closed rather than fall back to a host-side call that would
+            # defeat the enclave's purpose.
+            if settings.enclave_enabled:
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "error": "enclave_not_provisioned",
+                        "reason": "GAPLY_ENCLAVE_ENABLED is set but no attested "
+                        "EnclaveClaudeClient was injected. Provision the Nitro "
+                        "Enclave (deploy/enclave) and supply it as claude_client.",
+                    },
+                )
+            if not settings.claude_api_key:
+                raise HTTPException(
+                    status_code=503, detail={"error": "claude_not_configured"}
+                )
+            client: LlmProvider = AnthropicClaudeClient(
+                settings.claude_api_key, settings.claude_model
+            )
+        elif name == "openai":
+            if not settings.openai_api_key:
+                raise HTTPException(
+                    status_code=503, detail={"error": "openai_not_configured"}
+                )
+            client = OpenAIClient(settings.openai_api_key, settings.openai_model)
+        else:
             raise HTTPException(
                 status_code=503,
                 detail={
-                    "error": "enclave_not_provisioned",
-                    "reason": "GAPLY_ENCLAVE_ENABLED is set but no attested "
-                    "EnclaveClaudeClient was injected. Provision the Nitro "
-                    "Enclave (deploy/enclave) and supply it as claude_client.",
+                    "error": "unknown_provider",
+                    "reason": f"GAPLY_LLM_PROVIDER={name!r} is not 'claude' or 'openai'",
                 },
             )
-        if not settings.claude_api_key:
-            raise HTTPException(
-                status_code=503, detail={"error": "claude_not_configured"}
-            )
-        app.state.claude_client = AnthropicClaudeClient(
-            settings.claude_api_key, settings.claude_model
-        )
-        return app.state.claude_client
+        app.state.providers[name] = client
+        return client
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -211,7 +241,7 @@ def create_app(
     async def verify_endpoint(
         request: Request,
         _token: VerifiedToken = Depends(require_app_check),
-        claude: ClaudeClient = Depends(get_claude),
+        provider: LlmProvider = Depends(get_provider),
         entitled_user: str | None = Depends(require_entitlement),
     ) -> dict[str, Any]:
         payload = await request.json()
@@ -228,8 +258,9 @@ def create_app(
                 status_code=422,
                 detail={"error": "validation_failed", "reason": exc.reason},
             )
-        # Forward to Claude Sonnet; nothing is persisted.
-        result = await claude.complete(payload)
+        # Forward to the selected provider (Claude or OpenAI, server-chosen);
+        # nothing is persisted. The desktop never knows which one handled it.
+        result = await provider.complete(payload)
         # Consume a use ONLY after the paid work succeeded — server-side,
         # never a client-side number.
         if entitled_user is not None:

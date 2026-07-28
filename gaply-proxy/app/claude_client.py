@@ -12,9 +12,18 @@ import json
 from typing import Any, Protocol
 
 
-class ClaudeClient(Protocol):
+class LlmProvider(Protocol):
+    """Provider-neutral forwarding interface: a structured summary in, a
+    ``{model, stop_reason, text}`` envelope out. Claude (this module) and OpenAI
+    (`openai_client.py`) both implement it, so the /verify handler is
+    provider-blind — it never knows which one handled a call."""
+
     async def complete(self, payload: dict[str, Any]) -> dict[str, Any]:
         ...
+
+
+# Back-compat alias — the original name. New code uses LlmProvider.
+ClaudeClient = LlmProvider
 
 
 class AnthropicClaudeClient:

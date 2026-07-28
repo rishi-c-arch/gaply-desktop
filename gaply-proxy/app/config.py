@@ -11,6 +11,14 @@ class Settings:
     # Server-side Claude key — from env only.
     claude_api_key: str = ""
     claude_model: str = "claude-sonnet-5"
+    # --- Provider selection (SERVER-SIDE; the desktop stays provider-blind) ---
+    # Which provider handles calls: "claude" (default) or "openai". A server
+    # config, NEVER a client field — the desktop never names a provider.
+    llm_provider: str = "claude"
+    # OpenAI key + model — SAME safe pattern as claude_api_key (env only, never
+    # hardcoded, never committed).
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
     # App Check shared HMAC secret (must match the Rust client's signing key).
     app_check_signing_key: str = ""
     app_check_app_id: str = "ai.gaply.app"
@@ -66,6 +74,9 @@ def settings_from_env() -> Settings:
     return Settings(
         claude_api_key=os.getenv("CLAUDE_API_KEY") or os.getenv("ANTHROPIC_API_KEY", ""),
         claude_model=os.getenv("CLAUDE_MODEL", "claude-sonnet-5"),
+        llm_provider=os.getenv("GAPLY_LLM_PROVIDER", "claude").lower(),
+        openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         app_check_signing_key=os.getenv("APP_CHECK_SIGNING_KEY", ""),
         app_check_app_id=os.getenv("APP_CHECK_APP_ID", "ai.gaply.app"),
         app_check_debug_tokens=debug,
