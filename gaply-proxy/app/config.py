@@ -86,7 +86,9 @@ def settings_from_env() -> Settings:
         max_field_chars=int(os.getenv("MAX_FIELD_CHARS", "2000")),
         max_sentences_per_field=int(os.getenv("MAX_SENTENCES_PER_FIELD", "8")),
         bind_host=os.getenv("GAPLY_BIND_HOST", "127.0.0.1"),
-        bind_port=int(os.getenv("GAPLY_BIND_PORT", "8080")),
+        # Prefer the platform-provided PORT (Render and most PaaS set it), then
+        # GAPLY_BIND_PORT for local dev / legacy tailnet deploys, then 8080.
+        bind_port=int(os.getenv("PORT") or os.getenv("GAPLY_BIND_PORT", "8080")),
         # Requires an explicit, unambiguous token to enable — a truthy value like
         # "1" won't do it, so it can't be flipped on by accident.
         allow_public_bind=os.getenv("GAPLY_ALLOW_PUBLIC_BIND", "") == "i-accept-public-exposure",
