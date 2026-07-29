@@ -40,9 +40,19 @@ use gaply_core::GaplyError;
 /// never points off-machine by surprise.
 const DEFAULT_PROXY_URL: &str = "http://127.0.0.1:8080";
 
-/// Health-probe timeout — short, so an undeployed proxy fails fast and
-/// `verify_proxy()` falls through to the local Ollama tier.
-const HEALTH_TIMEOUT_SECS: u64 = 2;
+/// Reachability probe schedule: `(per-attempt timeout, backoff-after)` steps.
+/// Attempt 1 keeps the original short 2s timeout so a genuinely-down or
+/// undeployed proxy still fails fast; later attempts escalate the timeout and
+/// space out with backoff so a slow-to-wake remote host (e.g. a free-tier PaaS
+/// cold start) is tolerated. Worst-case wall time ≈ 2+1+10+2+20 = 35s, and ONLY
+/// when a host accepts the connection but then stalls (or a fronting gateway
+/// returns a "waking" 5xx) — a connection refusal or DNS failure short-circuits
+/// on the first attempt (see `reachable_with_schedule`).
+const PROBE_SCHEDULE: &[(Duration, Duration)] = &[
+    (Duration::from_secs(2), Duration::from_secs(1)),
+    (Duration::from_secs(10), Duration::from_secs(2)),
+    (Duration::from_secs(20), Duration::from_secs(0)),
+];
 
 /// Inference-call timeout. Cloud reasoning can be slow (adaptive thinking), so
 /// a generous ceiling — still bounded.
@@ -61,6 +71,26 @@ pub struct ProxyReqwestClient {
     client: reqwest::blocking::Client,
     /// Signed-in user's JWT, forwarded for server-side entitlement (Set 8).
     user_token: Option<String>,
+}
+
+/// The classified result of a single `/health` probe. `reachable()` collapses
+/// this to `bool`, but the retry loop needs the distinction: only `TimedOut`
+/// and `Waking` (a slow-to-wake host) are retried; `Live`, `Erroring`, and
+/// `Unreachable` are decisive and stop the loop immediately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProbeOutcome {
+    /// 2xx — the proxy answered a health check. The only `reachable() == true`.
+    Live,
+    /// 502/503/504 from a fronting gateway — "waking up", so retry.
+    Waking,
+    /// Some other non-2xx — the server answered and is genuinely erroring
+    /// (401/404/422/429/500…). Decisive: not asleep, so never retried.
+    Erroring(reqwest::StatusCode),
+    /// The per-attempt timeout elapsed — the classic cold-start signature.
+    TimedOut,
+    /// Connection refused / DNS failure / other transport error — nothing is
+    /// listening (or it is unroutable). Decisive fast-fail, never retried.
+    Unreachable,
 }
 
 impl ProxyReqwestClient {
@@ -97,21 +127,67 @@ impl ProxyReqwestClient {
         self
     }
 
-    /// Liveness probe: `GET /health` with a short timeout. Used by
-    /// `verify_proxy()` to decide whether to route to the cloud, so an
-    /// undeployed proxy never breaks the run.
+    /// Liveness probe: `GET /health`, tolerant of a slow-to-wake remote host.
+    ///
+    /// PUBLIC CONTRACT UNCHANGED: `-> bool`, `true` iff the proxy answered a
+    /// health check successfully. A connection refusal or DNS failure still
+    /// fails fast on the first attempt (no retry) — preserving the original
+    /// "undeployed proxy fails fast" behavior for a local/loopback proxy that
+    /// simply isn't running. The only new behavior is that a per-attempt timeout
+    /// or a gateway "waking" status (502/503/504) — the cold-start signatures —
+    /// are retried per `PROBE_SCHEDULE` instead of being reported as down.
     pub fn reachable(&self) -> bool {
-        let Ok(probe) = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(HEALTH_TIMEOUT_SECS))
-            .build()
-        else {
-            return false;
+        matches!(
+            self.reachable_with_schedule(PROBE_SCHEDULE, |d| std::thread::sleep(d)),
+            ProbeOutcome::Live
+        )
+    }
+
+    /// One `GET /health` attempt, classified into a `ProbeOutcome`. No retry.
+    fn probe_once(&self, timeout: Duration) -> ProbeOutcome {
+        let Ok(probe) = reqwest::blocking::Client::builder().timeout(timeout).build() else {
+            return ProbeOutcome::Unreachable;
         };
-        probe
-            .get(format!("{}/health", self.base_url))
-            .send()
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
+        match probe.get(format!("{}/health", self.base_url)).send() {
+            Ok(r) if r.status().is_success() => ProbeOutcome::Live,
+            Ok(r) if matches!(r.status().as_u16(), 502 | 503 | 504) => ProbeOutcome::Waking,
+            Ok(r) => ProbeOutcome::Erroring(r.status()),
+            // `is_timeout()` is the per-attempt ceiling elapsing — the classic
+            // cold-start signature. Everything else (connection refused, DNS
+            // failure, other transport errors) is a hard, non-retryable miss.
+            Err(e) if e.is_timeout() => ProbeOutcome::TimedOut,
+            Err(_) => ProbeOutcome::Unreachable,
+        }
+    }
+
+    /// Drive `probe_once` across a schedule of `(timeout, backoff)` steps,
+    /// retrying ONLY the cold-start signatures (`TimedOut`, `Waking`) and
+    /// exiting immediately on a decisive outcome (`Live`, `Erroring`,
+    /// `Unreachable`). `sleep` is injected so tests drive the schedule with no
+    /// real delay. Returns the LAST probe's outcome.
+    fn reachable_with_schedule(
+        &self,
+        schedule: &[(Duration, Duration)],
+        sleep: impl Fn(Duration),
+    ) -> ProbeOutcome {
+        let mut last = ProbeOutcome::Unreachable;
+        for (i, &(timeout, backoff)) in schedule.iter().enumerate() {
+            last = self.probe_once(timeout);
+            match last {
+                // Decisive: the server answered (well or badly), or nothing is
+                // listening. No amount of waiting changes these — stop now.
+                ProbeOutcome::Live | ProbeOutcome::Erroring(_) | ProbeOutcome::Unreachable => {
+                    return last;
+                }
+                // Cold-start signatures — back off and try again if steps remain.
+                ProbeOutcome::TimedOut | ProbeOutcome::Waking => {
+                    if i + 1 < schedule.len() && !backoff.is_zero() {
+                        sleep(backoff);
+                    }
+                }
+            }
+        }
+        last
     }
 
     /// Like [`ProxyClient::verify`], but ALSO returns the envelope metadata
@@ -366,8 +442,70 @@ mod tests {
         }
     }
 
+    fn client_for_url(url: &str) -> ProxyReqwestClient {
+        ProxyReqwestClient::new(url, TokenSigner::new(KEY, DEFAULT_APP_ID)).unwrap()
+    }
+
     fn client_for(proxy: &MockProxy) -> ProxyReqwestClient {
-        ProxyReqwestClient::new(&proxy.url(), TokenSigner::new(KEY, DEFAULT_APP_ID)).unwrap()
+        client_for_url(&proxy.url())
+    }
+
+    // Fast schedule for the retry tests: short per-attempt timeouts, zero
+    // backoff. Paired with a no-op injected sleep, retries are instant, so these
+    // exercise the RETRY LOGIC (classification + loop control) without real
+    // delay. Production `reachable()` runs the same code path over the real
+    // `PROBE_SCHEDULE` (2s/10s/20s).
+    const FAST: &[(Duration, Duration)] = &[
+        (Duration::from_secs(1), Duration::ZERO),
+        (Duration::from_secs(1), Duration::ZERO),
+        (Duration::from_secs(1), Duration::ZERO),
+    ];
+
+    /// A proxy mock that spawns a thread PER connection (so a slow attempt never
+    /// blocks accepting the next) and hands the handler a 0-based attempt index,
+    /// letting a test script per-attempt behavior (timeout, then 200, etc.).
+    struct ScriptedProxy {
+        addr: SocketAddr,
+        stop: Arc<AtomicBool>,
+    }
+
+    impl ScriptedProxy {
+        fn start<F>(handler: F) -> Self
+        where
+            F: Fn(usize, TcpStream) + Send + Sync + 'static,
+        {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let stop_thread = stop.clone();
+            let handler = Arc::new(handler);
+            thread::spawn(move || {
+                let mut n = 0usize;
+                for stream in listener.incoming() {
+                    if stop_thread.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    if let Ok(s) = stream {
+                        let h = handler.clone();
+                        let idx = n;
+                        n += 1;
+                        thread::spawn(move || h(idx, s));
+                    }
+                }
+            });
+            Self { addr, stop }
+        }
+
+        fn url(&self) -> String {
+            format!("http://{}", self.addr)
+        }
+    }
+
+    impl Drop for ScriptedProxy {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            let _ = TcpStream::connect(self.addr);
+        }
     }
 
     #[test]
@@ -378,10 +516,20 @@ mod tests {
 
     #[test]
     fn reachable_false_on_dead_url() {
-        // Nothing is listening here → clean false, no panic.
+        // Nothing is listening here → clean false, no panic. Crucially this must
+        // NOT wait through the retry schedule: a refused connection is decisive
+        // (Unreachable), so reachable() returns on the FIRST attempt. Even though
+        // PROBE_SCHEDULE would permit ~35s of retries+backoff, this completes
+        // near-instantly — the loopback "undeployed proxy fails fast" guarantee.
         let c = ProxyReqwestClient::new("http://127.0.0.1:1", TokenSigner::new(KEY, DEFAULT_APP_ID))
             .unwrap();
+        let start = std::time::Instant::now();
         assert!(!c.reachable());
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "refused connection must fast-fail (no 35s schedule wait), took {elapsed:?}"
+        );
     }
 
     #[test]
@@ -475,5 +623,81 @@ mod tests {
         let proxy = MockProxy::start(Mode::Unavailable);
         let err = client_for(&proxy).verify(&serde_json::json!({"summary": {}})).unwrap_err();
         assert!(matches!(err, GaplyError::Config(m) if m.contains("unavailable")));
+    }
+
+    /* ------------------- reachability retry (cold start) ------------------ */
+
+    #[test]
+    fn timeout_then_retry_succeeds() {
+        // Attempt 1 hangs past the 1s per-attempt timeout → TimedOut (the
+        // cold-start signature); attempt 2 answers 200 → Live. The loop retried
+        // the timeout and recovered, so reachable() (which is `matches!(…, Live)`)
+        // returns TRUE.
+        let proxy = ScriptedProxy::start(|idx, mut stream| {
+            if idx == 0 {
+                // Outlast attempt 1's 1s timeout, then let the client give up.
+                thread::sleep(Duration::from_millis(1500));
+            } else {
+                let _ = read_request(&mut stream);
+                send(&mut stream, 200, "OK", "", r#"{"status":"ok"}"#);
+            }
+        });
+        let outcome = client_for_url(&proxy.url()).reachable_with_schedule(FAST, |_| {});
+        assert_eq!(outcome, ProbeOutcome::Live);
+        assert!(matches!(outcome, ProbeOutcome::Live), "reachable() would be true");
+    }
+
+    #[test]
+    fn waking_503_then_retry_succeeds() {
+        // Attempt 1 → 503 (a fronting gateway "waking up") → Waking (retry);
+        // attempt 2 → 200 → Live. reachable() returns TRUE.
+        let proxy = ScriptedProxy::start(|idx, mut stream| {
+            let _ = read_request(&mut stream);
+            if idx == 0 {
+                send(&mut stream, 503, "Service Unavailable", "", r#"{"status":"waking"}"#);
+            } else {
+                send(&mut stream, 200, "OK", "", r#"{"status":"ok"}"#);
+            }
+        });
+        let outcome = client_for_url(&proxy.url()).reachable_with_schedule(FAST, |_| {});
+        assert_eq!(outcome, ProbeOutcome::Live);
+        assert!(matches!(outcome, ProbeOutcome::Live), "reachable() would be true");
+    }
+
+    #[test]
+    fn connection_refused_is_immediate_no_retry() {
+        // Nothing listening → connection refused → Unreachable, DECISIVE. Even
+        // with a schedule of huge timeouts AND huge REAL backoff sleeps injected,
+        // the loop must exit on attempt 1 without ever retrying or sleeping.
+        let c = client_for_url("http://127.0.0.1:1");
+        let brutal: &[(Duration, Duration)] = &[
+            (Duration::from_secs(30), Duration::from_secs(30)),
+            (Duration::from_secs(30), Duration::from_secs(30)),
+            (Duration::from_secs(30), Duration::ZERO),
+        ];
+        let start = std::time::Instant::now();
+        // Real sleep injected on purpose — it must NEVER be called here.
+        let outcome = c.reachable_with_schedule(brutal, |d| std::thread::sleep(d));
+        let elapsed = start.elapsed();
+        assert_eq!(outcome, ProbeOutcome::Unreachable);
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "refused must fast-fail with no retry/delay, took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn non_2xx_is_decisive_and_not_retried() {
+        // A 404 means the server answered and is genuinely erroring — NOT asleep.
+        // It must classify as Erroring (carrying the status) and stop on attempt 1.
+        let proxy = ScriptedProxy::start(|_idx, mut stream| {
+            let _ = read_request(&mut stream);
+            send(&mut stream, 404, "Not Found", "", r#"{"error":"nope"}"#);
+        });
+        let outcome = client_for_url(&proxy.url()).reachable_with_schedule(FAST, |_| {});
+        match outcome {
+            ProbeOutcome::Erroring(status) => assert_eq!(status.as_u16(), 404),
+            other => panic!("expected Erroring(404), got {other:?}"),
+        }
     }
 }
