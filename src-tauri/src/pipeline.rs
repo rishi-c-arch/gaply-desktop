@@ -194,8 +194,12 @@ fn run_pipeline_inner(
         Ok((report, summary))
     })?;
 
-    // 3) AI check — real SLM-1 (candle) perplexity/burstiness when the model is
-    // present, else the interim heuristic. The model is scoped INSIDE this lane
+    // 3) AI check — real candle perplexity/burstiness at whichever tier THIS
+    // machine may safely run, decided by the SHARED memory-safety gate
+    // (`models::select_deep_model` → `plan_deep_load`): the 7B only at ≥16GB,
+    // else the compact 1.5B, else the interim heuristic. Same gate AI Check
+    // uses — this lane used to bypass it and load the 7B unconditionally, which
+    // is a multi-hour uncapped run on 8GB. The model is scoped INSIDE this lane
     // so it is dropped before the verification stage (one-at-a-time on 8GB).
     let ai = lane(emit, "ai", 3, || {
         let model = crate::models::perplexity_model();
@@ -372,6 +376,9 @@ A night of sleep improved memory consolidation in this sample.
     fn full_pipeline_runs_all_six_lanes_and_produces_a_real_report() {
         use std::cell::RefCell;
 
+        // Lane completion + report shape don't depend on which perplexity model
+        // ran, so take the heuristic and keep the suite off multi-GB GGUF loads.
+        force_heuristic();
         let db = Arc::new(Database::in_memory().expect("in-memory db"));
         let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
 
@@ -435,12 +442,175 @@ A night of sleep improved memory consolidation in this sample.
         assert!(report["findings"].is_array(), "report has a findings array");
     }
 
-    /// Force the interim heuristic perplexity model (no candle load) so these
-    /// checklist-focused pipeline runs stay fast and don't stack 3.5GB model
-    /// loads in parallel on small machines. Harmless: the checklist assertions
-    /// don't depend on which perplexity model ran.
+    /// Force the interim heuristic perplexity model (no candle load) so pipeline
+    /// runs in the test suite stay fast and don't stack multi-GB model loads in
+    /// parallel on small machines. Harmless: no assertion here depends on which
+    /// perplexity model ran.
+    ///
+    /// This drives the PRODUCT's own gate (`models::deep_tier` → HeuristicOnly)
+    /// rather than the old trick of pointing `GAPLY_SLM1_GGUF` at a nonexistent
+    /// file. That trick only ever hid the 7B — it left the compact 1.5B free to
+    /// load — and it worked by defeating a file-existence check rather than by
+    /// expressing an intent. Deliberately NOT unset afterwards: every pipeline
+    /// test in this module wants the heuristic, so a leak across the shared test
+    /// process is benign (and `set_var` is process-global regardless).
     fn force_heuristic() {
-        std::env::set_var("GAPLY_SLM1_GGUF", "/nonexistent/gaply-test-force-heuristic.gguf");
+        std::env::set_var("GAPLY_DISABLE_DEEP", "1");
+    }
+
+    /// A REALISTIC-length manuscript: ~4,000 words across a full IMRaD body,
+    /// versus the ~120-word `MANUSCRIPT` above.
+    ///
+    /// Length is the point. The 8GB memory proof
+    /// (`examples/publishready_mem_probe.rs`) exercised this pipeline against a
+    /// 260-word fixture, and at that length even an ungated 7B finishes in
+    /// seconds — which is precisely why the AI lane's uncapped, gate-bypassing
+    /// model load survived review. The AI lane's cost scales with TOKEN COUNT
+    /// (~2x the manuscript's tokens, at window 512 / stride 256), so only a
+    /// realistic length makes the wrong tier observable.
+    ///
+    /// Synthetic and repetitive by construction — the paragraphs rotate through
+    /// four templates with a varying index — which is fine here: no assertion
+    /// depends on the prose being novel, only on there being a lot of it. NO
+    /// References section, so the verification lane makes no network call and
+    /// the test stays hermetic (same reason as `MANUSCRIPT`).
+    fn realistic_manuscript() -> String {
+        const PARAS: [&str; 4] = [
+            "Participants in cohort {i} completed the full assessment battery under standardised \
+             laboratory conditions, with sessions scheduled at a consistent time of day to limit \
+             circadian confounding. Each session opened with a short practice block that was \
+             discarded before analysis. Trained assistants, blind to group allocation, \
+             administered every instrument and recorded responses on paper forms that were later \
+             double-entered by two independent coders. Discrepancies between coders were resolved \
+             by consensus with a third rater. We logged room temperature, ambient noise, and \
+             interruptions for each session, and treated any session with a documented \
+             interruption as a candidate for sensitivity analysis rather than excluding it \
+             outright.",
+            "Analytic decisions for block {i} were fixed before the data were unblinded and \
+             recorded in a dated internal protocol. We specified the primary contrast, the \
+             covariate set, and the handling of missing observations in advance, and we report \
+             every deviation from that plan. Continuous measures were screened for implausible \
+             values against instrument-specific ranges, and flagged records were checked against \
+             the original paper forms rather than silently corrected. Where a value could not be \
+             verified against source documentation we treated it as missing. No observation was \
+             removed on the basis of its effect on the primary estimate.",
+            "The pattern observed in subgroup {i} was smaller than the effect reported in earlier \
+             work, and the discrepancy deserves a plainer explanation than measurement noise. Our \
+             sample skewed younger and more educated than the populations those studies \
+             recruited, which plausibly compresses the range of the outcome. The instruments also \
+             differ: what we scored as a single composite was previously reported as three \
+             correlated subscales, and composites tend to attenuate contrasts that live in one \
+             component. We therefore read our estimate as compatible with the earlier literature \
+             rather than contradicting it, while acknowledging that neither reading is settled by \
+             these data.",
+            "Several limitations bound how far the result for stratum {i} should travel. \
+             Recruitment ran through a single institution, so selection effects operating at the \
+             point of referral are not addressed by our design. The follow-up window closed \
+             before the outcome would be expected to stabilise in a minority of participants, and \
+             those cases are necessarily represented by their last available measurement. The \
+             analysis further assumes that dropout is unrelated to the outcome after conditioning \
+             on the covariate set, an assumption we can probe but not verify. We report the \
+             complete-case and imputed estimates side by side so readers can weigh both.",
+        ];
+
+        let mut m = String::from(
+            "Title: Sleep Restriction and Declarative Memory Consolidation in Young Adults\n\n",
+        );
+        m.push_str(
+            "Abstract\nWe examined whether a single night of restricted sleep degrades overnight \
+             consolidation of declarative memory in healthy young adults, and whether any effect \
+             survives adjustment for baseline encoding strength. Across four testing waves we \
+             measured cued recall before and after a sleep opportunity, varying only the length \
+             of that opportunity between arms.\n\n",
+        );
+        let mut i = 0usize;
+        for heading in ["Introduction", "Methods", "Results", "Discussion"] {
+            m.push_str(heading);
+            m.push('\n');
+            if heading == "Results" {
+                m.push_str(
+                    "Restricted sleep reduced overnight recall relative to the control arm \
+                     (t(47) = 3.2, p = 0.002, d = 0.46). The adjusted contrast was unchanged in \
+                     direction and magnitude (t(45) = 3.0, p = 0.004).\n\n",
+                );
+            }
+            for _ in 0..10 {
+                i += 1;
+                m.push_str(&PARAS[i % PARAS.len()].replace("{i}", &i.to_string()));
+                m.push_str("\n\n");
+            }
+        }
+        m.push_str(
+            "Conclusion\nA single night of restricted sleep measurably reduced overnight \
+             declarative consolidation in this sample, with the caveats above.\n",
+        );
+        m
+    }
+
+    /// THE regression guard. The pipeline's AI lane must obey the SHARED
+    /// memory-safety gate (`models::select_deep_model`), on a manuscript long
+    /// enough for the choice to matter.
+    ///
+    /// Before the fix this lane called `slm1_model()` through an ungated
+    /// `perplexity_model()`, so it loaded the full 7B on ANY machine with the
+    /// GGUF on disk — bypassing both the >=16GB structural gate and the RAM
+    /// courtesy check, and turning this fixture into a multi-hour run on 8GB.
+    /// `GAPLY_DISABLE_DEEP=1` is the product's own "no deep model" decision; it
+    /// had NO effect on this lane before, because the lane never consulted the
+    /// gate that reads it. Asserting on the model NAME (not on wall-clock) keeps
+    /// this deterministic on a loaded CI box.
+    #[test]
+    fn ai_lane_honours_the_shared_memory_gate_on_a_realistic_manuscript() {
+        use std::cell::RefCell;
+
+        force_heuristic();
+        let text = realistic_manuscript();
+        let words = text.split_whitespace().count();
+        assert!(
+            words > 3000,
+            "fixture must stay realistic-length or it stops guarding anything; got {words} words"
+        );
+
+        let db = Arc::new(Database::in_memory().expect("in-memory db"));
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+        let path = std::env::temp_dir()
+            .join(format!("gaply_ai_gate_{}_{}.txt", std::process::id(), now_epoch()));
+        std::fs::write(&path, &text).expect("write temp manuscript");
+
+        let events: RefCell<Vec<AnalysisEvent>> = RefCell::new(Vec::new());
+        let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
+        let res = run_pipeline_inner(
+            db,
+            embedder,
+            path.to_string_lossy().to_string(),
+            Some("AI gate regression".into()),
+            &emit,
+        );
+        let _ = std::fs::remove_file(&path);
+        res.expect("pipeline should complete without error");
+
+        let summary = events
+            .into_inner()
+            .into_iter()
+            .find_map(|e| match e {
+                AnalysisEvent::StageCompleted { stage, summary } if stage == "ai" => Some(summary),
+                _ => None,
+            })
+            .expect("the ai lane must complete and report which model ran");
+
+        // The lane reports `model.name()`. The gate said "no deep model", so the
+        // interim heuristic must be what scored the document.
+        assert!(
+            summary.contains("heuristic frequency proxy"),
+            "gate said HeuristicOnly, so the heuristic must have scored it; got {summary:?}"
+        );
+        // And explicitly NOT either candle tier — the exact bypass that regressed.
+        for forbidden in ["candle", "Qwen"] {
+            assert!(
+                !summary.contains(forbidden),
+                "a gated-off run must not load a candle model; got {summary:?}"
+            );
+        }
     }
 
     fn run_and_get_report(db: &Arc<Database>, embedder: Arc<dyn Embedder>) -> serde_json::Value {

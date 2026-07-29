@@ -28,7 +28,7 @@
 //! the Set-5 language downgrade) live in gaply-core.
 
 use gaply_core::ai_detect::{
-    self, ClassifiedAnalysis, HeuristicModel, PerplexityModel, COMPACT_MAX_DEEP_TOKENS,
+    self, ClassifiedAnalysis, HeuristicModel, COMPACT_MAX_DEEP_TOKENS,
     DEFAULT_MAX_CLASSIFIED_PASSAGES, DEFAULT_MAX_DEEP_PASSAGES, DEFAULT_MAX_DEEP_TOKENS,
 };
 use gaply_core::extract::ExtractionResult;
@@ -253,13 +253,9 @@ pub fn run_aicheck_flow(
     should_cancel: &dyn Fn() -> bool,
 ) -> Result<ClassifiedAnalysis, ai_detect::Cancelled> {
     // Measured resident of the Stage-1 LM (Qwen2.5-0.5B Q4) ≈ 385MB → guard ~400MB.
+    // (The DEEP tiers' guards live with the shared gate in `crate::models`, since
+    // the pipeline's AI lane must apply the identical numbers.)
     const STAGE1_LM_RESIDENT_BYTES: u64 = 400 * 1024 * 1024;
-    // Compact 1.5B deep verifier (Q4 GGUF 986MB + candle repack cache/activations)
-    // ≈ 1.5GB working set → guard 1.6GB (the courtesy check then asks ~2.4GB free).
-    const MINI_RESIDENT_BYTES: u64 = 1600 * 1024 * 1024;
-    // Full 7B: a conservative TRANSIENT guard on top of the structural ≥16GB
-    // total-RAM gate (deep_tier) — ~6GB → the courtesy check asks ~9GB free.
-    const FULL_7B_RESIDENT_BYTES: u64 = 6 * 1024 * 1024 * 1024;
     let mut stage1_skipped_for_memory = false;
     // Bundled norms (no model) — used by BOTH phases.
     let norms = gaply_core::stage1_norms::Stage1Norms::bundled();
@@ -319,49 +315,18 @@ pub fn run_aicheck_flow(
     // memory FREED by phase A's drop — a LOWER bar than when the 0.5B was still
     // resident. Model scoped to this block, dropped at the brace.
     let tiered = {
-        // DEEP VERIFIER (Set E — un-idled): the DeepTier gate (unchanged) decides
-        // which model the machine is entitled to; the RAM courtesy check guards
-        // the actual load. `deep_kind` carries the honest outcome (incl. the two
-        // low-memory states) into the coverage note. `deep_norm` places the
-        // re-scored passages against the deep model's OWN norm (mini only today).
-        let (deep_lm, deep_kind, deep_norm_id): (
-            Option<Box<dyn PerplexityModel>>,
-            ai_detect::DeepKind,
-            Option<String>,
-        ) = match crate::models::deep_tier_from_env() {
-            crate::models::DeepTier::Full7B => {
-                if crate::models::enough_free_memory(FULL_7B_RESIDENT_BYTES) {
-                    match crate::models::slm1_model() {
-                        Some(m) => (Some(m), ai_detect::DeepKind::Full, crate::models::slm1_model_id()),
-                        None => (None, ai_detect::DeepKind::Absent, None),
-                    }
-                } else {
-                    tracing::warn!("AI Check: 7B deep verifier skipped this run — low free memory");
-                    (None, ai_detect::DeepKind::SkippedLowMemory, None)
-                }
-            }
-            crate::models::DeepTier::Mini => {
-                if crate::models::enough_free_memory(MINI_RESIDENT_BYTES) {
-                    match crate::models::slm1_mini_model() {
-                        Some(m) => (Some(m), ai_detect::DeepKind::Compact, crate::models::slm1_mini_model_id()),
-                        None => (None, ai_detect::DeepKind::Absent, None),
-                    }
-                } else {
-                    tracing::warn!("AI Check: compact deep verifier skipped this run — low free memory");
-                    (None, ai_detect::DeepKind::SkippedLowMemory, None)
-                }
-            }
-            crate::models::DeepTier::HeuristicOnly => {
-                // A present-but-RAM-gated 7B (machine below the ~16GB floor with
-                // no compact fallback) reads as GatedLowRam; anything else Absent.
-                let kind = if crate::models::slm1_present() && !crate::models::slm1_mini_present() {
-                    ai_detect::DeepKind::GatedLowRam
-                } else {
-                    ai_detect::DeepKind::Absent
-                };
-                (None, kind, None)
-            }
-        };
+        // DEEP VERIFIER (Set E — un-idled): the DeepTier gate decides which model
+        // the machine is entitled to; the RAM courtesy check guards the actual
+        // load. Both now live in ONE place — `crate::models::select_deep_model`,
+        // shared with the pipeline's AI lane so the two can't drift apart.
+        // `deep_kind` carries the honest outcome (incl. the two low-memory
+        // states) into the coverage note. `deep_norm` places the re-scored
+        // passages against the deep model's OWN norm (mini only today).
+        let crate::models::DeepSelection {
+            model: deep_lm,
+            kind: deep_kind,
+            norm_id: deep_norm_id,
+        } = crate::models::select_deep_model();
         let deep_norm = deep_norm_id.as_deref().and_then(|id| norms.for_model(id));
 
         // Honest LIVE note when the deep tier was skipped/gated this run.

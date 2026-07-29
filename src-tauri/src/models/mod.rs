@@ -14,7 +14,7 @@ pub mod quantized_qwen2_lowmem;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use gaply_core::ai_detect::{ClassifyClient, HeuristicModel, PerplexityModel};
+use gaply_core::ai_detect::{ClassifyClient, DeepKind, HeuristicModel, PerplexityModel};
 use gaply_core::verify_agent::{MockProxyClient, ProxyClient};
 
 use crate::models::candle_perplexity::CandlePerplexityModel;
@@ -414,15 +414,23 @@ fn page_size_bytes() -> u64 {
     }
 }
 
-/// The RAM courtesy check: is there enough free+reclaimable memory to load a
+/// The RAM courtesy check, PURE: does `free` free+reclaimable memory hold a
 /// model with `resident_bytes` working set (require ~1.5×, so activations +
 /// the aarch64 repack cache fit without swap-thrashing)? `None` free (non-macOS
-/// or query failure) → `true` (allow — unchanged behaviour).
-pub fn enough_free_memory(resident_bytes: u64) -> bool {
-    match free_memory_bytes() {
+/// or query failure) → `true` (allow — unchanged behaviour). Split out of
+/// [`enough_free_memory`] so the gate can be unit-tested against SIMULATED
+/// memory rather than whatever the host happens to have free at test time.
+pub fn fits_free_memory(free: Option<u64>, resident_bytes: u64) -> bool {
+    match free {
         Some(free) => free >= resident_bytes.saturating_mul(3) / 2,
         None => true,
     }
+}
+
+/// The RAM courtesy check against the LIVE host reading — see
+/// [`fits_free_memory`] for the arithmetic (unchanged).
+pub fn enough_free_memory(resident_bytes: u64) -> bool {
+    fits_free_memory(free_memory_bytes(), resident_bytes)
 }
 
 /// Minimum total RAM to run the SLM-1 7B deep pass: 15 GiB (framed to users as
@@ -576,6 +584,114 @@ pub fn deep_tier_from_env() -> DeepTier {
     )
 }
 
+/// Measured resident working set of the COMPACT 1.5B verifier (Q4 GGUF 986MB +
+/// candle repack cache/activations) ≈ 1.5GB → guard 1.6GB, so the courtesy
+/// check asks for ~2.4GB free.
+pub const MINI_RESIDENT_BYTES: u64 = 1600 * 1024 * 1024;
+/// Full 7B: a conservative TRANSIENT guard on top of the STRUCTURAL ≥16GB
+/// total-RAM gate in [`deep_tier`] — ~6GB → the courtesy check asks ~9GB free.
+pub const FULL_7B_RESIDENT_BYTES: u64 = 6 * 1024 * 1024 * 1024;
+
+/// What the memory-safety gate decided to load for an AI-detection pass.
+/// `Skip` carries the honest [`DeepKind`] reason so every caller labels the
+/// outcome truthfully instead of inventing its own wording.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeepPlan {
+    /// Load the full 7B ([`slm1_model`]).
+    LoadFull,
+    /// Load the compact 1.5B ([`slm1_mini_model`]).
+    LoadMini,
+    /// Load nothing — the reason is the carried `DeepKind`.
+    Skip(DeepKind),
+}
+
+/// THE gate. Composes the STRUCTURAL tier decision ([`deep_tier`] — total RAM,
+/// the force/disable overrides, which files exist) with the PER-RUN RAM
+/// courtesy check ([`fits_free_memory`]), and says what may actually load.
+///
+/// Pure, so it is unit-tested against simulated memory. It exists as ONE
+/// function because both AI-detection consumers must agree: the AI Check flow
+/// (`crate::aicheck::run_aicheck_flow`) and the PublishReady pipeline's AI lane
+/// (`crate::pipeline`, via [`perplexity_model`]). The pipeline previously
+/// bypassed all of this and loaded the 7B unconditionally — proven-fatal on
+/// 8GB — which is exactly the drift a single shared gate prevents.
+pub fn plan_deep_load(
+    tier: DeepTier,
+    free: Option<u64>,
+    full_present: bool,
+    mini_present: bool,
+) -> DeepPlan {
+    match tier {
+        DeepTier::Full7B => {
+            if fits_free_memory(free, FULL_7B_RESIDENT_BYTES) {
+                DeepPlan::LoadFull
+            } else {
+                DeepPlan::Skip(DeepKind::SkippedLowMemory)
+            }
+        }
+        DeepTier::Mini => {
+            if fits_free_memory(free, MINI_RESIDENT_BYTES) {
+                DeepPlan::LoadMini
+            } else {
+                DeepPlan::Skip(DeepKind::SkippedLowMemory)
+            }
+        }
+        // A present-but-RAM-gated 7B (machine below the ~16GB floor with no
+        // compact fallback) reads as GatedLowRam; anything else Absent.
+        DeepTier::HeuristicOnly => {
+            let kind = if full_present && !mini_present {
+                DeepKind::GatedLowRam
+            } else {
+                DeepKind::Absent
+            };
+            DeepPlan::Skip(kind)
+        }
+    }
+}
+
+/// The outcome of running [`plan_deep_load`] and honouring it: the model that
+/// actually loaded (or `None`), the honest [`DeepKind`] label for the coverage
+/// note, and the norms key for placing re-scored passages against that model's
+/// own absolute norm.
+pub struct DeepSelection {
+    pub model: Option<Box<dyn PerplexityModel>>,
+    pub kind: DeepKind,
+    pub norm_id: Option<String>,
+}
+
+/// Run [`plan_deep_load`] against this machine + env and load whatever it
+/// permits. The ONE entry point for "give me the deep model I'm allowed to
+/// run" — used by the AI Check flow directly and by the pipeline's AI lane via
+/// [`perplexity_model`]. A permitted-but-unloadable model degrades to `Absent`
+/// (the honesty contract of [`slm1_model`]: never a silent stand-in).
+pub fn select_deep_model() -> DeepSelection {
+    let tier = deep_tier_from_env();
+    let full_present = slm1_present();
+    let mini_present = slm1_mini_present();
+    match plan_deep_load(tier, free_memory_bytes(), full_present, mini_present) {
+        DeepPlan::LoadFull => match slm1_model() {
+            Some(model) => {
+                DeepSelection { model: Some(model), kind: DeepKind::Full, norm_id: slm1_model_id() }
+            }
+            None => DeepSelection { model: None, kind: DeepKind::Absent, norm_id: None },
+        },
+        DeepPlan::LoadMini => match slm1_mini_model() {
+            Some(model) => DeepSelection {
+                model: Some(model),
+                kind: DeepKind::Compact,
+                norm_id: slm1_mini_model_id(),
+            },
+            None => DeepSelection { model: None, kind: DeepKind::Absent, norm_id: None },
+        },
+        DeepPlan::Skip(kind) => {
+            if kind == DeepKind::SkippedLowMemory {
+                tracing::warn!(?tier, "deep verifier skipped this run — low free memory");
+            }
+            DeepSelection { model: None, kind, norm_id: None }
+        }
+    }
+}
+
 #[cfg(test)]
 mod ram_courtesy_tests {
     use super::{enough_free_memory, free_memory_bytes, total_physical_ram_bytes};
@@ -664,6 +780,95 @@ mod deep_tier_gate_tests {
     }
 }
 
+/// THE shared memory-safety gate, tested against SIMULATED free memory so the
+/// assertions are the same on any host. Guards the exact regression that let
+/// the PublishReady pipeline load the 7B on an 8GB machine: the pipeline's AI
+/// lane and AI Check now run this one function, so a tier the gate refuses is
+/// refused for BOTH lanes.
+#[cfg(test)]
+mod deep_plan_gate_tests {
+    use super::{
+        model_for_selection, plan_deep_load, DeepKind, DeepPlan, DeepSelection, DeepTier,
+        FULL_7B_RESIDENT_BYTES, MINI_RESIDENT_BYTES,
+    };
+    const GB: u64 = 1024 * 1024 * 1024;
+
+    #[test]
+    fn low_free_memory_refuses_every_real_model() {
+        // The courtesy check asks for 1.5x the resident guard. Simulate a host
+        // sitting just under each bar and confirm the model is refused, with the
+        // honest "this run" reason (NOT the structural GatedLowRam).
+        let just_under_mini = Some(MINI_RESIDENT_BYTES * 3 / 2 - 1);
+        assert_eq!(
+            plan_deep_load(DeepTier::Mini, just_under_mini, true, true),
+            DeepPlan::Skip(DeepKind::SkippedLowMemory),
+            "compact tier must be refused when free memory is under ~2.4GB"
+        );
+        let just_under_full = Some(FULL_7B_RESIDENT_BYTES * 3 / 2 - 1);
+        assert_eq!(
+            plan_deep_load(DeepTier::Full7B, just_under_full, true, true),
+            DeepPlan::Skip(DeepKind::SkippedLowMemory),
+            "7B must be refused when free memory is under ~9GB"
+        );
+    }
+
+    #[test]
+    fn ample_free_memory_permits_the_tier_the_machine_earned() {
+        assert_eq!(plan_deep_load(DeepTier::Mini, Some(4 * GB), true, true), DeepPlan::LoadMini);
+        assert_eq!(plan_deep_load(DeepTier::Full7B, Some(24 * GB), true, false), DeepPlan::LoadFull);
+        // Unknown free memory (non-macOS / query failure) allows — unchanged.
+        assert_eq!(plan_deep_load(DeepTier::Mini, None, true, true), DeepPlan::LoadMini);
+    }
+
+    #[test]
+    fn heuristic_only_tier_reports_gated_vs_absent_honestly() {
+        // Present-but-structurally-gated 7B with no compact fallback: GatedLowRam
+        // ("this machine can't"), never SkippedLowMemory ("not this run").
+        assert_eq!(
+            plan_deep_load(DeepTier::HeuristicOnly, Some(8 * GB), true, false),
+            DeepPlan::Skip(DeepKind::GatedLowRam)
+        );
+        // Nothing on disk at all is simply Absent.
+        assert_eq!(
+            plan_deep_load(DeepTier::HeuristicOnly, Some(8 * GB), false, false),
+            DeepPlan::Skip(DeepKind::Absent)
+        );
+    }
+
+    /// THE regression, stated as the machine it happened on: an 8GB M1 Air with
+    /// BOTH GGUFs on disk. The structural gate already yields Mini (never the
+    /// 7B — `deep_tier_gate_tests` pins that); the courtesy check then decides
+    /// whether even the compact model loads this run. Neither branch is ever
+    /// `LoadFull`, which is the whole point.
+    #[test]
+    fn eight_gb_machine_never_plans_the_full_7b() {
+        for free in [64 * 1024 * 1024, 1_500_000_000, 4 * GB, 7 * GB] {
+            let plan = plan_deep_load(DeepTier::Mini, Some(free), true, true);
+            assert_ne!(plan, DeepPlan::LoadFull, "8GB machine must never plan the 7B (free={free})");
+            assert!(
+                matches!(plan, DeepPlan::LoadMini | DeepPlan::Skip(DeepKind::SkippedLowMemory)),
+                "expected compact-or-skip, got {plan:?} (free={free})"
+            );
+        }
+    }
+
+    /// Every refusal must land on the interim heuristic, never on a candle
+    /// model — the fallback the pipeline's AI lane depends on to stay fast.
+    #[test]
+    fn a_refused_plan_falls_back_to_the_heuristic() {
+        for kind in [DeepKind::SkippedLowMemory, DeepKind::GatedLowRam, DeepKind::Absent] {
+            let model = model_for_selection(DeepSelection { model: None, kind, norm_id: None });
+            assert_eq!(
+                model.name(),
+                "heuristic frequency proxy (fast pre-pass)",
+                "a {kind:?} selection must fall back to the heuristic"
+            );
+            // GPT-2-shaped windowing, i.e. no 512/256 candle window.
+            assert_eq!(model.context_tokens(), 1024);
+        }
+    }
+}
+
 #[cfg(test)]
 mod mini_loader_tests {
     use super::{slm1_mini_model, slm1_mini_paths};
@@ -711,15 +916,31 @@ mod mini_loader_tests {
     }
 }
 
-/// The SLM-1 perplexity model for the AI-detection lane: the real candle
-/// `CandlePerplexityModel` when its GGUF + tokenizer are present and load,
-/// otherwise the interim [`HeuristicModel`]. NEVER fails — a user who hasn't
-/// downloaded the model must still get a working pipeline (both types implement
-/// [`PerplexityModel`], so the choice is a clean either/or at the trait
-/// boundary). Callers get a boxed trait object and don't know which ran.
+/// The perplexity model for an AI-detection lane that needs a scorer
+/// UNCONDITIONALLY (the pipeline scores every section, so it always needs one):
+/// whatever the shared memory-safety gate [`select_deep_model`] permits on this
+/// machine — the 7B, the compact 1.5B, or nothing — falling back to the interim
+/// [`HeuristicModel`] when the gate loads nothing. NEVER fails: a user who
+/// hasn't downloaded a model, or whose machine can't safely run one, still gets
+/// a working pipeline (both types implement [`PerplexityModel`], so the choice
+/// is a clean either/or at the trait boundary).
+///
+/// This routes through the SAME gate as `crate::aicheck::run_aicheck_flow`.
+/// It previously called [`slm1_model`] directly, which loaded the 7B on any
+/// machine with the file on disk — bypassing the ≥16GB structural gate and the
+/// RAM courtesy check, and producing multi-hour uncapped runs on 8GB.
 pub fn perplexity_model() -> Box<dyn PerplexityModel> {
-    slm1_model().unwrap_or_else(|| {
-        tracing::warn!("SLM-1 unavailable; using interim HeuristicModel");
+    model_for_selection(select_deep_model())
+}
+
+/// Honour a [`DeepSelection`] for callers that need a model unconditionally:
+/// the gated model when one loaded, else the interim [`HeuristicModel`].
+/// Split out of [`perplexity_model`] so the skip → heuristic mapping is
+/// unit-testable without loading a real multi-GB GGUF.
+fn model_for_selection(selection: DeepSelection) -> Box<dyn PerplexityModel> {
+    let DeepSelection { model, kind, .. } = selection;
+    model.unwrap_or_else(|| {
+        tracing::warn!(?kind, "no deep model this run; using interim HeuristicModel");
         Box::new(HeuristicModel::gpt2_like())
     })
 }
