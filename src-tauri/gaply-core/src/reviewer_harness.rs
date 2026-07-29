@@ -366,9 +366,7 @@ mod tests {
         ReviewerEvaluation {
             recommendation: rec,
             publication_probability: prob,
-            novelty_score: 0.0,
             novelty_assessment: String::new(),
-            journal_fit_score: 0.0,
             journal_fit_note: String::new(),
             body: body.to_string(),
             issues: (0..issues)

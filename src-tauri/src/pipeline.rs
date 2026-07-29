@@ -45,6 +45,16 @@ const REPORT_TTL_SECS: i64 = 30 * 24 * 3600;
 /// under the "synthesis" pseudo-stage.
 const LANE_TOTAL: usize = 6;
 
+/// Current Gregorian year from the epoch clock, for `compile_report`'s
+/// reference-recency count. Uses the mean Gregorian year (365.2425 days) rather
+/// than a calendar library — gaply-core pulls in no date crate, and the only
+/// consumer is a "how many references are older than N years" COUNT, where being
+/// a day off at a New Year boundary changes nothing.
+fn current_year() -> i32 {
+    const SECS_PER_MEAN_YEAR: i64 = 31_556_952; // 365.2425 * 86_400
+    (1970 + now_epoch() / SECS_PER_MEAN_YEAR) as i32
+}
+
 /// Semantic query used to retrieve ingested journal guidelines for the
 /// checklist. Broad enough to surface the common requirement families
 /// (length, abstract, disclosures, reference style).
@@ -303,7 +313,19 @@ fn run_pipeline_inner(
                 tracing::warn!(error = %e, "build_checklist failed; empty checklist");
                 Vec::new()
             });
-        Ok(compile_report(&outcome, &validation, Some(&verification), Some(&plag), checklist))
+        // `extraction` unlocks the three extraction-derived finding families
+        // (stylometry, tables, reference recency) — pure, no model, no network.
+        // `current_year` is injected rather than read inside the core so
+        // compile_report stays deterministic (the `now_epoch()` convention).
+        Ok(compile_report(
+            &outcome,
+            &validation,
+            Some(&verification),
+            Some(&plag),
+            Some(&extraction),
+            current_year(),
+            checklist,
+        ))
     })();
 
     let report = match report {
@@ -440,6 +462,33 @@ A night of sleep improved memory consolidation in this sample.
             "report has a non-empty disclaimer"
         );
         assert!(report["findings"].is_array(), "report has a findings array");
+
+        // The pipeline must actually PASS the extraction to compile_report — the
+        // core tests cover how the extraction-derived findings are built, but only
+        // this asserts the call site is live. `signal:` provenance is unique to
+        // them, and the fixture has a reference list, so recency always fires.
+        let findings = report["findings"].as_array().unwrap();
+        let derived: Vec<&serde_json::Value> = findings
+            .iter()
+            .filter(|f| {
+                f["provenance"]
+                    .as_array()
+                    .map(|ps| ps.iter().any(|p| p.as_str().is_some_and(|s| s.starts_with("signal:"))))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert!(
+            !derived.is_empty(),
+            "no extraction-derived finding reached the report — the compile_report call site is \
+             not passing the extraction; findings = {findings:?}"
+        );
+        // Their EvidenceRecords must exist 1:1 alongside, same as every other
+        // finding (the pairing is by construction, this proves it survives here).
+        assert_eq!(
+            report["evidence"].as_array().map(|e| e.len()),
+            Some(findings.len()),
+            "evidence must stay 1:1 with findings after the new families are added"
+        );
     }
 
     /// Force the interim heuristic perplexity model (no candle load) so pipeline

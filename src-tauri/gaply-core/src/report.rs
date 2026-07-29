@@ -205,11 +205,23 @@ fn paired(finding: Finding, raw_confidence: f64) -> ReportFinding {
 
 /// Aggregate the debate outcome + underlying agent reports into the final,
 /// priority-ordered report.
+///
+/// `extraction` unlocks the three EXTRACTION-DERIVED finding families below
+/// (document stylometry, tables, reference recency). All three are pure
+/// functions of the extraction — no model, no network — and were previously
+/// computed-and-discarded (stylometry) or extracted-and-never-surfaced (tables,
+/// reference years) on the PublishReady path. `None` skips all three.
+///
+/// `current_year` is injected rather than read from the clock so this stays
+/// pure and deterministically testable (the `now_epoch()` convention); it is
+/// only used by the reference-recency count.
 pub fn compile_report(
     outcome: &DebateOutcome,
     validation: &StatsValidityReport,
     verification: Option<&VerificationReport>,
     plagiarism: Option<&PlagiarismReport>,
+    extraction: Option<&ExtractionResult>,
+    current_year: i32,
     checklist: Vec<ChecklistItem>,
 ) -> PublishReadyReport {
     let mut items: Vec<ReportFinding> = Vec::new();
@@ -316,6 +328,17 @@ pub fn compile_report(
                 m.similarity, // raw cosine — already the evidence signal
             ));
         }
+    }
+
+    // --- extraction-derived findings (pure; no model, no network) -------------
+    // Signals that were already being computed (or already extracted) on this
+    // path and then dropped. Each goes through `paired()` like every other
+    // finding, so the EvidenceRecord's ConfidenceKind / RoutingHint /
+    // limitations are DERIVED from the agent, never hand-set.
+    if let Some(ex) = extraction {
+        items.extend(stylometry_findings(ex));
+        items.extend(table_findings(ex));
+        items.extend(reference_recency_findings(ex, current_year));
     }
 
     // --- soft round-table opinions (Verification + Plagiarism are covered in
@@ -428,6 +451,366 @@ pub fn compile_report(
             revised_agents: outcome.revised_agents.clone(),
         },
         disclaimer: DISCLAIMER.into(),
+    }
+}
+
+// ============================================================================
+// Extraction-derived findings (pure: no model, no network, no manuscript text)
+// ============================================================================
+//
+// Three signals that PublishReady already had and threw away:
+//
+//  1. document stylometry — `ai_signals::document_features` is pure and runs in
+//     microseconds off the extraction, but was only ever called by AI Check's
+//     `analyze_stage1`; the PublishReady pipeline calls `detect_extraction`, so
+//     these were computed for AI Check runs and simply never computed here.
+//  2. tables — extracted into `ExtractionResult.tables` and never surfaced.
+//  3. reference years — parsed into `Reference.year` and never aggregated.
+//
+// Every value below is a COUNT, RATIO or ENUM. No manuscript prose enters a
+// finding's `title` or `detail` (and `detail` is dropped at the proxy boundary
+// regardless — see `reviewer_agent::build_review_payload`). Provenance uses the
+// existing `signal:` / `evidence:` / `agent:` prefixes from
+// `crate::evidence::STRUCTURED_PREFIXES`, so these reach the reviewer through
+// the existing filter with no payload change.
+
+/// Coarse confidence for a stylometric finding. Mirrors the constants the
+/// AI-detection swarm opinion already uses (`swarm::adapters::from_ai_detection`):
+/// there is no calibrated per-signal confidence for stylometry, which is exactly
+/// what `ConfidenceKind::DeliberatelyCoarse` records. Never threshold on these.
+const STYLO_CONF_HIGH: f64 = 0.6;
+const STYLO_CONF_MODERATE: f64 = 0.5;
+
+/// Structural counts carry NO confidence: `AgentKind::Extraction` maps to
+/// `ConfidenceKind::NoSignal` + `RoutingHint::HeldOut`, i.e. "placeholder, never
+/// used for routing". 0.0 rather than a plausible-looking number, so nothing
+/// implies a precision the record's own semantics say does not exist.
+const STRUCTURAL_CONF: f64 = 0.0;
+
+/// A reference older than this many years counts as pre-dating the "recent
+/// literature" window. Ten years is a conventional review horizon. This is a
+/// COUNT for a human to weigh, never a judgement about any single reference —
+/// foundational work is legitimately old.
+const REFERENCE_RECENCY_YEARS: i32 = 10;
+
+/// Above this share of DATED references falling outside the window, the count is
+/// worth a reviewer's attention (Minor); at or below, it is Info context.
+const STALE_REFERENCE_MINOR_SHARE: f64 = 0.5;
+
+/// Deviation strength for one stylometric signal. Local to this mapping: AI
+/// Check's `SignalLevel` also carries a `Low` rendering row, but a non-deviating
+/// signal produces NO finding here (a non-event is not a finding — the same rule
+/// the plagiarism block above follows for zero matches).
+#[derive(Clone, Copy)]
+enum Deviation {
+    Notable,
+    Moderate,
+}
+
+impl Deviation {
+    fn confidence(self) -> f64 {
+        match self {
+            Deviation::Notable => STYLO_CONF_HIGH,
+            Deviation::Moderate => STYLO_CONF_MODERATE,
+        }
+    }
+}
+
+/// Build one stylometric finding. Always `Minor` — these are soft, proficiency-
+/// correlated signals, never a hard problem with the manuscript.
+fn stylo_finding(signal: &str, dev: Deviation, title: String, detail: String, evidence: String) -> ReportFinding {
+    let confidence = dev.confidence();
+    paired(
+        Finding {
+            severity: FindingSeverity::Minor,
+            tier: CertaintyTier::AiAssessedModerate,
+            certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
+            agent: AgentKind::AiDetection,
+            title,
+            detail,
+            confidence,
+            provenance: vec![
+                format!("signal:{signal}"),
+                format!("evidence:{evidence}"),
+                "agent:ai_detection (document-level stylometry)".into(),
+            ],
+        },
+        confidence,
+    )
+}
+
+/// Document-level writing/citation-hygiene signals from
+/// [`crate::ai_signals::document_features`] — PURE, µs, no model.
+///
+/// SUBSET, deliberately. The AI-AUTHORSHIP tells in `DocumentFeatures`
+/// (`em_dash_per100`, `template_density`, `function_word_ratio`) are EXCLUDED:
+/// they answer "was this written by a model", which is AI Check's job, not a
+/// reviewer's. What is kept answers "is this well written and consistently
+/// cited", which is.
+///
+/// Thresholds mirror `ai_signals::document_evidence`'s rendering thresholds so
+/// the two consumers agree on what "deviating" means; they are stated here
+/// rather than reused because that function also emits `Low` rows and rows this
+/// subset excludes.
+fn stylometry_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
+    let norms = crate::ai_signals::StyloNorms::bundled();
+    let f = crate::ai_signals::document_features(ex, &norms);
+    let h = &norms.human_academic;
+    let mut out = Vec::new();
+
+    // Sentence-length variation: uniform sentence length reads as monotonous.
+    if let Some(cv) = f.sentence_length_cv {
+        let dev = if cv < h.sentence_length_cv_median * 0.6 {
+            Some(Deviation::Notable)
+        } else if cv < h.sentence_length_cv_median * 0.85 {
+            Some(Deviation::Moderate)
+        } else {
+            None
+        };
+        if let Some(dev) = dev {
+            out.push(stylo_finding(
+                "sentence_length_variation",
+                dev,
+                "low sentence-length variation".into(),
+                format!(
+                    "sentence-length CV {cv:.2} against a human-academic reference of \
+                     {:.2} — uniform sentence length reads as monotonous to a reader",
+                    h.sentence_length_cv_median
+                ),
+                format!("cv={cv:.2};reference={:.2}", h.sentence_length_cv_median),
+            ));
+        }
+    }
+
+    // Lexical diversity (MTLD): two-sided — unusually low OR high both deviate.
+    if let (Some(m), Some(deviation)) = (f.mtld, f.mtld_deviation) {
+        if deviation > h.mtld_median * 0.35 {
+            out.push(stylo_finding(
+                "lexical_diversity",
+                Deviation::Moderate,
+                "lexical diversity deviates from the academic reference".into(),
+                format!(
+                    "MTLD {m:.0}, deviating {deviation:.0} from a human-academic reference of {:.0}",
+                    h.mtld_median
+                ),
+                format!("mtld={m:.0};deviation={deviation:.0};reference={:.0}", h.mtld_median),
+            ));
+        }
+    }
+
+    // Repetition: repeated 3-grams.
+    if let Some(r) = f.ngram_repetition {
+        if r > 0.15 {
+            out.push(stylo_finding(
+                "ngram_repetition",
+                Deviation::Moderate,
+                format!("{:.0}% of 3-grams are repeated", r * 100.0),
+                format!(
+                    "{:.0}% repeated 3-grams across the document — check for redundant phrasing",
+                    r * 100.0
+                ),
+                format!("repetition={r:.3}"),
+            ));
+        }
+    }
+
+    // Citation density, with the honest parse-failure state kept DISTINCT from a
+    // genuinely sparsely-cited document (the same distinction `document_evidence`
+    // makes: references present + zero attributable in-text citations is a PARSE
+    // failure, not evidence about the manuscript).
+    if let Some(d) = f.citation_density {
+        let refs = f.reference_count.unwrap_or(0);
+        if d == 0.0 && refs > 0 {
+            // Info, not Minor: this is a statement about OUR parse, not the paper.
+            out.push(paired(
+                Finding {
+                    severity: FindingSeverity::Info,
+                    tier: CertaintyTier::AiAssessedModerate,
+                    certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
+                    agent: AgentKind::AiDetection,
+                    title: "citation density could not be measured".into(),
+                    detail: format!(
+                        "{refs} reference entries parsed but no in-text citations could be \
+                         attributed — the in-text citation style was not recognised, so density \
+                         is unavailable rather than zero"
+                    ),
+                    confidence: STYLO_CONF_MODERATE,
+                    provenance: vec![
+                        "signal:citation_density".into(),
+                        format!("evidence:in_text=0;references={refs};status=unavailable"),
+                        "agent:ai_detection (document-level stylometry)".into(),
+                    ],
+                },
+                STYLO_CONF_MODERATE,
+            ));
+        } else if d < 1.0 {
+            out.push(stylo_finding(
+                "citation_density",
+                Deviation::Notable,
+                format!("low citation density ({d:.1} per 1000 words)"),
+                format!("{d:.1} in-text citations per 1000 words across {refs} reference entries"),
+                format!("density={d:.2};references={refs}"),
+            ));
+        } else if d < 5.0 {
+            out.push(stylo_finding(
+                "citation_density",
+                Deviation::Moderate,
+                format!("moderate citation density ({d:.1} per 1000 words)"),
+                format!("{d:.1} in-text citations per 1000 words across {refs} reference entries"),
+                format!("density={d:.2};references={refs}"),
+            ));
+        }
+    }
+
+    // Citation style consistency — a journal-compliance signal (mixed styles are
+    // a common desk-reject trigger). No `document_evidence` row exists for this
+    // field, so the threshold is stated here, matching the fraction-shaped
+    // convention `doi_syntax_validity` uses below.
+    if let Some(c) = f.citation_style_consistency {
+        if c < 0.9 {
+            out.push(stylo_finding(
+                "citation_style_consistency",
+                Deviation::Moderate,
+                format!("mixed in-text citation styles ({:.0}% dominant)", c * 100.0),
+                format!(
+                    "{:.0}% of in-text citations follow the dominant style — the remainder mix \
+                     styles, which most journals reject on format",
+                    c * 100.0
+                ),
+                format!("consistency={c:.2}"),
+            ));
+        }
+    }
+
+    // DOI syntax validity — malformed DOIs in the reference list.
+    if let Some(v) = f.doi_syntax_validity {
+        if v < 0.9 {
+            out.push(stylo_finding(
+                "doi_syntax_validity",
+                Deviation::Moderate,
+                format!("{:.0}% of DOIs are well-formed", v * 100.0),
+                format!(
+                    "{:.0}% of DOI-bearing references have syntactically valid DOIs — the rest \
+                     will not resolve",
+                    v * 100.0
+                ),
+                format!("valid={v:.2}"),
+            ));
+        }
+    }
+
+    out
+}
+
+/// Table presence + caption completeness. A structural COUNT over
+/// `ExtractionResult.tables`, which extraction has always produced and nothing
+/// has ever surfaced. No table content is read — only the label and whether a
+/// caption was detected.
+///
+/// `AgentKind::Extraction` is the accurate producer, and its
+/// `ConfidenceKind::NoSignal` / `RoutingHint::HeldOut` mapping is correct by
+/// construction: a count is not a probability, and the record says so.
+fn table_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
+    let total = ex.tables.len();
+    if total == 0 {
+        // A paper with no tables is not a finding.
+        return Vec::new();
+    }
+    let captioned = ex.tables.iter().filter(|t| t.caption.is_some()).count();
+    let complete = captioned == total;
+    paired(
+        Finding {
+            severity: if complete { FindingSeverity::Info } else { FindingSeverity::Minor },
+            tier: CertaintyTier::AiAssessedModerate,
+            certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
+            agent: AgentKind::Extraction,
+            title: format!("{total} table(s) detected, {captioned} with captions"),
+            detail: if complete {
+                format!("all {total} detected table(s) have a caption")
+            } else {
+                format!(
+                    "{} of {total} detected table(s) have no caption — most journals require a \
+                     caption on every table",
+                    total - captioned
+                )
+            },
+            confidence: STRUCTURAL_CONF,
+            provenance: vec![
+                "signal:tables".into(),
+                format!("evidence:tables={total};captioned={captioned}"),
+                "agent:extraction (deterministic structural count)".into(),
+            ],
+        },
+        STRUCTURAL_CONF,
+    )
+    .into_vec()
+}
+
+/// Reference recency: how much of the bibliography pre-dates the recent-literature
+/// window. Deterministic arithmetic over `Reference.year`, which extraction parses
+/// from the manuscript's OWN reference list — no network, no connector, so this
+/// works offline and is genuinely `AgentKind::Extraction` rather than Verification.
+///
+/// (`refverify` also resolves a registry-confirmed `matched_year` per reference,
+/// which is strictly better data; it lives in the verification lane's per-reference
+/// results and is not threaded here. Preferring it is an additive refinement.)
+fn reference_recency_findings(ex: &ExtractionResult, current_year: i32) -> Vec<ReportFinding> {
+    let total = ex.references.len();
+    if total == 0 {
+        // No reference list is already covered by the structural checklist.
+        return Vec::new();
+    }
+    let years: Vec<i32> = ex.references.iter().filter_map(|r| r.year).collect();
+    let dated = years.len();
+    let undated = total - dated;
+    let cutoff = current_year - REFERENCE_RECENCY_YEARS;
+    let older = years.iter().filter(|y| **y < cutoff).count();
+    // Share is over DATED references only — undated ones are reported separately
+    // rather than silently counted as either recent or old.
+    let share = if dated == 0 { 0.0 } else { older as f64 / dated as f64 };
+    let severity = if share > STALE_REFERENCE_MINOR_SHARE {
+        FindingSeverity::Minor
+    } else {
+        FindingSeverity::Info
+    };
+    let detail = if dated == 0 {
+        format!("no publication year could be parsed from any of the {total} reference entries")
+    } else {
+        format!(
+            "{older} of {dated} dated reference(s) pre-date {cutoff} ({:.0}%); \
+             {undated} reference(s) had no parseable year",
+            share * 100.0
+        )
+    };
+    paired(
+        Finding {
+            severity,
+            tier: CertaintyTier::AiAssessedModerate,
+            certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
+            agent: AgentKind::Extraction,
+            title: format!(
+                "{older} of {dated} dated reference(s) are older than {REFERENCE_RECENCY_YEARS} years"
+            ),
+            detail,
+            confidence: STRUCTURAL_CONF,
+            provenance: vec![
+                "signal:citation_recency".into(),
+                format!(
+                    "evidence:references={total};dated={dated};undated={undated};\
+                     older_than={REFERENCE_RECENCY_YEARS}y;count={older}"
+                ),
+                "agent:extraction (deterministic, local reference years)".into(),
+            ],
+        },
+        STRUCTURAL_CONF,
+    )
+    .into_vec()
+}
+
+impl ReportFinding {
+    /// Single-element vec, so the three builders above share one return type.
+    fn into_vec(self) -> Vec<ReportFinding> {
+        vec![self]
     }
 }
 

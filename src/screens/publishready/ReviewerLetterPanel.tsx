@@ -82,25 +82,20 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
         </Card>
       )}
 
+      {/* Novelty + journal fit render the backend's GROUNDED text only.
+          The numeric score ring and the "fit NN%" badge that used to sit here
+          are gone: the proxy payload carries no topic or subject matter, so
+          nothing could ground either number — and the fit badge rendered
+          `certain` at ≥65, which is the strongest claim in the design system
+          attached to the weakest evidence in the report. Both fall back to '—',
+          the same honest empty state the gate already produces for the text. */}
       <div className="gds-pr__grid">
         <Card title="Novelty vs. recent literature">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <ScoreRing score={letter.novelty.score} status="neutral" size={54} strokeWidth={5} />
-            {/* assessment is '' until the backend produces it (Set 4-A) */}
-            <span data-testid="pr-novelty">{letter.novelty.assessment || '—'}</span>
-          </div>
+          <span data-testid="pr-novelty">{letter.novelty.assessment || '—'}</span>
         </Card>
 
         <Card title={`Journal fit — ${letter.journalFit.journal} (${letter.journalFit.quartile})`}>
-          <div style={{ display: 'grid', gap: 6 }}>
-            <div>
-              <Badge status={letter.journalFit.fitScore >= 65 ? 'certain' : 'assessed'} data-testid="pr-fit">
-                fit {letter.journalFit.fitScore}%
-              </Badge>{' '}
-              {/* note is '' until the backend produces it (Set 4-A) */}
-              {letter.journalFit.note}
-            </div>
-          </div>
+          <span data-testid="pr-fit">{letter.journalFit.note || '—'}</span>
         </Card>
       </div>
 

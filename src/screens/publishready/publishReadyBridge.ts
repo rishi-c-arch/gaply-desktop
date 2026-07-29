@@ -47,10 +47,10 @@ export interface PublishReadyBridge {
 interface BackendReviewer {
   recommendation: Recommendation;
   publication_probability: number;
-  novelty_score: number;
-  /** Grounded text; '' when the gate dropped it as ungrounded (Set 4-A). */
+  /** Grounded text; '' when the gate dropped it as ungrounded (Set 4-A).
+   *  There is no `novelty_score`/`journal_fit_score` — the backend removed both
+   *  because the payload carries nothing that could ground them. */
   novelty_assessment?: string;
-  journal_fit_score: number;
   /** Grounded text; '' when the gate dropped it as ungrounded (Set 4-A). */
   journal_fit_note?: string;
   body: string;
@@ -74,13 +74,14 @@ export function adaptOutcome(o: PublishReadyOutcome, journal: TargetJournal): Pu
   const reviewerLetter: ReviewerLetter = {
     recommendation: r.recommendation,
     publicationProbability: r.publication_probability,
-    // The three Set 4-A fields — populated when the backend grounded them,
-    // left EMPTY (never faked) when the gate dropped them as ungrounded.
-    novelty: { score: r.novelty_score, assessment: r.novelty_assessment ?? '' },
+    // The Set 4-A grounded fields — populated when the backend grounded them,
+    // left EMPTY (never faked) when the gate dropped them as ungrounded. The
+    // numeric novelty/fit scores that used to sit beside them are GONE: they
+    // were unreadable by the gate and rendered as confident numbers.
+    novelty: { assessment: r.novelty_assessment ?? '' },
     journalFit: {
       journal: journal.name,
       quartile: journal.quartile,
-      fitScore: r.journal_fit_score,
       note: r.journal_fit_note ?? '',
     },
     alternatives: (r.alternatives ?? []).map((a) => ({

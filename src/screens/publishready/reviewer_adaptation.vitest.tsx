@@ -16,8 +16,8 @@ afterEach(cleanup);
 const available: ReviewerLetter = {
   recommendation: 'major_revision',
   publicationProbability: 61,
-  novelty: { score: 60, assessment: '' }, // backend doesn't produce assessment yet
-  journalFit: { journal: 'Nature', quartile: 'Q1', fitScore: 55, note: '' }, // no note yet
+  novelty: { assessment: '' }, // ungrounded -> gate emptied it
+  journalFit: { journal: 'Nature', quartile: 'Q1', note: '' }, // ungrounded -> gate emptied it
   alternatives: [], // none yet
   body: 'The manuscript is promising but needs revision before it can be accepted.',
   available: true,
@@ -28,8 +28,8 @@ const available: ReviewerLetter = {
 const unavailable: ReviewerLetter = {
   recommendation: 'unknown',
   publicationProbability: 0,
-  novelty: { score: 0, assessment: '' },
-  journalFit: { journal: 'Nature', quartile: 'Q1', fitScore: 0, note: '' },
+  novelty: { assessment: '' },
+  journalFit: { journal: 'Nature', quartile: 'Q1', note: '' },
   alternatives: [],
   body: 'deep reasoning requires cloud analysis — unavailable offline',
   available: false,
@@ -74,8 +74,8 @@ describe('ReviewerLetterPanel — backend adaptation (Option B)', () => {
   it('renders the three grounded fields when the backend produced them', () => {
     const populated: ReviewerLetter = {
       ...available,
-      novelty: { score: 60, assessment: 'incremental over prior work' },
-      journalFit: { journal: 'Nature', quartile: 'Q1', fitScore: 55, note: 'misses the word-limit requirement' },
+      novelty: { assessment: 'incremental over prior work' },
+      journalFit: { journal: 'Nature', quartile: 'Q1', note: 'misses the word-limit requirement' },
       alternatives: [{ name: 'PLOS ONE', quartile: 'Q1', reason: 'broader scope fits the analysis' }],
     };
     renderPanel(populated);
@@ -106,6 +106,8 @@ describe('adaptOutcome — backend fields -> frontend letter (Set 4e)', () => {
       reviewer: {
         recommendation: 'major_revision',
         publication_probability: 61,
+        // Legacy keys a stale backend/model might still send. They were removed
+        // as ungroundable; the adapter must simply not read them.
         novelty_score: 60,
         novelty_assessment: 'incremental over prior work',
         journal_fit_score: 55,
@@ -127,6 +129,10 @@ describe('adaptOutcome — backend fields -> frontend letter (Set 4e)', () => {
     expect(res.reviewerLetter.alternatives).toEqual([
       { name: 'PLOS ONE', quartile: 'Q1', reason: 'broader scope' },
     ]);
+    // The removed scores must not reappear on the letter, even when the backend
+    // payload still carries them.
+    expect((res.reviewerLetter.novelty as Record<string, unknown>).score).toBeUndefined();
+    expect((res.reviewerLetter.journalFit as Record<string, unknown>).fitScore).toBeUndefined();
   });
 
   it('leaves slots EMPTY when the backend omitted them (never faked)', () => {
@@ -135,13 +141,12 @@ describe('adaptOutcome — backend fields -> frontend letter (Set 4e)', () => {
       reviewer: {
         recommendation: 'minor_revision',
         publication_probability: 70,
-        novelty_score: 50,
-        journal_fit_score: 60,
         body: 'body',
         issues: [],
         warnings: [],
         available: true,
-        // novelty_assessment / journal_fit_note / alternatives ABSENT
+        // novelty_assessment / journal_fit_note / alternatives ABSENT,
+        // and no novelty_score / journal_fit_score at all (removed backend-side)
       },
       proxy_payload: { summary: { findings: [], checklist: [] } },
     };

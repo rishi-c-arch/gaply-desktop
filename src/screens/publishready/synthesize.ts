@@ -59,13 +59,11 @@ export function synthesizeReviewerLetter(
     prob = 84;
   }
 
-  // journal-fit: a higher-quartile target is harder → temper the probability
+  // journal-fit tempering: a higher-quartile target is harder, so the publication
+  // probability is reduced for it. This adjusts the PROBABILITY — it is no longer
+  // also surfaced as a standalone "fit score" (see below).
   const tr = RANK[journal.quartile] ?? 4;
-  const fitScore = Math.max(0, Math.min(100, prob - (tr === 1 ? 10 : tr === 2 ? 4 : 0)));
-  const journalProb = fitScore;
-
-  // novelty (cloud-assessed in prod; here a stable heuristic placeholder)
-  const noveltyScore = Math.round(55 + Math.min(30, report.findings.length * 2) - criticals * 5);
+  const journalProb = Math.max(0, Math.min(100, prob - (tr === 1 ? 10 : tr === 2 ? 4 : 0)));
 
   const alternatives = suggestAlternatives(journal);
 
@@ -75,31 +73,23 @@ export function synthesizeReviewerLetter(
     `${criticals} deterministic statistical issue(s), ${refuted} refuted citation(s), ` +
     `${failedChecklist} unmet guideline item(s). ` +
     `Estimated publication probability at this venue: ${journalProb}%. ` +
-    `Novelty vs. recent literature: ${noveltyScore}/100. ` +
     `This assessment is model-assisted and non-definitive; deterministic (mathematically certain) ` +
     `findings must be corrected regardless of the overall recommendation.`;
 
   return {
     recommendation,
     publicationProbability: journalProb,
-    novelty: {
-      score: noveltyScore,
-      assessment:
-        noveltyScore >= 70
-          ? 'Appears novel relative to indexed prior work.'
-          : noveltyScore >= 50
-          ? 'Moderate novelty; position the contribution clearly vs. recent work.'
-          : 'Limited apparent novelty; strengthen the gap statement.',
-    },
-    journalFit: {
-      journal: journal.name,
-      quartile: journal.quartile,
-      fitScore,
-      note:
-        fitScore >= 65
-          ? `Competitive for this ${journal.quartile} venue.`
-          : `A stretch for ${journal.quartile}; consider the alternatives below.`,
-    },
+    // Novelty + fit carry NO synthesized text here. The old heuristic
+    // (`55 + findings*2 - criticals*5`) produced a novelty score, and confident
+    // prose off the back of it ("Appears novel relative to indexed prior
+    // work."), from a formula that had never seen the manuscript's subject
+    // matter — it was counting findings. Production now has no novelty or fit
+    // score at all (the backend removed both as ungroundable), so a mock that
+    // invented one would train the demo on behaviour the real app does not
+    // have. Empty is what production returns when nothing is grounded, and the
+    // panel renders '—' for it.
+    novelty: { assessment: '' },
+    journalFit: { journal: journal.name, quartile: journal.quartile, note: '' },
     alternatives,
     body,
   };

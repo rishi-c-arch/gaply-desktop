@@ -21,12 +21,19 @@ export interface ReviewerIssue {
 
 export interface ReviewerLetter {
   recommendation: Recommendation;
-  /** 0–100. */
+  /** 0–100. Weakly grounded — derived from findings/checklist the payload
+   *  actually carries (unlike the removed novelty/fit scores). */
   publicationProbability: number;
-  /** `assessment` is '' when the backend doesn't produce it yet (Set 4-A). */
-  novelty: { score: number; assessment: string };
-  /** `note` is '' when the backend doesn't produce it yet (Set 4-A). */
-  journalFit: { journal: string; quartile: string; fitScore: number; note: string };
+  /** `assessment` is '' whenever the backend gate could not ground it.
+   *  There is deliberately NO numeric novelty score: the proxy payload carries
+   *  no topic or subject matter, so nothing could ground one. A score must be
+   *  the CONCLUSION of a real evidence pipeline (Evidence → Agent → Reviewer →
+   *  Score), never an LLM's opening guess rendered as a ring. */
+  novelty: { assessment: string };
+  /** `note` is '' whenever the backend gate could not ground it. No `fitScore`
+   *  for the same reason as `novelty` — and because ≥65 used to render a
+   *  "certain" badge on a number with zero supporting evidence. */
+  journalFit: { journal: string; quartile: string; note: string };
   /** Same-or-higher-quartile options; [] until the backend produces them. */
   alternatives: JournalAlt[];
   /** Synthesized reviewer prose (cloud-generated in production). */

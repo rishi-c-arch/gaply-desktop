@@ -2,6 +2,10 @@
 
 use serde_json::json;
 
+/// Fixed "now" for the reference-recency count. Injected rather than read from
+/// the clock so these assertions never change with the calendar.
+const TEST_YEAR: i32 = 2025;
+
 use super::*;
 use crate::extract::citations::Reference;
 use crate::refverify::{ExistenceCheck, Provenance, ReferenceVerification, UntrustedText};
@@ -118,7 +122,7 @@ fn golden_report_for_sample_manuscript() {
     );
     let checklist = checklist_from_guidelines(&extraction, MANUSCRIPT, &[guideline]);
 
-    let report = compile_report(&outcome, &validation, Some(&verification), Some(&plag), checklist);
+    let report = compile_report(&outcome, &validation, Some(&verification), Some(&plag), None, TEST_YEAR, checklist);
 
     // Golden expectations (stable, structural — not a brittle full snapshot).
     assert_eq!(report.verdict, ANSWER_PASS);
@@ -180,7 +184,7 @@ fn hard_constraint_findings_rank_first_regardless_of_soft_confidence() {
     let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
     // Synthetic plagiarism OPINION only (no PlagiarismReport) → no per-match
     // findings; the opinion still votes in consensus but yields no finding.
-    let report = compile_report(&outcome, &validation, None, None, vec![]);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![]);
 
     // Every leading finding is the CRITICAL hard constraint tier, before any
     // 1.0-confidence soft finding.
@@ -318,7 +322,7 @@ fn every_finding_carries_provenance_and_correct_tier_including_reconsidered() {
     let validation = crate::validate::validate(&crate::extract::extract_from_text(
         "T\n\nAbstract\nNo stats here.\n",
     ));
-    let report = compile_report(&outcome, &validation, Some(&final_verification), None, vec![]);
+    let report = compile_report(&outcome, &validation, Some(&final_verification), None, None, TEST_YEAR, vec![]);
 
     // EVERY finding: non-empty provenance + a label matching its tier.
     assert!(!report.findings.is_empty());
@@ -386,7 +390,7 @@ fn plagiarism_matches_fan_into_per_match_findings() {
     let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
     let validation =
         crate::validate::validate(&crate::extract::extract_from_text("T\n\nAbstract\nNo stats.\n"));
-    let report = compile_report(&outcome, &validation, None, Some(&pr), vec![]);
+    let report = compile_report(&outcome, &validation, None, Some(&pr), None, TEST_YEAR, vec![]);
 
     let plag: Vec<_> = report.findings.iter().filter(|f| f.agent == AgentKind::Plagiarism).collect();
     // One finding PER MATCH (2), aggregate opinion NOT double-counted.
@@ -422,7 +426,7 @@ fn empty_plagiarism_yields_zero_findings() {
     let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
     let validation =
         crate::validate::validate(&crate::extract::extract_from_text("T\n\nAbstract\nNo stats.\n"));
-    let report = compile_report(&outcome, &validation, None, Some(&pr), vec![]);
+    let report = compile_report(&outcome, &validation, None, Some(&pr), None, TEST_YEAR, vec![]);
     // No matches ⇒ no plagiarism findings (a non-event is not a finding).
     assert!(
         !report.findings.iter().any(|f| f.agent == AgentKind::Plagiarism),
@@ -443,7 +447,7 @@ fn compile_report_produces_evidence_1to1_with_correct_kinds() {
     let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
     let validation =
         crate::validate::validate(&crate::extract::extract_from_text("T\n\nAbstract\nNo stats.\n"));
-    let report = compile_report(&outcome, &validation, None, None, vec![]);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![]);
 
     // 1:1, same order; ids are f1..fN.
     assert_eq!(report.evidence.len(), report.findings.len());
@@ -476,4 +480,423 @@ fn compile_report_produces_evidence_1to1_with_correct_kinds() {
     assert_eq!(ext_ev.confidence_kind, ConfidenceKind::NoSignal);
     assert_eq!(ext_ev.routing_hint, RoutingHint::HeldOut);
     assert!(ext_ev.limitations.is_some());
+}
+
+// ============================================================================
+// Extraction-derived findings (stylometry / tables / reference recency)
+// ============================================================================
+
+/// One minimal debate outcome + clean validation, so these tests assert ONLY on
+/// the extraction-derived findings the `extraction` argument adds.
+fn minimal_outcome() -> crate::swarm::DebateOutcome {
+    let mut agents: Vec<Box<dyn SwarmAgent>> =
+        vec![Box::new(PrecomputedAgent::new(opinion(AgentKind::Rag, ANSWER_PASS, 0.75)))];
+    run_debate(&mut agents, &DebateConfig::default()).unwrap()
+}
+
+/// Findings carrying a given `signal:` provenance tag.
+fn by_signal<'a>(report: &'a PublishReadyReport, signal: &str) -> Vec<&'a Finding> {
+    let tag = format!("signal:{signal}");
+    report.findings.iter().filter(|f| f.provenance.iter().any(|p| *p == tag)).collect()
+}
+
+/// `extraction: None` must add NOTHING — the parameter is purely additive, so
+/// every existing caller keeps its exact previous output.
+#[test]
+fn extraction_none_adds_no_findings() {
+    let outcome = minimal_outcome();
+    let ex = crate::extract::extract_from_text(
+        "T\n\nAbstract\nNo stats.\n\nResults\nTable 1 Outcomes by arm\n",
+    );
+    let validation = crate::validate::validate(&ex);
+    let without = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![]);
+    let with = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![]);
+    assert!(
+        with.findings.len() > without.findings.len(),
+        "passing the extraction must ADD findings, else the wiring is dead"
+    );
+    for signal in ["tables", "citation_recency", "citation_density"] {
+        assert!(by_signal(&without, signal).is_empty(), "None must add no {signal} finding");
+    }
+}
+
+/// Tables: a structural COUNT under Extraction — NoSignal/HeldOut by
+/// construction, 0.0 confidence (never a number implying precision), Minor only
+/// when a caption is missing, and NOTHING at all when there are no tables.
+#[test]
+fn table_findings_count_captions_and_stay_structural() {
+    use crate::evidence::{ConfidenceKind, RoutingHint};
+    let outcome = minimal_outcome();
+
+    // Two tables, one captioned -> Minor.
+    let ex = crate::extract::extract_from_text(
+        "T\n\nAbstract\nA.\n\nResults\nTable 1 Outcomes by arm\n\nTable 2\n",
+    );
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![]);
+    let tables = by_signal(&report, "tables");
+    assert_eq!(tables.len(), 1, "exactly one aggregate table finding");
+    let f = tables[0];
+    assert_eq!(f.agent, AgentKind::Extraction);
+    assert_eq!(f.severity, FindingSeverity::Minor, "a missing caption is Minor");
+    assert_eq!(f.confidence, 0.0, "a count is not a probability");
+    assert!(f.title.contains("2 table(s)"), "title reports the count: {}", f.title);
+    assert!(
+        f.provenance.iter().any(|p| p.starts_with("evidence:tables=2;captioned=")),
+        "structured count in provenance: {:?}",
+        f.provenance
+    );
+    // The EvidenceRecord's kind/hint are DERIVED from the agent, not hand-set.
+    let i = report.findings.iter().position(|x| std::ptr::eq(x, f)).unwrap();
+    assert_eq!(report.evidence[i].confidence_kind, ConfidenceKind::NoSignal);
+    assert_eq!(report.evidence[i].routing_hint, RoutingHint::HeldOut);
+
+    // No tables -> no finding (a non-event is not a finding).
+    let ex2 = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nNo tables here.\n");
+    let v2 = crate::validate::validate(&ex2);
+    let r2 = compile_report(&outcome, &v2, None, None, Some(&ex2), TEST_YEAR, vec![]);
+    assert!(by_signal(&r2, "tables").is_empty(), "zero tables must produce zero findings");
+}
+
+/// Reference recency: deterministic arithmetic over locally-parsed
+/// `Reference.year`. Attributed to Extraction (no connector ran), Minor only
+/// above the staleness share, and undated references are reported separately
+/// rather than silently counted either way.
+#[test]
+fn reference_recency_counts_old_and_undated_separately() {
+    use crate::evidence::{ConfidenceKind, RoutingHint};
+    let outcome = minimal_outcome();
+    // 3 of 4 dated references are pre-2015 (TEST_YEAR 2025 - 10y), 1 undated.
+    let text = "T\n\nAbstract\nA.\n\nReferences\n\
+                1. Old A. Ancient work. 1991.\n\
+                2. Old B. Older work. 1999.\n\
+                3. Old C. Still old. 2004.\n\
+                4. New D. Recent work. 2024.\n\
+                5. Nodate E. Undated work.\n";
+    let ex = crate::extract::extract_from_text(text);
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![]);
+
+    let hits = by_signal(&report, "citation_recency");
+    assert_eq!(hits.len(), 1, "one aggregate recency finding");
+    let f = hits[0];
+    assert_eq!(f.agent, AgentKind::Extraction, "local years, no connector — not Verification");
+    assert_eq!(f.confidence, 0.0);
+    assert_eq!(f.severity, FindingSeverity::Minor, "3 of 4 dated refs are stale (>50%)");
+    assert!(f.detail.contains("pre-date 2015"), "cutoff is stated: {}", f.detail);
+    assert!(f.detail.contains("no parseable year"), "undated reported separately: {}", f.detail);
+    assert!(
+        f.provenance.iter().any(|p| p.starts_with("evidence:references=5;dated=4;undated=1")),
+        "structured counts: {:?}",
+        f.provenance
+    );
+    let i = report.findings.iter().position(|x| std::ptr::eq(x, f)).unwrap();
+    assert_eq!(report.evidence[i].confidence_kind, ConfidenceKind::NoSignal);
+    assert_eq!(report.evidence[i].routing_hint, RoutingHint::HeldOut);
+
+    // A current bibliography stays Info, not Minor.
+    let fresh = "T\n\nAbstract\nA.\n\nReferences\n\
+                 1. New A. Recent work. 2022.\n\
+                 2. New B. Recent work. 2023.\n";
+    let ex2 = crate::extract::extract_from_text(fresh);
+    let v2 = crate::validate::validate(&ex2);
+    let r2 = compile_report(&outcome, &v2, None, None, Some(&ex2), TEST_YEAR, vec![]);
+    assert_eq!(by_signal(&r2, "citation_recency")[0].severity, FindingSeverity::Info);
+
+    // No reference list -> no finding (the structural checklist covers that).
+    let ex3 = crate::extract::extract_from_text("T\n\nAbstract\nA.\n");
+    let v3 = crate::validate::validate(&ex3);
+    let r3 = compile_report(&outcome, &v3, None, None, Some(&ex3), TEST_YEAR, vec![]);
+    assert!(by_signal(&r3, "citation_recency").is_empty());
+}
+
+/// Stylometry: soft signals under AI-detection — DeliberatelyCoarse +
+/// PolicyEligible by construction, always Minor, and using the SAME coarse
+/// confidence constants the AI-detection swarm opinion already uses.
+#[test]
+fn stylometry_findings_are_coarse_soft_signals() {
+    use crate::evidence::{ConfidenceKind, RoutingHint};
+    let outcome = minimal_outcome();
+    // Uniform, highly repetitive prose with a reference list but no in-text
+    // citations — trips low sentence-length variation and the citation-density
+    // PARSE-FAILURE state (references present, nothing attributable).
+    let body = "The system processes the data. The system processes the data well. \
+                The system processes the data again. The system handles the data. "
+        .repeat(12);
+    let text = format!(
+        "T\n\nAbstract\nA study.\n\nResults\n{body}\n\nReferences\n1. A. Work. 2020.\n"
+    );
+    let ex = crate::extract::extract_from_text(&text);
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![]);
+
+    let stylo: Vec<&Finding> =
+        report.findings.iter().filter(|f| f.agent == AgentKind::AiDetection).collect();
+    assert!(!stylo.is_empty(), "expected stylometric findings; got {:?}", report.findings);
+    for f in &stylo {
+        assert!(
+            matches!(f.severity, FindingSeverity::Minor | FindingSeverity::Info),
+            "soft signals are never Major/Critical: {:?}",
+            f.severity
+        );
+        assert!(
+            f.confidence == 0.6 || f.confidence == 0.5,
+            "reuses the swarm's coarse constants, got {}",
+            f.confidence
+        );
+        let i = report.findings.iter().position(|x| std::ptr::eq(x, *f)).unwrap();
+        assert_eq!(report.evidence[i].confidence_kind, ConfidenceKind::DeliberatelyCoarse);
+        assert_eq!(report.evidence[i].routing_hint, RoutingHint::PolicyEligible);
+        assert!(
+            report.evidence[i].limitations.as_deref().unwrap_or("").contains("never threshold"),
+            "the coarse limitation must ride along"
+        );
+    }
+
+    // References present but no attributable in-text citations is a PARSE
+    // failure — reported as unavailable/Info, never as a false "zero citations".
+    let density = by_signal(&report, "citation_density");
+    assert_eq!(density.len(), 1);
+    assert_eq!(density[0].severity, FindingSeverity::Info);
+    assert!(density[0].title.contains("could not be measured"), "{}", density[0].title);
+    assert!(density[0].provenance.iter().any(|p| p.contains("status=unavailable")));
+
+    // The AI-AUTHORSHIP tells stay in AI Check — they must never appear here.
+    for excluded in ["em_dash", "template_density", "function_word_ratio"] {
+        assert!(
+            by_signal(&report, excluded).is_empty(),
+            "{excluded} is an AI-authorship tell and belongs to AI Check, not PublishReady"
+        );
+    }
+
+    // Every finding above lands on the MODERATE constant. Cover the other branch
+    // explicitly: prose with no in-text citations AND no reference list at all is
+    // the genuinely-uncited case (distinct from the parse failure above), which
+    // maps to the NOTABLE constant. Without this, the High path is untested and a
+    // change to STYLO_CONF_HIGH would go unnoticed.
+    let uncited = format!("T\n\nAbstract\nA study.\n\nResults\n{body}\n");
+    let ex2 = crate::extract::extract_from_text(&uncited);
+    let v2 = crate::validate::validate(&ex2);
+    let r2 = compile_report(&outcome, &v2, None, None, Some(&ex2), TEST_YEAR, vec![]);
+    let d2 = by_signal(&r2, "citation_density");
+    assert_eq!(d2.len(), 1, "an uncited document still reports density");
+    assert_eq!(d2[0].severity, FindingSeverity::Minor, "genuinely uncited is Minor, not Info");
+    assert_eq!(d2[0].confidence, 0.6, "the NOTABLE branch uses the swarm's High constant");
+    assert!(
+        !d2[0].provenance.iter().any(|p| p.contains("status=unavailable")),
+        "no reference list means genuinely uncited, NOT an unmeasurable parse failure"
+    );
+}
+
+/// Every new finding must carry only structured provenance and template text —
+/// nothing that could put manuscript prose on the wire. Mirrors the discipline
+/// `reviewer_agent::build_review_payload` enforces at the boundary.
+#[test]
+fn extraction_derived_findings_carry_only_structured_provenance() {
+    let outcome = minimal_outcome();
+    let text = "Sleep Study\n\nAbstract\nA study.\n\nResults\nTable 1 Outcomes\n\n\
+                References\n1. A. Work. 1998.\n";
+    let ex = crate::extract::extract_from_text(text);
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![]);
+
+    let derived: Vec<&Finding> = report
+        .findings
+        .iter()
+        .filter(|f| f.provenance.iter().any(|p| p.starts_with("signal:")))
+        .collect();
+    assert!(!derived.is_empty());
+    for f in derived {
+        for p in &f.provenance {
+            assert!(
+                crate::evidence::is_structured_provenance(p),
+                "every provenance tag must survive the payload filter: {p:?}"
+            );
+        }
+    }
+}
+
+/// The reviewer payload's top-N cap (`reviewer_agent::MAX_FINDINGS`, private
+/// there). Mirrored so this test can reason about the cutoff; the assertions
+/// below check the payload ACTUALLY caps at this number, so if the production
+/// const changes this test fails loudly instead of silently passing.
+const REVIEWER_MAX_FINDINGS: usize = 12;
+
+/// `n` plagiarism matches above threshold — each compiles to one MAJOR finding
+/// (`compile_report` fans matches into per-match findings). A cheap way to fill
+/// the severity band above the new extraction-derived families.
+fn plagiarism_with_n_major_matches(n: usize) -> PlagiarismReport {
+    PlagiarismReport {
+        chunk_count: n,
+        threshold: 0.80,
+        corpus_matches: (0..n)
+            .map(|i| MatchSpan {
+                manuscript_chunk_seq: i as i64,
+                manuscript_excerpt: format!("excerpt {i}"),
+                similarity: 0.90,
+                source: MatchSource::Corpus {
+                    document_id: 1,
+                    chunk_id: i as i64,
+                    title: format!("Prior {i}"),
+                    source_url: format!("https://ex/{i}"),
+                    source_type: "corpus".into(),
+                    excerpt: "prior text".into(),
+                },
+            })
+            .collect(),
+        self_matches: Vec::new(),
+        note: "test".into(),
+    }
+}
+
+/// An extraction whose tables trip the caption finding (2 tables, 1 captioned),
+/// so there is a known extraction-derived finding to look for.
+fn extraction_with_uncaptioned_table() -> ExtractionResult {
+    crate::extract::extract_from_text(
+        "T\n\nAbstract\nA study.\n\nResults\nTable 1 Outcomes by arm\n\nTable 2\n",
+    )
+}
+
+/// Does the reviewer payload carry a finding bearing this `signal:` tag?
+/// `build_review_payload` filters provenance to structured prefixes and re-emits
+/// them under `evidence`, so a `signal:` tag is how a family is identified there.
+fn payload_has_signal(payload: &serde_json::Value, signal: &str) -> bool {
+    let tag = format!("signal:{signal}");
+    payload["summary"]["findings"]
+        .as_array()
+        .map(|fs| {
+            fs.iter().any(|f| {
+                f["evidence"]
+                    .as_array()
+                    .map(|es| es.iter().any(|e| e.as_str() == Some(tag.as_str())))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// THE CAP INTERACTION. Severity-first ordering must keep the new
+/// extraction-derived families (Info/Minor) BELOW the reviewer's top-N cutoff
+/// whenever anything more urgent exists — and let them through when nothing does.
+///
+/// Asserted end-to-end through the real path (`compile_report` -> serialize ->
+/// `build_review_payload`), not by inspecting the sort.
+#[test]
+fn extraction_derived_findings_yield_to_more_urgent_findings_at_the_reviewer_cap() {
+    use crate::reviewer_agent::{build_review_payload, TargetJournal};
+    let journal = TargetJournal { name: "J".into(), quartile: "Q1".into() };
+    let ex = extraction_with_uncaptioned_table();
+    let validation = crate::validate::validate(&ex);
+    let outcome = minimal_outcome();
+
+    // --- CASE A: more MAJOR findings than the cap --------------------------
+    // 14 plagiarism matches -> 14 Major findings, which alone exceed the 12-item
+    // cap, so every Info/Minor extraction-derived finding must be squeezed out.
+    let crowded = plagiarism_with_n_major_matches(14);
+    let report_a =
+        compile_report(&outcome, &validation, None, Some(&crowded), Some(&ex), TEST_YEAR, vec![]);
+
+    // The finding EXISTS locally — this test is about the payload, not the report.
+    assert_eq!(by_signal(&report_a, "tables").len(), 1, "the table finding is in the local report");
+    assert!(
+        report_a.findings.len() > REVIEWER_MAX_FINDINGS,
+        "fixture must exceed the cap to test it, got {}",
+        report_a.findings.len()
+    );
+
+    let json_a = serde_json::to_value(&report_a).unwrap();
+    let (payload_a, sent_a) = build_review_payload(&json_a, &journal, &[], "run-a");
+    assert_eq!(sent_a.findings.len(), REVIEWER_MAX_FINDINGS, "payload caps at top-N");
+    assert!(
+        payload_a["summary"]["findings_omitted"].as_u64().unwrap_or(0) > 0,
+        "the drop must be reported honestly via findings_omitted"
+    );
+    // The cutoff is severity-driven: only Major plagiarism findings made it.
+    for f in payload_a["summary"]["findings"].as_array().unwrap() {
+        assert_eq!(
+            f["severity"], "major",
+            "the top-12 must be the urgent band, got {f:?}"
+        );
+    }
+    for family in ["tables", "citation_recency", "citation_density"] {
+        assert!(
+            !payload_has_signal(&payload_a, family),
+            "{family} is Info/Minor and must NOT displace a Major finding at the cap"
+        );
+    }
+
+    // --- CASE B: room to spare ---------------------------------------------
+    // 2 Major findings, so the extraction-derived families fit under the cap.
+    let sparse = plagiarism_with_n_major_matches(2);
+    let report_b =
+        compile_report(&outcome, &validation, None, Some(&sparse), Some(&ex), TEST_YEAR, vec![]);
+    assert!(
+        report_b.findings.len() <= REVIEWER_MAX_FINDINGS,
+        "fixture must fit under the cap, got {}",
+        report_b.findings.len()
+    );
+
+    let json_b = serde_json::to_value(&report_b).unwrap();
+    let (payload_b, sent_b) = build_review_payload(&json_b, &journal, &[], "run-b");
+    assert_eq!(sent_b.findings.len(), report_b.findings.len(), "nothing dropped when it fits");
+    assert_eq!(
+        payload_b["summary"]["findings_omitted"].as_u64().unwrap_or(0),
+        0,
+        "nothing omitted when everything fits"
+    );
+    assert!(
+        payload_has_signal(&payload_b, "tables"),
+        "with room to spare the table finding MUST reach the reviewer: {:?}",
+        payload_b["summary"]["findings"]
+    );
+}
+
+/// The cap test above cannot, on its own, prove the ordering is SEVERITY-driven:
+/// inside `compile_report` everything more severe than the extraction-derived
+/// families (Critical validation, Major plagiarism) also happens to be pushed
+/// BEFORE them, so insertion order alone would produce the same cutoff. Proven
+/// by mutation — deleting `severity.rank()` from the sort key left that test
+/// green.
+///
+/// A soft round-table CONCERN is the one Major finding compiled AFTER the
+/// extraction block, so it inverts insertion order and isolates the severity key:
+/// it must still sort ahead of the Minor table finding.
+#[test]
+fn severity_beats_insertion_order_for_extraction_derived_findings() {
+    let ex = extraction_with_uncaptioned_table();
+    let validation = crate::validate::validate(&ex);
+    // An AiDetection CONCERN -> Major, compiled in the soft-opinion loop AFTER
+    // the extraction-derived findings.
+    let mut agents: Vec<Box<dyn SwarmAgent>> = vec![Box::new(PrecomputedAgent::new(opinion(
+        AgentKind::AiDetection,
+        crate::swarm::ANSWER_CONCERN,
+        0.6,
+    )))];
+    let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
+    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![]);
+
+    let major = report
+        .findings
+        .iter()
+        .position(|f| f.severity == FindingSeverity::Major)
+        .expect("the soft concern must compile to a Major finding");
+    let table = report
+        .findings
+        .iter()
+        .position(|f| f.provenance.iter().any(|p| p == "signal:tables"))
+        .expect("the table finding must be present");
+    assert!(
+        major < table,
+        "a Major finding compiled AFTER the extraction block must still SORT before its \
+         Minor findings — otherwise the ordering is insertion order, not severity \
+         (major at {major}, table at {table})"
+    );
+
+    // And the whole report is non-decreasing in severity, which is the property
+    // the reviewer's top-N truncation actually relies on.
+    let ranks: Vec<u8> = report.findings.iter().map(|f| f.severity.rank()).collect();
+    assert!(
+        ranks.windows(2).all(|w| w[0] <= w[1]),
+        "findings must be ordered by severity for top-N truncation to mean anything: {ranks:?}"
+    );
 }

@@ -127,7 +127,12 @@ describe('reviewer letter synthesis (from a mocked debate result)', () => {
     expect(letter.recommendation).toBe('major_revision'); // 1 critical + 1 refuted
     expect(letter.publicationProbability).toBeGreaterThanOrEqual(0);
     expect(letter.publicationProbability).toBeLessThanOrEqual(100);
-    expect(letter.novelty.score).toBeGreaterThan(0);
+    // The mock must match production: no novelty/fit score exists, and the mock
+    // synthesizes no prose for either — an ungrounded slot stays empty.
+    expect(letter.novelty.assessment).toBe('');
+    expect(letter.journalFit.note).toBe('');
+    expect((letter.novelty as Record<string, unknown>).score).toBeUndefined();
+    expect((letter.journalFit as Record<string, unknown>).fitScore).toBeUndefined();
   });
 
   it('a clean report yields ACCEPT with high probability', () => {
