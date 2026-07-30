@@ -268,7 +268,13 @@ fn map_error_status(
     let body = resp.text().unwrap_or_default();
     let detail = body.chars().take(300).collect::<String>();
     match status.as_u16() {
-        401 => GaplyError::Internal(format!("proxy app_check_failed (401): {detail}")),
+        // 401 has TWO causes and the message must not presume one: App Check
+        // (wrong/absent app credential) or the user token (absent/expired
+        // entitlement credential). It previously read "app_check_failed"
+        // unconditionally, which sent a real `user_token_missing` 401 chasing the
+        // wrong credential. `detail` carries the proxy's own error code, so the
+        // actual cause is still named — by the server, not guessed here.
+        401 => GaplyError::Internal(format!("proxy unauthorized (401, app_check or user_token): {detail}")),
         422 => GaplyError::Validation(format!("proxy validation_failed (422): {detail}")),
         429 => {
             let ra = retry_after.map(|r| format!(", retry after {r}s")).unwrap_or_default();
@@ -582,6 +588,65 @@ mod tests {
         let proxy = MockProxy::start(Mode::RequireUserToken);
         let c = client_for(&proxy).with_user_token(Some("user-jwt-123".into()));
         assert!(c.verify(&serde_json::json!({"summary": {}})).is_ok());
+    }
+
+    /// THE REGRESSION. The client's builder attaching the header was never the
+    /// problem — `verify_proxy()` (the VERIFICATION lane's factory, in
+    /// `crate::models`) built the cloud client via `from_env()` and never called
+    /// `with_user_token`, so verification requests arrived with App Check but no
+    /// entitlement credential and the proxy answered 401 user_token_missing;
+    /// every citation then degraded to UNKNOWN.
+    ///
+    /// PRECISE SCOPE: this covers runs where the cloud tier was SELECTED AND
+    /// REACHED. It is NOT the same as a run with no proxy configured, which
+    /// fails fast on connection refusal and never reaches the gate at all — that
+    /// is a separate, already-understood cause with the same UNKNOWN symptom.
+    ///
+    /// Behavioral, not structural: the mock parses the RAW request lines and only
+    /// answers 200 when `X-Gaply-User-Token` actually carries the expected JWT.
+    /// Asserting through `verify_proxy_with` (rather than a hand-built client)
+    /// is what makes this a guard on the FACTORY — the thing that regressed.
+    /// It lives in this module because the HTTP mock does.
+    #[test]
+    fn verify_proxy_attaches_the_user_token_on_the_wire() {
+        let proxy = MockProxy::start(Mode::RequireUserToken);
+        let client = crate::models::verify_proxy_with(
+            Ok(client_for(&proxy)),
+            Some("user-jwt-123".into()),
+        );
+        assert!(
+            client.verify(&serde_json::json!({"summary": {}})).is_ok(),
+            "the verification factory must forward the user token; a 403 here means \
+             X-Gaply-User-Token never reached the wire"
+        );
+    }
+
+    /// The other half of the contract: no token in means no header out, so the
+    /// strict gate refuses. This is exactly what the whole verification lane did
+    /// before the fix — pinned so a silent regression to "always None" fails.
+    #[test]
+    fn verify_proxy_without_a_token_is_refused_by_the_entitlement_gate() {
+        let proxy = MockProxy::start(Mode::RequireUserToken);
+        let client = crate::models::verify_proxy_with(Ok(client_for(&proxy)), None);
+        let err = client.verify(&serde_json::json!({"summary": {}})).unwrap_err();
+        assert!(
+            matches!(err, GaplyError::Internal(ref m) if m.contains("403")),
+            "expected the gate to refuse an untokened call, got {err:?}"
+        );
+    }
+
+    /// A 401 must not blame App Check when the cause may be the user token. The
+    /// proxy's own error code still names the real cause via `detail`.
+    #[test]
+    fn unauthorized_message_names_both_credentials() {
+        let proxy = MockProxy::start(Mode::Unauthorized);
+        let err = client_for(&proxy).verify(&serde_json::json!({"summary": {}})).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.contains("401"), "status must be stated: {msg}");
+        assert!(
+            msg.contains("app_check") && msg.contains("user_token"),
+            "a 401 must name BOTH possible credentials, not presume one: {msg}"
+        );
     }
 
     #[test]

@@ -16,6 +16,7 @@ use std::sync::OnceLock;
 
 use gaply_core::ai_detect::{ClassifyClient, DeepKind, HeuristicModel, PerplexityModel};
 use gaply_core::verify_agent::{MockProxyClient, ProxyClient};
+use gaply_core::GaplyError;
 
 use crate::models::candle_perplexity::CandlePerplexityModel;
 use crate::models::ollama_verify::OllamaVerifyClient;
@@ -1025,14 +1026,39 @@ pub fn unload_slm2() {
 /// [`MockProxyClient`] returning empty verdicts (→ every citation UNKNOWN).
 /// NEVER makes the pipeline fail for a user without Ollama running — the mirror
 /// of [`perplexity_model`]'s missing-model fallback.
-pub fn verify_proxy() -> Box<dyn ProxyClient> {
+///
+/// `user_token` is the signed-in user's JWT, forwarded so the proxy can run its
+/// server-side entitlement gate (Set 8). It must be threaded in: this function
+/// previously built the cloud client with no token, so on a run where the cloud
+/// tier WAS selected and reached, `/verify` was rejected `401
+/// user_token_missing` and every citation came back UNKNOWN. That is a distinct
+/// failure from "no proxy configured at all" (which fails fast on connection
+/// refusal and never reaches the gate) — the two look identical in the report
+/// and are not the same defect.
+pub fn verify_proxy(user_token: Option<String>) -> Box<dyn ProxyClient> {
+    verify_proxy_with(ProxyReqwestClient::from_env(), user_token)
+}
+
+/// Tier selection over an ALREADY-BUILT cloud client. Split out of
+/// [`verify_proxy`] so the cloud tier's token attachment is testable on the
+/// wire: `from_env` needs a keychain signing key that unit tests cannot
+/// provision, whereas this takes the client the test built against a mock. See
+/// `verify_proxy_attaches_the_user_token_on_the_wire` in
+/// [`crate::models::proxy_client`]'s tests (it lives there because the HTTP mock
+/// does).
+pub(crate) fn verify_proxy_with(
+    cloud: Result<ProxyReqwestClient, GaplyError>,
+    user_token: Option<String>,
+) -> Box<dyn ProxyClient> {
     // Tier 1 — cloud proxy (deep reasoning). Selected ONLY when the App Check
     // signing key is provisioned (from_env → keychain; Err = skip) AND the
     // proxy answers /health. Otherwise fall through to local, cleanly.
-    match ProxyReqwestClient::from_env() {
+    match cloud {
         Ok(client) if client.reachable() => {
             tracing::info!("verification: routing to cloud proxy");
-            return Box::new(client);
+            // The entitlement credential. App Check proves WHICH APP is calling;
+            // this proves WHICH USER. Omitting it is a 401 at the proxy's gate.
+            return Box::new(client.with_user_token(user_token));
         }
         Ok(_) => tracing::debug!("cloud proxy configured but unreachable; falling through to local"),
         Err(_) => tracing::debug!("cloud proxy signing key absent; using local verification"),

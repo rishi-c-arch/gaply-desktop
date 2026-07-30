@@ -162,6 +162,7 @@ fn main() {
             embedder.clone(),
             path.to_string_lossy().to_string(),
             Some(format!("mem-probe run {run_no}")),
+            None, // measurement probe: unauthenticated, so no cloud verify tier
             &emit,
         );
         *stage_post.lock().unwrap() = format!("between-runs-{run_no}");

@@ -513,7 +513,18 @@ pub async fn run_publishready(
         // 1) Run the existing pipeline (composes on top; the 6 lanes are untouched).
         let events = std::cell::RefCell::new(Vec::new());
         let emit = |e: crate::pipeline::AnalysisEvent| events.borrow_mut().push(e);
-        crate::pipeline::run_pipeline_measured(db.clone(), embedder.clone(), path, None, &emit)?;
+        // `user_token` threaded so the pipeline's cloud VERIFICATION tier can pass
+        // the proxy's entitlement gate. Without it that tier reached `/verify`
+        // with App Check but no user credential and was rejected 401
+        // user_token_missing, so every citation degraded to UNKNOWN.
+        crate::pipeline::run_pipeline_measured(
+            db.clone(),
+            embedder.clone(),
+            path,
+            None,
+            user_token.clone(),
+            &emit,
+        )?;
         let report_id = events
             .into_inner()
             .into_iter()

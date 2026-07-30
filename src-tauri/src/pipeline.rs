@@ -89,7 +89,13 @@ pub async fn run_full_analysis(
 ) -> Result<(), GaplyError> {
     let db = state.db.clone();
     let embedder = state.embedder.clone();
-    tokio::task::spawn_blocking(move || run_pipeline(db, embedder, path, title, on_event))
+    // `user_token: None` — this command has no signed-in-user parameter, so the
+    // cloud verification tier stays unauthenticated here and degrades to local
+    // Ollama/mock exactly as before. PublishReady (`run_publishready`) is the
+    // path that has a token and threads it. Giving this command a token needs a
+    // frontend change (`src/screens/analysis/bridge.ts` invokes it without one)
+    // and is deliberately out of scope for this fix.
+    tokio::task::spawn_blocking(move || run_pipeline(db, embedder, path, title, None, on_event))
         .await
         .map_err(|e| GaplyError::Internal(format!("analysis task panicked: {e}")))?
 }
@@ -122,9 +128,10 @@ fn run_pipeline(
     embedder: Arc<dyn Embedder>,
     path: String,
     title: Option<String>,
+    user_token: Option<String>,
     ch: Channel<AnalysisEvent>,
 ) -> Result<(), GaplyError> {
-    run_pipeline_inner(db, embedder, path, title, &|ev| {
+    run_pipeline_inner(db, embedder, path, title, user_token, &|ev| {
         let _ = ch.send(ev);
     })
 }
@@ -138,18 +145,25 @@ pub fn run_pipeline_measured(
     embedder: Arc<dyn Embedder>,
     path: String,
     title: Option<String>,
+    user_token: Option<String>,
     emit: &dyn Fn(AnalysisEvent),
 ) -> Result<(), GaplyError> {
-    run_pipeline_inner(db, embedder, path, title, emit)
+    run_pipeline_inner(db, embedder, path, title, user_token, emit)
 }
 
 /// The synchronous pipeline. Every stage is a real production call. `emit` is
 /// abstracted (Fn) so tests can drive the full pipeline with a collector.
+///
+/// `user_token` is the signed-in user's JWT for the cloud verification tier's
+/// entitlement gate. `None` = unauthenticated: that tier is skipped or refused
+/// and the lane degrades to local Ollama/mock (honest UNKNOWN verdicts), never a
+/// failure.
 fn run_pipeline_inner(
     db: Arc<Database>,
     embedder: Arc<dyn Embedder>,
     path: String,
     title: Option<String>,
+    user_token: Option<String>,
     emit: &dyn Fn(AnalysisEvent),
 ) -> Result<(), GaplyError> {
     // Parse once, up front (part of the extraction lane's work).
@@ -266,7 +280,7 @@ fn run_pipeline_inner(
         // Route to local SLM-2 if reachable, else honest UNKNOWNs. The belt: if
         // a reachable Ollama errors mid-call (model not pulled, timeout, bad
         // reply), degrade to the mock's empty verdicts rather than fail the run.
-        let proxy = crate::models::verify_proxy();
+        let proxy = crate::models::verify_proxy(user_token.clone());
         let report = match verify_citations(&*proxy, &items) {
             Ok(r) => r,
             Err(e) => {
@@ -415,6 +429,7 @@ A night of sleep improved memory consolidation in this sample.
             embedder,
             path.to_string_lossy().to_string(),
             Some("E2E manuscript".into()),
+            None, // unauthenticated: keeps the verify lane off the cloud tier
             &emit,
         );
         let _ = std::fs::remove_file(&path);
@@ -633,6 +648,7 @@ A night of sleep improved memory consolidation in this sample.
             embedder,
             path.to_string_lossy().to_string(),
             Some("AI gate regression".into()),
+            None, // unauthenticated: keeps the verify lane off the cloud tier
             &emit,
         );
         let _ = std::fs::remove_file(&path);
@@ -673,6 +689,7 @@ A night of sleep improved memory consolidation in this sample.
             embedder,
             path.to_string_lossy().to_string(),
             Some("checklist e2e".into()),
+            None, // unauthenticated: keeps the verify lane off the cloud tier
             &emit,
         )
         .expect("pipeline completes");
