@@ -61,6 +61,35 @@ ${ENTRIES.map(
 
   fs.writeFileSync(SITEMAP_PATH, sitemap, 'utf8');
   console.log('Generated sitemap:', SITEMAP_PATH);
+
+  // ---------------------------------------------------------------------------
+  // KNOWN ISSUE (open, not yet fixed) — this write dirties a TRACKED artifact.
+  //
+  // `public/sitemap.xml` is committed to git. This generator also runs as a SIDE
+  // EFFECT of Tauri DESKTOP builds: src-tauri/tauri.conf.json sets
+  // `beforeBuildCommand: "npm run build"`, and package.json's `postbuild` hook
+  // chains to `generate-sitemap`. So building the desktop app rewrites this web
+  // SEO artifact with a manufactured `lastmod` (see `currentDate` above) on every
+  // desktop build — even though nothing about the site actually changed.
+  //
+  // Consequences: `git status` shows public/sitemap.xml modified after any
+  // desktop build, and committing that churn would assert a false `lastmod`
+  // ("these 32 pages changed today") for pages that did not change. Note also
+  // that Vercel's buildCommand runs `node scripts/cra-build.js` DIRECTLY rather
+  // than `npm run build`, so npm's postbuild hook never fires in CI — meaning
+  // the COMMITTED file is what actually ships, which is why a bogus date here is
+  // not merely cosmetic.
+  //
+  // Fix by either:
+  //   (a) separating the build paths so a desktop build does not trigger this
+  //       generator (e.g. drop the PUBLIC_SITEMAP_PATH write below and let CI
+  //       generate into build/ only), or
+  //   (b) making `lastmod` CONTENT-derived (per-page, from real change data)
+  //       rather than build-date-derived, so rebuilding is a no-op.
+  // NOT YET DONE. Until it is: leave the churn uncommitted, and only commit this
+  // file when the URL set genuinely changes (which is what every prior commit of
+  // it actually did).
+  // ---------------------------------------------------------------------------
   if (fs.existsSync(PUBLIC_DIR)) {
     fs.writeFileSync(PUBLIC_SITEMAP_PATH, sitemap, 'utf8');
     console.log('Generated sitemap:', PUBLIC_SITEMAP_PATH);
