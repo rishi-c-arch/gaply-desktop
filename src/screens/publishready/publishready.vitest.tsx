@@ -37,7 +37,7 @@ const REPORT: PublishReadyReport = {
   findings: [
     { severity: 'critical', tier: 'mathematically_certain', certainty_label: 'mathematically certain', agent: 'validation_maths', title: 'rule failed: missing effect size', detail: 'p-value without effect size.', confidence: 1, provenance: ['rule:MissingEffectSize (MAJOR)', 'agent:validation_maths (deterministic)'], section: 'Results' },
     { severity: 'major', tier: 'reconsidered_after_peer_review', certainty_label: 'reconsidered after peer review', agent: 'verification', title: 'citation c1 REFUTED by evidence', detail: 'DOI resolves to a different work.', confidence: 0.9, provenance: ['evidence:ev-c1-0', 'agent:verification (harness-gated, via proxy)'] },
-    { severity: 'minor', tier: 'ai_assessed_moderate', certainty_label: 'AI-assessed, moderate confidence', agent: 'plagiarism', title: 'near-verbatim — 88% similarity', detail: `"${RAW_SENTINEL}" matches a 2019 paper.`, confidence: 0.88, provenance: ['similarity:0.880', 'match_type:near-verbatim', 'source:corpus'] },
+    { severity: 'minor', tier: 'ai_assessed_moderate', certainty_label: 'AI-assessed, moderate confidence', agent: 'plagiarism', title: 'high word overlap — 88% word overlap', detail: `"${RAW_SENTINEL}" matches a 2019 paper.`, confidence: 0.88, provenance: ['similarity:0.880', 'match_type:high word overlap', 'source:corpus'] },
   ],
   checklist: [
     { requirement: 'word limit (3000 words)', passed: false, detail: '4100 words', guideline_source: 'https://x' },

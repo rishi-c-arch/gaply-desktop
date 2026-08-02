@@ -312,7 +312,7 @@ mod tests {
             AgentKind::Plagiarism,
             FindingSeverity::Major,
             0.91,
-            vec!["similarity:0.910".into(), "match_type:near-verbatim".into(), "prose note".into()],
+            vec!["similarity:0.910".into(), "match_type:high word overlap".into(), "prose note".into()],
         );
         assert_eq!(rec.id, "f1");
         assert_eq!(rec.confidence, 0.91); // RAW, unrescaled
@@ -320,7 +320,7 @@ mod tests {
         assert_eq!(rec.routing_hint, RoutingHint::ThresholdEligible);
         assert_eq!(rec.schema_version, EVIDENCE_SCHEMA_VERSION);
         // evidence_refs = only the structured tags; "prose note" filtered out.
-        assert_eq!(rec.evidence_refs, vec!["similarity:0.910", "match_type:near-verbatim"]);
+        assert_eq!(rec.evidence_refs, vec!["similarity:0.910", "match_type:high word overlap"]);
         assert!(rec.limitations.is_none());
     }
 

@@ -34,9 +34,14 @@ pub const DEFAULT_THRESHOLD: f64 = 0.80;
 const ADJACENT: i64 = 1;
 const EXCERPT_CHARS: usize = 200;
 
+/// "lexical-overlap signal", not "semantic signal": the score is cosine over
+/// [`crate::embed::HashEmbedder`], a bag-of-words encoder (`embed.rs:33-53`) —
+/// the only `Embedder` in the tree. It measures shared vocabulary, not meaning,
+/// so calling it semantic claimed a capability that does not exist here. See the
+/// `match_type_label` note in `report.rs` for the full reasoning.
 pub const ISOLATION_NOTE: &str = "User-uploaded text is analyzed in a per-session isolated \
-store and is never written to the shared corpus. Similarity is a semantic signal for human \
-review, not a determination of plagiarism.";
+store and is never written to the shared corpus. Similarity is a lexical-overlap signal for \
+human review, not a determination of plagiarism.";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]

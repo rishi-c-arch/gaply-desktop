@@ -25,11 +25,24 @@ const EMPTY_DEBATE = {
 
 /* ------------------------------ Plagiarism ------------------------------ */
 
+// MIRROR of `match_type_label` in gaply-core/src/report.rs — the two must stay
+// byte-identical; both sides are pinned by tests.
+//
+// WHY THESE WORDS — do not "improve" them back. `m.similarity` is cosine over
+// HashEmbedder (gaply-core/src/embed.rs:33-53), a feature-hashing BAG-OF-WORDS
+// encoder and the only Embedder in the tree. It measures WORD OVERLAP: it is
+// word-order-blind (so "verbatim" was never verifiable) and has no semantic
+// capability (so synonyms are invisible). "paraphrase" named the inverse of
+// what the engine detects — a genuine paraphrase has LOW word overlap, falls
+// below DEFAULT_THRESHOLD (0.80), and is never reported at all.
 function matchTypeLabel(m: MatchSpan): string {
-  if (m.source.kind === 'self_manuscript') return 'internal duplication (self-plagiarism)';
-  if (m.similarity >= 0.98) return 'verbatim';
-  if (m.similarity >= 0.85) return 'near-verbatim';
-  return 'paraphrase';
+  // "(same manuscript)", not "(self-plagiarism)": the source enum establishes WHERE
+  // the match is, never that the reuse was illegitimate — a determination the
+  // isolation note explicitly disclaims.
+  if (m.source.kind === 'self_manuscript') return 'internal duplication (same manuscript)';
+  if (m.similarity >= 0.98) return 'near-identical wording';
+  if (m.similarity >= 0.85) return 'high word overlap';
+  return 'partial lexical overlap';
 }
 
 export function plagiarismToReport(r: PlagiarismReport): PublishReadyReport {
@@ -46,7 +59,8 @@ export function plagiarismToReport(r: PlagiarismReport): PublishReadyReport {
       tier: 'ai_assessed_moderate',
       certainty_label: 'AI-assessed, moderate confidence',
       agent: 'plagiarism',
-      title: `${matchTypeLabel(m)} — ${(m.similarity * 100).toFixed(0)}% similarity`,
+      // "word overlap", not "similarity" — see matchTypeLabel. Mirrors report.rs.
+      title: `${matchTypeLabel(m)} — ${(m.similarity * 100).toFixed(0)}% word overlap`,
       detail: `“${m.manuscript_excerpt}” matches ${sourceLabel}.`,
       confidence: m.similarity,
       provenance: [

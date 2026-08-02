@@ -12,6 +12,7 @@ import PlagiarismCheckPage from './PlagiarismCheckPage';
 import PlagiarismExactReport from './PlagiarismExactReport';
 import PlagiarismLibraryManager from './PlagiarismLibraryManager';
 import { makeMockCheckBridge } from './checkBridge';
+import { plagiarismToReport } from './adapters';
 import { PLAG_EXACT_FIXTURE, PLAG_EXACT_CLEAR, LIBRARY_FIXTURE } from './plagiarismExactFixture';
 import type { LocalLibrary, StoredReference } from '../citations/localLibrary';
 
@@ -252,7 +253,7 @@ describe('PlagiarismCheckPage — exact lane is primary, library present', () =>
     await screen.findByTestId('selected-name');
     fireEvent.click(screen.getByTestId('run-check'));
     await screen.findByTestId('check-report');
-    expect(screen.getAllByText(/91% similarity/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/91% word overlap/).length).toBeGreaterThanOrEqual(1);
     // with a real corpus match, the honest "no corpus" note is absent
     expect(screen.queryByTestId('plag-no-corpus-note')).toBeNull();
   });
@@ -277,5 +278,85 @@ describe('PlagiarismCheckPage — exact lane is primary, library present', () =>
     await screen.findByTestId('check-report');
     const note = await screen.findByTestId('plag-no-corpus-note');
     expect(note.textContent).toMatch(/does\s+not\s+mean the text is original/i);
+  });
+});
+
+// MIRROR PIN — these literals must match `match_type_label` in
+// gaply-core/src/report.rs, pinned there by
+// `match_type_label_wording_is_supported_by_the_algorithm`. Change one side and
+// the other's counterpart must change with it.
+//
+// The wording states only what the score measures: cosine over HashEmbedder
+// (embed.rs:33-53), a bag-of-words encoder. It is word-order-blind, so
+// "verbatim" was never verifiable; it has no semantics, so "paraphrase" named
+// the inverse of the signal (a real paraphrase has LOW word overlap and never
+// clears the 0.80 threshold to be reported at all).
+describe('matchTypeLabel wording (mirror of report.rs)', () => {
+  const corpusAt = (similarity: number) => ({
+    manuscript_chunk_seq: 0,
+    manuscript_excerpt: 'x',
+    similarity,
+    source: {
+      kind: 'corpus' as const,
+      document_id: 1,
+      chunk_id: 1,
+      title: 'T',
+      source_url: 'u',
+      source_type: 'corpus',
+      excerpt: 'e',
+    },
+  });
+  const labelAt = (similarity: number) => {
+    const report = {
+      chunk_count: 1,
+      threshold: 0.8,
+      corpus_matches: [corpusAt(similarity)],
+      self_matches: [],
+      note: 'n',
+    };
+    return plagiarismToReport(report as never).findings[0].title;
+  };
+
+  const selfLabel = (similarity: number) => {
+    const report = {
+      chunk_count: 1,
+      threshold: 0.8,
+      corpus_matches: [],
+      self_matches: [
+        {
+          manuscript_chunk_seq: 0,
+          manuscript_excerpt: 'x',
+          similarity,
+          source: { kind: 'self_manuscript' as const, other_chunk_seq: 3, excerpt: 'e' },
+        },
+      ],
+      note: 'n',
+    };
+    return plagiarismToReport(report as never).findings[0].title;
+  };
+
+  it('labels a self-match by LOCATION, never as a plagiarism determination', () => {
+    for (const sim of [1.0, 0.9, 0.81]) {
+      expect(selfLabel(sim)).toContain('internal duplication (same manuscript)');
+      expect(selfLabel(sim)).not.toMatch(/self-plagiarism/i);
+    }
+  });
+
+  it('names the three bands by word overlap, matching the Rust labels exactly', () => {
+    expect(labelAt(1.0)).toContain('near-identical wording');
+    expect(labelAt(0.98)).toContain('near-identical wording');
+    expect(labelAt(0.97)).toContain('high word overlap');
+    expect(labelAt(0.85)).toContain('high word overlap');
+    expect(labelAt(0.84)).toContain('partial lexical overlap');
+  });
+
+  it('never claims verbatim identity, paraphrase detection, or semantics', () => {
+    for (const sim of [1.0, 0.98, 0.9, 0.84, 0.8]) {
+      const title = labelAt(sim);
+      expect(title).not.toMatch(/paraphrase/i);
+      expect(title).not.toMatch(/semantic/i);
+      expect(title).not.toMatch(/\bverbatim\b/i);
+      expect(title).toContain('% word overlap');
+    }
   });
 });

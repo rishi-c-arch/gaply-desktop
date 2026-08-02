@@ -36,16 +36,46 @@ use crate::{Database, GaplyError};
 
 /// Human match-type label for a plagiarism span. Mirrors the frontend
 /// `plagiarismToReport` (checks/adapters.ts) EXACTLY so the desktop-app report
-/// and the backend PublishReady report read identically.
+/// and the backend PublishReady report read identically. Both sides are pinned
+/// by tests (`match_type_label_wording_is_supported_by_the_algorithm` here,
+/// `matchTypeLabel wording` in checks/plagiarism.vitest.tsx) — change one and
+/// the other's counterpart must change with it.
+///
+/// WHY THESE WORDS — do not "improve" them back.
+///
+/// `m.similarity` is cosine over vectors from [`crate::embed::HashEmbedder`]
+/// (`embed.rs:33-53`), which is a 384-dim FNV FEATURE-HASHING BAG-OF-WORDS
+/// encoder. It is the only `Embedder` implementation in the tree. That means
+/// the number measures WORD OVERLAP, and nothing else:
+///
+///   * it is word-order-blind — two passages with identical word multisets in
+///     different order score 1.0, so "verbatim" was never verifiable here;
+///   * it has no semantic capability — synonyms and rephrasing are invisible.
+///
+/// The old label set therefore named the inverse of what the engine detects.
+/// "paraphrase" was the clearest case: a genuine paraphrase (synonym
+/// substitution) produces LOW word overlap, scores below
+/// [`crate::plagiarism::DEFAULT_THRESHOLD`] (0.80), and is never reported at
+/// all — so nothing labelled "paraphrase" could have been one. What sat in that
+/// band is partial lexical reuse.
+///
+/// These words state only what the cosine supports. If a real semantic embedder
+/// is wired behind the `Embedder` trait, revisit them — with a benchmark, not a
+/// rename.
 fn match_type_label(m: &MatchSpan) -> &'static str {
     if matches!(m.source, MatchSource::SelfManuscript { .. }) {
-        "internal duplication (self-plagiarism)"
+        // "(same manuscript)", not "(self-plagiarism)": `MatchSource` establishes
+        // WHERE the match is, never that reuse was illegitimate. The old parenthetical
+        // asserted a determination that `ISOLATION_NOTE` (plagiarism.rs) explicitly
+        // disclaims — and it is the label users see most, since self-matches need no
+        // seeded corpus to fire.
+        "internal duplication (same manuscript)"
     } else if m.similarity >= 0.98 {
-        "verbatim"
+        "near-identical wording"
     } else if m.similarity >= 0.85 {
-        "near-verbatim"
+        "high word overlap"
     } else {
-        "paraphrase"
+        "partial lexical overlap"
     }
 }
 
@@ -316,7 +346,10 @@ pub fn compile_report(
                     tier: CertaintyTier::AiAssessedModerate,
                     certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
                     agent: AgentKind::Plagiarism,
-                    title: format!("{label} — {:.0}% similarity", m.similarity * 100.0),
+                    // "word overlap", not "similarity": the number is cosine over
+                    // a bag-of-words encoder (see `match_type_label`). Mirrored in
+                    // checks/adapters.ts.
+                    title: format!("{label} — {:.0}% word overlap", m.similarity * 100.0),
                     detail: format!("\u{201c}{}\u{201d} matches {source_label}.", m.manuscript_excerpt),
                     confidence: m.similarity,
                     provenance: vec![

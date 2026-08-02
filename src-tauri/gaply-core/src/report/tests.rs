@@ -396,14 +396,16 @@ fn plagiarism_matches_fan_into_per_match_findings() {
     // One finding PER MATCH (2), aggregate opinion NOT double-counted.
     assert_eq!(plag.len(), 2, "one finding per match; opinion not double-counted");
 
-    let corpus = plag.iter().find(|f| f.title.contains("near-verbatim")).expect("corpus finding");
+    let corpus =
+        plag.iter().find(|f| f.title.contains("high word overlap")).expect("corpus finding");
     assert_eq!(corpus.confidence, 0.91, "RAW cosine similarity, not swarm-rescaled");
     assert_eq!(corpus.severity, FindingSeverity::Major, ">= threshold ⇒ Major");
     assert_eq!(corpus.tier, CertaintyTier::AiAssessedModerate);
     assert!(corpus.provenance.iter().any(|p| p == "similarity:0.910"));
     assert!(corpus.provenance.iter().any(|p| p == "source:corpus"));
 
-    let selfm = plag.iter().find(|f| f.title.contains("self-plagiarism")).expect("self finding");
+    let selfm =
+        plag.iter().find(|f| f.title.contains("same manuscript")).expect("self finding");
     assert_eq!(selfm.confidence, 0.62);
     assert_eq!(selfm.severity, FindingSeverity::Minor, "< threshold ⇒ Minor");
     assert!(selfm.provenance.iter().any(|p| p == "source:self_manuscript"));
@@ -899,4 +901,74 @@ fn severity_beats_insertion_order_for_extraction_derived_findings() {
         ranks.windows(2).all(|w| w[0] <= w[1]),
         "findings must be ordered by severity for top-N truncation to mean anything: {ranks:?}"
     );
+}
+
+/// PIN the plagiarism wording to what the algorithm actually measures, and keep
+/// it in lockstep with the frontend mirror (`matchTypeLabel` in
+/// checks/adapters.ts, pinned by the same literals in
+/// checks/plagiarism.vitest.tsx).
+///
+/// `similarity` is cosine over HashEmbedder — a bag-of-words encoder
+/// (embed.rs:33-53). The words below claim word overlap and nothing more. The
+/// previous set ("verbatim"/"near-verbatim"/"paraphrase") claimed verbatim
+/// identity and paraphrase detection, neither of which a bag-of-words cosine
+/// can support; "paraphrase" in particular named the inverse of the signal.
+#[test]
+fn match_type_label_wording_is_supported_by_the_algorithm() {
+    let corpus_at = |sim: f64| MatchSpan {
+        manuscript_chunk_seq: 0,
+        manuscript_excerpt: "x".into(),
+        similarity: sim,
+        source: MatchSource::Corpus {
+            document_id: 1,
+            chunk_id: 1,
+            title: "T".into(),
+            source_url: "u".into(),
+            source_type: "corpus".into(),
+            excerpt: "e".into(),
+        },
+    };
+
+    // Self-matches: the source enum knows WHERE the match is, not that the reuse
+    // was illegitimate — so the label states location only, never a determination.
+    let self_at = |sim: f64| MatchSpan {
+        manuscript_chunk_seq: 0,
+        manuscript_excerpt: "x".into(),
+        similarity: sim,
+        source: MatchSource::SelfManuscript { other_chunk_seq: 3, excerpt: "e".into() },
+    };
+    for sim in [1.00, 0.90, 0.81] {
+        let label = super::match_type_label(&self_at(sim));
+        assert_eq!(label, "internal duplication (same manuscript)");
+        assert!(
+            !label.contains("plagiarism"),
+            "the label must not assert plagiarism — ISOLATION_NOTE disclaims exactly that"
+        );
+    }
+
+    // The three bands, at and just under each boundary.
+    assert_eq!(super::match_type_label(&corpus_at(1.00)), "near-identical wording");
+    assert_eq!(super::match_type_label(&corpus_at(0.98)), "near-identical wording");
+    assert_eq!(super::match_type_label(&corpus_at(0.97)), "high word overlap");
+    assert_eq!(super::match_type_label(&corpus_at(0.85)), "high word overlap");
+    assert_eq!(super::match_type_label(&corpus_at(0.84)), "partial lexical overlap");
+
+    // No band may claim verbatim identity, paraphrase detection, or semantics —
+    // a bag-of-words cosine supports none of the three.
+    for sim in [1.00, 0.98, 0.90, 0.84, 0.80] {
+        let label = super::match_type_label(&corpus_at(sim));
+        for forbidden in ["paraphrase", "semantic"] {
+            assert!(
+                !label.contains(forbidden),
+                "label {label:?} at similarity {sim} claims {forbidden:?}, which cosine over a \
+                 bag-of-words encoder cannot support"
+            );
+        }
+        assert_ne!(label, "verbatim", "word-order-blind cosine cannot verify verbatim identity");
+    }
+
+    // The isolation note must not call the signal semantic either.
+    let note = crate::plagiarism::ISOLATION_NOTE;
+    assert!(note.contains("lexical-overlap signal"), "note must name the real signal: {note}");
+    assert!(!note.contains("semantic"), "note must not claim semantics: {note}");
 }
