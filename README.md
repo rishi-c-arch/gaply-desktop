@@ -1,5 +1,12 @@
 # GAPLY React - Premium Design Implementation
 
+## 📄 Engineering documentation
+
+- [PublishReady Editorial Review Ontology](docs/publishready/ONTOLOGY.md) — what constitutes a publishable review, and the evidence required before PublishReady may make an editorial claim.
+- [PublishReady Architecture Map](docs/publishready/ARCHITECTURE_MAP.md) — one-page view: verified vs. missing capabilities, dependency graph, bottlenecks, tier roadmap.
+
+This repository has no issue tracker; those two documents are where PublishReady's open engineering and research items are recorded.
+
 ## 🎨 **Features Implemented**
 
 ### **1. Dot Pattern Overlay**
