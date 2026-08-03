@@ -50,9 +50,9 @@ use crate::GaplyError;
 
 /// Max findings forwarded (report is severity-ordered, so this is the top-N).
 /// Keeps the payload comfortably under the proxy's 8000-char total cap.
-const MAX_FINDINGS: usize = 12;
+pub const MAX_FINDINGS: usize = 12;
 /// Max checklist items forwarded.
-const MAX_CHECKLIST: usize = 20;
+pub const MAX_CHECKLIST: usize = 20;
 /// Per-field clamp (well under the proxy's 2000-char field cap).
 const FIELD_CLAMP: usize = 400;
 

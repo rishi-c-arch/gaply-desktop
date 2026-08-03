@@ -5,6 +5,7 @@ pub mod escalation;
 pub mod guidelines;
 pub mod http_fetcher;
 pub mod harness_log;
+pub mod release_gate;
 mod logging;
 pub mod models;
 pub mod journal_registry;
