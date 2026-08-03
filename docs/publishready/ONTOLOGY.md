@@ -341,6 +341,50 @@ Only the third is positional.
 
 That is what makes this worth stating as a **check reviewers apply**: whenever identity is being *reconstructed* from surrounding state rather than *propagated* from where it was known, ask what breaks the correlation. In the guideline case the frontend already knew which document the user requested; passing it preserves identity, while re-deriving it later from corpus state reconstructs identity from correlation.
 
+### 4.14 Standing rule — absence must be attributed, not just typed
+
+§4.12 requires absence to be **typed** — a missing value must say it is missing. This rule covers the next question.
+
+> **Typed absence answers WHETHER something exists. Attributed absence answers WHY it does not.**
+>
+> **A correct type with an incorrect cause wastes more investigation time than silence, because it looks trustworthy.**
+
+**Worked example.** Guideline ingestion returned `Unavailable { reason: "no substantive guideline text (non-HTML / paywalled / empty)" }`. The type was correct — nothing was ingested — and the honest-degradation machinery worked exactly as designed. But the *reason* named a **content** problem (a paywall, a JS shell, a non-HTML page) while the actual cause was a **boundary-match defect in our own extractor**: `html_to_text` reduced 188 KB of valid HTML to 0 characters.
+
+The page was HTTP 200 and perfectly usable. Every downstream consumer, and every reader of that message, was pointed at the publisher. **That is why the defect sat unnoticed** through an entire architecture audit that listed the empty checklist as an unrecorded product hole rather than a bug.
+
+A bare `Unavailable` with no reason would have prompted the question *"why?"*. A confidently wrong reason answered it, incorrectly, and closed the investigation.
+
+**The check:** when a component reports why something is absent, ask whether it can actually distinguish the cause it names from the causes it does not. If it cannot, say less.
+
+### 4.15 Standing rule — verify token boundaries before accepting a match
+
+> **Any parser classifying lexical or structural tokens by prefix or substring must verify the token boundary before accepting a match.**
+
+Three instances, in three unrelated modules, none of them careless:
+
+| Module | The match | What broke |
+|---|---|---|
+| `ends_sentence` (`docparse.rs`) | `"unaffected."` matched the `"ed."` abbreviation | A real sentence boundary was suppressed |
+| Uncited-reference matcher (`citations.rs`) | any-surname keying collided `Etebari 2005` with `Bizhannia 2005` | Two distinct works became one; both refused |
+| `strip_block` (`guidelines.rs`) | `<header>` matched the `<head>` open pattern | 188 KB of HTML reduced to 0 characters |
+
+**The `strip_block` audit, recorded here because it existed only in a commit message** — the exact failure mode this promotion prevents:
+
+| Tag | HTML5 elements sharing the prefix | Boundary-safe? |
+|---|---|---|
+| `script` | `script` only | Safe *in HTML5*; a custom `<script-x>` would collide |
+| `style` | `style` only | Safe by coincidence |
+| `head` | **`header`** | **BROKEN — confirmed in the wild** |
+| `nav` | none in HTML5 | **Live-exposed** — any `<nav-…>` custom element collides |
+| `footer` | none in HTML5 | Safe by coincidence |
+| `svg` | none in HTML5 | Safe by coincidence |
+| `noscript` | none in HTML5 | Safe by coincidence |
+
+**One broken, one live-exposed, five safe only because HTML5 happens to define no sibling element sharing their prefix. Not one was safe by construction.**
+
+Severity is amplified when a false-positive match has a destructive fallback: `strip_block` drops the remainder of the document on an unterminated block, which is defensible for a genuine unterminated `<script>` and catastrophic for a false positive. **Ask what a wrong match costs, not only how likely it is.**
+
 ---
 
 ## 5. Evaluation Protocol
@@ -360,6 +404,19 @@ That is what makes this worth stating as a **check reviewers apply**: whenever i
 | Topic extraction | Human-assigned field labels, top-k agreement | Interdisciplinary papers |
 
 ---
+
+### 5.1 OPEN — no generalised coverage-measurement protocol
+
+**Status: open. Blocks all eight findings in ARCHITECTURE_TRACE §11.4's deterministic tier.**
+
+§4.9 requires a coverage argument for any finding of the form *"X is ABSENT from Y"*. `CITATION_EVAL_PROTOCOL_V1`/`V2` produce exactly such an argument — policy decision P1, a frozen ground truth, exclusion rules, a decision matrix, the Rule-of-Three caveat — but they are **citation-specific**.
+
+Every remaining item in §11.4 has the same shape and none has a protocol: references never cited, figures referenced but absent, tables never referenced, broken cross-references, missing DOIs, inconsistent reference style, ethics statements, funding disclosures.
+
+**Without a generalised protocol each one independently re-derives P1, the frozen count, and the sufficiency threshold — or, more likely, ships without one and repeats the uncited-reference outcome (precision 0.00 on first contact with a real manuscript).**
+
+This is the highest-leverage unstarted item in the project: one protocol unblocks eight findings.
+
 
 ## 6. Roadmap by Evidence ROI
 
@@ -672,6 +729,8 @@ The PublishReady pipeline is traced end-to-end at `file:line` and every module i
 ## 10. Confidence & Limitations
 
 **HIGH confidence (traced, `file:line`-backed):** Evidence Model structure and its three gaps; the full PublishReady lane sequence, verified by execution path; which capabilities are wired vs. built-but-unwired; the missing-signal families confirmed by zero-result greps; the decision-rule precedents; the provenance UI trail.
+
+**TRACKED WORK — extraction accuracy has no benchmark.** Previously listed only as "unverified". Promoted here because every downstream claim rests on it: the statistical validator, the checklist, the plagiarism spans and the citation matcher all consume `ExtractionResult`, and none of their measured accuracies means anything if extraction itself is wrong. No in-repo benchmark exists and none is scheduled.
 
 **UNVERIFIED, and why:** extraction accuracy on real manuscripts (no in-repo benchmark); `HashEmbedder` false-positive rate (unmeasured); the three subsystem internals above (not read); whether the deployed proxy revision matches this tree (no Render access).
 

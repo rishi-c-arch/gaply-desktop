@@ -542,6 +542,18 @@ Three cautions, recorded so a future reader does not inherit them uncritically:
 
 Grouping them as one backlog category — "expose already-computed signals" — is the error this table exists to prevent. It makes a product decision look like an afternoon of plumbing, which is how a decision gets made by default instead of deliberately.
 
+#### Gap — what the UI does with the number, recorded before Group 3 starts
+
+Traced but not previously written down; it lived only in conversation.
+
+**`publication_probability` renders three times** in `ReviewerLetterPanel.tsx:53-60` — as a gauge `score`, an aria-label, and visible text. A severity-count aggregate is not a probability, and presenting one in a gauge implies a calibration it does not have. Substituting the deterministic verdict under the same widget and the same label changes the semantics without changing a word of the language.
+
+**`ReviewerLetterPanel.tsx:107`** currently reads *"Suggested based on the analysis — advisory, not a recommendation to submit."* That hedge was written for an LLM output. For a deterministic aggregate it becomes wrong in the **understating** direction — §4.4 applies in both directions (see its fifth precedent).
+
+**`Recommendation::Unknown`** (`reviewer_agent.rs:109`) means *"the gate could not trust the recommendation"*. For a deterministic aggregator that state is unreachable, so the UI branch becomes dead — or must be repurposed for "no findings to aggregate", which is a different thing wearing the same name.
+
+**`synthesize.ts:45`** builds the same shape for the dev/test path and would drift silently.
+
 ### 12.3.2 The Box 4 comparison harness — decisions and two lessons
 
 `reviewer_harness::build_comparison_report` (`reviewer_harness.rs:163`) already computes 21 typed metrics including **`recommendation_agreement`** (`:195`), emitted once at `commands.rs:674` via `tracing::info!`. Four decisions, recorded:
@@ -611,6 +623,30 @@ Two implementations were measured: rebuilding the body from `Section.paragraphs`
 
 The criterion that caught it was **span identity, not count** — a count-only check would have read 10 vs 5 as merely "wrong number" rather than "entirely different set", and a run returning 5 different spans would have passed a count check while failing the goal.
 
+### 12.3.4 Guideline ingestion and D13 — RESOLVED, with both root causes
+
+Recorded because the audit that found this misclassified it, and the misclassification is instructive.
+
+**The symptom:** every report showed *"no guideline matches (corpus not seeded yet)"*, and the checklist was four structural items regardless of which journal the user selected. The architecture audit filed this as an unrecorded product hole — *"the guideline corpus is empty"* — implying the feature was never finished.
+
+**It was two defects in two different layers, both now fixed.**
+
+**Root cause 1 — ingestion (`b884afb`).** `strip_block`'s `<head` open pattern also matched `<header>`, and an unterminated block drops the remainder, so a valid 188 KB page became 0 characters and was refused as *"no substantive guideline text"*. Class A, wearing a class D/E message — see ONTOLOGY §4.14. Blast radius included `paper_corpus.rs:388`, so Gap Finder paper ingestion was truncated at the first `<header>` too.
+
+**Root cause 2 — retrieval and scoping (`ceadc29`).** `build_checklist` took a semantic top-5 filtered by `source_type` alone. Two independent failures: the exact strings the detectors match sat in PLOS chunks 1, 6, 7, 8 while the top-5 returned 3, 20, 21, 4, 12 (**zero overlap**), and `source_type` scoping matches *every* journal in a persistent corpus, so a checklist could state another journal's requirements as the target's. Replaced with `rag::chunks_for_source`, scoped by a `guidelines_url` threaded from the frontend (ONTOLOGY §4.13).
+
+**A correction this supersedes.** B1 (bag-of-words embedder) and §9.3 (top-k saturation) were recorded as blocking D13. They are not. The exact strings were present; a semantic embedder would not have been the fix. §9.3 is the proximate mechanism, the design error is upstream of it, and **the audit's own diagnosis was wrong in a way that would have directed months of embedding work at a scoping bug.**
+
+### 12.3.5 OPEN — `extract_word_limit` fabricates
+
+Disabled in `ceadc29`, recorded in code at the call site, and recorded here because a code comment is not a backlog.
+
+Fed real guideline text for the first time, it emitted *"word limit (300 words) — manuscript has 5144 words (limit 300)"* for PLOS ONE, which has **no 300-word manuscript limit**. 300 is almost certainly the **abstract** limit, scraped from an abstract-context chunk and applied to the whole manuscript.
+
+Confident, false, and actionable — the §4.4 class, and **worse than the empty checklist it replaced, because silence misleads no one.** It was harmless only while retrieval starved it of input.
+
+**Re-enabling requires its own chunk scan**, answering one question: is the limit recoverable in context — can a detector tell which number governs which artifact — or is the requirement simply not extractable by regex? Until that is answered, silence.
+
 ### 12.4 Memory efficiency principles — design intent
 
 **Runtime optimization targets measured bottlenecks while preserving single-manuscript execution on 8 GB.** Techniques are adopted only after profiling demonstrates benefit; the working order when a constraint is measured is ONTOLOGY §4.8.
@@ -633,3 +669,25 @@ This is a list of **techniques**, not architectural layers, each carrying its ac
 **Explicitly not proposed, and why.** No L1/L2/L3 cache terminology. No multi-level cache hierarchy. No CPU/GPU scheduler. No memory-ownership manager. No page-eviction manager.
 
 Nothing measured shows any of these is needed — nothing runs concurrently and one manuscript is processed at a time (§12.3) — and ONTOLOGY §4.7 governs: runtime architecture is expanded only when profiling identifies a specific constraint that existing structure cannot address. The vocabulary matters as much as the structures: naming a cache "L2" imports an eviction-policy problem this product does not have, and the name would outlive the reasoning that introduced it.
+
+---
+
+## 13. UNDECIDED — what "done" means for PublishReady
+
+**This is a product decision and no answer is proposed here.** It is recorded because the ambiguity is real, undocumented, and determines whether the next phase of work is engineering or research.
+
+There is a tier roadmap (ARCHITECTURE_MAP T1–T4) and a dimension list (ONTOLOGY D1–D14), but **no statement of which subset constitutes a shippable product**. As a result "PublishReady is X% complete" has two defensible answers that differ by a factor of three.
+
+### Denominator (a) — PublishReady as currently scoped: **~80%**
+
+The checks that exist today, made correct and shipped. Remaining: the cover-page document-boundary defect (§12.3.3), `plagiarism_exact` unwired (B6), residual computed-and-discarded signals (B7), `extract_word_limit` (§12.3.5). **A planning figure.**
+
+### Denominator (b) — the intended product, D1–D14: **~25%**
+
+Five dimensions have no capability at all (D1, D2, D5, D10, D12). Four more are partial: D6 is fetched but never aggregated, D9 is tables without figures, D11 fires only if a guideline says "conflict", D14 has no external arm. The two flagship reviewer questions — *is this novel* and *does it matter* — are recorded as **"Unanswerable today"**. **A product figure.**
+
+### Why the choice matters
+
+The distance between the two is not schedule, it is **kind**. Everything in (a) is engineering. The distance to (b) runs through B3 (topic representation, *"Research, Unbounded"*) and through the privacy invariant, which §9.1 established is what actually blocks D1/D2/D6/D10 — not claim extraction.
+
+Choosing (a) makes the next phase a finite engineering programme. Choosing (b) makes it a research programme with an unbounded component. **Nothing in this repository currently records which one is intended.**
