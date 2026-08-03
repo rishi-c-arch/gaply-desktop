@@ -691,3 +691,51 @@ Five dimensions have no capability at all (D1, D2, D5, D10, D12). Four more are 
 The distance between the two is not schedule, it is **kind**. Everything in (a) is engineering. The distance to (b) runs through B3 (topic representation, *"Research, Unbounded"*) and through the privacy invariant, which §9.1 established is what actually blocks D1/D2/D6/D10 — not claim extraction.
 
 Choosing (a) makes the next phase a finite engineering programme. Choosing (b) makes it a research programme with an unbounded component. **Nothing in this repository currently records which one is intended.**
+
+---
+
+## 14. Release instruments — coverage and risk
+
+**Authoritative statement of what `read_report.rs` covers.** Its header points here; the header must not restate this informally, or the informal version becomes the one people read.
+
+ONTOLOGY §4.11 makes an end-to-end author review a release gate. This section records **which production stages that gate actually reaches** — deliberately as coverage *and risk*, not a percentage, because the stages differ in importance and a single number hides exactly that.
+
+### The matrix
+
+| Production stage | `read_report.rs` exercises it? | Defects found there, and by what | Risk if untested | Recommendation |
+|---|---|---|---|---|
+| **Guideline ingestion** (`ingest_guidelines` → `GuidelinesIngestor`) | **Partly** — wired in only *after* a gap audit drew a wrong conclusion from its absence. Not via the command | **TWO**, both by **manual probing**, neither by the gate: `strip_block` boundary match (`b884afb`); `source_type`-only scoping (`ceadc29`) | **Highest measured.** Two defects, zero gate detections. One emptied D13, the product's clearest differentiator; the other produced *incorrect* reports | `release_gate.rs`, via the real command, with two-journal and failed-ingestion setups |
+| **Manuscript hashing** (`harness_log::manuscript_sha256`) | No | None | Low — unit-tested, content-addressed | Cover incidentally |
+| **6-lane pipeline** (`run_pipeline_measured`) | **Yes** — this is what it drives | Chunk-boundary regression, 6 → 10 self-matches, found **by the gate** with 683 tests green | Low — well covered | Keep in `read_report.rs` |
+| **Report cache** (`report:v2:{id}`) | **Reads it directly**, bypassing `get_report` | None | Medium — the key was bumped this session; only the write path is exercised | `release_gate.rs` should read through `get_report` |
+| **Targeted escalation** (`run_targeted_escalation`) | **No** | **Unknown** | **High.** It writes the `evidence` table, the shadow path's ONLY input. `shadow_findings_sent == 0` is its documented failure signature and nothing exercises it | `release_gate.rs` |
+| **Reviewer payload** (`build_review_payload`) | **No** | **Unknown** | **High.** Enforces the privacy boundary — `detail` dropped, provenance filtered to nine prefixes, `MAX_FINDINGS = 12`. Never asserted end to end | `release_gate.rs` |
+| **Shadow synthesis** (`run_shadow_synthesis`) | **No** | **Unknown** | **High.** Its `None` branch produced the silent-no-record defect — fixed, never exercised in production | `release_gate.rs` |
+| **Wholesale reviewer** (`verify_with_envelope`) | **No** | **Unknown** | **High**, and **blocked** — needs a live authenticated proxy | `release_gate.rs`, gated on proxy availability |
+| **Comparison harness + sink** (`build_comparison_report`, `harness_log::append`) | **No** | **Unknown** | **High.** The sink has **never run in the real app**, and its whole purpose is the pre-promotion baseline | `release_gate.rs` — the instrument that would confirm the sink works at all |
+| **UI aggregation** (`adaptOutcome`, `ReportViewerPage`, `ReviewerLetterPanel`) | **No** | **Unknown** | **Medium–High** | **OPEN ITEM — see below.** Out of scope for a Rust instrument |
+
+### Why the gap survived three successful gate applications
+
+**The instrument looks effective because it works well on the thing it can see, and its track record was accumulated entirely outside its blind spot.** The stage it covers has the best defect record — three gate catches, each with every component metric green — while the stage with the worst record, guideline ingestion at two defects and zero gate detections, is the one it barely touches.
+
+That asymmetry is self-reinforcing: every success is drawn from the covered stage, which raises confidence in the instrument as a whole, which makes the uncovered stages *less* likely to be examined. **This is the rationale for two complementary instruments rather than one more complicated one** — a single instrument grown to cover everything would still report one verdict, and the verdict would still be dominated by the stages it happens to reach.
+
+### OPEN — UI aggregation has no instrument at all
+
+Not merely uncovered: **out of scope for any Rust instrument**, and currently unverified by anything.
+
+`report["evidence"]` and `shadow_reviewer` both reach the frontend and are read by nothing (§2, §3). §12.3.1's render gap — `publication_probability` drawn three times, the `:107` hedge, the unreachable `Recommendation::Unknown` branch, `synthesize.ts:45` drift — is recorded but **unverified by test**.
+
+This needs a **frontend test**, and no such test is planned. Recording it here so that "covered by `release_gate.rs`" is never assumed of it.
+
+### The two instruments
+
+| | `read_report.rs` | `release_gate.rs` (proposed, §14.1) |
+|---|---|---|
+| Drives | `run_pipeline_measured` | the Tauri command path |
+| Speed | fast, deterministic | slow, network-dependent |
+| Purpose | development | pre-ship gate |
+| Catches | composition defects in report assembly | command-path, privacy, persistence, liveness |
+
+**Neither replaces the other.** Of six defects in this session's history, `read_report.rs` caught three and `release_gate.rs` would have caught the other three — a disjoint split, not an overlap.

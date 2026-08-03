@@ -4,28 +4,17 @@
 //! COMPOSITION of findings can be reviewed rather than their individual
 //! correctness (ONTOLOGY §4.11).
 //!
-//! # Why this is tracked
+//! # Scope
 //!
-//! It has found three production defects that the full test suite did not, with
-//! every component metric green:
+//! **ARCHITECTURE_TRACE §14 is the authoritative statement of what this covers**
+//! — a stage-by-stage matrix of the production path with the risk of each
+//! untested stage. Do not restate it here: an informal summary in a source file
+//! becomes the version people read.
 //!
-//! * `registry_year_mismatch` producing five false accusations — an entity
-//!   resolution failure invisible to component tests;
-//! * a self-match regression from a preprocessing change (6 -> 10 spans) that
-//!   passed 683 tests;
-//! * 28 of 48 findings being identical restatements — a presentation failure
-//!   with no incorrect component anywhere.
-//!
-//! A file `git clean` removes is not part of a release process.
-//!
-//! # What it does NOT cover
-//!
-//! This is the FAST DETERMINISTIC harness: it drives `run_pipeline_measured`,
-//! not the Tauri command path. It does not exercise the reviewer payload, shadow
-//! synthesis, escalation, or UI aggregation, and it only exercises guideline
-//! ingestion because that was wired in explicitly after a gap audit drew a wrong
-//! conclusion from its absence. A second instrument covering the full command
-//! path is proposed separately — the two have different purposes and neither
+//! In short: this is the FAST DETERMINISTIC harness. It drives
+//! `run_pipeline_measured`, not the Tauri command path, and §14 records both the
+//! three production defects it has caught and the stages it structurally cannot
+//! reach. `release_gate.rs` (§14.1) is the complementary instrument; neither
 //! replaces the other.
 //!
 //! Usage:
