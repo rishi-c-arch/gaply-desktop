@@ -6,7 +6,7 @@
 
 ## Verified capabilities (in the shipping PublishReady report)
 
-Parsing → IMRaD split (22 heading phrases) → stats / citation / table extraction · 5-rule statistical validator · citation existence + retraction + gated LLM verdict · lexical-cosine plagiarism · guideline checklist (4 structural + 4 guideline-derived) · AI-authorship signal · stylometry, table and citation-recency findings · Evidence Model + Store · gated cloud reviewer · provenance trail in the report UI (`ReportViewerPage.tsx:184`)
+Parsing → IMRaD split (22 heading phrases) → stats / citation / table extraction · 5-rule statistical validator · citation existence + retraction + gated LLM verdict · lexical-cosine plagiarism (self-match only — external corpus is Effectively Unavailable, ONTOLOGY §9.2) · guideline checklist (4 structural + 4 guideline-derived) · AI-authorship signal · stylometry, table and citation-recency findings · Evidence Model + Store · gated cloud reviewer · provenance trail in the report UI (`ReportViewerPage.tsx:184`)
 
 ## Missing capabilities
 

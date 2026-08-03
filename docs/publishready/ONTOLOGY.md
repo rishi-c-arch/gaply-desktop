@@ -142,7 +142,7 @@ Resolved issues remain in the ontology because the historical reasoning is part 
 
 | Original (unsupported) | file:line | Evidence actually available | Corrected wording |
 |---|---|---|---|
-| `"internal duplication (self-plagiarism)"` | `report.rs:42`; `adapters.ts:29` | `MatchSource::SelfManuscript` knows *where*, never *whether reuse was illegitimate* — contradicted `ISOLATION_NOTE` three lines below | `"internal duplication (same manuscript)"` |
+| `"internal duplication (self-plagiarism)"` | `report.rs:42`; `adapters.ts:29` | `MatchSource::SelfManuscript` knows *where*, never *whether reuse was illegitimate* — contradicted `ISOLATION_NOTE` (`plagiarism.rs:42`), which the user never sees (§9.2) | `"internal duplication (same manuscript)"` |
 | `"verbatim"` | `report.rs:44`; `adapters.ts:30` | cosine ≥0.98; cannot distinguish reordering | `"near-identical wording"` |
 | `"near-verbatim"` | `report.rs:46`; `adapters.ts:31` | cosine ≥0.85, word-order-blind | `"high word overlap"` |
 | `"paraphrase"` | `report.rs:48`; `adapters.ts:32` | cosine <0.85 over bag-of-words | `"partial lexical overlap"` |
@@ -164,7 +164,7 @@ Four worked precedents illustrate the rule across different classes of user-visi
 1. **A fabricated quantitative score** — `novelty_score` / `journal_fit_score`, deleted from `reviewer_agent.rs` (instruction at `:77-91`, gate at `:409+`, evaluation struct at `:176+`). The payload (`:318-391`) carried no topic, so nothing could ground them and `parse_score` (`:395`) could not check them. A caveat was rejected because a caveated number still anchors.
 2. **Misleading error wording** — the 401 message at `models/proxy_client.rs:271` said `app_check_failed` unconditionally; a 401 has two causes, so it now names both. The claim was narrowed to what the status code actually establishes.
 3. **Overstated terminology** — the plagiarism band labels in §4.3 (`report.rs:44-57`, `adapters.ts:30-41`): `"verbatim"` / `"near-verbatim"` / `"paraphrase"` named textual properties a word-order-blind cosine cannot establish, replaced with wording it supports.
-4. **An asserted determination** — `"internal duplication (self-plagiarism)"` (`report.rs:42`, `adapters.ts:29`) declared reuse illegitimate, contradicting `ISOLATION_NOTE` three lines below in the same file. `MatchSource::SelfManuscript` establishes *where* a match is, never *whether* the reuse was improper. Now `"(same manuscript)"`.
+4. **An asserted determination** — `"internal duplication (self-plagiarism)"` (`report.rs:42`, `adapters.ts:29`) declared reuse illegitimate, contradicting `ISOLATION_NOTE` (`plagiarism.rs:42`). `MatchSource::SelfManuscript` establishes *where* a match is, never *whether* the reuse was improper. Now `"(same manuscript)"`. *(Two corrections since first written: the two are in different files — `match_type_label` is `report.rs:65` — and the note never reaches the PublishReady report at all (§9.2), so the label shipped with no counterweight the user could see. Both strengthen the case for the correction.)*
 
 The fourth was found outside the commissioned scope, by noticing the same pattern in adjacent code while correcting the third — which is the usual way this class of defect surfaces.
 
@@ -422,16 +422,29 @@ In the traced architecture at this commit the lane executes on every PublishRead
 
 **THIS CLASSIFICATION IS LOAD-BEARING AND FRAGILE.** Adding any ingester that creates a `retraction` or `reference_style` document flips it — and nothing in the code would flag that. `rag::ingest_document` being the sole write path is the fact this rests on; if that stops being true, this section is stale.
 
-**OPEN ISSUE — the report says "pass"; the capability is unavailable.** With an empty corpus the plagiarism lane emits one finding via `adapters::from_plagiarism` (`swarm.rs:379-401`) through `compile_report`'s soft-opinion loop:
+**OPEN ISSUE — the report is silent about text reuse when nothing matches.** *(Corrected — see the superseded claim below.)*
 
-```
-title:  "Plagiarism: pass"
-detail: "0 corpus / N self match(es) at threshold 0.80; <ISOLATION_NOTE>"
-```
+**TRACED BEHAVIOUR.** With zero matches the PublishReady report contains **no plagiarism output at all**:
 
-rendered at `ReportViewerPage.tsx:361,366`. The combination of a "Pass" status, an explicit threshold, and a corpus count of zero can reasonably be interpreted by a user as meaning an external comparison was performed and found no matches. In the traced architecture, no eligible external comparison occurred. `ISOLATION_NOTE` (`plagiarism.rs:37-39`) addresses only whether similarity is a determination; it says nothing about absence. `NOT_TURNITIN_NOTICE` (`plagiarism_exact.rs:108-113`), which does state that absence proves nothing, belongs to the other engine and does not reach this lane.
+* the per-match loop iterates `corpus_matches`/`self_matches` and emits nothing when both are empty — *a non-event is not a finding* (`report.rs:288`), pinned by `empty_plagiarism_yields_zero_findings` (`report/tests.rs`);
+* the soft-opinion loop **explicitly skips `AgentKind::Plagiarism`** (`report.rs`, guard `if op.hard_constraint || op.agent == AgentKind::Verification || op.agent == AgentKind::Plagiarism { continue }`), so the `Opinion` built by `adapters::from_plagiarism` (`swarm.rs:379-401`) feeds the **debate vote only** and never becomes a `Finding`;
+* `PlagiarismReport.note` carries `ISOLATION_NOTE` (producer: `plagiarism.rs:42`, set in `PlagiarismSession::report`), but `compile_report` **never reads `.note`** (consumer: absent — no `.note` reference in `report.rs`). The disclaimer is not propagated into the PublishReady report in the traced execution path.
 
-Same defect class as B0 — a claim exceeding its evidence — and arguably worse, because the misreading is reassuring rather than alarming. **Open. No fix exists yet; none is described here.**
+**CONSEQUENCE (traced).** No plagiarism findings are rendered, and no capability-state statement is rendered. The current report therefore does not distinguish between:
+
+* no reusable text found,
+* no eligible external comparison corpus,
+* comparison unavailable.
+
+No fix is described here.
+
+**SUPERSEDED CLAIM, preserved per §4.3 doctrine.** An earlier revision of this section stated:
+
+> ~~"With an empty corpus the plagiarism lane emits one finding via `adapters::from_plagiarism` through `compile_report`'s soft-opinion loop — title `"Plagiarism: pass"`, detail `"0 corpus / N self match(es) at threshold 0.80; <ISOLATION_NOTE>"`, rendered at `ReportViewerPage.tsx:361,366`"~~ — and characterised the defect as a misleading *"pass"*.
+
+**That was wrong.** `from_plagiarism` genuinely constructs that explanation, but nothing consumes it: the soft-opinion loop skips its agent. The trace established that a producer existed and inferred that its output reached the user, without tracing the consumer. The rendered-output quotation was reconstructed from the producer, not observed.
+
+The corrected defect is **silence**, not a misleading status — a different problem, and one with no existing surface to attach wording to.
 
 **Verification trigger.** Any future production ingester for `retraction` or `reference_style` invalidates this classification and requires this section and the Capability Matrix (§3) to be re-reviewed.
 
@@ -457,6 +470,27 @@ There is **no `source_type` predicate**. `compare_to_corpus` requests `k = 5` an
 **Classification.** Mechanism: **Traced** (`vector.rs:71-93`, `plagiarism.rs:271-273`). Impact frequency: **unmeasured** — no data exists on how often top-5 is saturated in a real database.
 
 **Editorial consequence.** This is precisely why a signal at the eligible-input layer can support *"an external comparison was possible"* and can **never** support *"an external comparison occurred"*. The latter is a different claim requiring a different signal — whether the KNN actually returned an eligible candidate on this run — and would need its own wording. Conflating the two would be the §4.4 failure in the opposite direction from B0: understating rather than overstating, but still a claim not matched to its evidence.
+
+### 9.4 Verification methodology — tracing producers without tracing consumers
+
+A recurring error in this document's own construction, recorded so it is not repeated.
+
+**The pattern.** A producer is traced — a value is constructed, a field is set, a function returns the right thing — and its arrival at the user is then *inferred*. The consumer is never traced. Because the producer is real and correct, the inference feels grounded; it is not.
+
+**Three documented instances, all in this document:**
+
+1. **§9.1 — `compare_to_corpus`.** The first filter (`source_type != "chunk"`) was traced and the conclusion *"does not filter by RAG `SourceType`"* drawn from it. The actual filter lives in the callee `corpus_chunk_info` (`plagiarism.rs:271-273`), three lines further on. Traced the guard, not the guard's continuation.
+2. **§9.2 — `from_plagiarism`.** The `Opinion` and its explanation string were traced; the soft-opinion loop that **skips** `AgentKind::Plagiarism` was not. Producer real, consumer absent.
+3. **§9.2 — `ISOLATION_NOTE`.** `PlagiarismReport.note` is set (`plagiarism.rs:42`); `compile_report` never reads it. Producer real, consumer absent.
+
+**Contrast — the same check done correctly.** `shadow_reviewer` was classified *Computed, Discarded* only after grepping the frontend for a consumer and finding none (`commands.rs:677`; zero references in `src/`). That is the standard the three instances above failed to meet.
+
+**STANDING VERIFICATION RULE.** Whenever a capability is claimed to reach the user, trace **both**:
+
+* **producer → consumer**, and
+* **consumer → rendered UI**.
+
+**A producer alone is insufficient evidence that information reaches the user.** A claim about what a user sees requires a trace terminating at a render site, or it is inference and must be labelled as such.
 
 ### Coverage confidence: **Medium**
 
