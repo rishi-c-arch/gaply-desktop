@@ -385,6 +385,25 @@ Three instances, in three unrelated modules, none of them careless:
 
 Severity is amplified when a false-positive match has a destructive fallback: `strip_block` drops the remainder of the document on an unterminated block, which is defensible for a genuine unterminated `<script>` and catastrophic for a false positive. **Ask what a wrong match costs, not only how likely it is.**
 
+### 4.16 Standing rule — a consumer must not assume guarantees its producer does not explicitly provide
+
+> **A consumer must not assume guarantees its producer does not explicitly provide.**
+
+Four instances in this project, the same shape each time: **the consumer's contract is tighter than anything the producer committed to, and the mismatch stays invisible until the producer exercises its actual latitude.**
+
+| Consumer assumes | Producer guarantees | Result |
+|---|---|---|
+| strict JSON | a *"return concise, structured findings"* prompt | parse failure |
+| bounded payload | unlimited citations | HTTP 422 |
+| document identity | a `source_type` filter only | cross-journal contamination |
+| probability semantics | a severity-count aggregate | misleading UI (**open**) |
+
+None was detectable by testing the consumer in isolation, because each failure arose from a mismatch between producer and consumer contracts — `serde_json::from_str` is right to reject non-JSON, and a checklist is right to expect one journal's requirements. **Each is a contract defect at a boundary, and each surfaced only when the producer did something it had always been free to do.**
+
+**§11.5 is a special case of this rule, not a sibling.** Identity reconstructed from derived state — position, count, timestamp, a non-unique attribute — is a consumer assuming a guarantee (uniqueness, stability, correspondence) that the producer never made. The identity rule (§4.13) is what this looks like when the assumed guarantee is *identity* specifically.
+
+**The check:** at any boundary, write down what the producer actually commits to, then compare it with what the consumer requires. Where the consumer is stricter, either tighten the producer or add an explicit adaptation layer. A comment saying what the producer "should" return is not a guarantee.
+
 ---
 
 ## 5. Evaluation Protocol

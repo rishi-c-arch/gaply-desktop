@@ -739,3 +739,55 @@ This needs a **frontend test**, and no such test is planned. Recording it here s
 | Catches | composition defects in report assembly | command-path, privacy, persistence, liveness |
 
 **Neither replaces the other.** Of six defects in this session's history, `read_report.rs` caught three and `release_gate.rs` would have caught the other three — a disjoint split, not an overlap.
+
+---
+
+## 15. The proxy response contract
+
+Two defects traced when the proxy first went live. Both were invisible until then: every prior run degraded before reaching a real model — Ollama absent, proxy unreachable, or 401 — so neither path was ever exercised against live output.
+
+### 15.1 Shadow narrative — the contract mismatch
+
+**FACT, and the authoritative statement:**
+
+> **The server does not request schema-enforced JSON, while the client requires schema-valid JSON.**
+
+Objectively true from the trace, and it holds regardless of model behaviour:
+
+* **Client:** `serde_json::from_str(result.text)` (`proxy_client.rs:231-232`) errors on anything non-JSON — a strict expectation.
+* **Server:** the OpenAI request body (`openai_client.py:~55-64`) carries **no `response_format`, no `json_schema`, no `strict`, not even `{"type": "json_object"}`**. Greps for all four return zero matches in `openai_client.py` *and* `claude_client.py`.
+* **Prompt:** the system message (`openai_client.py:20-23`) says *"Return concise, structured findings."* — it does not say "JSON", does not name a schema, and does not constrain format.
+
+**The two requests share one response configuration.** `main.py` has no task dispatch; both traverse a single `provider.complete(payload)` that builds one body shape. Only the prompt content differs.
+
+**Interpretation, subordinate to the fact above:** the observed asymmetry — wholesale parsed, shadow failed at column 2 — is consistent with both prompts depending on the model's formatting, one succeeding and one not. That reading is not required for the contract mismatch to be a defect, and **it rests on a single observation. No rate of non-JSON replies has been measured.**
+
+**Also eliminated by source, without instrumentation:** the hypothesis that the two client paths expect different schemas. `verify` is a one-line delegation to `verify_with_envelope` (`proxy_client.rs:250-254`) discarding only the metadata. There is one implementation, so a client-side contract difference is impossible.
+
+#### The fix, scoped to what was traced
+
+**For the OpenAI path, adopting Structured Outputs with a schema matching the Rust response types would eliminate this class of formatting failures.**
+
+The class spans providers — `claude_client.py` has no equivalent enforcement — so the architectural statement is:
+
+> **Every provider used behind a schema-strict client must provide an equivalent schema guarantee or an explicit adaptation layer.**
+
+`main.py:146-193` selects the provider server-side, so fixing only the OpenAI path leaves the class open on the other.
+
+**The schema must be derived from what the client deserializes (`ReviewerEvaluation`, `CitationVerdict`), not from the prompt's description of those objects.** Otherwise a valid-schema-A reply meets an expects-schema-B parser, the failure looks like *"Structured Outputs didn't work"*, and the real cause is schema drift.
+
+**Instrumentation is retained regardless** — log the first ~200 chars of `result.text` on inner-parse failure. Under enforcement this is a diagnostic safeguard, not the primary fix: a fallback path, a provider swap or a server regression would all reproduce this failure, and the log is what identifies which. Without it, an enforced system that fails looks identical to an unenforced one that fails.
+
+### 15.2 `verify_citations` — unbounded payload
+
+**FACT.** `POST /verify` returned **422**: *"total text content is 16255 chars (limit 8000)"*.
+
+`validate_structured` (`gaply-proxy/app/validation.py:39-61`) walks **every string leaf anywhere in the payload** and sums their lengths, so `MAX_TOTAL_CHARS = 8000` is a **global budget across the whole request** — not per-field, not per-citation. The separate `max_field` prose check did **not** fire.
+
+`verify_citations` has **no cap** — no `.take(N)` anywhere in the assembly. **Payload size grows approximately linearly with reference count and is unbounded; this 28-reference manuscript already exceeds the limit by roughly a factor of two.** One data point supports that and nothing broader.
+
+**Classification: payload-size bug.** Not a privacy-boundary violation — `Reference.raw` is deliberately excluded (`verify_agent.rs:147-149`), abstracts are excluded by design (`:210-211`), all fetched text passes `llm_safe()`, and the `max_field` prose check did not fire. The proxy's phrase *"send a structured summary, not raw manuscript text"* is **its own validation vocabulary, not a finding about what was sent** — reading it as evidence of a breach is the §4.14 error.
+
+**This corrects a recorded diagnosis.** All-UNKNOWN citation verdicts were attributed to Ollama being unavailable. This run **reached the cloud proxy and was rejected on size** — a different cause with a different fix.
+
+**Note for §14:** `release_gate.rs`'s PRIVACY invariant covers `build_review_payload` only. **`verify_citations` has never been asserted** — no size check, no privacy check. That coverage gap is real independent of this defect's class.
