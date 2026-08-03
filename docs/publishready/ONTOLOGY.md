@@ -66,6 +66,8 @@ Stated as gaps, not designed around.
 
 Tier: **1** deterministic · **2** manuscript-internal · **3** literature-grounded · **4** editorial synthesis.
 
+Status is one of *Verified Present · Partially Wired · Built, Unwired · Computed, Discarded · Missing · Not Verified*, plus **Effectively Unavailable** — a capability whose code executes on every run but which no production data path can satisfy, so it can only ever return empty. Introduced by §9.2, which explains why the other values misdescribe it.
+
 | Capability | Status | Evidence | Quality | Eng. risk | Tier |
 |---|---|---|---|---|---|
 | Document parsing | Verified Present | `extract/docparse.rs` | Unmeasured | Low | 1 |
@@ -79,7 +81,8 @@ Tier: **1** deterministic · **2** manuscript-internal · **3** literature-groun
 | Citation existence/retraction | Verified Present | `refverify.rs:545-575` | Real registries | Med | 3 |
 | Citation LLM adjudication | Verified Present | `verify_agent.rs:230` | Harness-gated | Med | 3 |
 | Citation currency aggregate | Verified Present | `report.rs` recency block (`364e106`) | Local `Reference.year` | Low | 1 |
-| Plagiarism — lexical cosine | Verified Present | `plagiarism.rs`; `pipeline.rs:236-237` | **See §4.3 + B1** | Low | 2 |
+| Plagiarism — self-match (cosine) | Verified Present | `plagiarism.rs`; `pipeline.rs:236-237` | **See §4.3 + B1** | Low | 2 |
+| Plagiarism — external corpus (cosine) | **Effectively Unavailable** | §9.2; `plagiarism.rs:256` | executes, can only return empty | Low | 2 |
 | Plagiarism — exact/winnowing | **Built, Unwired** | `plagiarism_exact.rs`; only `commands.rs:212` | Real Jaccard | Low | 1 |
 | Stylometric writing signals | Verified Present | `ai_signals.rs:333-367` → `report.rs` | Coarse by design | Low | 2 |
 | Grammar/readability | **Missing** | grep: zero | — | Med | 2 |
@@ -370,6 +373,62 @@ Nothing clears 0.80, but the margin is ~0.05, not an order of magnitude — and 
 *For scanning:* a retraction notice is third-party published text the author did not write; verbatim overlap with one is genuinely odd and worth surfacing.
 *Against:* a retraction notice is *metadata about* a paper, not the paper. Overlap most likely means the manuscript legitimately quotes or discusses the notice — which is scholarship, not reuse. `refverify`'s retraction lane (`refverify.rs:562-567`) is the component that should consume retraction data, for D7.
 Unresolved. Recorded, not decided.
+
+### 9.2 The RAG write surface, and the external-plagiarism capability state
+
+Established by tracing **table writes**, not `ingest_document` callers — the method change that turned an inference into a fact.
+
+**THE WRITE SURFACE IS THREE STATEMENTS, REPOSITORY-WIDE (traced).**
+
+| Statement | Location | Reachable from |
+|---|---|---|
+| `INSERT INTO documents` | `rag.rs:188` | `rag::ingest_document` only |
+| `INSERT INTO chunks` | `rag.rs:222` | `rag::ingest_document` only |
+| `INSERT INTO embeddings` | `vector.rs:46` | `Database::insert_embedding` |
+
+There is no other `INSERT INTO documents` in the tree. A RAG document carrying a `SourceType` can therefore only be created through `rag::ingest_document`. `insert_embedding`'s only other production caller is `plagiarism.rs:146`, which writes kind `"manuscript_chunk"` into the per-session **isolated** store, never the shared database.
+
+**EVERY PRODUCTION `ingest_document` CALLER (traced, exhaustive).**
+
+| Caller | SourceType | Eligible for cosine plagiarism? |
+|---|---|---|
+| `guidelines.rs:184` | `JournalGuideline` | **No** — excluded by `EXCLUDED_CORPUS_SOURCE_TYPES` (`plagiarism.rs:256`) |
+| `paper_corpus.rs:417` | `ResearchPaper` | **No** — excluded, same list |
+
+(`pipeline.rs:729` and `plagiarism.rs:402` are inside `#[cfg(test)]` — `pipeline.rs:363`, `plagiarism.rs:289`.)
+
+Also checked and clear: no scheduled jobs or background tasks (`lib.rs:62` is Tauri `.setup` only, no `spawn`/`interval`/`tokio::time` outside `spawn_blocking`); no seed or import utility that writes (`read_import_file` returns a `String`); of 58 registered Tauri commands only `ingest_guidelines` and `build_gapfinder_corpus` ingest at all; migrations contain no RAG-table `INSERT` (the three are `schema_migrations` bookkeeping at `:410` and two inside migration tests); and gaply-proxy cannot reach this database — its only DB dependency is `asyncpg` against Postgres.
+
+**CONSEQUENCE.** The two SourceTypes eligible for cosine comparison (`retraction`, `reference_style`) have **no production creation path of any kind**. The two production does create are both excluded. In the traced shipping architecture at this commit, `compare_to_corpus` can only return empty because no production code creates an eligible `SourceType`.
+
+**CAPABILITY CLASSIFICATION — External cosine plagiarism comparison: `EFFECTIVELY UNAVAILABLE`.**
+
+In the traced architecture at this commit the lane executes on every PublishReady run and can only return empty. Rejected alternatives, with reasons:
+
+* **Dormant** — no. Dormant code does not run. This runs every time, consumes work, and produces a user-visible result.
+* **Configuration-dependent** — no. No setting enables it. There is nothing to configure, because no ingester exists to point at a corpus.
+* **Partially operational** — no. The *self*-match arm is fully operational, but it answers a different editorial question ("is text repeated **within** this manuscript"). Treating the two arms as one capability is precisely what produces the misleading output below.
+
+**RESIDUAL UNCERTAINTIES (stated, not resolved).**
+
+1. Scope is this repository at the time of tracing. A retraction or reference-style ingester added later changes the classification.
+2. `db_migrate` / `db_init` are user-invocable (`commands.rs:74`, `:80`). Migrations were verified to contain no RAG-table `INSERT`, and any that seeded documents would have to use `rag.rs:188` — but individual migration bodies were not read line by line.
+3. A pre-existing user database could hold `retraction` rows written by an older build. Historical migrations were not audited for a removed ingester. "Empty" is a statement about what **this build can produce**, not a guarantee about every database on disk.
+
+**THIS CLASSIFICATION IS LOAD-BEARING AND FRAGILE.** Adding any ingester that creates a `retraction` or `reference_style` document flips it — and nothing in the code would flag that. `rag::ingest_document` being the sole write path is the fact this rests on; if that stops being true, this section is stale.
+
+**OPEN ISSUE — the report says "pass"; the capability is unavailable.** With an empty corpus the plagiarism lane emits one finding via `adapters::from_plagiarism` (`swarm.rs:379-401`) through `compile_report`'s soft-opinion loop:
+
+```
+title:  "Plagiarism: pass"
+detail: "0 corpus / N self match(es) at threshold 0.80; <ISOLATION_NOTE>"
+```
+
+rendered at `ReportViewerPage.tsx:361,366`. The combination of a "Pass" status, an explicit threshold, and a corpus count of zero can reasonably be interpreted by a user as meaning an external comparison was performed and found no matches. In the traced architecture, no eligible external comparison occurred. `ISOLATION_NOTE` (`plagiarism.rs:37-39`) addresses only whether similarity is a determination; it says nothing about absence. `NOT_TURNITIN_NOTICE` (`plagiarism_exact.rs:108-113`), which does state that absence proves nothing, belongs to the other engine and does not reach this lane.
+
+Same defect class as B0 — a claim exceeding its evidence — and arguably worse, because the misreading is reassuring rather than alarming. **Open. No fix exists yet; none is described here.**
+
+**Verification trigger.** Any future production ingester for `retraction` or `reference_style` invalidates this classification and requires this section and the Capability Matrix (§3) to be re-reviewed.
 
 ### Coverage confidence: **Medium**
 
