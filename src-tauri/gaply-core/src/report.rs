@@ -290,20 +290,41 @@ pub fn compile_report(
         CertaintyTier::AiAssessedModerate
     };
     if let Some(vr) = verification {
+        // Refuted and Supported fan out PER CITATION: each names a specific
+        // citation the author must act on, so the per-item shape carries real
+        // per-item information.
+        //
+        // Unknown does NOT. Its reason is a service-level fact, identical across
+        // every citation, so fanning it out produced N identical findings — 28 of
+        // 48 on one real manuscript, plus a 29th restating them in aggregate.
+        // Collapsed into ONE finding that names the ids, the same disclosure shape
+        // `reference_recency_findings` uses for its counts.
+        //
+        // Collapsing PRESENTATION must not collapse PROVENANCE: where a bundle was
+        // assembled for a citation, its `evidence_refs` survive the merge.
+        let mut unknown_ids: Vec<String> = Vec::new();
+        let mut unknown_refs: Vec<String> = Vec::new();
         for v in &vr.verdicts {
+            if v.verdict == Verdict::Unknown {
+                unknown_ids.push(v.citation_id.clone());
+                for r in &v.evidence_refs {
+                    let tag = format!("evidence:{r}");
+                    if !unknown_refs.contains(&tag) {
+                        unknown_refs.push(tag);
+                    }
+                }
+                continue;
+            }
             let (severity, title) = match v.verdict {
                 Verdict::Refuted => (
                     FindingSeverity::Major,
                     format!("citation {} REFUTED by evidence", v.citation_id),
                 ),
-                Verdict::Unknown => (
-                    FindingSeverity::Minor,
-                    format!("citation {} could not be verified (UNKNOWN)", v.citation_id),
-                ),
                 Verdict::Supported => (
                     FindingSeverity::Info,
                     format!("citation {} supported by evidence", v.citation_id),
                 ),
+                Verdict::Unknown => unreachable!("Unknown is collected above"),
             };
             let mut provenance: Vec<String> =
                 v.evidence_refs.iter().map(|r| format!("evidence:{r}")).collect();
@@ -323,6 +344,47 @@ pub fn compile_report(
                     provenance,
                 },
                 v.confidence, // native per-verdict confidence — already raw
+            ));
+        }
+        if !unknown_ids.is_empty() {
+            let total = vr.verdicts.len();
+            let shown: Vec<String> = unknown_ids.iter().take(UNKNOWN_ID_LIMIT).cloned().collect();
+            let extra = unknown_ids.len().saturating_sub(shown.len());
+            let ids = if extra > 0 {
+                format!("{}, and {extra} more", shown.join(", "))
+            } else {
+                shown.join(", ")
+            };
+            // Author-facing: say the check did not RUN and what that means for
+            // them. The per-verdict rationale describes OUR infrastructure
+            // ("model returned no verdict") and does not belong in their report.
+            let detail = format!(
+                "{} of {total} citation(s) were not checked against the literature, so nothing \
+                 is claimed about them either way: {ids}. This check needs the citation \
+                 verification service, which was unavailable for this run — it is not a finding \
+                 about your references.",
+                unknown_ids.len()
+            );
+            items.push(paired(
+                Finding {
+                    severity: FindingSeverity::Minor,
+                    tier: verification_tier,
+                    certainty_label: verification_tier.label().into(),
+                    agent: AgentKind::Verification,
+                    title: format!("{} of {total} citation(s) could not be checked", unknown_ids.len()),
+                    detail,
+                    confidence: 0.0,
+                    provenance: {
+                        let mut p = vec![
+                            "signal:citations_unchecked".into(),
+                            format!("evidence:unchecked={};total={total}", unknown_ids.len()),
+                            "agent:verification (service unavailable — no verdict attempted)".into(),
+                        ];
+                        p.extend(unknown_refs.iter().take(UNKNOWN_REF_LIMIT).cloned());
+                        p
+                    },
+                },
+                0.0,
             ));
         }
     }
@@ -1045,6 +1107,13 @@ fn uncited_reference_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
     )
     .into_vec()
 }
+
+/// How many unchecked citation ids to name before summarising the rest.
+const UNKNOWN_ID_LIMIT: usize = 8;
+
+/// Cap on evidence refs carried through the collapse — grounding is preserved,
+/// but the provenance list must stay readable.
+const UNKNOWN_REF_LIMIT: usize = 12;
 
 /// How many uncited entries to name in the detail before summarising the rest.
 #[allow(dead_code)] // see `uncited_reference_findings` — deliberately unwired

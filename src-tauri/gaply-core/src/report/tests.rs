@@ -13,7 +13,7 @@ use crate::swarm::{
     adapters, run_debate, DebateConfig, Opinion, PrecomputedAgent, RevisingVerificationAgent,
     SwarmAgent, ANSWER_PASS,
 };
-use crate::verify_agent::{verify_citations, MockProxyClient};
+use crate::verify_agent::{verify_citations, CitationVerdict, MockProxyClient, VerificationReport, Verdict};
 
 /// The Prompt-19 e2e sample manuscript (stats-clean, one DOI-bearing reference).
 const MANUSCRIPT: &str = "Sleep and Memory\n\nAbstract\nA randomized trial (n = 96) found \
@@ -956,6 +956,95 @@ fn no_registry_evidence_produces_neither_finding() {
     );
     assert!(finding_with_signal(&report, "registry_year_mismatch").is_none());
     assert!(finding_with_signal(&report, "citation_count").is_none());
+}
+
+fn verification_with(verdicts: Vec<(&str, Verdict, &str)>) -> VerificationReport {
+    VerificationReport {
+        verdicts: verdicts
+            .into_iter()
+            .map(|(id, verdict, refs)| CitationVerdict {
+                citation_id: id.into(),
+                verdict,
+                confidence: 0.5,
+                rationale: "model returned no verdict for this citation".into(),
+                evidence_refs: if refs.is_empty() { vec![] } else { vec![refs.into()] },
+                gate_flags: vec![],
+            })
+            .collect(),
+        warnings: vec![],
+    }
+}
+
+#[test]
+fn many_unknown_verdicts_collapse_into_one_finding() {
+    // The defect this fixes: 28 identical findings, 58% of a real report.
+    let v = verification_with(
+        (1..=28).map(|i| (Box::leak(format!("c{i}").into_boxed_str()) as &str, Verdict::Unknown, "")).collect(),
+    );
+    let ex = extraction_with_uncaptioned_table();
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(
+        &minimal_outcome(), &validation, Some(&v), None, Some(&ex), TEST_YEAR, vec![], &[],
+    );
+    let unchecked: Vec<&Finding> = report
+        .findings
+        .iter()
+        .filter(|f| f.provenance.iter().any(|p| p == "signal:citations_unchecked"))
+        .collect();
+    assert_eq!(unchecked.len(), 1, "28 Unknown verdicts must yield ONE finding");
+    let f = unchecked[0];
+    assert!(f.title.contains("28 of 28"), "count and denominator in the title: {}", f.title);
+    assert!(f.detail.contains("c1, c2"), "ids must survive the collapse: {}", f.detail);
+    assert!(f.detail.contains("and 20 more"), "remainder summarised: {}", f.detail);
+    // Author-facing wording — our infrastructure must not appear in their report.
+    assert!(!f.detail.contains("model returned no verdict"), "infra wording leaked: {}", f.detail);
+    assert!(f.detail.contains("not a finding about your references"), "{}", f.detail);
+    // And no per-citation UNKNOWN findings remain.
+    assert!(
+        !report.findings.iter().any(|f| f.title.contains("could not be verified")),
+        "per-citation UNKNOWN findings must be gone"
+    );
+}
+
+#[test]
+fn refuted_and_supported_still_fan_out_per_citation() {
+    let v = verification_with(vec![
+        ("c1", Verdict::Refuted, "ev-c1-0"),
+        ("c2", Verdict::Supported, "ev-c2-0"),
+        ("c3", Verdict::Unknown, ""),
+    ]);
+    let ex = extraction_with_uncaptioned_table();
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(
+        &minimal_outcome(), &validation, Some(&v), None, Some(&ex), TEST_YEAR, vec![], &[],
+    );
+    assert!(report.findings.iter().any(|f| f.title.contains("c1 REFUTED")), "Refuted stays per-citation");
+    assert!(report.findings.iter().any(|f| f.title.contains("c2 supported")), "Supported stays per-citation");
+    assert_eq!(
+        report.findings.iter().filter(|f| f.provenance.iter().any(|p| p == "signal:citations_unchecked")).count(),
+        1
+    );
+}
+
+#[test]
+fn the_collapse_preserves_evidence_grounding() {
+    // Collapsing PRESENTATION must not collapse PROVENANCE.
+    let v = verification_with(vec![
+        ("c1", Verdict::Unknown, "ev-c1-0"),
+        ("c2", Verdict::Unknown, "ev-c2-0"),
+    ]);
+    let ex = extraction_with_uncaptioned_table();
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(
+        &minimal_outcome(), &validation, Some(&v), None, Some(&ex), TEST_YEAR, vec![], &[],
+    );
+    let f = report
+        .findings
+        .iter()
+        .find(|f| f.provenance.iter().any(|p| p == "signal:citations_unchecked"))
+        .unwrap();
+    assert!(f.provenance.iter().any(|p| p == "evidence:ev-c1-0"), "{:?}", f.provenance);
+    assert!(f.provenance.iter().any(|p| p == "evidence:ev-c2-0"), "{:?}", f.provenance);
 }
 
 /// Does the reviewer payload carry a finding bearing this `signal:` tag?
