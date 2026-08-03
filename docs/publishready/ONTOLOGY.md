@@ -196,6 +196,18 @@ If ambiguity exists: **refuse the finding, or downgrade its certainty. Never res
 
 Design intent recorded in ARCHITECTURE_TRACE.md §11; applied first to the uncited-reference finding (§11.4 item 1), which it stopped.
 
+### 4.7 Standing rule — measured bottlenecks outrank architectural elegance
+
+**Runtime architecture is expanded only when profiling identifies a specific constraint that existing structure cannot address.**
+
+Though it is stated for runtime, the rule generalises: it governs any structure built ahead of the evidence that it is needed. It explains three decisions already taken, in both directions:
+
+- **The `docparse` PDF reflow was built** because measurement showed user-visible false output — 81 `Reference` rows for 20 references, page furniture parsed as references, `Location.paragraph` meaning "line index" in the provenance inspector and the exported PDF. A specific constraint, measured, that no existing structure addressed.
+- **KV-cache reuse in `PerplexityModel` is worth pursuing** because measurement quantified the redundancy: 3.40×, 358.5 scored token positions where 105.3 would do (ARCHITECTURE_TRACE §12.2). Not elegance — a number.
+- **The `KnowledgeExtractor` trait, the capability registry (§11.3) and the Review Engine scheduler (§12.3) were all deferred** because no instances existed to constrain them. A seam designed from zero implementations encodes guesses; from one, it encodes that one's accidents.
+
+The failure mode this prevents is the inverse of §4.4's. There, a claim outran its evidence; here, a structure outruns its need — and unneeded structure is harder to remove than a wrong sentence, because code acquires callers.
+
 ---
 
 ## 5. Evaluation Protocol
