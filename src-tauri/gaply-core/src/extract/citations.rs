@@ -327,16 +327,23 @@ fn plausible_surname(s: &str) -> bool {
         && !AUTHOR_NOISE.contains(&t.to_lowercase().as_str())
 }
 
-/// EVERY surname in an author string, lowercased. Empty when the string carries a
-/// URL/DOI marker — such an entry is refused wholesale rather than mined for
-/// whichever token happens to look like a name.
+/// The FIRST surname in an author string, lowercased. Empty when the string
+/// carries a URL/DOI marker — such an entry is refused wholesale rather than
+/// mined for whichever token happens to look like a name.
 ///
-/// Not just the first surname. The narrative-citation regex (`stats.rs:84`)
-/// matches `and`/`&` without consuming the surname that follows, so `"Gordon and
-/// Burford (1984)"` is extracted with authors `"Burford"` — the SECOND author.
-/// Keying on the first surname alone would report `"Gordon R and Burford I R.
-/// 1984."` as uncited, which is false. A citation naming ANY of an entry's
-/// authors is evidence that entry was cited.
+/// **First author only, which is the author-year convention itself:**
+/// `"(Bizhannia et al. 2005)"` and `"(Etebari et al. 2005)"` name different
+/// works, and a reader resolves them by first author.
+///
+/// This previously keyed on EVERY surname, as a workaround for `narrative_cite`
+/// (`stats.rs:84`) matching `and`/`&` without consuming the surname after it —
+/// `"Gordon and Burford (1984)"` was extracted as `"Burford"`, so first-author
+/// keying would have called `"Gordon R and Burford I R. 1984."` uncited. **That
+/// regex was fixed in `1693ca6`, so the workaround is not merely unnecessary but
+/// actively harmful**: matching any author made two genuinely distinct 2005
+/// entries collide on `(etebari, 2005)`, and made an author list containing the
+/// same surname twice (`"Nair K S, Nair J S, …"`) collide with itself. Measured:
+/// the workaround cost four evaluable references.
 fn surnames(authors: &str) -> Vec<String> {
     if URL_MARKERS.iter().any(|m| authors.contains(m)) {
         return Vec::new();
@@ -345,6 +352,7 @@ fn surnames(authors: &str) -> Vec<String> {
         .split(|c: char| !(c.is_alphabetic() || c == '-' || c == '\''))
         .filter(|t| plausible_surname(t))
         .map(|t| t.to_lowercase())
+        .take(1)
         .collect()
 }
 
@@ -517,6 +525,40 @@ mod tests {
                 CitationUse::NotEvaluated(NotEvaluated::AmbiguousKey),
             ]
         );
+    }
+
+    #[test]
+    fn two_entries_sharing_a_LATER_author_are_not_ambiguous() {
+        // "(Bizhannia et al. 2005)" and "(Etebari et al. 2005)" name DIFFERENT
+        // works; a reader resolves them by first author. Keying on every surname
+        // made them collide on (etebari, 2005) and refused both.
+        let refs = vec![
+            refr("Bizhannia A R, Etebari K and Sorati R", Some(2005)),
+            refr("Etebari K, Mirhoseini S Z and Matindoost L", Some(2005)),
+        ];
+        let cites = vec![cite("Bizhannia", 2005)];
+        assert_eq!(
+            classify_reference_use(&refs, &cites),
+            vec![CitationUse::Cited, CitationUse::Uncited]
+        );
+    }
+
+    #[test]
+    fn a_repeated_surname_in_one_author_list_does_not_self_ambiguate() {
+        // "Nair K S, Nair J S, ..." yielded (nair, 2003) TWICE from one row, so
+        // the row tripped its own ambiguity guard.
+        let refs = vec![refr("Nair K S, Nair J S, Trivedy K and Vijayan V A", Some(2003))];
+        assert_eq!(classify_reference_use(&refs, &[cite("Nair", 2003)]), vec![CitationUse::Cited]);
+    }
+
+    #[test]
+    fn a_citation_naming_only_a_later_author_no_longer_matches() {
+        // The consequence of first-author keying, stated so it is a decision and
+        // not an accident: narrative_cite (fixed in 1693ca6) now yields the FIRST
+        // author, so this case should not arise from real extraction.
+        let refs = vec![refr("Gordon R and Burford I R", Some(1984))];
+        assert_eq!(classify_reference_use(&refs, &[cite("Burford", 1984)]), vec![CitationUse::Uncited]);
+        assert_eq!(classify_reference_use(&refs, &[cite("Gordon and Burford", 1984)]), vec![CitationUse::Cited]);
     }
 
     #[test]
