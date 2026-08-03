@@ -542,6 +542,27 @@ Three cautions, recorded so a future reader does not inherit them uncritically:
 
 Grouping them as one backlog category — "expose already-computed signals" — is the error this table exists to prevent. It makes a product decision look like an afternoon of plumbing, which is how a decision gets made by default instead of deliberately.
 
+### 12.3.2 The Box 4 comparison harness — decisions and two lessons
+
+`reviewer_harness::build_comparison_report` (`reviewer_harness.rs:163`) already computes 21 typed metrics including **`recommendation_agreement`** (`:195`), emitted once at `commands.rs:674` via `tracing::info!`. Four decisions, recorded:
+
+1. **Log-only stays for user-facing purposes.** No UI change. Two recommendations side by side, with no calibrated agreement rate, give a user no basis to choose between them.
+2. **Extend the ARTIFACT, not the metrics.** Durable sink, manuscript hash, timestamp, stable cross-machine identity. The metric layer needs nothing — it is already correct and typed.
+3. **No one-off live run.** An n=1 result would be quoted later as *"the paths agree"*, and a number outlives its caveats.
+4. **Capture the baseline before Group 3.** Promoting the deterministic verdict changes what users are told; measuring that change requires a *before*, and it must be captured while the current behaviour is still current.
+
+#### Lesson — capability complete, evidence pipeline absent
+
+**"The harness exists" was twice treated as equivalent to "the measurement is one run away."** It is not. A live run would work, emit a complete and correct record — and produce **nothing that accumulates**. `logging.rs:9-13` configures `tracing_subscriber::fmt()` with no writer, no file appender, no rolling log, so the record goes to the process's stdout and is gone when the process exits. `run_id` is `manuscript_id.to_string()` (`pipeline.rs:376`), a local DB row id: meaningless across machines, and the same id on two machines denotes different manuscripts. There is no manuscript hash and no timestamp inside the struct.
+
+Stated generally: **an instrument that emits to stdout is an instrument without a record.** Capability and evidence are separate milestones, and a working comparison proves only that comparison is possible — never that the things compared agree. The gap between them is persistence and identity, not logic.
+
+#### Lesson — the non-deterministic counterparty
+
+The wholesale reviewer is an LLM, and is therefore **the only non-deterministic thing measured in this project**. Everything else — extraction, validation, plagiarism cosine, the citation matcher, the reflow — returns the same answer on the same input, which is why Protocol v1 could treat one run on one manuscript as a complete observation of that manuscript.
+
+Agreement cannot. A single disagreement may be genuine divergence or model variance, and the two are indistinguishable without **repeat runs on identical input**. Any future agreement protocol must carry that requirement; Protocol v1 never needed it, so it is not inheritable from the existing protocol family and must be stated explicitly.
+
 ### 12.4 Memory efficiency principles — design intent
 
 **Runtime optimization targets measured bottlenecks while preserving single-manuscript execution on 8 GB.** Techniques are adopted only after profiling demonstrates benefit; the working order when a constraint is measured is ONTOLOGY §4.8.

@@ -506,6 +506,9 @@ pub async fn run_publishready(
     // Logic unchanged.
     let db = state.db.clone();
     let embedder = state.embedder.clone();
+    // Content-addressed manuscript identity for the Box 4 comparison record.
+    // `run_id` is a local DB row id and cannot link records across machines.
+    let manuscript_sha256 = crate::harness_log::manuscript_sha256(std::path::Path::new(&path));
     tokio::task::spawn_blocking(move || {
         use gaply_core::reviewer_agent::{self, ReviewerEvaluation, TargetJournal};
         use gaply_core::verify_agent::ProxyClient;
@@ -660,6 +663,8 @@ pub async fn run_publishready(
             use gaply_core::reviewer_harness::{build_comparison_report, HarnessInputs, HarnessTiming};
             let report = build_comparison_report(&HarnessInputs {
                 run_id: &report_id,
+                manuscript_sha256: &manuscript_sha256,
+                recorded_at: gaply_core::now_epoch(),
                 shadow: &outcome.letter,
                 shadow_breakdown: &outcome.aggregation.breakdown,
                 shadow_findings_sent: outcome.findings_sent,
@@ -672,6 +677,8 @@ pub async fn run_publishready(
                 proxy_meta, // model/stop_reason when /verify ran; tokens/latency still Tier 2c
             });
             tracing::info!(run_id = %report_id, "box4 shadow-comparison report:\n{}", report.to_markdown());
+            // Leave a record. Best-effort: a diagnostic never fails the analysis.
+            crate::harness_log::append(&report);
         }
 
         let shadow_reviewer = shadow_outcome.map(|o| o.letter);

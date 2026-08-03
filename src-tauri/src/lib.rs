@@ -4,7 +4,8 @@ pub mod commands;
 pub mod escalation;
 pub mod guidelines;
 pub mod http_fetcher;
-pub mod logging;
+pub mod harness_log;
+mod logging;
 pub mod models;
 pub mod journal_registry;
 pub mod journal_site_summary;
@@ -64,6 +65,9 @@ pub fn run() {
             let config = AppConfig::new(data_dir.join("gaply.db"));
             config.validate()?;
             logging::init(&config.log_filter);
+            // Durable sink for the Box 4 comparison record (harness_log). Without
+            // this the record reaches stdout only and nothing accumulates.
+            harness_log::set_dir(data_dir.clone());
 
             // Point model resolution at the BUNDLED models (Set 1) as the
             // last-resort source: <resource_dir>/models/{stage1-lm,slm1-adapter}.

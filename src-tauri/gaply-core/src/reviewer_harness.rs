@@ -96,6 +96,13 @@ pub struct ProxyMeta {
 /// Everything the harness needs to build a report — borrowed, no ownership.
 pub struct HarnessInputs<'a> {
     pub run_id: &'a str,
+    /// sha256 of the manuscript FILE. `run_id` is a local DB row id, meaningless
+    /// across machines; this is what ties a record to a specific document, and
+    /// what lets two records be compared at all.
+    pub manuscript_sha256: &'a str,
+    /// Epoch seconds. Inside the record, so a captured payload is datable
+    /// without the surrounding log line.
+    pub recorded_at: i64,
     pub shadow: &'a ReviewerEvaluation,
     pub shadow_breakdown: &'a SeverityByStateCounts,
     pub shadow_findings_sent: usize,
@@ -110,6 +117,10 @@ pub struct HarnessInputs<'a> {
 #[derive(Debug, Clone, Serialize)]
 pub struct ShadowComparisonReport {
     pub run_id: String,
+    /// sha256 of the manuscript file — stable cross-machine identity.
+    pub manuscript_sha256: String,
+    /// Epoch seconds at which this comparison was recorded.
+    pub recorded_at: i64,
     pub schema_version: u32,
 
     // --- Deterministic shadow metrics (AvailableNow) ---
@@ -265,6 +276,8 @@ pub fn build_comparison_report(inp: &HarnessInputs) -> ShadowComparisonReport {
 
     ShadowComparisonReport {
         run_id: inp.run_id.to_string(),
+        manuscript_sha256: inp.manuscript_sha256.to_string(),
+        recorded_at: inp.recorded_at,
         schema_version: SCHEMA_VERSION,
         shadow_recommendation,
         shadow_publication_probability,
@@ -315,10 +328,21 @@ fn metric_line<T: Serialize>(label: &str, m: &Metric<T>) -> String {
 
 impl ShadowComparisonReport {
     /// Human-readable comparison, every metric annotated with source + status.
+    /// One JSON object on one line — the append-only record format.
+    ///
+    /// `to_markdown` is for a human reading a terminal; THIS is the artifact.
+    /// A record that only ever reaches stdout is an instrument without a record
+    /// (ARCHITECTURE_TRACE §12.3.2), so the durable sink writes this.
+    pub fn to_jsonl_line(&self) -> Result<String, crate::GaplyError> {
+        serde_json::to_string(self)
+            .map_err(|e| crate::GaplyError::Internal(format!("serialize comparison report: {e}")))
+    }
+
     pub fn to_markdown(&self) -> String {
         let mut out = format!(
-            "## Box 4 shadow-comparison report\n- run_id: `{}`\n- schema_version: {}\n\n### Metrics\n",
-            self.run_id, self.schema_version
+            "## Box 4 shadow-comparison report\n- run_id: `{}`\n- manuscript_sha256: `{}`\n\
+             - recorded_at: {}\n- schema_version: {}\n\n### Metrics\n",
+            self.run_id, self.manuscript_sha256, self.recorded_at, self.schema_version
         );
         for line in [
             metric_line("shadow_recommendation", &self.shadow_recommendation),
@@ -392,6 +416,8 @@ mod tests {
         wholesale: &'a ReviewerEvaluation,
     ) -> HarnessInputs<'a> {
         HarnessInputs {
+            manuscript_sha256: "test-sha",
+            recorded_at: 0,
             run_id: "run-1",
             shadow,
             shadow_breakdown: breakdown,
@@ -422,7 +448,10 @@ mod tests {
         let report = build_comparison_report(&inputs(&sh, &bd, true, &wh));
         let v = serde_json::to_value(&report).unwrap();
         for (k, val) in v.as_object().unwrap() {
-            if k == "run_id" || k == "schema_version" {
+            // Identity fields are NOT metrics: they carry no provenance and no
+            // availability because they are not observations about the run, they
+            // are what the run is ABOUT. Everything else must be a Metric.
+            if matches!(k.as_str(), "run_id" | "schema_version" | "manuscript_sha256" | "recorded_at") {
                 continue;
             }
             assert!(val.get("status").is_some(), "{k} missing status");
