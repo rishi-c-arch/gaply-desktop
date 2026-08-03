@@ -8,6 +8,8 @@ Every claim is backed by `file:line` or explicitly marked **[INFERENCE]**. A cap
 
 This document **extends** the shipped Evidence Model (`gaply-core/src/evidence.rs`, `report.rs`). It does not define a parallel system. Where the existing model already answers a question, it is cited rather than restated.
 
+**Terminology.** The analysis units are **Review Engines**, not "agents" — most are, and will remain, deterministic Rust (graph algorithms, rule engines, statistical validators); only a subset use a language model. "Agent" implies autonomous LLM conversation, which this architecture deliberately rejects. The rename applies to **prose only**: code identifiers (`AgentKind`, `SwarmAgent`, `Finding.agent`, the `agent:` provenance prefix, the `*_agent.rs` filenames) are quoted verbatim throughout, because this document's `file:line` correspondence is its entire value. See ARCHITECTURE_TRACE.md §11 for the design intent behind the term.
+
 ---
 
 ## 1. Editorial Dimensions
@@ -33,7 +35,7 @@ This document **extends** the shipped Evidence Model (`gaply-core/src/evidence.r
 
 ## 2. Evidence Ontology
 
-`ConfidenceKind` variants are reused verbatim from `evidence.rs:45-57`; `RoutingHint` from `evidence.rs:62-74`. Both are assigned **per-agent** by total functions (`evidence.rs:118-127`, `:131-140`).
+`ConfidenceKind` variants are reused verbatim from `evidence.rs:45-57`; `RoutingHint` from `evidence.rs:62-74`. Both are assigned **per-engine** by total functions (`evidence.rs:118-127`, `:131-140`).
 
 | Dim | Evidence source | ConfidenceKind | Verification method | Explainable? | Known failure modes |
 |---|---|---|---|---|---|
@@ -56,9 +58,9 @@ This document **extends** the shipped Evidence Model (`gaply-core/src/evidence.r
 
 Stated as gaps, not designed around.
 
-**Gap E1 — `ConfidenceKind` is per-agent with no per-finding override.** `confidence_kind()` (`evidence.rs:118-127`) is a total function of `AgentKind`. There is no way to express *"deterministic arithmetic produced by the Verification lane."* Hit concretely in commit `364e106`: the citation-recency finding is deterministic counting, but `Verification` would label it `RealNative`, so it was attributed to `Extraction`/`NoSignal` — the honest choice available, not the accurate one.
+**Gap E1 — `ConfidenceKind` is per-engine with no per-finding override.** `confidence_kind()` (`evidence.rs:118-127`) is a total function of `AgentKind`. There is no way to express *"deterministic arithmetic produced by the Verification lane."* Hit concretely in commit `364e106`: the citation-recency finding is deterministic counting, but `Verification` would label it `RealNative`, so it was attributed to `Extraction`/`NoSignal` — the honest choice available, not the accurate one.
 
-**Gap E2 — `CertaintyTier` (`report.rs:56-80`) has no tier for "deterministic but not a hard constraint."** `MathematicallyCertain` is the Maths agent's hard-constraint verdict and sorts first (`report.rs:73-79`). A deterministic table count is certain but must not outrank a statistical rule failure.
+**Gap E2 — `CertaintyTier` (`report.rs:56-80`) has no tier for "deterministic but not a hard constraint."** `MathematicallyCertain` is the Maths engine's hard-constraint verdict and sorts first (`report.rs:73-79`). A deterministic table count is certain but must not outrank a statistical rule failure.
 
 **Gap E3 — `Finding` carries no dimension field.** `Finding` (`report.rs:112-127`) carries `agent`, not dimension. Dimension is inferable only from the `signal:` provenance convention introduced in `364e106`. **[INFERENCE]** a dimension tag is the minimal extension; not designed here.
 
@@ -169,6 +171,16 @@ Four worked precedents illustrate the rule across different classes of user-visi
 The fourth was found outside the commissioned scope, by noticing the same pattern in adjacent code while correcting the third — which is the usual way this class of defect surfaces.
 
 The self-suppressing counterpart is already in the code: `grounded_text` (`reviewer_agent.rs:486-509`) returns empty and flags `potential_hallucination` rather than emitting an ungrounded claim. New editorial fields should adopt that pattern rather than `parse_score`'s.
+
+### 4.5 Standing rule — extraction produces no judgements
+
+The Manuscript Understanding Layer produces structured evidence only. It MUST NOT express editorial judgement, quality assessment, recommendation, or opinion. `sentence 142 → Claim → Causal → reports p = 0.03` is extraction; *"weak claim"*, *"poor methodology"*, *"novel contribution"* are Review Engine decisions.
+
+§4.1 governs *how strongly* a claim about the manuscript may be stated. This rule governs *which component may make one at all*.
+
+It is what makes extraction accuracy and review quality independently measurable. Extraction is scored against a human-annotated ground truth — a claim either is at sentence 142 or it is not. Review quality is scored against editorial agreement: a different question, a different ground truth, a different error bar. Collapsed into one component, neither is measurable — a disputed output could be a mis-extraction or a defensible-but-unpopular judgement, and no experiment separates them.
+
+Design intent recorded in ARCHITECTURE_TRACE.md §11.1; not yet implemented.
 
 ---
 
@@ -442,7 +454,7 @@ No fix is described here.
 
 > ~~"With an empty corpus the plagiarism lane emits one finding via `adapters::from_plagiarism` through `compile_report`'s soft-opinion loop — title `"Plagiarism: pass"`, detail `"0 corpus / N self match(es) at threshold 0.80; <ISOLATION_NOTE>"`, rendered at `ReportViewerPage.tsx:361,366`"~~ — and characterised the defect as a misleading *"pass"*.
 
-**That was wrong.** `from_plagiarism` genuinely constructs that explanation, but nothing consumes it: the soft-opinion loop skips its agent. The trace established that a producer existed and inferred that its output reached the user, without tracing the consumer. The rendered-output quotation was reconstructed from the producer, not observed.
+**That was wrong.** `from_plagiarism` genuinely constructs that explanation, but nothing consumes it: the soft-opinion loop skips that engine. The trace established that a producer existed and inferred that its output reached the user, without tracing the consumer. The rendered-output quotation was reconstructed from the producer, not observed.
 
 The corrected defect is **silence**, not a misleading status — a different problem, and one with no existing surface to attach wording to.
 

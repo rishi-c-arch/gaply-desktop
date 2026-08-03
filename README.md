@@ -4,8 +4,9 @@
 
 - [PublishReady Editorial Review Ontology](docs/publishready/ONTOLOGY.md) — what constitutes a publishable review, and the evidence required before PublishReady may make an editorial claim.
 - [PublishReady Architecture Map](docs/publishready/ARCHITECTURE_MAP.md) — one-page view: verified vs. missing capabilities, dependency graph, bottlenecks, tier roadmap.
+- [PublishReady Traced Architecture](docs/publishready/ARCHITECTURE_TRACE.md) — control flow, data flow and structure: the execution spine, the six lanes, the proxy boundary, state, degradation behaviour, and architectural seams.
 
-This repository has no issue tracker; those two documents are where PublishReady's open engineering and research items are recorded.
+This repository has no issue tracker; those three documents are where PublishReady's open engineering and research items are recorded.
 
 ## 🎨 **Features Implemented**
 
