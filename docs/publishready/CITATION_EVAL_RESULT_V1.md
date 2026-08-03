@@ -95,3 +95,63 @@ Successive measurements revised the limiting factor:
 
 A single "50% coverage" figure hides which of the two is limiting. They must be traced independently before either is treated as a defect.
 
+
+---
+
+## 9. Re-run after the reference-side fixes — Protocol v1 metrics, v2 reference-side criterion
+
+Two fixes landed after the original run: `reflow_pdf_text` trailing-DOI handling, and first-author matcher keying. A third candidate (owners-map deduplication) was **dropped**: first-author keying takes one surname per row, so a row can no longer contribute two keys and self-ambiguity is structurally impossible. Committing it would have added dead complexity with no measured effect.
+
+| Layer | v1 run | after fix (a) | after (a)+(b) |
+|---|---|---|---|
+| **1 — reference-side** (GT entries → evaluable rows) | 13/26 = 0.5000 | 22/26 = 0.8462 | **26/26 = 1.0000** |
+| **2 — citation-side** (coverage over `EvaluatedRefs`) | 1.0000 | 1.0000 | **1.0000** |
+| — key coverage | 26/26 | 26/26 | **26/26** |
+| — occurrence recall | 31/31 | 31/31 | **31/31** |
+| **3 — join correctness** | 13/13 | 22/22 | **26/26** |
+| False accusations | 0 | 0 | **0** |
+
+**Attribution, measured in isolation:** fix (a) recovered 9 of the 13 losses (8 merges, and 2 entries carrying the previous entry's DOI where the author belongs; one former merge converted into a matcher loss). Fix (b) recovered the remaining 4.
+
+**Blast radius of (a)** — it changes `docparse`, which every extractor consumes, so it received the same treatment as `11e7fa7`: statistics 4 → 4 (3 p-values, 0 CIs, 0 sample sizes, 1 test), citations 31 → 31, tables 3 → 3, validation findings 5 → 5 at identical locations (`Methods/5`, `Results/2`, `Results/3`). Reference rows 20 → 28 — 28 rows for 26 entries, the two extras being split tails correctly refused as `Undated`. **No existing finding changes.** `gaply_core` 536 passed, `app` 137 passed.
+
+### D2 re-applied
+
+| Dimension | Value | Status |
+|---|---|---|
+| Reference-side | 1.0000 | **planning criterion met** (Protocol v2 §1 — *not* "Sufficient"; not preregistered) |
+| Citation-side | 1.0000 | **Sufficient** against the preregistered 0.993 |
+| Join correctness | 26/26 | observation only — no stated threshold |
+
+**Decision: proceed only to a larger multi-manuscript evaluation.** D1 governs and is unchanged: **the finding is not wired on any single-manuscript protocol under any outcome.**
+
+The v1 resolution caveat now binds harder, not less. At `N_eval` = 26 the achievable values are 1.000, 0.962, … so 1.0000 remains indistinguishable from 0.993 at this sample size. The Rule of Three on 26 references puts the 95% lower bound near 0.89 — better than 0.80, still far from 0.993, and still implying roughly 430 evaluated references (~25–30 manuscripts) to demonstrate the threshold with zero observed failures.
+
+### What changed in the conclusion
+
+Protocol v1 ended in **REJECT WIRING** on reference-side coverage. That rejection is resolved: reference-side is not a limit, and **Class B was empty** — no loss on this bibliography was a genuine identification limit. The blocker is no longer a defect but a **sample size**.
+
+
+---
+
+## 10. Workstream status: STOPPED at this state
+
+**The uncited-reference workstream is resolved as far as engineering can take it on one manuscript.**
+
+| Layer | Final |
+|---|---|
+| Reference-side coverage | **1.0000** (26/26) |
+| Citation-side coverage | **1.0000** — against the preregistered 0.993 |
+| Join correctness | **26/26** |
+| False accusations | **0** |
+| Class B (genuine identification limits) | **empty** |
+
+The finding remains **NOT WIRED** into `compile_report`, and the pin test `the_uncited_reference_finding_is_not_emitted_by_compile_report` still holds it out.
+
+**What remains is not engineering.** Every defect found has been fixed and measured; no further code change is known to improve any of the three layers. The outstanding requirement is a **validation study**: roughly **430 evaluated references**, i.e. **~25–30 hand-counted manuscripts**, to demonstrate the citation-side failure rate is below 0.7% with the Rule of Three. At `N_eval` = 26 the achievable coverage values are 1.000, 0.962, … so the current 1.0000 is still not distinguishable from 0.993, and the 95% lower bound sits near 0.89.
+
+**That study is deferred**, pending a decision about whether this finding is strategically important enough to justify hand-counting 25–30 manuscripts. It is a product-priority question, not a technical one.
+
+**If the study is commissioned**, it inherits: Protocol v1 (P1, the 0.993 threshold, D1, D2, E1–E7), Protocol v2 (the reference-side planning criterion, labelled), and this ground-truth format. Nothing needs redesigning.
+
+**If it is not**, the finding stays unwired indefinitely and that is a defensible resting place — the code is committed, tested, documented, and pinned out of the report, so nothing degrades while it waits.
