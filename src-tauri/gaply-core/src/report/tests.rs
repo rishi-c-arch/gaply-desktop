@@ -759,6 +759,83 @@ fn extraction_with_uncaptioned_table() -> ExtractionResult {
     )
 }
 
+/// A manuscript citing Smith 2020 but not Jones 2019 — one genuinely uncited
+/// reference, reached through the REAL extraction path (not a hand-built struct),
+/// so the parser is exercised too.
+fn extraction_with_one_uncited_reference() -> ExtractionResult {
+    crate::extract::extract_from_text(
+        "T\n\nAbstract\nWe build on prior work (Smith, 2020) in this study.\n\n         References\n\nSmith J. 2020. A cited paper. Journal of Things 1: 1-10.\n\n         Jones A. 2019. An uncited paper. Journal of Other Things 2: 11-20.\n",
+    )
+}
+
+/// The builder is DELIBERATELY not wired into `compile_report` (see its doc
+/// comment), so these tests call it directly. That is the point: the finding must
+/// be provably correct BEFORE it can emit, not after.
+fn uncited_finding(ex: &ExtractionResult) -> Option<Finding> {
+    super::uncited_reference_findings(ex).into_iter().next().map(|rf| rf.finding)
+}
+
+#[test]
+fn an_uncited_reference_is_reported_with_both_numbers() {
+    let ex = extraction_with_one_uncited_reference();
+    assert_eq!(ex.references.len(), 2, "fixture precondition: {:?}", ex.references);
+    let f = uncited_finding(&ex).expect("uncited-reference finding missing");
+    assert_eq!(f.severity, FindingSeverity::Minor);
+    assert_eq!(f.tier, CertaintyTier::AiAssessedModerate);
+    assert_eq!(f.agent, AgentKind::Extraction);
+    // BOTH numbers must be present — M - N stated, not hidden.
+    assert!(f.detail.contains("2 of 2 reference(s) were checked"), "detail: {}", f.detail);
+    assert!(f.detail.contains("Jones 2019"), "should name the uncited entry: {}", f.detail);
+    assert!(
+        f.detail.contains("could not be checked and are NOT counted as uncited"),
+        "detail must disclose the not-evaluated count: {}",
+        f.detail
+    );
+}
+
+#[test]
+fn an_ambiguous_key_yields_no_uncited_finding_end_to_end() {
+    // Two entries share (etebari, 2005). Neither may be called uncited, and since
+    // there is nothing else to report the finding must not appear at all.
+    let ex = crate::extract::extract_from_text(
+        "T\n\nAbstract\nPrior work is relevant (Smith, 2020).\n\n         References\n\nEtebari K, Mirhoseini S. 2005. First paper. J One 1: 1-10.\n\n         Etebari K, Bizhannia A. 2005. Second paper. J Two 2: 11-20.\n",
+    );
+    assert_eq!(ex.references.len(), 2, "fixture precondition: {:?}", ex.references);
+    assert!(
+        uncited_finding(&ex).is_none(),
+        "ambiguous keys must produce NO finding, got: {:?}",
+        uncited_finding(&ex).map(|f| f.detail)
+    );
+}
+
+#[test]
+fn a_fully_cited_bibliography_produces_no_finding() {
+    let ex = crate::extract::extract_from_text(
+        "T\n\nAbstract\nWe build on prior work (Smith, 2020).\n\n         References\n\nSmith J. 2020. A cited paper. Journal of Things 1: 1-10.\n",
+    );
+    assert!(uncited_finding(&ex).is_none(), "a non-event is not a finding");
+}
+
+/// PIN: the builder must stay OUT of the report until its wiring precondition is
+/// met. If someone wires it, this fails and they read the doc comment explaining
+/// why precision was 0.00 on a real manuscript.
+#[test]
+fn the_uncited_reference_finding_is_not_emitted_by_compile_report() {
+    let ex = extraction_with_one_uncited_reference();
+    assert!(
+        uncited_finding(&ex).is_some(),
+        "precondition: the builder itself does produce a finding for this fixture"
+    );
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(
+        &minimal_outcome(), &validation, None, None, Some(&ex), TEST_YEAR, vec![],
+    );
+    assert!(
+        !report.findings.iter().any(|f| f.provenance.iter().any(|p| p == "signal:uncited_reference")),
+        "uncited-reference findings must not reach the report yet (see uncited_reference_findings docs)"
+    );
+}
+
 /// Does the reviewer payload carry a finding bearing this `signal:` tag?
 /// `build_review_payload` filters provenance to structured prefixes and re-emits
 /// them under `evidence`, so a `signal:` tag is how a family is identified there.

@@ -779,6 +779,137 @@ fn table_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
     .into_vec()
 }
 
+/// Bibliography entries never cited in the body.
+///
+/// # DELIBERATELY NOT WIRED INTO `compile_report`
+///
+/// This is not `plagiarism_exact` — that one is unwired by neglect
+/// (ARCHITECTURE_MAP B6). This one is unwired because it MUST NOT emit yet, and
+/// the reason is recorded here so it is found at the code and not only in git
+/// history.
+///
+/// Measured on a real manuscript: **6 findings, 6 false positives, precision
+/// 0.00.** The reference side was guarded correctly — all four parse fragments
+/// became `NotEvaluated` — but the citation side had no guard, and two defects in
+/// `extract_in_text` mean a cited work can be missing from `ex.citations`:
+///   * `narrative_cite` (`extract/stats.rs:84`) matches `and`/`&` without
+///     consuming the surname after it, so `"Gordon and Burford (1984)"` extracts
+///     with authors `"Burford"`;
+///   * `paren_group` (`extract/stats.rs:88`) splits only on `;`, so
+///     `"(A 1993, B 1998, C 2002)"` collapses to ONE citation.
+///
+/// # Wiring precondition
+///
+/// Fixing those two defects is NECESSARY BUT NOT SUFFICIENT. This finding has the
+/// form "X is absent from Y", so its operand IS an absence and can never be
+/// positively identified (ONTOLOGY §4.9). What it requires instead is positive
+/// evidence that citation extraction is COMPLETE — an established recall figure
+/// for `extract_in_text` against a hand-counted ground truth. **No such figure
+/// exists.** Until it does, "no matching citation" means "no matching citation,
+/// and our own recall is unknown", which is not grounds for telling an author
+/// their reference is uncited.
+///
+/// Governed by ONTOLOGY §4.6: the evidence is deterministic but the MAPPING is
+/// not, because a bibliography entry carries no number field and must be joined
+/// to the body by author + year. Every ambiguous case is refused —
+/// `classify_reference_use` (`extract/citations.rs`) emits `Uncited` only for
+/// entries it could evaluate.
+///
+/// Both numbers are reported. "N of M references were checked" states M - N in
+/// the open rather than hiding it, the same disclosure shape
+/// `reference_recency_findings` uses for undated entries.
+///
+/// Tier follows the `364e106` precedent (the citation-recency finding): this is
+/// deterministic but NOT a hard constraint, so it must not outrank a failed
+/// statistical rule. `CertaintyTier` still has no tier for that (ONTOLOGY Gap
+/// E2); `AiAssessedModerate` is the honest choice available, not the accurate
+/// one, and one finding does not justify widening the enum.
+// Unused outside tests BY DESIGN — the wiring precondition above is not met.
+// Delete this attribute at the same time you add the `compile_report` call site.
+#[allow(dead_code)]
+fn uncited_reference_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
+    use crate::extract::citations::{classify_reference_use, CitationUse};
+
+    let total = ex.references.len();
+    if total == 0 {
+        // No reference list is already covered by the structural checklist.
+        return Vec::new();
+    }
+    let verdicts = classify_reference_use(&ex.references, &ex.citations);
+    if verdicts.is_empty() {
+        // Style not determined (mixed, numeric-dominant, or no citations to
+        // reason from). Refusing is the designed outcome, not a failure.
+        return Vec::new();
+    }
+
+    let evaluated = verdicts
+        .iter()
+        .filter(|v| !matches!(v, CitationUse::NotEvaluated(_)))
+        .count();
+    let uncited: Vec<usize> = verdicts
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| matches!(v, CitationUse::Uncited))
+        .map(|(i, _)| i)
+        .collect();
+
+    if uncited.is_empty() {
+        // A non-event is not a finding (see the plagiarism fan-out at :288).
+        return Vec::new();
+    }
+
+    let not_evaluated = total - evaluated;
+    let mut examples: Vec<String> = uncited
+        .iter()
+        .take(UNCITED_EXAMPLE_LIMIT)
+        .filter_map(|i| ex.references.get(*i))
+        .map(|r| {
+            let who = r.authors.split_whitespace().next().unwrap_or("?");
+            match r.year {
+                Some(y) => format!("{who} {y}"),
+                None => who.to_string(),
+            }
+        })
+        .collect();
+    if uncited.len() > examples.len() {
+        examples.push(format!("and {} more", uncited.len() - examples.len()));
+    }
+
+    let detail = format!(
+        "{} of {total} reference(s) were checked; {} appear(s) never cited in the text ({}). \
+         {not_evaluated} reference(s) could not be checked and are NOT counted as uncited.",
+        evaluated,
+        uncited.len(),
+        examples.join("; ")
+    );
+
+    paired(
+        Finding {
+            severity: FindingSeverity::Minor,
+            tier: CertaintyTier::AiAssessedModerate,
+            certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
+            agent: AgentKind::Extraction,
+            title: format!(
+                "{} of {evaluated} checked reference(s) appear never cited in the text",
+                uncited.len()
+            ),
+            detail,
+            confidence: STRUCTURAL_CONF,
+            provenance: vec![
+                "signal:uncited_reference".into(),
+                format!("evidence:checked={evaluated}/{total} uncited={}", uncited.len()),
+                "agent:extraction (deterministic, author-year matching)".into(),
+            ],
+        },
+        STRUCTURAL_CONF,
+    )
+    .into_vec()
+}
+
+/// How many uncited entries to name in the detail before summarising the rest.
+#[allow(dead_code)] // see `uncited_reference_findings` — deliberately unwired
+const UNCITED_EXAMPLE_LIMIT: usize = 5;
+
 /// Reference recency: how much of the bibliography pre-dates the recent-literature
 /// window. Deterministic arithmetic over `Reference.year`, which extraction parses
 /// from the manuscript's OWN reference list — no network, no connector, so this
