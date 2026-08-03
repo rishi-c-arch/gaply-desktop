@@ -82,7 +82,7 @@ pub fn regexes() -> &'static Regexes {
             year_bare: Regex::new(r"\b((?:19|20)\d{2})\b").unwrap(),
             // narrative: author token(s) immediately followed by (year)
             narrative_cite: Regex::new(
-                r"([A-Z][\p{L}'’.\-]+(?:\s+(?:et\s+al\.?|and|&|,\s+[A-Z][\p{L}'’.\-]+)+)?)\s+\(((?:19|20)\d{2}[a-z]?)\)",
+                r"([A-Z][\p{L}'’.\-]+(?:\s+(?:et\s+al\.?|(?:and|&)\s+[A-Z][\p{L}'’.\-]+|,\s+[A-Z][\p{L}'’.\-]+)+)?)\s+\(((?:19|20)\d{2}[a-z]?)\)",
             )
             .unwrap(),
             paren_group: Regex::new(r"\(([^()]*(?:19|20)\d{2}[^()]*)\)").unwrap(),
