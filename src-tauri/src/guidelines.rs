@@ -223,6 +223,20 @@ pub(crate) fn html_to_text(html: &str) -> String {
 
 /// Remove every `<tag …> … </tag>` (case-insensitive). An unterminated block
 /// drops the remainder (safer than keeping raw script/style).
+///
+/// # Tag boundaries
+///
+/// The opening pattern MUST be boundary-checked. `"<head"` as a bare prefix also
+/// matches `<header>`, and because an unterminated block drops the remainder,
+/// one false-positive open match silently destroys the rest of the document —
+/// measured at 188 KB of a real PLOS guidelines page reduced to 0 characters,
+/// which is why guideline ingestion never produced a checklist.
+///
+/// Only `head` collided with a real HTML5 element, but **none of the seven
+/// stripped tags was safe by construction** — `nav` is exposed to any
+/// `<nav-…>` custom element, and `footer`/`svg`/`noscript`/`style`/`script` were
+/// safe only because HTML5 happens to define no sibling element sharing their
+/// prefix. See ONTOLOGY's boundary-matching invariant.
 fn strip_block(html: &str, tag: &str) -> String {
     let lower = html.to_ascii_lowercase();
     let open = format!("<{tag}");
@@ -230,7 +244,7 @@ fn strip_block(html: &str, tag: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut i = 0;
     while i < html.len() {
-        if lower[i..].starts_with(&open) {
+        if lower[i..].starts_with(&open) && tag_name_ends_at(&lower, i + open.len()) {
             match lower[i..].find(&close) {
                 Some(rel) => {
                     i += rel + close.len();
@@ -244,6 +258,16 @@ fn strip_block(html: &str, tag: &str) -> String {
         i += ch.len_utf8();
     }
     out
+}
+
+/// True when the tag NAME ends at `at` — i.e. the next character terminates the
+/// name rather than continuing it. `<head>` and `<head class=x>` match; `<header>`
+/// does not. End-of-input counts as a boundary (a truncated document).
+fn tag_name_ends_at(lower: &str, at: usize) -> bool {
+    match lower[at..].chars().next() {
+        None => true,
+        Some(c) => c.is_whitespace() || c == '>' || c == '/',
+    }
 }
 
 fn strip_tags(s: &str) -> String {
@@ -417,5 +441,59 @@ mod tests {
         let t = html_to_text("<html><script>alert('x')</script><p>Hello &amp; welcome</p></html>");
         assert!(!t.contains("alert"), "script content must be stripped: {t:?}");
         assert!(t.contains("Hello & welcome"), "text + entity decode expected: {t:?}");
+    }
+
+    /// THE defect that made guideline ingestion produce nothing: `<head` as a bare
+    /// prefix also matches `<header>`, and an unterminated block drops the
+    /// remainder — so one false positive silently destroyed the document.
+    #[test]
+    fn header_does_not_match_the_head_block() {
+        let html = "<html><head><title>HEADTITLE</title></head><body><header>nav</header>\
+                    <p>REAL GUIDELINE CONTENT that must survive.</p></body></html>";
+        let t = html_to_text(html);
+        assert!(
+            t.contains("REAL GUIDELINE CONTENT that must survive."),
+            "content after <header> must survive: {t:?}"
+        );
+        assert!(!t.contains("HEADTITLE"), "the real head block CONTENT is still stripped: {t:?}");
+    }
+
+    /// `nav` had the same live exposure — no HTML5 element shares its prefix, but
+    /// any custom element does.
+    #[test]
+    fn a_custom_element_sharing_a_prefix_does_not_match() {
+        let t = html_to_text("<nav-menu>menu</nav-menu><p>BODY TEXT SURVIVES</p>");
+        assert!(t.contains("BODY TEXT SURVIVES"), "{t:?}");
+    }
+
+    /// The stripped tag itself must still be stripped, with and without attributes.
+    #[test]
+    fn the_real_tag_still_strips_with_and_without_attributes() {
+        let a = html_to_text("<head><title>t</title></head><p>AFTER</p>");
+        assert!(!a.contains("t</title>") && a.contains("AFTER"), "{a:?}");
+        let b = html_to_text("<head lang=\"en\"><title>t</title></head><p>AFTER</p>");
+        assert!(b.contains("AFTER"), "attributes must not defeat the match: {b:?}");
+        let c = html_to_text("<script src=\"x.js\">alert(1)</script><p>AFTER</p>");
+        assert!(!c.contains("alert") && c.contains("AFTER"), "{c:?}");
+    }
+
+    /// A genuinely unterminated block still drops the remainder — that behaviour is
+    /// deliberate and must not regress into keeping raw script.
+    #[test]
+    fn a_genuinely_unterminated_block_still_drops_the_remainder() {
+        let t = html_to_text("<p>BEFORE</p><script>alert(1)<p>AFTER</p>");
+        assert!(t.contains("BEFORE"), "{t:?}");
+        assert!(!t.contains("alert"), "unterminated script must not leak: {t:?}");
+        assert!(!t.contains("AFTER"), "remainder is deliberately dropped: {t:?}");
+    }
+
+    /// The 161-char fixture that isolated the defect, asserted end to end.
+    #[test]
+    fn the_minimal_repro_extracts_its_content() {
+        let html = "<html><head><title>x</title></head><body><header>nav</header>\
+                    <p>REAL GUIDELINE CONTENT HERE and lots more text that should survive extraction.</p>\
+                    </body></html>";
+        let t = html_to_text(html);
+        assert!(t.chars().count() > 60, "expected real text, got {} chars: {t:?}", t.chars().count());
     }
 }
