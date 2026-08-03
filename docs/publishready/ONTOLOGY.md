@@ -225,6 +225,37 @@ Two worked examples, both of which genuinely fit:
 
 The ordering matters because the later steps are the ones that get reached for first — footprint work is visible and feels like progress, while the computation being reduced or reused is often invisible until measured.
 
+### 4.9 Standing rule — the Join Invariant
+
+**A deterministic finding may only be emitted if every required operand has been positively identified.** *Missing* and *unmatched* are distinct states: an operand that was not successfully extracted must propagate to `NotEvaluated`, never to a negative conclusion. **Question 3 of §4.6 must be asked of BOTH sides of a join** — refusing ambiguity on one side does not make the join safe.
+
+**The sharpening, which measurement forced.** For a finding of the form *"X is ABSENT from Y"*, the operand cannot be positively identified — **the operand IS the absence.** Such a finding requires instead positive evidence that **the extractor achieved MEASURED COVERAGE SUFFICIENT FOR THE INTENDED FINDING**: a coverage claim about the extractor, not a claim about an operand, and a strictly higher bar. Absent an established recall figure, *"none found"* means *"none found, and our own recall is unknown"*, which is not grounds for a negative finding.
+
+**Guard on "sufficient".** *Completeness* would be unsatisfiable, and an unsatisfiable rule is one that gets routed around rather than met. *Sufficiency* is satisfiable and forces the right question — sufficient for **what** — but it introduces a judgement where the absolute had none. So: **the sufficiency threshold must be stated as a number BEFORE the measurement, not chosen after**, on the same discipline as §5's evaluation protocol. Otherwise "sufficient" is defined by whatever the measurement happens to return, and the rule becomes a formality that ratifies any result.
+
+#### The measurement that produced this rule
+
+The uncited-reference finding (`report.rs::uncited_reference_findings`, built and deliberately unwired at `b8312b0`) was run on a real manuscript after `docparse::reflow_pdf_text` had corrected bibliography parsing:
+
+> **6 findings, 6 false positives, precision 0.00.**
+
+Every entry it named was cited — `Göncü and Parlak (2011)`, `Gordon and Burford (1984)`, `Kamimura and Kiuchi (1998)`, `Rahmathulla and Suresh (2012)`, `Srivastava and Upadhyay (2015)`, `Miranda et al. 2002` — each verifiable in the body text.
+
+**The reference side was guarded correctly.** All four parse fragments became `NotEvaluated`: two undated (`"Central Silk Board, Bangalore."`, `"Analytical Chemistry 31(3): 426–28."`) and two carrying a DOI URL where the surname belongs. §4.6 worked exactly as designed on the side it was applied to.
+
+**The citation side had no guard**, and that is the whole lesson. Two defects in `extract_in_text` mean a cited work can be absent from `ex.citations`:
+
+- **`narrative_cite` (`extract/stats.rs:84`)** matches `and`/`&` but never consumes the surname that follows, so `"Gordon and Burford (1984)"` is extracted with authors `"Burford"` — the second author.
+- **`paren_group` (`extract/stats.rs:88`)** splits only on `;`, so `"(Trivedy et al. 1993, Kamimura and Kiuchi 1998, Miranda et al. 2002, Mamatha et al. 2006)"` collapses to **one** citation.
+
+**Zero true positives were observed.** The run therefore does not establish whether this manuscript contains any genuinely uncited reference — only that the finding was wrong six times out of six. The fixture test (`an_uncited_reference_is_reported_with_both_numbers`) is the *only* evidence the finding can fire at all.
+
+#### Scope
+
+The invariant is not about citations. It governs **any extractor that joins independently derived evidence**, and every planned deterministic finding in ARCHITECTURE_TRACE §11.4 has this shape: figures referenced but absent, tables never referenced, ethics statements, funding disclosures, reporting-guideline items. Each asks whether one extracted set covers another, and each will be wrong in exactly this way unless the covering set's recall is known.
+
+§11.5 established that positional correspondence is not identity. This rule establishes the companion: **one-sided refusal is not safety.**
+
 ---
 
 ## 5. Evaluation Protocol
