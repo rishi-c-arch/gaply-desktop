@@ -29,6 +29,7 @@ use crate::extract::sections::SectionKind;
 use crate::extract::ExtractionResult;
 use crate::plagiarism::{MatchSource, MatchSpan, PlagiarismReport};
 use crate::rag::RagHit;
+use crate::refverify::ReferenceVerification;
 use crate::swarm::{AgentKind, DebateOutcome, ANSWER_CONCERN};
 use crate::validate::StatsValidityReport;
 use crate::verify_agent::{Verdict, VerificationReport};
@@ -253,6 +254,9 @@ pub fn compile_report(
     extraction: Option<&ExtractionResult>,
     current_year: i32,
     checklist: Vec<ChecklistItem>,
+    // Per-reference registry evidence from the verification lane. Empty when
+    // verification did not run. See `registry_year_findings`.
+    registry: &[ReferenceVerification],
 ) -> PublishReadyReport {
     let mut items: Vec<ReportFinding> = Vec::new();
 
@@ -276,6 +280,8 @@ pub fn compile_report(
             1.0, // deterministic — raw == Finding.confidence
         ));
     }
+
+    items.extend(citation_count_findings(registry));
 
     // --- verification verdicts (tier depends on whether a reconsideration ran)
     let verification_tier = if outcome.revised_agents.contains(&AgentKind::Verification) {
@@ -372,6 +378,7 @@ pub fn compile_report(
         items.extend(stylometry_findings(ex));
         items.extend(table_findings(ex));
         items.extend(reference_recency_findings(ex, current_year));
+        items.extend(registry_year_findings(ex, registry));
     }
 
     // --- soft round-table opinions (Verification + Plagiarism are covered in
@@ -775,6 +782,139 @@ fn table_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
             ],
         },
         STRUCTURAL_CONF,
+    )
+    .into_vec()
+}
+
+/// A reference whose LOCAL year disagrees with the year a public registry
+/// returned for the same work. `matched_year` is resolved by `refverify`
+/// (`refverify.rs:661,712`) and was already transmitted to the cloud reviewer
+/// (`verify_agent.rs:176`); this makes it available to a LOCAL deterministic
+/// finding as well.
+///
+/// # Why ONTOLOGY §4.9 does not bind here
+///
+/// §4.9 governs findings of the form "X is ABSENT from Y", whose operand is an
+/// absence and which therefore need a coverage claim about the extractor. **This
+/// is not one.** Both operands are positively identified before the finding can
+/// fire: a parsed local `Reference.year` AND a registry-returned `matched_year`
+/// for the same entry. A reference the registry did not resolve, or one with no
+/// parsed local year, produces no comparison at all — no negative conclusion is
+/// drawn from its absence.
+///
+/// That distinction is the whole point of §4.9: "the registry disagrees" is a
+/// claim about two things we have, not about something we failed to find. No
+/// registry resolution-rate figure is required, and none exists.
+fn registry_year_findings(
+    ex: &ExtractionResult,
+    registry: &[ReferenceVerification],
+) -> Vec<ReportFinding> {
+    let mut mismatches: Vec<String> = Vec::new();
+    let mut compared = 0usize;
+    for rv in registry {
+        let matched = match rv.exists.as_ref().and_then(|e| e.matched_year) {
+            Some(y) => y,
+            None => continue,
+        };
+        let local = match ex
+            .references
+            .iter()
+            .find(|r| r.raw == rv.reference_raw)
+            .and_then(|r| r.year)
+        {
+            Some(y) => y,
+            None => continue,
+        };
+        compared += 1;
+        if local != matched {
+            let who = rv.reference_raw.split_whitespace().next().unwrap_or("?");
+            mismatches.push(format!("{who}: cited as {local}, registry says {matched}"));
+        }
+    }
+    if mismatches.is_empty() {
+        return Vec::new();
+    }
+    let shown: Vec<String> = mismatches.iter().take(REGISTRY_EXAMPLE_LIMIT).cloned().collect();
+    let extra = mismatches.len().saturating_sub(shown.len());
+    let tail = if extra > 0 { format!("; and {extra} more") } else { String::new() };
+    paired(
+        Finding {
+            severity: FindingSeverity::Minor,
+            tier: CertaintyTier::AiAssessedModerate,
+            certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
+            agent: AgentKind::Verification,
+            title: format!(
+                "{} of {compared} checked reference(s) disagree with the registry year",
+                mismatches.len()
+            ),
+            detail: format!(
+                "{}{tail}. {compared} reference(s) had both a parsed year and a registry match \
+                 and could be compared; the rest were not compared.",
+                shown.join("; ")
+            ),
+            confidence: 1.0,
+            provenance: vec![
+                "signal:registry_year_mismatch".into(),
+                format!("evidence:compared={compared};mismatched={}", mismatches.len()),
+                "agent:verification (deterministic comparison of two resolved years)".into(),
+            ],
+        },
+        1.0,
+    )
+    .into_vec()
+}
+
+/// How many registry mismatches to name before summarising the rest.
+const REGISTRY_EXAMPLE_LIMIT: usize = 5;
+
+/// Descriptive citation-count summary over references a registry resolved.
+///
+/// DESCRIPTIVE ONLY — no threshold, no judgement, nothing above `Info`.
+///
+/// # A finding deliberately NOT built
+///
+/// **"References with unusually low citation counts" is refused**, and refused on
+/// EVIDENCE rather than difficulty — it would be easy to write. It is an absence
+/// claim in §4.9's sense: "this work is under-cited" rests on the citation count
+/// being *known*, and a reference Semantic Scholar failed to resolve is
+/// indistinguishable from one with a genuinely low count. Emitting it would need
+/// a coverage argument — a measured Semantic Scholar resolution rate — and **no
+/// such measurement exists**.
+///
+/// Recorded here so it is not rediscovered later as an apparently cheap feature:
+/// the blocker is missing evidence, not missing effort.
+fn citation_count_findings(registry: &[ReferenceVerification]) -> Vec<ReportFinding> {
+    let mut counts: Vec<i64> = registry
+        .iter()
+        .filter_map(|rv| rv.enrichment.as_ref().and_then(|e| e.citation_count))
+        .collect();
+    if counts.is_empty() {
+        return Vec::new();
+    }
+    counts.sort_unstable();
+    let median = counts[counts.len() / 2];
+    let total = registry.len();
+    paired(
+        Finding {
+            severity: FindingSeverity::Info,
+            tier: CertaintyTier::AiAssessedModerate,
+            certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
+            agent: AgentKind::Verification,
+            title: format!("citation counts resolved for {} of {total} reference(s)", counts.len()),
+            detail: format!(
+                "median citation count {median} across the {} reference(s) a public registry \
+                 resolved; {} reference(s) were not resolved and are not described here",
+                counts.len(),
+                total - counts.len()
+            ),
+            confidence: 1.0,
+            provenance: vec![
+                "signal:citation_count".into(),
+                format!("evidence:resolved={};total={total};median={median}", counts.len()),
+                "agent:verification (descriptive count, no threshold applied)".into(),
+            ],
+        },
+        1.0,
     )
     .into_vec()
 }

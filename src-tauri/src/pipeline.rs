@@ -316,8 +316,15 @@ fn run_pipeline_inner(
             items.len(),
             definite
         );
-        Ok((report, summary))
+        // Registry evidence retained for the LOCAL side. `matched_year` and
+        // `citation_count` were already transmitted to the cloud reviewer inside
+        // the evidence bundle (`verify_agent.rs:176`, `:206`); dropping `items`
+        // here made them unavailable to any local deterministic finding — a
+        // LOCALITY problem, not unused computation (ARCHITECTURE_TRACE §2).
+        let registry: Vec<ReferenceVerification> = items.into_iter().map(|(_, rv)| rv).collect();
+        Ok(((report, registry), summary))
     })?;
+    let (verification, registry) = verification;
 
     // --- synthesis: round-table debate → compiled report --------------------
     let report = (|| -> Result<gaply_core::report::PublishReadyReport, GaplyError> {
@@ -353,6 +360,7 @@ fn run_pipeline_inner(
             Some(&extraction),
             current_year(),
             checklist,
+            &registry,
         ))
     })();
 
