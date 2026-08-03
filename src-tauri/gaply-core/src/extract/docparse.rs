@@ -79,8 +79,23 @@ fn ends_with_abbreviation(tail: &str) -> bool {
 
 /// True when `s` looks like a completed sentence: ends in `.`/`!`/`?`, and the
 /// terminator is not an abbreviation dot or a single-capital initial ("… J.").
+///
+/// A TRAILING URL is stripped before the test. A bibliography entry often ends
+/// with a bare DOI — `"… Journal of Insect Science 12: Article 82, 1–14.
+/// https://doi.org/10.1673/031.012.8201"` — which ends in a digit, so without
+/// this the block never closes and the NEXT entry is absorbed. Measured on the
+/// evaluation manuscript: eight entries merged this way, in one chain of four,
+/// and two more were left carrying the previous entry's DOI where the author
+/// belongs. Every entry WITHOUT a DOI parsed cleanly.
+///
+/// This is a different defect from the abbreviation guard below, not a variant of
+/// it: that one suppresses a FALSE boundary ("unaffected." is not the "ed."
+/// abbreviation), this one restores a MISSED one. They are opposite failure
+/// directions of the same proxy — sentence completion standing in for block
+/// boundary — and neither fix implies the other.
 fn ends_sentence(s: &str) -> bool {
-    let t = s.trim_end();
+    let t = strip_trailing_url(s.trim_end());
+    let t = t.trim_end();
     let last = match t.chars().next_back() {
         Some(c) => c,
         None => return false,
@@ -102,6 +117,24 @@ fn ends_sentence(s: &str) -> bool {
         (Some(c), None) if c.is_uppercase() => false,
         _ => true,
     }
+}
+
+/// Drop a URL that sits at the very end of `s`, so the text before it can be
+/// tested for sentence completion. Returns `s` unchanged when it does not end
+/// with one.
+fn strip_trailing_url(s: &str) -> &str {
+    const SCHEMES: &[&str] = &["https://", "http://", "www.", "doi:"];
+    match s.rsplit_once(char::is_whitespace) {
+        Some((head, last)) if SCHEMES.iter().any(|p| last.starts_with(p)) => head,
+        _ => s,
+    }
+}
+
+/// True when the whole line is a single URL.
+fn is_url_only(s: &str) -> bool {
+    const SCHEMES: &[&str] = &["https://", "http://", "www.", "doi:"];
+    let t = s.trim();
+    !t.contains(char::is_whitespace) && SCHEMES.iter().any(|p| t.starts_with(p))
 }
 
 /// Lines that are running headers/footers rather than manuscript content.
@@ -177,6 +210,19 @@ pub(crate) fn reflow_pdf_text(text: &str) -> String {
             continue;
         }
         if furniture.contains(t) {
+            continue;
+        }
+        // A line that is NOTHING but a URL is trailing metadata of the block that
+        // just closed, not the start of a new one. Same trailing-DOI mechanism as
+        // `strip_trailing_url`, different manifestation: when the entry's last
+        // prose line already ended a sentence, the block closes and the bare DOI
+        // line would otherwise become the HEAD of the next entry — putting a URL
+        // where the author belongs. Measured: two entries lost that way.
+        if cur.is_empty() && is_url_only(t) {
+            if let Some(last) = blocks.last_mut() {
+                last.push(' ');
+                last.push_str(t);
+            }
             continue;
         }
         if sections::detect_heading(line).is_some() {
@@ -458,6 +504,36 @@ mod tests {
         let abstract_after = after.iter().find(|s| s.kind == crate::extract::SectionKind::Abstract).unwrap();
         assert_eq!(abstract_after.paragraphs.len(), 1);
         assert!(abstract_after.paragraphs[0].contains("dose dependent but not monotonic"));
+    }
+
+    #[test]
+    fn a_trailing_doi_url_does_not_prevent_a_block_from_closing() {
+        // A bibliography entry ending in a bare DOI ends in a DIGIT, so without
+        // stripping the URL the blank line never closes and the NEXT entry is
+        // absorbed. Measured: eight entries merged this way, one chain of four.
+        let raw = "Rahmathulla V K and Suresh H M. 2012. Seasonal variation. Journal of Insect Science 12: 1-14. https://doi.org/10.1673/031.012.8201\n\nReitman S and Frankel S. 1957. A colorimetric method.";
+        let out = reflow_pdf_text(raw);
+        assert_eq!(out.split("\n\n").count(), 2, "entries must not merge: {out}");
+        assert!(out.split("\n\n").nth(1).unwrap().starts_with("Reitman"));
+    }
+
+    #[test]
+    fn a_url_only_line_attaches_to_the_previous_block() {
+        // Same mechanism, other manifestation: the entry's prose already ended a
+        // sentence, so the block closed and the bare DOI line would otherwise
+        // become the HEAD of the next entry — a URL where the author belongs.
+        let raw = "Liu S and Wang H. 2023. Juvenile hormone regulates silk gene expression. Cellular Life Sciences 80: Article 331.\n\nhttps://doi.org/10.1007/s00018-023-04996-1\n\nMamatha D M and Rao M R. 2006. Studies on cocoons.";
+        let out = reflow_pdf_text(raw);
+        let blocks: Vec<&str> = out.split("\n\n").collect();
+        assert_eq!(blocks.len(), 2, "url-only line must not start a block: {out}");
+        assert!(blocks[0].ends_with("s00018-023-04996-1"), "url joins the entry it belongs to");
+        assert!(blocks[1].starts_with("Mamatha"), "next entry keeps its author: {}", blocks[1]);
+    }
+
+    #[test]
+    fn a_sentence_ending_before_a_trailing_url_still_closes_normally() {
+        assert!(ends_sentence("An entry ends here. https://doi.org/10.1/x"));
+        assert!(!ends_sentence("An entry continues https://doi.org/10.1/x"));
     }
 
     #[test]
