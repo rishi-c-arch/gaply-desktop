@@ -330,10 +330,50 @@ This **formalizes and extends the provenance trail already shipping**, not a new
 3. **`shadow_reviewer` computed and never read** (`commands.rs:677`; zero frontend refs) → fourth discarded signal.
 4. **Provenance UI trail verified present** (`ReportViewerPage.tsx:184`) → §7.1 is an extension, not a new build.
 5. **`classify_heading` fully traced** → B2 *downgraded* from bottleneck #2 to medium priority.
+6. **`PlagiarismSession::report` traced** (the gap this section previously named) → see §9.1. No matrix change; two design questions opened.
+
+### 9.1 `PlagiarismSession::report` — traced, and a corrected claim
+
+This was the trace §9 named as most valuable. It is now done, and it produced one finding, one self-correction and two open design questions.
+
+**THE GUARD (traced).** `compare_to_corpus` (`plagiarism.rs`) keeps embedding rows whose `source_type == "chunk"` — but `"chunk"` is the *embedding-row kind*, not the RAG `SourceType`. Every RAG document lands with that kind (`rag.rs:229`, `insert_embedding("chunk", chunk_id, …)`). The `SourceType` filter is applied three lines later, inside `corpus_chunk_info`:
+
+```
+const EXCLUDED_CORPUS_SOURCE_TYPES: [&str; 2] = ["research_paper", "journal_guideline"];   // plagiarism.rs:249-256
+"... WHERE c.id = ?1 AND d.status = 'ingested' AND d.source_type NOT IN (?2, ?3)"          // plagiarism.rs:271-273
+```
+
+An excluded document returns `None`, and the caller's `else { continue }` drops it — **no `MatchSpan` is constructed.** This shipped as the M1 fix and is covered by `users_own_working_docs_never_surface_as_corpus_matches` (`plagiarism.rs:394-438`), which ingests both excluded types with text *identical* to the manuscript, asserts zero matches, then ingests a `retraction` and asserts it *does* match — proving the denylist is precise, not a blanket disable.
+
+**THE CORRECTED CLAIM — preserved, per §4.3 doctrine.** While proposing B6, this document's author asserted:
+
+> ~~"`compare_to_corpus` filters `m.source_type != "chunk"` (the embedding-row type) and **does not filter by RAG `SourceType`**"~~ — and concluded that PublishReady was surfacing journal guidelines as plagiarism matches.
+
+**That was wrong.** It was true of the one line read, and false as a claim about the code path, which is the claim actually made. The trace stopped at the first filter and generalised.
+
+Worth recording for two reasons. First, it is a worked example of this document's own standard — *distinguish traced observation from derived conclusion* (§10 self-audit) — catching its own author. Second, **the ontology itself was not wrong**: §9 listed `PlagiarismSession::report` as untraced and rated coverage Medium precisely because of it. The rating did its job; the chat claim exceeded the document's stated coverage. That is the intended failure mode — a claim that outruns the evidence gets caught by the coverage rating rather than shipping.
+
+**DESIGN NOTE — the denylist is load-bearing, not decorative (experimentally demonstrated).** Measured `HashEmbedder` cosine between realistic manuscript prose and a realistic author-guidelines chunk, against the 0.80 threshold:
+
+| Manuscript text | cosine |
+|---|---|
+| ordinary methods prose | 0.202 |
+| a compliance/declarations section | 0.486 |
+| a methods paragraph echoing guideline vocabulary | 0.722 |
+| near-verbatim restatement of the guideline | 0.754 |
+
+Nothing clears 0.80, but the margin is ~0.05, not an order of magnitude — and the closest cases are declarations/compliance sections, exactly the text that quotes guideline vocabulary back. Without M1 this would plausibly fire on real submissions.
+
+**OPEN DESIGN QUESTION 1 — denylist vs allowlist default.** `plagiarism.rs:253-255` documents the choice: *"DENYLIST, not allowlist: a genuine corpus feed added later under any other `source_type` is scanned automatically."* Deliberate and defensible. But it means a new `SourceType` is opted **into** plagiarism scanning by default, and per the editorial audit below only one of the four current types arguably belongs there — so the default points the wrong way. Not urgent; needs a decision, not a patch.
+
+**OPEN DESIGN QUESTION 2 — should `retraction` be scanned?** Currently it is (and the M1 test relies on it to prove the denylist is precise).
+*For scanning:* a retraction notice is third-party published text the author did not write; verbatim overlap with one is genuinely odd and worth surfacing.
+*Against:* a retraction notice is *metadata about* a paper, not the paper. Overlap most likely means the manuscript legitimately quotes or discusses the notice — which is scholarship, not reuse. `refverify`'s retraction lane (`refverify.rs:562-567`) is the component that should consume retraction data, for D7.
+Unresolved. Recorded, not decided.
 
 ### Coverage confidence: **Medium**
 
-The PublishReady pipeline is traced end-to-end at `file:line` and every module is classified. Not High because three subsystem internals remain untraced: `PlagiarismSession::{ingest_manuscript, report}`, `rag::search`, and `RefVerifier::verify`'s connector orchestration — each underwrites a dimension-quality claim.
+The PublishReady pipeline is traced end-to-end at `file:line` and every module is classified. Not High because two subsystem internals remain untraced: `rag::search` and `RefVerifier::verify`'s connector orchestration — each underwrites a dimension-quality claim. (`PlagiarismSession::report`, previously the third, is now traced — §9.1.)
 
 ---
 
@@ -346,7 +386,7 @@ The PublishReady pipeline is traced end-to-end at `file:line` and every module i
 **Engineering (bounded, estimable):** B1, B2, B4, B6, B7; Tier 1–2. *(B0 resolved in `83f192c`.)*
 **Research (open, unbounded):** B3; Tier 3. D2 recommended for permanent exclusion.
 
-**To raise coverage to High:** trace `PlagiarismSession::report` — it determines whether §4.3 is the whole problem or whether chunking/KNN adds further distortion. Then `rag::search` and `RefVerifier::verify`.
+**To raise coverage to High:** trace `rag::search`, then `RefVerifier::verify`'s connector orchestration. (`PlagiarismSession::report` is done — §9.1.)
 
 **These documents are intended to evolve alongside the implementation.** New capabilities should update the ontology before — or at least in the same change as — the implementation, so the evidence model and roadmap remain synchronized.
 
