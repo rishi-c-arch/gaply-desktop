@@ -182,6 +182,20 @@ It is what makes extraction accuracy and review quality independently measurable
 
 Design intent recorded in ARCHITECTURE_TRACE.md §11.1; not yet implemented.
 
+### 4.6 Standing rule — deterministic findings must survive three questions
+
+Before any deterministic finding is built, it must answer:
+
+1. **Is the evidence deterministic?**
+2. **Is the MAPPING from evidence to finding deterministic?**
+3. **Can ambiguity occur?**
+
+If ambiguity exists: **refuse the finding, or downgrade its certainty. Never resolve ambiguity heuristically when silence is more truthful.**
+
+§4.4 governs a claim that exceeds its evidence. This rule governs the step before: a finding whose *derivation* is not as certain as its inputs. Question 2 is the one that gets skipped — deterministic inputs do not make a deterministic finding if the join between them is inferred rather than parsed.
+
+Design intent recorded in ARCHITECTURE_TRACE.md §11; applied first to the uncited-reference finding (§11.4 item 1), which it stopped.
+
 ---
 
 ## 5. Evaluation Protocol

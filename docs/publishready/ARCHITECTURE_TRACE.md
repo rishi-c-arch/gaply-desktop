@@ -278,6 +278,21 @@ The `AgentKind` totality is the strongest guard rail in the codebase: a seventh 
 | Deterministic verdict authoritative | **Partly** | Computed but unread by the UI; needs a frontend contract change |
 | Internal consistency (D5) | **No** | Requires claim extraction; `ExtractionResult` has no claims field |
 | Topic / novelty / fit (D1, D2, D6, D10) | **No** | No topic representation; `PaperDigest.summary` is verbatim prose (`paper_corpus.rs:222-235`) — unusable under the privacy invariant |
+
+### 9.1 Correction — what claim extraction would and would not unlock
+
+**As originally written** (the two rows above, preserved unchanged): D5 was recorded as blocked on *claim extraction*, and D1/D2/D6/D10 as blocked on *topic representation*, presented as two adjacent gaps of the same kind.
+
+**That framing was too generous to claim extraction.** It reads as though the four literature-grounded dimensions sit one research step behind D5, on the same dependency chain. They do not.
+
+The distinction, stated precisely:
+
+- **D5 (internal consistency) is genuinely unlocked by claim extraction.** It compares the manuscript's claims against the manuscript's own statistics. Both operands are local, the whole comparison is local, and nothing crosses the proxy. Claim extraction is the only missing piece.
+- **D1 / D2 / D6 / D10 are not unlocked by claim extraction.** They compare the manuscript's claims against the *literature's* claims. That comparison requires the claim's semantic content to reach wherever the literature is. The blocker is therefore **the privacy invariant itself**, not a missing extractor.
+
+This matters because a claim's faithful representation is a verbatim span — a claim's content *is* its wording, and the difference between *"X causes Y"* and *"X is associated with Y"* is the entire editorial question. A derived projection (`claim:kind=causal`, `claim:section=results`, `claim:has_supporting_stat=false`) is enough to support local findings and would sit naturally as a tenth `STRUCTURED_PREFIX`, with the verbatim text living in `Finding.detail` — the field the proxy builder already deliberately never reads (`reviewer_agent.rs:345`). But that projection cannot support a comparison against the literature.
+
+**Consequence for sequencing:** succeeding at claim extraction does not move D1/D2/D6/D10 at all. Those four need a separate, explicit decision about the privacy boundary, and that decision must not be allowed to ride on a claim-extraction result. Recorded under the §4.4 doctrine — the original framing is preserved above rather than silently rewritten, because the correction is the useful artefact.
 | Escalation adjudication | **No** | Server endpoint absent (`escalation.rs:9-17`) |
 | Surfacing `ConfidenceKind` in the UI | **Partly** | `evidence[]` reaches the frontend; nothing reads it |
 
@@ -373,3 +388,48 @@ So (1) is unconditionally deterministic for numeric-style manuscripts and requir
 Item (7) is already partly available: `Reference.doi: Option<String>` is parsed (`citations.rs:44`) and `refverify` fetches DOIs, so "missing DOI" is a `None` count over data in scope.
 
 **Not built in the claim-extraction spike.** This tier is deliberately independent of it: nothing here needs a model, and none of it is blocked on the Layer 2 result.
+
+#### Correction — the numeric-style "safe subset" was not safe
+
+**As originally written** (preserved above): item (1) was characterised as *"the cheapest unbuilt real finding in the product"*, unconditionally deterministic for numeric-style manuscripts and needing a stated matching rule only for author-year styles. That characterisation, and the sharpening that produced it, were **both wrong** — and they were wrong in the direction that would have shipped the defect.
+
+**Traced chain.** `parse_reference_list` (`citations.rs:175-177`) maps **one paragraph → one `Reference`**, applying no sort, dedup or filter. `Reference` (`citations.rs:39-45`) carries **no number field**: `parse_reference` never reads a leading `1.` or `[N]`. A reference's position in the vector *is* its implied citation number, by assumption.
+
+**Measured on a real PDF** (`IJAS Manuscript JHA Bombyx haemolymph`, 20 references):
+
+```
+parsed references            81      (4.05x inflation)
+references with a year       28 of 81      → reconstructed: 18 of 20
+index [11]  "ACADEMI.CX AI WRITING REPORT"    ← page furniture parsed as a reference
+index [12]  "Page 11 of 13"                   ← page furniture parsed as a reference
+```
+
+One bibliography entry becomes up to four `Reference` rows, so every index after the first is wrong.
+
+**The corrected reading.** Numeric-style is not the safe subset — it is the variant whose correctness depends **entirely** on bibliography index fidelity. Author-year matching does not depend on index position at all and is therefore the **more robust** of the two, the opposite of what was recorded. Sequence: fix paragraph reconstruction, add explicit reference-number parsing, then author-year, then numeric.
+
+Recorded under the §4.4 doctrine — the original framing is preserved rather than rewritten, because the correction is the useful artefact.
+
+### 11.5 Positional correspondence is not identity
+
+**When two representations of the same concept are joined, at least one side must be parsed or explicitly identified. Position is not an identifier.**
+
+This is the general form of what §4.6 question 2 catches, and it is worth stating separately from the citation case that produced it.
+
+The uncited-reference failure was **not** numbering drift — no transformation renumbers, sorts or dedups anything. The failure is that the two sides are produced by different kinds of mechanism:
+
+| Side | How the number is obtained | Deterministic? |
+|---|---|---|
+| In-text `[15]` | **parsed** from the text (`parse_numeric_group`, `citations.rs:130-159`) | Yes |
+| Bibliography entry 15 | **inferred** from paragraph position | **No** |
+
+Only the parsed half is deterministic. A join is exactly as reliable as its weaker side, and "they originate from the same document" is not evidence that they stay aligned — it is the assumption that hides the problem.
+
+**The same split can recur silently elsewhere**, and in each case the fix is the same — parse the identifier that is already written in the text rather than counting occurrences:
+
+- **Tables** — `TableRef.label` is parsed from `"Table 3"` (`extract/mod.rs:81-91`), but any code joining tables by *vector index* would reintroduce the defect. Already observed adjacent to this: a caption split across lines produced **4 detected tables where the manuscript has 3**.
+- **Figures** — same shape, not yet built.
+- **Equations** — numbered in text, would be positional if indexed.
+- **Supplementary material** — labelled `S1`, `S2`; position is not identity.
+
+The tell is a join whose key is an array index. Whenever one appears, question 2 of §4.6 applies.
