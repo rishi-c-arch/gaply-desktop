@@ -62,7 +62,7 @@ fn main() -> Result<(), GaplyError> {
     let embedder: Arc<dyn Embedder> = Arc::new(HashEmbedder);
     let events = std::cell::RefCell::new(Vec::new());
     let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
-    run_pipeline_measured(db.clone(), embedder, path.clone(), None, None, &emit)?;
+    run_pipeline_measured(db.clone(), embedder, path.clone(), None, None, None, &emit)?;
 
     let report_id = events
         .into_inner()

@@ -153,12 +153,14 @@ fn golden_report_for_sample_manuscript() {
     for section in ["Abstract", "Methods", "Results", "References"] {
         assert!(by_req(section).passed, "{section} should pass");
     }
-    assert!(by_req("word limit (3000 words)").passed);
+    // Word-limit detector disabled — see checklist_from_guidelines.
+    assert!(!report.checklist.iter().any(|c| c.requirement.contains("word limit")));
     assert!(by_req("conflict-of-interest").passed);
     assert!(by_req("structured abstract").passed);
     // guideline-derived items carry the guideline's provenance URL
+    // Provenance is still asserted — on a detector that is still enabled.
     assert_eq!(
-        by_req("word limit").guideline_source.as_deref(),
+        by_req("conflict-of-interest").guideline_source.as_deref(),
         Some("https://rest.example/authors")
     );
 }
@@ -223,7 +225,14 @@ fn checklist_flags_violations_against_journal_guideline() {
                 items.iter().map(|c| &c.requirement).collect::<Vec<_>>())
         })
     };
-    assert!(!by_req("word limit (10 words)").passed, "manuscript exceeds the tiny limit");
+    // The word-limit detector is DISABLED — it scraped an abstract limit and
+    // applied it to the whole manuscript ("5144 words, limit 300" on PLOS ONE).
+    // Pinned so re-enabling it is a deliberate act with its own evidence.
+    assert!(
+        !items.iter().any(|c| c.requirement.contains("word limit")),
+        "word-limit detector must stay disabled: {:?}",
+        items.iter().map(|c| &c.requirement).collect::<Vec<_>>()
+    );
     assert!(!by_req("conflict-of-interest").passed, "no COI statement in fixture");
     assert!(!by_req("Vancouver").passed, "author-year refs are not numbered");
     assert!(by_req("required section: Methods").passed);

@@ -161,7 +161,15 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
       }
       // The session's access token rides to the backend → proxy, where the
       // REAL entitlement check + server-side use consumption happen.
-      setResult(await b.run({ manuscriptPath: file.path, journal, userToken: session?.access_token }));
+      setResult(
+        await b.run({
+          manuscriptPath: file.path,
+          journal,
+          userToken: session?.access_token,
+          // Only the guidelines the user actually supplied scope the checklist.
+          guidelinesUrl: url || undefined,
+        })
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'PublishReady failed');
     } finally {

@@ -1112,14 +1112,35 @@ impl ReportFinding {
 /// Build the checklist by retrieving the target journal's guidelines from the
 /// RAG corpus and running DETERMINISTIC checks against the manuscript.
 /// Guideline text never reaches an LLM from here.
+/// Build the journal-compliance checklist for ONE guideline document.
+///
+/// `guidelines_url` is the document the user asked for, threaded from the
+/// frontend rather than re-derived here. Two reasons, and the second is the
+/// urgent one:
+///
+/// * **Completeness.** This scans EVERY chunk of that document instead of a
+///   semantic top-5. `checklist_from_guidelines` is exact matching —
+///   `contains("conflict")`, a word-limit regex — so a KNN stage in front of it
+///   is a lossy pre-filter that can only discard matches. Measured on PLOS ONE:
+///   the strings sit in chunks 1, 6, 7, 8; the top-5 returned 3, 20, 21, 4, 12.
+/// * **Correctness.** The corpus is persistent and accumulates across runs, and
+///   `Some("journal_guideline")` scopes to a TYPE, not a journal. With two
+///   journals ingested, a checklist could state another journal's requirements
+///   as the target journal's — an INCORRECT report, not merely an incomplete
+///   one.
+///
+/// `None` — no guidelines requested — yields the structural checks only, which
+/// is the honest empty case rather than whatever happens to be in the corpus.
 pub fn build_checklist(
     db: &Database,
-    embedder: &dyn crate::embed::Embedder,
     extraction: &ExtractionResult,
     manuscript_text: &str,
-    journal_query: &str,
+    guidelines_url: Option<&str>,
 ) -> Result<Vec<ChecklistItem>, GaplyError> {
-    let hits = crate::rag::search(db, embedder, journal_query, 5, Some("journal_guideline"))?;
+    let hits = match guidelines_url {
+        Some(url) => crate::rag::chunks_for_source(db, url, Some("journal_guideline"))?,
+        None => Vec::new(),
+    };
     Ok(checklist_from_guidelines(extraction, manuscript_text, &hits))
 }
 
@@ -1169,15 +1190,23 @@ pub fn checklist_from_guidelines(
         let g = hit.content.to_lowercase();
         let src = Some(hit.source_url.clone());
 
-        // word limit: "... limit of 3000 words" / "3000 words"
-        if let Some(limit) = extract_word_limit(&g) {
-            items.push(ChecklistItem {
-                requirement: format!("word limit ({limit} words)"),
-                passed: word_count <= limit,
-                detail: format!("manuscript has {word_count} words (limit {limit})"),
-                guideline_source: src.clone(),
-            });
-        }
+        // WORD LIMIT — DISABLED. Not a scoping defect; a pre-existing detector
+        // defect that scoping EXPOSED. It was starved of input while retrieval
+        // returned the wrong chunks; fed real guideline text it fabricates.
+        //
+        // Measured on PLOS ONE: it emitted "word limit (300 words) — manuscript
+        // has 5144 words (limit 300)". PLOS ONE has no 300-word manuscript
+        // limit. 300 is almost certainly the ABSTRACT limit, scraped from an
+        // abstract-context chunk and applied to the whole manuscript.
+        //
+        // "Your 5144-word paper exceeds a 300-word limit" is confident, false
+        // and actionable — the §4.4 class, and WORSE than the empty checklist it
+        // replaced, because silence misleads no one.
+        //
+        // Re-enabling needs its own chunk scan: is the limit recoverable in
+        // context (which number governs which artifact), or is the requirement
+        // simply not extractable by regex? Until that is answered, silence.
+        let _ = (&extract_word_limit, word_count);
         // structured abstract
         if g.contains("structured abstract") {
             let has_abstract =
@@ -1228,6 +1257,18 @@ pub fn checklist_from_guidelines(
             });
         }
     }
+
+
+    // DEDUPE BY REQUIREMENT. Scoping the scan to every chunk of the document
+    // (instead of a semantic top-5) means a requirement stated in more than one
+    // chunk now triggers its detector more than once — PLOS states the numbered
+    // reference style in chunks 1 and 7, and the checklist showed it twice.
+    //
+    // Same shape as the Unknown-verdict collapse: the duplication is
+    // PRESENTATION, not analysis. First occurrence wins, so the earliest chunk
+    // in `seq` order supplies the detail and the source.
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    items.retain(|i| seen.insert(i.requirement.clone()));
 
     items
 }

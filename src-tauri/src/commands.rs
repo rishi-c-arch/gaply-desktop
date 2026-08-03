@@ -499,6 +499,9 @@ pub async fn run_publishready(
     journal_quartile: String,
     supplementary_paths: Option<Vec<String>>,
     user_token: Option<String>,
+    // The guideline document the user asked for. Threaded so the checklist scopes
+    // to THAT journal — identity propagated, never re-derived from corpus state.
+    guidelines_url: Option<String>,
 ) -> Result<PublishReadyOutcome, GaplyError> {
     // async + spawn_blocking (mirrors run_full_analysis): the 6-lane pipeline is
     // CPU-heavy and the reviewer does blocking keychain/HTTP, so run off the
@@ -526,6 +529,7 @@ pub async fn run_publishready(
             path,
             None,
             user_token.clone(),
+            guidelines_url.clone(),
             &emit,
         )?;
         let report_id = events

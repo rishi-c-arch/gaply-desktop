@@ -342,8 +342,13 @@ mod tests {
         // the always-on structural checks.
         let manuscript = "Title: A Study\n\nAbstract\nWe did things.\n\nMethods\nWe measured.\n\nResults\np = 0.02.";
         let extraction = extract_from_text(manuscript);
-        let checklist =
-            build_checklist(&db, &emb, &extraction, manuscript, "author guidelines").unwrap();
+        let checklist = build_checklist(
+            &db,
+            &extraction,
+            manuscript,
+            Some("http://journal.test/guidelines"),
+        )
+        .unwrap();
         assert!(
             checklist.iter().any(|c| c.guideline_source.is_some()),
             "expected at least one guideline-derived checklist item, got {checklist:?}"
@@ -363,7 +368,13 @@ mod tests {
         // No guideline-derived items — only always-on structural checks remain.
         let manuscript = "Abstract\nx\n\nMethods\ny\n\nResults\np=0.02";
         let extraction = extract_from_text(manuscript);
-        let checklist = build_checklist(&db, &emb, &extraction, manuscript, "author guidelines").unwrap();
+        let checklist = build_checklist(
+            &db,
+            &extraction,
+            manuscript,
+            Some("http://journal.test/guidelines"),
+        )
+        .unwrap();
         assert!(checklist.iter().all(|c| c.guideline_source.is_none()));
     }
 

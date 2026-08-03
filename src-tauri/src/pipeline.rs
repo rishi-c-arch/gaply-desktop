@@ -109,7 +109,10 @@ pub async fn run_full_analysis(
     // path that has a token and threads it. Giving this command a token needs a
     // frontend change (`src/screens/analysis/bridge.ts` invokes it without one)
     // and is deliberately out of scope for this fix.
-    tokio::task::spawn_blocking(move || run_pipeline(db, embedder, path, title, None, on_event))
+    // guidelines_url: None — run_full_analysis is the general analysis command and
+    // has no journal-guidelines input; the checklist stays structural-only, which
+    // is the honest empty case. PublishReady is the path that carries one.
+    tokio::task::spawn_blocking(move || run_pipeline(db, embedder, path, title, None, None, on_event))
         .await
         .map_err(|e| GaplyError::Internal(format!("analysis task panicked: {e}")))?
 }
@@ -143,9 +146,10 @@ fn run_pipeline(
     path: String,
     title: Option<String>,
     user_token: Option<String>,
+    guidelines_url: Option<String>,
     ch: Channel<AnalysisEvent>,
 ) -> Result<(), GaplyError> {
-    run_pipeline_inner(db, embedder, path, title, user_token, &|ev| {
+    run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, &|ev| {
         let _ = ch.send(ev);
     })
 }
@@ -160,9 +164,10 @@ pub fn run_pipeline_measured(
     path: String,
     title: Option<String>,
     user_token: Option<String>,
+    guidelines_url: Option<String>,
     emit: &dyn Fn(AnalysisEvent),
 ) -> Result<(), GaplyError> {
-    run_pipeline_inner(db, embedder, path, title, user_token, emit)
+    run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, emit)
 }
 
 /// The synchronous pipeline. Every stage is a real production call. `emit` is
@@ -178,6 +183,9 @@ fn run_pipeline_inner(
     path: String,
     title: Option<String>,
     user_token: Option<String>,
+    // The guideline document the user asked for. Threaded from the frontend so
+    // identity is PROPAGATED, not reconstructed from corpus state.
+    guidelines_url: Option<String>,
     emit: &dyn Fn(AnalysisEvent),
 ) -> Result<(), GaplyError> {
     // Parse once, up front (part of the extraction lane's work).
@@ -343,7 +351,7 @@ fn run_pipeline_inner(
         // items. It is a DB/embedder query (no model load), so the one-at-a-time
         // model lifecycle is unaffected. Degrade to empty on a query error
         // rather than fail the whole analysis.
-        let checklist = build_checklist(&db, embedder.as_ref(), &extraction, &text, GUIDELINE_QUERY)
+        let checklist = build_checklist(&db, &extraction, &text, guidelines_url.as_deref())
             .unwrap_or_else(|e| {
                 tracing::warn!(error = %e, "build_checklist failed; empty checklist");
                 Vec::new()
@@ -452,6 +460,7 @@ A night of sleep improved memory consolidation in this sample.
             path.to_string_lossy().to_string(),
             Some("E2E manuscript".into()),
             None, // unauthenticated: keeps the verify lane off the cloud tier
+            None, // no guidelines requested -> structural-only checklist
             &emit,
         );
         let _ = std::fs::remove_file(&path);
@@ -671,6 +680,7 @@ A night of sleep improved memory consolidation in this sample.
             path.to_string_lossy().to_string(),
             Some("AI gate regression".into()),
             None, // unauthenticated: keeps the verify lane off the cloud tier
+            None, // no guidelines requested -> structural-only checklist
             &emit,
         );
         let _ = std::fs::remove_file(&path);
@@ -701,6 +711,17 @@ A night of sleep improved memory consolidation in this sample.
     }
 
     fn run_and_get_report(db: &Arc<Database>, embedder: Arc<dyn Embedder>) -> serde_json::Value {
+        run_and_get_report_with(db, embedder, None)
+    }
+
+    /// `guidelines_url` is now an INPUT to the pipeline, not something the
+    /// checklist re-derives from corpus state — so a test that ingests
+    /// guidelines must pass the document it ingested.
+    fn run_and_get_report_with(
+        db: &Arc<Database>,
+        embedder: Arc<dyn Embedder>,
+        guidelines_url: Option<String>,
+    ) -> serde_json::Value {
         let path = std::env::temp_dir()
             .join(format!("gaply_ck_e2e_{}_{}.txt", std::process::id(), now_epoch()));
         std::fs::write(&path, MANUSCRIPT).expect("write manuscript");
@@ -712,6 +733,7 @@ A night of sleep improved memory consolidation in this sample.
             path.to_string_lossy().to_string(),
             Some("checklist e2e".into()),
             None, // unauthenticated: keeps the verify lane off the cloud tier
+            guidelines_url,
             &emit,
         )
         .expect("pipeline completes");
@@ -750,7 +772,11 @@ A night of sleep improved memory consolidation in this sample.
         };
         gaply_core::rag::ingest_document(&db, embedder.as_ref(), &doc).unwrap();
 
-        let report = run_and_get_report(&db, embedder);
+        let report = run_and_get_report_with(
+            &db,
+            embedder,
+            Some("http://journal.test/guidelines".into()),
+        );
         let checklist = report["checklist"].as_array().expect("checklist array");
         assert!(!checklist.is_empty(), "checklist should be populated");
         assert!(

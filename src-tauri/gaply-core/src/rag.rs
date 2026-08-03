@@ -248,6 +248,70 @@ pub fn ingest_corpus(
 
 /// Semantic search over ingested chunks. Every hit carries provenance.
 /// `source_filter` restricts results to one source type.
+/// EVERY ingested chunk of ONE document, by its `source_url`, in `seq` order.
+///
+/// # Why this exists rather than a `search()` call
+///
+/// The journal-compliance checklist asks a FIXED, CLOSED set of deterministic
+/// questions — it does `contains("conflict")`, `contains("vancouver")` and a
+/// word-limit regex over the text it is given. Putting semantic KNN in front of
+/// an exact-match operation makes retrieval a LOSSY PRE-FILTER: it can only
+/// discard chunks the matcher would have matched, never surface ones it would
+/// not. Measured on PLOS ONE: the strings are present in chunks 1, 6, 7 and 8,
+/// and the top-5 semantic query returned 3, 20, 21, 4, 12 — zero overlap, so
+/// three of four detectors found nothing that was plainly there.
+///
+/// Semantic retrieval earns its cost on open-ended queries over large corpora.
+/// The checklist has neither: four fixed questions over one page of guidelines.
+///
+/// # Why `source_url` and not `source_type`
+///
+/// `search(.., Some("journal_guideline"))` scopes to a TYPE, and the corpus is
+/// persistent and accumulates across runs. With two journals ingested it matches
+/// both, so a checklist could state another journal's requirements as if they
+/// were the target journal's — an INCORRECT report rather than an incomplete
+/// one. Scoping by document is what the checklist actually needs.
+pub fn chunks_for_source(
+    db: &Database,
+    source_url: &str,
+    source_filter: Option<&str>,
+) -> Result<Vec<RagHit>, GaplyError> {
+    let filter = source_filter.map(SourceType::parse).transpose()?;
+    let conn = db.conn()?;
+    let mut stmt = conn.prepare(
+        "SELECT c.id, c.document_id, c.seq, c.content,
+                d.source_type, d.title, d.source_url, d.fetched_at, d.checksum
+         FROM chunks c JOIN documents d ON d.id = c.document_id
+         WHERE d.source_url = ?1 AND d.status = 'ingested'
+         ORDER BY c.seq",
+    )?;
+    let rows = stmt.query_map(params![source_url], |row| {
+        Ok(RagHit {
+            chunk_id: row.get(0)?,
+            document_id: row.get(1)?,
+            seq: row.get(2)?,
+            content: row.get(3)?,
+            distance: 0.0, // exact scope, not a ranked match
+            source_type: row.get(4)?,
+            title: row.get(5)?,
+            source_url: row.get(6)?,
+            fetched_at: row.get(7)?,
+            checksum: row.get(8)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        let hit = r?;
+        if let Some(f) = filter {
+            if hit.source_type != f.as_str() {
+                continue;
+            }
+        }
+        out.push(hit);
+    }
+    Ok(out)
+}
+
 #[tracing::instrument(skip(db, embedder))]
 pub fn search(
     db: &Database,

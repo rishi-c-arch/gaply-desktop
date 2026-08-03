@@ -218,6 +218,7 @@ fn main() {
             manuscript.to_string_lossy().to_string(),
             Some(format!("set9 publishready run {run_no}")),
             None, // measurement probe: unauthenticated, so no cloud verify tier
+            None,
             &emit,
         )
         .expect("pipeline run");

@@ -323,6 +323,24 @@ The artifact case is the most dangerous of the three because it destroys the evi
 
 The rule generalises past this codebase's current artifacts: any log, export, cache entry or telemetry record that is written *conditionally on success* has this defect. If the condition can fail, the record must still be written and must say the condition failed.
 
+### 4.13 Standing rule — identity is carried, not reconstructed
+
+> **Identity must be carried explicitly rather than reconstructed from derived properties such as position, count, timestamps, or non-unique attributes.**
+
+ARCHITECTURE_TRACE §11.5 states the positional case — *"positional correspondence is not identity"*. Three measured instances show the rule is broader than position, and that the mechanisms differ:
+
+| Instance | Proxy used for identity | How it broke |
+|---|---|---|
+| Validation flags | **cardinality** | The count held at 5 while every member changed |
+| Bibliography matcher | **a non-unique attribute** | `Etebari 2005` collided with `Bizhannia 2005` |
+| Guideline corpus | **write order** | Rejected: would reuse the previous journal's chunks when the current journal's ingestion fails |
+
+Only the third is positional.
+
+**"Derived" rather than "incidental" is the operative word.** None of these proxies was careless. Each genuinely correlates with identity, and each holds until the case that breaks it arrives — which is exactly why they survive review. A proxy that failed immediately would never have been written.
+
+That is what makes this worth stating as a **check reviewers apply**: whenever identity is being *reconstructed* from surrounding state rather than *propagated* from where it was known, ask what breaks the correlation. In the guideline case the frontend already knew which document the user requested; passing it preserves identity, while re-deriving it later from corpus state reconstructs identity from correlation.
+
 ---
 
 ## 5. Evaluation Protocol

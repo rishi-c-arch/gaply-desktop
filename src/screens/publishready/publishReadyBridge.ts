@@ -32,7 +32,7 @@ export interface PublishReadyBridge {
   /** `userToken` (Set 8): the signed-in user's Supabase JWT, forwarded so the
    *  proxy can run the REAL server-side entitlement check + consume a use.
    *  Optional — the UX gate already routed signed-out users to sign-in. */
-  run(input: { manuscriptPath: string; journal: TargetJournal; userToken?: string }): Promise<PublishReadyResult>;
+  run(input: { manuscriptPath: string; journal: TargetJournal; userToken?: string; guidelinesUrl?: string }): Promise<PublishReadyResult>;
   /** H4: LOCAL, best-effort. Fetch + sanitize + embed the target journal's
    *  author-guidelines page into the `journal_guideline` corpus so the pipeline's
    *  checklist can cross-reference the manuscript against the REAL guidelines. No
@@ -135,7 +135,7 @@ function adaptPayload(payload: unknown, journal: TargetJournal): ProxyReviewPayl
  *  never leaves the device) and adapt the result. Only in the Tauri desktop
  *  app — a plain browser throws a clear message the page surfaces. */
 export class TauriPublishReadyBridge implements PublishReadyBridge {
-  async run({ manuscriptPath, journal, userToken }: { manuscriptPath: string; journal: TargetJournal; userToken?: string }): Promise<PublishReadyResult> {
+  async run({ manuscriptPath, journal, userToken, guidelinesUrl }: { manuscriptPath: string; journal: TargetJournal; userToken?: string; guidelinesUrl?: string }): Promise<PublishReadyResult> {
     if (!isTauri) {
       throw new Error('PublishReady runs in the Gaply desktop app.');
     }
@@ -145,6 +145,10 @@ export class TauriPublishReadyBridge implements PublishReadyBridge {
       journalName: journal.name,
       journalQuartile: journal.quartile,
       userToken: userToken ?? null,
+      // The guideline document the user asked for. Passing it keeps IDENTITY
+      // propagated; letting the backend re-derive "which journal" from corpus
+      // state would reconstruct identity from write order.
+      guidelinesUrl: guidelinesUrl ?? null,
     })) as PublishReadyOutcome;
     return adaptOutcome(outcome, journal);
   }
