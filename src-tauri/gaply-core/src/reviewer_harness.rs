@@ -97,6 +97,53 @@ pub struct ProxyMeta {
     pub server_latency_ms: Option<u64>,
 }
 
+/// # Reading this record: what proves the proxy call succeeded
+///
+/// **`wholesale_payload_digest` and `wholesale_findings_sent` are
+/// `DeterministicLocal`.** They describe what was SENT, computed in-process
+/// before any call, so both are `Observed` on a run where the proxy was
+/// unreachable exactly as on a successful one. **A populated digest is not
+/// evidence of a successful call** — it proves only that a payload was built.
+///
+/// The fields gated on `wholesale.available`, and therefore the only ones that
+/// evidence a live call, are `wholesale_recommendation`,
+/// `wholesale_publication_probability` and `recommendation_agreement`. Check
+/// those.
+///
+/// If the digest were ever `Unavailable` on a successful run, that WOULD
+/// indicate a defect — it would mean the digest is computed on the wrong side of
+/// a branch. The implication runs one way only.
+///
+/// # The two findings_sent counts
+///
+/// `ShadowInputs::findings_sent` and `wholesale_findings_sent` are **expected to
+/// agree**, and a divergence is a signal rather than noise.
+///
+/// Both cap at the same constant (`reviewer_agent::MAX_FINDINGS`), and both draw
+/// from the same population in the same order:
+///
+/// * wholesale — `build_review_payload` takes the first `MAX_FINDINGS` of
+///   `report["findings"]`.
+/// * shadow — `assemble_reviewer_input` reads `evidence_by_run`, i.e. the
+///   `evidence` table `ORDER BY rowid`, and `build_reviewer_request` takes the
+///   first `MAX_FINDINGS`. Those rows are written by `evidence_persist` during
+///   escalation Phase 1, which persists **ALL** records from `report["evidence"]`
+///   — one per finding, in finding order — not the routed subset.
+///
+/// So on a healthy run both equal `min(finding_count, MAX_FINDINGS)`.
+///
+/// **They diverge only on failure paths, and always in one direction — shadow 0,
+/// wholesale non-zero:**
+///
+/// * `report["evidence"]` failed to deserialize (`escalation.rs:72` falls back to
+///   an empty vec, and `:74` returns early), so nothing was persisted;
+/// * `evidence_persist` failed — e.g. a duplicate `run_id` — and escalation
+///   skipped (`escalation.rs:82-85`).
+///
+/// A capture showing `shadow_findings_sent == 0` with a non-zero wholesale count
+/// therefore indicates the evidence table was not populated for that run, NOT a
+/// selection difference between the two paths.
+///
 /// Everything the harness needs to build a report — borrowed, no ownership.
 /// The shadow side, when it ran. `None` means the synthesis did not produce an
 /// outcome — the record is still written, with every shadow metric `Unavailable`.

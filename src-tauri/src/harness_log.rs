@@ -27,6 +27,41 @@
 //! about an unpublished paper, so sending them anywhere is a separate
 //! privacy-boundary decision and is deliberately not taken here.
 //!
+//! # CAPTURE PROTOCOL — pre-promotion operational baseline (n=1)
+//!
+//! The baseline this sink exists for cannot be recreated after promotion,
+//! because the pre-promotion production behaviour no longer exists. Six steps,
+//! in order:
+//!
+//! 1. Launch the real application with the **live proxy** reachable and
+//!    authenticated.
+//! 2. Run PublishReady **once** on the frozen manuscript.
+//! 3. Verify `box4_comparisons.jsonl` is created. **The sink had never run in
+//!    the real app when this was written** — confirm it works before treating
+//!    any absence as signal.
+//! 4. Verify it contains **exactly one** parseable JSONL record.
+//! 5. Verify `wholesale_recommendation` and `recommendation_agreement` are
+//!    `Observed` — **NOT** merely that `wholesale_payload_digest` exists. The
+//!    digest is `DeterministicLocal` and is populated even when the proxy was
+//!    unreachable, so it cannot evidence a live call (see
+//!    `reviewer_harness::HarnessInputs` docs).
+//! 6. Freeze that record as **"pre-promotion operational baseline (n=1)"** —
+//!    never "baseline" alone, never "agreement baseline".
+//!
+//! **Promoting the deterministic Box 4 verdict comes only after step 6.**
+//!
+//! Do not capture offline. A run without the proxy completes and writes a
+//! well-formed record with the deterministic side correct and the wholesale side
+//! typed-absent — an artifact that looks complete, would carry the "operational
+//! baseline" label, and contains nothing about the production behaviour it
+//! exists to preserve.
+//!
+//! The record is n=1 and **operational**, not behavioural: it answers "what did
+//! production produce immediately before promotion?" and nothing about agreement
+//! or stability. The deterministic side is a pure function of severity counts and
+//! so is fully established by one run; the wholesale side is an LLM, and one run
+//! there is one realization. Do not analyse agreement from it.
+//!
 //! # Injection
 //!
 //! `gaply-core` stays Tauri-free, so the directory is injected from the app layer
