@@ -82,7 +82,8 @@ pub fn extract_in_text(paragraph: &str, loc: &Location) -> Vec<Citation> {
             continue;
         }
         let inner = &group[1];
-        for part in inner.split(';') {
+        for part in split_paren_citations(inner) {
+            let part = part.as_str();
             if let Some((authors, year)) = parse_paren_part(part) {
                 out.push(Citation {
                     style: CitationStyle::Parenthetical,
@@ -114,6 +115,34 @@ pub fn extract_in_text(paragraph: &str, loc: &Location) -> Vec<Citation> {
         }
     }
 
+    out
+}
+
+/// Split the inside of a `(...)` group into individual citations.
+///
+/// `;` always separates. A COMMA separates only once the group so far already
+/// carries a year — otherwise the comma is the one inside `"(Smith, 2020)"`,
+/// which must not be split. Greedy accumulation handles both:
+///   `"Smith, 2020"`                      -> one citation
+///   `"A et al. 1993, B and C 1998"`      -> two citations
+fn split_paren_citations(inner: &str) -> Vec<String> {
+    let year = &regexes().year_bare;
+    let mut out = Vec::new();
+    for chunk in inner.split(';') {
+        let mut cur = String::new();
+        for tok in chunk.split(',') {
+            if !cur.is_empty() {
+                cur.push(',');
+            }
+            cur.push_str(tok);
+            if year.is_match(&cur) {
+                out.push(std::mem::take(&mut cur));
+            }
+        }
+        if !cur.trim().is_empty() {
+            out.push(cur);
+        }
+    }
     out
 }
 
