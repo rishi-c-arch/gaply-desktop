@@ -94,3 +94,4 @@ Successive measurements revised the limiting factor:
 - **20 → 13**: the §4.6 guards refusing rows — which may be **correct behaviour**, not a defect, since refusing an unidentifiable entry is what the guards exist to do.
 
 A single "50% coverage" figure hides which of the two is limiting. They must be traced independently before either is treated as a defect.
+

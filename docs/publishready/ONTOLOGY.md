@@ -170,6 +170,10 @@ Four worked precedents illustrate the rule across different classes of user-visi
 
 The fourth was found outside the commissioned scope, by noticing the same pattern in adjacent code while correcting the third — which is the usual way this class of defect surfaces.
 
+**The rule runs in both directions, and only one of them announces itself.** A fifth precedent is the inverse of the four above: the `narrative_cite` fix (`1693ca6`) was recorded as having *"zero measured effect"*, which was accurate on the evidence then available. Later measurement found an indirect effect the original evaluation had not scoped — it unlocks first-author matching, worth four evaluable references (CITATION_EVAL_RESULT_V1.md §4).
+
+Every other correction in this document found a claim that was **too strong**. This one found a claim that was **too weak**. Understatement is the harder direction to catch: an overclaim eventually contradicts something and prompts a look, while an understatement simply sits there and nothing goes wrong. The correction discipline applies to both, but only overclaims generate the pressure that triggers it — so understatements have to be looked for deliberately, usually when a later measurement widens the scope of an earlier one.
+
 The self-suppressing counterpart is already in the code: `grounded_text` (`reviewer_agent.rs:486-509`) returns empty and flags `potential_hallucination` rather than emitting an ungrounded claim. New editorial fields should adopt that pattern rather than `parse_score`'s.
 
 ### 4.5 Standing rule — extraction produces no judgements
