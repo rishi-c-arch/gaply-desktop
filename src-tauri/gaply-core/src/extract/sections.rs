@@ -51,7 +51,7 @@ fn classify_heading(phrase: &str) -> Option<SectionKind> {
 /// ("1.", "2)", "IV.") and a trailing colon — matches a known phrase
 /// exactly. The exact-match requirement prevents sentences that merely start
 /// with "Methods…" from being treated as headings.
-fn detect_heading(line: &str) -> Option<(SectionKind, String)> {
+pub(crate) fn detect_heading(line: &str) -> Option<(SectionKind, String)> {
     let trimmed = line.trim();
     if trimmed.is_empty() || trimmed.split_whitespace().count() > 5 {
         return None;

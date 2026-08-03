@@ -41,6 +41,20 @@ use crate::state::AppState;
 
 /// Report cache TTL: 30 days. The viewer reads it back by `report_id`.
 const REPORT_TTL_SECS: i64 = 30 * 24 * 3600;
+
+/// Cache key for a compiled report — ONE definition, so writer and readers
+/// cannot drift apart.
+///
+/// **`v2` retires every report compiled before the PDF paragraph reflow**
+/// (`docparse::reflow_pdf_text`). That fix changes `Location.paragraph` values
+/// and the parsed reference count, both of which are user-visible. With a
+/// 30-day TTL and an unversioned key, the same manuscript could be served a
+/// pre-fix and a post-fix report for a month — two different answers, one of
+/// them wrong, with nothing to tell them apart. Bumping the key makes stale
+/// entries unreachable instead.
+pub(crate) fn report_cache_key(report_id: &str) -> String {
+    format!("report:v2:{report_id}")
+}
 /// The six agent lanes the frontend renders. Debate + compile happen after,
 /// under the "synthesis" pseudo-stage.
 const LANE_TOTAL: usize = 6;
@@ -354,7 +368,7 @@ fn run_pipeline_inner(
     let report_id = manuscript_id.to_string();
     let json = serde_json::to_string(&report)
         .map_err(|e| GaplyError::Internal(format!("serialize report: {e}")))?;
-    db.cache_put(&format!("report:{report_id}"), &json, REPORT_TTL_SECS, now_epoch())?;
+    db.cache_put(&report_cache_key(&report_id), &json, REPORT_TTL_SECS, now_epoch())?;
 
     emit(AnalysisEvent::Finished { report_id });
     Ok(())
@@ -467,7 +481,7 @@ A night of sleep improved memory consolidation in this sample.
 
         // The REAL compiled report was cached and deserializes with content.
         let json = db
-            .cache_get(&format!("report:{report_id}"), now_epoch())
+            .cache_get(&report_cache_key(&report_id), now_epoch())
             .unwrap()
             .expect("report cached under report:{id}");
         let report: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -703,7 +717,7 @@ A night of sleep improved memory consolidation in this sample.
             })
             .expect("a Finished report id");
         let json = db
-            .cache_get(&format!("report:{report_id}"), now_epoch())
+            .cache_get(&report_cache_key(&report_id), now_epoch())
             .unwrap()
             .expect("report cached");
         serde_json::from_str(&json).unwrap()

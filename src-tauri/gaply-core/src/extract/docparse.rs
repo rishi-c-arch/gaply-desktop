@@ -9,6 +9,7 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 
 use crate::error::GaplyError;
+use crate::extract::sections;
 
 /// The minimum number of non-whitespace characters a parse must yield before we
 /// treat it as real text. Below this, a PDF is almost certainly scanned /
@@ -19,6 +20,178 @@ const MIN_MEANINGFUL_CHARS: usize = 20;
 /// rather than an empty/scanned artifact.
 fn has_extractable_text(text: &str) -> bool {
     text.chars().filter(|c| !c.is_whitespace()).count() >= MIN_MEANINGFUL_CHARS
+}
+
+// ---------------------------------------------------------------------------
+// PDF paragraph reflow
+// ---------------------------------------------------------------------------
+//
+// ACCURACY CORRECTION. `pdf_extract::extract_text` emits a line break — and
+// usually a BLANK line — at every *rendered* line, so a double-spaced manuscript
+// arrives with a blank line inside every sentence. `sections::paragraphs_of`
+// correctly treats a blank line as a paragraph break, so on such a PDF one
+// `Section.paragraph` is one physical LINE, and `Location.paragraph` stops
+// meaning what it says.
+//
+// That value is user-visible: it renders in the provenance inspector
+// (`ReportViewerPage.tsx:186-187`) and is written into the EXPORTED PDF
+// (`exportPdf.ts:32`), and the reference count derived from the same
+// segmentation is reported to the author (`report.rs:790-817`). Measured on one
+// real manuscript, before this reflow: 81 `Reference` rows for 20 references
+// (page furniture parsed as references), 24 citations against 28, and four
+// detected tables against three.
+//
+// Scope is deliberately narrow: rejoin wrapped lines and drop page furniture.
+// Footnote splicing and multi-column ordering are DIFFERENT root causes with a
+// destructive failure mode (they can delete real manuscript text, which joining
+// cannot) and are deliberately left out — shipping them together would make a
+// regression unattributable.
+
+/// A line repeated at least this many times is a running header/footer.
+const FURNITURE_MIN_REPEATS: usize = 3;
+
+/// Repeated lines longer than this are treated as content, not furniture — a
+/// running header is short. Guards against deleting a genuinely repeated
+/// sentence.
+const FURNITURE_MAX_CHARS: usize = 80;
+
+/// Tokens ending in '.' that do NOT end a sentence.
+const ABBREVIATIONS: &[&str] = &[
+    "et al.", "e.g.", "i.e.", "cf.", "vs.", "approx.", "ca.", "etc.", "Fig.", "Figs.", "Tab.",
+    "No.", "Dr.", "Prof.", "Mr.", "Mrs.", "Ms.", "St.", "Jr.", "Sr.", "Eq.", "Eqs.", "ref.",
+    "refs.", "Ref.", "min.", "max.", "sec.", "wt.", "vol.", "conc.", "temp.", "spp.", "sp.",
+    "subsp.", "var.", "p.", "pp.", "ed.", "eds.", "Inc.", "Ltd.", "Co.", "U.S.", "U.K.",
+];
+
+/// True when `tail` ends with `abbrev` **as a whole token** — the preceding
+/// character must be a non-alphanumeric or the string start. Without this,
+/// `"unaffected."` matches the `"ed."` abbreviation and a real sentence boundary
+/// is suppressed.
+fn ends_with_abbreviation(tail: &str) -> bool {
+    ABBREVIATIONS.iter().any(|a| {
+        tail.ends_with(a) && {
+            let before = tail.len() - a.len();
+            before == 0
+                || !tail[..before].chars().next_back().map(|c| c.is_alphanumeric()).unwrap_or(false)
+        }
+    })
+}
+
+/// True when `s` looks like a completed sentence: ends in `.`/`!`/`?`, and the
+/// terminator is not an abbreviation dot or a single-capital initial ("… J.").
+fn ends_sentence(s: &str) -> bool {
+    let t = s.trim_end();
+    let last = match t.chars().next_back() {
+        Some(c) => c,
+        None => return false,
+    };
+    if last == '!' || last == '?' {
+        return true;
+    }
+    if last != '.' {
+        return false;
+    }
+    if ends_with_abbreviation(t) {
+        return false;
+    }
+    // Single-capital initial: "… A." / "Bombyx mori L."
+    let mut it = t.chars().rev();
+    it.next(); // the '.'
+    match (it.next(), it.next()) {
+        (Some(c), Some(prev)) if c.is_uppercase() && !prev.is_alphanumeric() => false,
+        (Some(c), None) if c.is_uppercase() => false,
+        _ => true,
+    }
+}
+
+/// Lines that are running headers/footers rather than manuscript content.
+fn page_furniture(lines: &[&str]) -> std::collections::HashSet<String> {
+    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for l in lines {
+        let t = l.trim();
+        if !t.is_empty() {
+            *counts.entry(t).or_insert(0) += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .filter(|(t, n)| {
+            if t.len() > FURNITURE_MAX_CHARS {
+                return false;
+            }
+            if *n >= FURNITURE_MIN_REPEATS {
+                return true;
+            }
+            // "Page 3 of 13" appears once per page with a different number, so
+            // repetition alone never catches it.
+            let l = t.to_lowercase();
+            l.starts_with("page ")
+                && l.contains(" of ")
+                && l.split_whitespace().count() == 4
+                && l.split_whitespace().nth(1).map(|w| w.chars().all(|c| c.is_ascii_digit())).unwrap_or(false)
+        })
+        .map(|(t, _)| t.to_string())
+        .collect()
+}
+
+/// Rejoin PDF text that `pdf-extract` broke at rendered-line boundaries, so the
+/// section splitter sees real paragraphs.
+///
+/// Rules, in order:
+/// 1. **Page furniture is dropped** and does not close a block — a running
+///    header landing inside a sentence must not split it.
+/// 2. **A recognised heading is its own block.** Delegated to
+///    [`sections::detect_heading`] so the heading vocabulary has exactly one
+///    definition; joining a heading into the following text would destroy
+///    section splitting.
+/// 3. **A blank line closes the block only if the text so far ends a sentence.**
+///    This is the whole correction: in a well-formed PDF a blank line follows a
+///    completed sentence and the real paragraph break is preserved; in a
+///    line-broken PDF the blank line falls mid-sentence and is a wrap artifact,
+///    so it is ignored.
+/// 4. Otherwise lines accumulate, joined by a single space.
+///
+/// Blocks are emitted `\n\n`-separated, which is the contract
+/// `sections::paragraphs_of` already expects.
+pub(crate) fn reflow_pdf_text(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let furniture = page_furniture(&lines);
+
+    let mut blocks: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let flush = |cur: &mut String, blocks: &mut Vec<String>| {
+        let t = cur.trim();
+        if !t.is_empty() {
+            blocks.push(t.to_string());
+        }
+        cur.clear();
+    };
+
+    for line in &lines {
+        let t = line.trim();
+
+        if t.is_empty() {
+            if ends_sentence(&cur) {
+                flush(&mut cur, &mut blocks);
+            }
+            continue;
+        }
+        if furniture.contains(t) {
+            continue;
+        }
+        if sections::detect_heading(line).is_some() {
+            flush(&mut cur, &mut blocks);
+            blocks.push(t.to_string());
+            continue;
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(t);
+    }
+    flush(&mut cur, &mut blocks);
+
+    blocks.join("\n\n")
 }
 
 /// Run a `pdf-extract` call behind a panic boundary.
@@ -83,6 +256,7 @@ fn parse_pdf(path: &Path) -> Result<String, GaplyError> {
     // of a normal parse Err unchanged.
     let text = catch_pdf_panic(|| pdf_extract::extract_text(path))?
         .map_err(|e| GaplyError::Internal(format!("pdf parse failed: {e}")))?;
+    let text = reflow_pdf_text(&text);
     // A PDF that parses but yields (almost) no text is scanned / image-only.
     // Say so specifically rather than proceeding with empty content.
     if !has_extractable_text(&text) {
@@ -103,6 +277,7 @@ pub fn parse_pdf_bytes(bytes: &[u8]) -> Result<String, GaplyError> {
     // Same panic boundary as the path-based parser (see `catch_pdf_panic`).
     let text = catch_pdf_panic(|| pdf_extract::extract_text_from_mem(bytes))?
         .map_err(|e| GaplyError::Internal(format!("pdf parse failed: {e}")))?;
+    let text = reflow_pdf_text(&text);
     if !has_extractable_text(&text) {
         return Err(GaplyError::Validation(
             "This PDF has no extractable text — it looks scanned or image-only. \
@@ -159,6 +334,138 @@ pub fn parse_docx(bytes: &[u8]) -> Result<String, GaplyError> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    // ---------------------------------------------------------------
+    // PDF paragraph reflow (accuracy correction)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn blank_line_mid_sentence_is_a_wrap_artifact_and_is_joined() {
+        // The exact shape pdf-extract produces for a double-spaced manuscript.
+        let raw = "All three analogues raised total\n\nfree amino acids and total protein\n\nabove both controls.";
+        assert_eq!(
+            reflow_pdf_text(raw),
+            "All three analogues raised total free amino acids and total protein above both controls."
+        );
+    }
+
+    #[test]
+    fn blank_line_after_a_completed_sentence_closes_the_paragraph() {
+        let raw = "First paragraph ends here.\n\nSecond paragraph starts here.";
+        assert_eq!(
+            reflow_pdf_text(raw),
+            "First paragraph ends here.\n\nSecond paragraph starts here."
+        );
+    }
+
+    #[test]
+    fn consecutive_sentences_without_a_blank_line_stay_one_paragraph() {
+        // Closing on every terminator would make each SENTENCE a paragraph —
+        // a different wrong answer than one paragraph per line.
+        let raw = "One sentence here.\nA second sentence follows.\nAnd a third.";
+        assert_eq!(
+            reflow_pdf_text(raw),
+            "One sentence here. A second sentence follows. And a third."
+        );
+    }
+
+    #[test]
+    fn abbreviation_does_not_close_a_block() {
+        let raw = "Reported by Bizhannia et al.\n\n(2005) in an earlier study.";
+        assert_eq!(
+            reflow_pdf_text(raw),
+            "Reported by Bizhannia et al. (2005) in an earlier study."
+        );
+    }
+
+    #[test]
+    fn abbreviation_match_is_word_boundary_aware() {
+        // REGRESSION: "unaffected." must not match the "ed." abbreviation. Without
+        // the word-boundary check this joins into one block.
+        assert!(ends_sentence("the transaminases were unaffected."));
+        let raw = "The transaminases were unaffected.\n\nThe carbohydrate fractions followed.";
+        assert_eq!(
+            reflow_pdf_text(raw),
+            "The transaminases were unaffected.\n\nThe carbohydrate fractions followed."
+        );
+    }
+
+    #[test]
+    fn single_capital_initial_does_not_close_a_block() {
+        let raw = "grown on Bombyx mori L.\n\nunder controlled conditions.";
+        assert_eq!(
+            reflow_pdf_text(raw),
+            "grown on Bombyx mori L. under controlled conditions."
+        );
+    }
+
+    #[test]
+    fn repeated_running_header_is_dropped() {
+        let raw = "JOURNAL BANNER\n\nBody line one.\n\nJOURNAL BANNER\n\nBody line two.\n\nJOURNAL BANNER\n\nBody line three.";
+        let out = reflow_pdf_text(raw);
+        assert!(!out.contains("JOURNAL BANNER"), "banner survived: {out}");
+        assert!(out.contains("Body line one."));
+        assert!(out.contains("Body line three."));
+    }
+
+    #[test]
+    fn page_number_footer_is_dropped_even_though_each_is_unique() {
+        let raw = "Body text here.\n\nPage 1 of 13\n\nMore body text.\n\nPage 2 of 13\n\nFinal body text.";
+        let out = reflow_pdf_text(raw);
+        assert!(!out.contains("Page 1 of 13"), "footer survived: {out}");
+        assert!(!out.contains("Page 2 of 13"), "footer survived: {out}");
+    }
+
+    #[test]
+    fn furniture_landing_mid_sentence_does_not_split_it() {
+        // A running header between two halves of one sentence must be removed
+        // WITHOUT closing the block.
+        let raw = "the shortfall is traced largely\n\nPage 2 of 13\n\nto poor larval growth.";
+        assert_eq!(
+            reflow_pdf_text(raw),
+            "the shortfall is traced largely to poor larval growth."
+        );
+    }
+
+    #[test]
+    fn a_long_repeated_line_is_treated_as_content_not_furniture() {
+        let long = "This sentence is deliberately longer than the furniture character cap so that it is never mistaken for a running header.";
+        assert!(long.len() > FURNITURE_MAX_CHARS);
+        let raw = format!("{long}\n\n{long}\n\n{long}");
+        assert!(reflow_pdf_text(&raw).contains(long));
+    }
+
+    #[test]
+    fn recognised_heading_stays_its_own_block() {
+        // Joining a heading into the following text would destroy section splitting.
+        let raw = "ABSTRACT\n\nA field investigation was carried out during\n\nthe spring season.";
+        assert_eq!(
+            reflow_pdf_text(raw),
+            "ABSTRACT\n\nA field investigation was carried out during the spring season."
+        );
+    }
+
+    #[test]
+    fn reflow_restores_paragraph_semantics_end_to_end() {
+        // The defect, stated as a test: before the reflow this text yields three
+        // one-line "paragraphs"; after it, one real paragraph.
+        let raw = "ABSTRACT\n\nThe response was dose dependent but not\n\nmonotonic: values rose from 0.01 to 0.1 and fell\n\nagain at 1.0 in both seasons.";
+        let (_, before) = sections::split_document(raw);
+        let abstract_before = before.iter().find(|s| s.kind == crate::extract::SectionKind::Abstract).unwrap();
+        assert_eq!(abstract_before.paragraphs.len(), 3, "precondition: the defect");
+
+        let (_, after) = sections::split_document(&reflow_pdf_text(raw));
+        let abstract_after = after.iter().find(|s| s.kind == crate::extract::SectionKind::Abstract).unwrap();
+        assert_eq!(abstract_after.paragraphs.len(), 1);
+        assert!(abstract_after.paragraphs[0].contains("dose dependent but not monotonic"));
+    }
+
+    #[test]
+    fn well_formed_text_is_not_damaged() {
+        // A DOCX-shaped input (already correct) must pass through unchanged.
+        let raw = "Introduction text, first paragraph. It has two sentences.\n\nSecond paragraph here.";
+        assert_eq!(reflow_pdf_text(raw), raw);
+    }
 
     /// Build a minimal valid .docx in memory with the given paragraphs.
     fn make_docx(paragraphs: &[&str]) -> Vec<u8> {

@@ -229,7 +229,7 @@ pub fn check_plagiarism_exact(
 #[tauri::command]
 #[tracing::instrument(skip(state))]
 pub fn get_report(state: State<'_, AppState>, report_id: String) -> Result<serde_json::Value, GaplyError> {
-    let key = format!("report:{report_id}");
+    let key = crate::pipeline::report_cache_key(&report_id);
     match state.db.cache_get(&key, now_epoch())? {
         Some(json) => serde_json::from_str(&json)
             .map_err(|e| GaplyError::Internal(format!("parse cached report: {e}"))),
@@ -534,7 +534,7 @@ pub async fn run_publishready(
             })
             .ok_or_else(|| GaplyError::Internal("pipeline produced no report".into()))?;
         let json = db
-            .cache_get(&format!("report:{report_id}"), gaply_core::now_epoch())?
+            .cache_get(&crate::pipeline::report_cache_key(&report_id), gaply_core::now_epoch())?
             .ok_or_else(|| GaplyError::Internal("compiled report not found".into()))?;
         let report: serde_json::Value =
             serde_json::from_str(&json).map_err(|e| GaplyError::Internal(format!("parse report: {e}")))?;

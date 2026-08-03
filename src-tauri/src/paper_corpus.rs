@@ -599,11 +599,32 @@ mod tests {
             &wide_limiter(),
         )
         .unwrap();
-        // file = p1, pdf link = p2, html link = p3 — acceptance order.
-        assert_eq!(report.digests.len(), 3, "note: {}, results: {:?}", report.note, report.results);
+        // file = p1, html link = p2 — acceptance order over the ACCEPTED papers.
+        //
+        // The fixture PDF is deliberately NOT accepted: it carries 150 characters
+        // of real text, well under `MIN_PAPER_CHARS`. It was accepted before
+        // `docparse::reflow_pdf_text` landed only because `pdf-extract` pads every
+        // rendered row out to the page width — the raw parse is 5023 characters, of
+        // which 4873 are trailing spaces. The threshold counts whitespace
+        // (`text.trim().chars().count()`, :457), so the padding, not the content,
+        // cleared the bar. Reflow removes the padding and the fixture now measures
+        // what it always was.
+        //
+        // The URL→PDF bridge is still exercised: the link is fetched and parsed,
+        // and it is the CONTENT check that rejects it — a parse failure would
+        // surface a different reason string.
+        assert_eq!(report.digests.len(), 2, "note: {}, results: {:?}", report.note, report.results);
+        assert!(
+            report.results.iter().any(|r| matches!(
+                r,
+                PaperIngest::Unavailable { origin, reason }
+                    if origin.contains("one.pdf") && reason.contains("too little extractable text")
+            )),
+            "PDF link should be fetched, parsed, and rejected on content: {:?}",
+            report.results
+        );
         assert_eq!(report.digests[1].id, "p2");
-        assert_eq!(report.digests[2].id, "p3");
-        assert!(report.digests[2].summary.contains("working memory"));
+        assert!(report.digests[1].summary.contains("working memory"));
         let _ = std::fs::remove_file(f1);
     }
 
