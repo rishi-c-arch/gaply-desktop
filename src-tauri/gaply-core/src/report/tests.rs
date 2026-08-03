@@ -885,49 +885,8 @@ fn finding_with_signal<'a>(r: &'a PublishReadyReport, sig: &str) -> Option<&'a F
     r.findings.iter().find(|f| f.provenance.iter().any(|p| *p == tag))
 }
 
-#[test]
-fn a_registry_year_disagreement_is_reported() {
-    let ex = extraction_with_two_dated_references();
-    let raws: Vec<String> = ex.references.iter().map(|r| r.raw.clone()).collect();
-    assert_eq!(raws.len(), 2, "fixture precondition");
-    // Smith agrees (2020); Jones disagrees (registry 2021 vs cited 2019).
-    let registry = vec![rv(&raws[0], Some(2020), None), rv(&raws[1], Some(2021), None)];
-    let validation = crate::validate::validate(&ex);
-    let report = compile_report(
-        &minimal_outcome(), &validation, None, None, Some(&ex), TEST_YEAR, vec![], &registry,
-    );
-    let f = finding_with_signal(&report, "registry_year_mismatch").expect("missing finding");
-    assert_eq!(f.agent, AgentKind::Verification);
-    assert_eq!(f.tier, CertaintyTier::AiAssessedModerate);
-    assert!(f.detail.contains("cited as 2019, registry says 2021"), "{}", f.detail);
-    assert!(f.detail.contains("2 reference(s) had both"), "denominator must be stated: {}", f.detail);
-}
 
-#[test]
-fn agreeing_years_produce_no_finding() {
-    let ex = extraction_with_two_dated_references();
-    let raws: Vec<String> = ex.references.iter().map(|r| r.raw.clone()).collect();
-    let registry = vec![rv(&raws[0], Some(2020), None), rv(&raws[1], Some(2019), None)];
-    let validation = crate::validate::validate(&ex);
-    let report = compile_report(
-        &minimal_outcome(), &validation, None, None, Some(&ex), TEST_YEAR, vec![], &registry,
-    );
-    assert!(finding_with_signal(&report, "registry_year_mismatch").is_none());
-}
 
-#[test]
-fn a_reference_the_registry_did_not_resolve_is_never_called_a_mismatch() {
-    // §4.9 does not bind because BOTH operands must be present; an unresolved
-    // reference simply produces no comparison and no negative conclusion.
-    let ex = extraction_with_two_dated_references();
-    let raws: Vec<String> = ex.references.iter().map(|r| r.raw.clone()).collect();
-    let registry = vec![rv(&raws[0], None, None), rv(&raws[1], None, None)];
-    let validation = crate::validate::validate(&ex);
-    let report = compile_report(
-        &minimal_outcome(), &validation, None, None, Some(&ex), TEST_YEAR, vec![], &registry,
-    );
-    assert!(finding_with_signal(&report, "registry_year_mismatch").is_none());
-}
 
 #[test]
 fn the_citation_count_summary_is_descriptive_and_states_what_it_omits() {
@@ -948,13 +907,12 @@ fn the_citation_count_summary_is_descriptive_and_states_what_it_omits() {
 }
 
 #[test]
-fn no_registry_evidence_produces_neither_finding() {
+fn no_registry_evidence_produces_no_citation_count_finding() {
     let ex = extraction_with_two_dated_references();
     let validation = crate::validate::validate(&ex);
     let report = compile_report(
         &minimal_outcome(), &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[],
     );
-    assert!(finding_with_signal(&report, "registry_year_mismatch").is_none());
     assert!(finding_with_signal(&report, "citation_count").is_none());
 }
 

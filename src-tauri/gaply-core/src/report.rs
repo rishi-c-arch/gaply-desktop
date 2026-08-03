@@ -440,7 +440,6 @@ pub fn compile_report(
         items.extend(stylometry_findings(ex));
         items.extend(table_findings(ex));
         items.extend(reference_recency_findings(ex, current_year));
-        items.extend(registry_year_findings(ex, registry));
     }
 
     // --- soft round-table opinions (Verification + Plagiarism are covered in
@@ -847,87 +846,6 @@ fn table_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
     )
     .into_vec()
 }
-
-/// A reference whose LOCAL year disagrees with the year a public registry
-/// returned for the same work. `matched_year` is resolved by `refverify`
-/// (`refverify.rs:661,712`) and was already transmitted to the cloud reviewer
-/// (`verify_agent.rs:176`); this makes it available to a LOCAL deterministic
-/// finding as well.
-///
-/// # Why ONTOLOGY §4.9 does not bind here
-///
-/// §4.9 governs findings of the form "X is ABSENT from Y", whose operand is an
-/// absence and which therefore need a coverage claim about the extractor. **This
-/// is not one.** Both operands are positively identified before the finding can
-/// fire: a parsed local `Reference.year` AND a registry-returned `matched_year`
-/// for the same entry. A reference the registry did not resolve, or one with no
-/// parsed local year, produces no comparison at all — no negative conclusion is
-/// drawn from its absence.
-///
-/// That distinction is the whole point of §4.9: "the registry disagrees" is a
-/// claim about two things we have, not about something we failed to find. No
-/// registry resolution-rate figure is required, and none exists.
-fn registry_year_findings(
-    ex: &ExtractionResult,
-    registry: &[ReferenceVerification],
-) -> Vec<ReportFinding> {
-    let mut mismatches: Vec<String> = Vec::new();
-    let mut compared = 0usize;
-    for rv in registry {
-        let matched = match rv.exists.as_ref().and_then(|e| e.matched_year) {
-            Some(y) => y,
-            None => continue,
-        };
-        let local = match ex
-            .references
-            .iter()
-            .find(|r| r.raw == rv.reference_raw)
-            .and_then(|r| r.year)
-        {
-            Some(y) => y,
-            None => continue,
-        };
-        compared += 1;
-        if local != matched {
-            let who = rv.reference_raw.split_whitespace().next().unwrap_or("?");
-            mismatches.push(format!("{who}: cited as {local}, registry says {matched}"));
-        }
-    }
-    if mismatches.is_empty() {
-        return Vec::new();
-    }
-    let shown: Vec<String> = mismatches.iter().take(REGISTRY_EXAMPLE_LIMIT).cloned().collect();
-    let extra = mismatches.len().saturating_sub(shown.len());
-    let tail = if extra > 0 { format!("; and {extra} more") } else { String::new() };
-    paired(
-        Finding {
-            severity: FindingSeverity::Minor,
-            tier: CertaintyTier::AiAssessedModerate,
-            certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
-            agent: AgentKind::Verification,
-            title: format!(
-                "{} of {compared} checked reference(s) disagree with the registry year",
-                mismatches.len()
-            ),
-            detail: format!(
-                "{}{tail}. {compared} reference(s) had both a parsed year and a registry match \
-                 and could be compared; the rest were not compared.",
-                shown.join("; ")
-            ),
-            confidence: 1.0,
-            provenance: vec![
-                "signal:registry_year_mismatch".into(),
-                format!("evidence:compared={compared};mismatched={}", mismatches.len()),
-                "agent:verification (deterministic comparison of two resolved years)".into(),
-            ],
-        },
-        1.0,
-    )
-    .into_vec()
-}
-
-/// How many registry mismatches to name before summarising the rest.
-const REGISTRY_EXAMPLE_LIMIT: usize = 5;
 
 /// Descriptive citation-count summary over references a registry resolved.
 ///
