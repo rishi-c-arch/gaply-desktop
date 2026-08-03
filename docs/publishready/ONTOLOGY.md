@@ -307,6 +307,22 @@ None of the three is a component defect. Each component satisfied its contract; 
 
 The two cases fail differently. The first is a finding that was wrong about the manuscript; the second is a preprocessing change that was correct in itself and wrong in composition. Neither is reachable from a component contract. The gate is therefore a standing check, and it must run **after** a fix as well as before one.
 
+### 4.12 Standing rule — typed absence, at every layer
+
+**Every durable artifact must distinguish negative evidence from missing evidence. Typed absence is preferable to silent absence, because silence forces a later reader to guess why nothing was recorded.**
+
+This is the same principle at **three layers**, and only the first was ever explicit:
+
+| Layer | How it appears | Status when found |
+|---|---|---|
+| **FIELD** | `Metric<T>`'s `Observed` / `Unavailable { source, requires }` split (`reviewer_harness.rs:58-63`) — a missing value carries the reason it is missing | Applied deliberately from the start |
+| **REPORT** | §9.2's empty-corpus problem — zero plagiarism findings rendered as silence, which a user reads as *"nothing found"* rather than *"nothing could be searched"* | Found by tracing; still open |
+| **ARTIFACT** | The Box 4 comparison record was written only when the shadow synthesis produced an outcome, so a run without one left **no file** — indistinguishable from a sink that never worked | Found while planning a baseline capture; fixed |
+
+The artifact case is the most dangerous of the three because it destroys the evidence of its own failure. A field that says `Unavailable` still tells you the run happened. A report that renders nothing at least renders. **A missing file says nothing at all**, and the reader cannot tell an honest negative from a broken instrument — which is precisely the state a baseline would have been captured in.
+
+The rule generalises past this codebase's current artifacts: any log, export, cache entry or telemetry record that is written *conditionally on success* has this defect. If the condition can fail, the record must still be written and must say the condition failed.
+
 ---
 
 ## 5. Evaluation Protocol

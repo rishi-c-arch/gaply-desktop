@@ -151,21 +151,58 @@ mod tests {
     }
 
     fn a_report(run: &str, sha: &str) -> ShadowComparisonReport {
+        report_with_shadow(run, sha, true)
+    }
+
+    fn report_with_shadow(run: &str, sha: &str, with_shadow: bool) -> ShadowComparisonReport {
         use gaply_core::reviewer_agent::ReviewerEvaluation;
-        use gaply_core::reviewer_harness::{build_comparison_report, HarnessInputs, HarnessTiming};
-        let ev = ReviewerEvaluation::unavailable_offline();
+        use gaply_core::reviewer_harness::{
+            build_comparison_report, HarnessInputs, HarnessTiming, ShadowInputs,
+        };
+        let ev = Box::leak(Box::new(ReviewerEvaluation::unavailable_offline()));
+        let bd = Box::leak(Box::new(Default::default()));
         build_comparison_report(&HarnessInputs {
             run_id: run,
             manuscript_sha256: sha,
             recorded_at: 7,
-            shadow: &ev,
-            shadow_breakdown: &Default::default(),
-            shadow_findings_sent: 0,
-            shadow_narrative_available: false,
-            wholesale: &ev,
+            shadow: with_shadow.then(|| ShadowInputs {
+                letter: ev,
+                breakdown: bd,
+                findings_sent: 0,
+                narrative_available: false,
+            }),
+            wholesale: ev,
+            wholesale_findings_sent: 3,
+            wholesale_payload_digest: "digest-abc",
             timing: HarnessTiming::default(),
             proxy_meta: None,
         })
+    }
+
+    #[test]
+    fn a_run_without_shadow_synthesis_still_leaves_a_record() {
+        // THE instrumentation-correctness fix: no record at all is
+        // indistinguishable from a broken sink. Typed absence instead.
+        let dir = std::env::temp_dir().join(format!("gaply_ns_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("noshadow.jsonl");
+        let _ = std::fs::remove_file(&path);
+
+        let r = report_with_shadow("r-noshadow", "sha-x", false);
+        assert!(append_to(&path, &r), "a record must be written even with no shadow");
+
+        let body = std::fs::read_to_string(&path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(body.lines().next().unwrap()).unwrap();
+        assert_eq!(v["shadow_recommendation"]["status"], "unavailable");
+        assert_eq!(
+            v["shadow_recommendation"]["requires"], "shadow_synthesis_unavailable",
+            "the reason must be typed, not inferred: {}", v["shadow_recommendation"]
+        );
+        assert_eq!(v["recommendation_agreement"]["requires"], "shadow_synthesis_unavailable");
+        // What we SENT is still recorded — it does not depend on the shadow side.
+        assert_eq!(v["wholesale_payload_digest"]["value"], "digest-abc");
+        assert_eq!(v["wholesale_findings_sent"]["value"], 3);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -205,23 +242,9 @@ mod tests {
     fn appending_without_a_configured_dir_is_a_silent_no_op() {
         // The OnceLock is process-wide and unset in tests, so this exercises the
         // headless path: a diagnostic must never fail the analysis.
-        use gaply_core::reviewer_agent::ReviewerEvaluation;
-        use gaply_core::reviewer_harness::{build_comparison_report, HarnessInputs, HarnessTiming};
-        let ev = ReviewerEvaluation::unavailable_offline();
-        let report = build_comparison_report(&HarnessInputs {
-            run_id: "r1",
-            manuscript_sha256: "abc",
-            recorded_at: 1,
-            shadow: &ev,
-            shadow_breakdown: &Default::default(),
-            shadow_findings_sent: 0,
-            shadow_narrative_available: false,
-            wholesale: &ev,
-            timing: HarnessTiming::default(),
-            proxy_meta: None,
-        });
+        let report = a_report("r1", "abc");
         assert_eq!(report.manuscript_sha256, "abc", "identity is carried into the record");
-        assert_eq!(report.recorded_at, 1);
+        assert_eq!(report.recorded_at, 7);
         assert!(report.to_jsonl_line().is_ok(), "the record must serialize");
         assert!(!append(&report), "no dir configured -> no write, no panic");
     }

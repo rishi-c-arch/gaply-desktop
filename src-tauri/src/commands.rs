@@ -659,17 +659,29 @@ pub async fn run_publishready(
         // synthesis against the wholesale reviewer. Every metric carries its
         // provenance by construction; proxy/LLM metrics render `unavailable` until
         // the live proxy + escalate endpoint land. Drives NO production behavior.
-        if let Some(outcome) = &shadow_outcome {
-            use gaply_core::reviewer_harness::{build_comparison_report, HarnessInputs, HarnessTiming};
+        {
+            use gaply_core::reviewer_harness::{
+                build_comparison_report, HarnessInputs, HarnessTiming, ShadowInputs,
+            };
+            // UNCONDITIONAL. Previously this whole block sat inside
+            // `if let Some(outcome) = &shadow_outcome`, so a run where the shadow
+            // synthesis produced nothing left NO record — indistinguishable from a
+            // broken sink. Typed absence at the artifact level: the record is
+            // always written, and when the shadow side is missing every shadow
+            // metric says so with a reason (ONTOLOGY §4.12).
             let report = build_comparison_report(&HarnessInputs {
                 run_id: &report_id,
                 manuscript_sha256: &manuscript_sha256,
                 recorded_at: gaply_core::now_epoch(),
-                shadow: &outcome.letter,
-                shadow_breakdown: &outcome.aggregation.breakdown,
-                shadow_findings_sent: outcome.findings_sent,
-                shadow_narrative_available: outcome.narrative_available,
+                shadow: shadow_outcome.as_ref().map(|o| ShadowInputs {
+                    letter: &o.letter,
+                    breakdown: &o.aggregation.breakdown,
+                    findings_sent: o.findings_sent,
+                    narrative_available: o.narrative_available,
+                }),
                 wholesale: &reviewer,
+                wholesale_findings_sent: sent_ids.findings.len(),
+                wholesale_payload_digest: &reviewer_agent::payload_digest(&proxy_payload),
                 timing: HarnessTiming {
                     shadow: Some(shadow_elapsed),
                     wholesale: Some(wholesale_elapsed),

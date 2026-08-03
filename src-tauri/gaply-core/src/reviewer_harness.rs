@@ -51,6 +51,10 @@ pub enum MetricAvailability {
     RequiresLiveProxy,
     /// Needs the proxy to EMIT the datum (envelope / usage instrumentation).
     RequiresProxyInstrumentation,
+    /// The shadow synthesis did not run this analysis, so nothing deterministic
+    /// was produced to compare against. TYPED ABSENCE: the record still exists
+    /// and says so, rather than the run leaving no record at all.
+    ShadowSynthesisUnavailable,
 }
 
 /// A metric that cannot exist without its provenance. `Observed` binds a value
@@ -94,6 +98,16 @@ pub struct ProxyMeta {
 }
 
 /// Everything the harness needs to build a report — borrowed, no ownership.
+/// The shadow side, when it ran. `None` means the synthesis did not produce an
+/// outcome — the record is still written, with every shadow metric `Unavailable`.
+pub struct ShadowInputs<'a> {
+    pub letter: &'a ReviewerEvaluation,
+    pub breakdown: &'a SeverityByStateCounts,
+    pub findings_sent: usize,
+    /// STRUCTURAL flag set at narrative construction — NOT a body string-match.
+    pub narrative_available: bool,
+}
+
 pub struct HarnessInputs<'a> {
     pub run_id: &'a str,
     /// sha256 of the manuscript FILE. `run_id` is a local DB row id, meaningless
@@ -103,12 +117,13 @@ pub struct HarnessInputs<'a> {
     /// Epoch seconds. Inside the record, so a captured payload is datable
     /// without the surrounding log line.
     pub recorded_at: i64,
-    pub shadow: &'a ReviewerEvaluation,
-    pub shadow_breakdown: &'a SeverityByStateCounts,
-    pub shadow_findings_sent: usize,
-    /// STRUCTURAL flag set at narrative construction — NOT a body string-match.
-    pub shadow_narrative_available: bool,
+    pub shadow: Option<ShadowInputs<'a>>,
     pub wholesale: &'a ReviewerEvaluation,
+    /// Findings actually forwarded to the wholesale reviewer — the counterpart of
+    /// `ShadowInputs::findings_sent`, which existed without it.
+    pub wholesale_findings_sent: usize,
+    /// sha256 over the ordered payload tuples (`reviewer_agent::payload_digest`).
+    pub wholesale_payload_digest: &'a str,
     pub timing: HarnessTiming,
     pub proxy_meta: Option<ProxyMeta>,
 }
@@ -132,6 +147,8 @@ pub struct ShadowComparisonReport {
 
     // --- Comparison metrics (RequiresLiveProxy for real values) ---
     pub wholesale_recommendation: Metric<Recommendation>,
+    pub wholesale_findings_sent: Metric<usize>,
+    pub wholesale_payload_digest: Metric<String>,
     pub wholesale_publication_probability: Metric<f64>,
     pub recommendation_agreement: Metric<bool>,
     pub shadow_grounded_issues: Metric<usize>,
@@ -176,17 +193,28 @@ pub fn build_comparison_report(inp: &HarnessInputs) -> ShadowComparisonReport {
     use MetricSource::*;
 
     let wholesale_up = inp.wholesale.available;
-    let shadow_narr = inp.shadow_narrative_available;
+    let sh = inp.shadow.as_ref();
+    // TYPED ABSENCE at the ARTIFACT level: when the shadow synthesis did not run,
+    // every shadow metric is Unavailable with a reason and the record is still
+    // written. A missing file would be indistinguishable from a broken sink.
+    fn no_shadow<T>() -> Metric<T> {
+        Metric::unavailable(DeterministicLocal, ShadowSynthesisUnavailable)
+    }
+    let shadow_narr = sh.map(|s| s.narrative_available).unwrap_or(false);
     let pm = inp.proxy_meta.as_ref();
 
     // Deterministic — always Observed.
-    let shadow_recommendation = Metric::observed(inp.shadow.recommendation, DeterministicLocal);
-    let shadow_publication_probability =
-        Metric::observed(inp.shadow.publication_probability, DeterministicLocal);
-    let finding_breakdown = Metric::observed(*inp.shadow_breakdown, DeterministicLocal);
+    let shadow_recommendation =
+        sh.map(|s| Metric::observed(s.letter.recommendation, DeterministicLocal)).unwrap_or_else(no_shadow);
+    let shadow_publication_probability = sh
+        .map(|s| Metric::observed(s.letter.publication_probability, DeterministicLocal))
+        .unwrap_or_else(no_shadow);
+    let finding_breakdown =
+        sh.map(|s| Metric::observed(*s.breakdown, DeterministicLocal)).unwrap_or_else(no_shadow);
     // Availability flags are meta-observations about the paths — honestly
     // observable even fully offline (they report the degraded state itself).
-    let shadow_path_available = Metric::observed(inp.shadow.available, DeterministicLocal);
+    let shadow_path_available =
+        sh.map(|s| Metric::observed(s.letter.available, DeterministicLocal)).unwrap_or_else(no_shadow);
     let wholesale_path_available = Metric::observed(inp.wholesale.available, ReviewerOutput);
 
     // Wholesale verdict — Observed only if the cloud produced it.
@@ -203,15 +231,17 @@ pub fn build_comparison_report(inp: &HarnessInputs) -> ShadowComparisonReport {
 
     // Agreement needs BOTH real: the shadow recommendation is always real
     // (deterministic), so this gates on the wholesale side being up.
-    let recommendation_agreement = if wholesale_up {
-        Metric::observed(inp.shadow.recommendation == inp.wholesale.recommendation, ReviewerOutput)
-    } else {
-        Metric::unavailable(ReviewerOutput, RequiresLiveProxy)
+    let recommendation_agreement = match (wholesale_up, sh) {
+        (true, Some(s)) => {
+            Metric::observed(s.letter.recommendation == inp.wholesale.recommendation, ReviewerOutput)
+        }
+        (_, None) => Metric::unavailable(ReviewerOutput, ShadowSynthesisUnavailable),
+        _ => Metric::unavailable(ReviewerOutput, RequiresLiveProxy),
     };
 
     // Grounded issues / hallucination drops — need a narrative.
-    let shadow_grounded_issues = if shadow_narr {
-        Metric::observed(inp.shadow.issues.len(), ReviewerOutput)
+    let shadow_grounded_issues = if let (true, Some(s)) = (shadow_narr, sh) {
+        Metric::observed(s.letter.issues.len(), ReviewerOutput)
     } else {
         Metric::unavailable(ReviewerOutput, RequiresLiveProxy)
     };
@@ -220,8 +250,8 @@ pub fn build_comparison_report(inp: &HarnessInputs) -> ShadowComparisonReport {
     } else {
         Metric::unavailable(ReviewerOutput, RequiresLiveProxy)
     };
-    let shadow_hallucination_drops = if shadow_narr {
-        Metric::observed(count_hallucination_drops(&inp.shadow.warnings), ReviewerOutput)
+    let shadow_hallucination_drops = if let (true, Some(s)) = (shadow_narr, sh) {
+        Metric::observed(count_hallucination_drops(&s.letter.warnings), ReviewerOutput)
     } else {
         Metric::unavailable(ReviewerOutput, RequiresLiveProxy)
     };
@@ -232,18 +262,17 @@ pub fn build_comparison_report(inp: &HarnessInputs) -> ShadowComparisonReport {
     };
 
     // Coverage: grounded ÷ findings-sent (numerator needs a narrative).
-    let shadow_issue_coverage = if shadow_narr && inp.shadow_findings_sent > 0 {
-        Metric::observed(
-            inp.shadow.issues.len() as f64 / inp.shadow_findings_sent as f64,
+    let shadow_issue_coverage = match (shadow_narr, sh) {
+        (true, Some(s)) if s.findings_sent > 0 => Metric::observed(
+            s.letter.issues.len() as f64 / s.findings_sent as f64,
             ReviewerOutput,
-        )
-    } else {
-        Metric::unavailable(ReviewerOutput, RequiresLiveProxy)
+        ),
+        _ => Metric::unavailable(ReviewerOutput, RequiresLiveProxy),
     };
 
     // Narrative completeness — from the STRUCTURAL flag, never body text.
-    let shadow_narrative_complete = if shadow_narr {
-        Metric::observed(!inp.shadow.body.trim().is_empty(), ReviewerOutput)
+    let shadow_narrative_complete = if let (true, Some(s)) = (shadow_narr, sh) {
+        Metric::observed(!s.letter.body.trim().is_empty(), ReviewerOutput)
     } else {
         Metric::unavailable(ReviewerOutput, RequiresLiveProxy)
     };
@@ -285,6 +314,11 @@ pub fn build_comparison_report(inp: &HarnessInputs) -> ShadowComparisonReport {
         shadow_path_available,
         wholesale_path_available,
         wholesale_recommendation,
+        wholesale_findings_sent: Metric::observed(inp.wholesale_findings_sent, DeterministicLocal),
+        wholesale_payload_digest: Metric::observed(
+            inp.wholesale_payload_digest.to_string(),
+            DeterministicLocal,
+        ),
         wholesale_publication_probability,
         recommendation_agreement,
         shadow_grounded_issues,
@@ -351,6 +385,8 @@ impl ShadowComparisonReport {
             metric_line("shadow_path_available", &self.shadow_path_available),
             metric_line("wholesale_path_available", &self.wholesale_path_available),
             metric_line("wholesale_recommendation", &self.wholesale_recommendation),
+            metric_line("wholesale_findings_sent", &self.wholesale_findings_sent),
+            metric_line("wholesale_payload_digest", &self.wholesale_payload_digest),
             metric_line("wholesale_publication_probability", &self.wholesale_publication_probability),
             metric_line("recommendation_agreement", &self.recommendation_agreement),
             metric_line("shadow_grounded_issues", &self.shadow_grounded_issues),
@@ -419,11 +455,15 @@ mod tests {
             manuscript_sha256: "test-sha",
             recorded_at: 0,
             run_id: "run-1",
-            shadow,
-            shadow_breakdown: breakdown,
-            shadow_findings_sent: 4,
-            shadow_narrative_available: shadow_narr,
+            shadow: Some(ShadowInputs {
+                letter: shadow,
+                breakdown,
+                findings_sent: 4,
+                narrative_available: shadow_narr,
+            }),
             wholesale,
+            wholesale_findings_sent: 4,
+            wholesale_payload_digest: "test-digest",
             timing: HarnessTiming::default(),
             proxy_meta: None,
         }
@@ -622,12 +662,17 @@ mod tests {
         let report = build_comparison_report(&inputs(&sh, &bd, false, &wh));
         let mut got = observed_fields(&report);
         got.sort();
+        // wholesale_findings_sent and wholesale_payload_digest are
+        // DeterministicLocal: what we SENT and how many, computed in-process.
+        // Observable with the proxy down — only what came BACK needs a live call.
         let mut want = vec![
             "finding_breakdown".to_string(),
             "shadow_path_available".to_string(),
             "shadow_publication_probability".to_string(),
             "shadow_recommendation".to_string(),
+            "wholesale_findings_sent".to_string(),
             "wholesale_path_available".to_string(),
+            "wholesale_payload_digest".to_string(),
         ];
         want.sort();
         assert_eq!(got, want, "offline report observed exactly the deterministic metrics + flags");

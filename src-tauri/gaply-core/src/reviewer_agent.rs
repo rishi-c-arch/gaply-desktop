@@ -340,6 +340,34 @@ fn build_supplementary(supplementary: &[Value]) -> (Value, Vec<String>) {
 /// report JSON + (untrusted) supplementary evidence. Returns `(payload,
 /// sent_ids)` — the ids let the gate check the reply against exactly what we
 /// sent (findings/supplementary ground issues; all three ground the soft fields).
+/// sha256 over the ORDERED `(id, severity, title)` tuples actually forwarded to
+/// the wholesale reviewer.
+///
+/// Answers "was the model given the same input?" — a question the severity
+/// COUNTS cannot answer, because a count is a property of a set's size and not
+/// of its membership. Two runs can share a `SeverityByStateCounts` breakdown
+/// while carrying entirely different findings, so without this a change in the
+/// wholesale recommendation is unattributable: model drift and a change in the
+/// findings look identical.
+///
+/// Carries no manuscript text. `title` is already the payload's title, which is
+/// the finding headline — `detail`, the field holding manuscript excerpts, is
+/// never read into the payload (see `build_review_payload`).
+pub fn payload_digest(payload: &Value) -> String {
+    use sha2::{Digest, Sha256};
+    let empty: Vec<Value> = Vec::new();
+    let mut h = Sha256::new();
+    for f in payload["summary"]["findings"].as_array().unwrap_or(&empty) {
+        h.update(f["id"].as_str().unwrap_or("").as_bytes());
+        h.update(b"|");
+        h.update(f["severity"].as_str().unwrap_or("").as_bytes());
+        h.update(b"|");
+        h.update(f["title"].as_str().unwrap_or("").as_bytes());
+        h.update(b"\n");
+    }
+    format!("{:x}", h.finalize())
+}
+
 pub fn build_review_payload(
     report: &Value,
     journal: &TargetJournal,
