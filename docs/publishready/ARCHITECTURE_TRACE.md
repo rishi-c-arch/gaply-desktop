@@ -563,6 +563,54 @@ The wholesale reviewer is an LLM, and is therefore **the only non-deterministic 
 
 Agreement cannot. A single disagreement may be genuine divergence or model variance, and the two are indistinguishable without **repeat runs on identical input**. Any future agreement protocol must carry that requirement; Protocol v1 never needed it, so it is not inheritable from the existing protocol family and must be stated explicitly.
 
+### 12.3.3 Open investigation — what is the manuscript?
+
+**Known defect, recorded rather than fixed.** On one real manuscript the text-reuse check reports an 81% *"internal duplication (same manuscript)"* whose quoted text is an AI-detection tool's **cover page** matching itself. Every component behaved correctly: `docparse` parsed what it was given, the plagiarism engine found a genuine internal repetition, and the label is the corrected, accurate one from `83f192c`.
+
+**No component owns the document boundary.** `docparse` decides what is *text*. `sections` decides what is *structure*. Nothing decides what is *the manuscript*. This is the same class as footnote splicing (§B5 of the reflow work), left alone for the same reason.
+
+**Two attempts to fix the symptom without answering the underlying question have now failed** — the paragraph rebuild and the raw-text slice, both measured, both producing 10 self-matches against a baseline of 6. Document scope, structure and downstream semantics are intertwined tightly enough that treating this as a small cleanup risks repeated regressions: scope determines chunk offsets, chunk offsets determine match spans, and match spans are what the user reads. **This needs answering as a question, not patching as a defect.**
+
+**Four candidate rules were evaluated and all rejected:**
+
+| Candidate | Rejected because |
+|---|---|
+| Drop everything before the title | The title is `split_document`'s first non-empty line, which on this PDF **is** the cover boilerplate. Circular. |
+| Drop content before the first recognised IMRaD heading | Deletes genuine front matter (affiliations, keywords) on clean manuscripts, and deletes the entire document when no heading is recognised. |
+| Detect known wrappers by signature | Narrow, and unbounded in maintenance — there are many such tools. |
+| Exclude `SectionKind::Other` from the plagiarism corpus | **Attempted and reverted — see below.** |
+
+#### Item 3 as a MEASURED NEGATIVE — one attempt, spent
+
+Criteria were **frozen before any code changed**, and the revert followed that rule rather than a judgement formed after seeing the numbers.
+
+| Criterion (preregistered) | Outcome |
+|---|---|
+| (a) the cover-page self-match (81%, *"0% detected as AI…"*) is absent | **PASS** |
+| (b) exactly **5** self-matches remain | **FAIL — 10** |
+| (c) those 5 are the same baseline spans, by span identity | **FAIL — zero overlap** |
+
+Recorded so future work does not retrace this path: excising `SectionKind::Other` from the raw text **does** remove the cover-page match, and **does** shift every chunk boundary.
+
+**What criterion (c) caught, and why aggregate metrics were not enough.** Here (b) failed on its own, so (c) was not strictly needed *this time*. But had the count returned 5 by coincidence, **(c) is the only clause that distinguishes "restored" from "replaced"**. Two instances now support that:
+
+- the validation flag set held at **5** while all five reported locations moved (§6 of the reflow work);
+- this run could in principle have returned the expected count while replacing every span.
+
+**Identity checks can be necessary even when aggregate metrics are unchanged.** A count is a property of a set's size, not of its membership, and the thing users read is the membership.
+
+**The reflow precedent held — now measured, not predicted.** It was recorded in advance that *every cleanup rule trades one class of false positive for another*, which is why footnote-stripping was excluded from the reflow. This attempt traded one false positive (the cover page) for four new ones. The prediction is now an observation.
+
+#### The measured reason the scope exclusion failed
+
+Excluding `Other` was attempted against three preregistered criteria: the cover-page match absent, exactly 5 self-matches remaining, and those 5 being the same baseline spans by identity. **(a) passed; (b) and (c) failed** — 10 self-matches, and not one baseline span survived.
+
+Two implementations were measured: rebuilding the body from `Section.paragraphs` (whitespace-normalising), and slicing the raw text from the first heading (byte-identical). **Both produced exactly 10.** So the cause is not text fidelity — it is that **chunking is offset-dependent**: removing any leading span re-phases the entire chunk grid, and every downstream boundary moves.
+
+**Consequence for the eventual fix:** "exclude a region" cannot work as an approach at all while chunk boundaries depend on absolute offsets. Either chunking is made offset-independent (anchored to sentence or paragraph starts), or the boundary is decided before chunking rather than by subtraction afterwards. That is chunk-topology work and belongs to this investigation, not to a fix for a symptom.
+
+The criterion that caught it was **span identity, not count** — a count-only check would have read 10 vs 5 as merely "wrong number" rather than "entirely different set", and a run returning 5 different spans would have passed a count check while failing the goal.
+
 ### 12.4 Memory efficiency principles — design intent
 
 **Runtime optimization targets measured bottlenecks while preserving single-manuscript execution on 8 GB.** Techniques are adopted only after profiling demonstrates benefit; the working order when a constraint is measured is ONTOLOGY §4.8.

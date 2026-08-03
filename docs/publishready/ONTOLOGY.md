@@ -254,11 +254,58 @@ Every entry it named was cited — `Göncü and Parlak (2011)`, `Gordon and Burf
 
 **Zero true positives were observed.** The run therefore does not establish whether this manuscript contains any genuinely uncited reference — only that the finding was wrong six times out of six. The fixture test (`an_uncited_reference_is_reported_with_both_numbers`) is the *only* evidence the finding can fire at all.
 
+#### Coverage and join correctness are separate failure modes
+
+**Satisfying one says nothing about the other.** Coverage asks *did we find everything?* Join correctness asks *did we match the right things to each other?* A join can be perfect over incomplete coverage, and complete coverage can be joined entirely wrongly.
+
+**Worked example — `registry_year_mismatch`, approved on a coverage argument and deleted on identity.** It compared a manuscript's `Reference.year` against a registry-resolved `matched_year`, and was approved on the argument that §4.9 does not bind because it fires only where **both** operands exist. That argument is true and irrelevant: §4.9 as written governs ABSENCE, and this finding failed on JOIN CORRECTNESS.
+
+Measured on a real manuscript, 6 reported mismatches:
+
+- **5 resolved to a different work.** `refverify` queries CrossRef with `query.bibliographic` and `rows=1`, which returns a single best guess with **no confidence gate and no threshold**. One resolved to a different entry *in the same bibliography*.
+- **1 was correct** — DOI-matched, identical title and authors, with a genuine print/online year divergence that is not an author error either.
+
+The comparison code was correct throughout. Every operand was positively identified. The finding still produced five false accusations, because *positively identified* was checked on the **local** side and assumed on the **registry** side.
+
+**The layer had already been named.** `CITATION_EVAL_PROTOCOL_V1` §7 separates reference-side coverage, citation-side coverage and join correctness into a decision matrix precisely because they do not substitute for one another — and that matrix was written four commits before this finding shipped. The rule was available and was not applied.
+
+So: when a finding joins two sources, ask §4.6 question 3 of **each side independently**, and ask separately whether the join itself is trustworthy. An identity resolved by fuzzy search is not an operand that has been positively identified.
+
 #### Scope
 
 The invariant is not about citations. It governs **any extractor that joins independently derived evidence**, and every planned deterministic finding in ARCHITECTURE_TRACE §11.4 has this shape: figures referenced but absent, tables never referenced, ethics statements, funding disclosures, reporting-guideline items. Each asks whether one extracted set covers another, and each will be wrong in exactly this way unless the covering set's recall is known.
 
 §11.5 established that positional correspondence is not identity. This rule establishes the companion: **one-sided refusal is not safety.**
+
+### 4.10 Standing rule — component correctness does not compose
+
+**Component correctness is necessary but not sufficient for report correctness. Composing individually correct components CAN introduce failure modes — such as entity resolution, prioritization, duplication, and presentation — that are not detectable through isolated component measurements alone.**
+
+Every measurement discipline in this document evaluates a component against its own contract. None of them evaluates what the user is handed.
+
+### 4.11 RELEASE GATE — end-to-end author review
+
+> **After any substantial report-generation workstream, perform an end-to-end author review of the assembled report.**
+>
+> This is a gate, not a recommendation. It complements unit tests, mutation tests, protocol measurements and blast-radius measurements because it is the only stage that evaluates the **composition** of findings rather than their individual correctness.
+
+Read the report as an author would: every finding, in order, as a document — not as test output.
+
+**Evidence for the gate — two DISTINCT failure modes, not one repeated.**
+
+**Case 1 — a false-accusation finding that component-level reasoning did not expose.** With **683 tests green** (`gaply_core` 541, `app` 142), one real manuscript surfaced three defects:
+
+| Defect | Composition failure |
+|---|---|
+| `registry_year_mismatch` produced 5 false accusations | **entity resolution** — each operand valid, the join untrustworthy |
+| 28 of 48 findings identical, plus a 29th restating them | **duplication and presentation** — each finding individually correct |
+| An 81% "internal duplication" quoting an AI-detection tool's cover page | **document boundary** — extraction, matching and labelling all correct |
+
+None of the three is a component defect. Each component satisfied its contract; the report did not.
+
+**Case 2 — a regression introduced by a preprocessing change that passed every component test.** Excluding front matter from the text-reuse check removed the cover-page match and took self-matches from 6 to **10**, again with **683 tests green**.
+
+The two cases fail differently. The first is a finding that was wrong about the manuscript; the second is a preprocessing change that was correct in itself and wrong in composition. Neither is reachable from a component contract. The gate is therefore a standing check, and it must run **after** a fix as well as before one.
 
 ---
 
