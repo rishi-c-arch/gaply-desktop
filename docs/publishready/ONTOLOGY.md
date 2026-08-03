@@ -208,6 +208,23 @@ Though it is stated for runtime, the rule generalises: it governs any structure 
 
 The failure mode this prevents is the inverse of §4.4's. There, a claim outran its evidence; here, a structure outruns its need — and unneeded structure is harder to remove than a wrong sentence, because code acquires callers.
 
+### 4.8 Standing rule — memory optimization order
+
+When a memory or throughput constraint is measured, work the list in order:
+
+1. **Reduce computation.**
+2. **Reuse computation.**
+3. **Reduce memory movement.**
+4. **Reduce memory footprint.**
+5. **Raise hardware requirements** — only when 1–4 are exhausted.
+
+Two worked examples, both of which genuinely fit:
+
+- **Rule 2 — KV-cache reuse.** The claim-extraction spike re-scores the same prompt prefix once per candidate label: 358.5 scored token positions per sentence where 105.3 would do, a measured **3.40×** redundancy (ARCHITECTURE_TRACE §12.2). The computation is not wasteful in itself — it is simply performed five times instead of once. Reuse, not reduction.
+- **Rule 4 — `unload_slm2`.** The Ollama model is explicitly evicted after the verify lane (`models/mod.rs:1008`, called at `pipeline.rs:308`), so its footprint is not held while the next lane runs. Nothing is computed less or reused; the peak is lowered.
+
+The ordering matters because the later steps are the ones that get reached for first — footprint work is visible and feels like progress, while the computation being reduced or reused is often invisible until measured.
+
 ---
 
 ## 5. Evaluation Protocol
