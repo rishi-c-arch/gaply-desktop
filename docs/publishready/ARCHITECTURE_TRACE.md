@@ -1575,3 +1575,96 @@ By contrast, two candidates could each support an automated check **once the inv
 This states in one line what the progression above only illustrates: **the diagram explains the evolution; this sentence explains why a promotion is justified.** With the criterion stated earlier, it now says the same thing from both directions — an invariant without evidence is untested, and evidence without an invariant has nothing to assert.
 
 The pin was promotable because `SUMMARY_FORMAT_VERSION` defined what "unchanged" means before anything asserted it.
+
+---
+
+## 22. Two verdicts over one body of evidence
+
+**Investigation only.** Nothing implemented, and the residue is stated as an open question rather than a direction.
+
+### 22.1 `overall_verdict` is an upstream resolved decision, not an aggregation input
+
+An earlier draft of this pass classified `report["verdict"]` as "aggregation policy". **That is wrong.** The swarm has already decided by the time it exists; it is carried as a completed result, not as evidence the aggregator could weigh.
+
+| | `report["verdict"]` | `Recommendation` |
+|---|---|---|
+| Vocabulary | `"pass"` / `"concern"` (`swarm.rs:314-315`) | `Accept` / `MinorRevision` / `MajorRevision` / `Reject` / `Unknown` |
+| Granularity | binary | four ordered bands + a gate-only state |
+| Resolves over | **six agent-level `Opinion`s**, one per lane | **N findings**, one per detected issue |
+| Question | *does any agent have a concern?* | *what should an editor do?* |
+| Mechanism | confidence-weighted vote, **hard-constraint override** (`swarm.rs:177-185`) | severity counting, **no weights, no precedence** (`reviewer_agent.rs:890-898`) |
+| Produced at | `report.rs:563` | `reviewer_synthesis.rs:139` |
+
+### 22.2 The granularity asymmetry — why "replace" fails structurally
+
+**OBSERVATION.** The swarm resolves at the **agent** level: six opinions, one per lane. `from_validation` (`swarm.rs:344-355`) answers `concern` iff `!r.passed`. **A manuscript with fourteen statistical errors and one with a single error both yield exactly one `concern` from `ValidationMaths`.**
+
+**`overall_verdict` is insensitive to how much is wrong.** The aggregator is nothing but that sensitivity — `MINOR_REVISION_THRESHOLD = 3` is a count, and quantity is its only substantive content.
+
+**INTERPRETATION.** Replacing four ordered bands with a binary would discard the sole dimension the aggregator contributes. **"Replace" fails structurally, not by preference** — no weighting of the swarm's output recovers a quantity it never carried.
+
+### 22.3 Run 22 already showed the divergence, and it went unremarked
+
+**OBSERVATION.** Run 22's report carries `verdict: "pass"`. Its comparison record carries `shadow_recommendation: major_revision`. **Both in the same run, from the same evidence.** The cause is traceable: `AiDetection: concern` was a lone `Major` finding, enough for the severity tree, while the swarm's confidence-weighted vote did not carry it (AI-detection's opinion confidence is 0.6, rescaled by a 0.6 calibration factor — `swarm.rs:73`).
+
+**The observation sat in files read closely enough to check five other fields.** §19 verified `manuscript_sha256`, `schema_version`, chunk count, `guidelines_url`, and both sent-counts against the freeze condition, and this divergence was in the same two artifacts, unnoticed. **Recorded because a missed observation in a reviewed artifact is the §21 level-2 limit demonstrated on the reviewer rather than on the instrument.**
+
+### 22.4 The values were filtered, not dropped
+
+**OBSERVATION, stated descriptively.** `reviewer_synthesis.rs:1-26` describes its join as taking "the compiled report's presentation fields (titles / checklist / journal / **verdict**)". **The values were not dropped accidentally; they were filtered because that module classifies `verdict` with presentation fields.**
+
+**The classification was defensible when written.** The projection served narrative synthesis, where the swarm's verdict genuinely is presentation — a line in a letter. Nothing then required family identity or an upstream decision.
+
+**What must be determined is whether that classification remains valid now that the aggregation contract has expanded.** If not, **the classification itself — not the projection — is the architectural decision requiring revision.** The projection is a faithful implementation of it.
+
+### 22.5 Every path by which AI-detection reaches an editorial recommendation
+
+**Traced before any exclusion is proposed. There are not two paths; there are five, and one of them invalidates the obvious exclusion key.**
+
+| # | Path | Reaches | Severity |
+|---|---|---|---|
+| 1 | agent `Opinion` → weighted vote → `report.verdict` | `overall_verdict` | n/a (binary) |
+| 2 | swarm opinion → finding (`report.rs:463-484`) | **deterministic recommendation** | **`Major` when `concern`** |
+| 3 | **stylometry → `stylo_finding` (`report.rs:645-662`)** | **deterministic recommendation** | **`Minor`** — counts toward `MINOR_REVISION_THRESHOLD` |
+| 4 | citation-density-unmeasurable (`report.rs:752`) | deterministic recommendation | `Info` — cannot change it |
+| 5 | any of the above in the top-12 → `summary.findings` | **wholesale LLM recommendation** | n/a |
+
+**NOT a path: escalation.** `evidence_record_escalation` (`evidence_store.rs:144-158`) writes `llm_verdict`, `llm_rationale`, `verified`, `gate_flags`, `provider`, `provider_model` — **never `severity`** — and the aggregator ignores `verified` by enforced invariant.
+
+#### The finding this trace produced: `AgentKind::AiDetection` is overloaded
+
+**Two semantically different producers share the label.**
+
+* **Path 2 — the AI-authorship signal.** `ai_detect.rs:41`: *"STATISTICAL SIGNAL ONLY — NOT proof of AI authorship."* Categorically unfit (§21 Step 1).
+* **Path 3 — document-level writing and citation hygiene.** `report.rs:665-673` states the scoping explicitly: *"The AI-AUTHORSHIP tells … are EXCLUDED: they answer 'was this written by a model', which is AI Check's job, not a reviewer's. What is kept answers 'is this well written and consistently cited', which is."*
+
+**The code already declares path 3 reviewer-relevant, and it carries the same `AgentKind`.**
+
+Run 22 contains both: `f1 major "AiDetection: concern"` (path 2) and `f2 minor "lexical diversity deviates from the academic reference"` (path 3).
+
+**Consequence for any exclusion mechanism: excluding by `AgentKind::AiDetection` would also exclude findings the code explicitly documents as belonging in a review.** `AgentKind` remains the right *key* (§21), but it is **not sufficient as the eligibility predicate** for this family — the granularity of the unfitness is finer than the granularity of the key. This is exactly what drawing the complete graph before proposing an exclusion was for.
+
+### 22.6 Chronology, and the absence of stated intent
+
+| Commit | |
+|---|---|
+| `c83d74d` | swarm added — debate, hard-constraint override |
+| `fa773f5` | report compiler wires `outcome.result.answer` into `report.verdict` |
+| `015fbb7` | `reviewer_agent` added |
+| **`d1c4e66`** | Box 4 Stage 1 — **`aggregate_reviewer_verdict` introduced** |
+
+**The swarm resolution came first by a wide margin; the aggregator arrived later, in the Box 4 shadow work.**
+
+**No producer, comment, test or document states their intended relationship.** `d1c4e66`'s message is unusually detailed about the aggregator's contract — severity mapping, zero weights, the `VerificationState` invariant, the invariance test — and **never mentions `report["verdict"]`**. ONTOLOGY does not address it. This document previously mentioned `overall_verdict` only as a payload field the digest does not cover.
+
+### 22.7 Conclusion
+
+**Two decisions over one body of evidence, built years apart for different consumers, with no relationship stated by any producer, comment, test or document.**
+
+They are **not two views of one decision** — different units, different mechanisms, and they diverge in production (§22.3). They are **not one decision and one input to it** — `overall_verdict` is already resolved, and the AI signal already enters both paths, so consuming it would let the same evidence vote twice at two granularities.
+
+**Neither "consume" nor "replace" is supported by the code.**
+
+> **The investigation establishes that the hard-constraint precedence rule is the only element of `overall_verdict` not obviously reproduced by severity aggregation. Whether that rule should become an explicit aggregation input remains an open design question.**
+
+**Not established:** whether the two verdicts have ever disagreed in a way that reached a user. Run 22 is the only report available, and its `shadow_reviewer` was not the authoritative letter, so that divergence was never shown to anyone.
