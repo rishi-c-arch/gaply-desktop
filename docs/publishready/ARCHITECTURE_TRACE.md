@@ -1192,4 +1192,61 @@ Two mechanisms answering two different questions. Neither substitutes for the ot
 
 **Versioning sensitivity is real and is what `schema_version` now exists for.** A full-`summary` hash changes value whenever the payload's *shape* changes — a new field, a reordered object — so hashes are comparable only within a schema version. Run 20 (v1) and run 21 (v2) already demonstrate the boundary the version field is there to mark: v1's *absence* of `shadow_findings_sent` means "not recorded", v2's would mean "zero". The same reading applies to a shape-sensitive hash.
 
-**Scope:** additive to `ShadowComparisonReport` — no runtime behaviour changes, and nothing a user sees. Not implemented; recorded as the design before the retry.
+**Scope:** additive to `ShadowComparisonReport` — no runtime behaviour changes, and nothing a user sees.
+
+---
+
+#### 18.7.1 Serialization findings — checked before implementing
+
+Two properties, and they came out differently.
+
+**DETERMINISTIC — holds.** `serde_json::Map` is a `BTreeMap`: the `preserve_order` feature is not enabled anywhere in the dependency graph, verified with `cargo tree -e features` rather than assumed from the manifest, since features are additive and any crate in the build could have turned it on. Key order is sorted and stable; floats use shortest-round-trip formatting, a pure function of the `f64`. **Equal inputs produce equal bytes.**
+
+Float values differing in low bits between runs are *input* variation, not serializer nondeterminism — and catching that is the point. The `swarm:` weight `0.434` vs `0.437` (§18.1) was invisible to the findings projection and would have been invisible to any hand-written field list.
+
+**CANONICAL ACROSS EVOLUTION — does not hold.** An added or renamed key, a changed `MAX_FINDINGS` / `MAX_CHECKLIST` bound, or a changed `clamp` length all alter the bytes while the logical review is unchanged. One risk class is structurally absent: `summary` is built by the `json!` macro from literal keys, not derived from a struct's field order, so reordering a struct cannot silently reorder the payload.
+
+##### The design risk, answered rather than assumed
+
+> **Could a `summary` field be added without anyone touching `schema_version`? Yes — so `schema_version` cannot be the boundary.**
+
+`SCHEMA_VERSION` lives in `reviewer_harness.rs`; `summary` is built in `reviewer_agent.rs`. Nothing about editing the second brings the first to mind. **A convention that "you should also bump the schema" is not a guarantee**, and the failure is silent: every historical digest quietly stops meaning what it meant.
+
+Hence a **separate `SUMMARY_FORMAT_VERSION`** on the format itself, and — because a doc comment is exactly the kind of instruction that gets missed — an enforcing test:
+
+`summary_shape_is_pinned_to_the_format_version` pins the exact key set at every level (`summary`, `journal`, each finding, each checklist item, `supplementary`). **Adding one field fails it**, and the failure message names the constant and this section. Verified by mutation: inserting a `"mutation_probe"` key into `summary` produced
+
+> *"the summary key set changed. `summary_digest` hashes these bytes, so this invalidates every historical digest: bump SUMMARY_FORMAT_VERSION…"*
+
+**Two version axes, deliberately separate.** `schema_version` versions the comparison record; `summary_format_version` versions the thing being hashed. They may move independently, and both travel inside the record so a digest is never read without its interpretation key.
+
+#### 18.7.2 What was implemented
+
+| Field | Answers |
+|---|---|
+| `findings_projection_digest` | were the same **findings** sent? *(renamed from `wholesale_payload_digest`)* |
+| `summary_digest` | did **anything** change, including what nobody thought to persist? |
+| `summary_format_version` | within which format is `summary_digest` comparable? |
+| `journal_name` | what the reviewer was told the target journal is |
+| `guidelines_url` | which guidelines page scoped the checklist |
+
+**The rename is the third instance** of a name implying more coverage than its producer delivers — after `guidelinesUrl` meaning *publisher website* (§18.6.2) and F1's hardcoded `Critical` meaning *hard constraint* (§16). **Documenting the first two would have left the misleading name at every call site, which is where the misreading happens.** So this one was renamed, not annotated.
+
+**What `summary_digest` hashes, stated precisely** — because "the summary" could name several things here, and leaving that unstated would recreate the very defect this section fixes:
+
+> `serde_json::to_string(&payload["summary"])`, over the **same `Value` handed to `verify_with_envelope`**, after all deterministic preprocessing and immediately before transmission. Not a reconstructed or logically equivalent object.
+
+`reqwest`'s `.json(payload)` serializes that same `Value` with `serde_json`, and `Value` serialization is context-free — an object emits identical bytes nested or standalone. **Two matching `summary_digest`s therefore mean the same reviewer payload representation**, not merely equivalent objects that serialized differently elsewhere. Computed at `commands.rs:688`, beside the projection digest, from the payload variable that was passed to the call.
+
+`journal_name` and `guidelines_url` are typed absence per §4.12: a new `MetricAvailability::NotSupplied` distinguishes *"the user gave none"* from every other unavailability — nothing is broken and no future capability changes it. A silent `""` could not be told apart from *supplied but empty*.
+
+#### 18.7.3 `SCHEMA_VERSION` 2 → 3
+
+Not because fields were added — adding a field is backward-compatible for readers. **Because what the artifact can support changed.** A consumer can now distinguish four cases that were indistinguishable at v2:
+
+* identical finding tuples with **different** summaries
+* identical summaries
+* different target journals
+* different guideline URLs
+
+**Run 20 vs run 21 was exactly that failure:** matching digests were read as "identical input" when the journal differed and was never recorded. Same test as the `shadow_findings_sent` bump — the meaning of the record changed, not merely its field count.

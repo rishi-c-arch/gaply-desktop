@@ -685,7 +685,17 @@ pub async fn run_publishready(
                 }),
                 wholesale: &reviewer,
                 wholesale_findings_sent: sent_ids.findings.len(),
-                wholesale_payload_digest: &reviewer_agent::payload_digest(&proxy_payload),
+                // Both digests over the SAME `proxy_payload` Value that was
+                // handed to `verify_with_envelope` above — not a rebuilt or
+                // equivalent object, so `summary_digest` corresponds to the
+                // reviewer's actual input representation.
+                findings_projection_digest: &reviewer_agent::findings_projection_digest(
+                    &proxy_payload,
+                ),
+                summary_digest: &reviewer_agent::summary_digest(&proxy_payload),
+                summary_format_version: reviewer_agent::SUMMARY_FORMAT_VERSION,
+                journal_name: Some(journal.name.as_str()),
+                guidelines_url: guidelines_url.as_deref(),
                 timing: HarnessTiming {
                     shadow: Some(shadow_elapsed),
                     wholesale: Some(wholesale_elapsed),

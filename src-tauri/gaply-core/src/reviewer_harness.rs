@@ -55,6 +55,11 @@ pub enum MetricAvailability {
     /// was produced to compare against. TYPED ABSENCE: the record still exists
     /// and says so, rather than the run leaving no record at all.
     ShadowSynthesisUnavailable,
+    /// An OPTIONAL input the user did not supply. Distinct from every variant
+    /// above: nothing is missing or broken and no future capability would change
+    /// it — the run genuinely had no such value. `guidelines_url` is the case.
+    /// A silent empty string would be indistinguishable from "supplied, empty".
+    NotSupplied,
 }
 
 /// A metric that cannot exist without its provenance. `Observed` binds a value
@@ -99,11 +104,12 @@ pub struct ProxyMeta {
 
 /// # Reading this record: what proves the proxy call succeeded
 ///
-/// **`wholesale_payload_digest` and `wholesale_findings_sent` are
-/// `DeterministicLocal`.** They describe what was SENT, computed in-process
-/// before any call, so both are `Observed` on a run where the proxy was
-/// unreachable exactly as on a successful one. **A populated digest is not
-/// evidence of a successful call** — it proves only that a payload was built.
+/// **`findings_projection_digest`, `summary_digest`, `wholesale_findings_sent`,
+/// `journal_name` and `guidelines_url` are `DeterministicLocal`.** They describe
+/// what was SENT, computed in-process before any call, so all are `Observed` on
+/// a run where the proxy was unreachable exactly as on a successful one. **A
+/// populated digest is not evidence of a successful call** — it proves only that
+/// a payload was built.
 ///
 /// The fields gated on `wholesale.available`, and therefore the only ones that
 /// evidence a live call, are `wholesale_recommendation`,
@@ -169,8 +175,22 @@ pub struct HarnessInputs<'a> {
     /// Findings actually forwarded to the wholesale reviewer — the counterpart of
     /// `ShadowInputs::findings_sent`, which existed without it.
     pub wholesale_findings_sent: usize,
-    /// sha256 over the ordered payload tuples (`reviewer_agent::payload_digest`).
-    pub wholesale_payload_digest: &'a str,
+    /// sha256 over the ordered `(id, severity, title)` tuples ONLY
+    /// (`reviewer_agent::findings_projection_digest`).
+    pub findings_projection_digest: &'a str,
+    /// sha256 over the ENTIRE serialized `summary` sent to the reviewer
+    /// (`reviewer_agent::summary_digest`). Comparable only within
+    /// `summary_format_version`.
+    pub summary_digest: &'a str,
+    /// `reviewer_agent::SUMMARY_FORMAT_VERSION` at the time of the run.
+    pub summary_format_version: u32,
+    /// Target journal name as sent in `summary.journal.name`. Named because it
+    /// reaches the model, is outside the findings projection, and was the
+    /// uncontrolled confound in the run 20 / run 21 pair (§18.1).
+    pub journal_name: Option<&'a str>,
+    /// The author-guidelines URL this run used, or `None` when the user supplied
+    /// none. Optional by design — recorded as `NotSupplied`, never `""`.
+    pub guidelines_url: Option<&'a str>,
     pub timing: HarnessTiming,
     pub proxy_meta: Option<ProxyMeta>,
 }
@@ -200,7 +220,22 @@ pub struct ShadowComparisonReport {
     /// one side of the comparison reached the record.
     pub shadow_findings_sent: Metric<usize>,
     pub wholesale_findings_sent: Metric<usize>,
-    pub wholesale_payload_digest: Metric<String>,
+    /// Digest of a PROJECTION of `summary.findings` — `(id, severity, title)`
+    /// only. Renamed from `wholesale_payload_digest`, which read as a digest of
+    /// the payload and was misread that way (§18.3).
+    pub findings_projection_digest: Metric<String>,
+    /// Digest of the WHOLE serialized `summary`. Answers "did anything change at
+    /// all", including fields nobody thought to persist. Compare only between
+    /// records sharing `summary_format_version`.
+    pub summary_digest: Metric<String>,
+    /// Format version of the hashed `summary`. A SEPARATE axis from
+    /// `schema_version`: that versions this record, this versions the thing
+    /// being hashed, and they may move independently.
+    pub summary_format_version: u32,
+    /// What the reviewer was told the target journal is.
+    pub journal_name: Metric<String>,
+    /// The guidelines URL this run used. `NotSupplied` when the user gave none.
+    pub guidelines_url: Metric<String>,
     pub wholesale_publication_probability: Metric<f64>,
     pub recommendation_agreement: Metric<bool>,
     pub shadow_grounded_issues: Metric<usize>,
@@ -220,15 +255,26 @@ pub struct ShadowComparisonReport {
     pub stop_reason: Metric<String>,
 }
 
-/// Bumped to 2 when `shadow_findings_sent` was persisted.
+/// Version of THIS RECORD. Distinct from
+/// `reviewer_agent::SUMMARY_FORMAT_VERSION`, which versions the reviewer input
+/// being hashed — two axes that may move independently.
 ///
 /// NOT for parser compatibility — adding a field is backward-compatible for
-/// readers. The bump is because the MEANING OF ABSENCE changed. A record lacking
-/// `shadow_findings_sent` at version 1 is ambiguous: absent because the shadow
-/// path did not run, or absent because the writer predated the field. At
-/// version 2 only the first reading is possible. §4.12 applied to the artifact's
-/// own schema, closed while exactly one record existed.
-const SCHEMA_VERSION: u32 = 2;
+/// readers. Each bump marks a change in **what conclusions the artifact
+/// supports**.
+///
+/// * **1 → 2** — `shadow_findings_sent` persisted. The MEANING OF ABSENCE
+///   changed: at v1 a missing value is ambiguous (the shadow path did not run,
+///   or the writer predated the field); at v2 only the first reading is
+///   possible. §4.12 applied to the artifact's own schema.
+/// * **2 → 3** — `summary_digest`, `journal_name` and `guidelines_url` added and
+///   `wholesale_payload_digest` renamed to `findings_projection_digest`. A
+///   consumer can now distinguish identical finding tuples with DIFFERENT
+///   summaries, identical summaries, different target journals and different
+///   guideline URLs. At v2 those four cases were indistinguishable, and run 20
+///   vs run 21 was exactly that failure: matching digests were read as
+///   "identical input" when the journal differed and was never recorded.
+const SCHEMA_VERSION: u32 = 3;
 
 /// Count the gate's dropped-hallucination warnings (the `potential_hallucination`
 /// prefix pushed by both reviewer gates).
@@ -378,9 +424,23 @@ pub fn build_comparison_report(inp: &HarnessInputs) -> ShadowComparisonReport {
             .map(|s| Metric::observed(s.findings_sent, DeterministicLocal))
             .unwrap_or_else(no_shadow),
         wholesale_findings_sent: Metric::observed(inp.wholesale_findings_sent, DeterministicLocal),
-        wholesale_payload_digest: Metric::observed(
-            inp.wholesale_payload_digest.to_string(),
+        findings_projection_digest: Metric::observed(
+            inp.findings_projection_digest.to_string(),
             DeterministicLocal,
+        ),
+        summary_digest: Metric::observed(inp.summary_digest.to_string(), DeterministicLocal),
+        summary_format_version: inp.summary_format_version,
+        // Typed absence, not "": an empty string cannot be told apart from a
+        // supplied-but-blank value, and the two support different conclusions.
+        journal_name: opt_metric(
+            inp.journal_name.map(str::to_string),
+            DeterministicLocal,
+            MetricAvailability::NotSupplied,
+        ),
+        guidelines_url: opt_metric(
+            inp.guidelines_url.map(str::to_string),
+            DeterministicLocal,
+            MetricAvailability::NotSupplied,
         ),
         wholesale_publication_probability,
         recommendation_agreement,
@@ -450,7 +510,11 @@ impl ShadowComparisonReport {
             metric_line("wholesale_recommendation", &self.wholesale_recommendation),
             metric_line("shadow_findings_sent", &self.shadow_findings_sent),
             metric_line("wholesale_findings_sent", &self.wholesale_findings_sent),
-            metric_line("wholesale_payload_digest", &self.wholesale_payload_digest),
+            metric_line("findings_projection_digest", &self.findings_projection_digest),
+            metric_line("summary_digest", &self.summary_digest),
+            format!("| summary_format_version | {} | — |", self.summary_format_version),
+            metric_line("journal_name", &self.journal_name),
+            metric_line("guidelines_url", &self.guidelines_url),
             metric_line("wholesale_publication_probability", &self.wholesale_publication_probability),
             metric_line("recommendation_agreement", &self.recommendation_agreement),
             metric_line("shadow_grounded_issues", &self.shadow_grounded_issues),
@@ -527,7 +591,11 @@ mod tests {
             }),
             wholesale,
             wholesale_findings_sent: 4,
-            wholesale_payload_digest: "test-digest",
+            findings_projection_digest: "test-digest",
+            summary_digest: "test-summary-digest",
+            summary_format_version: crate::reviewer_agent::SUMMARY_FORMAT_VERSION,
+            journal_name: Some("Test Journal"),
+            guidelines_url: Some("http://journal.test/guidelines"),
             timing: HarnessTiming::default(),
             proxy_meta: None,
         }
@@ -552,10 +620,20 @@ mod tests {
         let report = build_comparison_report(&inputs(&sh, &bd, true, &wh));
         let v = serde_json::to_value(&report).unwrap();
         for (k, val) in v.as_object().unwrap() {
-            // Identity fields are NOT metrics: they carry no provenance and no
-            // availability because they are not observations about the run, they
-            // are what the run is ABOUT. Everything else must be a Metric.
-            if matches!(k.as_str(), "run_id" | "schema_version" | "manuscript_sha256" | "recorded_at") {
+            // Identity and format fields are NOT metrics: they carry no
+            // provenance and no availability because they are not observations
+            // about the run — they are what the run is ABOUT, or how to read the
+            // record. `summary_format_version` joins `schema_version` on the
+            // second ground: it is the interpretation key for `summary_digest`,
+            // not a measurement. Everything else must be a Metric.
+            if matches!(
+                k.as_str(),
+                "run_id"
+                    | "schema_version"
+                    | "summary_format_version"
+                    | "manuscript_sha256"
+                    | "recorded_at"
+            ) {
                 continue;
             }
             assert!(val.get("status").is_some(), "{k} missing status");
@@ -726,8 +804,7 @@ mod tests {
         let report = build_comparison_report(&inputs(&sh, &bd, false, &wh));
         let mut got = observed_fields(&report);
         got.sort();
-        // wholesale_findings_sent and wholesale_payload_digest are
-        // DeterministicLocal: what we SENT and how many, computed in-process.
+        // The what-we-SENT metrics are DeterministicLocal, computed in-process.
         // Observable with the proxy down — only what came BACK needs a live call.
         let mut want = vec![
             "finding_breakdown".to_string(),
@@ -737,7 +814,10 @@ mod tests {
             "shadow_findings_sent".to_string(),
             "wholesale_findings_sent".to_string(),
             "wholesale_path_available".to_string(),
-            "wholesale_payload_digest".to_string(),
+            "findings_projection_digest".to_string(),
+            "summary_digest".to_string(),
+            "journal_name".to_string(),
+            "guidelines_url".to_string(),
         ];
         want.sort();
         assert_eq!(got, want, "offline report observed exactly the deterministic metrics + flags");

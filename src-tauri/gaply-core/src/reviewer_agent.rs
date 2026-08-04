@@ -340,20 +340,61 @@ fn build_supplementary(supplementary: &[Value]) -> (Value, Vec<String>) {
 /// report JSON + (untrusted) supplementary evidence. Returns `(payload,
 /// sent_ids)` — the ids let the gate check the reply against exactly what we
 /// sent (findings/supplementary ground issues; all three ground the soft fields).
+/// Serialization-format version of the `summary` object that
+/// [`summary_digest`] hashes.
+///
+/// # This exists because `SCHEMA_VERSION` cannot be the boundary
+///
+/// `reviewer_harness::SCHEMA_VERSION` versions the *comparison record*. The
+/// `summary` is built here, in a different module, with no link to it — so a
+/// field could be added to `summary` without anyone touching the harness, and
+/// every historical `summary_digest` would silently stop being comparable. A
+/// convention that "you should also bump the schema" is not a guarantee.
+///
+/// **Two version axes, deliberately separate:** `SCHEMA_VERSION` describes the
+/// record; this describes the thing being hashed. They may move independently.
+///
+/// # The bump obligation, and what enforces it
+///
+/// **Bump this whenever the serialized bytes of `summary` can change for a
+/// logically unchanged review** — an added or renamed key, a changed
+/// `MAX_FINDINGS` / `MAX_CHECKLIST` bound, a changed [`clamp`] length, a
+/// different numeric representation.
+///
+/// The obligation is enforced by `summary_shape_is_pinned_to_the_format_version`,
+/// which pins the exact key set at every level. Adding a field fails that test,
+/// and its message names this constant.
+pub const SUMMARY_FORMAT_VERSION: u32 = 1;
+
 /// sha256 over the ORDERED `(id, severity, title)` tuples actually forwarded to
 /// the wholesale reviewer.
 ///
-/// Answers "was the model given the same input?" — a question the severity
-/// COUNTS cannot answer, because a count is a property of a set's size and not
-/// of its membership. Two runs can share a `SeverityByStateCounts` breakdown
-/// while carrying entirely different findings, so without this a change in the
+/// # Scope — read the name literally
+///
+/// This is a digest of a **projection of one field**: `summary.findings`,
+/// reduced to those three keys. It does **not** cover `summary.checklist`,
+/// `summary.journal`, `summary.overall_verdict`, `summary.supplementary`,
+/// `summary.findings_omitted`, or the per-finding `evidence` arrays — all of
+/// which the model sees. Use [`summary_digest`] for "did anything change at
+/// all". The two are complementary and neither replaces the other.
+///
+/// Renamed from `payload_digest`: that name read as a digest of the payload and
+/// was misread exactly that way, producing a "byte-identical input" conclusion
+/// the instrument never supported (ARCHITECTURE_TRACE §18.3).
+///
+/// # What it answers
+///
+/// "Was the model given the same FINDINGS?" — a question the severity COUNTS
+/// cannot answer, because a count is a property of a set's size and not of its
+/// membership. Two runs can share a `SeverityByStateCounts` breakdown while
+/// carrying entirely different findings, so without this a change in the
 /// wholesale recommendation is unattributable: model drift and a change in the
 /// findings look identical.
 ///
 /// Carries no manuscript text. `title` is already the payload's title, which is
 /// the finding headline — `detail`, the field holding manuscript excerpts, is
-/// never read into the payload (see `build_review_payload`).
-pub fn payload_digest(payload: &Value) -> String {
+/// never read into the payload (see [`build_review_payload`]).
+pub fn findings_projection_digest(payload: &Value) -> String {
     use sha2::{Digest, Sha256};
     let empty: Vec<Value> = Vec::new();
     let mut h = Sha256::new();
@@ -365,6 +406,56 @@ pub fn payload_digest(payload: &Value) -> String {
         h.update(f["title"].as_str().unwrap_or("").as_bytes());
         h.update(b"\n");
     }
+    format!("{:x}", h.finalize())
+}
+
+/// sha256 over the **entire serialized `summary` object** — the exact bytes the
+/// wholesale reviewer is given.
+///
+/// # Precisely what is hashed
+///
+/// `serde_json::to_string(&payload["summary"])`, taken from the SAME `Value`
+/// that is handed to `ProxyClient::verify_with_envelope`, after all
+/// deterministic preprocessing (clamping, the `MAX_FINDINGS` / `MAX_CHECKLIST`
+/// bounds, structured-provenance filtering) and immediately before transmission.
+/// **Not a reconstructed or logically equivalent object.**
+///
+/// `reqwest`'s `.json(payload)` serializes that same `Value` with `serde_json`,
+/// and `Value` serialization is context-free — an object emits identical bytes
+/// nested or standalone — so this digest corresponds to the `summary` sub-object
+/// as it appears on the wire. **Two matching `summary_digest`s therefore mean
+/// the same reviewer payload representation, not merely equivalent objects.**
+///
+/// The proxy forwards only `summary` + `instruction` to the model, and
+/// `instruction` is the compile-time constant [`REVIEWER_INSTRUCTION`], so
+/// `summary` is the entire per-run reviewer input.
+///
+/// # Determinism
+///
+/// `serde_json::Map` is a `BTreeMap` (the `preserve_order` feature is not
+/// enabled anywhere in the dependency graph), so key order is sorted and stable;
+/// floats use `serde_json`'s shortest round-trip formatting, which is a pure
+/// function of the `f64`. Equal inputs therefore produce equal bytes.
+///
+/// Float values that differ in their low bits between runs are **input**
+/// variation, not serializer nondeterminism — and catching exactly that is the
+/// point: the `swarm:` provenance weight `0.434` vs `0.437` (§18.1) was invisible
+/// to [`findings_projection_digest`] and would have been invisible to any list of
+/// fields someone thought to persist.
+///
+/// # Comparability
+///
+/// **Only within a [`SUMMARY_FORMAT_VERSION`].** The serializer is deterministic
+/// today but not canonical across evolution — adding a key changes the bytes
+/// while the logical review is unchanged. Record the version beside the digest
+/// and refuse to compare across versions.
+pub fn summary_digest(payload: &Value) -> String {
+    use sha2::{Digest, Sha256};
+    // `Value::Null` when absent — serializes to "null", a stable sentinel that
+    // is distinguishable from an empty object and never panics.
+    let bytes = serde_json::to_string(&payload["summary"]).unwrap_or_else(|_| "null".to_string());
+    let mut h = Sha256::new();
+    h.update(bytes.as_bytes());
     format!("{:x}", h.finalize())
 }
 
@@ -1326,6 +1417,99 @@ mod tests {
         let (payload, _sent) =
             build_review_payload(&report_with_sentinel(), &journal(), &[], "run-xyz");
         assert_eq!(payload["run_id"], "run-xyz");
+    }
+
+    /// THE enforcement for `SUMMARY_FORMAT_VERSION`. `summary_digest` hashes the
+    /// serialized `summary`, so ANY key added, removed or renamed at ANY level
+    /// changes the bytes for a logically unchanged review and silently
+    /// invalidates every historical digest.
+    ///
+    /// Project convention cannot carry that obligation: the harness's
+    /// `SCHEMA_VERSION` lives in another module, and nothing about editing this
+    /// file forces a reader to think about it. This test does — it fails on the
+    /// edit itself.
+    #[test]
+    fn summary_shape_is_pinned_to_the_format_version() {
+        let supp = json!({"filename": "s.csv", "kind": "table", "rows": 3, "columns": 2, "note": ""});
+        let (payload, _sent) =
+            build_review_payload(&report_with_sentinel(), &journal(), &[supp], "run-test");
+        let summary = &payload["summary"];
+
+        let keys = |v: &Value| -> Vec<String> {
+            let mut k: Vec<String> =
+                v.as_object().expect("object").keys().cloned().collect();
+            k.sort();
+            k
+        };
+        let bump = |what: &str| {
+            format!(
+                "{what} changed. `summary_digest` hashes these bytes, so this \
+                 invalidates every historical digest: bump SUMMARY_FORMAT_VERSION \
+                 (reviewer_agent.rs) and update this pin. See ARCHITECTURE_TRACE §18.7."
+            )
+        };
+
+        assert_eq!(
+            keys(summary),
+            ["checklist", "findings", "findings_omitted", "journal", "overall_verdict", "supplementary"],
+            "{}", bump("the summary key set")
+        );
+        assert_eq!(keys(&summary["journal"]), ["name", "quartile"], "{}", bump("summary.journal"));
+        assert_eq!(
+            keys(&summary["findings"][0]),
+            ["agent", "confidence", "evidence", "id", "severity", "tier", "title"],
+            "{}", bump("a summary.findings entry")
+        );
+        assert_eq!(
+            keys(&summary["checklist"][0]),
+            ["id", "passed", "requirement"],
+            "{}", bump("a summary.checklist entry")
+        );
+        assert_eq!(
+            keys(&summary["supplementary"]),
+            ["items", "note", "present"],
+            "{}", bump("summary.supplementary")
+        );
+        assert_eq!(SUMMARY_FORMAT_VERSION, 1, "{}", bump("the pinned shape"));
+    }
+
+    /// The two digests answer different questions and must not be conflated: the
+    /// projection is blind to everything outside `(id, severity, title)`.
+    #[test]
+    fn summary_digest_sees_what_the_findings_projection_cannot() {
+        let (mut payload, _s) =
+            build_review_payload(&report_with_sentinel(), &journal(), &[], "run-test");
+        let proj_before = findings_projection_digest(&payload);
+        let sum_before = summary_digest(&payload);
+
+        // Change something real that the model sees and the projection ignores:
+        // a per-finding evidence string (the §18.1 case — a swarm weight).
+        payload["summary"]["findings"][0]["evidence"] = json!(["swarm:round-table (weight 0.437)"]);
+
+        assert_eq!(
+            findings_projection_digest(&payload),
+            proj_before,
+            "the projection covers (id, severity, title) ONLY — it must not notice this"
+        );
+        assert_ne!(
+            summary_digest(&payload),
+            sum_before,
+            "summary_digest must notice ANY change to what the reviewer is given"
+        );
+    }
+
+    /// Deterministic within a format version: equal inputs, equal bytes, equal
+    /// digest — the property that makes two records comparable at all.
+    #[test]
+    fn summary_digest_is_stable_across_identical_builds() {
+        let a = build_review_payload(&report_with_sentinel(), &journal(), &[], "run-test").0;
+        let b = build_review_payload(&report_with_sentinel(), &journal(), &[], "run-test").0;
+        assert_eq!(summary_digest(&a), summary_digest(&b), "same input -> same digest");
+        assert_eq!(summary_digest(&a).len(), 64, "lowercase hex sha256");
+        // `run_id` is OUTSIDE `summary`, so it must not move the digest — two runs
+        // of the same review are comparable even though their ids differ.
+        let c = build_review_payload(&report_with_sentinel(), &journal(), &[], "run-OTHER").0;
+        assert_eq!(summary_digest(&a), summary_digest(&c), "run_id is not part of summary");
     }
 
     #[test]

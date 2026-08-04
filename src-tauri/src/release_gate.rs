@@ -336,7 +336,11 @@ mod tests {
             }),
             wholesale: &ev,
             wholesale_findings_sent: 8,
-            wholesale_payload_digest: "d",
+            findings_projection_digest: "d",
+            summary_digest: "s",
+            summary_format_version: gaply_core::reviewer_agent::SUMMARY_FORMAT_VERSION,
+            journal_name: Some("J"),
+            guidelines_url: None,
             timing: HarnessTiming::default(),
             proxy_meta: None,
         });

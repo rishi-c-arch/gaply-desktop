@@ -41,9 +41,10 @@
 //!    any absence as signal.
 //! 4. Verify it contains **exactly one** parseable JSONL record.
 //! 5. Verify `wholesale_recommendation` and `recommendation_agreement` are
-//!    `Observed` — **NOT** merely that `wholesale_payload_digest` exists. The
-//!    digest is `DeterministicLocal` and is populated even when the proxy was
-//!    unreachable, so it cannot evidence a live call (see
+//!    `Observed` — **NOT** merely that a digest exists. Both
+//!    `findings_projection_digest` and `summary_digest` are
+//!    `DeterministicLocal` and are populated even when the proxy was
+//!    unreachable, so neither can evidence a live call (see
 //!    `reviewer_harness::HarnessInputs` docs).
 //! 6. Freeze that record as **"pre-promotion operational baseline (n=1)"** —
 //!    never "baseline" alone, never "agreement baseline".
@@ -208,7 +209,11 @@ mod tests {
             }),
             wholesale: ev,
             wholesale_findings_sent: 3,
-            wholesale_payload_digest: "digest-abc",
+            findings_projection_digest: "digest-abc",
+            summary_digest: "summary-abc",
+            summary_format_version: gaply_core::reviewer_agent::SUMMARY_FORMAT_VERSION,
+            journal_name: Some("Test Journal"),
+            guidelines_url: None, // exercises the NotSupplied path
             timing: HarnessTiming::default(),
             proxy_meta: None,
         })
@@ -235,8 +240,20 @@ mod tests {
         );
         assert_eq!(v["recommendation_agreement"]["requires"], "shadow_synthesis_unavailable");
         // What we SENT is still recorded — it does not depend on the shadow side.
-        assert_eq!(v["wholesale_payload_digest"]["value"], "digest-abc");
+        assert_eq!(v["findings_projection_digest"]["value"], "digest-abc");
+        assert_eq!(v["summary_digest"]["value"], "summary-abc");
         assert_eq!(v["wholesale_findings_sent"]["value"], 3);
+        assert_eq!(v["journal_name"]["value"], "Test Journal");
+        // The optional input the user did not supply: typed absence with its own
+        // reason, never a silent "". `not_supplied` is distinguishable from every
+        // other unavailability — nothing is broken and no future capability
+        // changes it (§4.12).
+        assert_eq!(v["guidelines_url"]["status"], "unavailable");
+        assert_eq!(v["guidelines_url"]["requires"], "not_supplied");
+        // The interpretation key for summary_digest travels WITH it — a digest
+        // without its format version is not comparable to anything.
+        assert_eq!(v["summary_format_version"], 1);
+        assert_eq!(v["schema_version"], 3);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
