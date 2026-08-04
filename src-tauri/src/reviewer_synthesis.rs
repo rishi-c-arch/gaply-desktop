@@ -319,7 +319,16 @@ mod tests {
         assert_eq!(parse_agent("verification"), Some(AgentKind::Verification));
     }
 
-    /// PR-3's blast radius on the ONE real report available.
+    /// SYNTHETIC. Constructed to exercise the claim filter across the shapes it
+    /// must distinguish — **not drawn from any run**, and it must not be read as
+    /// evidence about one.
+    ///
+    /// The three findings are chosen so each carve-out is load-bearing: one
+    /// `AuthorshipSignal` Major (removing it must drop the Major tier to zero),
+    /// one `ProcessState` Minor and one `ManuscriptDefect` Minor (removing only
+    /// the first must leave exactly one Minor, below
+    /// `MINOR_REVISION_THRESHOLD`). A filter that excluded neither, either, or
+    /// both incorrectly changes the outcome.
     ///
     /// This test was `pr1_identity_does_not_change_the_recommendation`, and it
     /// asserted `MajorRevision` with `minor.total() == 2` — noting in its own
@@ -327,12 +336,12 @@ mod tests {
     /// PR-3 changes". **PR-3 flipped it, which is the pin working**: the change
     /// was detected by an assertion written before it, not discovered after.
     ///
-    /// The fixture mirrors run 22's decisive shape: one `AuthorshipSignal` Major
-    /// (f1), one `ProcessState` Minor (f4/f5's kind), one `ManuscriptDefect`
-    /// Minor (f3's kind). §23.4 measured `MajorRevision` -> `Accept` when both
-    /// carve-outs are excluded, and that is what must happen here.
+    /// An earlier version of this comment said the fixture "mirrors run 22's
+    /// decisive shape". That was false — the shape came from `report:v2:21`, a
+    /// different manuscript (ARCHITECTURE_TRACE §23.4.1). A regression test must
+    /// not imply provenance it does not have, so it now claims none.
     #[test]
-    fn pr3_excludes_process_and_authorship_claims_from_the_verdict() {
+    fn synthetic_pr3_claim_filter_case() {
         use gaply_core::reviewer_agent::aggregate_reviewer_verdict;
         let db = Database::in_memory().unwrap();
         let run_id = "run-pr3";
