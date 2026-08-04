@@ -237,6 +237,37 @@ describe('H4 · target-journal guidelines', () => {
     expect(note.textContent).toMatch(/only the structural checks/i);
     // and NO fabricated "guidelines available" FAIL row (Set 1's honest degradation)
     expect(screen.queryByText(/guidelines available/i)).toBeNull();
+    // No URL was supplied, so the wrong-page message must NOT appear.
+    expect(screen.queryByTestId('checklist-guidelines-empty')).toBeNull();
+  });
+
+  it('a supplied URL that yields no requirements says THAT, not "none were provided"', async () => {
+    // The journal-homepage case: ingestion succeeds and reports a plausible
+    // chunk count while contributing zero requirements. Saying "no guidelines
+    // were provided" would be false — the user did provide one.
+    // ARCHITECTURE_TRACE §18.6.2.
+    const url = 'https://www.bmj.com';
+    renderPR({ forceTier: 'premium', bridge: makePublishReadyMock(REPORT_NO_GUIDELINES) });
+    await reachRunnable();
+    fireEvent.change(screen.getByTestId('pr-guidelines-input'), { target: { value: url } });
+    fireEvent.click(screen.getByTestId('pr-run'));
+    await screen.findByTestId('publishready');
+    fireEvent.click(await screen.findByTestId('tab-Checklist'));
+
+    const note = await screen.findByTestId('checklist-guidelines-empty');
+    // The claim is scoped to OUR detector coverage, not to the page's content —
+    // a genuine guidelines page requiring no structured abstract and using
+    // author-date citations also yields zero hits, and must not be told to go
+    // find a different page.
+    expect(note.textContent).toMatch(/requirements that Gaply currently detects/i);
+    // Observation and interpretation stay separate, with BOTH explanations named
+    // and neither asserted as fact.
+    expect(note.textContent).toMatch(/this may mean/i);
+    expect(note.textContent).toMatch(/journal homepage/i);
+    expect(note.textContent).toMatch(/Gaply does not yet detect/i);
+    // The two empty states are mutually exclusive — the "none provided" claim
+    // is false here and must not also render.
+    expect(screen.queryByTestId('checklist-no-guidelines')).toBeNull();
   });
 
   it('checklist hides the note when guideline-derived items exist', async () => {

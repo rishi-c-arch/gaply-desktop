@@ -1112,6 +1112,43 @@ A rename that had not separated these would have renamed correct code. Consumers
 
 **This is worse than an empty field, and that is the point.** Blank means guidelines are skipped and the checklist is visibly structural. A homepage ingests successfully, reports a plausible non-zero chunk count, and yields a checklist indistinguishable from the blank case — **a silent failure wearing the appearance of a working feature.**
 
+#### 18.6.3 Reporting a wrong page — the durable half
+
+Removing the prefill only helps because the field ends up empty. **It does nothing for a wrong URL the user pastes by hand**, which is the case that survives it. The fix is to say what was actually found:
+
+> *"That page was fetched successfully, but none of the guideline requirements that Gaply currently detects were found. This may mean the URL points to a journal homepage rather than an author-guidelines page, or that the page contains requirements Gaply does not yet detect."*
+
+#### The wording scopes the claim to detector coverage, not to the page
+
+**Only three detectors exist** — `"structured abstract"`, `"conflict"`, `"vancouver" | "numbered"` (`report.rs:1232,1247,1260`). **A genuine author-guidelines page stating none of those produces zero hits.** Many journals require no structured abstract, and plenty use author-date rather than numbered citations. An earlier draft read *"it may be a journal homepage rather than the guidelines"* — which would have sent that user hunting for a page that does not exist.
+
+Two properties make the replacement honest:
+
+* **It scopes the claim to our coverage rather than the page's content.** *"Requirements that Gaply currently detects"* cannot be read as *"the page has no requirements"*, and it accommodates future detectors without becoming wrong.
+* **It separates observation from interpretation.** Zero detector matches is what was measured; everything after *"this may mean"* is explicitly hypothesis. Both explanations are named and neither is privileged.
+
+**This is §4.14 avoided rather than committed** — a correct absence, with a cause that would have misdirected the remedy.
+
+**The deciding argument is the dependency graph, not single-source-of-truth.** The warning depends on a guideline-derived count produced by `checklist_from_guidelines` (`report.rs:1169`), which requires an `ExtractionResult` — and no such thing exists while a URL is being fetched. Once that holds, running detectors at ingest time is not *"more immediate"*; it is *"must duplicate or approximate later logic"*. The chosen approach computes the fact **once, where its inputs already exist.**
+
+#### The design survived its own plumbing error
+
+The proposal was to thread a guideline-derived count out of `run_pipeline_inner`. That turned out to be unnecessary. **The choice between options 1, 2 and 3 was decided by the dependency graph, which does not depend on the plumbing estimate** — so being wrong about the mechanics did not invalidate the option chosen. Worth recording as a property of the reasoning, not a lucky escape: an argument resting on a structural constraint survives an incorrect implementation forecast, where one resting on effort would not have.
+
+**The plumbing was smaller than the design assumed.** `ChecklistItem.guideline_source` (`report.rs:167`) is already serialized and already reaches the render site — `ReportViewerPage.tsx` reads it for the existing empty state. No Rust change and no new count were needed; the report on the wire already carried the answer. What was missing was one bit the report cannot know: **whether a URL was supplied at all.**
+
+**Two empty states, not one.** The existing message says *"No target-journal guidelines were provided"* — **false when the user did provide one and it yielded nothing**, which is exactly what a homepage produces. `ChecklistView` now distinguishes them, and the two are mutually exclusive.
+
+`PublishReadyPage` holds the URL of the **completed run** separately from the input field, which the user may edit afterwards: the message describes the run that produced the report, not the current form state.
+
+**`GuidelinesReport.note` is unchanged.** It keeps saying only what ingestion can honestly know — that bytes landed. The §4.14 correction is to answer the user's question *somewhere*, not to make ingestion claim knowledge it does not have.
+
+##### Revisit condition
+
+> **Revisit extracting a shared guideline-analysis engine when multiple consumers need guideline-only predicates independently of manuscript evaluation.**
+
+Stated structurally rather than by detector count, because the trigger is a second independent consumer, not a third detector.
+
 #### Confirmation for the retry: the URL must be typed in
 
 The field starts empty (`PublishReadyPage.tsx:100`, `useState('')`) and is optional — blank runs structural checks only. But it **does not stay empty once a journal is picked**: selecting one overwrites it with that journal's homepage. So the correct sequence is **pick the journal first, then replace the prefilled URL** with the real guidelines URL:

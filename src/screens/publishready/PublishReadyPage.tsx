@@ -94,11 +94,15 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
   const prInputRef = useRef<HTMLInputElement>(null);
   const [journalQuery, setJournalQuery] = useState('');
   const [journal, setJournal] = useState<TargetJournal | null>(null);
-  // H4: the target journal's author-guidelines URL. Prefilled from the picked
-  // journal's known URL (user-editable) so the checklist can cross-reference the
-  // REAL guidelines. `guidelinesNote` surfaces the honest ingest outcome.
+  // H4: the target journal's author-guidelines URL, supplied by the user — NOT
+  // prefilled (§18.6.2: the directory carries websites, not guidelines pages).
+  // `guidelinesNote` surfaces the honest ingest outcome.
   const [guidelinesUrl, setGuidelinesUrl] = useState('');
   const [guidelinesNote, setGuidelinesNote] = useState<string | null>(null);
+  // The URL the COMPLETED run actually used. Held separately from the input
+  // above, which the user may edit after a run: the checklist's empty state
+  // describes the run that produced the report, not the current form state.
+  const [ranGuidelinesUrl, setRanGuidelinesUrl] = useState<string | null>(null);
   const [result, setResult] = useState<PublishReadyResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -149,6 +153,7 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
       // quarantined page just leaves the checklist structural-only (Set 1's honest
       // degradation) — it NEVER blocks the review.
       const url = guidelinesUrl.trim();
+      setRanGuidelinesUrl(url || null);
       if (url) {
         try {
           const ing = await b.ingestGuidelines({ guidelinesUrl: url });
@@ -272,6 +277,7 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
                 report={result.report}
                 tabs={PR_TABS}
                 bare
+                guidelinesUrl={ranGuidelinesUrl ?? undefined}
                 reviewerLetter={<ReviewerLetterPanel letter={result.reviewerLetter} />}
               />
             </div>

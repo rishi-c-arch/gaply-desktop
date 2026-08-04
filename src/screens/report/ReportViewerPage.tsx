@@ -64,6 +64,10 @@ export interface ReportViewerPageProps {
   bare?: boolean;
   /** Content for the paid "Reviewer Letter" tab (F10 PublishReady). */
   reviewerLetter?: React.ReactNode;
+  /** The author-guidelines URL this run actually used, when one was supplied.
+   *  Only the checklist's empty state reads it, and only to tell two cases
+   *  apart: no URL given, versus a URL given that yielded no requirements. */
+  guidelinesUrl?: string;
 }
 
 function statusForSection(findings: Finding[], section: string): BadgeStatus | 'neutral' {
@@ -82,6 +86,7 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
   title = 'Integrity report',
   bare = false,
   reviewerLetter,
+  guidelinesUrl,
 }) => {
   const { session } = useGaplySession();
   const { toast } = useToast();
@@ -198,7 +203,7 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
           >
             <Panel title={tab}>
               {tab === 'Checklist' ? (
-                <ChecklistView items={report.checklist} />
+                <ChecklistView items={report.checklist} guidelinesUrl={guidelinesUrl} />
               ) : tab === 'Overview' ? (
                 <OverviewView
                   report={report}
@@ -381,12 +386,38 @@ const FindingsList: React.FC<{
 
 /* ------------------------------- checklist ------------------------------ */
 
-const ChecklistView: React.FC<{ items: ChecklistItem[] }> = ({ items }) => {
+const ChecklistView: React.FC<{ items: ChecklistItem[]; guidelinesUrl?: string }> = ({
+  items,
+  guidelinesUrl,
+}) => {
   // H4 honest empty-state: when NO item carries a guideline source, the
   // target-journal guidelines weren't provided/ingested — so only the always-on
   // structural checks ran. Say that honestly (it is NOT a failure); it replaces
   // the old fabricated "journal guidelines available: FAILED" item (Set 1).
+  //
+  // TWO empty states, not one. "No guidelines were provided" is FALSE when the
+  // user did provide a URL and it simply yielded nothing — the case a journal
+  // homepage produces, which ingests successfully and reports a plausible chunk
+  // count while contributing zero requirements (ARCHITECTURE_TRACE §18.6.2).
+  //
+  // The count is derived from the very items rendered above, so this message can
+  // never disagree with them. It is NOT computed at ingestion time: the
+  // detectors need an ExtractionResult that does not exist yet when a URL is
+  // fetched, so ingestion could only duplicate or approximate this logic.
+  // `GuidelinesReport.note` keeps saying only what ingestion can honestly know —
+  // that bytes landed.
+  //
+  // The wording scopes the claim to OUR detector coverage, not to the page's
+  // content, because only three detectors exist — "structured abstract",
+  // "conflict", "vancouver"|"numbered" (report.rs:1232,1247,1260). A GENUINE
+  // author-guidelines page stating none of those yields zero hits: many journals
+  // require no structured abstract, and plenty use author-date rather than
+  // numbered citations. Telling that user "it may be a homepage" would send them
+  // hunting for a page that does not exist. Observation (zero detector matches)
+  // is therefore stated separately from interpretation (everything after "this
+  // may mean"), with both explanations named and neither privileged.
   const hasGuidelineItems = items.some((c) => !!c.guideline_source);
+  const suppliedButEmpty = !hasGuidelineItems && !!guidelinesUrl;
   return (
     <div className="gds-checklist" data-testid="checklist">
       {items.map((c, i) => (
@@ -405,16 +436,29 @@ const ChecklistView: React.FC<{ items: ChecklistItem[] }> = ({ items }) => {
           )}
         </div>
       ))}
-      {!hasGuidelineItems && (
+      {suppliedButEmpty ? (
         <p
           className="gds-finding__detail"
           style={{ fontSize: 12, marginTop: 8 }}
-          data-testid="checklist-no-guidelines"
+          data-testid="checklist-guidelines-empty"
         >
-          No target-journal guidelines were provided, so only the structural checks above ran.
-          Add your journal’s author-guidelines URL to cross-reference your manuscript against the
-          real guidelines (word limit, structured abstract, conflict-of-interest, reference style).
+          That page was fetched successfully, but none of the guideline requirements that Gaply
+          currently detects were found. This may mean the URL points to a journal homepage rather
+          than an author-guidelines page, or that the page contains requirements Gaply does not
+          yet detect.
         </p>
+      ) : (
+        !hasGuidelineItems && (
+          <p
+            className="gds-finding__detail"
+            style={{ fontSize: 12, marginTop: 8 }}
+            data-testid="checklist-no-guidelines"
+          >
+            No target-journal guidelines were provided, so only the structural checks above ran.
+            Add your journal’s author-guidelines URL to cross-reference your manuscript against the
+            real guidelines (word limit, structured abstract, conflict-of-interest, reference style).
+          </p>
+        )
       )}
     </div>
   );
