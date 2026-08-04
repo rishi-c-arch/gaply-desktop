@@ -252,6 +252,222 @@ mod tests {
     use super::*;
     use crate::report::CertaintyTier;
 
+    // =====================================================================
+    // EVIDENCE_SCHEMA_VERSION compatibility pin
+    // =====================================================================
+    //
+    // A cached report carries a serialized `Vec<EvidenceRecord>`, and
+    // `escalation.rs:72` deserializes it with `unwrap_or_default()`. If an
+    // older binary's record no longer parses, the vector is EMPTY, the
+    // aggregator sees zero findings, and the run yields `Accept` at 0.92 — a
+    // silent wrong answer (ARCHITECTURE_TRACE §25.10).
+    //
+    // DIRECTION. Cache entries are read only by the same binary or a NEWER one,
+    // never an older one. So:
+    //   COMPATIBLE, no bump   — adding an enum variant; adding an optional
+    //                           field with a serde default
+    //   INCOMPATIBLE, bump    — removing/renaming a variant; renaming a field;
+    //                           adding a required field; changing a field type
+    //
+    // A shape assertion (pinning "these variants exist") would fire on
+    // ADDITIONS, which is the wrong direction — claim-identity work will add
+    // variants. The property that matters is "previously written data still
+    // deserializes", so these fixtures are CHECKED-IN LITERALS. They must never
+    // be generated from the live types: a fixture produced by serializing the
+    // current struct moves with the code and catches nothing.
+    //
+    // Historical fixtures are RELEASE ARTIFACTS, not test data. They represent
+    // wire formats that have existed in production. Never edit or regenerate an
+    // existing fixture. Only append new ones. Deleting an entry to make a test
+    // pass deletes the evidence of the break.
+    //
+    // ----- BLIND SPOT 1: STRUCTURAL -----
+    // Compatibility fixtures cannot detect every silent schema change. The known
+    // case is RENAMING A FIELD TO AN OPTIONAL-WITH-DEFAULT: the old key is
+    // ignored (there is no `deny_unknown_fields`) and the new key defaults, so
+    // the old value is silently replaced and no fixture fires. Recorded rather
+    // than papered over. `deny_unknown_fields` would catch it but is a RUNTIME
+    // behaviour change, so it is deliberately not bundled here.
+    //
+    // ----- BLIND SPOT 2: SEMANTIC -----
+    // These fixtures intentionally do NOT detect changes where cached data still
+    // deserializes but its EDITORIAL MEANING has changed. F1 is the instance:
+    // validation flags went Critical -> Major, so a pre-fix cached report parses
+    // perfectly afterwards, carries the OLD severity, and maps to a DIFFERENT
+    // recommendation. Nothing about the serialization is wrong, so a
+    // compatibility fixture should not fail.
+    //
+    // The release constraint's wording covers this — "affects cached-report
+    // COMPATIBILITY" is about compatibility, not parsing — but NOTHING ENFORCES
+    // THAT HALF, and this pin's existence could make a reader believe it does.
+    // It does not.
+    //
+    // ----- ENFORCEMENT -----
+    // This test fires as a side effect of work done anyway (`cargo test -p
+    // gaply_core`), NOT as an automatic gate. There is no CI that runs on push
+    // (ARCHITECTURE_TRACE §21).
+
+    /// One full record as written by the CURRENT schema. A RELEASE ARTIFACT, not
+    /// test data — never edit or regenerate it from `EvidenceRecord`.
+    const HISTORICAL_RECORD_V1: &str = r#"{
+        "id": "f1",
+        "agent": "plagiarism",
+        "severity": "major",
+        "confidence": 0.91,
+        "confidence_kind": "wired_real",
+        "provenance": ["similarity:0.910", "match_type:high word overlap"],
+        "evidence_refs": ["similarity:0.910", "match_type:high word overlap"],
+        "routing_hint": "threshold_eligible",
+        "limitations": null,
+        "schema_version": 1
+    }"#;
+
+    /// A record whose optional field is POPULATED — a distinct shape from the
+    /// null case, and the one that breaks if `limitations` changes type. Also a
+    /// RELEASE ARTIFACT: append a new one, never rewrite this.
+    const HISTORICAL_RECORD_V1_WITH_LIMITATIONS: &str = r#"{
+        "id": "f7",
+        "agent": "ai_detection",
+        "severity": "info",
+        "confidence": 0.6,
+        "confidence_kind": "deliberately_coarse",
+        "provenance": ["agent:ai_detection (document-level stylometry)"],
+        "evidence_refs": ["agent:ai_detection (document-level stylometry)"],
+        "routing_hint": "policy_eligible",
+        "limitations": "AI-detection: coarse signal — escalate by policy, never threshold on this number",
+        "schema_version": 1
+    }"#;
+
+    // RELEASE ARTIFACTS — wire strings that have existed in production. Removing
+    // or renaming a variant makes its entry here fail to deserialize, which is
+    // the point. Append only; never edit or regenerate.
+    const HISTORICAL_AGENTS: &[&str] = &[
+        "extraction",
+        "validation_maths",
+        "ai_detection",
+        "plagiarism",
+        "rag",
+        "verification",
+    ];
+    const HISTORICAL_SEVERITIES: &[&str] = &["critical", "major", "minor", "info"];
+    const HISTORICAL_CONFIDENCE_KINDS: &[&str] = &[
+        "real_native",
+        "deterministic",
+        "wired_real",
+        "deliberately_coarse",
+        "no_signal",
+    ];
+    const HISTORICAL_ROUTING_HINTS: &[&str] = &[
+        "never_escalate",
+        "threshold_eligible",
+        "policy_eligible",
+        "context_only",
+        "held_out",
+    ];
+
+    // The four `*_wire` functions below are TOTAL — no wildcard arm — for one
+    // reason: adding a variant must BREAK COMPILATION here.
+    //
+    // COMPILE ERROR (totality failure):
+    //   A new enum variant has no compatibility fixture. Add a checked-in
+    //   fixture for this variant. Do NOT bump EVIDENCE_SCHEMA_VERSION merely
+    //   because a new variant was added.
+    //
+    // That is TEST COMPLETENESS, a different responsibility from the assertion
+    // below (compatibility detection) and from bumping the constant (release
+    // policy). Collapsing any two is how the constant loses its meaning.
+
+    fn agent_wire(a: AgentKind) -> &'static str {
+        match a {
+            AgentKind::Extraction => "extraction",
+            AgentKind::ValidationMaths => "validation_maths",
+            AgentKind::AiDetection => "ai_detection",
+            AgentKind::Plagiarism => "plagiarism",
+            AgentKind::Rag => "rag",
+            AgentKind::Verification => "verification",
+        }
+    }
+
+    fn severity_wire(s: FindingSeverity) -> &'static str {
+        match s {
+            FindingSeverity::Critical => "critical",
+            FindingSeverity::Major => "major",
+            FindingSeverity::Minor => "minor",
+            FindingSeverity::Info => "info",
+        }
+    }
+
+    fn confidence_kind_wire(c: ConfidenceKind) -> &'static str {
+        match c {
+            ConfidenceKind::RealNative => "real_native",
+            ConfidenceKind::Deterministic => "deterministic",
+            ConfidenceKind::WiredReal => "wired_real",
+            ConfidenceKind::DeliberatelyCoarse => "deliberately_coarse",
+            ConfidenceKind::NoSignal => "no_signal",
+        }
+    }
+
+    fn routing_hint_wire(r: RoutingHint) -> &'static str {
+        match r {
+            RoutingHint::NeverEscalate => "never_escalate",
+            RoutingHint::ThresholdEligible => "threshold_eligible",
+            RoutingHint::PolicyEligible => "policy_eligible",
+            RoutingHint::ContextOnly => "context_only",
+            RoutingHint::HeldOut => "held_out",
+        }
+    }
+
+    /// ASSERTION FAILURE (compatibility failure) — the message every assertion
+    /// in this test carries.
+    fn incompatible(what: &str) -> String {
+        format!(
+            "{what}\n\n\
+             A previously serialized EvidenceRecord no longer deserializes with the current \
+             schema. Cached reports written by older binaries are no longer compatible, and \
+             escalation.rs:72 will parse them to an empty evidence vector yielding Accept at \
+             0.92 (ARCHITECTURE_TRACE §25.10).\n\n\
+             If this incompatibility is INTENTIONAL, bump EVIDENCE_SCHEMA_VERSION — it is in \
+             the report cache key, so stale entries will miss and recompute. Otherwise restore \
+             compatibility."
+        )
+    }
+
+    #[test]
+    fn previously_written_evidence_records_still_deserialize() {
+        for (name, fixture) in [
+            ("HISTORICAL_RECORD_V1", HISTORICAL_RECORD_V1),
+            ("HISTORICAL_RECORD_V1_WITH_LIMITATIONS", HISTORICAL_RECORD_V1_WITH_LIMITATIONS),
+        ] {
+            let parsed: Result<EvidenceRecord, _> = serde_json::from_str(fixture);
+            assert!(parsed.is_ok(), "{}", incompatible(&format!("{name} failed to parse: {parsed:?}")));
+        }
+    }
+
+    #[test]
+    fn previously_written_enum_values_still_deserialize() {
+        let v = serde_json::Value::String;
+        for s in HISTORICAL_AGENTS {
+            let a: AgentKind = serde_json::from_value(v(s.to_string()))
+                .unwrap_or_else(|e| panic!("{}", incompatible(&format!("AgentKind {s:?}: {e}"))));
+            assert_eq!(agent_wire(a), *s, "{}", incompatible(&format!("AgentKind {s:?} no longer round-trips")));
+        }
+        for s in HISTORICAL_SEVERITIES {
+            let x: FindingSeverity = serde_json::from_value(v(s.to_string()))
+                .unwrap_or_else(|e| panic!("{}", incompatible(&format!("FindingSeverity {s:?}: {e}"))));
+            assert_eq!(severity_wire(x), *s, "{}", incompatible(&format!("FindingSeverity {s:?} no longer round-trips")));
+        }
+        for s in HISTORICAL_CONFIDENCE_KINDS {
+            let x: ConfidenceKind = serde_json::from_value(v(s.to_string()))
+                .unwrap_or_else(|e| panic!("{}", incompatible(&format!("ConfidenceKind {s:?}: {e}"))));
+            assert_eq!(confidence_kind_wire(x), *s, "{}", incompatible(&format!("ConfidenceKind {s:?} no longer round-trips")));
+        }
+        for s in HISTORICAL_ROUTING_HINTS {
+            let x: RoutingHint = serde_json::from_value(v(s.to_string()))
+                .unwrap_or_else(|e| panic!("{}", incompatible(&format!("RoutingHint {s:?}: {e}"))));
+            assert_eq!(routing_hint_wire(x), *s, "{}", incompatible(&format!("RoutingHint {s:?} no longer round-trips")));
+        }
+    }
+
     fn finding(agent: AgentKind, confidence: f64, provenance: &[&str]) -> Finding {
         Finding {
             severity: FindingSeverity::Major,
