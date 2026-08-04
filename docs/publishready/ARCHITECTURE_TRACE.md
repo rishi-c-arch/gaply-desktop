@@ -2006,3 +2006,173 @@ Investigation A's f4 (*"35 of 35 citation(s) could not be checked"*) and f5 (*"V
 **Same shape as `assemble_reviewer_input`'s projection (§22.4) and `reviewer_synthesis`'s presentation-field classification.** All three were right for the contract they implemented, and all three had their premise moved underneath them. **Revising this one is part of B's work and should be explicit rather than incidental.**
 
 **Not established:** whether this has ever fired. `unwrap_or_default()` logs nothing, so there is no evidence either way.
+
+---
+
+## 26. F2/F6 — aggregation contract design
+
+**Design only. Nothing implemented.** Every element names the traced instance that demanded it and what breaks without it. Elements no instance required are listed in §26.8 and excluded — this project has deferred four abstractions (the `KnowledgeExtractor` trait, the capability registry, the Review Engine scheduler, per-engine budgets) precisely because they were designed from zero instances.
+
+### 26.1 The three concepts
+
+#### PRODUCER — `AgentKind`
+
+| | |
+|---|---|
+| **Status** | Exists. Flattened to `String` by `enum_text` (`evidence_store.rs:78-80,115`), never restored (`reviewer_synthesis.rs:86`) |
+| **Owner** | the lane that constructed the finding |
+| **Readers** | `confidence_kind` / `routing_hint` / `limitations` (`evidence.rs:118,131,144`); escalation batching (`escalation.rs:120-137`); per-lane execution state |
+| **Crosses** | `Finding` → `EvidenceRecord` → DB → `ReviewerFinding` |
+| **Demanded by** | §21 Step 1 — per-lane execution state must be keyed by lane |
+| **Breaks without** | nothing can be keyed by family. `AgentKind` already derives `Deserialize`, so this is **restoration, not introduction** |
+
+**Not the eligibility key** (§23.2) — `AgentKind` means *"which subsystem produced this"*, which is not editorial admissibility.
+
+#### CLAIM — what editorial statement this is
+
+| | |
+|---|---|
+| **Status** | **does not exist** (§23.7) |
+| **Owner** | the **claim-construction site**, not the feature producer — §23.1, since `sentence_length_cv` supports both an authorship claim and a writing-quality claim |
+| **Readers** | the eligibility resolver; presentation |
+| **Demanded by** | §23.4 (measured) and §22.5 (excluding by `AgentKind` would exclude reviewer-relevant stylometry) |
+| **Breaks without** | the measured defect stays, or is fixed by a key that also excludes findings `report.rs:665-673` documents as belonging in a review |
+
+#### DISPOSITION — how the statement participates
+
+**Not a field on `Finding`.** §23's ownership finding: *"excluded from the verdict"* is a property of the **aggregation** — no producer can state it and no per-agent constant can carry it.
+
+| | |
+|---|---|
+| **Owner** | **`VerdictAggregation`**, beside `breakdown` (`reviewer_agent.rs:851-853`) |
+| **Computed** | by the resolver, from CLAIM + policy, at aggregation time |
+| **Crosses** | aggregator → report → UI. **Never persisted on a finding** |
+| **Shape** | **eligibility AND its reason** — §4.14: *"did not affect the recommendation"* ≠ *"unimportant"*. The `Metric::Unavailable { requires }` shape |
+| **Breaks without** | a user sees `AiDetection: concern` beside `Accept` with no explanation |
+
+### 26.2 `ClaimKind` — a default and two carve-outs
+
+**These are NOT three dimensions.** All three answer one question — *what is this claim about*: our execution, model authorship, or a manuscript flaw. **`ConfidenceKind` is what describes epistemic character; `AuthorshipSignal` describes what the claim ASSERTS.**
+
+**What is genuinely uneven is the GRAIN.** `ProcessState` and `AuthorshipSignal` are each one narrow thing; `ManuscriptDefect` covers statistics, citations, overlap, stylometry, tables and recency. **It is a default plus two carve-outs, and the carve-outs are exactly the two traced instances.**
+
+| Variant | Traced instance |
+|---|---|
+| `ProcessState` | §23.4 — f4 *"could not be checked"*, f5 *"gate rejected"*, lane opinions. **Measured behaviour change** |
+| `AuthorshipSignal` | §22.5 / §21 — `ai_detect.rs:41` disclaims proof; `report.rs:497` maps it to `Major` |
+| `ManuscriptDefect` | the default — everything else |
+
+**The comment above the enum must say this**, because *"three dimensions compressed into one"* invites someone to fix a problem that does not exist, while *"a default and two carve-outs, each demanded by a traced instance"* invites them to leave it alone:
+
+> **This enum is intentionally instance-driven rather than taxonomically complete. Future variants should only be introduced when demanded by traced evidence.**
+
+#### Third-axis risk, costed
+
+| Extension | Class |
+|---|---|
+| a fourth variant | **COMPATIBLE** — additive |
+| a second optional field with `serde(default)` | **COMPATIBLE** |
+| **changing a plain variant to a DATA-CARRYING one** | **INCOMPATIBLE** — the wire form goes from `"process_state"` (string) to `{"process_state": {...}}` (object). Every historical fixture fails; a bump is required |
+
+**This is a departure from §21's conclusion**, which observed that an enum whose variants can carry data is the extensible shape. **The bet taken here is that the carve-outs stay parameterless.** It is safe for the two traced instances — *"this is a process claim"* and *"this is an authorship signal"* carry no payload — and it is **unsafe if a future carve-out needs a parameter**, at which point the correct move is a **new parameterless variant or a second field**, both compatible, rather than parameterising an existing one.
+
+### 26.3 The aggregation input
+
+**Enters:**
+
+| Element | Demanded by | Breaks without |
+|---|---|---|
+| `severity` | existing | the recommendation |
+| `claim` | §23.4 | the measured defect |
+| `producer` (restored) | §21 Step 1 | execution state cannot be keyed |
+| **execution state, two keys** | §21 Step 1's asymmetry | §16 F6 — empty findings still mean `Accept` at 0.92 |
+
+**Two keys, because delivery is stage-scoped and examination is family-scoped:**
+
+* **per-stage delivery** — did this stage produce its output? (`lane` aborts on `Err` (`pipeline.rs:134-137`), so failure is not an aggregator state; **absent delivery is**)
+* **per-lane examination** — `NotRun | RanOverEmptyInput | Ran { examined }`. This is §22.1's **missing denominator**: zero references → no citation findings, today indistinguishable from "checked, clean"
+
+**Does not enter:** `routing_hint` (workflow policy — escalation eligibility ≠ verdict eligibility), `confidence_kind` (evidence metadata; rejected as the key in §21), `limitations` (presentation metadata with **no consumer at all**), `overall_verdict` **as a value** (already resolved; the AI signal enters both paths, so consuming it double-counts at two granularities).
+
+**Deliberately unresolved:** the hard-constraint precedence rule (§22.7). **No traced instance has required it** — no run has been observed where precedence would have changed the verdict.
+
+### 26.4 Migration and serialization — predicted
+
+| Change | Class | Bump? |
+|---|---|---|
+| `ClaimKind` type | additive | no |
+| **`claim: ClaimKind` required on `Finding`/`EvidenceRecord`** | **INCOMPATIBLE — required field** | **YES** |
+| DB column | schema migration | — |
+| execution state on the report | new field | same bump |
+| later variant / later optional field | **COMPATIBLE** | no |
+
+#### Why required, not optional-with-default — and why that is only safe now
+
+**An `Option<ClaimKind>` with `serde(default)` would be compatible and wrong.** A stale cached report has no `claim`, so every finding takes the default; if that default is `ManuscriptDefect`, **f4 and f5 in cached reports count toward the verdict — §23.4's defect reintroduced for cached data and invisible.** Blind spot 1's shape at the worst possible field.
+
+> **A required field is correct, and `8af96a7` is what makes it safe:** `EVIDENCE_SCHEMA_VERSION` is in the cache key, so a bump makes stale entries **miss and recompute** rather than mis-parse. **The Phase 1 work is the precondition for the correct Phase 2 choice.** The compatibility pin (`4d57165`) will demand the bump at build time; this design predicts it.
+
+#### THE MIGRATION INVARIANT
+
+> **No cached report written by an older binary may silently change editorial meaning after upgrade.**
+
+**Every migration decision is judged against it. NOTHING ENFORCES IT.**
+
+It is precisely the compatibility pin's **semantic blind spot**: **F1's `Critical → Major` violated this invariant, parsed cleanly, and nothing fired.** The pin detects *parse* incompatibility only. **This invariant is maintained by discipline, not by instrument**, and the pin's existence must not make it look covered.
+
+### 26.5 PR-1's specific enforcement risk — `..Default::default()`
+
+A required field is compile-enforced at struct **literals**. **The gap is struct-update syntax:** `Finding { severity, ..Default::default() }` compiles and fills `claim` **silently with a wrong default** rather than failing. Same shape as blind spot 1 — a default silently standing in for a real value.
+
+**AUDITED, and the gap is currently absent:** neither `Finding` nor `EvidenceRecord` derives `Default` (`report.rs:143`, `evidence.rs:100`), and a scan of every `Finding {` / `EvidenceRecord {` literal across `gaply-core/src` and `src` found **zero** struct-update occurrences.
+
+> **PR-1's requirement: construction must FAIL TO COMPILE, not silently default. Do not derive `Default` on either type, and re-run the scan before merge.**
+
+### 26.6 PR sequence — derived
+
+**Four, from what must land together versus what can land apart.**
+
+**PR-1 — identity, end to end.** `ClaimKind`; every constructor emits it (total match, compile-forced); carried `Finding` → `EvidenceRecord` → DB → **restored in `assemble_reviewer_input` together with `AgentKind`**; `EVIDENCE_SCHEMA_VERSION` bumped. **Must land together** — a field written and never read is the pattern this investigation condemns. **The verdict must not change**, pinned by a test on a fixture report, so a regression in *data* and one in *decision* stay attributable.
+
+> **PR-1 is NOT fully behaviour-neutral.** Bumping `EVIDENCE_SCHEMA_VERSION` **invalidates every cached report**: the next run on a previously-analysed manuscript recomputes instead of serving from cache. Benign — recomputation is always correct and merely slower — but user-visible, and not to be overclaimed as "no behaviour change".
+
+**PR-2 — evidence interpretability and the withheld verdict.** The coupling, drawn deliberately: *"recommendation withheld because evidence could not be interpreted"* needs a **run-level** state, a different widening from PR-1's per-finding one. Folding it into PR-1 would bundle a behaviour change into a behaviour-neutral PR; deferring it to PR-4 leaves `unwrap_or_default()` silently producing `Accept` at 0.92 across two PRs. **Chosen: its own PR, with the run-level state type introduced WHOLE and the states PR-4 will fill declared typed-absent (`Unavailable { requires }`).** That avoids designing a narrow channel and widening it — §4.12 applied to the design itself, and it satisfies the rule that the public contract must not widen every PR. Includes `escalation.rs:72` and the contract revision (§26.7).
+
+**PR-3 — the eligibility resolver. Behaviour changes here.** Total `ClaimKind → eligibility`, no wildcard; the aggregator counts only eligible findings; `VerdictAggregation` gains DISPOSITION with reasons; the UI renders why a finding did not count. **Blast radius measured before merge** (§16 F1's treatment).
+
+> **PR-3 IS BLOCKED ON A PRODUCT DECISION — §23.3's wholesale contract.** The sequence is not fully unblocked.
+
+**PR-4 — execution state, both keys.** Threaded from lane exit; fills the states PR-2 declared absent; makes `Recommendation::Unknown` reachable, closing §16 F6.
+
+**Why not fewer:** PR-1 and PR-3 must be separable or a verdict change cannot be attributed to the resolver rather than the data. **Why not more:** PR-1's four sites have no useful intermediate state.
+
+#### `MAX_FINDINGS` — exclusion does not free the slots
+
+**PR-3 excludes `ProcessState` from the verdict. The payload cap selects by the report's severity ordering, not by eligibility** (`reviewer_agent.rs:382`, `:945`). So **f4 and f5 keep 2 of the 12 slots and keep reaching the wholesale reviewer**, which §24.7 already records as live: the model is told about Gaply's infrastructure failures and asked to weigh them as manuscript evidence.
+
+**PR-3 does not change the cap.** Doing so is the wholesale contract decision (§23.3) — filtering the payload is contract 2, sending everything with eligibility attached is contract 3, and **choosing is not PR-3's to make.** Recorded so the exclusion is not mistaken for having removed these findings from the LLM's view.
+
+### 26.7 `escalation.rs:7`'s contract — the revision
+
+**Today:** *"DEGRADES HONESTLY on any failure (never fails the run)."* **Correct when written** — escalation was an additive side-channel. `evidence_persist` has since become the aggregator's sole input, so "degrade honestly" now means "silently produce `Accept` at 0.92". Third instance of a contract whose premise moved (§25.10).
+
+**Becomes:**
+
+> **Escalation still never fails the run. What changed is that `evidence_persist` is the aggregator's sole input, so an empty or uninterpretable evidence set is a TYPED ABSENCE that must reach the verdict — not a silent zero. Honest degradation now means the run completes with the verdict WITHHELD and the reason stated, never with a verdict computed from evidence that could not be interpreted.**
+
+Lands in PR-2, explicitly.
+
+### 26.8 Excluded — no instance required it
+
+| Excluded | Why |
+|---|---|
+| a general claim taxonomy | §26.2 — two instances underdetermine it |
+| a second orthogonal axis | no instance requires it; both extensions stay compatible |
+| hard-constraint precedence at the aggregator | §22.7 open; no instance has required it |
+| `deny_unknown_fields` | runtime behaviour change, deliberately unbundled |
+| a wholesale-payload eligibility filter | §23.3 — three contracts, none evidenced |
+
+### 26.9 Open before PR-3
+
+1. **The wholesale evidence contract** (§23.3). Under decision (a), leaving the payload unfiltered makes the two sides compute over **different evidence sets**, silently falsifying §18.1's premise **without changing any digest**.
+2. **The shadow payload has no digest** (§24.4) — membership is unverifiable on that side, and PR-3 is exactly when the two sets could diverge.
