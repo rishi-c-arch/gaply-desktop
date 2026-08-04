@@ -45,6 +45,7 @@ use serde_json::{json, Value};
 
 use crate::refverify::{Provenance, UntrustedText};
 use crate::report::FindingSeverity;
+use crate::swarm::AgentKind;
 use crate::verify_agent::ProxyClient;
 use crate::GaplyError;
 
@@ -246,7 +247,7 @@ fn clamp(s: &str) -> String {
     }
 }
 
-use crate::evidence::is_structured_provenance;
+use crate::evidence::{is_structured_provenance, ClaimKind};
 
 /// llm_safe an UNTRUSTED supplementary string (REDACTED if injection-flagged),
 /// then clamp. THE guard of this set: a malicious spreadsheet cell (e.g.
@@ -766,7 +767,17 @@ pub enum VerificationState {
 #[derive(Debug, Clone, Serialize)]
 pub struct ReviewerFinding {
     pub id: String,
-    pub agent: String,
+    /// PRODUCER — restored from the store's TEXT column. `None` when the stored
+    /// value does not parse, which is TYPED ABSENCE and not a fallback: an
+    /// unknown family cannot be assumed eligible or ineligible (§21).
+    ///
+    /// This field was a `String` from Box 4 until §26's PR-1. `AgentKind` was
+    /// written as an enum, persisted as a string by `enum_text`, and never
+    /// restored — the loss that started ARCHITECTURE_TRACE §22.
+    pub agent: Option<AgentKind>,
+    /// CLAIM — what editorial statement this finding makes. `None` for rows
+    /// written before migration 13, whose claim is genuinely unrecorded.
+    pub claim: Option<ClaimKind>,
     pub severity: FindingSeverity,
     pub confidence: f64,
     pub title: String,
@@ -939,6 +950,21 @@ impl ReviewerRequest {
 /// finding AS ALREADY DECIDED (verdict, verification_state, severity, confidence
 /// all included) and asks the model for NARRATIVE ONLY — the deterministic /
 /// generated boundary is enforced IN THE PAYLOAD, not merely in the prompt.
+/// The snake_case wire string for an `AgentKind`, so the shadow payload renders
+/// exactly what the previous `String` field carried. TOTAL — no wildcard — so a
+/// seventh agent cannot silently render as an empty string.
+fn agent_wire_form(a: AgentKind) -> String {
+    match a {
+        AgentKind::Extraction => "extraction",
+        AgentKind::ValidationMaths => "validation_maths",
+        AgentKind::AiDetection => "ai_detection",
+        AgentKind::Plagiarism => "plagiarism",
+        AgentKind::Rag => "rag",
+        AgentKind::Verification => "verification",
+    }
+    .to_string()
+}
+
 pub fn build_reviewer_request(input: &ReviewerInput) -> ReviewerRequest {
     let mut finding_ids = Vec::new();
     let mut payload_findings = Vec::new();
@@ -952,7 +978,10 @@ pub fn build_reviewer_request(input: &ReviewerInput) -> ReviewerRequest {
             .collect();
         payload_findings.push(json!({
             "id": f.id,
-            "agent": clamp(&f.agent),
+            // Wire form unchanged by PR-1: the restored enum is re-rendered to the
+            // same snake_case string the String field carried, so no payload byte
+            // moves and `summary_digest` is unaffected.
+            "agent": f.agent.map(agent_wire_form).unwrap_or_default(),
             "severity": f.severity,
             "confidence": f.confidence,
             "title": clamp(&f.title),
@@ -1568,7 +1597,8 @@ mod box4_tests {
     fn finding(id: &str, severity: FindingSeverity, verified: Option<bool>) -> ReviewerFinding {
         ReviewerFinding {
             id: id.to_string(),
-            agent: "verification".to_string(),
+            agent: Some(AgentKind::Verification),
+            claim: Some(ClaimKind::ManuscriptDefect),
             severity,
             confidence: 0.8,
             title: format!("finding {id}"),

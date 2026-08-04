@@ -272,7 +272,7 @@ mod tests {
     use crate::evidence::EvidenceRecord;
 
     fn rec(id: &str, agent: AgentKind, sev: FindingSeverity, conf: f64) -> EvidenceRecord {
-        EvidenceRecord::at_source(id, agent, sev, conf, vec!["source:test".into()])
+        EvidenceRecord::at_source(id, agent, crate::evidence::ClaimKind::ManuscriptDefect, sev, conf, vec!["source:test".into()])
     }
 
     fn decision<'a>(out: &'a OrchestratorOutput, id: &str) -> &'a RoutingDecision {

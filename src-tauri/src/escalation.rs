@@ -180,6 +180,7 @@ mod tests {
             EvidenceRecord::at_source(
                 "f1",
                 AgentKind::Verification,
+                gaply_core::evidence::ClaimKind::ManuscriptDefect,
                 FindingSeverity::Minor,
                 0.60,
                 vec!["evidence:ev-1".into()],
@@ -187,6 +188,7 @@ mod tests {
             EvidenceRecord::at_source(
                 "f2",
                 AgentKind::Verification,
+                gaply_core::evidence::ClaimKind::ManuscriptDefect,
                 FindingSeverity::Major,
                 0.55,
                 vec!["evidence:ev-2".into()],

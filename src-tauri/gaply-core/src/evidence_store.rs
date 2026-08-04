@@ -31,7 +31,7 @@ const EVIDENCE_RETENTION_SECS: i64 = 90 * 24 * 3600;
 /// Keep at most this many most-recent runs (amortized, on each `evidence_persist`).
 const EVIDENCE_MAX_RUNS: i64 = 10;
 
-const COLS: &str = "run_id, finding_id, agent, severity, confidence, confidence_kind, \
+const COLS: &str = "run_id, finding_id, agent, claim, severity, confidence, confidence_kind, \
     routing_hint, provenance, evidence_refs, limitations, llm_verdict, llm_rationale, \
     verified, gate_flags, provider, provider_model, evidence_schema_version, created_at";
 
@@ -53,6 +53,9 @@ pub struct EvidenceRow {
     pub run_id: String,
     pub finding_id: String,
     pub agent: String,
+    /// Serialized [`crate::evidence::ClaimKind`]. EMPTY for rows written before
+    /// migration 13 — a genuinely unknown claim, never a default (§26.4).
+    pub claim: String,
     pub severity: String,
     pub confidence: f64,
     pub confidence_kind: String,
@@ -105,14 +108,15 @@ pub fn evidence_persist(
     for r in records {
         tx.execute(
             "INSERT INTO evidence
-             (run_id, finding_id, agent, severity, confidence, confidence_kind,
+             (run_id, finding_id, agent, claim, severity, confidence, confidence_kind,
               routing_hint, provenance, evidence_refs, limitations,
               evidence_schema_version, created_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
             params![
                 run_id,
                 r.id,
                 enum_text(&r.agent),
+                enum_text(&r.claim),
                 enum_text(&r.severity),
                 r.confidence,
                 enum_text(&r.confidence_kind),
@@ -187,29 +191,32 @@ fn prune(tx: &rusqlite::Transaction, now: i64) -> Result<(), GaplyError> {
 }
 
 fn row_to_evidence(row: &rusqlite::Row) -> rusqlite::Result<EvidenceRow> {
-    let provenance: String = row.get(7)?;
-    let evidence_refs: String = row.get(8)?;
-    let verified: Option<i64> = row.get(12)?;
-    let gate_flags: Option<String> = row.get(13)?;
+    // Indices are POSITIONAL against `COLS`; `claim` was inserted at position 3
+    // by migration 13, shifting every column after it by one.
+    let provenance: String = row.get(8)?;
+    let evidence_refs: String = row.get(9)?;
+    let verified: Option<i64> = row.get(13)?;
+    let gate_flags: Option<String> = row.get(14)?;
     Ok(EvidenceRow {
         run_id: row.get(0)?,
         finding_id: row.get(1)?,
         agent: row.get(2)?,
-        severity: row.get(3)?,
-        confidence: row.get(4)?,
-        confidence_kind: row.get(5)?,
-        routing_hint: row.get(6)?,
+        claim: row.get(3)?,
+        severity: row.get(4)?,
+        confidence: row.get(5)?,
+        confidence_kind: row.get(6)?,
+        routing_hint: row.get(7)?,
         provenance: json_vec(&provenance),
         evidence_refs: json_vec(&evidence_refs),
-        limitations: row.get(9)?,
-        llm_verdict: row.get(10)?,
-        llm_rationale: row.get(11)?,
+        limitations: row.get(10)?,
+        llm_verdict: row.get(11)?,
+        llm_rationale: row.get(12)?,
         verified: verified.map(|v| v != 0),
         gate_flags: gate_flags.as_deref().map(json_vec),
-        provider: row.get(14)?,
-        provider_model: row.get(15)?,
-        evidence_schema_version: row.get::<_, i64>(16)? as u32,
-        created_at: row.get(17)?,
+        provider: row.get(15)?,
+        provider_model: row.get(16)?,
+        evidence_schema_version: row.get::<_, i64>(17)? as u32,
+        created_at: row.get(18)?,
     })
 }
 
@@ -246,7 +253,7 @@ mod tests {
     use crate::swarm::AgentKind;
 
     fn rec(id: &str, agent: AgentKind, conf: f64) -> EvidenceRecord {
-        EvidenceRecord::at_source(id, agent, FindingSeverity::Major, conf, vec![
+        EvidenceRecord::at_source(id, agent, crate::evidence::ClaimKind::ManuscriptDefect, FindingSeverity::Major, conf, vec![
             format!("agent:{}", enum_text(&agent)),
         ])
     }

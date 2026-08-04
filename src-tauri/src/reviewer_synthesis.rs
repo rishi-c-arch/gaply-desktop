@@ -27,8 +27,10 @@
 
 use serde_json::Value;
 
+use gaply_core::evidence::ClaimKind;
 use gaply_core::evidence_store::evidence_by_run;
 use gaply_core::report::FindingSeverity;
+use gaply_core::swarm::AgentKind;
 use gaply_core::reviewer_agent::{
     aggregate_reviewer_verdict, build_reviewer_request, gate_reviewer_narrative,
     synthesize_reviewer_letter, ReviewerEvaluation, ReviewerFinding, ReviewerInput, ReviewerMeta,
@@ -40,6 +42,27 @@ use gaply_core::{Database, GaplyError};
 /// Parse the positional index out of an `f{N}` finding id (1-based → 0-based).
 fn parse_finding_index(id: &str) -> Option<usize> {
     id.strip_prefix('f')?.parse::<usize>().ok().and_then(|n| n.checked_sub(1))
+}
+
+/// Parse a stored `AgentKind` back from the store's TEXT column.
+///
+/// `None` on failure, and that is TYPED ABSENCE rather than a fallback: unlike
+/// severity, an unrecognised family has NO safe default — it can be assumed
+/// neither eligible nor ineligible (§21). Empty for rows written before
+/// migration 13.
+///
+/// **This function is the fix for the loss that started ARCHITECTURE_TRACE
+/// §22:** `AgentKind` was written as an enum, persisted as a string by
+/// `enum_text`, and never restored here.
+fn parse_agent(s: &str) -> Option<AgentKind> {
+    serde_json::from_value(Value::String(s.to_string())).ok()
+}
+
+/// Parse a stored `ClaimKind`. `None` for rows written before migration 13,
+/// whose claim is genuinely unrecorded — never defaulted to `ManuscriptDefect`,
+/// which would assert something that was never stored (§26.4).
+fn parse_claim(s: &str) -> Option<ClaimKind> {
+    serde_json::from_value(Value::String(s.to_string())).ok()
 }
 
 /// Parse a stored severity string (snake_case, written from `FindingSeverity`)
@@ -84,7 +107,8 @@ pub fn assemble_reviewer_input(
                 verified: row.verified,
                 gate_flags: row.gate_flags.unwrap_or_default(),
                 id: row.finding_id,
-                agent: row.agent,
+                agent: parse_agent(&row.agent),
+                claim: parse_claim(&row.claim),
             }
         })
         .collect();
@@ -186,7 +210,121 @@ mod tests {
     }
 
     fn record(id: &str, agent: AgentKind, severity: Sev, confidence: f64) -> EvidenceRecord {
-        EvidenceRecord::at_source(id.to_string(), agent, severity, confidence, vec![])
+        EvidenceRecord::at_source(
+            id.to_string(),
+            agent,
+            ClaimKind::ManuscriptDefect,
+            severity,
+            confidence,
+            vec![],
+        )
+    }
+
+    /// THE property whose absence started ARCHITECTURE_TRACE §22.
+    ///
+    /// `AgentKind` was written as an enum, persisted as a string by `enum_text`,
+    /// and never restored — so the aggregator received `agent` as a `String` it
+    /// never inspected, and family identity was not actionable. Covering
+    /// `ClaimKind` alone would ship that restoration untested, which is why both
+    /// enums are exercised here, over EVERY variant of each.
+    ///
+    /// Asserts VALUE PRESERVATION, not representational identity. The DB form is
+    /// a snake_case string via `enum_text`, so asserting bit-for-bit sameness at
+    /// every boundary would assert something false; what must hold is that the
+    /// value written is the value that arrives.
+    #[test]
+    fn producer_and_claim_survive_the_write_persist_restore_round_trip() {
+        use gaply_core::evidence::ClaimKind as CK;
+        const AGENTS: &[AgentKind] = &[
+            AgentKind::Extraction,
+            AgentKind::ValidationMaths,
+            AgentKind::AiDetection,
+            AgentKind::Plagiarism,
+            AgentKind::Rag,
+            AgentKind::Verification,
+        ];
+        const CLAIMS: &[CK] = &[CK::ProcessState, CK::AuthorshipSignal, CK::ManuscriptDefect];
+
+        for (i, agent) in AGENTS.iter().enumerate() {
+            for (j, claim) in CLAIMS.iter().enumerate() {
+                let db = Database::in_memory().unwrap();
+                let run_id = format!("run-rt-{i}-{j}");
+                let id = "f1";
+                let written = EvidenceRecord::at_source(
+                    id.to_string(),
+                    *agent,
+                    *claim,
+                    Sev::Major,
+                    0.5,
+                    vec!["source:test".into()],
+                );
+                evidence_persist(&db, &run_id, &[written], gaply_core::now_epoch()).unwrap();
+
+                let input =
+                    assemble_reviewer_input(&db, &run_id, &report(&["t"]), &journal(), &[]).unwrap();
+                assert_eq!(input.findings.len(), 1, "one record in, one finding out");
+                let got = &input.findings[0];
+
+                assert_eq!(
+                    got.agent,
+                    Some(*agent),
+                    "PRODUCER lost across write -> persist -> restore for {agent:?}"
+                );
+                assert_eq!(
+                    got.claim,
+                    Some(*claim),
+                    "CLAIM lost across write -> persist -> restore for {claim:?}"
+                );
+            }
+        }
+    }
+
+    /// A row written before migration 13 carries an empty `claim` (the column's
+    /// DEFAULT ''). It must restore as `None` — typed absence — never as
+    /// `ManuscriptDefect`, which would assert something that was never stored
+    /// (§26.4). Asserted at the mapping, since the app crate has no SQL escape
+    /// hatch to age a row; the round-trip test above covers the populated path.
+    #[test]
+    fn an_unrecorded_claim_restores_as_absent_not_defaulted() {
+        assert_eq!(parse_claim(""), None, "migration 13's default is UNKNOWN, not a claim");
+        assert_eq!(parse_claim("not_a_claim"), None, "an unrecognised claim is absent");
+        assert_eq!(parse_claim("process_state"), Some(ClaimKind::ProcessState));
+        // The producer has no safe default either — §21: an unknown family can be
+        // assumed neither eligible nor ineligible.
+        assert_eq!(parse_agent(""), None);
+        assert_eq!(parse_agent("grammar"), None, "an unknown family is absent, not guessed");
+        assert_eq!(parse_agent("verification"), Some(AgentKind::Verification));
+    }
+
+    /// PR-1 carries identity end to end and must change NO verdict. Pinned so a
+    /// data regression and a decision regression stay attributable: if this
+    /// fails, the identity work changed behaviour it was not supposed to touch.
+    #[test]
+    fn pr1_identity_does_not_change_the_recommendation() {
+        use gaply_core::reviewer_agent::aggregate_reviewer_verdict;
+        let db = Database::in_memory().unwrap();
+        let run_id = "run-verdict-pin";
+        // 1 Major + 2 Minor: Major dominates, so the tree yields MajorRevision —
+        // and the two Minors sit either side of MINOR_REVISION_THRESHOLD, so a
+        // miscount would move the result.
+        let records = vec![
+            EvidenceRecord::at_source("f1".to_string(), AgentKind::AiDetection, ClaimKind::AuthorshipSignal, Sev::Major, 0.6, vec![]),
+            EvidenceRecord::at_source("f2".to_string(), AgentKind::Verification, ClaimKind::ProcessState, Sev::Minor, 0.5, vec![]),
+            EvidenceRecord::at_source("f3".to_string(), AgentKind::Extraction, ClaimKind::ManuscriptDefect, Sev::Minor, 0.5, vec![]),
+        ];
+        evidence_persist(&db, run_id, &records, gaply_core::now_epoch()).unwrap();
+        let input =
+            assemble_reviewer_input(&db, run_id, &report(&["a", "b", "c"]), &journal(), &[]).unwrap();
+        let agg = aggregate_reviewer_verdict(&input);
+        assert_eq!(
+            agg.recommendation,
+            Recommendation::MajorRevision,
+            "PR-1 must not change the verdict; the resolver lands in PR-3"
+        );
+        assert_eq!(agg.publication_probability, 0.30);
+        // The claim is CARRIED but not yet CONSULTED — f2 is a process claim and
+        // still counts, which is precisely what PR-3 changes.
+        assert_eq!(agg.breakdown.minor.total(), 2);
     }
 
     #[test]

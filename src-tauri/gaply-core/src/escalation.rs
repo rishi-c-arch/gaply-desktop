@@ -132,12 +132,14 @@ pub fn gate_escalation_response(
 mod tests {
     use super::*;
     use crate::report::FindingSeverity;
+    use crate::evidence::ClaimKind;
     use crate::swarm::AgentKind;
 
     fn rec(id: &str, agent: AgentKind, conf: f64, refs: &[&str]) -> EvidenceRecord {
         EvidenceRecord::at_source(
             id,
             agent,
+            ClaimKind::ManuscriptDefect,
             FindingSeverity::Major,
             conf,
             refs.iter().map(|s| s.to_string()).collect(),

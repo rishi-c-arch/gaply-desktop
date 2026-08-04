@@ -2176,3 +2176,23 @@ Lands in PR-2, explicitly.
 
 1. **The wholesale evidence contract** (§23.3). Under decision (a), leaving the payload unfiltered makes the two sides compute over **different evidence sets**, silently falsifying §18.1's premise **without changing any digest**.
 2. **The shadow payload has no digest** (§24.4) — membership is unverifiable on that side, and PR-3 is exactly when the two sets could diverge.
+
+### 26.10 The wholesale evidence contract — DECIDED: contract 1, unfiltered
+
+**`build_review_payload` stays unfiltered. PR-3 is unblocked.**
+
+**The reasoning.** Under decision (a), promotion replaces the wholesale recommendation with the deterministic one. During the migration period there are genuinely **two production behaviours**: the wholesale reviewer is **today's**, the deterministic aggregator is the **candidate**. Filtering the wholesale payload to match would compare the candidate against a **modified incumbent that users never experienced**, which weakens the promotion evidence.
+
+> **The exclusion is not a confound to control for. It is the treatment.**
+
+**Contract 3 rejected** — telling the LLM what counts changes its behaviour, so the before-state stops being the actual before-state.
+
+#### THE COST — recorded prominently, not as a footnote
+
+**After PR-3 the two sides compute over different evidence sets.** A recommendation delta therefore carries the **combined** effect of *different evidence* **and** *different decision mechanisms*, with no way to separate them from the record.
+
+> **`recommendation_agreement` remains valid as a PROMOTION-IMPACT metric. It is no longer interpretable as a MODEL-QUALITY metric.**
+
+Consistent with §24.2, which already established the measurement is right for the promotion question and the *name* imports a normative claim the design never made. **This decision removes the last reading under which the name could have been recovered.**
+
+**The payload digest will not detect the divergence.** `findings_projection_digest` covers `summary.findings` as sent (§18.3), and **the exclusion happens after** — inside the aggregator, on a set the digest never sees. Two runs can therefore share a digest while their verdicts were computed over different evidence, and nothing in the record will say so.

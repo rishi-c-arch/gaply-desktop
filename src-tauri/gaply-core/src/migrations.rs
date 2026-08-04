@@ -372,6 +372,25 @@ pub const MIGRATIONS: &[Migration] = &[
         ",
         down: "DROP TABLE evidence;",
     },
+    Migration {
+        version: 13,
+        name: "evidence_claim_kind",
+        // Claim identity (ARCHITECTURE_TRACE §26): WHAT editorial statement a
+        // finding makes, as distinct from WHICH subsystem produced it. Run 22
+        // measured the need — two findings describing Gaply's own execution were
+        // two of the four Minors that produced MinorRevision (§23.4).
+        //
+        // ADDITIVE + SAFE. Pre-existing rows get the sentinel '' rather than a
+        // plausible-looking default: an old row's claim is genuinely UNKNOWN, and
+        // writing 'manuscript_defect' into it would assert something never
+        // recorded — exactly the silent-default failure §26.4 rejects for the
+        // cached-report path. `assemble_reviewer_input` maps '' to None (typed
+        // absence), and no such row is ever read for a live verdict, because a
+        // run only ever aggregates the rows it just persisted.
+        up: "ALTER TABLE evidence ADD COLUMN claim TEXT NOT NULL DEFAULT '';",
+        // SQLite cannot drop a column on older versions; the table is rebuilt.
+        down: "ALTER TABLE evidence DROP COLUMN claim;",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -514,6 +533,7 @@ mod tests {
         assert_eq!(
             reverted,
             vec![
+                "evidence_claim_kind",
                 "evidence_store",
                 "citation_library_verification_persist",
                 "plagiarism_library_citation_link",
@@ -591,10 +611,11 @@ mod tests {
             vec![
                 "plagiarism_library_citation_link",
                 "citation_library_verification_persist",
-                "evidence_store"
+                "evidence_store",
+                "evidence_claim_kind"
             ]
         );
-        assert_eq!(current_version(&conn).unwrap(), 12);
+        assert_eq!(current_version(&conn).unwrap(), 13);
 
         // the column + index now exist; the pre-existing row is intact, NULL id
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -633,7 +654,8 @@ mod tests {
             vec![
                 "plagiarism_library_citation_link",
                 "citation_library_verification_persist",
-                "evidence_store"
+                "evidence_store",
+                "evidence_claim_kind"
             ]
         );
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -660,8 +682,8 @@ mod tests {
 
         // apply v11 (+ v12 rides along; it does not touch citation_library)
         let applied = migrate_up(&mut conn).unwrap();
-        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store"]);
-        assert_eq!(current_version(&conn).unwrap(), 12);
+        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind"]);
+        assert_eq!(current_version(&conn).unwrap(), 13);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(column_names(&conn, "citation_library").iter().any(|n| n == c), "missing column {c}");
         }
@@ -690,7 +712,7 @@ mod tests {
 
         // down to v10 peels v12 (evidence_store) then v11 (the subject here).
         let reverted = migrate_down(&mut conn, 10).unwrap();
-        assert_eq!(reverted, vec!["evidence_store", "citation_library_verification_persist"]);
+        assert_eq!(reverted, vec!["evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(!column_names(&conn, "citation_library").iter().any(|n| n == c), "{c} should be dropped");
         }
@@ -698,6 +720,6 @@ mod tests {
 
         // re-applies cleanly (idempotent up after a partial down): v11 + v12
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store"]);
+        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind"]);
     }
 }

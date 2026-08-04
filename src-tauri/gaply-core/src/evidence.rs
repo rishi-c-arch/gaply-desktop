@@ -16,8 +16,18 @@ use serde::{Deserialize, Serialize};
 use crate::report::{Finding, FindingSeverity};
 use crate::swarm::AgentKind;
 
-/// Bump when the [`EvidenceRecord`] shape changes (the Evidence Store persists it).
-pub const EVIDENCE_SCHEMA_VERSION: u32 = 1;
+/// Bump when a change AFFECTS CACHED-REPORT COMPATIBILITY — not on every
+/// modification. An optional field with a serde default leaves cached reports
+/// readable and needs no bump; requiring one for every change would train
+/// reflexive bumping, which is how versions stop meaning anything.
+///
+/// * **1 → 2** — `claim: ClaimKind` added as a REQUIRED field
+///   (ARCHITECTURE_TRACE §26). An optional-with-default would have been
+///   compatible and WRONG: stale cached reports would take the default, so
+///   process-state findings would count toward the verdict — §23.4's measured
+///   defect, reintroduced for cached data and invisible. The version is in the
+///   report cache key, so stale entries miss and recompute.
+pub const EVIDENCE_SCHEMA_VERSION: u32 = 2;
 
 /// Structured-provenance prefixes — THE canonical list (single source of truth;
 /// `reviewer_agent` imports [`is_structured_provenance`], it does not keep a copy).
@@ -54,6 +64,63 @@ pub enum ConfidenceKind {
     DeliberatelyCoarse,
     /// Placeholder — NEVER usable for routing (Extraction; gate-rejected).
     NoSignal,
+}
+
+/// WHAT EDITORIAL STATEMENT a finding makes — the dimension `Finding` lacked
+/// (ARCHITECTURE_TRACE §23.7).
+///
+/// # A default and two carve-outs, NOT a taxonomy
+///
+/// All three variants answer one question: *what is this claim about* — our own
+/// execution, model authorship, or a manuscript flaw. [`ConfidenceKind`] is what
+/// describes epistemic character; [`ClaimKind::AuthorshipSignal`] describes what
+/// the claim ASSERTS.
+///
+/// The GRAIN is deliberately uneven. `ProcessState` and `AuthorshipSignal` are
+/// each one narrow thing; `ManuscriptDefect` covers statistics, citations,
+/// textual overlap, stylometry, tables and reference recency. **It is a default
+/// plus two carve-outs, and the carve-outs are exactly the two traced
+/// instances.**
+///
+/// **This enum is intentionally instance-driven rather than taxonomically
+/// complete. Future variants should only be introduced when demanded by traced
+/// evidence.**
+///
+/// # Why it exists
+///
+/// * `ProcessState` — run 22's f4 (*"35 of 35 citation(s) could not be
+///   checked"*) and f5 (*"Verification output rejected by its internal gate"*)
+///   were two of four `Minor` findings and **changed the recommendation**
+///   (§23.4). Both describe Gaply's execution, not the manuscript. Showing the
+///   author *"we couldn't check your citations"* is correct; letting it change
+///   their recommendation is not.
+/// * `AuthorshipSignal` — `ai_detect.rs`'s own disclaimer says *"NOT proof of AI
+///   authorship"*, yet `report.rs` maps the swarm's `concern` answer to `Major`.
+///   It cannot be excluded by `AgentKind`, because the same agent also produces
+///   the stylometric findings `report.rs` explicitly documents as
+///   reviewer-relevant (§22.5).
+///
+/// # Extension cost
+///
+/// A fourth VARIANT is compatible (additive). A second optional field with a
+/// serde default is compatible. **Changing a plain variant into a DATA-CARRYING
+/// one is INCOMPATIBLE** — the wire form goes from `"process_state"` to
+/// `{"process_state": {…}}` and every historical fixture fails. The bet taken
+/// here is that the carve-outs stay parameterless; if a future one needs a
+/// parameter, add a new parameterless variant or a second field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaimKind {
+    /// A statement about GAPLY'S OWN EXECUTION — a lane that could not run, a
+    /// gate that rejected an output, a parse that failed. True and worth showing;
+    /// never evidence about the manuscript.
+    ProcessState,
+    /// A statement that the text may be model-generated. An observation about
+    /// provenance, not a publishability defect.
+    AuthorshipSignal,
+    /// A statement about the MANUSCRIPT that bears on publishability — the
+    /// default, and everything not carved out above.
+    ManuscriptDefect,
 }
 
 /// The per-agent routing POLICY, carried as DATA (the record holds no logic).
@@ -103,6 +170,10 @@ pub struct EvidenceRecord {
     /// `build_review_payload`), assigned by the caller.
     pub id: String,
     pub agent: AgentKind,
+    /// WHAT this finding asserts — the dimension the record previously lacked.
+    /// Carried from the `Finding` that produced it; never re-derived from
+    /// `agent`, which answers a different question (§23.2).
+    pub claim: ClaimKind,
     pub severity: FindingSeverity,
     pub confidence: f64,
     pub confidence_kind: ConfidenceKind,
@@ -181,6 +252,7 @@ impl EvidenceRecord {
     pub fn at_source(
         id: impl Into<String>,
         agent: AgentKind,
+        claim: ClaimKind,
         severity: FindingSeverity,
         raw_confidence: f64,
         provenance: Vec<String>,
@@ -190,6 +262,7 @@ impl EvidenceRecord {
         EvidenceRecord {
             id: id.into(),
             agent,
+            claim,
             severity,
             confidence: raw_confidence,
             confidence_kind: confidence_kind(agent),
@@ -235,6 +308,7 @@ impl EvidenceRecord {
         EvidenceRecord {
             id: id.into(),
             agent: finding.agent,
+            claim: finding.claim,
             severity: finding.severity,
             confidence: finding.confidence,
             confidence_kind: confidence_kind_v,
@@ -307,9 +381,11 @@ mod tests {
     // gaply_core`), NOT as an automatic gate. There is no CI that runs on push
     // (ARCHITECTURE_TRACE §21).
 
-    /// One full record as written by the CURRENT schema. A RELEASE ARTIFACT, not
-    /// test data — never edit or regenerate it from `EvidenceRecord`.
-    const HISTORICAL_RECORD_V1: &str = r#"{
+    /// RETIRED AT VERSION 2 — no longer parses, because `claim` became a
+    /// required field. Kept as the RELEASE ARTIFACT that documents WHY the
+    /// version was bumped. Never delete it; a retired fixture is the evidence of
+    /// the break, and `retired_fixtures_no_longer_parse` asserts it stays broken.
+    const RETIRED_AT_V2_RECORD: &str = r#"{
         "id": "f1",
         "agent": "plagiarism",
         "severity": "major",
@@ -322,10 +398,8 @@ mod tests {
         "schema_version": 1
     }"#;
 
-    /// A record whose optional field is POPULATED — a distinct shape from the
-    /// null case, and the one that breaks if `limitations` changes type. Also a
-    /// RELEASE ARTIFACT: append a new one, never rewrite this.
-    const HISTORICAL_RECORD_V1_WITH_LIMITATIONS: &str = r#"{
+    /// RETIRED AT VERSION 2, same reason. Kept for the same purpose.
+    const RETIRED_AT_V2_RECORD_WITH_LIMITATIONS: &str = r#"{
         "id": "f7",
         "agent": "ai_detection",
         "severity": "info",
@@ -432,14 +506,81 @@ mod tests {
         )
     }
 
+    /// Records as written by the CURRENT schema. RELEASE ARTIFACTS — never edit
+    /// or regenerate from `EvidenceRecord`. Append new ones on a bump.
+    const RECORD_V2: &str = r#"{
+        "id": "f1",
+        "agent": "plagiarism",
+        "claim": "manuscript_defect",
+        "severity": "major",
+        "confidence": 0.91,
+        "confidence_kind": "wired_real",
+        "provenance": ["similarity:0.910", "match_type:high word overlap"],
+        "evidence_refs": ["similarity:0.910", "match_type:high word overlap"],
+        "routing_hint": "threshold_eligible",
+        "limitations": null,
+        "schema_version": 2
+    }"#;
+
+    /// The optional field POPULATED, and the `process_state` carve-out on the
+    /// wire — the two shapes most likely to break silently.
+    const RECORD_V2_PROCESS_STATE: &str = r#"{
+        "id": "f4",
+        "agent": "verification",
+        "claim": "process_state",
+        "severity": "minor",
+        "confidence": 0.5,
+        "confidence_kind": "real_native",
+        "provenance": ["agent:verification (harness-gated, via proxy)"],
+        "evidence_refs": ["agent:verification (harness-gated, via proxy)"],
+        "routing_hint": "threshold_eligible",
+        "limitations": "AI-detection: coarse signal — escalate by policy, never threshold on this number",
+        "schema_version": 2
+    }"#;
+
     #[test]
     fn previously_written_evidence_records_still_deserialize() {
-        for (name, fixture) in [
-            ("HISTORICAL_RECORD_V1", HISTORICAL_RECORD_V1),
-            ("HISTORICAL_RECORD_V1_WITH_LIMITATIONS", HISTORICAL_RECORD_V1_WITH_LIMITATIONS),
-        ] {
+        for (name, fixture) in
+            [("RECORD_V2", RECORD_V2), ("RECORD_V2_PROCESS_STATE", RECORD_V2_PROCESS_STATE)]
+        {
             let parsed: Result<EvidenceRecord, _> = serde_json::from_str(fixture);
             assert!(parsed.is_ok(), "{}", incompatible(&format!("{name} failed to parse: {parsed:?}")));
+        }
+    }
+
+    /// The other half of the release-artifact rule. A retired fixture is kept as
+    /// the evidence of a break, and this asserts it STAYS broken — so the record
+    /// of why a version was bumped cannot quietly become false.
+    ///
+    /// If one of these starts parsing again, compatibility was restored: move it
+    /// back into the live set above rather than deleting it here.
+    ///
+    /// # It guards the DECISION, not just the data
+    ///
+    /// Second-order value: this test fires if someone later makes `claim`
+    /// OPTIONAL-WITH-DEFAULT. The retired fixture would parse again — and that
+    /// is exactly §26.4's compatible-and-wrong case, where old records silently
+    /// acquire a default claim they never carried, reintroducing §23.4's
+    /// measured defect for cached data and invisibly. The assertion therefore
+    /// protects the reasoning behind the required field, not merely the bytes.
+    #[test]
+    fn retired_fixtures_no_longer_parse() {
+        for (name, fixture, retired_at) in [
+            ("RETIRED_AT_V2_RECORD", RETIRED_AT_V2_RECORD, 2u32),
+            ("RETIRED_AT_V2_RECORD_WITH_LIMITATIONS", RETIRED_AT_V2_RECORD_WITH_LIMITATIONS, 2),
+        ] {
+            let parsed: Result<EvidenceRecord, _> = serde_json::from_str(fixture);
+            assert!(
+                parsed.is_err(),
+                "{name} parses again, but it is recorded as retired at \
+                 EVIDENCE_SCHEMA_VERSION {retired_at}. If compatibility was restored, move it \
+                 into the live fixture set; do not delete it."
+            );
+            assert!(
+                EVIDENCE_SCHEMA_VERSION >= retired_at,
+                "{name} is retired at version {retired_at}, which is ahead of \
+                 EVIDENCE_SCHEMA_VERSION {EVIDENCE_SCHEMA_VERSION}"
+            );
         }
     }
 
@@ -474,6 +615,7 @@ mod tests {
             tier: CertaintyTier::AiAssessedModerate,
             certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
             agent,
+            claim: ClaimKind::ManuscriptDefect,
             title: "t".into(),
             detail: "d".into(),
             confidence,
@@ -526,6 +668,7 @@ mod tests {
         let rec = EvidenceRecord::at_source(
             "f1",
             AgentKind::Plagiarism,
+            ClaimKind::ManuscriptDefect,
             FindingSeverity::Major,
             0.91,
             vec!["similarity:0.910".into(), "match_type:high word overlap".into(), "prose note".into()],

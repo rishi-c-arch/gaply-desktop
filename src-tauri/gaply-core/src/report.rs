@@ -24,7 +24,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::evidence::EvidenceRecord;
+use crate::evidence::{ClaimKind, EvidenceRecord};
 use crate::extract::sections::SectionKind;
 use crate::extract::ExtractionResult;
 use crate::plagiarism::{MatchSource, MatchSpan, PlagiarismReport};
@@ -147,6 +147,10 @@ pub struct Finding {
     /// The tier's human label, embedded so serialized reports are self-describing.
     pub certainty_label: String,
     pub agent: AgentKind,
+    /// WHAT editorial statement this finding makes. REQUIRED — every literal
+    /// must supply it, so a new constructor cannot silently default to
+    /// `ManuscriptDefect` (§26.5). Do NOT derive `Default` on this type.
+    pub claim: ClaimKind,
     pub title: String,
     pub detail: String,
     /// Confidence as used by the debate (rescaled for soft findings; 1.0 for
@@ -219,6 +223,26 @@ struct ReportFinding {
 /// agents this differs from the Finding's rescaled `confidence`). A gate-rejected
 /// finding (provenance `swarm:rejected…`) routes through `from_finding`, which
 /// forces NoSignal/HeldOut regardless of agent. Id is assigned post-sort.
+/// What a LANE-LEVEL round-table opinion asserts. TOTAL — no wildcard arm — so a
+/// seventh `AgentKind` cannot compile until its opinion's claim is decided here.
+///
+/// The split is §22.5's, traced from what each opinion answers:
+/// AI-detection's opinion answers *"was this written by a model"*; Extraction's
+/// and RAG's answer *"did our lane work"*. Validation is `hard_constraint` and
+/// Verification/Plagiarism are covered in detail elsewhere, so their aggregate
+/// opinions never reach a `Finding` — but they are classified here anyway,
+/// because totality is the point and an unreachable arm costs nothing.
+fn opinion_claim(agent: AgentKind) -> ClaimKind {
+    match agent {
+        AgentKind::AiDetection => ClaimKind::AuthorshipSignal,
+        AgentKind::Extraction => ClaimKind::ProcessState,
+        AgentKind::Rag => ClaimKind::ProcessState,
+        AgentKind::ValidationMaths => ClaimKind::ManuscriptDefect,
+        AgentKind::Verification => ClaimKind::ProcessState,
+        AgentKind::Plagiarism => ClaimKind::ManuscriptDefect,
+    }
+}
+
 fn paired(finding: Finding, raw_confidence: f64) -> ReportFinding {
     let evidence = if finding.provenance.iter().any(|p| p.starts_with("swarm:rejected")) {
         EvidenceRecord::from_finding(&finding, String::new())
@@ -226,6 +250,7 @@ fn paired(finding: Finding, raw_confidence: f64) -> ReportFinding {
         EvidenceRecord::at_source(
             String::new(),
             finding.agent,
+            finding.claim,
             finding.severity,
             raw_confidence,
             finding.provenance.clone(),
@@ -282,6 +307,8 @@ pub fn compile_report(
     for flag in &validation.flags {
         items.push(paired(
             Finding {
+                // a deterministic statistical rule failed in the manuscript
+                claim: ClaimKind::ManuscriptDefect,
                 severity: match flag.severity {
                     crate::validate::Severity::Critical => FindingSeverity::Critical,
                     crate::validate::Severity::Major => FindingSeverity::Major,
@@ -355,6 +382,8 @@ pub fn compile_report(
             }
             items.push(paired(
                 Finding {
+                    // a citation is refuted or supported by external evidence
+                    claim: ClaimKind::ManuscriptDefect,
                     severity,
                     tier: verification_tier,
                     certainty_label: verification_tier.label().into(),
@@ -388,6 +417,8 @@ pub fn compile_report(
             );
             items.push(paired(
                 Finding {
+                    // OUR verification lane could not check them (§23.4 f4)
+                    claim: ClaimKind::ProcessState,
                     severity: FindingSeverity::Minor,
                     tier: verification_tier,
                     certainty_label: verification_tier.label().into(),
@@ -427,6 +458,8 @@ pub fn compile_report(
             };
             items.push(paired(
                 Finding {
+                    // this text overlaps another document
+                    claim: ClaimKind::ManuscriptDefect,
                     severity: if m.similarity >= pr.threshold {
                         FindingSeverity::Major
                     } else {
@@ -491,6 +524,8 @@ pub fn compile_report(
         };
         items.push(paired(
             Finding {
+                // depends on WHICH lane opined — total match below
+                claim: opinion_claim(op.agent),
                 severity,
                 tier,
                 certainty_label: tier.label().into(),
@@ -513,6 +548,8 @@ pub fn compile_report(
     for op in &outcome.rejected {
         items.push(paired(
             Finding {
+                // OUR internal gate rejected an agent's output (§23.4 f5)
+                claim: ClaimKind::ProcessState,
                 severity: FindingSeverity::Minor,
                 tier: CertaintyTier::AiAssessedModerate,
                 certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
@@ -644,6 +681,8 @@ fn stylo_finding(signal: &str, dev: Deviation, title: String, detail: String, ev
     let confidence = dev.confidence();
     paired(
         Finding {
+            // writing quality — report.rs's own scoping excludes the authorship tells
+            claim: ClaimKind::ManuscriptDefect,
             severity: FindingSeverity::Minor,
             tier: CertaintyTier::AiAssessedModerate,
             certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
@@ -746,6 +785,8 @@ fn stylometry_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
             // Info, not Minor: this is a statement about OUR parse, not the paper.
             out.push(paired(
                 Finding {
+                    // OUR parse could not measure citation density
+                    claim: ClaimKind::ProcessState,
                     severity: FindingSeverity::Info,
                     tier: CertaintyTier::AiAssessedModerate,
                     certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
@@ -842,6 +883,8 @@ fn table_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
     let complete = captioned == total;
     paired(
         Finding {
+            // tables and their captions are the manuscript's
+            claim: ClaimKind::ManuscriptDefect,
             severity: if complete { FindingSeverity::Info } else { FindingSeverity::Minor },
             tier: CertaintyTier::AiAssessedModerate,
             certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
@@ -897,6 +940,8 @@ fn citation_count_findings(registry: &[ReferenceVerification]) -> Vec<ReportFind
     let total = registry.len();
     paired(
         Finding {
+            // how many references WE resolved counts for
+            claim: ClaimKind::ProcessState,
             severity: FindingSeverity::Info,
             tier: CertaintyTier::AiAssessedModerate,
             certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
@@ -1026,6 +1071,8 @@ fn uncited_reference_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
 
     paired(
         Finding {
+            // references the manuscript never cites
+            claim: ClaimKind::ManuscriptDefect,
             severity: FindingSeverity::Minor,
             tier: CertaintyTier::AiAssessedModerate,
             certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
@@ -1096,6 +1143,8 @@ fn reference_recency_findings(ex: &ExtractionResult, current_year: i32) -> Vec<R
     };
     paired(
         Finding {
+            // the manuscript's references are old
+            claim: ClaimKind::ManuscriptDefect,
             severity,
             tier: CertaintyTier::AiAssessedModerate,
             certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
