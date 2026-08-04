@@ -1484,3 +1484,63 @@ So this is an argument about **ORDER**, not about either fix:
 * **The deployed `PUBLISHREADY_LIMIT_PREMIUM`.** `20` is the code default (`config.py:58`); the deployed value is an environment variable this repository cannot read.
 * **Typical calls per run.** Run 22 produced five successful `/verify` requests. `batch_escalation`'s count varies by manuscript, so **one run is one observation**, not a rate.
 * **Whether any subscriber has been affected.** Not determinable from this repository.
+
+---
+
+## 21. Instrumentation maturity — an observed pattern
+
+**Descriptive, not prescriptive.** This documents an evolution in how the project preserves engineering knowledge. It is not a rule, not a work item, and it does not prescribe future work.
+
+### Three levels
+
+They differ **not in permanence but in WHO MUST DETECT A VIOLATION.**
+
+| Level | Examples | How a violation is detected |
+|---|---|---|
+| **1. Prose rules** | ONTOLOGY §4.4, §4.9, §4.10, §4.12, §4.14–§4.18 | **A contributor must have read and remembered the rule** |
+| **2. Recorded instrumentation** | `manuscript_sha256`, `journal_name`, `findings_projection_digest`, `summary_digest` | **The system records the fact, but a human must compare or interpret it** |
+| **3. Enforcing instrumentation** | the `SUMMARY_FORMAT_VERSION` pin, `release_gate.rs` | **The system detects the violation itself and blocks progress** |
+
+### What recent work actually did
+
+**Primarily moved knowledge from level 1 to level 2.** Two additions demonstrated their value immediately by exposing configuration problems that were previously invisible:
+
+* `manuscript_sha256` — caught run 20 analysing the wrong manuscript (§17).
+* `journal_name` — caught run 22's PLOS Medicine / PLOS ONE inconsistency (§19.2).
+
+Both on their first run.
+
+### Level 2's limit, shown by run 22
+
+**Level 2 is a substantial improvement over prose because it makes hidden state observable, but it still depends on someone reviewing the output.**
+
+Run 22 illustrates this directly. `journal_name` **faithfully recorded** the mismatch — the field did its job completely. But the inconsistency became actionable **only because someone compared the recorded fields.** Filed without review, the field would have **documented the confound rather than caught it** — which is precisely what happened to runs 20 and 21, where the same class of confound was present and no field existed to record it at all.
+
+### Level 3 is a different class of protection
+
+The `SUMMARY_FORMAT_VERSION` pin does not rely on a reviewer noticing a changed digest, nor on anyone remembering a documentation rule. **It fails automatically at the point where the invariant is violated** — the edit that adds a `summary` field is the edit that turns the suite red, and it lives in `gaply-core`, which CI runs (`windows-build-check.yml:117`).
+
+**A distinction inside level 3, recorded for accuracy.** `release_gate.rs` self-detects and returns a typed `Fail`, but it lives in the app crate and **CI does not run it** — it blocks progress only when someone invokes it. Its coverage limitation is separately recorded as §17's Gap B. So the two level-3 examples differ in whether the detection is *automatic* or merely *available*, and only the pin is unconditional.
+
+### The observed progression
+
+> **RULE → RECORDED EVIDENCE → ENFORCED INVARIANT**
+
+**Instrumentation that repeatedly exposes violations of a stable invariant becomes a candidate for promotion to enforcement.**
+
+**The criterion is the existence of an enforceable invariant, not frequency of usefulness.** A field can prove useful a hundred times and still admit no assertion — `summary_digest` is exactly that. Conversely `SUMMARY_FORMAT_VERSION` was promotable **on its first use**, because the invariant was defined before anything asserted it.
+
+**This is an architectural observation, not a current work item, and it does not imply every recorded field should become an assertion.**
+
+**`summary_digest` is the counter-example.** A changed digest means *"something differed"*, and **whether that is a problem depends on context** — the run 20 / run 21 pair wanted the digest to change under model non-determinism and wanted it stable under a repeat. There is no single invariant it could enforce, and **promoting it would mean inventing one to justify the promotion.**
+
+By contrast, two candidates could each support an automated check **once the invariant is decided**:
+
+* a known `manuscript_sha256` for a frozen baseline — the invariant already exists informally as the freeze condition;
+* a journal/guidelines consistency policy **if** the project later adopts one (§19.4 records that no such policy exists today, and that the data to compute one does not either).
+
+> ***The invariant comes first and the enforcement second.***
+
+This states in one line what the progression above only illustrates: **the diagram explains the evolution; this sentence explains why a promotion is justified.** With the criterion stated earlier, it now says the same thing from both directions — an invariant without evidence is untested, and evidence without an invariant has nothing to assert.
+
+The pin was promotable because `SUMMARY_FORMAT_VERSION` defined what "unchanged" means before anything asserted it.
