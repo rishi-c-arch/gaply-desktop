@@ -1668,3 +1668,193 @@ They are **not two views of one decision** — different units, different mechan
 > **The investigation establishes that the hard-constraint precedence rule is the only element of `overall_verdict` not obviously reproduced by severity aggregation. Whether that rule should become an explicit aggregation input remains an open design question.**
 
 **Not established:** whether the two verdicts have ever disagreed in a way that reached a user. Run 22 is the only report available, and its `shadow_reviewer` was not the authoritative letter, so that divergence was never shown to anyone.
+
+---
+
+## 23. Claim identity — ownership, and a new form of the projection pattern
+
+### 23.1 The distinction is implemented procedurally and represented nowhere
+
+**FACT.** The distinction between *"was this written by a model"* and *"is this well written"* is executed correctly and expressed by no value.
+
+* `stylometry_findings` (`report.rs:677+`) reads `sentence_length_cv`, `mtld`/`mtld_deviation`, `ngram_repetition`, `citation_density`. It does **not** read `function_word_ratio`, `em_dash_per100`, `template_density` — exactly the three its doc names as authorship tells (`:665-673`).
+* The distinction is carried by **which struct fields a function chooses not to read**, plus a doc comment.
+
+**The same feature supports both claims.** `sentence_length_cv`'s definition reads *"Low = uniform = **AI**"* (`ai_features.rs:150`); `stylometry_findings` renders that identical field as *"uniform sentence length reads as monotonous to a reader"*. **The distinction is therefore not a property of the data and cannot be owned by the feature producer.** It is a property of the claim constructed from the feature, and it is made in two places: `from_ai_detection` (`swarm.rs:358-375`) and `stylometry_findings`.
+
+> **The code executes it correctly, the type system cannot express it, and downstream consumers therefore cannot observe or verify it.**
+
+**This is a NEW FORM of the projection pattern (§22.4).** Every prior case — `overall_verdict`, `confidence_kind`, `routing_hint`, `AgentKind`, `limitations` — was a value **produced, persisted, and dropped at a boundary**. This one **never became a value at all**. Separating *implementation* from *representation* is what distinguishes it: nothing was lost in transit, because nothing was ever put in transit.
+
+**`BiasTier` is not the owner**, and assuming it would repeat the `ConfidenceKind` error. It classifies fairness risk and **cuts across** this distinction: `lexical diversity (MTLD)` is `BiasTier::Stylometric` (`ai_signals.rs:398`) and is precisely the finding the code declares reviewer-relevant.
+
+### 23.2 `AgentKind` is NOT a fourth overloaded name
+
+**Correcting this pass's own reasoning.** The three renames — `guidelinesUrl`, `wholesale_payload_digest`, `release_gate.rs` (module vs runner) — were each **one concept given a name claiming more than it delivered**. Renaming corrected the claim.
+
+**`AgentKind::AiDetection` accurately denotes the producing subsystem, and both claims genuinely come from it**, from the same feature computation. **This is one producer legitimately emitting more than one claim type** — a different situation with a different remedy.
+
+**The rule established when `ConfidenceKind` was rejected applies to `AgentKind` too:** do not key policy A on a field whose meaning is policy B. **`AgentKind` means "which subsystem produced this", which is not editorial admissibility.** It looked correct only because it is the finest-grained identity that exists — an accident of availability, not a property that makes it right.
+
+**Which is why option (ii), splitting `AgentKind`, is rejected: it would make the producer taxonomy encode a policy**, the inverse of the three renames, which made names tell the truth. `AgentKind` survives as the key for per-lane execution state, where the question genuinely is *"did this subsystem run"*.
+
+**Established: option (iii)** — `AgentKind` keeps denoting the producer; the claim identity is emitted by the producer alongside it, at the point the claim is constructed, where the distinction is already made and already documented.
+
+### 23.3 The Box 4 interaction — exclusion would silently invalidate the comparison premise
+
+**FACT.** `REVIEWER_INSTRUCTION` (`reviewer_agent.rs:77-91`) constrains grounding, format and the `reject` justification. **It says nothing about eligibility.** `build_review_payload` sends `report["findings"]` top-12 with no filter. No comment, test or document addresses whether an ineligible finding should be sent.
+
+**Three distinct contracts, and no evidence for any:**
+
+1. **every finding** — current behaviour, **not established as intended**;
+2. **only verdict-eligible findings** — makes the two recommendations comparable, but withholds context a reviewer might legitimately use in prose;
+3. **every finding together with its eligibility** — strictly more information; costs a payload field and a `SUMMARY_FORMAT_VERSION` bump.
+
+**Under contract 1, the moment any exclusion lands the shadow and wholesale recommendations are computed over DIFFERENT EVIDENCE SETS.** §18.1's non-determinism finding compared them assuming identical input; exclusion would falsify that assumption **by construction, silently, and without changing any digest** — `findings_projection_digest` covers what was *sent*, not what was *counted*.
+
+> **The wholesale contract must be decided before any exclusion ships.**
+
+### 23.4 A LIVE DEFECT — the manuscript is penalised for Gaply's own failures
+
+**This is not a design finding. It changed run 22's recommendation.**
+
+Two of run 22's four `Minor` findings are statements about **Gaply's** execution, not the manuscript:
+
+* **f4** — *"35 of 35 citation(s) could not be checked"* (`report.rs:394`)
+* **f5** — *"Verification output rejected by its internal gate"* (`report.rs:519`)
+
+**f4 exists because `/verify` returned 422 and then 403** — §15.2's unbounded-payload defect and §19.3's exhausted entitlement. The citation lane never ran.
+
+> **Showing the author "we couldn't check your citations" is correct. Letting it change their recommendation is not.**
+
+#### The measurement — observed
+
+Run 22's findings: **1 Major, 4 Minor, 3 Info.** `MINOR_REVISION_THRESHOLD = 3`.
+
+| Excluding | Minor count | Recommendation |
+|---|---|---|
+| nothing (actual) | 4 | `MajorRevision` |
+| AI-authorship only (f1) | 4 | `MinorRevision` |
+| process claims only (f4, f5) | 2 | `MajorRevision` |
+| **both** | **2** | **`Accept`** |
+
+#### What the measurement demonstrates — stated separately
+
+**A recommendation change is produced by excluding findings that describe Gaply's own execution.** The conclusion follows from the four rows above; it does not replace them. With the AI-authorship signal also excluded, the same manuscript moves from `MinorRevision` to `Accept` — the two exclusions are independently insufficient and jointly decisive.
+
+### 23.5 Eligibility is already being decided — via severity, inconsistently
+
+**FACT.** `report.rs:~757` carries the comment:
+
+> *"Info, not Minor: this is a statement about OUR parse, not the paper."*
+
+**That is the eligibility decision, being made today, in the wrong field.** `Info` cannot change a recommendation, so choosing it *is* choosing ineligibility — expressed through an editorial-urgency field rather than an admissibility one.
+
+**And it is applied inconsistently.** `:394` and `:519` are process claims by the same reasoning and carry **`Minor`**, which counts. `:380-381` states the identical principle in a second family — *"describes OUR infrastructure … does not belong in their report"* — while `:394`, twelve lines later, emits `Minor`.
+
+> **The redesign makes an existing policy representable rather than introducing a new one.** Developers had already encoded it — in two comments, in one deliberate severity choice, and inconsistently in three others.
+
+### 23.6 At least two axes exist
+
+| Axis | Example | Reduces to the other? |
+|---|---|---|
+| **manuscript vs process** | f3 *"references older than 10 years"* vs f4 *"could not be checked"* | — |
+| **authorship vs writing quality** | *"AiDetection: concern"* vs *"lexical diversity deviates"* | **No — both are manuscript claims** |
+
+**A single `ClaimKind` enum cannot express both.** They are independent dimensions, not values of one.
+
+**A third axis was not audited for.** The method that found these two — *asking what editorial question each constructor answers* — would find a third if one exists, and applying it exhaustively is the remaining work before any type is designed.
+
+### 23.7 Category resolution
+
+**The audit decided against the exceptional reading.** Claim identity is not one distinction that never became a value; **it is a dimension the `Finding` type lacks entirely.** `Finding` carries producer, severity, tier, confidence, title, detail and provenance, and nothing stating **what kind of assertion this is**.
+
+**The remedy is therefore "the type is incomplete", not "represent this distinction."** The three-category scheme is **not** recorded: its stated condition — that AI-detection prove exceptional — was not met.
+
+**No existing value carries claim identity.** `provenance` prefixes come closest and are partial (`signal:` in some families, `rule:`/`evidence:`/`gate:` in others) and were designed for grounding. The **constructing function** is 1:1 with claim type in every case — structural, not a value, which is §23.1's shape exactly.
+
+---
+
+## 24. The two reviewers answer different questions
+
+### 24.1 The instructions say so explicitly
+
+**DOCUMENTED CONTRACT — wholesale** (`REVIEWER_INSTRUCTION`, `reviewer_agent.rs:77-91`):
+
+> *"You are a peer reviewer evaluating a manuscript from the STRUCTURED FINDINGS… Respond with ONLY a JSON object containing `recommendation`, `publication_probability`, `issues`, and `body`."*
+
+**DOCUMENTED CONTRACT — shadow** (`REVIEWER_SYNTHESIS_INSTRUCTION`, `:741-746`):
+
+> *"The findings below have **ALREADY been decided**… **Do NOT re-evaluate, re-score, re-classify, or overturn** any finding… **Do not output a recommendation or any score.**"*
+
+**The shadow's model is forbidden to produce a recommendation.** The shadow recommendation is `aggregate_reviewer_verdict`'s severity count; the wholesale recommendation is an LLM judgement.
+
+> **`recommendation_agreement` compares a rule engine's output against a language model's opinion.** They are not two reviewers — they are a deterministic aggregator and a peer-review simulation, asked different questions, answering in the same four-value vocabulary. **That shared vocabulary is the only thing making them look comparable.**
+
+### 24.2 What the metric is and is not
+
+**The measurement is right for the promotion question.** Box 4 exists to answer *"if we replace the LLM's recommendation with the aggregator's, what changes?"* — and comparing exactly those two values is the correct way to answer it, **regardless of whether the two were designed to answer the same question.**
+
+**The NAME is wrong.** *"Agreement"* imports a normative claim the design never made: that concurrence between them is evidence of correctness. Nothing in the code or the commit history supports that.
+
+**It cannot distinguish three causes of disagreement:**
+
+1. the two answer **different questions** (§24.1);
+2. **model noise** — the same input produced both values in runs 20 and 21 (§18.1);
+3. **different evidence sets** (§24.3).
+
+> **It is not evidence that the deterministic side is as good as the LLM.** It is evidence of what a user's headline recommendation would become.
+
+### 24.3 The same-evidence assumption is UNEXAMINED, not unstated
+
+| Layer | Status |
+|---|---|
+| **Payload construction** | **Two independent builders.** `build_review_payload` reads `report["findings"]` (severity-sorted); `build_reviewer_request` reads `input.findings` from `evidence_by_run` (`ORDER BY rowid`). **Neither references the other; nothing enforces that they select the same set** |
+| **Reviewer instructions** | Silent on evidence identity |
+| **Experiment design** | `d1c4e66` details the aggregator's contract at length and **never states the two paths must see identical evidence** |
+| **Comparison metrics** | `recommendation_agreement` compares two recommendations with **no evidence-identity precondition** |
+
+> **The assumption originates nowhere. It is UNEXAMINED rather than UNSTATED.**
+>
+> **An unstated decision has an owner who chose not to write it down; an unexamined one has no owner — so no layer can enforce or falsify it.**
+
+By inspection the two sets probably coincide today, since evidence rows are inserted from `report["evidence"]`, built in lockstep with `report["findings"]`. **That is an emergent property of two independent code paths, asserted by nothing.**
+
+### 24.4 FINDING — the cardinality guard repeats the count/membership error one layer up
+
+`release_gate.rs`'s **COMPARISON** invariant checks `shadow_findings_sent == wholesale_findings_sent` — both 12 in run 22.
+
+**§18.3 established that a count cannot prove membership.** That is exactly why `payload_digest` was renamed `findings_projection_digest`: a `SeverityByStateCounts` breakdown can be identical while the findings differ entirely.
+
+> **The error the rename existed to correct now sits inside the instrument built to catch such things.** Two counts agreeing is not two sets matching.
+
+**And membership is currently unverifiable on the shadow side: the shadow payload has no digest at all.** `summary_digest` and `findings_projection_digest` both cover the **wholesale** payload only (`commands.rs:688`). `build_reviewer_request`'s payload is hashed by nothing.
+
+### 24.5 Every dependent metric
+
+| Metric | Depends on same-evidence? | Status |
+|---|---|---|
+| **`recommendation_agreement`** | **Yes, totally** | §24.2 |
+| **`shadow_issue_coverage`** | **Yes — it IS the denominator** | `issues.len() / findings_sent` (`:371-377`). Measures *how many of the findings we sent did the narrative discuss* — a **completeness check on one model**, filed among cross-model comparisons. Says nothing about the wholesale side |
+| `shadow_grounded_issues` | No | Counts the shadow letter's issues |
+| `wholesale_grounded_issues` | No | Counts the wholesale letter's issues |
+| `shadow_hallucination_drops` | No | Gate warnings, shadow reply |
+| `wholesale_hallucination_drops` | No | Gate warnings, wholesale reply |
+
+**The two `grounded_issues` values are comparable only if the sets match.** Run 20's 3 vs run 21's 4 measures set difference as readily as model variance, and **neither field is labelled as carrying that precondition.**
+
+### 24.6 A DOCUMENTED CONTRADICTION, nowhere acknowledged
+
+`d1c4e66` states the goal is **replacement**: *"Stage 2 (switch) and Stage 3 (remove wholesale) are separate future decisions."*
+
+**Replacement implies the two should answer the same question.** The two instructions state that they do not (§24.1).
+
+> **That contradiction is acknowledged in no comment, test or document, and it must be resolved before promotion. It is a product decision.**
+
+### 24.7 Process claims reach the wholesale reviewer too
+
+Investigation A's f4 (*"35 of 35 citation(s) could not be checked"*) and f5 (*"Verification output rejected by its internal gate"*) are inside the top-12 sent to the LLM, under an instruction telling it to act as a peer reviewer and produce a recommendation.
+
+**The model is being told about Gaply's infrastructure failures and asked to weigh them as manuscript evidence.** This is live now, not conditional on any exclusion shipping.
+
+**Not established:** whether the two payload sets have ever diverged. Run 22 is the only artifact and it records cardinality, not membership.
