@@ -791,3 +791,67 @@ The class spans providers — `claude_client.py` has no equivalent enforcement �
 **This corrects a recorded diagnosis.** All-UNKNOWN citation verdicts were attributed to Ollama being unavailable. This run **reached the cloud proxy and was rejected on size** — a different cause with a different fix.
 
 **Note for §14:** `release_gate.rs`'s PRIVACY invariant covers `build_review_payload` only. **`verify_citations` has never been asserted** — no size check, no privacy check. That coverage gap is real independent of this defect's class.
+
+---
+
+## 16. Box 4 promotion — adversarial audit
+
+**Recorded as it stood at audit time.** F1's fix is measured and green and lands in the commit immediately following this one; it is recorded below as it was found, not rewritten in past tense.
+
+### Coverage of the audit itself
+
+| Area | Completed? |
+|---|---|
+| Paths to the Box 4 verdict · unmeasured assumptions · gate-missed invariants · reconstructed identity · contract mismatches · silent divergence · single-observation assumptions · n=1 misreading | **Yes** |
+| Paths never run against the live proxy | **Partly** — last run's terminal output secondhand, no process access |
+| Unvalidated JSONL fields | **Structurally yes, empirically NO** — the sink has never written a record |
+| **UI rendering (§12.3.1)** | **NOT TRACED** |
+| **Live-proxy runtime behaviour** | **NOT TRACED** |
+
+**The last two are untraced, not clean.** Without this statement an untraced area and a clean area read identically — the release-gate blind spot (§14) applied to the audit.
+
+### Findings
+
+| # | Finding | Class |
+|---|---|---|
+| **F1** | Every validation flag hardcoded `Critical`; any `Critical` → `Reject` at 0.05 | **A — shipping blocker** |
+| **F2** | Known false positives (cover-page self-match, AI-detection `concern`) would directly drive the verdict | **A — shipping blocker** |
+| **F3** | `publication_probability` is a 4-value lookup on the recommendation, rendered as a gauge | **B** |
+| **F4** | Verdict computed over ALL findings; narrative explains only `MAX_FINDINGS = 12` | **B** |
+| **F5** | Escalation's `task:"escalate_findings"` endpoint absent server-side (grep of `gaply-proxy/app/*.py`: zero matches) | **C** |
+| **F6** | `Recommendation::Unknown` unreachable from the aggregator; empty analysis → `Accept` 0.92 | **B** |
+| **F7** | No JSONL field ever validated against real data | **D** |
+| **F8** | `run_id` collision on re-runs — **hypothesis CLOSED BY TRACE** | **E** |
+| **F9** | `release_gate.rs` asserts nothing about the verdict it exists to gate | **D** |
+| **F10** | Two open §4.16 contract mismatches (`verify_citations` bound, schema enforcement) | **B / C** |
+| **F11** | n=1 misreading mitigated only by documentation | **E** |
+
+**F8 in full, because a closed hypothesis is a result.** I suspected re-running a manuscript would reuse `run_id`, failing `evidence_persist` on a duplicate and silently zeroing the shadow input — the documented `shadow_findings_sent == 0` signature. **`create_manuscript` INSERTs a new row per run (`db.rs:170-175`), so `run_id` is unique per run.** Closed by trace, not left as a worry.
+
+### F1 — the axis conflation, a SECOND INSTANCE of Gap E2
+
+Not a new gap. ONTOLOGY §2.1's Gap E2 records the confusion of **certainty** with **editorial weight** on the `CertaintyTier` axis. F1 is the identical confusion on the **severity** axis, never previously recorded.
+
+The hardcode was deliberate — `// hard constraints: every deterministic rule flag is CRITICAL` — and conflates two orthogonal claims. *"Hard constraint"* is **epistemic** (the Maths engine's verdicts are never voted on) and already has two correct homes: `Opinion::hard_constraint` and `CertaintyTier::MathematicallyCertain`. `FindingSeverity` is **editorial urgency**. The producer meant *"never voted on"*; the consumer read *"fatal"*.
+
+The contradiction was visible in shipped output: the finding rendered `[critical]` while its own provenance line read `rule:MissingEffectSize (MAJOR)`, and `store_validation` wrote **Major** to the `findings` table for the same flag.
+
+**Measured blast radius — composition AND order unchanged on this manuscript.** The sort is `severity → tier → confidence` (`report.rs:536-544`) and `MathematicallyCertain` ranks first *within* a band, so the validation findings led on **tier** all along. **Ordering never depended on the conflation.**
+
+That settles the justification: the severity hardcode was **redundant and inert for its apparent purpose** — it did nothing except feed an aggregator that read it as something else.
+
+**The exact 5 + 6 + 1 = 12 fit is coincidental.** Post-fix the Major band is larger, so the coincidence is easier to break: a manuscript with 13+ Major findings would see a real selection change in the reviewer payload.
+
+### The `stylo_finding` near-miss
+
+`report.rs:626` takes `dev: Deviation`, uses it for `confidence()`, and hardcodes `severity: Minor`. **Not a contradiction** — `Deviation` (`Notable` / `Moderate`) carries no severity claim, so nothing is being overridden. Recorded because it is the same shape: an available signal discarded on the severity axis.
+
+### The baseline capture was never the last blocker
+
+It records the **before** state. It does not establish that the **after** state is acceptable. Framing it as the final gate was wrong: promotion needs a comparison of the two verdicts across manuscripts, and `release_gate.rs` asserts nothing about the verdict at all (F9).
+
+### The strongest argument to reject promotion, as it stood
+
+> The deterministic verdict has never been compared against the recommendation it would replace, on any manuscript — and the only manuscript we have evidence for shows it would output "Reject, 5% publication probability" for a paper whose actual defect is that it omits effect sizes. Promotion does not swap one recommendation source for another of comparable behaviour; it replaces a moderate LLM judgement with a decision tree that rejects ordinary manuscripts, and routes every known false positive straight into the headline verdict.
+
+F1's fix removes the `Critical → Reject` mechanism. **F2, F3, F4, F6 and F9 remain open.**

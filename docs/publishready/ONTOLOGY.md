@@ -319,7 +319,13 @@ This is the same principle at **three layers**, and only the first was ever expl
 | **REPORT** | §9.2's empty-corpus problem — zero plagiarism findings rendered as silence, which a user reads as *"nothing found"* rather than *"nothing could be searched"* | Found by tracing; still open |
 | **ARTIFACT** | The Box 4 comparison record was written only when the shadow synthesis produced an outcome, so a run without one left **no file** — indistinguishable from a sink that never worked | Found while planning a baseline capture; fixed |
 
-The artifact case is the most dangerous of the three because it destroys the evidence of its own failure. A field that says `Unavailable` still tells you the run happened. A report that renders nothing at least renders. **A missing file says nothing at all**, and the reader cannot tell an honest negative from a broken instrument — which is precisely the state a baseline would have been captured in.
+**A fifth level, and the first on the INPUT side: no typed absence in, so no typed absence out.**
+
+Every instance above is on the **output** side — a field, a report, an artifact or a gate summary failing to say that something is missing. F6 (ARCHITECTURE_TRACE §16) is the first on the **input** side: `aggregate_reviewer_verdict` receives a `findings` vector without receiving **whether the analysis ran**. An empty vector therefore means "clean manuscript", "extraction failed" and "nothing was checked" indistinguishably, and it returns `Accept` at 0.92 — measured, not argued.
+
+**The aggregator cannot invent a distinction the upstream pipeline already erased.** No amount of output typing fixes this; the input must carry the state. That is why F6 is a design question rather than a fix, and why it must be resolved before the deterministic verdict is promoted — promotion also removes `Recommendation::Unknown`'s sole producer, leaving no verdict able to mean "could not evaluate".
+
+The artifact case is the most dangerous of the first three because it destroys the evidence of its own failure. A field that says `Unavailable` still tells you the run happened. A report that renders nothing at least renders. **A missing file says nothing at all**, and the reader cannot tell an honest negative from a broken instrument — which is precisely the state a baseline would have been captured in.
 
 The rule generalises past this codebase's current artifacts: any log, export, cache entry or telemetry record that is written *conditionally on success* has this defect. If the condition can fail, the record must still be written and must say the condition failed.
 
@@ -436,6 +442,18 @@ Every remaining item in §11.4 has the same shape and none has a protocol: refer
 
 This is the highest-leverage unstarted item in the project: one protocol unblocks eight findings.
 
+
+### 5.2 Measurement discipline — the report is not fully deterministic across runs
+
+**The report is not fully deterministic across runs when it includes live registry verification.**
+
+Observed: two consecutive runs on the same manuscript, with **no code change in that lane**, produced 20 then 19 findings and 28 then 27 citations.
+
+**Attributed to `refverify` specifically, not to the pipeline generally.** Extraction, validation, plagiarism, the checklist and report assembly are deterministic on identical input; `refverify` performs live HTTP against CrossRef, OpenAlex, Retraction Watch, Unpaywall and Semantic Scholar, whose availability, rate-limiting and record contents vary between runs. A reference that resolves on one run and times out on the next changes the verdict count and every count derived from it.
+
+**Consequence for every future gate reading:** a measurement involving refverify-derived counts requires either **repeated runs** or an **explicit exclusion of registry-driven findings**. Otherwise a ±1 difference cannot be attributed to the code under investigation — the two candidate explanations are indistinguishable from a single pair of runs.
+
+**This is a methodological constraint, not a defect.** Live registry verification is the feature working as designed. But it means the release gate's report reading is only *conditionally* comparable across runs, and any before/after claim about counts must say which of the two controls it used.
 
 ## 6. Roadmap by Evidence ROI
 
