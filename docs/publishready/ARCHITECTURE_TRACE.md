@@ -2387,3 +2387,78 @@ Deferred from PR-4 because bundling would make its blast radius two things at on
 3. **the checklist carries at least one item with `guideline_source: Some(_)`.**
 
 **(3) is the actual check** — it is the only one that proves the content was usable rather than merely present. (1) and (2) exist to localise a failure when (3) fails.
+
+---
+
+## 28. A harness gap — `requires_live_proxy` is overloaded across four causes
+
+**Found by run 23. Not implemented; recorded as the design.**
+
+`wholesale_recommendation` carried `requires: requires_live_proxy`, which reads as *the proxy was not live*. **The proxy log shows five 403 Forbidden responses — it was live and refused on entitlement.** Run 21 was genuinely unreachable and produced the **same** value.
+
+> **§4.14 inside the instrument built to prevent it: attributed absence with the wrong attribution, in the artifact whose entire purpose is making absence attributable.**
+
+### 28.1 Where the distinction exists, and where it is destroyed
+
+**It exists at the HTTP boundary.** `verify_with_envelope` (`proxy_client.rs:215-218`) branches on `!status.is_success()`, and the proxy's 403 carries `{"error":"not_entitled","reason":"no_uses_remaining"}` (`main.py:236`). A transport failure instead produces `"proxy POST … failed"` from `.send()`'s error arm. **`map_error_status` has no 403 arm**, so the reason survives only inside a formatted string — not matchable by a caller.
+
+**It is destroyed at `commands.rs:659-662`**, where every failure collapses into `ReviewerEvaluation::unavailable_offline()`, which carries no cause. The harness then sees only `available == false`.
+
+### 28.2 FOUR causes, one value
+
+| Cause | Remedy | Run |
+|---|---|---|
+| proxy not configured / no signer (`commands.rs:663`) | configure the client | — |
+| `/health` unreachable | bring the service up | **21** |
+| **403 `not_entitled`** | **reset or raise the quota** | **23** |
+| **our own gate rejected the response** | fix the payload or the model contract | — |
+
+### 28.3 The fourth cause breaks the enum's PREMISE
+
+`MetricAvailability`'s doc says it records *"the condition under which it WOULD be observed"*.
+
+> **For gate rejection there is no such condition. The proxy answered, a value WAS observed, and our own gate refused it. No external state would make it appear.**
+
+**Filing it under `requires_live_proxy` does not merely misattribute the cause — it attributes OUR failure to a third party.** That is why the fourth case needs different *treatment*, not just a different variant: the other three name a missing external condition, and this one names a decision we made.
+
+### 28.4 Three variants, and the third must locate the fault correctly
+
+* **`RequiresEntitlement`** — a genuine availability condition; remedy is a quota reset or a raised limit.
+* **`ProxyUnconfigured`** — likewise; remedy is client configuration, not service health.
+* **`SelfRejected`** — the gate refused a response we received. **Any phrasing implying the service failed would repeat the error being fixed.**
+
+### 28.5 §26's caution does NOT apply, and a future reader must not think it does
+
+§26 warned against `MetricAvailability` absorbing **editorial policy** — whether a claim is a publishability defect — because that would key one policy on a type meaning another (§21's `ConfidenceKind` rule).
+
+> **These are OPERATIONAL causes of a missing value, which is exactly what the enum exists for.** The addition is on-purpose, not an exception to §26.
+
+### 28.6 What it would take
+
+1. `map_error_status` gains a **matchable** 403 arm — the type must be selectable by a caller, since `commands.rs` cannot branch on a string.
+2. `commands.rs:641-663` stops collapsing. The cause belongs on **`ProxyMeta`**, not on `ReviewerEvaluation`: the letter is the reviewer's output, and this is a fact about the **call**. `ProxyMeta` already exists, is already `Option`, and is already threaded to `HarnessInputs`.
+3. `build_comparison_report` selects on the cause rather than on `available` alone.
+
+### 28.7 UNESTABLISHED — and narrower than it first looked
+
+**What the client log settles.** Run 23's log names the reviewer's refusal directly:
+
+> `reviewer cloud call failed; marking unavailable error=proxy returned 403: not_entitled`
+
+**So the reviewer call WAS made and WAS refused.** An earlier draft of this section listed *"the reviewer was never attempted because earlier callers exhausted the quota"* as an alternative. **That situation is not merely unobserved — it is impossible**, and the list should say so:
+
+* **no client-side short-circuit exists.** Each caller builds its own `ProxyReqwestClient::from_env()` (`commands.rs:577, 605, 642`) with no shared state and nothing recording a prior 403.
+* **`reachable()` probes `/health`** (`proxy_client.rs:139-144`), which is not entitlement-gated, so a refusal elsewhere cannot make the reviewer's client look unreachable.
+* **Exhaustion produces a 403 on EVERY subsequent call** rather than suppressing later ones.
+
+**Listing a situation the evidence rules out is the shape of error §23.4 was**, which is why it is corrected here rather than after.
+
+**What genuinely remains unestablished is narrower: WHICH of the five 403s was the reviewer's.** It does not change run 23's interpretation, because the client log names it. **So the "same gap one level out" is about per-caller attribution GENERALLY, not about this run.**
+
+**Per-caller metering (decision 3) closes it as a side effect** — a per-feature counter makes each caller's consumption separately visible, so which caller was refused becomes readable from the server side. **That makes the metering work more valuable than its own justification suggested:** §20.2 argued it on billing semantics, and it also buys observability the harness cannot get on its own.
+
+### 28.8 Record-interpretation note
+
+**Adding variants is serialization-compatible** — no existing value changes meaning, so **no `schema_version` bump** under §26.4's rule.
+
+**But a reader comparing run 21 or run 23 against any future record must know that `requires_live_proxy` was previously OVERLOADED across four causes.** The old records are not wrong about what was observed; they are imprecise about why, and nothing in them says so.
