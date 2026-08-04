@@ -1858,3 +1858,82 @@ Investigation A's f4 (*"35 of 35 citation(s) could not be checked"*) and f5 (*"V
 **The model is being told about Gaply's infrastructure failures and asked to weigh them as manuscript evidence.** This is live now, not conditional on any exclusion shipping.
 
 **Not established:** whether the two payload sets have ever diverged. Run 22 is the only artifact and it records cardinality, not membership.
+
+---
+
+## 25. What is Box 4 for?
+
+**Three readings are live and mutually inconsistent:**
+
+* **(a) REPLACE** — substitute a deterministic recommendation for the LLM's. `d1c4e66`'s stated Stage 2 / Stage 3 goal.
+* **(b) CROSS-CHECK** — validate the LLM against an independent signal. What *"agreement"* connotes.
+* **(c) NARRATIVE** — produce a review letter from already-decided findings. What `REVIEWER_SYNTHESIS_INSTRUCTION` actually asks for.
+
+### 25.1 Which does each layer answer?
+
+| Layer | Answer |
+|---|---|
+| **Documents** | **(a)**, unambiguously and twice. `d1c4e66`: *"Stage 2 (switch) and Stage 3 (remove wholesale) are separate future decisions."* `harness_log.rs:20-23`: *"the pre-promotion baseline… BEFORE the deterministic Box 4 verdict is promoted."* |
+| **Code** | **(b)'s mechanism, (c)'s output discarded** — see §25.2 |
+| **Metrics** | **predominantly (c).** Five of six measure narrative quality: `shadow_issue_coverage`, `shadow_grounded_issues`, `shadow_hallucination_drops`, `wholesale_grounded_issues`, `wholesale_hallucination_drops`. Only `recommendation_agreement` bears on (a), under a name that connotes (b) |
+
+**Three different answers.**
+
+### 25.2 The shadow letter is produced and discarded
+
+**OBSERVATION.** `shadow_reviewer` is produced (`commands.rs:710-711`), serialized, crosses the IPC boundary — and is read by nothing. `adaptOutcome` reads `o.reviewer`, the **wholesale** letter (`publishReadyBridge.ts:72-101`), and the TypeScript `PublishReadyOutcome` interface (`:63-67`) **does not declare `shadow_reviewer` at all.**
+
+**That is the §2 projection pattern at the output end of the very feature this investigation was studying.**
+
+**INTERPRETATION, stated as consistency and not as proof:**
+
+> **The current implementation is most consistent with (a). If Box 4 were primarily for (c), discarding the shadow letter would be difficult to explain. If it were primarily for (b), a comparison whose result reaches neither a gate nor a user would have no operational effect.**
+>
+> **The investigation could not establish whether the discard is deliberate or simply unwired.**
+
+### 25.3 Why this became a product question
+
+> **The same engineering work is prerequisite under one interpretation, counterproductive under another, and unnecessary under a third. That is why it became a product question — not because engineers disagreed, but because the same implementation has opposite values depending on what Box 4 is supposed to be.**
+
+### 25.4 What each reading implies
+
+| Question | (a) REPLACE | (b) CROSS-CHECK | (c) NARRATIVE |
+|---|---|---|---|
+| **Process claims in the aggregator?** | **Must be excluded** — §23.4 is fatal to a verdict that becomes the only verdict | **Both sides must match** — independence is the value, so identical inputs and independent methods; excluding from one alone destroys the check | n/a — no verdict |
+| **Process claims in the wholesale payload?** | matters only during the transition | same as above | **They belong.** *"We couldn't check your citations"* is the honest caveat a letter should carry |
+| **Identical evidence required?** | during comparison **yes**, or the measurement misinforms the decision it serves; irrelevant after the switch | **Required, and must be ENFORCED rather than assumed** (§24.3) | irrelevant — no comparison |
+| **`recommendation_agreement` should be called** | what the user's recommendation **would become** — it measures a delta | *"agreement"* is right **only if** the two are independent estimates of one quantity, which §24.1 shows they are not | the metric should not exist |
+| **Does the F2/F6 redesign serve it?** | **Prerequisite** | **Counterproductive** unless mirrored on the wholesale side, which nothing does | **Nearly irrelevant** — a narrative needs no verdict; the aggregator could be deleted and (c) still works |
+
+**Under (c) the current behaviour is nearly right and only the severity is wrong. Under (a) it is a live defect. Under (b) the asymmetry is the defect.**
+
+### 25.5 The L4 complication — two different points on the roadmap
+
+**CURRENT PRODUCT PURPOSE** — the question being decided now: what is Box 4 for, today, in the shipping pipeline?
+
+**TARGET ARCHITECTURE** — §11's direction: many **Review Engines** whose outputs are synthesised by an editorial layer above them (the "L4 editorial board"), with §11.3's capability registry as the non-`Finding` channel for capability state.
+
+**These are not competitors. They sit at different points on the roadmap**, and the answer to the first does not settle the second. A future reader should not conclude that the L4 architecture contradicts today's decision, nor that today's answer was the permanent intent.
+
+**One connection is worth recording, because §11.3 predicted §23.4 before it was observed:**
+
+> *"Capability state currently has nowhere to live except a `Finding`… there is no non-`Finding` channel for 'this could not be evaluated'. A registry is that channel, and it removes the pressure to express capability state as a finding about the manuscript."* — §11.3
+
+**f4 — *"35 of 35 citation(s) could not be checked"* — is exactly capability state expressed as a `Finding` about the manuscript.** The design intent recorded in §11.3 anticipated the defect §23.4 measured. That is evidence about where the eventual remedy belongs, and no evidence at all about which of (a), (b) or (c) is Box 4's purpose today.
+
+### 25.6 A reading, offered as a reading
+
+**The documents state (a), the code was built for (a), and the metrics accreted around (c) because narrative quality was what could be measured early.**
+
+**If (a) is confirmed, F2/F6 is the right next work and §23.4's defect is urgent. If it is not, the next work is different.**
+
+**This is a reading of the evidence, not a decision. The decision is not the code's to make.**
+
+### 25.7 Not established
+
+* **Whether the shadow letter's discard is deliberate.** The Rust returns `shadow_reviewer`; the TypeScript interface omits it. Consistent with *"not wired yet"* and with *"deliberately not shown"* — no comment distinguishes them.
+* **Whether anyone intended the metric suite to be predominantly (c).** The metrics were added incrementally and each is individually reasonable.
+
+### 25.8 Decision boundary
+
+> **The investigations from §21–§25 have reduced the remaining uncertainty to product intent rather than implementation. No further tracing is expected to resolve it. Any subsequent engineering design — F2/F6, the aggregation contract, eligibility representation, the wholesale evidence contract, or Box 4 promotion metrics — should follow from the chosen product purpose rather than precede it.**
