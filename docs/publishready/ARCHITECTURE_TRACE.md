@@ -2548,3 +2548,76 @@ Deferred from PR-4 because bundling would make its blast radius two things at on
 > **The third check is the one that matters: `guideline_source: Some(_)` proves the content was USABLE, not merely fetched.** Ingestion succeeding and retrieval returning hits were both true for the BMJ homepage in run 20, which produced zero guideline-derived items (§18.6.2). The `strip_block` and homepage-prefill defects each passed the first two checks and failed the third.
 
 **Pairing PLOS Medicine with PLOS Medicine's guidelines makes the next capture internally consistent, needs no code change, and is selectable in the directory.**
+
+---
+
+## 30. Run 25 — the pre-promotion operational baseline (n=1)
+
+**FROZEN. Preserved as `box4_comparisons.run25.jsonl`.**
+
+**Never "baseline" alone, never "agreement baseline"** — the label is *pre-promotion operational baseline (n=1)*, per `harness_log.rs`'s capture protocol.
+
+**Artifact identity verified BEFORE anything was read from it:** the persisted `summary_digest` is `2d65a8c8…b858c67ea48a`, identical to the logged value.
+
+### 30.1 The freeze condition — every part holds
+
+| | |
+|---|---|
+| `manuscript_sha256` | `859880647c…` — the frozen manuscript |
+| `schema_version` | **4** |
+| `journal_name` | **PLOS Medicine** — **matching** `guidelines_url` |
+| `guidelines_url` | `plosmedicine/s/submission-guidelines` |
+| Both sent-counts | 12 / 12 |
+| Both digests | present |
+| `wholesale_path_available` | **true** |
+| `wholesale_recommendation`, `recommendation_agreement` | both **Observed** |
+
+### 30.2 The promotion delta
+
+> **On this manuscript and this execution, promotion would change the recommendation presented to the user from Reject (10%) to Major Revision (30%).**
+
+**One manuscript, one execution, against a non-deterministic counterparty. Not a rate, and not evidence the deterministic side is better or worse.**
+
+**Run 24 on the same manuscript produced `major_revision`/20.0 with agreement TRUE; run 25 produced `reject`/10.0 with agreement FALSE.** §18.1's non-determinism, now observed on the frozen manuscript.
+
+### 30.3 Digest coverage — investigated in order, stopped at the first failure
+
+**STEP 1 — PASSES.** `summary_digest` hashes all of `payload["summary"]`, which contains `checklist`.
+
+**STEP 2 — PASSES, and explains the identical digest across runs 24 and 25 despite different guideline sources.** Both produce the same six items in the same order with the same `passed` values. **The full checklists differ ONLY in `guideline_source`, and `guideline_source` is not in the payload** — `build_review_payload` emits `{id, requirement, passed}` per item. Two different source URLs yielding the same requirements produce a byte-identical payload checklist.
+
+**STEP 3 — FAILS. Two reviewer-visible inputs sit outside the digest.** The proxy forwards only `{"summary", "instruction"}` as the user message (`openai_client.py:47-49`), plus a system message the client never sees.
+
+* **`instruction`** — a compile-time `const`, so constant *within* a binary but not across binaries.
+* **the server-side system prompt** (`_DEFAULT_SYSTEM`) — `main.py:183` constructs `OpenAIClient` with no `system=`, so it falls to a module constant in the **separately deployed** proxy. **A server-side edit changes the model's input with no client-side signal of any kind** — §24.3's shape, a value the comparison depends on that no layer owns.
+
+**No prompt or template version field exists anywhere**; a repo-wide grep returns nothing. `model` is env-overridable via `OPENAI_MODEL`, but `model_identifier` is recorded, so that one is observable.
+
+**STEP 4 — NOT REACHED.** §18.1's *"strong evidence, not a controlled demonstration"* **stands unchanged**: `journal_name` being identical here removes one confound and does not remove these two.
+
+#### THE BASELINE IS VALID DESPITE STEP 3 FAILING
+
+**These are separate properties.** The freeze condition concerns **the record's completeness and configuration coherence**; the digest gap concerns **what CROSS-RUN comparisons can claim**. **§30 is sound as a baseline.** A reader hitting "STEP 3 FAILS" should not infer the baseline is compromised — it is not.
+
+#### THE GAP IS EVIDENTIARY, NOT NECESSARILY FACTUAL
+
+**`instruction` is a compile-time `const`, runs 24 and 25 used the SAME BINARY** (the 01:54 build), **and the proxy was not redeployed between them.** So the input across those two runs was **probably identical**.
+
+> **What is missing is the ability to PROVE it from the artifacts, not evidence that it differed.** A later reader could otherwise conclude the runs differed, when the likelier truth is that they did not and the record cannot show it.
+
+**`summary_digest`'s definition is narrowed at the field itself** to say it is a summary digest, not an input identity.
+
+### 30.4 Fix candidates — recorded, NOT built
+
+**The system-prompt gap has an obvious remedy with no new mechanism.** The proxy already returns `model_identifier` in its envelope; **returning a hash of the system prompt alongside it** would make the invisible input observable through a channel that already exists and is already threaded to `HarnessInputs` via `ProxyMeta`.
+
+**`instruction` could be hashed client-side** and recorded the same way — it is a `const` in scope at `build_review_payload`.
+
+| | Cost |
+|---|---|
+| system-prompt hash | one field in the proxy envelope, one in `ProxyMeta`, one in the record. **No new channel.** Requires a proxy deploy |
+| `instruction` hash | client-side only; three lines and a record field |
+
+**What they would buy:** with `summary`, `instruction` and the system prompt all covered, **identical digests plus different recommendations WOULD be the controlled demonstration §18.1 wanted.**
+
+**Not implemented. Whether the promotion decision needs that level of proof is a separate question** — §30.2's delta is already measurable without it.

@@ -452,6 +452,27 @@ pub fn findings_projection_digest(payload: &Value) -> String {
 /// to [`findings_projection_digest`] and would have been invisible to any list of
 /// fields someone thought to persist.
 ///
+/// # IT IS A SUMMARY DIGEST, NOT AN INPUT IDENTITY
+///
+/// **Two records sharing this value prove the same `summary` was sent. They do
+/// NOT prove the model received the same input.** Two reviewer-visible inputs
+/// sit outside it (ARCHITECTURE_TRACE §30.3):
+///
+/// * **`instruction`** — [`REVIEWER_INSTRUCTION`] reaches the model (the proxy
+///   forwards `{summary, instruction}`) and is a compile-time `const`, so it is
+///   constant WITHIN a binary but not across binaries. Editing it changes the
+///   model's input while this digest is unchanged.
+/// * **the proxy's SYSTEM PROMPT** — prepended server-side and never present in
+///   the client payload at all. A server-side edit changes the model's input
+///   with no client-side signal of any kind.
+///
+/// `task` and `run_id` are in the payload but are NOT forwarded, so they are
+/// correctly excluded.
+///
+/// **Cite this field for "was the same summary sent?" and not for "did the
+/// model see the same thing?"** — the second is what every cross-run comparison
+/// actually wants, and this cannot answer it alone.
+///
 /// # Comparability
 ///
 /// **Only within a [`SUMMARY_FORMAT_VERSION`].** The serializer is deterministic
