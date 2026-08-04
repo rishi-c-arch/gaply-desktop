@@ -1354,3 +1354,103 @@ That directly contradicts what the Rust code believes:
 ### 19.6 Retry status
 
 **The run is otherwise correctly configured.** Only the journal selection and the entitlement stand between here and a valid baseline. **Development runs consume production entitlement** — worth knowing independently of this capture.
+
+---
+
+## 20. Entitlement — three distinct findings
+
+**Nothing here is implemented.** Findings 1 and 2 need decisions that are not code's to make.
+
+---
+
+## 20.1 FINDING 1 — deployment contradiction (proven; needs a product decision)
+
+> **The deployed implementation and the current customer-facing copy contradict each other. Resolving the contradiction requires either changing the entitlement configuration or changing the customer-facing copy.**
+
+**This leads because it affects users today**, exists **regardless of which metering model is chosen**, and is observable from the deployed system rather than inferred from design. It is not a consequence of the metering question below — it would survive every option in §20.2 untouched.
+
+**The investigation establishes the contradiction, not which resolution is preferable.**
+
+### The two instances, with their evidence distinguished
+
+**PREMIUM — directly observed.**
+
+`tiers.ts:64-66` returns `cap: null, remaining: null` for a premium user, under the comment *"premium is unlimited on everything it can access"* (`:53-55`). The deployed proxy meters. **Run 22's 403 `no_uses_remaining` IS the premium case** — this is observation, not inference. A premium account was refused by the deployed system while the client model held it to be uncapped.
+
+**FREE — inferred.**
+
+`BillingPage.tsx:96` promises *"Citation verification and journal checks are currently unlimited on the free tier."* `publishready_limit_free = 0` (`config.py:57`), and one shared counter serves every `/verify` caller, so a signed-in free user's first citation verification **would** return 403.
+
+**No free account has been observed being rejected.** The conclusion follows from the configuration and the code path, not from a log line. It is well-supported and it is not the same grade of evidence as the premium case.
+
+### Neither tier can see its position
+
+`EntitlementResult.remaining` is computed by the proxy (`entitlement.py:70-73`) and **`main.py` never returns it**. No surface anywhere displays remaining uses. **A user cannot tell how close they are to a limit they were told does not exist** — which is why both instances surface only as a refusal.
+
+### Immediate options for the free tier
+
+| Option | Effect | Cost |
+|---|---|---|
+| **Correct the copy** | aligns messaging with deployment | no OpenAI cost; users lose the "unlimited" promise |
+| **Raise `limit_free` above 0** | makes the existing promise true | **every free `/verify` incurs OpenAI cost on Rishi's account** |
+| **Small monthly free allowance** | consistent after updating both | predictable cost, still allows free evaluation |
+
+---
+
+## 20.2 FINDING 2 — architecture investigation (options a–d)
+
+The question is not only where dedup lives but **whether "one run = one use" is the right model at all.** The four callers do different work at different pipeline stages; that may be four legitimate uses under a higher limit rather than one use needing dedup.
+
+**Context.** `feature = "publishready"` is a **single counter for all `/verify` traffic** (`config.py:59`), so citation verification, targeted escalation, shadow synthesis and the reviewer all draw on an allowance named after only the last of them.
+
+**On the customer-facing wording:** no surface states any number, and there is no Stripe integration in this repository. **There is no "20 uses" claim to be mismatched against** — see §20.1 for what the copy does say.
+
+---
+
+### (a) Proxy dedups by `run_id`
+
+Makes the proxy honour the contract Rust already documents.
+
+* **"A use" means** — one PublishReady review. The most intuitive of the four, and the only one matching the existing Rust comments.
+* **Retry** — dedup suppresses double-charging after a failure, which is the easy half. **The hard half is not an implementation detail: `run_id` is `manuscript_id.to_string()`, a stable DB row id, so naive dedup changes what constitutes a billable review rather than merely suppressing retries.** Re-running the same manuscript ten times after revisions would cost one use, permanently. Fixing that means changing what `run_id` *is*, which is wider than the dedup.
+* **Cost — highest.** `run_id` into every `/verify` payload (escalation and the reviewer send it; citation verification does not), storage keyed `(user_id, run_id)`, a retention policy defining how long a run stays "the same run", plus the billable-review decision above. New table, new migration, new expiry job.
+* **Migration** — **silently increases effective value for every current subscriber against unchanged balances.** A subscriber who has consumed 15 of 20 keeps that number while future runs cost ~1 instead of ~5. A pricing change delivered as a bug fix, and not reversible without taking value back.
+
+### (b) Rust consolidates calls
+
+* **"A use" means** — still one `/verify`, but nearer one per run.
+* **Retry** — unchanged, with a larger blast radius: one failure loses four results instead of one.
+* **Cost — high, and partly impossible.** The four callers have genuine cross-stage data dependencies — citation verification needs `refverify` output, escalation needs the compiled report's evidence rows, shadow synthesis needs the escalation verdicts, the reviewer needs the finished report. **Escalation is intrinsically multi-call:** `batch_escalation` (`escalation.rs:120-137`) splits by severity and agent kind *by design*, one batch per Critical record plus one per agent. Consolidating means re-architecting the pipeline for a billing reason.
+* **Migration** — none. Balances keep their meaning; runs simply cost less.
+
+### (c) Keep per-call metering, raise the limit
+
+* **"A use" means** — one cloud call, which **no customer would infer** from copy saying "unlimited". Honest only once the copy says so.
+* **Retry** — **the cleanest of the four, because it is the one that already exists.** A 422 raises before `provider.complete` and a 403 before the handler body, so only successes ever charge.
+* **Cost — lowest. One environment variable.** No new machinery, no migration, no schema change.
+* **Migration** — additive: no subscriber loses anything and stored counters keep their meaning. **Describing** it needs a transition story, since a number would have to appear where "unlimited" currently does.
+
+### (d) Meter per caller — internal calls unmetered, only the reviewer a "use"
+
+**This leads, and the reason is specific: it makes EXISTING copy true rather than requiring new copy.** Basic's *"PublishReady simulated review"* becomes exactly what is metered, and Pro's *"unlimited online verifications"* becomes literally true once citation verification stops drawing on the counter.
+
+* **"A use" means** — one simulated peer review.
+* **Retry** — good. One metered call per run; a failed reviewer call never reaches `consume`, and internal calls cannot exhaust the allowance. **It also resolves §20.1's free-tier instance directly**, by moving citation verification off the metered feature.
+* **Cost — moderate, and the machinery exists.** `entitlement_feature` is already config (`config.py:59`) and `usage_counters` is already keyed by `feature`. The work is per-feature limits in config and feature classification at the proxy. **No new table, no dedup, no retention policy.**
+* **Migration** — cleanest of the four. Existing `publishready` rows keep their meaning; new features start empty. Effective value rises while the headline feature's semantics are unchanged.
+
+> **CAVEAT, at the same weight as the recommendation.** Feature classification **must be derived by trusted server-side logic — endpoint, or validated request shape — never from a caller-supplied identifier.** A client-declared feature is a client assertion: a tampered client would claim the unmetered feature for a paid call. **This follows directly from what `require_entitlement` exists to enforce** — the module's own opening line is that the client's gating is presentation only and a tampered client can skip it. Accepting a caller's word for which counter to charge would reintroduce exactly that hole one level down.
+
+---
+
+## 20.3 FINDING 3 — implementation observations
+
+**A stale comment falsified by deployment.** `BillingPage.tsx:91-92` reads *"server-side metering isn't deployed"*. **It reflected reality when written**, the deployment changed, **nothing tied the comment to deployment state**, and **run 22 falsifies it**. Distinct in kind from the entitlement findings: this one is maintainability. A comment asserting the state of a *separately deployed system* has no mechanism that could keep it true, and no test can hold it — the same shape as §4.16, one component describing another's behaviour with nothing checking the description.
+
+**The server-side derivation requirement**, recorded here as an implementation constraint independent of whether (d) is chosen: any per-feature metering must classify requests from trusted server-side signals, never from a caller-supplied identifier.
+
+### Open questions
+
+* **The deployed `PUBLISHREADY_LIMIT_PREMIUM`.** `20` is the code default (`config.py:58`); the deployed value is an environment variable this repository cannot read.
+* **Typical calls per run.** Run 22 produced five successful `/verify` requests. `batch_escalation`'s count varies by manuscript, so **one run is one observation**, not a rate.
+* **Whether any subscriber has been affected.** Not determinable from this repository.
