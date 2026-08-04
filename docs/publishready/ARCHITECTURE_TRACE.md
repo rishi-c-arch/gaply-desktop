@@ -2348,3 +2348,42 @@ Per-lane examination is known at lane exit (`pipeline.rs:214-320`), where the in
 **TRACKED ITEM: fix `build_checklist`'s silent empty, and populate `StageUndelivered` there.**
 
 Deferred from PR-4 because bundling would make its blast radius two things at once, and this is a different defect from F6's. **But a variant that ships unconstructed is the state `Recommendation::Unknown` was in, and that was a finding (§16 F6).** So it carries a destination, not an open-ended wait.
+
+---
+
+## 27. Run 23 — a deterministic-side-only capture
+
+**NOT A BASELINE, and preserved as `box4_comparisons.run23.jsonl`** alongside runs 20–22.
+
+**The wholesale side did not run.** `wholesale_path_available: false`, so `wholesale_recommendation`, `recommendation_agreement` and every downstream comparison metric are `Unavailable { requires_live_proxy }`. Harness step 5 fails, and there is no comparison to freeze.
+
+### 27.1 What it establishes
+
+**The resolver works on real data.** 20 report findings, **6 excluded, 14 counted**, reconciling exactly:
+
+| | |
+|---|---|
+| **Excluded** | f12 `authorship_signal` Major; f15, f16 `process_state` Minor; f17, f18, f19 `process_state` Info |
+| **Counted** | 11 Major (f1–f11), 2 Minor, 1 Info |
+
+**The deterministic verdict on the frozen manuscript is `MajorRevision` at 0.30, and it is correct.** The 11 surviving Majors are five deterministic statistical-rule failures — three missing effect sizes, two missing confidence intervals — and six internal-duplication spans at 81–86% word overlap. **Every one is a `ManuscriptDefect`. Nothing in that set is a process claim or an authorship signal.**
+
+**Schema 4 works end to end** — record written, `verdict_withheld` correctly `Unavailable { available_now }` (nothing was withheld), both sent-counts at 12, both digests populated, `journal_name` and `guidelines_url` recorded.
+
+### 27.2 What it does not establish
+
+**Nothing about agreement, promotion impact, or the wholesale reviewer.** The comparison never happened.
+
+**The §19.2 journal/guidelines divergence persists:** `journal_name` is `"PLOS Medicine"` while `guidelines_url` is PLOS ONE's. Recorded, not validated — decision 4.
+
+### 27.3 The guideline check, replaced
+
+**"29 chunks imported" is invalid after first ingestion.** `ingest_document` dedups by checksum, so re-running the same URL returns `Skipped` and imports **zero** chunks — a correct outcome that the old check reads as failure.
+
+**The replacement, for every future capture:**
+
+1. **the guideline document exists** for that `source_url` in `documents`;
+2. **retrieval succeeds** — `rag::chunks_for_source` returns a non-empty set;
+3. **the checklist carries at least one item with `guideline_source: Some(_)`.**
+
+**(3) is the actual check** — it is the only one that proves the content was usable rather than merely present. (1) and (2) exist to localise a failure when (3) fails.
