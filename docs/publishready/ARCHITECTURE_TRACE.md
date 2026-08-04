@@ -1116,7 +1116,21 @@ A rename that had not separated these would have renamed correct code. Consumers
 
 Removing the prefill only helps because the field ends up empty. **It does nothing for a wrong URL the user pastes by hand**, which is the case that survives it. The fix is to say what was actually found:
 
-> *"That page was fetched successfully, but none of the guideline requirements that Gaply currently detects were found. This may mean the URL points to a journal homepage rather than an author-guidelines page, or that the page contains requirements Gaply does not yet detect."*
+**Three observations, then two interpretations:**
+
+| | |
+|---|---|
+| **OBSERVATION** | the page was fetched successfully |
+| | the fetched URL was *&lt;url&gt;* |
+| | none of the requirements Gaply currently detects were found on it |
+| **INTERPRETATION** — *"this may mean"* | the page may be a journal homepage rather than an author-guidelines page |
+| | or it may contain author-guideline requirements Gaply does not yet detect |
+
+#### Why the URL is named, and why the advice is not
+
+**"That page" is a pronoun with no antecedent visible on the checklist tab**, and the report may be read long after the run with the input field since edited. Naming the URL completes the observation.
+
+**What was correctly removed is the ADVICE.** An earlier draft ended *"…and use that URL instead"*, which **presumed the homepage explanation over the detector-coverage one** — the very asymmetry the wording exists to avoid. **The URL itself presumes nothing.**
 
 #### The wording scopes the claim to detector coverage, not to the page
 

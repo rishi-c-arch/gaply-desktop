@@ -260,6 +260,12 @@ describe('H4 · target-journal guidelines', () => {
     // author-date citations also yields zero hits, and must not be told to go
     // find a different page.
     expect(note.textContent).toMatch(/requirements that Gaply currently detects/i);
+    // Naming the URL is an externally observable property — the report
+    // identifies which page it analysed — not an implementation choice, so
+    // asserting it is legitimate under §4.17. That is the same distinction the
+    // old prefill test got wrong: it asserted HOW the field was populated
+    // (the defect) instead of WHAT the user ends up able to act on.
+    expect(note.textContent).toContain(url);
     // Observation and interpretation stay separate, with BOTH explanations named
     // and neither asserted as fact.
     expect(note.textContent).toMatch(/this may mean/i);

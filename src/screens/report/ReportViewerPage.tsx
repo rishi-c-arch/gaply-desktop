@@ -416,6 +416,12 @@ const ChecklistView: React.FC<{ items: ChecklistItem[]; guidelinesUrl?: string }
   // hunting for a page that does not exist. Observation (zero detector matches)
   // is therefore stated separately from interpretation (everything after "this
   // may mean"), with both explanations named and neither privileged.
+  //
+  // The URL is named because "that page" is a pronoun with no antecedent on this
+  // tab, and the report may be read long after the run with the input field
+  // since edited. What does NOT belong here is ADVICE — an earlier draft said
+  // "use that URL instead", which presumed the homepage explanation over the
+  // detector-coverage one. The URL itself presumes nothing.
   const hasGuidelineItems = items.some((c) => !!c.guideline_source);
   const suppliedButEmpty = !hasGuidelineItems && !!guidelinesUrl;
   return (
@@ -442,10 +448,11 @@ const ChecklistView: React.FC<{ items: ChecklistItem[]; guidelinesUrl?: string }
           style={{ fontSize: 12, marginTop: 8 }}
           data-testid="checklist-guidelines-empty"
         >
-          That page was fetched successfully, but none of the guideline requirements that Gaply
-          currently detects were found. This may mean the URL points to a journal homepage rather
-          than an author-guidelines page, or that the page contains requirements Gaply does not
-          yet detect.
+          That page was fetched successfully. The URL analysed was{' '}
+          <span className="gds-mono">{guidelinesUrl}</span>. None of the guideline requirements
+          that Gaply currently detects were found on it. This may mean the URL points to a journal
+          homepage rather than an author-guidelines page, or that the page contains
+          author-guideline requirements Gaply does not yet detect.
         </p>
       ) : (
         !hasGuidelineItems && (
