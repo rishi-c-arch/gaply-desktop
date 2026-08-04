@@ -428,6 +428,18 @@ Three instances, the same shape each time:
 
 **Relation to §4.16.** That rule concerns a consumer over-reading a producer's guarantee; this one concerns a test under-reading its own subject. They meet where a test is written by the same person who misread the producer — as at `publishready.vitest.tsx:187`, where the false premise was written into the comment and the assertion together.
 
+### 4.18 Standing rule — correctness fixes can change operational cost
+
+> **Correctness fixes can change operational cost. A defect that suppresses work also suppresses that work's cost, so repairing it can increase resource consumption even though the repair is unambiguously correct. This affects rollout planning, not correctness priority.**
+
+**Read the second sentence carefully: the cost was always owed.** A suppressed call is work the system intended to do and failed to do; the "saving" was never real, and the repair does not add cost so much as stop hiding it. **This is therefore never a reason to leave a defect unfixed** — it is a reason to know what a fix will cost before shipping it.
+
+**The measured instance.** The unbounded `verify_citations` payload (§15.2) fails the proxy's validation with a 422, and a 422 exits before `consume()`. The defect is currently suppressing one metered call per run. Repairing it is expected to make that call succeed — correct behaviour, at a cost the broken version was not paying (ARCHITECTURE_TRACE §20.2).
+
+**Companion to §4.10.** That rule says component correctness does not compose into report correctness. This one says the same of the **operating envelope**: **a component made correct in isolation can change the system's operating envelope** — throughput, quota, latency, spend — in ways no measurement of that component against its own contract would reveal. §4.10 concerns what the user is handed; this concerns what the system consumes to hand it over.
+
+**The check, before shipping a correctness fix:** does the defect currently suppress work? If so, what does that work cost, who pays it, and is there a sequencing choice that makes the fix free? In the §15.2 case there is one — metering per caller first, and the repair draws on its own counter rather than the reviewer's allowance.
+
 ---
 
 ## 5. Evaluation Protocol

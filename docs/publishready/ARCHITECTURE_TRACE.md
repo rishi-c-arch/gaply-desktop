@@ -1443,6 +1443,36 @@ Makes the proxy honour the contract Rust already documents.
 
 ---
 
+### Cross-feature note — §15.2 and entitlement are coupled by the current model
+
+**ESTABLISHED.**
+
+1. Run 22 issued **seven** `POST /verify` requests: one 422, five 200, one 403.
+2. The 422 came from `verify_citations` exceeding the proxy's 8,000-character validation limit (§15.2).
+3. **A 422 exits before `consume()`**, so it does not decrement entitlement (`main.py:247-259` raises inside `validate_structured`, ahead of `provider.complete`).
+4. If §15.2 is fixed, that call becomes **eligible to succeed** rather than failing at validation.
+
+**PREDICTION, not consequence.**
+
+> Under the current implementation, the unbounded `verify_citations` payload generates a `/verify` request that fails validation (422) before entitlement consumption. **If §15.2 is corrected without changing the entitlement model, that request is expected to become a successful metered verification.** The current metering design therefore creates a coupling between payload correctness and entitlement consumption that should be considered when sequencing the work.
+
+That the repaired request reaches `consume()` **follows from the current design but has not been observed.** It is not stated as fact.
+
+#### The sequencing consequence
+
+**Under option (d) the coupling dissolves.** If citation verification is metered on its own counter, a fixed §15.2 draws from *that* counter rather than the shared `publishready` pool, and the reviewer's capacity is unaffected. **The interaction bites only under the current single-counter model.**
+
+So this is an argument about **ORDER**, not about either fix:
+
+| Sequence | Result |
+|---|---|
+| **metering first, then §15.2** | §15.2 carries no entitlement consequences |
+| **§15.2 first, then metering** | the repaired call is expected to draw on the shared reviewer allowance in the interim |
+
+**Neither fix is argued against.** Both are correct; only their order has a cost.
+
+---
+
 ## 20.3 FINDING 3 — implementation observations
 
 **A stale comment falsified by deployment.** `BillingPage.tsx:91-92` reads *"server-side metering isn't deployed"*. **It reflected reality when written**, the deployment changed, **nothing tied the comment to deployment state**, and **run 22 falsifies it**. Distinct in kind from the entitlement findings: this one is maintainability. A comment asserting the state of a *separately deployed system* has no mechanism that could keep it true, and no test can hold it — the same shape as §4.16, one component describing another's behaviour with nothing checking the description.
