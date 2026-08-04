@@ -780,6 +780,8 @@ The class spans providers — `claude_client.py` has no equivalent enforcement �
 
 ### 15.2 `verify_citations` — unbounded payload
 
+> **REFRAMED — see §15.2.1. The defect is a CONTRACT gap, not a size problem, and one reading of the proxy's message below was later made and is wrong.**
+
 **FACT.** `POST /verify` returned **422**: *"total text content is 16255 chars (limit 8000)"*.
 
 `validate_structured` (`gaply-proxy/app/validation.py:39-61`) walks **every string leaf anywhere in the payload** and sums their lengths, so `MAX_TOTAL_CHARS = 8000` is a **global budget across the whole request** — not per-field, not per-citation. The separate `max_field` prose check did **not** fire.
@@ -791,6 +793,29 @@ The class spans providers — `claude_client.py` has no equivalent enforcement �
 **This corrects a recorded diagnosis.** All-UNKNOWN citation verdicts were attributed to Ollama being unavailable. This run **reached the cloud proxy and was rejected on size** — a different cause with a different fix.
 
 **Note for §14:** `release_gate.rs`'s PRIVACY invariant covers `build_review_payload` only. **`verify_citations` has never been asserted** — no size check, no privacy check. That coverage gap is real independent of this defect's class.
+
+### 15.2.1 REFRAME — a bounded endpoint, an unbounded client
+
+**The 422 recurred at 16,658 characters on run 24.**
+
+> **`verify_citations` builds ONE EVIDENCE BUNDLE PER REFERENCE with no cap, growing linearly with reference count, while `build_review_payload` caps at `MAX_FINDINGS` and clamps every field. The endpoint expects a bounded structured summary; the client sends an unbounded one.**
+
+**That makes the fix architectural, not "truncate at 8000".** A truncation would satisfy the validator while leaving the asymmetry — one payload builder disciplined, its sibling not — and the next schema change would reopen it at a different size.
+
+#### AND A RECORDED ERROR: §4.14, made against a warning already written here
+
+This section's own text says the proxy's phrase *"send a structured summary, not raw manuscript text"* is **its own validation vocabulary, not a finding about what was sent**, and that reading it as evidence of a breach is the §4.14 error.
+
+**That error was then made anyway**, in an analysis of run 24, which concluded the client was transmitting raw manuscript text.
+
+**It is not supported, and it was already ruled out:**
+
+* `Reference.raw` is deliberately excluded (`verify_agent.rs:147-149`);
+* abstracts are excluded by design (`:210-211`);
+* the proxy's **separate `max_field` prose check — which would fire on a manuscript paragraph — did not fire**;
+* the 16,658 characters are **provenance URLs and per-entry sha256 checksums**, one per evidence entry, none of which the model reads.
+
+**Recorded because the warning was written down in this very section and the error was made regardless.** A rule at §21's level 1 does not stop the person who wrote it. The conclusion — that the fix is architectural — survives on the contract gap alone and needs no claim about manuscript text.
 
 ---
 
@@ -2462,3 +2487,64 @@ Deferred from PR-4 because bundling would make its blast radius two things at on
 **Adding variants is serialization-compatible** — no existing value changes meaning, so **no `schema_version` bump** under §26.4's rule.
 
 **But a reader comparing run 21 or run 23 against any future record must know that `requires_live_proxy` was previously OVERLOADED across four causes.** The old records are not wrong about what was observed; they are imprecise about why, and nothing in them says so.
+
+---
+
+## 29. Run 24 — the first complete comparison, and why it is not the baseline
+
+**Preserved as `box4_comparisons.run24.jsonl`.**
+
+### 29.1 What it establishes — the first complete comparison
+
+| | |
+|---|---|
+| `wholesale_path_available` | **true** — the first run where it is |
+| `shadow_recommendation` | `major_revision` at 0.30 |
+| `wholesale_recommendation` | `major_revision` at 20.0 |
+| **`recommendation_agreement`** | **true** |
+| `model_identifier` | `gpt-4o-mini-2024-07-18`, `stop_reason: stop` |
+| Both sent-counts | 12 / 12 |
+| `wholesale_grounded_issues` / `hallucination_drops` | 3 / 2 |
+
+**The deterministic verdict was validated against a live wholesale reviewer on the frozen manuscript, and the two agreed.** That is the first time every layer of the comparison ran end to end.
+
+**Artifact identity verified before interpretation:** `summary_digest` in the persisted record is `2d65a8c8…b858c67ea48a`, identical to the value printed in the run log — **so the metrics being read belong to the artifact on disk, not a different write.**
+
+### 29.2 Why it is NOT the baseline — and the divergence was NOT CORRECTABLE
+
+`journal_name` is `"PLOS Medicine"` while `guidelines_url` is PLOS ONE's. **`journal.name` reaches `summary.journal` (`reviewer_agent.rs:435`), so the wholesale model was told a target journal that does not match the guidelines the checklist was built from** — confounding exactly the half of the comparison Box 4 exists to measure.
+
+> **Runs 22, 23 and 24 are identical because of a MECHANISM, not repeated operator error. The instruction to select PLOS ONE was impossible, three times over.**
+
+**Two stacked defects:**
+
+1. **The selection is IMMUTABLE once made.** `PublishReadyPage.tsx:313-339` renders the match list only while `journal` is `null`; once set, it is replaced by a static *"Target: X"* line with **no clear control and no way to re-open**. The search box remains, accepts typing, and recomputes `journalMatches` into a branch that is never rendered.
+2. **PLOS ONE is ABSENT from the directory.** `scopusDirectory.json` has 258 entries and exactly one PLOS journal — **PLOS Medicine**. Search is `j.name.toLowerCase().includes(q)`, so *"plos"* or *"plos one"* can only ever return PLOS Medicine.
+
+**Even a working reset control would not have made PLOS ONE selectable.**
+
+### 29.3 Classification
+
+**NOT an observability defect.** The UI honestly displays what it will send — `journal.name` is rendered and `journal.name` is transmitted, one value on one path, with no persistence and no stale copy. There is no divergence between what the operator saw and what was sent.
+
+**It is a CORRECTABILITY defect plus a DIRECTORY COVERAGE gap.**
+
+### 29.4 Tracked items
+
+**IMMUTABLE JOURNAL SELECTION.** A user who picks wrongly is stuck until the component unmounts. **A real product defect** — and it **does not gate the baseline**, because a UI correctability fix cannot change a verdict. *Proposed fix: render the match list whenever `journalQuery` is non-empty, or add a clear control.*
+
+**DIRECTORY COVERAGE.** PLOS ONE's absence invites the question of what else is missing from 258 entries. **Not surveyed — the question is recorded, not answered.**
+
+### 29.5 The journal/guidelines pair for the next capture — VERIFIED, not assumed
+
+`https://journals.plos.org/plosmedicine/s/submission-guidelines`, probed end to end:
+
+| Step | Result |
+|---|---|
+| Ingest | `Ingested { chunks: 19 }` |
+| Retrieval (`journal_guideline`-filtered) | **5 hits** |
+| **Checklist** | **6 items, 2 GUIDELINE-DERIVED** — *numbered (Vancouver) reference style*, *conflict-of-interest declaration* |
+
+> **The third check is the one that matters: `guideline_source: Some(_)` proves the content was USABLE, not merely fetched.** Ingestion succeeding and retrieval returning hits were both true for the BMJ homepage in run 20, which produced zero guideline-derived items (§18.6.2). The `strip_block` and homepage-prefill defects each passed the first two checks and failed the third.
+
+**Pairing PLOS Medicine with PLOS Medicine's guidelines makes the next capture internally consistent, needs no code change, and is selectable in the directory.**
