@@ -308,6 +308,50 @@ mod tests {
         assert_eq!(check_persistence(Some(&["{}".to_string()])), GateOutcome::Pass);
     }
 
+    /// GAP A REGRESSION. The gate must be able to evaluate COMPARISON from a
+    /// record the HARNESS actually built — not a hand-written fixture.
+    ///
+    /// Run 20 exposed this: `shadow_findings_sent` was an input to
+    /// `ShadowInputs`, consumed only for `shadow_issue_coverage`, and never
+    /// serialized. Every unit test here passed because they all constructed the
+    /// JSON by hand, so only one side of the comparison ever reached the
+    /// artifact and nobody noticed until a real capture was read.
+    #[test]
+    fn comparison_is_evaluable_from_a_harness_built_record() {
+        use gaply_core::reviewer_agent::ReviewerEvaluation;
+        use gaply_core::reviewer_harness::{
+            build_comparison_report, HarnessInputs, HarnessTiming, ShadowInputs,
+        };
+        let ev = ReviewerEvaluation::unavailable_offline();
+        let bd = Default::default();
+        let report = build_comparison_report(&HarnessInputs {
+            run_id: "r",
+            manuscript_sha256: "sha",
+            recorded_at: 1,
+            shadow: Some(ShadowInputs {
+                letter: &ev,
+                breakdown: &bd,
+                findings_sent: 8,
+                narrative_available: false,
+            }),
+            wholesale: &ev,
+            wholesale_findings_sent: 8,
+            wholesale_payload_digest: "d",
+            timing: HarnessTiming::default(),
+            proxy_meta: None,
+        });
+        let json: Value = serde_json::from_str(&report.to_jsonl_line().unwrap()).unwrap();
+
+        // BOTH sides must be present in the serialized artifact.
+        assert_eq!(json["shadow_findings_sent"]["value"], 8, "shadow side must be persisted");
+        assert_eq!(json["wholesale_findings_sent"]["value"], 8);
+
+        // And the invariant must actually evaluate, not skip.
+        let outcome = check_comparison(Some(&json));
+        assert_eq!(outcome, GateOutcome::Pass, "matching counts must PASS, got {outcome:?}");
+        assert!(!outcome.is_skipped(), "a persisted record must not read as Skipped");
+    }
+
     // --- THE SKIP PATH ITSELF ------------------------------------------------
 
     #[test]

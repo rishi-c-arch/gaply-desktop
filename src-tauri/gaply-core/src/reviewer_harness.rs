@@ -194,6 +194,11 @@ pub struct ShadowComparisonReport {
 
     // --- Comparison metrics (RequiresLiveProxy for real values) ---
     pub wholesale_recommendation: Metric<Recommendation>,
+    /// Findings the SHADOW path forwarded. Persisted so the COMPARISON invariant
+    /// is evaluable from the artifact — it was previously an input to
+    /// `ShadowInputs`, consumed only to compute `shadow_issue_coverage`, so only
+    /// one side of the comparison reached the record.
+    pub shadow_findings_sent: Metric<usize>,
     pub wholesale_findings_sent: Metric<usize>,
     pub wholesale_payload_digest: Metric<String>,
     pub wholesale_publication_probability: Metric<f64>,
@@ -215,7 +220,15 @@ pub struct ShadowComparisonReport {
     pub stop_reason: Metric<String>,
 }
 
-const SCHEMA_VERSION: u32 = 1;
+/// Bumped to 2 when `shadow_findings_sent` was persisted.
+///
+/// NOT for parser compatibility — adding a field is backward-compatible for
+/// readers. The bump is because the MEANING OF ABSENCE changed. A record lacking
+/// `shadow_findings_sent` at version 1 is ambiguous: absent because the shadow
+/// path did not run, or absent because the writer predated the field. At
+/// version 2 only the first reading is possible. §4.12 applied to the artifact's
+/// own schema, closed while exactly one record existed.
+const SCHEMA_VERSION: u32 = 2;
 
 /// Count the gate's dropped-hallucination warnings (the `potential_hallucination`
 /// prefix pushed by both reviewer gates).
@@ -361,6 +374,9 @@ pub fn build_comparison_report(inp: &HarnessInputs) -> ShadowComparisonReport {
         shadow_path_available,
         wholesale_path_available,
         wholesale_recommendation,
+        shadow_findings_sent: sh
+            .map(|s| Metric::observed(s.findings_sent, DeterministicLocal))
+            .unwrap_or_else(no_shadow),
         wholesale_findings_sent: Metric::observed(inp.wholesale_findings_sent, DeterministicLocal),
         wholesale_payload_digest: Metric::observed(
             inp.wholesale_payload_digest.to_string(),
@@ -432,6 +448,7 @@ impl ShadowComparisonReport {
             metric_line("shadow_path_available", &self.shadow_path_available),
             metric_line("wholesale_path_available", &self.wholesale_path_available),
             metric_line("wholesale_recommendation", &self.wholesale_recommendation),
+            metric_line("shadow_findings_sent", &self.shadow_findings_sent),
             metric_line("wholesale_findings_sent", &self.wholesale_findings_sent),
             metric_line("wholesale_payload_digest", &self.wholesale_payload_digest),
             metric_line("wholesale_publication_probability", &self.wholesale_publication_probability),
@@ -717,6 +734,7 @@ mod tests {
             "shadow_path_available".to_string(),
             "shadow_publication_probability".to_string(),
             "shadow_recommendation".to_string(),
+            "shadow_findings_sent".to_string(),
             "wholesale_findings_sent".to_string(),
             "wholesale_path_available".to_string(),
             "wholesale_payload_digest".to_string(),
