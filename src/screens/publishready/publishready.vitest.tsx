@@ -183,17 +183,25 @@ async function reachRunnable() {
 }
 
 describe('H4 · target-journal guidelines', () => {
-  it('shows the guidelines input and prefills it from the picked journal', async () => {
-    const withUrl = JOURNALS.find((j) => j.guidelinesUrl);
-    expect(withUrl).toBeTruthy(); // the bundled directory carries guideline URLs
+  it('shows the guidelines input and does NOT prefill it from the picked journal', async () => {
+    // The directory has no author-guidelines URL for ANY journal — it carries
+    // websites. Prefilling put a homepage in the field, which ingests
+    // successfully and produces a checklist indistinguishable from the blank
+    // case: silent failure. Empty fails visibly. ARCHITECTURE_TRACE §18.6.2.
+    const j = JOURNALS.find((x) => x.website)!;
+    expect(j).toBeTruthy();
+    expect(JOURNALS.every((x) => !('guidelinesUrl' in x))).toBe(true);
     renderPR({ forceTier: 'premium', bridge: makePublishReadyMock(REPORT) });
     await screen.findByTestId('pr-entry');
-    // empty until a journal is picked
     expect((screen.getByTestId('pr-guidelines-input') as HTMLInputElement).value).toBe('');
-    fireEvent.change(screen.getByTestId('pr-journal-input'), { target: { value: withUrl!.name } });
-    fireEvent.click(await screen.findByTestId(`pr-journal-${withUrl!.name}`));
-    // grounded prefill — the user still sees + can edit it
-    expect((screen.getByTestId('pr-guidelines-input') as HTMLInputElement).value).toBe(withUrl!.guidelinesUrl);
+    fireEvent.change(screen.getByTestId('pr-journal-input'), { target: { value: j.name } });
+    fireEvent.click(await screen.findByTestId(`pr-journal-${j.name}`));
+    // Journal picked, and the field is STILL empty — the user supplies the URL.
+    expect(await screen.findByTestId('pr-journal-picked')).toBeTruthy();
+    expect((screen.getByTestId('pr-guidelines-input') as HTMLInputElement).value).toBe('');
+    // ...and it remains user-editable.
+    fireEvent.change(screen.getByTestId('pr-guidelines-input'), { target: { value: 'https://x.example/authors' } });
+    expect((screen.getByTestId('pr-guidelines-input') as HTMLInputElement).value).toBe('https://x.example/authors');
   });
 
   it('ingests the guidelines URL BEFORE running the review (local, best-effort)', async () => {

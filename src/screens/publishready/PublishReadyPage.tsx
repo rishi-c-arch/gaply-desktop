@@ -316,10 +316,15 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
                   className="gds-pr__alt"
                   data-testid={`pr-journal-${j.name}`}
                   onClick={() => {
+                    // NO guidelines-URL prefill. The bundled directory carries a
+                    // journal WEBSITE, not an author-guidelines page — 258 of 258
+                    // entries, 0 guideline URLs — so prefilling put a homepage in
+                    // the field. A homepage ingests successfully, reports a
+                    // plausible chunk count, and yields a checklist identical to
+                    // the blank case: a silent failure wearing the appearance of
+                    // a working feature. An empty field fails visibly instead.
+                    // ARCHITECTURE_TRACE §18.6.2.
                     setJournal({ name: j.name, quartile: j.quartile ?? 'Q4' });
-                    // Prefill the guidelines URL from the picked journal's known
-                    // URL (grounded auto-suggest); the user confirms/edits it.
-                    setGuidelinesUrl(j.guidelinesUrl ?? '');
                   }}
                 >
                   <span>{j.name}</span><Badge status="neutral">{j.quartile ?? '—'}</Badge>
@@ -341,8 +346,8 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
           <p className="gds-jc__disclaimer">
             Optional. Gaply fetches this page and cross-references your manuscript against the
             real guidelines — word limit, structured abstract, conflict-of-interest, reference
-            style (deterministic checks over the actual page, no guessing). Pick a journal above
-            to prefill its known URL. Leave blank to run the structural checks only.
+            style (deterministic checks over the actual page, no guessing). Leave blank to run
+            the structural checks only.
           </p>
           {guidelinesNote && (
             <p className="gds-jc__disclaimer" data-testid="pr-guidelines-note">{guidelinesNote}</p>

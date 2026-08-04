@@ -1093,6 +1093,21 @@ A `chunks=2` ingest corresponds to **a journal homepage**, not a guidelines page
 
 So the prefill is wrong for every journal in the directory, and the surrounding copy asserts otherwise — *"Gaply fetches this page and cross-references your manuscript against the real guidelines"* and *"Pick a journal above to prefill its known URL"* (`PublishReadyPage.tsx:341-346`).
 
+#### The audit's result was the SEPARATION, not the rename
+
+**Two unrelated things shared the name `guidelinesUrl`.**
+
+| Name | Carries | Correct? |
+|---|---|---|
+| `JournalRecord.guidelinesUrl` | the directory's journal **website** | **invented** — renamed to `website` |
+| `PublishReadyPage` state, `publishReadyBridge` params, Rust `guidelines_url` | the URL **the user typed** | **correct** — genuinely a guidelines URL |
+
+A rename that had not separated these would have renamed correct code. Consumers of the invented field classified into three buckets:
+
+* **CORRECT** — `journalData.ts:127` domain search: matching a pasted URL against the journal's domain genuinely wants the website.
+* **MISNAMED** — the same defect in a second place. `PublishReadyPage.tsx:322` (the prefill) and **`JournalCheckPage.tsx:261`**, which labelled the homepage *"Author guidelines"* on a live screen, uncovered by any test. Both fixed; the label now reads *"Journal website"* (§4.4 — correct the claim).
+* **AMBIGUOUS** — `journal.vitest.tsx:48,61`. The fixture values look guidelines-shaped, but **nothing asserts on the field**; they exist only because the type required it. A suggestive literal is not evidence of intent, and these are **not** recorded as defects.
+
 **Confirmed impact, from the persisted reports.** Runs 20 and 21 produced **identical 4-item checklists**, all `required section: …`, all passed — the structural fallback. **Zero journal-derived requirements in either run.** D13 was empty in both, despite ingestion reporting success both times.
 
 **This is worse than an empty field, and that is the point.** Blank means guidelines are skipped and the checklist is visibly structural. A homepage ingests successfully, reports a plausible non-zero chunk count, and yields a checklist indistinguishable from the blank case — **a silent failure wearing the appearance of a working feature.**

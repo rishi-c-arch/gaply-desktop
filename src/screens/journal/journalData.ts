@@ -15,7 +15,13 @@ export interface JournalRecord {
   /** Numeric SJR score when known (online lookups can supply it; the local
    *  directory carries the quartile only). */
   sjr: number | null;
-  guidelinesUrl: string | null;
+  /** The journal's WEBSITE — a landing page, not an author-guidelines page.
+   *  Formerly named `guidelinesUrl`, which asserted a stronger guarantee than
+   *  the directory provides: measured over the bundled directory, 258 of 258
+   *  entries carry a website and 0 carry an author-guidelines URL. The name
+   *  made consumer misinterpretation likely and did so twice — see
+   *  ARCHITECTURE_TRACE §18.6.2 and §18.3. */
+  website: string | null;
   category: string;
   indexing: { scopus: boolean; wos: boolean };
   /** Beall's/Cabells-style predatory signals detected for this record. */
@@ -41,7 +47,7 @@ export const JOURNALS: JournalRecord[] = (raw as any).journals.map((j: any): Jou
     publisher: j.publisher ?? 'Unknown',
     quartile,
     sjr: null, // the directory stores the quartile; numeric SJR via online lookup
-    guidelinesUrl: j.website ?? null,
+    website: j.website ?? null,
     category: j.category ?? '',
     // It is a Scopus directory; WoS is inferred (top quartiles usually indexed).
     indexing: { scopus: true, wos: quartile === 'Q1' || quartile === 'Q2' },
@@ -124,7 +130,7 @@ export function searchLocal(query: string): JournalRecord[] {
   // URL?
   if (q.includes('.') && (q.includes('/') || q.startsWith('http') || q.includes('www'))) {
     const domain = q.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
-    return JOURNALS.filter((j) => j.guidelinesUrl?.toLowerCase().includes(domain));
+    return JOURNALS.filter((j) => j.website?.toLowerCase().includes(domain));
   }
   // name contains — exact-ish first, then substring
   const exact = JOURNALS.filter((j) => j.name.toLowerCase() === q);

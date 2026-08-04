@@ -258,8 +258,8 @@ const JournalResultCard: React.FC<{ journal: JournalRecord; origin: 'local' | 'o
       </div>
 
       <div className="gds-jc-field">
-        <label>Author guidelines</label>
-        {journal.guidelinesUrl ? <a href={journal.guidelinesUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--g-accent)' }}>{journal.guidelinesUrl}</a> : <span>—</span>}
+        <label>Journal website</label>
+        {journal.website ? <a href={journal.website} target="_blank" rel="noreferrer" style={{ color: 'var(--g-accent)' }}>{journal.website}</a> : <span>—</span>}
       </div>
 
       {/* PublishReady tie-in */}

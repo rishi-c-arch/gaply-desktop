@@ -112,12 +112,20 @@ pub fn ingest_with(
         results.push(fetch_and_ingest_one(fetcher, limiter, db, embedder, url, title));
     }
 
-    let any_ingested =
-        results.iter().any(|r| matches!(r, GuidelineIngest::Ingested { .. } | GuidelineIngest::Skipped { .. }));
+    // Count the sources that ACTUALLY landed, not the ones attempted. `note`
+    // previously reported `results.len()` while being gated on `any_ingested`,
+    // so one success out of two targets read as "2 guideline source(s)
+    // ingested". Latent from the UI (`PublishReadyPage.tsx` passes only
+    // `guidelinesUrl`), live from the command API, which accepts both.
+    let ingested_count = results
+        .iter()
+        .filter(|r| matches!(r, GuidelineIngest::Ingested { .. } | GuidelineIngest::Skipped { .. }))
+        .count();
+    let any_ingested = ingested_count > 0;
     let note = if results.is_empty() {
         "no journal or guidelines URL provided; checklist stays empty".to_string()
     } else if any_ingested {
-        format!("{} guideline source(s) ingested", results.len())
+        format!("{ingested_count} guideline source(s) ingested")
     } else {
         "guidelines unavailable; checklist will remain empty (no fabrication)".to_string()
     };
@@ -445,6 +453,34 @@ mod tests {
             .filter(|r| matches!(r, GuidelineIngest::Unavailable { reason, .. } if reason.contains("rate_limited")))
             .count();
         assert_eq!(throttled, 1, "rate limiter must throttle the second same-host fetch: {:?}", out.results);
+    }
+
+    /// The note must count sources that LANDED, not sources attempted. It used
+    /// to report `results.len()` while being gated on `any_ingested`, so one
+    /// success out of two targets read as "2 guideline source(s) ingested".
+    #[test]
+    fn the_note_counts_ingested_sources_not_attempted_ones() {
+        let db = db();
+        let emb = embedder();
+        // Two DIFFERENT hosts so the rate limiter is not what fails the second:
+        // the guidelines page ingests, the journal page 404s.
+        let fetcher = MockHttpFetcher::new().route("guidelines", 200, GUIDELINE_HTML);
+        let out = ingest_with(
+            &fetcher,
+            &roomy(),
+            &db,
+            &emb,
+            Some("http://other.test/journal"),
+            Some("http://journal.test/guidelines"),
+        );
+        assert_eq!(out.results.len(), 2, "two targets attempted: {:?}", out.results);
+        assert!(out.any_ingested);
+        assert!(
+            out.note.starts_with("1 guideline source(s) ingested"),
+            "one landed, so the note must say 1 — got {:?} from {:?}",
+            out.note,
+            out.results
+        );
     }
 
     #[test]

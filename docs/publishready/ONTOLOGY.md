@@ -410,6 +410,24 @@ None was detectable by testing the consumer in isolation, because each failure a
 
 **The check:** at any boundary, write down what the producer actually commits to, then compare it with what the consumer requires. Where the consumer is stricter, either tighten the producer or add an explicit adaptation layer. A comment saying what the producer "should" return is not a guarantee.
 
+### 4.17 Standing rule — assert the invariant, not the implementation choice
+
+> **Tests should preferentially assert externally observable properties or documented invariants rather than internal implementation choices. Otherwise an implementation defect can become the expected behaviour and the test will reinforce it.**
+
+**This is not a prohibition on asserting implementation details.** Plenty of tests legitimately do — a chunk boundary, a sort key, a cache key. The failure mode is narrower and specific: **the detail asserted WAS the defect**, so the test locked it in and every subsequent green run counted as evidence for it.
+
+Three instances, the same shape each time:
+
+| Test | Asserted | Should have asserted | How it hid the defect |
+|---|---|---|---|
+| `publishready.vitest.tsx:187-197` | that the guidelines field is prefilled from the directory | that the field holds a URL the user can act on | The comment stated the false premise outright — *"the bundled directory carries guideline URLs"*. 0 of 258 do. The test passed for as long as the defect existed **because** the defect existed. |
+| `hard_constraint_findings_rank_first_regardless_of_soft_confidence` (`report/tests.rs:171`) | `severity == Critical` | that a hard-constraint finding **outranks** soft-confidence findings — which is what the name says | The hardcoded `Critical` was the F1 defect; validation's own provenance read `(MAJOR)` and `store_validation` wrote Major. The assertion pinned the contradiction. |
+| `links_fetch_html_and_pdf_with_stable_ids_after_files` (`paper_corpus.rs:582`) | that both links produce corpus entries | that each link yields substantive extracted content | It passed because `MIN_PAPER_CHARS` counted whitespace, so a near-empty document cleared the bar. |
+
+**The diagnostic:** if the assertion would have to change when a defect is *fixed*, it is pinning the implementation rather than the requirement. The test name is often the tell — all three above are named for the invariant and assert something narrower than the name promises.
+
+**Relation to §4.16.** That rule concerns a consumer over-reading a producer's guarantee; this one concerns a test under-reading its own subject. They meet where a test is written by the same person who misread the producer — as at `publishready.vitest.tsx:187`, where the false premise was written into the comment and the assertion together.
+
 ---
 
 ## 5. Evaluation Protocol
