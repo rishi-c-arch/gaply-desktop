@@ -1518,9 +1518,40 @@ Run 22 illustrates this directly. `journal_name` **faithfully recorded** the mis
 
 ### Level 3 is a different class of protection
 
-The `SUMMARY_FORMAT_VERSION` pin does not rely on a reviewer noticing a changed digest, nor on anyone remembering a documentation rule. **It fails automatically at the point where the invariant is violated** — the edit that adds a `summary` field is the edit that turns the suite red, and it lives in `gaply-core`, which CI runs (`windows-build-check.yml:117`).
+The `SUMMARY_FORMAT_VERSION` pin does not rely on a reviewer noticing a changed digest, nor on anyone remembering a documentation rule. **It fails at the point where the invariant is violated** — the edit that adds a `summary` field is the edit that turns the suite red.
 
-**A distinction inside level 3, recorded for accuracy.** `release_gate.rs` self-detects and returns a typed `Fail`, but it lives in the app crate and **CI does not run it** — it blocks progress only when someone invokes it. Its coverage limitation is separately recorded as §17's Gap B. So the two level-3 examples differ in whether the detection is *automatic* or merely *available*, and only the pin is unconditional.
+> **CORRECTION (§4.4).** This section originally said the pin "lives in `gaply-core`, which CI runs (`windows-build-check.yml:117`)", and drew a level-3 axis of *automatic* versus *available*. **That line exists and that workflow does not run.** Both workflows in this repository are `workflow_dispatch` only (`windows-build-check.yml:19`, `package-release.yml:19`) — **there is no automatic CI**, nothing triggers on push, PR or schedule. **The automatic/available axis does not exist**, because no instrument here is triggered by a machine. The axis below replaces it.
+
+#### The axis that the trace actually supports
+
+**Whether the instrument intercepts the normal path of work** — not whether a machine or a human pulls the trigger.
+
+| | Instruments | Why it holds |
+|---|---|---|
+| **Fires as a side effect of work done anyway** | the `SUMMARY_FORMAT_VERSION` pin; **`release_gate.rs`'s 13 unit tests, including all three proxy-free invariants** (PRIVACY, PROVENANCE, SELECTION) | Both are caught by an ordinary local `cargo test`. A contributor does not choose to run them; they run because the contributor was testing anyway |
+| **Requires a deliberate separate act** | `examples/release_gate.rs` | Takes a manuscript path and runs only when someone chooses to |
+
+**This places `release_gate`'s proxy-free invariants much closer to the pin than this section originally implied.** The library module and the runner are different instruments with different trigger conditions, and lumping them together as "`release_gate.rs`" obscured that. Its coverage limitation is separately recorded as §17's Gap B.
+
+#### Why the app crate is untested in CI — a side effect, not a decision
+
+The one workflow that runs tests runs **`cargo test -p gaply_core` alone**. The stated reason is specific (`windows-build-check.yml:107-114`): `cargo test --workspace` dies on Windows at `STATUS_ENTRYPOINT_NOT_FOUND` because **`tests/commands_test.rs`** links wry/tao.
+
+**`release_gate` was swept up in a crate-granularity exclusion made for one integration-test target.** Its unit tests link no GUI stack. Nobody decided to exclude them.
+
+**Open question, and it changes the shape of any fix:** whether manual-dispatch-only is deliberate. GitHub Actions minutes are metered on private repositories and Windows bills at 2×, so conserving them is a legitimate reason — **materially different from nobody having set it up.** Not answered here, and no workflow is proposed.
+
+#### What the three proxy-free invariants would need
+
+**Only a checked-in report JSON.** `build_review_payload` is pure, and PRIVACY, PROVENANCE and SELECTION read nothing but `payload["summary"]`:
+
+```
+report.json fixture → build_review_payload(…) → check_privacy / check_provenance / check_selection
+```
+
+**No manuscript, no pipeline, no DB, no proxy.** PRIVACY's end-to-end half needs the report's `detail` strings, which come from the same fixture.
+
+**What such a run must assert: the three outcomes, not `ship_ready`.** `ship_ready()` requires zero fails **and** zero skips, so a proxy-free run reports *3 PASS, 3 SKIPPED, `ship_ready` false* — honest, and wrong to gate on. `ship_ready` answers *"may we ship?"*, which a proxy-free run cannot answer, **and a job that is always red gets suppressed or worked around.** `counts()` already returns all three numbers together, so no new machinery is needed, and the Skipped results stay recorded as typed absence per §4.12 rather than being read as failure.
 
 ### The observed progression
 
