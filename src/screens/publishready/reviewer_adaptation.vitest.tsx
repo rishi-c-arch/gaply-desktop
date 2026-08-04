@@ -61,6 +61,49 @@ describe('ReviewerLetterPanel — backend adaptation (Option B)', () => {
     expect(screen.queryByTestId('pr-alternatives')).toBeNull();
   });
 
+  // §4.14 at the UI: "did not affect the recommendation" is NOT "unimportant".
+  // A user who sees a finding in the report but not in the verdict must be told
+  // why, and the reason must not be buried in the gate-notes line.
+  it('renders excluded findings separately from gate notes, with reasons', () => {
+    renderPanel({
+      ...available,
+      warnings: [
+        'potential_hallucination: dropped an ungrounded issue',
+        "excluded from the recommendation: f1 — a statistical signal about authorship, not a publishability defect",
+        "excluded from the recommendation: f4 — describes Gaply's own execution, not the manuscript",
+      ],
+    });
+    const ex = screen.getByTestId('pr-excluded').textContent ?? '';
+    expect(ex).toMatch(/f1/);
+    expect(ex).toMatch(/not a publishability defect/);
+    expect(ex).toMatch(/f4/);
+    expect(ex).toMatch(/Gaply's own execution/);
+    // and NOT collapsed into the gate-notes line
+    const notes = screen.getByTestId('pr-warnings').textContent ?? '';
+    expect(notes).toMatch(/potential_hallucination/);
+    expect(notes).not.toMatch(/excluded from the recommendation/);
+  });
+
+  // The PARTIAL case's caveat, at the last boundary. Accept plus a caveat is
+  // only honest if the caveat is actually shown — visible but not decisive.
+  it('renders lanes that examined nothing, separately from exclusions', () => {
+    renderPanel({
+      ...available,
+      warnings: [
+        'not examined: Citation verification — no references were parsed from the manuscript',
+        "excluded from the recommendation: f4 — describes Gaply's own execution, not the manuscript",
+      ],
+    });
+    const ne = screen.getByTestId('pr-not-examined').textContent ?? '';
+    expect(ne).toMatch(/Citation verification/);
+    expect(ne).toMatch(/no references were parsed/);
+    // The two caveats are DIFFERENT statements and must not be merged.
+    expect(ne).not.toMatch(/excluded from the recommendation/);
+    expect(screen.getByTestId('pr-excluded').textContent).toMatch(/f4/);
+    // and the recommendation is still shown — the caveat qualifies, not withholds
+    expect(screen.getByTestId('pr-probability')).toBeTruthy();
+  });
+
   it('renders the honest unavailable-offline state (no faked letter)', () => {
     renderPanel(unavailable);
     expect(screen.getByTestId('pr-verdict').textContent).toMatch(/REVIEWER UNAVAILABLE/);

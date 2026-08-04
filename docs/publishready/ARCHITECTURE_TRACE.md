@@ -2246,3 +2246,63 @@ The letter now uses `Unknown` for offline, ungrounded-reject, **and** withheld-f
 Recorded because the baseline has been described as ready-to-run for several turns, and running it prematurely would **spend entitlement on a measurement of the wrong thing** (§19.3: the allowance is ~4 attempts at current consumption, and §20.2's metering change is not built).
 
 **The correct order: PR-3 → PR-4 → baseline capture → promotion.**
+
+### 26.13 PR-4 — execution state, and three corrections to §26
+
+#### The justification is a measured AMBIGUITY, not a measured defect
+
+**Every prior PR in this arc had an observed defect behind it.** PR-1 restored a value traced to a specific loss; PR-2 closed §25.10's silent `Accept` at 0.92; PR-3 reversed a recommendation §23.4 had measured.
+
+> **PR-4 has a demonstrated INABILITY TO TELL TWO STATES APART.** The system cannot distinguish *genuinely clean* from *nothing checked* even in principle, and emits `Accept` at 0.92 for both.
+
+**Weaker evidence, still sufficient — and the record should say which.** No available run would be withheld by PR-4: run 22 had 35 references, extracted statistics and 7 tables, so multiple denominator lanes examined real input. **§22.1's dangerous case is UNOBSERVED, not absent.**
+
+#### The criterion, so a seventh lane's answer is derivable
+
+**(a) Can the lane produce ELIGIBLE claims at all?** If no, it is **not in the denominator** — its silence says nothing about the manuscript. `Rag` is excluded on this ground.
+**(b) If yes, was the INPUT its eligible-claim production requires present and non-empty?** If not, it examined nothing.
+
+**The subject is the input to eligible production, not the lane's output.** `Verification` with zero references is the clarifying case: it emits *"0 of 0 citations could not be checked"* — output, but no evidence.
+
+| Lane | In denominator | Examined nothing when |
+|---|---|---|
+| Verification | yes | zero references |
+| ValidationMaths | yes | zero statistical claims |
+| Plagiarism | yes | no corpus **and** < 2 chunks |
+| AiDetection | yes | text below the stylometry gates |
+| Extraction | yes | no tables **and** no references |
+| **Rag** | **no** | produces `ProcessState` only |
+
+**`NothingExamined` fires only when EVERY lane in the denominator examined nothing.** A single starved lane is the partial case.
+
+#### The lane state's job
+
+> **Zero eligible findings has two causes, and only the lane state separates them: genuinely clean versus nothing checked. It is the DISAMBIGUATOR that makes `Accept` honest when emitted, not an additional signal.** It is not consulted when findings exist.
+
+#### The partial case
+
+Citations starved, statistics examined the whole manuscript and found nothing. **`Accept` is honest as "clean as far as we looked" and dishonest as "clean".** It does **not** withhold — that manuscript has substantial evidence, and withholding would be a worse outcome than a caveated recommendation.
+
+**The caveat travels PR-3's channel**, because *"this lane examined nothing"* is the same shape of statement as *"this finding did not count"*: `not_examined: Vec<LaneNotExamined>` beside `excluded`, surfaced through the letter, rendered in its own card. **Visible but not decisive, deliberately.**
+
+#### Prerequisite built here: plagiarism's corpus datum
+
+`PlagiarismReport.corpus_chunks_available` is new. **Without it the lane's criterion collapses to "zero matches"** — the exact clean-versus-unchecked ambiguity PR-4 exists to resolve — and **a lane whose criterion is unsound must not enter the denominator.** The count applies the same `EXCLUDED_CORPUS_SOURCE_TYPES` exclusions the comparison applies, so it answers the question the criterion asks.
+
+#### CORRECTION — `ReviewerInput` does widen
+
+**§26's claim was narrower than it read.** Introducing the withheld-reason vocabulary whole stopped **that enum** widening; **it could not pre-provision a channel for data PR-2 did not have.** `ReviewerInput` gains `lanes`, and `VerdictAggregation` gains `not_examined`. Recorded as the correction rather than the claim.
+
+#### The SIXTH projection instance, and its distinguishing feature
+
+Per-lane examination is known at lane exit (`pipeline.rs:214-320`), where the input is in scope, and **lost immediately** — `lane()` returns only the lane's value, and the summary string reaches a progress event and is discarded.
+
+**Unlike the first five, the value was never CONSTRUCTED at all.** That makes it **§23.1's shape — implemented procedurally, represented nowhere — rather than §22.4's**, where a value was produced, persisted and dropped at a boundary.
+
+#### DEFERRED with a named destination: `StageUndelivered`
+
+`lane()` propagates `Err` and the caller uses `?`, so a lane failure aborts the run and **no path produces `StageUndelivered`**. One stage does degrade silently: `build_checklist` (`pipeline.rs:355`) is `unwrap_or_else(|e| vec![])`, so **a DB or embedder error yields an empty checklist indistinguishable from "no guidelines supplied"** — §18.6.2's shape, one layer up.
+
+**TRACKED ITEM: fix `build_checklist`'s silent empty, and populate `StageUndelivered` there.**
+
+Deferred from PR-4 because bundling would make its blast radius two things at once, and this is a different defect from F6's. **But a variant that ships unconstructed is the state `Recommendation::Unknown` was in, and that was a finding (§16 F6).** So it carries a destination, not an open-ended wait.

@@ -377,6 +377,7 @@ fn every_finding_carries_provenance_and_correct_tier_including_reconsidered() {
 fn plagiarism_matches_fan_into_per_match_findings() {
     use crate::plagiarism::{MatchSource, MatchSpan, PlagiarismReport};
     let pr = PlagiarismReport {
+        corpus_chunks_available: 10,
         chunk_count: 5,
         threshold: 0.80,
         corpus_matches: vec![MatchSpan {
@@ -438,6 +439,7 @@ fn plagiarism_matches_fan_into_per_match_findings() {
 fn empty_plagiarism_yields_zero_findings() {
     use crate::plagiarism::PlagiarismReport;
     let pr = PlagiarismReport {
+        corpus_chunks_available: 10,
         chunk_count: 3,
         threshold: 0.80,
         corpus_matches: vec![],
@@ -752,6 +754,7 @@ const REVIEWER_MAX_FINDINGS: usize = 12;
 /// the severity band above the new extraction-derived families.
 fn plagiarism_with_n_major_matches(n: usize) -> PlagiarismReport {
     PlagiarismReport {
+        corpus_chunks_available: 10,
         chunk_count: n,
         threshold: 0.80,
         corpus_matches: (0..n)

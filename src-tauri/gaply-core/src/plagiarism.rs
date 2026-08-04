@@ -71,6 +71,14 @@ pub struct MatchSpan {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlagiarismReport {
     pub chunk_count: usize,
+    /// How many CORPUS chunks were available to compare against.
+    ///
+    /// Without this, "zero matches" is ambiguous between *the manuscript
+    /// overlaps nothing* and *there was nothing to overlap with* — the exact
+    /// clean-versus-unchecked ambiguity §26 PR-4 exists to resolve. A lane whose
+    /// criterion cannot distinguish those two must not enter the
+    /// verdict-relevance denominator, so this datum is the lane's prerequisite.
+    pub corpus_chunks_available: usize,
     pub threshold: f64,
     pub corpus_matches: Vec<MatchSpan>,
     pub self_matches: Vec<MatchSpan>,
@@ -229,6 +237,7 @@ impl PlagiarismSession {
         let t = threshold.unwrap_or(DEFAULT_THRESHOLD);
         Ok(PlagiarismReport {
             chunk_count: self.chunks.len(),
+            corpus_chunks_available: corpus_chunk_count(shared)?,
             threshold: t,
             corpus_matches: self.compare_to_corpus(shared, t, 5)?,
             self_matches: self.self_plagiarism(t)?,
@@ -254,6 +263,23 @@ struct CorpusChunkInfo {
 /// genuine corpus feed added later under any other `source_type` is scanned
 /// automatically, without re-touching this query.
 const EXCLUDED_CORPUS_SOURCE_TYPES: [&str; 2] = ["research_paper", "journal_guideline"];
+
+/// How many chunks the shared corpus offers for comparison, applying the SAME
+/// exclusions `corpus_chunk_info` applies — so the count is what could actually
+/// have matched, not what happens to be stored. A count computed differently
+/// from the comparison would answer a different question than the one the lane
+/// criterion asks.
+fn corpus_chunk_count(shared: &Database) -> Result<usize, GaplyError> {
+    use rusqlite::params;
+    let conn = shared.conn()?;
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM chunks c JOIN documents d ON d.id = c.document_id
+         WHERE d.source_type NOT IN (?1, ?2)",
+        params![EXCLUDED_CORPUS_SOURCE_TYPES[0], EXCLUDED_CORPUS_SOURCE_TYPES[1]],
+        |r| r.get(0),
+    )?;
+    Ok(n as usize)
+}
 
 fn corpus_chunk_info(
     shared: &Database,

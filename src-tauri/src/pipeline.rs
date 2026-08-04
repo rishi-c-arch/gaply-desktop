@@ -31,6 +31,7 @@ use tauri::State;
 use gaply_core::embed::Embedder;
 use gaply_core::extract::citations::Reference;
 use gaply_core::refverify::ReferenceVerification;
+use gaply_core::reviewer_agent::LaneExamination;
 use gaply_core::report::{build_checklist, compile_report};
 use gaply_core::swarm::{adapters, run_debate, DebateConfig, PrecomputedAgent, SwarmAgent};
 use gaply_core::verify_agent::{verify_citations, MockProxyClient};
@@ -80,6 +81,11 @@ pub(crate) fn report_cache_key(report_id: &str) -> String {
 /// The six agent lanes the frontend renders. Debate + compile happen after,
 /// under the "synthesis" pseudo-stage.
 const LANE_TOTAL: usize = 6;
+
+/// Below this the stylometry signals cannot be computed — MTLD needs ~100
+/// tokens and the sentence-length CV needs several sentences, so no ELIGIBLE
+/// AI-detection finding is possible and the lane examined nothing.
+const MIN_STYLOMETRY_WORDS: usize = 100;
 
 /// Current Gregorian year from the epoch clock, for `compile_report`'s
 /// reference-recency count. Uses the mean Gregorian year (365.2425 days) rather
@@ -171,9 +177,12 @@ fn run_pipeline(
     guidelines_url: Option<String>,
     ch: Channel<AnalysisEvent>,
 ) -> Result<(), GaplyError> {
+    // The lane state is for the PublishReady verdict path; the general analysis
+    // command has no aggregator to feed, so it is discarded here deliberately.
     run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, &|ev| {
         let _ = ch.send(ev);
     })
+    .map(|_lanes| ())
 }
 
 /// Measurement-only entry point (Set 4 8GB memory proof): drives the REAL
@@ -188,7 +197,7 @@ pub fn run_pipeline_measured(
     user_token: Option<String>,
     guidelines_url: Option<String>,
     emit: &dyn Fn(AnalysisEvent),
-) -> Result<(), GaplyError> {
+) -> Result<LaneExamination, GaplyError> {
     run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, emit)
 }
 
@@ -209,7 +218,7 @@ fn run_pipeline_inner(
     // identity is PROPAGATED, not reconstructed from corpus state.
     guidelines_url: Option<String>,
     emit: &dyn Fn(AnalysisEvent),
-) -> Result<(), GaplyError> {
+) -> Result<LaneExamination, GaplyError> {
     // Parse once, up front (part of the extraction lane's work).
     let text = lane(emit, "extraction", 1, || {
         let text = extract::docparse::parse_path(std::path::Path::new(&path))?;
@@ -409,7 +418,24 @@ fn run_pipeline_inner(
     db.cache_put(&report_cache_key(&report_id), &json, REPORT_TTL_SECS, now_epoch())?;
 
     emit(AnalysisEvent::Finished { report_id });
-    Ok(())
+
+    // §26 PR-4's criterion, applied at the ONLY place the inputs are in scope.
+    // (a) `Rag` is absent — it produces `ProcessState` only, so it could never
+    // have contributed to a verdict and its silence says nothing.
+    // (b) Each flag asks whether the INPUT to eligible-claim production was
+    // present, never whether the lane produced output.
+    Ok(LaneExamination {
+        // The whole lane is gated on `!refs.is_empty()`.
+        verification_examined: !extraction.references.is_empty(),
+        // `validate()` iterates `result.statistics`; empty in, no flags out.
+        validation_examined: !extraction.statistics.is_empty(),
+        // Nothing to compare against, and too few chunks for self-overlap.
+        plagiarism_examined: plag.corpus_chunks_available > 0 || plag.chunk_count >= 2,
+        // Below the stylometry gates no eligible finding is possible.
+        ai_detection_examined: text.split_whitespace().count() >= MIN_STYLOMETRY_WORDS,
+        // Its eligible outputs are table-caption and reference-recency findings.
+        extraction_examined: !extraction.tables.is_empty() || !extraction.references.is_empty(),
+    })
 }
 
 #[cfg(test)]

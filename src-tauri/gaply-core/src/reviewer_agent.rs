@@ -828,6 +828,11 @@ pub struct ReviewerInput {
     /// computed. PR-2 populates `EvidenceUninterpretable`; the other variants
     /// are reserved for PR-4 and are absent, not missing.
     pub withheld: Option<VerdictWithheld>,
+    /// Which lanes examined something. Widens this type — §26's claim that PR-2
+    /// stopped PR-4 widening a public contract was narrower than it read: it
+    /// stopped the WITHHELD-REASON ENUM widening, and could not pre-provision a
+    /// channel for data PR-2 did not have.
+    pub lanes: LaneExamination,
     pub findings: Vec<ReviewerFinding>,
     /// Raw checklist items (as JSON) from the compiled report.
     pub checklist: Vec<Value>,
@@ -949,6 +954,15 @@ impl Verdict {
 pub struct VerdictAggregation {
     pub verdict: Verdict,
     pub breakdown: SeverityByStateCounts,
+    /// Findings that were NOT counted, each with its attributed reason. Lives
+    /// here rather than on a `Finding` because "excluded from the verdict" is a
+    /// property of the AGGREGATION — no producer can state it (§23, §26.1).
+    pub excluded: Vec<ExcludedFinding>,
+    /// Lanes that examined nothing. Sibling of `excluded`, and shown in the same
+    /// place: both state HOW the verdict was reached. Non-empty alongside a
+    /// COMPUTED verdict is the partial case — `Accept` plus a caveat, visible
+    /// but not decisive, deliberately.
+    pub not_examined: Vec<LaneNotExamined>,
 }
 
 /// Deterministic reviewer verdict — a rule-based AGGREGATOR, not a scorer. It
@@ -964,9 +978,141 @@ pub struct VerdictAggregation {
 /// VerificationState MUST NOT influence the recommendation.
 /// It is surfaced only in transparency outputs (breakdown, reviewer
 /// narrative, analytics).
+/// Which lanes examined something, for the ONE question that needs it.
+///
+/// # What this is for
+///
+/// **Zero eligible findings has two causes, and only this separates them:**
+/// genuinely clean (lanes examined, found nothing) versus nothing checked (lanes
+/// examined nothing). That is F6's entire content — this is the DISAMBIGUATOR
+/// that makes `Accept` honest when emitted, not an additional signal. It is not
+/// consulted when findings exist.
+///
+/// # The criterion, so a seventh lane's answer is DERIVABLE
+///
+/// Two questions, in order:
+///
+/// **(a) Can this lane produce ELIGIBLE claims at all?** If no, it is NOT in the
+/// denominator — it could never have contributed to a verdict, so its silence
+/// says nothing about the manuscript. `Rag` is excluded on this ground: it
+/// produces only [`ClaimKind::ProcessState`].
+///
+/// **(b) If yes: was the INPUT its eligible-claim production requires present
+/// and non-empty?** If not, the lane examined nothing.
+///
+/// The subject is **the input to eligible production, not the lane's output**,
+/// which is what makes it derivable. A lane that emitted only `ProcessState`
+/// findings still examined nothing when its eligible input was empty —
+/// `Verification` with zero references is exactly that: *"0 of 0 citations could
+/// not be checked"* is not evidence about the manuscript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct LaneExamination {
+    /// Zero references — the whole lane is gated on `!refs.is_empty()`.
+    pub verification_examined: bool,
+    /// Zero statistical claims extracted — `validate()` iterates them.
+    pub validation_examined: bool,
+    /// No corpus to compare against AND fewer than two chunks for self-overlap.
+    pub plagiarism_examined: bool,
+    /// Text below the stylometry gates, so no eligible finding was possible.
+    pub ai_detection_examined: bool,
+    /// No tables and no dated references — its eligible outputs.
+    pub extraction_examined: bool,
+}
+
+/// One lane that examined nothing, named for the user. Sibling of
+/// [`ExcludedFinding`]: both are facts about HOW the verdict was reached.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LaneNotExamined {
+    pub lane: &'static str,
+    pub reason: &'static str,
+}
+
+impl LaneExamination {
+    /// The denominator, in declaration order. `Rag` is absent by criterion (a).
+    fn lanes(&self) -> [(bool, &'static str, &'static str); 5] {
+        [
+            (self.verification_examined, "Citation verification", "no references were parsed from the manuscript"),
+            (self.validation_examined, "Statistical validation", "no statistical claims were extracted"),
+            (self.plagiarism_examined, "Text overlap", "there was no corpus to compare against"),
+            (self.ai_detection_examined, "Writing signals", "the text was too short to measure"),
+            (self.extraction_examined, "Structure checks", "no tables or dated references were found"),
+        ]
+    }
+    /// TRUE only when EVERY lane in the denominator examined nothing — a single
+    /// starved lane is the partial case, which caveats rather than withholds.
+    pub fn nothing_examined(&self) -> bool {
+        self.lanes().iter().all(|(examined, _, _)| !examined)
+    }
+    pub fn not_examined(&self) -> Vec<LaneNotExamined> {
+        self.lanes()
+            .iter()
+            .filter(|(examined, _, _)| !examined)
+            .map(|(_, lane, reason)| LaneNotExamined { lane, reason })
+            .collect()
+    }
+}
+
+/// Whether a finding's CLAIM may influence the editorial recommendation.
+///
+/// TOTAL — no wildcard arm — following `evidence.rs`'s discipline: a new
+/// `ClaimKind` cannot compile until its admissibility is explicitly decided.
+///
+/// This is EDITORIAL ADMISSIBILITY, deliberately keyed on the claim rather than
+/// on the producer. `AgentKind` means "which subsystem produced this", which is
+/// a different question (§23.2) — and keying on it would exclude the
+/// stylometric findings `report.rs` documents as reviewer-relevant, since
+/// AI-detection produces both (§22.5).
+pub fn claim_is_eligible(claim: ClaimKind) -> bool {
+    match claim {
+        // MEASURED (§23.4): run 22's f4 "35 of 35 citation(s) could not be
+        // checked" and f5 "Verification output rejected by its internal gate"
+        // were two of four Minors and changed the recommendation. Both describe
+        // GAPLY's execution. Showing the author "we couldn't check your
+        // citations" is correct; letting it change their recommendation is not.
+        ClaimKind::ProcessState => false,
+        // `ai_detect.rs`'s own disclaimer: "STATISTICAL SIGNAL ONLY — NOT proof
+        // of AI authorship." A paper written with model assistance is not
+        // thereby unpublishable; that is a journal policy question, not a defect.
+        ClaimKind::AuthorshipSignal => false,
+        ClaimKind::ManuscriptDefect => true,
+    }
+}
+
+/// Why a finding did not count, attributed. §4.14: "did not affect the
+/// recommendation" is NOT "unimportant", and the difference must be stated.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ExcludedFinding {
+    pub id: String,
+    /// Absent when the stored claim could not be restored (pre-migration rows).
+    pub claim: Option<ClaimKind>,
+    pub reason: &'static str,
+}
+
 pub fn aggregate_reviewer_verdict(input: &ReviewerInput) -> VerdictAggregation {
     let mut breakdown = SeverityByStateCounts::default();
+    let mut excluded: Vec<ExcludedFinding> = Vec::new();
     for f in &input.findings {
+        // A finding with NO restored claim is counted — typed absence must not
+        // silently become exclusion. Pre-migration rows are never read for a
+        // live verdict, so this arm is defensive.
+        if let Some(claim) = f.claim {
+            if !claim_is_eligible(claim) {
+                excluded.push(ExcludedFinding {
+                    id: f.id.clone(),
+                    claim: Some(claim),
+                    reason: match claim {
+                        ClaimKind::ProcessState => {
+                            "describes Gaply's own execution, not the manuscript"
+                        }
+                        ClaimKind::AuthorshipSignal => {
+                            "a statistical signal about authorship, not a publishability defect"
+                        }
+                        ClaimKind::ManuscriptDefect => unreachable!("eligible"),
+                    },
+                });
+                continue;
+            }
+        }
         let state = f.verification_state();
         match f.severity {
             FindingSeverity::Critical => breakdown.critical.add(state),
@@ -1003,12 +1149,38 @@ pub fn aggregate_reviewer_verdict(input: &ReviewerInput) -> VerdictAggregation {
     // WITHHELD short-circuits the tree. The breakdown is still reported — it
     // describes what was counted, and all-zero is the honest answer when the
     // evidence could not be interpreted.
+    let not_examined = input.lanes.not_examined();
+
     if let Some(reason) = input.withheld {
-        return VerdictAggregation { verdict: Verdict::Withheld { reason }, breakdown };
+        return VerdictAggregation {
+            verdict: Verdict::Withheld { reason },
+            breakdown,
+            excluded,
+            not_examined,
+        };
+    }
+    // F6: an empty eligible set means "clean" ONLY if something was examined.
+    // With nothing examined, `Accept` at 0.92 would assert an absence of defects
+    // that was never looked for. A single starved lane is NOT this case — that
+    // manuscript has real evidence, and withholding would be worse than a
+    // caveated recommendation.
+    if breakdown.critical.total() == 0
+        && breakdown.major.total() == 0
+        && breakdown.minor.total() == 0
+        && input.lanes.nothing_examined()
+    {
+        return VerdictAggregation {
+            verdict: Verdict::Withheld { reason: VerdictWithheld::NothingExamined },
+            breakdown,
+            excluded,
+            not_examined,
+        };
     }
     VerdictAggregation {
         verdict: Verdict::Computed { recommendation, publication_probability },
         breakdown,
+        excluded,
+        not_examined,
     }
 }
 
@@ -1265,7 +1437,23 @@ pub fn synthesize_reviewer_letter(
         body: narrative.body,
         issues: narrative.issues,
         alternatives: Vec::new(),
-        warnings: narrative.warnings,
+        // The excluded set reaches the UI here, one line per finding, so a user
+        // who sees a finding in the report but not in the verdict is told WHY
+        // (§4.14). `warnings` is the existing honesty channel — gate drops and
+        // downgrades already surface through it.
+        warnings: narrative
+            .warnings
+            .into_iter()
+            .chain(aggregation.excluded.iter().map(|e| {
+                format!("excluded from the recommendation: {} — {}", e.id, e.reason)
+            }))
+            // The PARTIAL case's caveat travels the same channel, for the same
+            // reason: "this lane examined nothing" is the same shape of statement
+            // as "this finding did not count".
+            .chain(aggregation.not_examined.iter().map(|l| {
+                format!("not examined: {} — {}", l.lane, l.reason)
+            }))
+            .collect(),
         available: true,
     }
 }
@@ -1763,6 +1951,7 @@ mod box4_tests {
     fn input(findings: Vec<ReviewerFinding>) -> ReviewerInput {
         ReviewerInput {
             withheld: None,
+            lanes: LaneExamination { verification_examined: true, ..Default::default() },
             findings,
             checklist: vec![],
             supplementary: vec![],

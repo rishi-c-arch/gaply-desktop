@@ -523,7 +523,7 @@ pub async fn run_publishready(
         // the proxy's entitlement gate. Without it that tier reached `/verify`
         // with App Check but no user credential and was rejected 401
         // user_token_missing, so every citation degraded to UNKNOWN.
-        crate::pipeline::run_pipeline_measured(
+        let lanes = crate::pipeline::run_pipeline_measured(
             db.clone(),
             embedder.clone(),
             path,
@@ -615,6 +615,7 @@ pub async fn run_publishready(
                 &journal,
                 &supp_values,
                 escalation_withheld,
+                lanes,
             ) {
                 Ok(o) => {
                     tracing::info!(

@@ -30,7 +30,7 @@ use serde_json::Value;
 use gaply_core::evidence::ClaimKind;
 use gaply_core::evidence_store::evidence_by_run;
 use gaply_core::report::FindingSeverity;
-use gaply_core::reviewer_agent::VerdictWithheld;
+use gaply_core::reviewer_agent::{LaneExamination, VerdictWithheld};
 use gaply_core::swarm::AgentKind;
 use gaply_core::reviewer_agent::{
     aggregate_reviewer_verdict, build_reviewer_request, gate_reviewer_narrative,
@@ -86,6 +86,7 @@ pub fn assemble_reviewer_input(
     journal: &TargetJournal,
     supplementary: &[Value],
     withheld: Option<VerdictWithheld>,
+    lanes: LaneExamination,
 ) -> Result<ReviewerInput, GaplyError> {
     let rows = evidence_by_run(db, run_id)?;
     let empty: Vec<Value> = Vec::new();
@@ -124,6 +125,7 @@ pub fn assemble_reviewer_input(
 
     Ok(ReviewerInput {
         withheld,
+        lanes,
         findings,
         checklist,
         supplementary: supplementary.to_vec(),
@@ -162,8 +164,10 @@ pub fn run_shadow_synthesis(
     journal: &TargetJournal,
     supplementary: &[Value],
     withheld: Option<VerdictWithheld>,
+    lanes: LaneExamination,
 ) -> Result<ShadowOutcome, GaplyError> {
-    let input = assemble_reviewer_input(db, run_id, report, journal, supplementary, withheld)?;
+    let input =
+        assemble_reviewer_input(db, run_id, report, journal, supplementary, withheld, lanes)?;
 
     // Deterministic verdict — from the already-decided severities, no LLM.
     let aggregation = aggregate_reviewer_verdict(&input);
@@ -199,6 +203,18 @@ mod tests {
     use gaply_core::swarm::AgentKind;
     use gaply_core::verify_agent::MockProxyClient;
     use serde_json::json;
+
+    /// Every denominator lane examined something — the normal case, so a test
+    /// that is not ABOUT lane state is not silently exercising the starved path.
+    fn all_examined() -> LaneExamination {
+        LaneExamination {
+            verification_examined: true,
+            validation_examined: true,
+            plagiarism_examined: true,
+            ai_detection_examined: true,
+            extraction_examined: true,
+        }
+    }
 
     fn journal() -> TargetJournal {
         TargetJournal { name: "Nature".into(), quartile: "Q1".into() }
@@ -268,7 +284,7 @@ mod tests {
                 evidence_persist(&db, &run_id, &[written], gaply_core::now_epoch()).unwrap();
 
                 let input =
-                    assemble_reviewer_input(&db, &run_id, &report(&["t"]), &journal(), &[], None).unwrap();
+                    assemble_reviewer_input(&db, &run_id, &report(&["t"]), &journal(), &[], None, all_examined()).unwrap();
                 assert_eq!(input.findings.len(), 1, "one record in, one finding out");
                 let got = &input.findings[0];
 
@@ -303,17 +319,23 @@ mod tests {
         assert_eq!(parse_agent("verification"), Some(AgentKind::Verification));
     }
 
-    /// PR-1 carries identity end to end and must change NO verdict. Pinned so a
-    /// data regression and a decision regression stay attributable: if this
-    /// fails, the identity work changed behaviour it was not supposed to touch.
+    /// PR-3's blast radius on the ONE real report available.
+    ///
+    /// This test was `pr1_identity_does_not_change_the_recommendation`, and it
+    /// asserted `MajorRevision` with `minor.total() == 2` — noting in its own
+    /// comment that "the process claim STILL COUNTS, which is precisely what
+    /// PR-3 changes". **PR-3 flipped it, which is the pin working**: the change
+    /// was detected by an assertion written before it, not discovered after.
+    ///
+    /// The fixture mirrors run 22's decisive shape: one `AuthorshipSignal` Major
+    /// (f1), one `ProcessState` Minor (f4/f5's kind), one `ManuscriptDefect`
+    /// Minor (f3's kind). §23.4 measured `MajorRevision` -> `Accept` when both
+    /// carve-outs are excluded, and that is what must happen here.
     #[test]
-    fn pr1_identity_does_not_change_the_recommendation() {
+    fn pr3_excludes_process_and_authorship_claims_from_the_verdict() {
         use gaply_core::reviewer_agent::aggregate_reviewer_verdict;
         let db = Database::in_memory().unwrap();
-        let run_id = "run-verdict-pin";
-        // 1 Major + 2 Minor: Major dominates, so the tree yields MajorRevision —
-        // and the two Minors sit either side of MINOR_REVISION_THRESHOLD, so a
-        // miscount would move the result.
+        let run_id = "run-pr3";
         let records = vec![
             EvidenceRecord::at_source("f1".to_string(), AgentKind::AiDetection, ClaimKind::AuthorshipSignal, Sev::Major, 0.6, vec![]),
             EvidenceRecord::at_source("f2".to_string(), AgentKind::Verification, ClaimKind::ProcessState, Sev::Minor, 0.5, vec![]),
@@ -321,17 +343,107 @@ mod tests {
         ];
         evidence_persist(&db, run_id, &records, gaply_core::now_epoch()).unwrap();
         let input =
-            assemble_reviewer_input(&db, run_id, &report(&["a", "b", "c"]), &journal(), &[], None).unwrap();
+            assemble_reviewer_input(&db, run_id, &report(&["a", "b", "c"]), &journal(), &[], None, all_examined()).unwrap();
         let agg = aggregate_reviewer_verdict(&input);
+
+        // BEFORE PR-3 this was MajorRevision at 0.30, driven entirely by f1.
         assert_eq!(
             agg.verdict.recommendation(),
-            Some(Recommendation::MajorRevision),
-            "PR-1 must not change the verdict; the resolver lands in PR-3"
+            Some(Recommendation::Accept),
+            "the AuthorshipSignal Major and the ProcessState Minor must both stop counting"
         );
-        assert_eq!(agg.verdict.probability(), Some(0.30));
-        // The claim is CARRIED but not yet CONSULTED — f2 is a process claim and
-        // still counts, which is precisely what PR-3 changes.
-        assert_eq!(agg.breakdown.minor.total(), 2);
+        assert_eq!(agg.breakdown.major.total(), 0, "f1 is not counted");
+        assert_eq!(agg.breakdown.minor.total(), 1, "only the ManuscriptDefect Minor counts");
+
+        // ATTRIBUTED, not merely dropped (§4.14).
+        let ids: Vec<&str> = agg.excluded.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, vec!["f1", "f2"]);
+        assert!(agg.excluded[0].reason.contains("authorship"));
+        assert!(agg.excluded[1].reason.contains("Gaply's own execution"));
+
+        // AND IT MUST REACH THE LETTER. §26.11's lesson: asserting `agg.excluded`
+        // alone would be the right property at the wrong boundary — the UI reads
+        // the letter, not the aggregation, so a resolver that excludes correctly
+        // and never says so would pass.
+        use gaply_core::reviewer_agent::{synthesize_reviewer_letter, ReviewerNarrative};
+        let letter = synthesize_reviewer_letter(
+            &agg,
+            ReviewerNarrative { body: "b".into(), issues: vec![], warnings: vec![] },
+        );
+        let surfaced: Vec<&String> = letter
+            .warnings
+            .iter()
+            .filter(|w| w.starts_with("excluded from the recommendation:"))
+            .collect();
+        assert_eq!(surfaced.len(), 2, "both exclusions must reach the letter: {:?}", letter.warnings);
+        assert!(surfaced[0].contains("f1") && surfaced[0].contains("authorship"));
+        assert!(surfaced[1].contains("f2") && surfaced[1].contains("Gaply's own execution"));
+    }
+
+    /// The resolver across the WHOLE severity x claim space.
+    ///
+    /// # What this establishes, and what it does not
+    ///
+    /// **Establishes:** the resolver behaves as SPECIFIED across every
+    /// combination — an eligible claim contributes its severity, an ineligible
+    /// one contributes nothing and is attributed.
+    ///
+    /// **Does NOT establish:** what fraction of real manuscripts change verdict.
+    /// Only run 22 speaks to that, and **n = 1**. Runs 20 and 21 are schema-2
+    /// records without claim identity, and no other real report exists.
+    ///
+    /// **Consequence:** the deterministic verdict's distribution shifts by an
+    /// UNMEASURED amount. That matters when the Box 4 comparison resumes —
+    /// §26.10 already records that the two sides then compute over different
+    /// evidence sets, and this is the second reason the delta is not a
+    /// model-quality measurement.
+    #[test]
+    fn the_resolver_is_specified_across_every_severity_and_claim() {
+        use gaply_core::reviewer_agent::{aggregate_reviewer_verdict, claim_is_eligible};
+        use gaply_core::evidence::ClaimKind as CK;
+        const CLAIMS: &[CK] = &[CK::ProcessState, CK::AuthorshipSignal, CK::ManuscriptDefect];
+        const SEVS: &[Sev] = &[Sev::Critical, Sev::Major, Sev::Minor, Sev::Info];
+
+        for (i, claim) in CLAIMS.iter().enumerate() {
+            for (j, sev) in SEVS.iter().enumerate() {
+                let db = Database::in_memory().unwrap();
+                let run_id = format!("run-matrix-{i}-{j}");
+                let rec = EvidenceRecord::at_source(
+                    "f1".to_string(), AgentKind::Verification, *claim, *sev, 0.5, vec![],
+                );
+                evidence_persist(&db, &run_id, &[rec], gaply_core::now_epoch()).unwrap();
+                let input =
+                    assemble_reviewer_input(&db, &run_id, &report(&["t"]), &journal(), &[], None, all_examined())
+                        .unwrap();
+                let agg = aggregate_reviewer_verdict(&input);
+
+                if claim_is_eligible(*claim) {
+                    let counted = agg.breakdown.critical.total()
+                        + agg.breakdown.major.total()
+                        + agg.breakdown.minor.total()
+                        + agg.breakdown.info.total();
+                    assert_eq!(counted, 1, "{claim:?}/{sev:?} is eligible and must be counted");
+                    assert!(agg.excluded.is_empty());
+                    let expected = match sev {
+                        Sev::Critical => Recommendation::Reject,
+                        Sev::Major => Recommendation::MajorRevision,
+                        // One Minor is below MINOR_REVISION_THRESHOLD = 3.
+                        Sev::Minor | Sev::Info => Recommendation::Accept,
+                    };
+                    assert_eq!(agg.verdict.recommendation(), Some(expected), "{claim:?}/{sev:?}");
+                } else {
+                    assert_eq!(agg.breakdown.critical.total(), 0);
+                    assert_eq!(agg.breakdown.major.total(), 0);
+                    assert_eq!(
+                        agg.verdict.recommendation(),
+                        Some(Recommendation::Accept),
+                        "{claim:?}/{sev:?} is ineligible — even Critical must not reach the verdict"
+                    );
+                    assert_eq!(agg.excluded.len(), 1, "and it must be ATTRIBUTED, not silently dropped");
+                    assert_eq!(agg.excluded[0].claim, Some(*claim));
+                }
+            }
+        }
     }
 
     /// §25.10's defect, closed. Malformed evidence must WITHHOLD, never yield
@@ -350,6 +462,7 @@ mod tests {
             &journal(),
             &[],
             Some(VerdictWithheld::EvidenceUninterpretable),
+            all_examined(),
         )
         .unwrap();
         let agg = aggregate_reviewer_verdict(&input);
@@ -396,6 +509,7 @@ mod tests {
             &journal(),
             &[],
             Some(VerdictWithheld::EvidenceUninterpretable),
+            all_examined(),
         )
         .unwrap();
 
@@ -475,6 +589,94 @@ mod tests {
         );
     }
 
+    fn lanes(v: bool, val: bool, plag: bool, ai: bool, ex: bool) -> LaneExamination {
+        LaneExamination {
+            verification_examined: v,
+            validation_examined: val,
+            plagiarism_examined: plag,
+            ai_detection_examined: ai,
+            extraction_examined: ex,
+        }
+    }
+
+    /// F6. Zero eligible findings has TWO causes and only the lane state
+    /// separates them: genuinely clean, versus nothing checked. With nothing
+    /// examined, `Accept` at 0.92 would assert an absence of defects that was
+    /// never looked for.
+    #[test]
+    fn nothing_examined_withholds_rather_than_accepting() {
+        use gaply_core::reviewer_agent::{aggregate_reviewer_verdict, VerdictWithheld};
+        let db = Database::in_memory().unwrap();
+        let run_id = "run-nothing";
+        let input = assemble_reviewer_input(
+            &db, run_id, &report(&[]), &journal(), &[], None,
+            lanes(false, false, false, false, false),
+        )
+        .unwrap();
+        let agg = aggregate_reviewer_verdict(&input);
+        assert_eq!(agg.verdict.recommendation(), None, "no findings AND nothing examined");
+        assert_eq!(agg.verdict.withheld_reason(), Some(VerdictWithheld::NothingExamined));
+        assert_eq!(agg.not_examined.len(), 5, "every denominator lane is named");
+    }
+
+    /// The same empty finding set, but something WAS examined — the honest
+    /// `Accept`. This is the pair that makes the disambiguator's job visible:
+    /// identical findings, opposite verdicts, decided only by the lane state.
+    #[test]
+    fn nothing_found_but_something_examined_accepts() {
+        use gaply_core::reviewer_agent::aggregate_reviewer_verdict;
+        let db = Database::in_memory().unwrap();
+        let input = assemble_reviewer_input(
+            &db, "run-clean", &report(&[]), &journal(), &[], None,
+            lanes(true, true, true, true, true),
+        )
+        .unwrap();
+        let agg = aggregate_reviewer_verdict(&input);
+        assert_eq!(agg.verdict.recommendation(), Some(Recommendation::Accept));
+        assert!(agg.not_examined.is_empty());
+    }
+
+    /// THE PARTIAL CASE, decided in §26: citations starved, statistics examined
+    /// the whole manuscript. `Accept` is honest as "clean as far as we looked"
+    /// and dishonest as "clean" — so it does NOT withhold, and the caveat must
+    /// reach every consumer. Asserted from the aggregation THROUGH the letter,
+    /// per §26.11's rule: a test entered downstream of the defect cannot detect
+    /// it, and the UI reads the letter rather than the aggregation.
+    #[test]
+    fn one_starved_lane_caveats_rather_than_withholding_and_reaches_the_letter() {
+        use gaply_core::reviewer_agent::{
+            aggregate_reviewer_verdict, synthesize_reviewer_letter, ReviewerNarrative,
+        };
+        let db = Database::in_memory().unwrap();
+        let input = assemble_reviewer_input(
+            &db, "run-partial", &report(&[]), &journal(), &[], None,
+            // Citations starved; everything else examined.
+            lanes(false, true, true, true, true),
+        )
+        .unwrap();
+        let agg = aggregate_reviewer_verdict(&input);
+
+        assert_eq!(
+            agg.verdict.recommendation(),
+            Some(Recommendation::Accept),
+            "a manuscript with real evidence must NOT be withheld over one starved lane"
+        );
+        assert_eq!(agg.not_examined.len(), 1);
+        assert_eq!(agg.not_examined[0].lane, "Citation verification");
+
+        // AND IT MUST REACH THE LETTER — the caveat is the whole reason not
+        // withholding is honest.
+        let letter = synthesize_reviewer_letter(
+            &agg,
+            ReviewerNarrative { body: "b".into(), issues: vec![], warnings: vec![] },
+        );
+        let caveats: Vec<&String> =
+            letter.warnings.iter().filter(|w| w.starts_with("not examined:")).collect();
+        assert_eq!(caveats.len(), 1, "the caveat must reach the letter: {:?}", letter.warnings);
+        assert!(caveats[0].contains("Citation verification"));
+        assert!(caveats[0].contains("no references were parsed"));
+    }
+
     #[test]
     fn assemble_joins_store_verdicts_with_report_titles() {
         let db = Database::in_memory().unwrap();
@@ -501,7 +703,7 @@ mod tests {
         .unwrap();
 
         let input =
-            assemble_reviewer_input(&db, run_id, &report(&["refuted citation", "impossible SD"]), &journal(), &[], None)
+            assemble_reviewer_input(&db, run_id, &report(&["refuted citation", "impossible SD"]), &journal(), &[], None, all_examined())
                 .unwrap();
 
         assert_eq!(input.findings.len(), 2);
@@ -525,7 +727,7 @@ mod tests {
 
         // proxy = None -> narrative degrades, verdict still deterministic.
         let outcome =
-            run_shadow_synthesis(&db, None, run_id, &report(&["impossible SD"]), &journal(), &[], None).unwrap();
+            run_shadow_synthesis(&db, None, run_id, &report(&["impossible SD"]), &journal(), &[], None, all_examined()).unwrap();
         assert_eq!(outcome.letter.recommendation, Recommendation::Reject);
         assert!(outcome.letter.available);
         assert!(!outcome.narrative_available); // structural flag, not body-string
@@ -557,6 +759,7 @@ mod tests {
             &journal(),
             &[],
             None,
+            all_examined(),
         )
         .unwrap();
         // Deterministic verdict from the Major finding, regardless of narrative.

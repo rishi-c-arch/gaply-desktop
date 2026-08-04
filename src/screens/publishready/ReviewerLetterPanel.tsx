@@ -22,6 +22,19 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
   // second case, so the two are told apart rather than sharing one message
   // (§4.4 — correct the claim, do not caveat it). ARCHITECTURE_TRACE §26 PR-2.
   const withheldReason = letter.warnings?.find((w) => w.startsWith('verdict withheld:'));
+  // Exclusions are a DIFFERENT kind of note from gate drops, and mixing them
+  // into one "Gate notes" line would bury the one the author must act on.
+  const excluded = (letter.warnings ?? []).filter((w) =>
+    w.startsWith('excluded from the recommendation:')
+  );
+  // "This lane examined nothing" is the same SHAPE of statement as "this
+  // finding did not count" — both say how the verdict was reached — so it
+  // travels the same channel and renders in the same card.
+  const notExamined = (letter.warnings ?? []).filter((w) => w.startsWith('not examined:'));
+  const gateNotes = (letter.warnings ?? []).filter(
+    (w) =>
+      !w.startsWith('excluded from the recommendation:') && !w.startsWith('not examined:')
+  );
 
   if (letter.available === false) {
     return (
@@ -143,9 +156,45 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
         </Card>
       )}
 
-      {warnings.length > 0 && (
+      {/* EXCLUSIONS are shown separately from gate notes, and said plainly.
+          §4.14: "did not affect the recommendation" is NOT "unimportant" — a
+          user who sees a finding in the report but not in the verdict must be
+          told why, and must not read the exclusion as the finding being minor. */}
+      {notExamined.length > 0 && (
+        <Card title="Checks that could not run on this manuscript">
+          <ul data-testid="pr-not-examined" style={{ margin: 0, paddingLeft: 18 }}>
+            {notExamined.map((w, i) => (
+              <li key={i} className="gds-finding__detail" style={{ fontSize: 13 }}>
+                {w.replace('not examined: ', '')}
+              </li>
+            ))}
+          </ul>
+          <p style={{ color: 'var(--g-text-3)', fontSize: 12, marginTop: 8 }}>
+            The recommendation reflects only what was examined. It is not a statement about
+            anything these checks would have covered.
+          </p>
+        </Card>
+      )}
+
+      {excluded.length > 0 && (
+        <Card title="Findings shown but not counted toward the recommendation">
+          <ul data-testid="pr-excluded" style={{ margin: 0, paddingLeft: 18 }}>
+            {excluded.map((w, i) => (
+              <li key={i} className="gds-finding__detail" style={{ fontSize: 13 }}>
+                {w.replace('excluded from the recommendation: ', '')}
+              </li>
+            ))}
+          </ul>
+          <p style={{ color: 'var(--g-text-3)', fontSize: 12, marginTop: 8 }}>
+            These are still real and still worth reading — they are not evidence about whether
+            your manuscript is publishable, so they do not move the recommendation.
+          </p>
+        </Card>
+      )}
+
+      {gateNotes.length > 0 && (
         <p className="gds-pr__disclaimer" data-testid="pr-warnings" style={{ color: 'var(--g-text-3)' }}>
-          Gate notes: {warnings.join('; ')}
+          Gate notes: {gateNotes.join('; ')}
         </p>
       )}
 
