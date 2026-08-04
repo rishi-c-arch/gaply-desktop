@@ -1716,9 +1716,15 @@ They are **not two views of one decision** — different units, different mechan
 
 ### 23.4 A LIVE DEFECT — the manuscript is penalised for Gaply's own failures
 
-**This is not a design finding. It changed run 22's recommendation.**
+> ## ⚠ ATTRIBUTION CORRECTED — see §23.4.1
+>
+> **Every "run 22" in this section is wrong. The measurement is runs 20/21, the
+> Thermosensitive Nanoemulsion paper.** The defect, the exclusion table and the
+> conclusion all stand; only the run they are attributed to was wrong.
 
-Two of run 22's four `Minor` findings are statements about **Gaply's** execution, not the manuscript:
+**This is not a design finding. It changed the recommendation.**
+
+Two of the run's four `Minor` findings are statements about **Gaply's** execution, not the manuscript:
 
 * **f4** — *"35 of 35 citation(s) could not be checked"* (`report.rs:394`)
 * **f5** — *"Verification output rejected by its internal gate"* (`report.rs:519`)
@@ -1741,6 +1747,42 @@ Run 22's findings: **1 Major, 4 Minor, 3 Info.** `MINOR_REVISION_THRESHOLD = 3`.
 #### What the measurement demonstrates — stated separately
 
 **A recommendation change is produced by excluding findings that describe Gaply's own execution.** The conclusion follows from the four rows above; it does not replace them. With the AI-authorship signal also excluded, the same manuscript moves from `MinorRevision` to `Accept` — the two exclusions are independently insufficient and jointly decisive.
+
+### 23.4.1 CORRECTION — the measurement is runs 20/21, not run 22
+
+**WRONG.** The finding list this section uses — *"AiDetection: concern"*, *"lexical diversity deviates from the academic reference"*, *"35 of 35 citation(s) could not be checked"* — is **`report:v2:21`**: the **Thermosensitive Nanoemulsion** paper, **8 findings** (1 Major, 4 Minor, 3 Info).
+
+**Run 22's report is `report:v2:22`: 19 findings, 12 Major, and none of those titles.** Its Majors are five deterministic statistical-rule failures and six internal-duplication spans.
+
+| Run | Manuscript | Report |
+|---|---|---|
+| 20, 21 | `78c0ae…` Thermosensitive Nanoemulsion | 8 findings — 1 Major, 4 Minor, 3 Info |
+| **22** | **`859880…` Bombyx (frozen)** | **19 findings — 12 Major, 4 Minor, 3 Info** |
+| 23 | `859880…` Bombyx (frozen) | 20 findings — 12 Major, 4 Minor, 4 Info |
+
+**So §23.4's four-row exclusion table and PR-3's predicted `MajorRevision → Accept` both describe runs 20/21 while attributed to run 22.**
+
+#### WHAT SURVIVES — the conclusion, not the provenance
+
+**The defect is real.** Process claims **did** change a recommendation on the Thermosensitive paper: f4 *"35 of 35 citation(s) could not be checked"* and f5 *"Verification output rejected by its internal gate"* were two of four Minors, and excluding them plus the authorship signal moved that run from `MinorRevision` to `Accept`.
+
+> **This corrects the evidence's PROVENANCE, not the conclusion. PR-3's fix still stands, and run 23 confirms the resolver behaves correctly on real data.**
+
+Stated explicitly because a future reader who finds a corrected measurement will otherwise wonder whether the fix it justified survived. It does.
+
+#### THE THIRD IDENTITY ERROR — and why nothing caught it
+
+| | Error | Caught by |
+|---|---|---|
+| §17 | a record frozen against the wrong manuscript | **`manuscript_sha256`** |
+| §19 | a journal recorded against a mismatched guidelines URL | **`journal_name`** |
+| **§23.4** | **a measurement attributed to the wrong run in PROSE** | **nothing** |
+
+**Prose carries no identity field.** The first two were caught because the artifact recorded its own subject and a reader could compare. **A sentence saying "run 22's findings" carries no checkable claim about which run produced them** — so nothing could catch this except re-running the analysis on the frozen manuscript, which is what run 23 did.
+
+**That is why it survived into a design document and a test fixture.** §21's instrumentation-maturity framing applies with a sharper edge: this was **level 1** knowledge — a claim in prose — and level 1's failure mode is not "a contributor forgets the rule" but "a contributor writes something unfalsifiable and it is believed".
+
+**The general lesson, and it is narrow:** a measurement quoted in prose should name the artifact it came from — `report:v2:21`, not "run 22" — because an artifact key is checkable and a run number in a sentence is not.
 
 ### 23.5 Eligibility is already being decided — via severity, inconsistently
 
