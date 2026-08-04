@@ -712,7 +712,7 @@ ONTOLOGY §4.11 makes an end-to-end author review a release gate. This section r
 | **Reviewer payload** (`build_review_payload`) | **No** | **Unknown** | **High.** Enforces the privacy boundary — `detail` dropped, provenance filtered to nine prefixes, `MAX_FINDINGS = 12`. Never asserted end to end | `release_gate.rs` |
 | **Shadow synthesis** (`run_shadow_synthesis`) | **No** | **Unknown** | **High.** Its `None` branch produced the silent-no-record defect — fixed, never exercised in production | `release_gate.rs` |
 | **Wholesale reviewer** (`verify_with_envelope`) | **No** | **Unknown** | **High**, and **blocked** — needs a live authenticated proxy | `release_gate.rs`, gated on proxy availability |
-| **Comparison harness + sink** (`build_comparison_report`, `harness_log::append`) | **No** | **Unknown** | **High.** The sink has **never run in the real app**, and its whole purpose is the pre-promotion baseline | `release_gate.rs` — the instrument that would confirm the sink works at all |
+| **Comparison harness + sink** (`build_comparison_report`, `harness_log::append`) | **No** | **None by the gate** | **Reduced, not closed.** The sink is now **confirmed working in the real app** (runs 20 and 21, §17/§18) — but by manual capture, not by an instrument. The stage is exercised; nothing *asserts* it | `release_gate.rs` — still needed, so the confirmation survives without a human running the app |
 | **UI aggregation** (`adaptOutcome`, `ReportViewerPage`, `ReviewerLetterPanel`) | **No** | **Unknown** | **Medium–High** | **OPEN ITEM — see below.** Out of scope for a Rust instrument |
 
 ### Why the gap survived three successful gate applications
@@ -919,7 +919,7 @@ One execution, one manuscript, one wholesale realization. **Not a rate, not evid
 
 ### Two gaps this run exposed
 
-**Gap A — OBSERVABILITY DEFICIENCY (not a runtime defect).** `shadow_findings_sent` is an input to `ShadowInputs`, consumed to compute `shadow_issue_coverage`, and **never serialized**. So the COMPARISON invariant cannot be evaluated from the artifact because only one side is persisted. The `wholesale_findings_sent` counterpart added earlier has no shadow twin in the output.
+**Gap A — OBSERVABILITY DEFICIENCY (not a runtime defect).** *(CLOSED at `0f26670`; verified in production by run 21 — see §18.4.)* `shadow_findings_sent` is an input to `ShadowInputs`, consumed to compute `shadow_issue_coverage`, and **never serialized**. So the COMPARISON invariant cannot be evaluated from the artifact because only one side is persisted. The `wholesale_findings_sent` counterpart added earlier has no shadow twin in the output.
 
 **Gap B — layer mismatch, not a broken gate.** `release_gate.rs` currently validates **pipeline behaviour** rather than **persisted operational artifacts**. Therefore COMPARISON and PERSISTENCE cannot become PASS from a successful Box 4 run alone. The gate is not broken; it validates a different layer than the one being authorised.
 
@@ -927,6 +927,203 @@ One execution, one manuscript, one wholesale realization. **Not a rate, not evid
 
 **The guideline configuration.** Run 20 ingested `chunks=4`; the PLOS page previously produced 29. Either a different journal URL was used or the same page returned far less. Both are configuration differences that break comparability, and this must be settled before the reference run.
 
+> **RESOLVED in §18.6.2** — a different URL, and not a guidelines page at all. Run 20 ingested the **BMJ homepage**. The PLOS submission-guidelines page has never been ingested by the application.
+
 ### What the retry needs
 
 The verified frozen manuscript (`859880…`, *IJAS Manuscript JHA Bombyx haemolymph*), the intended guideline configuration, and the rebuilt app.
+
+---
+
+## 18. Box 4 capture attempt — run 21
+
+**Outcome: the freeze condition failed again, and the run produced a more valuable result than the baseline would have.** `manuscript_sha256` is `78c0aebd…` — the same wrong manuscript as run 20, not the frozen `859880…`. Steps 3–5 passed; **step 6 not done.**
+
+Both records survive and were compared field by field: run 20 at `<app_data_dir>/box4_comparisons.run20.jsonl`, run 21 at `box4_comparisons.jsonl`.
+
+### 18.1 Wholesale non-determinism — measured, n=2
+
+#### The confound comes first: the two runs told the reviewer different target journals
+
+**`summary.journal.name` reaches the model, is not covered by the digest, and is persisted by nothing.** Run 20 ingested BMJ, run 21 BMC Public Health (§18.6.2), so the two runs were near-certainly conducted against different target journals — and a reviewer told *"target journal: BMJ"* versus *"target journal: BMC Public Health"* may legitimately recommend differently. **That would not be non-determinism at all.**
+
+No artifact can rule it out. It is stated ahead of the measurement rather than after it, because a reader who meets the result first will have already formed the conclusion the confound is supposed to qualify.
+
+What follows is therefore **strong evidence of wholesale non-determinism, not a controlled demonstration of it.** §18.7 records the prerequisite that makes the next pair conclusive.
+
+#### The measurement
+
+**The same manuscript, the same finding set, the same model, produced two different editorial recommendations and two different probabilities.**
+
+| Field | Run 20 | Run 21 | |
+|---|---|---|---|
+| `manuscript_sha256` | `78c0aebd…` | `78c0aebd…` | same |
+| `wholesale_payload_digest` | `1f942a0d9f3bac4e26c67382a416399d399a2f4a19cd4c0c4106e333bfb51da2` | *(identical, all 64 hex)* | same |
+| `model_identifier` | `gpt-4o-mini-2024-07-18` | `gpt-4o-mini-2024-07-18` | same |
+| `stop_reason` | `stop` | `stop` | same |
+| **shadow** (deterministic) | `major_revision` / 0.3 | `major_revision` / 0.3 | **same** |
+| `finding_breakdown` | *(4-band object)* | *(identical)* | **same** |
+| **`wholesale_recommendation`** | **`minor_revision`** | **`major_revision`** | **DIFF** |
+| **`wholesale_publication_probability`** | **70.0** | **40.0** | **DIFF** |
+| **`recommendation_agreement`** | **false** | **true** | **DIFF** |
+| `wholesale_grounded_issues` | 3 | 4 | DIFF |
+| `wholesale_runtime_ms` | 3793 | 5001 | DIFF |
+
+`wholesale_grounded_issues` 3 → 4 is a second, independent realization difference on the same input: the number of the model's issues that survived the grounding gate.
+
+**The deterministic side reproduced exactly** — same recommendation, same probability, same breakdown. That is a positive result in its own right and the first cross-run confirmation that the deterministic lane is deterministic in production, not merely by construction.
+
+#### CORRECTION — the input was *not* byte-identical, and the digest does not claim that
+
+`payload_digest` (`reviewer_agent.rs:356-369`) hashes **only the ordered `(id, severity, title)` tuples of `summary.findings`.** It does **not** cover the per-finding `evidence` arrays, the checklist, the journal name, `overall_verdict`, `findings_omitted`, or the supplementary section — all of which are inside `summary` and all of which the model sees (`reviewer_agent.rs:427-441`).
+
+So the digest establishes exactly this: **the finding set forwarded to the reviewer was identical in membership, severity, and order.** "Byte-identical input" is a stronger claim than the instrument supports, and it happens to be false.
+
+Reconstructed independently from the persisted reports (`report:v2:20`, `report:v2:21`):
+
+| Payload element | Covered by digest? | Run 20 vs run 21 |
+|---|---|---|
+| `findings` — id, severity, title, order | **yes** | identical (8 findings, 0 omitted) |
+| `findings[].evidence` (structured provenance) | no | **ONE DIFFERENCE** — see below |
+| `checklist` | no | identical (4 items, all `required section: …`, all passed) |
+| `overall_verdict` | no | identical (`pass`) |
+| `journal.name` / `quartile` | no | **UNKNOWN — not persisted by anything** |
+| `supplementary` | no | **UNKNOWN — not persisted by anything** |
+
+The one traced difference is in finding **f7 `Rag: pass`**, severity `info`:
+
+```
+run 20:  "swarm:round-table (1 round(s), rescaled weight 0.434)"   confidence 0.43438997237635957
+run 21:  "swarm:round-table (1 round(s), rescaled weight 0.437)"   confidence 0.43656041271400425
+```
+
+`swarm:` is a structured prefix (`evidence.rs:28`), so that string **is** forwarded. This is the guideline-configuration difference of §18.6.2 propagating: a different ingested page changed the RAG lane's confidence in the third decimal, which changed one provenance string on the lowest-severity finding.
+
+#### What survives, and what does not
+
+**Survives.** A single-digit change to an `info`-severity provenance string is not a credible cause of `minor_revision`/70.0 → `major_revision`/40.0. On the evidence, this is model non-determinism.
+
+**Does not survive: the run is not clean.** The `journal.name` confound stated at the head of this section is untouched by any of the above — it sits outside the digest's projection, so no amount of digest agreement bears on it.
+
+**What would close it:** §18.7. Both halves of it, not either.
+
+### 18.2 The claim this licenses
+
+> **A `recommendation_agreement` value from any single run carries almost no information, because the same manuscript produced both values.**
+
+**n=2 — two realizations, not a variance estimate.** No rate, no distribution, no confidence interval. Two runs cannot distinguish "occasionally flips" from "flips half the time", and nothing here may be quoted as a stability figure.
+
+It bears directly on §16's promotion question. Any argument of the form *"the deterministic verdict agreed / disagreed with the reviewer on run N"* is now known to be an argument about one draw from an unmeasured distribution. §17 recorded a disagreement at n=1 with the caveat that it was one realization; run 21 shows that caveat was load-bearing — the same comparison inverted.
+
+### 18.3 The digest earned its purpose, and revealed its boundary
+
+It was added so *"was the model given the same input?"* would be **answerable rather than inferred**, and it answered it. No other field could have: `finding_breakdown` was identical in both runs and is a property of set *size*, not membership — its own module doc says so (`reviewer_agent.rs:344-349`).
+
+#### FINDING — the field name asserts a guarantee the producer never made
+
+Not an aside. This is **ONTOLOGY §4.16** with the *name* as the mismatched contract:
+
+> `wholesale_payload_digest` reads as a digest of the payload. It is a digest of a **projection of one field** of the payload — `summary.findings`, tuple `(id, severity, title)`.
+
+The misreading it produced is on record: this session's own conclusion, *"byte-identical input to the reviewer"*, was drawn by a consumer who assumed a guarantee the producer never offered. **The doc comment is accurate and the name is not, and the name is what gets read at the call site and in the JSONL.** `commands.rs:688` writes it, and every downstream reader meets the field with no doc comment attached.
+
+Two properties make this the §4.16 shape rather than a cosmetic complaint:
+
+* **It is undetectable by testing the consumer in isolation.** Every unit test asserting the digest is stable, changes with membership, and ignores order-preserving no-ops passes — and none of them can detect that a reader will over-read the field's scope.
+* **It fails toward false confidence.** A too-narrow digest that agrees says "same input" when the input differed; a too-broad one would merely say "not comparable" and stop. **The failure direction is the dangerous one.**
+
+**Recorded as a general rule for instrument design: a digest is only as good as the extent of what it covers, and its name must not imply more.** The remedy is §18.7, which changes the coverage rather than only the name — renaming alone would leave the same blind spot with a more honest label.
+
+### 18.4 Gap A — CLOSED, verified in production
+
+| | Run 20 (schema 1) | Run 21 (schema 2) |
+|---|---|---|
+| `shadow_findings_sent` | absent from the record | **8, Observed** |
+| `wholesale_findings_sent` | 8, Observed | 8, Observed |
+| `schema_version` | 1 | **2** |
+
+Both sides present, both `Observed`, and they **agree at 8**.
+
+**The COMPARISON invariant is evaluable from the persisted artifact for the first time** — verified in production, not only in unit tests. `shadow_findings_sent == 0` is the documented failure signature of the escalation path (§14); a record that omits it cannot distinguish that failure from a healthy run, which was the whole content of Gap A.
+
+The `SCHEMA_VERSION` 1 → 2 bump is doing its job here: the meaning of the field's absence changed, and run 20's record is correctly self-identifying as one where absence means "not recorded", not "zero".
+
+### 18.5 The verification path failed differently — do not conflate with §15.2
+
+| | Run 20 | Run 21 |
+|---|---|---|
+| Client log | 422 from `POST /verify` | `cloud proxy configured but unreachable` |
+| Proxy server log | 422 recorded | **no entry — the request never arrived** |
+| Citation verdicts | all UNKNOWN | all UNKNOWN |
+
+**Same user-visible outcome, different cause.** Run 20 reached the proxy and was rejected on payload size; run 21 never reached it. [INFERENCE] a Render cold start is the likely cause of run 21 — consistent with the absent server-log entry, and not established.
+
+**§15.2 is unaffected and still open.** The unbounded `verify_citations` payload was not fixed and not reached; a second UNKNOWN run is not evidence about it either way. Recording this so the two are not merged into "the verification path is flaky" — one is a traced defect with a known fix, the other is transport.
+
+### 18.6 Two configuration problems blocking the reference run
+
+#### 18.6.1 The frozen manuscript — exact location
+
+It is present and hash-verified. Runs 18–21 all analysed a **different** paper (`Thermosensitive Nanoemulsion-Based In-Situ Gel…`, manuscript rows 18–21), which is why the hash never matched.
+
+```
+/Users/rishi/Desktop/IJAS Manuscript JHA Bombyx haemolymph (1).pdf
+```
+
+Filename, verbatim, including the space before `(1)`: **`IJAS Manuscript JHA Bombyx haemolymph (1).pdf`** — directly on the Desktop, not in a subfolder. sha256 `859880647c4579c34bc63b82c2280ab08bceac917a9547e0c839a821bc5bafd7`.
+
+#### 18.6.2 The guidelines URL — a traced UI defect, not a user error
+
+**Determinable, and determined.** From the `documents` table:
+
+| Run | Ingested URL | Journal | Chunks | What was actually ingested |
+|---|---|---|---|---|
+| 20 | `https://www.bmj.com` | BMJ | 4 | news headlines, plus a nav strip |
+| 21 | `https://bmcpublichealth.biomedcentral.com` | BMC Public Health | **2** | journal-overview marketing and a nav strip |
+| — | `https://journals.plos.org/plosone/s/submission-guidelines` | PLOS ONE | 29 | **never ingested by the app** |
+
+A `chunks=2` ingest corresponds to **a journal homepage**, not a guidelines page. Chunk 0 of run 21 begins *"Skip to main content … BMC journals have moved to Springer Nature Link … Publishing model : Open access"*; chunk 1 is an article list ending in *"Journal updates — Supporting the Sustainable Development Goals"*. There is no author-guidance prose in either.
+
+**Root cause, traced.** Picking a journal prefills the URL field from the directory:
+
+* `PublishReadyPage.tsx:318-323` — `onClick` → `setGuidelinesUrl(j.guidelinesUrl ?? '')`
+* `journalData.ts:44` — `guidelinesUrl: j.website ?? null`
+
+**The directory field is a journal *website*, not a guidelines page.** Measured over `src/data/scopusDirectory.json`: **258 journals, 258 with a website, and 0 whose URL is an author-guidelines page.** (A keyword scan returns one hit — *Learning and Instruction* — which is the journal's name, not a path.) Every entry is a landing page: `https://www.thelancet.com`, `https://www.nejm.org`, `https://journals.plos.org/plosmedicine`.
+
+So the prefill is wrong for every journal in the directory, and the surrounding copy asserts otherwise — *"Gaply fetches this page and cross-references your manuscript against the real guidelines"* and *"Pick a journal above to prefill its known URL"* (`PublishReadyPage.tsx:341-346`).
+
+**Confirmed impact, from the persisted reports.** Runs 20 and 21 produced **identical 4-item checklists**, all `required section: …`, all passed — the structural fallback. **Zero journal-derived requirements in either run.** D13 was empty in both, despite ingestion reporting success both times.
+
+**This is worse than an empty field, and that is the point.** Blank means guidelines are skipped and the checklist is visibly structural. A homepage ingests successfully, reports a plausible non-zero chunk count, and yields a checklist indistinguishable from the blank case — **a silent failure wearing the appearance of a working feature.**
+
+#### Confirmation for the retry: the URL must be typed in
+
+The field starts empty (`PublishReadyPage.tsx:100`, `useState('')`) and is optional — blank runs structural checks only. But it **does not stay empty once a journal is picked**: selecting one overwrites it with that journal's homepage. So the correct sequence is **pick the journal first, then replace the prefilled URL** with the real guidelines URL:
+
+```
+https://journals.plos.org/plosone/s/submission-guidelines
+```
+
+Expected ingest: **`chunks: 29`**. Any other count means a different page was fetched and the run is not the reference run.
+
+### 18.7 Reproducibility metadata — BOTH halves, not either
+
+**Recorded as a decision, and as a prerequisite for the baseline retry — not only for the promotion comparison.** Without it, a repeat pair cannot distinguish model variance from a changed prompt, which is precisely the state §18.1 is in.
+
+Two mechanisms answering two different questions. Neither substitutes for the other:
+
+| | Persisted named fields (`journal.name`, guidelines URL, …) | Hash over the **whole** `summary` |
+|---|---|---|
+| Answers | **WHAT** differed | **THAT** something differed |
+| Strength | names the changed input, so the difference is diagnosable | catches variation **nobody thought to persist** |
+| Blind spot | silent about any input not on the list | a bare inequality — cannot say what moved |
+
+**The concrete case for each is already in the record.**
+
+* Run 20 vs 21: a full-`summary` hash would have said only *"not comparable"* and stopped. **Persisted fields would have named the journal** — and that is the difference between a dead end and §18.1's confound being stated up front.
+* The `swarm:` weight `0.434` vs `0.437`: nobody would have listed a third-decimal RAG confidence as a reproducibility field. **Only a full hash catches it.** It was found here by hand-diffing two cached reports, which does not scale and will not happen next time.
+
+**Versioning sensitivity is real and is what `schema_version` now exists for.** A full-`summary` hash changes value whenever the payload's *shape* changes — a new field, a reordered object — so hashes are comparable only within a schema version. Run 20 (v1) and run 21 (v2) already demonstrate the boundary the version field is there to mark: v1's *absence* of `shadow_findings_sent` means "not recorded", v2's would mean "zero". The same reading applies to a shape-sensitive hash.
+
+**Scope:** additive to `ShadowComparisonReport` — no runtime behaviour changes, and nothing a user sees. Not implemented; recorded as the design before the retry.
