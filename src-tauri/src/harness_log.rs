@@ -202,6 +202,7 @@ mod tests {
             manuscript_sha256: sha,
             recorded_at: 7,
             shadow: with_shadow.then(|| ShadowInputs {
+                withheld: None,
                 letter: ev,
                 breakdown: bd,
                 findings_sent: 0,
@@ -253,7 +254,7 @@ mod tests {
         // The interpretation key for summary_digest travels WITH it — a digest
         // without its format version is not comparable to anything.
         assert_eq!(v["summary_format_version"], 1);
-        assert_eq!(v["schema_version"], 3);
+        assert_eq!(v["schema_version"], 4);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

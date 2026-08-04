@@ -4,7 +4,22 @@
 //! `route_evidence`), persists it (Box 3 Phase 1 — `evidence_persist`), batches
 //! the escalation set by agent-kind (per-finding for CRITICAL), issues proxy
 //! calls, records outcomes (Box 3 Phase 2 — `evidence_record_escalation`), and
-//! DEGRADES HONESTLY on any failure (never fails the run).
+//! DEGRADES HONESTLY on any failure — and the meaning of that changed.
+//!
+//! # Contract, revised (ARCHITECTURE_TRACE §26.7)
+//!
+//! **Escalation still never fails the run. What changed is that
+//! `evidence_persist` is the aggregator's sole input, so an empty or
+//! uninterpretable evidence set is a TYPED ABSENCE that must reach the verdict —
+//! not a silent zero. Honest degradation now means the run completes with the
+//! verdict WITHHELD and the reason stated, never with a verdict computed from
+//! evidence that could not be interpreted.**
+//!
+//! The original wording — "never fails the run" alone — was correct when
+//! escalation was an additive side-channel. It became wrong when
+//! `evidence_persist` became the aggregator's only input, at which point
+//! "degrade honestly" had come to mean "silently produce Accept at 0.92". Third
+//! instance of a contract whose premise moved underneath it (§25.10).
 //!
 //! ⚠️ WHAT SHIPS vs. WHAT WORKS: this ships real routing, persistence and
 //! idempotency infrastructure. Escalation CALLS degrade to "unavailable" until
@@ -37,6 +52,7 @@ use gaply_core::evidence::EvidenceRecord;
 use gaply_core::evidence_store::{evidence_persist, evidence_record_escalation, EscalationOutcome};
 use gaply_core::orchestrator::{route_evidence, ContextAttachment, RoutingPolicy};
 use gaply_core::report::FindingSeverity;
+use gaply_core::reviewer_agent::VerdictWithheld;
 use gaply_core::swarm::AgentKind;
 use gaply_core::verify_agent::ProxyClient;
 use gaply_core::Database;
@@ -54,6 +70,14 @@ pub struct EscalationSummary {
     pub unavailable: usize,
     /// Eligible-but-unselected (budget) — from `route_evidence`.
     pub omitted: usize,
+    /// `Some` when the run's evidence could not be interpreted, so the verdict
+    /// must be WITHHELD rather than computed from an empty set.
+    ///
+    /// This field exists because `EscalationSummary` was returned and DROPPED
+    /// (`commands.rs` logged it and discarded it) — the fifth instance of the
+    /// projection pattern (§22.4), found in exactly the place §26 predicted the
+    /// fix would go.
+    pub withheld: Option<VerdictWithheld>,
 }
 
 /// Run Box 2 for one PublishReady run. ADDITIVE + never-fails: persists evidence
@@ -68,10 +92,27 @@ pub fn run_targeted_escalation(
     policy: &dyn RoutingPolicy,
     now: i64,
 ) -> EscalationSummary {
-    let records: Vec<EvidenceRecord> =
-        serde_json::from_value(report["evidence"].clone()).unwrap_or_default();
+    // §25.10: `unwrap_or_default()` here turned a DESERIALIZATION FAILURE into an
+    // empty vector, the early return fired, the aggregator saw zero findings, and
+    // the run yielded `Accept` at 0.92 — a silent wrong answer. On this path an
+    // empty evidence vector is not a valid successful outcome, so the two cases
+    // are now separated and the failure is carried, not swallowed.
+    let records: Vec<EvidenceRecord> = match serde_json::from_value(report["evidence"].clone()) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(run_id, error = %e, "evidence could not be interpreted; verdict withheld");
+            return EscalationSummary {
+                withheld: Some(VerdictWithheld::EvidenceUninterpretable),
+                ..Default::default()
+            };
+        }
+    };
     if records.is_empty() {
-        return EscalationSummary::default();
+        tracing::warn!(run_id, "evidence array is empty; verdict withheld");
+        return EscalationSummary {
+            withheld: Some(VerdictWithheld::EvidenceUninterpretable),
+            ..Default::default()
+        };
     }
 
     let routed = route_evidence(&records, policy);
@@ -80,8 +121,14 @@ pub fn run_targeted_escalation(
     // duplicate run_id — a double-persist bug), degrade honestly: skip escalation,
     // never fail the run.
     if let Err(e) = evidence_persist(db, run_id, &records, now) {
-        tracing::warn!(run_id, error = %e, "evidence_persist failed; skipping escalation");
-        return EscalationSummary { omitted: routed.omitted_count, ..Default::default() };
+        tracing::warn!(run_id, error = %e, "evidence_persist failed; verdict withheld");
+        return EscalationSummary {
+            omitted: routed.omitted_count,
+            // The aggregator's SOLE input was not written, so a verdict computed
+            // now would be computed from nothing (§25.10's second path).
+            withheld: Some(VerdictWithheld::EvidenceUninterpretable),
+            ..Default::default()
+        };
     }
     let persisted = records.len();
 
@@ -112,7 +159,7 @@ pub fn run_targeted_escalation(
         }
     }
 
-    EscalationSummary { persisted, escalated, unavailable, omitted: routed.omitted_count }
+    EscalationSummary { persisted, escalated, unavailable, omitted: routed.omitted_count, withheld: None }
 }
 
 /// Each CRITICAL finding → its own call; the rest grouped by agent (deterministic
@@ -164,6 +211,55 @@ mod tests {
     use gaply_core::orchestrator::DefaultRoutingPolicy;
     use gaply_core::verify_agent::MockProxyClient;
     use serde_json::json;
+
+    /// §25.10, closed at its source. `unwrap_or_default()` turned a
+    /// DESERIALIZATION FAILURE into an empty vector, and the early return then
+    /// produced `Accept` at 0.92. Both failure shapes must now surface as
+    /// WITHHELD, which is the signal the aggregator consumes.
+    #[test]
+    fn malformed_or_absent_evidence_withholds_the_verdict() {
+        let db = gaply_core::Database::in_memory().unwrap();
+        let policy = DefaultRoutingPolicy::default();
+
+        // 1. MALFORMED — an element that is not an EvidenceRecord.
+        let malformed = json!({ "evidence": [ { "not": "a record" } ] });
+        let out = run_targeted_escalation(&db, None, "run-malformed", &malformed, &policy, 0);
+        assert_eq!(
+            out.withheld,
+            Some(VerdictWithheld::EvidenceUninterpretable),
+            "malformed evidence must WITHHOLD, not degrade to zero findings"
+        );
+
+        // 2. ABSENT — the key is missing entirely.
+        let absent = json!({});
+        let out = run_targeted_escalation(&db, None, "run-absent", &absent, &policy, 0);
+        assert_eq!(out.withheld, Some(VerdictWithheld::EvidenceUninterpretable));
+
+        // 3. EMPTY — a well-formed but empty array. On this path that is not a
+        //    valid successful outcome either (§25.10).
+        let empty = json!({ "evidence": [] });
+        let out = run_targeted_escalation(&db, None, "run-empty", &empty, &policy, 0);
+        assert_eq!(out.withheld, Some(VerdictWithheld::EvidenceUninterpretable));
+
+        // 4. HEALTHY — a parseable record must NOT withhold. This is the blast
+        //    radius guard: PR-2 changes nothing when the evidence parses.
+        let healthy = json!({ "evidence": [ {
+            "id": "f1",
+            "agent": "verification",
+            "claim": "manuscript_defect",
+            "severity": "major",
+            "confidence": 0.6,
+            "confidence_kind": "real_native",
+            "provenance": [],
+            "evidence_refs": [],
+            "routing_hint": "threshold_eligible",
+            "limitations": null,
+            "schema_version": 2
+        } ] });
+        let out = run_targeted_escalation(&db, None, "run-healthy", &healthy, &policy, 0);
+        assert_eq!(out.withheld, None, "a normal run must be unchanged by PR-2");
+        assert_eq!(out.persisted, 1);
+    }
 
     /// A proxy that always errors (simulates timeout/5xx) — MockProxyClient only
     /// returns Ok.

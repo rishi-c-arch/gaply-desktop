@@ -2196,3 +2196,53 @@ Lands in PR-2, explicitly.
 Consistent with §24.2, which already established the measurement is right for the promotion question and the *name* imports a normative claim the design never made. **This decision removes the last reading under which the name could have been recovered.**
 
 **The payload digest will not detect the divergence.** `findings_projection_digest` covers `summary.findings` as sent (§18.3), and **the exclusion happens after** — inside the aggregator, on a set the digest never sees. Two runs can therefore share a digest while their verdicts were computed over different evidence, and nothing in the record will say so.
+
+### 26.11 PR-2 serialization audit — what a withheld run actually emits
+
+**Bytes, not accessor paths.** The boundary test asserts what consumers *observe*; serialization is a different question, because `derive(Serialize)` emits every field regardless of whether an accessor was called.
+
+| Surface | Withheld run emits | **Mechanism that makes it clean** |
+|---|---|---|
+| Report cache `report:v2:e2:{id}` | no probability | **The field does not exist on `PublishReadyReport`.** The aggregation is computed after the report is cached and is never written into it |
+| `box4_comparisons.jsonl` | `{"requires":"verdict_withheld","source":"deterministic_local","status":"unavailable"}` | **`Metric` is a tagged enum** — the `Unavailable` variant has **no `value` field to emit** |
+| Exported PDF | no probability | **The letter never reaches it** — `downloadReportPdf` takes `PublishReadyReport` only |
+| Wholesale payload | no probability | `build_review_payload` reads `report[…]` only |
+| **IPC → frontend (`shadow_reviewer`)** | **was `"publication_probability":0.0`** | **DEFECT — fixed in this commit** |
+
+#### The fifth surface's guard was RUNTIME, not structural
+
+**Nothing rendered the `0.0` only because `ReviewerLetterPanel` branches on `available` first.** That is a consumer choosing correctly, not a property of the data.
+
+**Under decision (a) the shadow letter BECOMES the production letter**, so that branch was the only barrier between a withheld run and a rendered `0%` — a §4.4 defect of the same class as the offline copy: a number present in an artifact for a run where nothing computed one.
+
+**Fixed structurally:** `ReviewerEvaluation.publication_probability` is `Option<f64>` with `skip_serializing_if = "Option::is_none"`, so **the key is omitted from the wire entirely** and there is no sentinel to mistake for a score. Verified by dumping the bytes:
+
+```json
+{"recommendation":"unknown","novelty_assessment":"", … ,"available":false}
+```
+
+**The pre-existing offline path emitted the same `0.0` and is fixed by the same change.** Frontend: `publicationProbability: number | null`, and the gauge renders nothing rather than `0%`.
+
+#### A test-gap finding: §4.17 in a new form
+
+**The first withheld test entered DOWNSTREAM of the defect.** It started from the withheld *signal* rather than from malformed evidence, so restoring `unwrap_or_default()` did not fire it — the mutation is what exposed this.
+
+> **The right property, asserted at the wrong boundary. A test entered downstream of a defect cannot detect that defect**, and *"mutation-verified"* would otherwise have read as sufficient when it was not.
+
+`malformed_or_absent_evidence_withholds_the_verdict` closes it at the source.
+
+#### Why `Unknown`'s third meaning is acceptable
+
+The letter now uses `Unknown` for offline, ungrounded-reject, **and** withheld-filler. **The decisive harm does not transfer:** the 0.05 came from the *aggregator* mapping `Unknown → PROB_REJECT`, and the letter sets its probability explicitly — now `None`, so nothing is emitted at all.
+
+**The out-of-band field distinguishing offline from withheld is `warnings`**, carrying `"verdict withheld: <slug>"`. Both otherwise produce `Unknown` + `available: false`, and the UI branches on exactly that.
+
+### 26.12 SEQUENCING — the baseline capture belongs AFTER PR-3
+
+`harness_log.rs:20-23` states the sink exists so the pre-promotion baseline is captured **before the deterministic Box 4 verdict is promoted**, and promotion follows F2/F6 (decision 1).
+
+> **A baseline taken now would measure a deterministic verdict that PR-3 is about to change — one that never ships.**
+
+Recorded because the baseline has been described as ready-to-run for several turns, and running it prematurely would **spend entitlement on a measurement of the wrong thing** (§19.3: the allowance is ~4 attempts at current consumption, and §20.2's metering change is not built).
+
+**The correct order: PR-3 → PR-4 → baseline capture → promotion.**

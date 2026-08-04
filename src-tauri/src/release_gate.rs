@@ -329,6 +329,7 @@ mod tests {
             manuscript_sha256: "sha",
             recorded_at: 1,
             shadow: Some(ShadowInputs {
+                withheld: None,
                 letter: &ev,
                 breakdown: &bd,
                 findings_sent: 8,

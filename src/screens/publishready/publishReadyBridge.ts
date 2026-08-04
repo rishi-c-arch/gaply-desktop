@@ -46,7 +46,8 @@ export interface PublishReadyBridge {
  *  reconciles fields the backend does not produce yet). */
 interface BackendReviewer {
   recommendation: Recommendation;
-  publication_probability: number;
+  /** OMITTED by the backend when nothing computed one (unavailable / withheld). */
+  publication_probability?: number;
   /** Grounded text; '' when the gate dropped it as ungrounded (Set 4-A).
    *  There is no `novelty_score`/`journal_fit_score` — the backend removed both
    *  because the payload carries nothing that could ground them. */
@@ -73,7 +74,7 @@ export function adaptOutcome(o: PublishReadyOutcome, journal: TargetJournal): Pu
   const r = o.reviewer;
   const reviewerLetter: ReviewerLetter = {
     recommendation: r.recommendation,
-    publicationProbability: r.publication_probability,
+    publicationProbability: r.publication_probability ?? null,
     // The Set 4-A grounded fields — populated when the backend grounded them,
     // left EMPTY (never faked) when the gate dropped them as ungrounded. The
     // numeric novelty/fit scores that used to sit beside them are GONE: they

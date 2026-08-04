@@ -15,20 +15,30 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
   // Honest offline state: deep reasoning is cloud-only. The FULL local report
   // (findings, checklist, verdict) still renders in the viewer's other tabs —
   // this panel just declares the reviewer letter unavailable, never fakes one.
+  // WITHHELD is not the same unavailable state as offline, and the difference is
+  // load-bearing: offline means the CLOUD reviewer could not run while the local
+  // verdict stands; withheld means the deterministic verdict itself was not
+  // produced. Saying "the verdict is available in the tabs above" is false in the
+  // second case, so the two are told apart rather than sharing one message
+  // (§4.4 — correct the claim, do not caveat it). ARCHITECTURE_TRACE §26 PR-2.
+  const withheldReason = letter.warnings?.find((w) => w.startsWith('verdict withheld:'));
+
   if (letter.available === false) {
     return (
       <div className="gds-pr" data-testid="reviewer-letter-panel">
         <div className="gds-pr__head">
           <div className="gds-pr__verdict" data-status="assessed" data-testid="pr-verdict">
-            REVIEWER UNAVAILABLE
+            {withheldReason ? 'RECOMMENDATION WITHHELD' : 'REVIEWER UNAVAILABLE'}
           </div>
         </div>
-        <Card title="Deep reviewer analysis">
-          <p className="gds-pr__body" data-testid="pr-unavailable">
+        <Card title={withheldReason ? 'No recommendation for this run' : 'Deep reviewer analysis'}>
+          <p className="gds-pr__body" data-testid={withheldReason ? 'pr-withheld' : 'pr-unavailable'}>
             {letter.body || 'Deep reasoning requires cloud analysis — unavailable offline.'}
           </p>
           <p style={{ color: 'var(--g-text-3)', fontSize: 13 }}>
-            The full local report — findings, checklist, and verdict — is available in the tabs above.
+            {withheldReason
+              ? 'The findings and checklist in the tabs above are unaffected — only the overall recommendation is missing.'
+              : 'The full local report — findings, checklist, and verdict — is available in the tabs above.'}
           </p>
         </Card>
         <p className="gds-pr__disclaimer">
@@ -48,18 +58,23 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
         <div className="gds-pr__verdict" data-status={status} data-testid="pr-verdict">
           {RECOMMENDATION_LABEL[letter.recommendation]}
         </div>
-        <div className="gds-pr__gauge">
-          <ScoreRing
-            score={letter.publicationProbability}
-            status={status}
-            size={96}
-            strokeWidth={8}
-            label={`publication probability ${letter.publicationProbability}%`}
-          />
-          <span className="gds-pr__gauge-label" data-testid="pr-probability">
-            {letter.publicationProbability}% publication probability
-          </span>
-        </div>
+        {/* No gauge when nothing computed a probability. The backend OMITS the
+            key rather than sending 0, so there is no sentinel to mistake for a
+            real score — and this branch renders nothing rather than 0%. */}
+        {letter.publicationProbability !== null && (
+          <div className="gds-pr__gauge">
+            <ScoreRing
+              score={letter.publicationProbability}
+              status={status}
+              size={96}
+              strokeWidth={8}
+              label={`publication probability ${letter.publicationProbability}%`}
+            />
+            <span className="gds-pr__gauge-label" data-testid="pr-probability">
+              {letter.publicationProbability}% publication probability
+            </span>
+          </div>
+        )}
       </div>
 
       <Card title="Reviewer summary">

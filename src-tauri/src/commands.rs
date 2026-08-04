@@ -568,21 +568,26 @@ pub async fn run_publishready(
         // reviewer-quality spike passes; this ships routing/persistence/idempotency
         // infra, NOT working per-finding verdicts. The wholesale reviewer below is
         // UNCHANGED. run_id == report_id == manuscript_id (one id for the whole run).
+        // The escalation summary was previously LOGGED AND DROPPED — the fifth
+        // instance of the projection pattern (§22.4), in exactly the place §26
+        // predicted the fix would go. `withheld` now crosses into the verdict.
+        let escalation_withheld: Option<gaply_core::reviewer_agent::VerdictWithheld>;
         {
             let esc_policy = gaply_core::orchestrator::DefaultRoutingPolicy::default();
             let esc_proxy = ProxyReqwestClient::from_env()
                 .map(|c| c.with_user_token(user_token.clone()))
                 .ok()
                 .filter(|c| c.reachable());
-            let summary = crate::escalation::run_targeted_escalation(
+            escalation_withheld = crate::escalation::run_targeted_escalation(
                 &db,
                 esc_proxy.as_ref().map(|c| c as &dyn ProxyClient),
                 &report_id,
                 &report,
                 &esc_policy,
                 gaply_core::now_epoch(),
-            );
-            tracing::info!(run_id = %report_id, ?summary, "targeted escalation (degrades until proxy escalate endpoint + reviewer-quality spike)");
+            )
+            .withheld;
+            tracing::info!(run_id = %report_id, ?escalation_withheld, "targeted escalation (degrades until proxy escalate endpoint + reviewer-quality spike)");
         }
 
         // 3) Build the validator-compliant, privacy-guarded reviewer payload.
@@ -609,6 +614,7 @@ pub async fn run_publishready(
                 &report,
                 &journal,
                 &supp_values,
+                escalation_withheld,
             ) {
                 Ok(o) => {
                     tracing::info!(
@@ -678,6 +684,7 @@ pub async fn run_publishready(
                 manuscript_sha256: &manuscript_sha256,
                 recorded_at: gaply_core::now_epoch(),
                 shadow: shadow_outcome.as_ref().map(|o| ShadowInputs {
+                    withheld: o.withheld,
                     letter: &o.letter,
                     breakdown: &o.aggregation.breakdown,
                     findings_sent: o.findings_sent,

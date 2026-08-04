@@ -21,7 +21,9 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::reviewer_agent::{Recommendation, ReviewerEvaluation, SeverityByStateCounts};
+use crate::reviewer_agent::{
+    Recommendation, ReviewerEvaluation, SeverityByStateCounts, VerdictWithheld,
+};
 
 /// WHERE a metric's value comes from — attached to every metric, always.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -55,6 +57,16 @@ pub enum MetricAvailability {
     /// was produced to compare against. TYPED ABSENCE: the record still exists
     /// and says so, rather than the run leaving no record at all.
     ShadowSynthesisUnavailable,
+    /// The producing aggregator WITHHELD its verdict, so there is no
+    /// recommendation to observe. Distinct from `ShadowSynthesisUnavailable`
+    /// (the shadow path did not run at all): here it ran and declined.
+    ///
+    /// One variant, deliberately — the SPECIFIC reason lives in the record's
+    /// `verdict_withheld` field. Mapping each editorial reason into this
+    /// instrumentation enum would pollute a general abstraction with editorial
+    /// policy; the harness OBSERVES the aggregator, so the dependency must not
+    /// run the other way (§26 PR-2, option B).
+    VerdictWithheld,
     /// An OPTIONAL input the user did not supply. Distinct from every variant
     /// above: nothing is missing or broken and no future capability would change
     /// it — the run genuinely had no such value. `guidelines_url` is the case.
@@ -154,6 +166,9 @@ pub struct ProxyMeta {
 /// The shadow side, when it ran. `None` means the synthesis did not produce an
 /// outcome — the record is still written, with every shadow metric `Unavailable`.
 pub struct ShadowInputs<'a> {
+    /// `Some` when the aggregator withheld its verdict. The harness CONVERTS it
+    /// into `Metric::Unavailable`; production owns production types.
+    pub withheld: Option<VerdictWithheld>,
     pub letter: &'a ReviewerEvaluation,
     pub breakdown: &'a SeverityByStateCounts,
     pub findings_sent: usize,
@@ -207,6 +222,9 @@ pub struct ShadowComparisonReport {
 
     // --- Deterministic shadow metrics (AvailableNow) ---
     pub shadow_recommendation: Metric<Recommendation>,
+    /// WHY the deterministic verdict is absent, when it is. `Observed` only on a
+    /// withheld run; `AvailableNow` otherwise, meaning "nothing was withheld".
+    pub verdict_withheld: Metric<VerdictWithheld>,
     pub shadow_publication_probability: Metric<f64>,
     pub finding_breakdown: Metric<SeverityByStateCounts>,
     pub shadow_path_available: Metric<bool>,
@@ -274,7 +292,7 @@ pub struct ShadowComparisonReport {
 ///   guideline URLs. At v2 those four cases were indistinguishable, and run 20
 ///   vs run 21 was exactly that failure: matching digests were read as
 ///   "identical input" when the journal differed and was never recorded.
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 
 /// Count the gate's dropped-hallucination warnings (the `potential_hallucination`
 /// prefix pushed by both reviewer gates).
@@ -310,11 +328,43 @@ pub fn build_comparison_report(inp: &HarnessInputs) -> ShadowComparisonReport {
     let pm = inp.proxy_meta.as_ref();
 
     // Deterministic — always Observed.
-    let shadow_recommendation =
-        sh.map(|s| Metric::observed(s.letter.recommendation, DeterministicLocal)).unwrap_or_else(no_shadow);
-    let shadow_publication_probability = sh
-        .map(|s| Metric::observed(s.letter.publication_probability, DeterministicLocal))
-        .unwrap_or_else(no_shadow);
+    // WITHHELD is observed as ABSENCE with its own reason — never as the
+    // letter's inert `Unknown`/0.0 filler, which would be recorded as an
+    // Observed verdict and read as a real one.
+    let withheld = sh.and_then(|s| s.withheld);
+    fn verdict_metric<T>(
+        present: bool,
+        withheld: bool,
+        v: T,
+    ) -> Metric<T> {
+        match (present, withheld) {
+            (true, true) => Metric::unavailable(DeterministicLocal, MetricAvailability::VerdictWithheld),
+            (true, false) => Metric::observed(v, DeterministicLocal),
+            (false, _) => Metric::unavailable(DeterministicLocal, ShadowSynthesisUnavailable),
+        }
+    }
+    let shadow_recommendation = verdict_metric(
+        sh.is_some(),
+        withheld.is_some(),
+        sh.map(|s| s.letter.recommendation).unwrap_or(Recommendation::Unknown),
+    );
+    // The letter's probability is itself optional now, so a run where it is
+    // absent must NOT be recorded as an observed 0.0 — the metric folds both
+    // absences into one typed absence.
+    let shadow_prob = sh.and_then(|s| s.letter.publication_probability);
+    let shadow_publication_probability = verdict_metric(
+        sh.is_some() && shadow_prob.is_some(),
+        withheld.is_some(),
+        shadow_prob.unwrap_or_default(),
+    );
+    // The SPECIFIC reason, so `finding_breakdown` all-zero beside an unavailable
+    // recommendation is never ambiguous. §26 forbids overloading the breakdown
+    // to carry this.
+    let verdict_withheld = match (sh, withheld) {
+        (Some(_), Some(r)) => Metric::observed(r, DeterministicLocal),
+        (Some(_), None) => Metric::unavailable(DeterministicLocal, MetricAvailability::AvailableNow),
+        (None, _) => no_shadow(),
+    };
     let finding_breakdown =
         sh.map(|s| Metric::observed(*s.breakdown, DeterministicLocal)).unwrap_or_else(no_shadow);
     // Availability flags are meta-observations about the paths — honestly
@@ -329,11 +379,11 @@ pub fn build_comparison_report(inp: &HarnessInputs) -> ShadowComparisonReport {
     } else {
         Metric::unavailable(ReviewerOutput, RequiresLiveProxy)
     };
-    let wholesale_publication_probability = if wholesale_up {
-        Metric::observed(inp.wholesale.publication_probability, ReviewerOutput)
-    } else {
-        Metric::unavailable(ReviewerOutput, RequiresLiveProxy)
-    };
+    let wholesale_publication_probability =
+        match (wholesale_up, inp.wholesale.publication_probability) {
+            (true, Some(p)) => Metric::observed(p, ReviewerOutput),
+            _ => Metric::unavailable(ReviewerOutput, RequiresLiveProxy),
+        };
 
     // Agreement needs BOTH real: the shadow recommendation is always real
     // (deterministic), so this gates on the wholesale side being up.
@@ -415,6 +465,7 @@ pub fn build_comparison_report(inp: &HarnessInputs) -> ShadowComparisonReport {
         recorded_at: inp.recorded_at,
         schema_version: SCHEMA_VERSION,
         shadow_recommendation,
+        verdict_withheld,
         shadow_publication_probability,
         finding_breakdown,
         shadow_path_available,
@@ -503,6 +554,7 @@ impl ShadowComparisonReport {
         );
         for line in [
             metric_line("shadow_recommendation", &self.shadow_recommendation),
+            metric_line("verdict_withheld", &self.verdict_withheld),
             metric_line("shadow_publication_probability", &self.shadow_publication_probability),
             metric_line("finding_breakdown", &self.finding_breakdown),
             metric_line("shadow_path_available", &self.shadow_path_available),
@@ -553,7 +605,7 @@ mod tests {
     ) -> ReviewerEvaluation {
         ReviewerEvaluation {
             recommendation: rec,
-            publication_probability: prob,
+            publication_probability: Some(prob),
             novelty_assessment: String::new(),
             journal_fit_note: String::new(),
             body: body.to_string(),
@@ -584,6 +636,7 @@ mod tests {
             recorded_at: 0,
             run_id: "run-1",
             shadow: Some(ShadowInputs {
+                withheld: None,
                 letter: shadow,
                 breakdown,
                 findings_sent: 4,

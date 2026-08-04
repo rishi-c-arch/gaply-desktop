@@ -23,7 +23,11 @@ export interface ReviewerLetter {
   recommendation: Recommendation;
   /** 0–100. Weakly grounded — derived from findings/checklist the payload
    *  actually carries (unlike the removed novelty/fit scores). */
-  publicationProbability: number;
+  /** ABSENT when no probability was computed — the cloud reviewer was
+   *  unavailable, or the deterministic verdict was withheld. The backend omits
+   *  the key entirely rather than sending 0, so this is structurally absent
+   *  rather than a sentinel. */
+  publicationProbability: number | null;
   /** `assessment` is '' whenever the backend gate could not ground it.
    *  There is deliberately NO numeric novelty score: the proxy payload carries
    *  no topic or subject matter, so nothing could ground one. A score must be

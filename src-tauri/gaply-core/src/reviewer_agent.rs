@@ -40,7 +40,7 @@
 
 use std::collections::HashSet;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::refverify::{Provenance, UntrustedText};
@@ -187,7 +187,15 @@ pub struct ReviewerEvaluation {
     /// solves this class of problem correctly and deterministically, from the
     /// Evidence Store's per-finding verdicts; promoting that path to
     /// authoritative (Stage 2) is the real fix and is tracked separately.
-    pub publication_probability: f64,
+    ///
+    /// `None` — and OMITTED FROM THE SERIALIZED FORM entirely — whenever no
+    /// probability was computed: the cloud reviewer was unavailable, or the
+    /// deterministic verdict was WITHHELD. A plain `f64` here emitted `0.0` into
+    /// every artifact for such a run, which is a number present for a run where
+    /// nothing computed one (§4.4). The guarantee is now STRUCTURAL rather than
+    /// resting on each consumer checking `available` first.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publication_probability: Option<f64>,
     // REMOVED: `novelty_score` / `journal_fit_score`.
     //
     // The payload (`build_review_payload`) carries journal name + quartile,
@@ -227,7 +235,7 @@ impl ReviewerEvaluation {
     pub fn unavailable_offline() -> Self {
         Self {
             recommendation: Recommendation::Unknown,
-            publication_probability: 0.0,
+            publication_probability: None,
             novelty_assessment: String::new(),
             journal_fit_note: String::new(),
             body: "deep reasoning requires cloud analysis — unavailable offline".to_string(),
@@ -615,7 +623,7 @@ pub fn gate_reviewer_response(
 
     Ok(ReviewerEvaluation {
         recommendation,
-        publication_probability,
+        publication_probability: Some(publication_probability),
         novelty_assessment,
         journal_fit_note,
         body,
@@ -816,6 +824,10 @@ pub struct ReviewerMeta {
 /// and `TargetJournal` is not serializable.)
 #[derive(Debug, Clone)]
 pub struct ReviewerInput {
+    /// Run-level state: `Some` when the verdict must be WITHHELD rather than
+    /// computed. PR-2 populates `EvidenceUninterpretable`; the other variants
+    /// are reserved for PR-4 and are absent, not missing.
+    pub withheld: Option<VerdictWithheld>,
     pub findings: Vec<ReviewerFinding>,
     /// Raw checklist items (as JSON) from the compiled report.
     pub checklist: Vec<Value>,
@@ -859,13 +871,83 @@ pub struct SeverityByStateCounts {
     pub info: StateCounts,
 }
 
-/// The deterministic verdict. `recommendation` + `publication_probability` drive
-/// the letter's headline; `breakdown` is transparency only and MUST NOT be
-/// read back into the recommendation (see `aggregate_reviewer_verdict`).
+/// WHY a deterministic verdict is absent. **Complete vocabulary as of §26**;
+/// PR-2 populates exactly one variant and PR-4 populates the rest, so no public
+/// type widens later.
+///
+/// # This is NOT `Recommendation::Unknown`
+///
+/// Three reasons, the third decisive:
+///
+/// 1. `Unknown` already carries two meanings, both on [`ReviewerEvaluation`] —
+///    `unavailable_offline()` (cloud down) and `gate_reviewer_response`'s
+///    ungrounded-reject downgrade. A third meaning on a different type would be
+///    one name answering more questions than it can distinguish.
+/// 2. `Unknown` carries no reason, and an absent verdict must be attributed
+///    (§4.14) — "did not affect the recommendation" is not "unimportant".
+/// 3. **`Unknown` maps to `PROB_REJECT` = 0.05**, so a withheld verdict would
+///    render as a **5% publication probability** — a confident-looking number
+///    for a run where nothing was computed, and worse than the `Accept` at 0.92
+///    it replaces.
+///
+/// The *letter* still uses its existing unavailable convention (`Unknown` +
+/// probability 0.0 + `available: false`); what is retired is the idea that the
+/// AGGREGATOR emits `Unknown`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerdictWithheld {
+    /// `report["evidence"]` could not be interpreted (§25.10). **PR-2.**
+    EvidenceUninterpretable,
+    /// No lane examined anything, so "no findings" is not "clean" — §22.1's
+    /// missing denominator. **PR-4.**
+    NothingExamined,
+    /// A pipeline stage did not deliver its output. **PR-4.**
+    StageUndelivered,
+}
+
+/// The deterministic verdict, or its typed absence.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum Verdict {
+    Computed { recommendation: Recommendation, publication_probability: f64 },
+    /// No recommendation was produced. **Not a recommendation named "unknown"**
+    /// — the absence of one, with its reason.
+    Withheld { reason: VerdictWithheld },
+}
+
+impl Verdict {
+    /// The recommendation, or `None` when withheld. Every consumer must go
+    /// through this, so none can silently default (§26 PR-2's invariant).
+    pub fn recommendation(&self) -> Option<Recommendation> {
+        match self {
+            Verdict::Computed { recommendation, .. } => Some(*recommendation),
+            Verdict::Withheld { .. } => None,
+        }
+    }
+    /// The publication probability, or `None` when withheld — so no consumer can
+    /// read a number for a run where none was computed.
+    pub fn probability(&self) -> Option<f64> {
+        match self {
+            Verdict::Computed { publication_probability, .. } => Some(*publication_probability),
+            Verdict::Withheld { .. } => None,
+        }
+    }
+    pub fn withheld_reason(&self) -> Option<VerdictWithheld> {
+        match self {
+            Verdict::Withheld { reason } => Some(*reason),
+            Verdict::Computed { .. } => None,
+        }
+    }
+}
+
+/// The deterministic verdict. `breakdown` is transparency only and MUST NOT be
+/// read back into the recommendation (see `aggregate_reviewer_verdict`). It is
+/// UNCONDITIONAL: when nothing was counted it is honestly all-zero, which is a
+/// fact rather than an absence — and it must never be overloaded to carry the
+/// withheld reason.
 #[derive(Debug, Clone, Serialize)]
 pub struct VerdictAggregation {
-    pub recommendation: Recommendation,
-    pub publication_probability: f64,
+    pub verdict: Verdict,
     pub breakdown: SeverityByStateCounts,
 }
 
@@ -918,7 +1000,16 @@ pub fn aggregate_reviewer_verdict(input: &ReviewerInput) -> VerdictAggregation {
         Recommendation::Unknown => PROB_REJECT,
     };
 
-    VerdictAggregation { recommendation, publication_probability, breakdown }
+    // WITHHELD short-circuits the tree. The breakdown is still reported — it
+    // describes what was counted, and all-zero is the honest answer when the
+    // evidence could not be interpreted.
+    if let Some(reason) = input.withheld {
+        return VerdictAggregation { verdict: Verdict::Withheld { reason }, breakdown };
+    }
+    VerdictAggregation {
+        verdict: Verdict::Computed { recommendation, publication_probability },
+        breakdown,
+    }
 }
 
 /// The SOLE producer of a reviewer-synthesis payload+SentIds PAIR. Fields are
@@ -1096,15 +1187,75 @@ pub fn gate_reviewer_narrative(response: &Value, request: &ReviewerRequest) -> R
 /// issues, from the LLM). The verdict comes ONLY from `aggregation`; the model
 /// never sets it. `available` stays true — the deterministic verdict is present
 /// even when the narrative degraded.
+/// Machine-readable reason slug — TOTAL, so a new `VerdictWithheld` cannot ship
+/// without deciding how it is named to a consumer.
+pub fn withheld_slug(reason: VerdictWithheld) -> &'static str {
+    match reason {
+        VerdictWithheld::EvidenceUninterpretable => "evidence_uninterpretable",
+        VerdictWithheld::NothingExamined => "nothing_examined",
+        VerdictWithheld::StageUndelivered => "stage_undelivered",
+    }
+}
+
+/// What the author is told. TOTAL for the same reason. Each states OUR failure
+/// plainly — never as an observation about the manuscript (§23.4).
+fn withheld_body(reason: VerdictWithheld) -> String {
+    match reason {
+        VerdictWithheld::EvidenceUninterpretable =>
+            "No recommendation was produced for this run: the analysis evidence could not be \
+             interpreted, so there was nothing to base one on. This is a fault in Gaply, not a \
+             finding about your manuscript. The findings and checklist above are unaffected.",
+        VerdictWithheld::NothingExamined =>
+            "No recommendation was produced for this run: no analysis lane examined anything, so \
+             an absence of findings does not mean the manuscript is clean. This is a fault in \
+             Gaply, not a finding about your manuscript.",
+        VerdictWithheld::StageUndelivered =>
+            "No recommendation was produced for this run: an analysis stage did not deliver its \
+             output. This is a fault in Gaply, not a finding about your manuscript.",
+    }
+    .to_string()
+}
+
 pub fn synthesize_reviewer_letter(
     aggregation: &VerdictAggregation,
     narrative: ReviewerNarrative,
 ) -> ReviewerEvaluation {
+    // THE INVARIANT: if the verdict is withheld, EVERY consumer must observe
+    // that it is withheld. This is the sole reader of the aggregation's verdict,
+    // and the letter is what the harness and the UI both read — so a default
+    // here would let one consumer see `MajorRevision` while another sees an
+    // absent verdict, from the same run.
+    //
+    // Withheld reuses the letter's EXISTING unavailable convention
+    // (`unavailable_offline`): recommendation `Unknown`, probability 0.0,
+    // `available: false`. That is not the rejected "withheld == Unknown" — the
+    // AGGREGATOR emits no recommendation at all, and 0.0 is what keeps the
+    // 5%-from-PROB_REJECT figure from ever being produced.
+    if let Verdict::Withheld { reason } = aggregation.verdict {
+        return ReviewerEvaluation {
+            recommendation: Recommendation::Unknown,
+            // Structurally absent, not zero — the key is omitted entirely.
+            publication_probability: None,
+            novelty_assessment: String::new(),
+            journal_fit_note: String::new(),
+            body: withheld_body(reason),
+            issues: Vec::new(),
+            alternatives: Vec::new(),
+            available: false,
+            warnings: vec![format!("verdict withheld: {}", withheld_slug(reason))],
+        };
+    }
+    let (recommendation, publication_probability) = match aggregation.verdict {
+        Verdict::Computed { recommendation, publication_probability } => {
+            (recommendation, publication_probability)
+        }
+        Verdict::Withheld { .. } => unreachable!("handled above"),
+    };
     ReviewerEvaluation {
-        recommendation: aggregation.recommendation,
+        recommendation,
         // Deterministically COMPUTED from the Evidence Store's per-finding
         // verdicts — the shape the removed scores should have had.
-        publication_probability: aggregation.publication_probability,
+        publication_probability: Some(publication_probability),
         // Novelty / journal-fit are subjective judgments Box 4 does not
         // deterministically compute and refuses to fake — empty in Stage 1.
         // (The two numeric scores this used to zero out are gone entirely; Box 4
@@ -1291,7 +1442,7 @@ mod tests {
     fn removed_novelty_and_fit_scores_are_neither_required_nor_read() {
         // 1. A reply WITHOUT them passes — `parse_score` no longer demands them.
         let out = gate_reviewer_response(&good_response(), &sent(&["f1"], &[])).unwrap();
-        assert_eq!(out.publication_probability, 45.0, "the one surviving score still parses");
+        assert_eq!(out.publication_probability, Some(45.0), "the one surviving score still parses");
 
         // 2. A reply that STILL sends them (an older model, a cached prompt) is
         //    accepted and the values are not read anywhere.
@@ -1611,6 +1762,7 @@ mod box4_tests {
 
     fn input(findings: Vec<ReviewerFinding>) -> ReviewerInput {
         ReviewerInput {
+            withheld: None,
             findings,
             checklist: vec![],
             supplementary: vec![],
@@ -1650,7 +1802,7 @@ mod box4_tests {
             FindingSeverity::Critical,
             None, // never escalated — deterministic
         )]));
-        assert_eq!(agg.recommendation, Recommendation::Reject);
+        assert_eq!(agg.verdict.recommendation(), Some(Recommendation::Reject));
         assert_eq!(agg.breakdown.critical.not_escalated, 1);
         assert_eq!(agg.breakdown.critical.escalated_verified, 0);
     }
@@ -1670,7 +1822,7 @@ mod box4_tests {
             Some(false), // escalation attempted, gate-rejected
         )]));
         // Recommendation reflects the finding's severity, not the rejection.
-        assert_eq!(agg.recommendation, Recommendation::MajorRevision);
+        assert_eq!(agg.verdict.recommendation(), Some(Recommendation::MajorRevision));
         // The rejection is surfaced explicitly for transparency, NOT folded away.
         assert_eq!(agg.breakdown.major.escalated_rejected, 1);
         assert_eq!(agg.breakdown.major.escalated_verified, 0);
@@ -1689,11 +1841,11 @@ mod box4_tests {
         let rejected = aggregate_reviewer_verdict(&input(vec![finding("f1", FindingSeverity::Major, Some(false))]));
 
         // Recommendation is IDENTICAL across all three verification states.
-        assert_eq!(not_esc.recommendation, Recommendation::MajorRevision);
-        assert_eq!(verified.recommendation, Recommendation::MajorRevision);
-        assert_eq!(rejected.recommendation, Recommendation::MajorRevision);
-        assert_eq!(not_esc.publication_probability, verified.publication_probability);
-        assert_eq!(verified.publication_probability, rejected.publication_probability);
+        assert_eq!(not_esc.verdict.recommendation(), Some(Recommendation::MajorRevision));
+        assert_eq!(verified.verdict.recommendation(), Some(Recommendation::MajorRevision));
+        assert_eq!(rejected.verdict.recommendation(), Some(Recommendation::MajorRevision));
+        assert_eq!(not_esc.verdict.probability().unwrap(), verified.verdict.probability().unwrap());
+        assert_eq!(verified.verdict.probability().unwrap(), rejected.verdict.probability().unwrap());
 
         // Only the breakdown differs — the transparency layer records HOW each
         // was established.
@@ -1711,12 +1863,12 @@ mod box4_tests {
         let below: Vec<_> = (0..MINOR_REVISION_THRESHOLD - 1)
             .map(|i| finding(&format!("f{i}"), FindingSeverity::Minor, None))
             .collect();
-        assert_eq!(aggregate_reviewer_verdict(&input(below)).recommendation, Recommendation::Accept);
+        assert_eq!(aggregate_reviewer_verdict(&input(below)).verdict.recommendation().unwrap(), Recommendation::Accept);
 
         let at: Vec<_> = (0..MINOR_REVISION_THRESHOLD)
             .map(|i| finding(&format!("f{i}"), FindingSeverity::Minor, None))
             .collect();
-        assert_eq!(aggregate_reviewer_verdict(&input(at)).recommendation, Recommendation::MinorRevision);
+        assert_eq!(aggregate_reviewer_verdict(&input(at)).verdict.recommendation().unwrap(), Recommendation::MinorRevision);
     }
 
     // Info findings never move the recommendation off Accept.
@@ -1726,26 +1878,26 @@ mod box4_tests {
             finding("f1", FindingSeverity::Info, None),
             finding("f2", FindingSeverity::Info, Some(true)),
         ]));
-        assert_eq!(agg.recommendation, Recommendation::Accept);
+        assert_eq!(agg.verdict.recommendation(), Some(Recommendation::Accept));
     }
 
     // Probability bands map 1:1 with the recommendation, no other input.
     #[test]
     fn probability_bands_map_one_to_one() {
         let reject = aggregate_reviewer_verdict(&input(vec![finding("f1", FindingSeverity::Critical, None)]));
-        assert_eq!(reject.publication_probability, PROB_REJECT);
+        assert_eq!(reject.verdict.probability().unwrap(), PROB_REJECT);
 
         let major = aggregate_reviewer_verdict(&input(vec![finding("f1", FindingSeverity::Major, None)]));
-        assert_eq!(major.publication_probability, PROB_MAJOR_REVISION);
+        assert_eq!(major.verdict.probability().unwrap(), PROB_MAJOR_REVISION);
 
         let minor_findings: Vec<_> = (0..MINOR_REVISION_THRESHOLD)
             .map(|i| finding(&format!("f{i}"), FindingSeverity::Minor, None))
             .collect();
         let minor = aggregate_reviewer_verdict(&input(minor_findings));
-        assert_eq!(minor.publication_probability, PROB_MINOR_REVISION);
+        assert_eq!(minor.verdict.probability().unwrap(), PROB_MINOR_REVISION);
 
         let accept = aggregate_reviewer_verdict(&input(vec![]));
-        assert_eq!(accept.publication_probability, PROB_ACCEPT);
+        assert_eq!(accept.verdict.probability().unwrap(), PROB_ACCEPT);
     }
 
     // ReviewerRequest is the sole pair-producer: payload carries findings AS
@@ -1790,7 +1942,7 @@ mod box4_tests {
         let agg = aggregate_reviewer_verdict(&input(vec![finding("f1", FindingSeverity::Critical, None)]));
         let letter = synthesize_reviewer_letter(&agg, ReviewerNarrative::unavailable());
         assert_eq!(letter.recommendation, Recommendation::Reject);
-        assert_eq!(letter.publication_probability, PROB_REJECT);
+        assert_eq!(letter.publication_probability, Some(PROB_REJECT));
         assert!(letter.available);
         assert!(letter.body.contains("narrative synthesis unavailable"));
     }

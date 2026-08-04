@@ -30,6 +30,7 @@ use serde_json::Value;
 use gaply_core::evidence::ClaimKind;
 use gaply_core::evidence_store::evidence_by_run;
 use gaply_core::report::FindingSeverity;
+use gaply_core::reviewer_agent::VerdictWithheld;
 use gaply_core::swarm::AgentKind;
 use gaply_core::reviewer_agent::{
     aggregate_reviewer_verdict, build_reviewer_request, gate_reviewer_narrative,
@@ -84,6 +85,7 @@ pub fn assemble_reviewer_input(
     report: &Value,
     journal: &TargetJournal,
     supplementary: &[Value],
+    withheld: Option<VerdictWithheld>,
 ) -> Result<ReviewerInput, GaplyError> {
     let rows = evidence_by_run(db, run_id)?;
     let empty: Vec<Value> = Vec::new();
@@ -121,6 +123,7 @@ pub fn assemble_reviewer_input(
     };
 
     Ok(ReviewerInput {
+        withheld,
         findings,
         checklist,
         supplementary: supplementary.to_vec(),
@@ -133,6 +136,9 @@ pub fn assemble_reviewer_input(
 /// comparison harness needs — `narrative_available` is set at the point the
 /// narrative is (or isn't) obtained, never inferred from the letter's body text.
 pub struct ShadowOutcome {
+    /// Carried so the harness can OBSERVE the withheld state rather than reading
+    /// the letter's inert `Unknown`/0.0 filler as a real verdict.
+    pub withheld: Option<VerdictWithheld>,
     pub letter: ReviewerEvaluation,
     pub aggregation: VerdictAggregation,
     /// True iff the narrative came from a real proxy response (not the honest
@@ -155,8 +161,9 @@ pub fn run_shadow_synthesis(
     report: &Value,
     journal: &TargetJournal,
     supplementary: &[Value],
+    withheld: Option<VerdictWithheld>,
 ) -> Result<ShadowOutcome, GaplyError> {
-    let input = assemble_reviewer_input(db, run_id, report, journal, supplementary)?;
+    let input = assemble_reviewer_input(db, run_id, report, journal, supplementary, withheld)?;
 
     // Deterministic verdict — from the already-decided severities, no LLM.
     let aggregation = aggregate_reviewer_verdict(&input);
@@ -179,7 +186,7 @@ pub fn run_shadow_synthesis(
     };
 
     let letter = synthesize_reviewer_letter(&aggregation, narrative);
-    Ok(ShadowOutcome { letter, aggregation, narrative_available, findings_sent })
+    Ok(ShadowOutcome { withheld, letter, aggregation, narrative_available, findings_sent })
 }
 
 #[cfg(test)]
@@ -261,7 +268,7 @@ mod tests {
                 evidence_persist(&db, &run_id, &[written], gaply_core::now_epoch()).unwrap();
 
                 let input =
-                    assemble_reviewer_input(&db, &run_id, &report(&["t"]), &journal(), &[]).unwrap();
+                    assemble_reviewer_input(&db, &run_id, &report(&["t"]), &journal(), &[], None).unwrap();
                 assert_eq!(input.findings.len(), 1, "one record in, one finding out");
                 let got = &input.findings[0];
 
@@ -314,17 +321,158 @@ mod tests {
         ];
         evidence_persist(&db, run_id, &records, gaply_core::now_epoch()).unwrap();
         let input =
-            assemble_reviewer_input(&db, run_id, &report(&["a", "b", "c"]), &journal(), &[]).unwrap();
+            assemble_reviewer_input(&db, run_id, &report(&["a", "b", "c"]), &journal(), &[], None).unwrap();
         let agg = aggregate_reviewer_verdict(&input);
         assert_eq!(
-            agg.recommendation,
-            Recommendation::MajorRevision,
+            agg.verdict.recommendation(),
+            Some(Recommendation::MajorRevision),
             "PR-1 must not change the verdict; the resolver lands in PR-3"
         );
-        assert_eq!(agg.publication_probability, 0.30);
+        assert_eq!(agg.verdict.probability(), Some(0.30));
         // The claim is CARRIED but not yet CONSULTED — f2 is a process claim and
         // still counts, which is precisely what PR-3 changes.
         assert_eq!(agg.breakdown.minor.total(), 2);
+    }
+
+    /// §25.10's defect, closed. Malformed evidence must WITHHOLD, never yield
+    /// `Accept` at 0.92 — the silent wrong answer this PR exists to remove.
+    #[test]
+    fn uninterpretable_evidence_withholds_rather_than_accepting() {
+        use gaply_core::reviewer_agent::{aggregate_reviewer_verdict, VerdictWithheld};
+        let db = Database::in_memory().unwrap();
+        let run_id = "run-withheld";
+        // Nothing persisted — exactly what escalation.rs:72's failure path leaves
+        // behind. Before this PR that produced zero findings and Accept at 0.92.
+        let input = assemble_reviewer_input(
+            &db,
+            run_id,
+            &report(&[]),
+            &journal(),
+            &[],
+            Some(VerdictWithheld::EvidenceUninterpretable),
+        )
+        .unwrap();
+        let agg = aggregate_reviewer_verdict(&input);
+
+        assert_eq!(agg.verdict.recommendation(), None, "no recommendation may be produced");
+        assert_eq!(agg.verdict.probability(), None, "and no probability — not 0.05, not 0.92");
+        assert_eq!(
+            agg.verdict.withheld_reason(),
+            Some(VerdictWithheld::EvidenceUninterpretable),
+            "the absence must carry its reason (§4.14)"
+        );
+        // The breakdown still reports what WAS counted — all-zero is a fact, and
+        // it must never be overloaded to carry the withheld reason.
+        assert_eq!(agg.breakdown.critical.total(), 0);
+        assert_eq!(agg.breakdown.minor.total(), 0);
+    }
+
+    /// THE INVARIANT: if a verdict is withheld, EVERY consumer must observe that
+    /// it is withheld. No consumer may see `recommendation: unavailable` while
+    /// another sees `MajorRevision` from the same run.
+    ///
+    /// The risk is concrete and structural: the withheld state passes through a
+    /// TRANSFORMATION before every consumer sees it. `synthesize_reviewer_letter`
+    /// is the sole reader of the aggregation's verdict, the harness reads
+    /// `s.letter.recommendation` rather than the aggregation, and the UI reads
+    /// the letter. So it is asserted at every boundary, the way PR-1 asserted the
+    /// round-trip at every boundary.
+    #[test]
+    fn a_withheld_verdict_is_observed_as_withheld_at_every_boundary() {
+        use gaply_core::reviewer_agent::{
+            aggregate_reviewer_verdict, synthesize_reviewer_letter, Recommendation,
+            ReviewerNarrative, VerdictWithheld,
+        };
+        use gaply_core::reviewer_harness::{
+            build_comparison_report, HarnessInputs, HarnessTiming, ShadowInputs,
+        };
+
+        let db = Database::in_memory().unwrap();
+        let run_id = "run-invariant";
+        let input = assemble_reviewer_input(
+            &db,
+            run_id,
+            &report(&[]),
+            &journal(),
+            &[],
+            Some(VerdictWithheld::EvidenceUninterpretable),
+        )
+        .unwrap();
+
+        // BOUNDARY 1 — the aggregation.
+        let agg = aggregate_reviewer_verdict(&input);
+        assert_eq!(agg.verdict.recommendation(), None, "boundary 1: aggregation");
+
+        // BOUNDARY 2 — the letter, which is what the other two read.
+        let letter = synthesize_reviewer_letter(
+            &agg,
+            ReviewerNarrative { body: "ignored".into(), issues: vec![], warnings: vec![] },
+        );
+        assert!(!letter.available, "boundary 2: the letter must not present itself as available");
+        assert_eq!(
+            letter.publication_probability, None,
+            "boundary 2: no probability at all — not 0.0, not PROB_REJECT's 0.05"
+        );
+        assert!(
+            letter.body.contains("No recommendation was produced"),
+            "boundary 2: the reason must be stated to the author, got {:?}",
+            letter.body
+        );
+        assert!(
+            letter.warnings.iter().any(|w| w.contains("evidence_uninterpretable")),
+            "boundary 2: the machine-readable reason must survive"
+        );
+
+        // BOUNDARY 3 — the harness record.
+        let wholesale = gaply_core::reviewer_agent::ReviewerEvaluation::unavailable_offline();
+        let rec = build_comparison_report(&HarnessInputs {
+            run_id,
+            manuscript_sha256: "sha",
+            recorded_at: 0,
+            shadow: Some(ShadowInputs {
+                withheld: Some(VerdictWithheld::EvidenceUninterpretable),
+                letter: &letter,
+                breakdown: &agg.breakdown,
+                findings_sent: 0,
+                narrative_available: false,
+            }),
+            wholesale: &wholesale,
+            wholesale_findings_sent: 0,
+            findings_projection_digest: "d",
+            summary_digest: "s",
+            summary_format_version: 1,
+            journal_name: None,
+            guidelines_url: None,
+            timing: HarnessTiming::default(),
+            proxy_meta: None,
+        });
+        let v = serde_json::to_value(&rec).unwrap();
+        assert_eq!(
+            v["shadow_recommendation"]["status"], "unavailable",
+            "boundary 3: the record must not observe the letter's inert filler as a verdict"
+        );
+        assert_eq!(v["shadow_recommendation"]["requires"], "verdict_withheld");
+        assert_eq!(
+            v["verdict_withheld"]["value"], "evidence_uninterpretable",
+            "boundary 3: breakdown all-zero beside an unavailable verdict must be unambiguous"
+        );
+
+        // BOUNDARY 4 — the UI payload. The frontend reads the letter, so what it
+        // receives is what boundary 2 produced, serialized.
+        let ui = serde_json::to_value(&letter).unwrap();
+        assert_eq!(ui["available"], false, "boundary 4: UI payload");
+        // STRUCTURAL, not a runtime guard: the key is OMITTED from the wire, so
+        // no consumer can read a number for a run where none was computed. A
+        // plain f64 emitted 0.0 into every artifact for such a run (§4.4).
+        assert!(
+            ui.get("publication_probability").is_none(),
+            "boundary 4: the probability key must be absent, got {ui}"
+        );
+        assert_ne!(
+            ui["recommendation"],
+            serde_json::to_value(Recommendation::MajorRevision).unwrap(),
+            "boundary 4: no consumer may read a real recommendation from a withheld run"
+        );
     }
 
     #[test]
@@ -353,7 +501,7 @@ mod tests {
         .unwrap();
 
         let input =
-            assemble_reviewer_input(&db, run_id, &report(&["refuted citation", "impossible SD"]), &journal(), &[])
+            assemble_reviewer_input(&db, run_id, &report(&["refuted citation", "impossible SD"]), &journal(), &[], None)
                 .unwrap();
 
         assert_eq!(input.findings.len(), 2);
@@ -377,7 +525,7 @@ mod tests {
 
         // proxy = None -> narrative degrades, verdict still deterministic.
         let outcome =
-            run_shadow_synthesis(&db, None, run_id, &report(&["impossible SD"]), &journal(), &[]).unwrap();
+            run_shadow_synthesis(&db, None, run_id, &report(&["impossible SD"]), &journal(), &[], None).unwrap();
         assert_eq!(outcome.letter.recommendation, Recommendation::Reject);
         assert!(outcome.letter.available);
         assert!(!outcome.narrative_available); // structural flag, not body-string
@@ -408,6 +556,7 @@ mod tests {
             &report(&["refuted citation"]),
             &journal(),
             &[],
+            None,
         )
         .unwrap();
         // Deterministic verdict from the Major finding, regardless of narrative.

@@ -68,6 +68,32 @@ describe('ReviewerLetterPanel — backend adaptation (Option B)', () => {
     // it does NOT fabricate a recommendation gauge / issues
     expect(screen.queryByTestId('pr-probability')).toBeNull();
     expect(screen.queryByTestId('pr-issues')).toBeNull();
+    // and it is NOT the withheld state — offline means the CLOUD reviewer could
+    // not run while the local verdict stands.
+    expect(screen.queryByTestId('pr-withheld')).toBeNull();
+  });
+
+  // BOUNDARY 4 of the withheld invariant (§26 PR-2): the UI must observe that
+  // the verdict was withheld, and must not repeat the offline copy, which claims
+  // "the verdict is available in the tabs above" — false when none was produced.
+  it('renders WITHHELD distinctly from offline, with its reason', () => {
+    const withheld: ReviewerLetter = {
+      ...unavailable,
+      body:
+        'No recommendation was produced for this run: the analysis evidence could not be ' +
+        'interpreted, so there was nothing to base one on. This is a fault in Gaply, not a ' +
+        'finding about your manuscript. The findings and checklist above are unaffected.',
+      warnings: ['verdict withheld: evidence_uninterpretable'],
+    };
+    renderPanel(withheld);
+    expect(screen.getByTestId('pr-verdict').textContent).toMatch(/RECOMMENDATION WITHHELD/);
+    const body = screen.getByTestId('pr-withheld').textContent ?? '';
+    expect(body).toMatch(/No recommendation was produced/);
+    expect(body).toMatch(/fault in Gaply, not a finding about your manuscript/);
+    // No fabricated gauge, and NOT the offline wording.
+    expect(screen.queryByTestId('pr-probability')).toBeNull();
+    expect(screen.queryByTestId('pr-unavailable')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/findings, checklist, and verdict — is available/);
   });
 
   // Set 4e: the three grounded fields, POPULATED.
