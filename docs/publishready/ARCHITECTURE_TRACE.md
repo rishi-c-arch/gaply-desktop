@@ -1250,3 +1250,107 @@ Not because fields were added — adding a field is backward-compatible for read
 * different guideline URLs
 
 **Run 20 vs run 21 was exactly that failure:** matching digests were read as "identical input" when the journal differed and was never recorded. Same test as the `shadow_findings_sent` bump — the meaning of the record changed, not merely its field count.
+
+---
+
+## 19. Box 4 capture attempt — run 22
+
+**Outcome: the closest run yet, and the freeze condition fails on two counts. Not frozen.**
+
+### 19.1 What passed — the configuration problems are resolved
+
+| Freeze condition | |
+|---|---|
+| `manuscript_sha256` = `859880647c…` | **PASS — the frozen manuscript, for the first time** |
+| `schema_version` = 3 | **PASS** |
+| Guideline ingest = 29 chunks | **PASS — the stop condition cleared** |
+| `guidelines_url` = the PLOS ONE submission-guidelines page | **PASS** |
+| Both sent-counts present and agreeing | **PASS — 12 and 12** |
+| Both digests populated | **PASS** |
+| Deterministic side complete | **PASS** |
+
+Runs 20 and 21 failed on manuscript identity and on ingesting a journal homepage. **Neither recurs.** `findings_projection_digest` `8990774c…`, `summary_digest` `1cb0bb8d…`, `summary_format_version` 1.
+
+### 19.2 FAILED 1 — an internally inconsistent persisted configuration
+
+> **`journal_name` is `"PLOS Medicine"` while `guidelines_url` is PLOS ONE's.**
+
+**The record captures a journal/guidelines mismatch that was previously unobservable. Whether this represents intentional flexibility or missing validation requires investigation.** It is **not** recorded as a defect.
+
+**§18.7's `journal_name` made it visible on its first run.** The same class of confound made runs 20 and 21 uninterpretable with no way to see it: matching digests were read as identical input while the target journal differed and was recorded nowhere. **Second field to earn its place on first use, after `manuscript_sha256`** — which caught run 20's wrong manuscript on its own first run.
+
+### 19.3 FAILED 2 — entitlement exhausted
+
+`/verify` returned **403 `not_entitled` / `no_uses_remaining`** for the wholesale call. `wholesale_path_available` is `false`; `wholesale_recommendation`, `recommendation_agreement`, `model_identifier`, `stop_reason` and every downstream comparison metric are `Unavailable` with `requires_live_proxy`.
+
+**No wholesale-dependent capture is possible under the current entitlement.** The logs establish that this run failed on exhaustion; they establish nothing about how it replenishes. §19.5 answers that from source.
+
+### 19.4 Journal and guidelines are independent inputs, by construction
+
+**FACTS.**
+
+* Two separate UI fields. `journal` is set by picking from the directory (`PublishReadyPage.tsx:318-323`); `guidelinesUrl` is free text the user types (`:333-340`). Since the prefill was removed (§18.6.2) **nothing writes one from the other.**
+* Both cross the boundary independently: `run_publishready` takes `journal_name`, `journal_quartile` and `guidelines_url` as three unrelated parameters (`commands.rs:498-504`).
+* They are consumed by **different subsystems**. `guidelines_url` scopes the checklist corpus (`report.rs:1161-1165`); `journal` reaches only `summary.journal` in the reviewer payload (`reviewer_agent.rs:435`). **Neither ever reads the other.**
+* **No consistency check exists anywhere** — not in the UI, not in the command, not in the core.
+
+**ANALYSIS.** The independence is structural rather than incidental: the two values feed different lanes and were never joined. That is consistent with intentional flexibility — checking a manuscript against journal A's reviewer framing and journal B's written requirements is a coherent thing to want, and the fields' separation permits it.
+
+It is equally consistent with an unnoticed gap. **The code contains no statement of intent either way**, so the question cannot be settled by reading it — which is why §19.2 records the observation and stops.
+
+**What is certain:** *if* divergence is intentional, **nothing surfaces it.** The report shows a checklist sourced from one journal beside a reviewer letter framed for another, with no indication they differ. A user who mistyped a URL, or picked the wrong journal from a directory of 258 similarly named entries, sees exactly what a deliberate cross-check looks like.
+
+**Three honest behaviours, not yet chosen:**
+
+| | Behaviour | Cost |
+|---|---|---|
+| 1 | **Warn** — surface the divergence, proceed | Needs a reliable journal↔URL correspondence, which the directory cannot supply (0 of 258 carry a guidelines URL, §18.6.2) |
+| 2 | **Validate** — refuse to proceed | Forecloses the legitimate cross-journal case on a correspondence we cannot compute |
+| 3 | **Record both without comment** | What ships today, and what made run 22 diagnosable at all |
+
+**(1) and (2) both require knowing which guidelines URL belongs to which journal — precisely the datum §18.6.2 established does not exist.** Any check would be built on a guess, which is the class of defect that section exists to close. **No behavioural change is proposed.**
+
+### 19.5 Quota mechanics — traced
+
+**FACTS, all from source.**
+
+| Question | Answer |
+|---|---|
+| **When is entitlement checked?** | **Once per HTTP request.** `require_entitlement` is a FastAPI dependency on `/verify` (`main.py:240-244`), not a per-run gate |
+| **Which endpoint decrements?** | **`/verify` — the only paid endpoint.** `main.py` exposes exactly two routes: `GET /health` and `POST /verify` |
+| **What decrements a use?** | **A successful call only.** `consume()` runs *after* `provider.complete()` returns (`main.py:263-267`) |
+| **Do failed requests decrement?** | **No.** A 422 raises inside `validate_structured` *before* `provider.complete` (`main.py:247-259`); a 403 raises in the dependency, before the handler body |
+| **Do retries multiply consumption?** | **No.** The retry schedule is on `/health` probing only (`proxy_client.rs:167-190`); `verify_with_envelope` makes exactly one POST with no retry |
+| **Only wholesale, or every caller?** | **Every caller.** One shared counter, `feature = "publishready"` (`config.py:59`). Four call sites reach `/verify` in a PublishReady run: citation verification, targeted escalation, shadow narrative, wholesale reviewer |
+| **Where is the limit set?** | `PUBLISHREADY_LIMIT_PREMIUM`, default **20**; free tier **0** (`config.py:57-58`) |
+| **Reset schedule?** | **Automatic, calendar month.** `_period()` returns `date(year, month, 1)` (`entitlement.py:211-213`), and the counter is keyed on it — so a new month is a new row starting at 0. **No intervention required; the next reset is 1 September 2026** |
+| **Dev path that avoids production quota?** | **Two.** `GAPLY_ENTITLEMENT_REQUIRED=false` makes `require_entitlement` return `None`, and `consume` is then skipped (`main.py:207-208, 266-267`) — but it is a *server-side* setting that disables the gate for every user. The clean one is the **local Ollama path**, which never reaches the proxy |
+
+#### The arithmetic, and the contract defect behind it
+
+**Escalation sends one `/verify` per batch, and `batch_escalation` produces one batch per Critical record plus one per agent kind** (`escalation.rs:120-137`). A run with findings from several agents therefore issues several calls. Run 22's seven requests — 5×200, 1×422, 1×403 — consumed **5 uses**: the five successes.
+
+That directly contradicts what the Rust code believes:
+
+> `reviewer_agent.rs:429-431` — *"Metering: one run = one metered use (server dedups by `run_id`)"*
+> `escalation.rs:140-142` — *"Stamps `run_id` on the payload so the proxy can meter at-most-once per run (server-side dedup — one run = one use; a proxy contract, out of Rust scope)."*
+
+**`run_id` appears nowhere in the proxy.** A repository-wide grep across `gaply-proxy/` returns zero matches, and `consume(user_token)` takes only the user — there is no per-run key and no dedup.
+
+**ONTOLOGY §4.16, fourth instance — and the first with a monetary cost.**
+
+**"Out of Rust scope" is what let it survive.** Rust deferred to a contract it never verified; the proxy was never told such a contract existed; and the phrase closed the question on the only side that was looking. **Neither side was auditable from the other** — the Rust comment describes proxy behaviour no proxy test asserts, and the proxy implements metering no Rust test exercises. A defect that lives in the gap between two components, described by neither's tests, is invisible to both.
+
+#### Impact, worded to the evidence
+
+> **Under the current implementation, a single PublishReady review can consume multiple metered `/verify` calls. Run 22 generated five successful `/verify` requests. If that pattern is typical, the effective number of reviews available under a 20-use entitlement is substantially lower than the headline figure.**
+
+**Established:** the proxy meters per successful `/verify`; multiple such calls occur per run; Rust documents a different assumption.
+
+**NOT established:** that every review always consumes 4–6 calls. `batch_escalation` produces one batch per Critical record plus one per agent kind, so the count varies by manuscript. One run is one observation.
+
+**The contract mismatch itself is proven by source and does not depend on the arithmetic.**
+
+### 19.6 Retry status
+
+**The run is otherwise correctly configured.** Only the journal selection and the entitlement stand between here and a valid baseline. **Development runs consume production entitlement** — worth knowing independently of this capture.
