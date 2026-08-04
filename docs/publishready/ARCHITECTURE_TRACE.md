@@ -1937,3 +1937,72 @@ Investigation A's f4 (*"35 of 35 citation(s) could not be checked"*) and f5 (*"V
 ### 25.8 Decision boundary
 
 > **The investigations from §21–§25 have reduced the remaining uncertainty to product intent rather than implementation. No further tracing is expected to resolve it. Any subsequent engineering design — F2/F6, the aggregation contract, eligibility representation, the wholesale evidence contract, or Box 4 promotion metrics — should follow from the chosen product purpose rather than precede it.**
+
+### 25.9 DECISIONS TAKEN — §25.8's boundary is resolved
+
+**These are decisions, not inferences.** §25 established that the code, the documents and the metrics each answered differently, and that no further tracing would resolve it. A reading was chosen.
+
+| # | Decision | Consequence |
+|---|---|---|
+| **1** | **Box 4 is for (a) REPLACE.** The deterministic verdict becomes the production recommendation **this generation**, with §11's L4 editorial board as the **stated later target**, where Box 4 becomes one reviewer inside a board | **F2/F6 is prerequisite, not optional.** §23.4's defect is urgent. §25.4's (a) column governs every downstream question |
+| **2** | **Entitlement — correct the COPY, do not raise limits** | §20.1's contradiction resolves on the messaging side. `limit_free` stays 0; the "unlimited" claims are the thing that changes |
+| **3** | **Metering — option (d), per-caller**, with the feature derived **SERVER-SIDE from endpoint or validated payload shape, never from a caller-declared field** | §20.2 resolved. The caveat is part of the decision, not a footnote: a client-declared feature is a client assertion, and trusting it reopens the hole `require_entitlement` exists to close |
+| **4** | **Journal/guidelines — record the divergence, do not validate it** | §19.4 resolved. `journal_name` and `guidelines_url` are both recorded (§18.7); no consistency check is added, and none was proposable anyway since the data to compute one does not exist (§18.6.2) |
+
+**Still open:** whether manual-dispatch-only CI is deliberate cost control (§21). That answer shapes any `release_gate` fix and nothing else.
+
+#### What decision 1 settles, and what it does not
+
+**Settles:** process claims must not influence the verdict (§25.4, (a) column); the two payloads must carry identical evidence *during the comparison period*; `recommendation_agreement` measures a **delta**, not a concurrence; and the F2/F6 aggregation redesign is the right next engineering work.
+
+**Does not settle:** the L4 editorial board remains the target architecture, and §25.5's distinction stands — **this decision is about the current generation, not the permanent intent.** A future reader should not read (a) as ruling out the board; the board is where (a)'s deterministic verdict eventually becomes one voice among several.
+
+### 25.10 Phase 1, item 1 — `escalation.rs:72`
+
+`serde_json::from_value(report["evidence"]).unwrap_or_default()` turns a malformed evidence array into an empty vector; the early return at `:73-75` fires, the aggregator sees zero findings, and the verdict is **`Accept` at 0.92**. **A deserialization failure renders as a clean manuscript.**
+
+#### On the escalation path, an empty evidence vector is not a valid successful outcome
+
+**FACT.** All six agents always participate (`pipeline.rs:339-345`). Every opinion lands in exactly one of two lists and **both produce findings** — admitted soft opinions at `report.rs:497`, gate-rejected ones at `:513-519`. Only `ValidationMaths` is `hard_constraint`; only `Verification` and `Plagiarism` are skipped (`:470-472`). **Extraction, AiDetection and Rag therefore contribute a finding on every run.** If every opinion fails its gate, `run_debate` returns `Err` (`swarm.rs:264-266`) and no report is compiled at all.
+
+`findings` and `evidence` are unzipped from one ordered source (`report.rs:559-560`), so they are empty together or not at all.
+
+> **On this path, empty ⟹ malformed or absent. The fix need not separate those cases, because one of them cannot occur here.** The early return at `:73-75` reads as *"nothing to escalate"*; in practice it is *"deserialization failed"*.
+
+#### The demonstrable trigger was schema drift on a cached report
+
+`unwrap_or_default()` catches a missing key **and any element that fails to match `EvidenceRecord`** — a new required field, or a new variant of `AgentKind` / `ConfidenceKind` / `RoutingHint`. The outer parse is strict and fatal (`commands.rs:546`); **it is the inner, per-element parse that failed silently.**
+
+**Cache entries survive rebuilds**, so an upgrade is exactly when this fires — and §23–§25's claim-identity work modifies `Finding`/`EvidenceRecord`, which is precisely the change that triggers it.
+
+#### The options, and why the cache key decided between them
+
+| | Behaviour | User sees | Needs `ExecutionState`? |
+|---|---|---|---|
+| **A. Propagate the error** | run returns `Err` | **an error instead of a report** | No |
+| **B. Verdict withheld** | report renders, no recommendation, with a reason | findings and checklist, no verdict | **Yes** |
+| **C. Degraded flag** | verdict present, flagged | a recommendation plus a caveat | Yes — and weakest; a flagged wrong number is still a number |
+
+**The cache-key finding is not independent of the A/B choice — it determines it.** Versioning the key eliminates the only demonstrable trigger. With that gone, **A's urgency goes with it, and A's cost is real: a user whose manuscript was fine gets an error because OUR evidence did not parse — §23.4's shape, penalising the author for our failure.**
+
+> **DECISION: cache key now, B as the first F2/F6 consumer.** One change instead of two, no interim regression, demonstrable path closed today. `unwrap_or_default()` stays untouched, and *"recommendation withheld because evidence could not be interpreted"* becomes the first concrete consumer of the execution-state model.
+
+#### RELEASE CONSTRAINT
+
+> **Any schema evolution that affects cached-report compatibility must require an `EVIDENCE_SCHEMA_VERSION` bump.**
+
+**Compatibility, not modification.** An optional field with a serde default leaves cached reports readable and needs no bump. **Requiring one for every change would train reflexive bumping, which is how versions stop meaning anything.**
+
+**This must be read where the claim-identity design is read, not only here.** That work modifies `Finding`/`EvidenceRecord`, and **shipping it before the cache is versioned would knowingly create an upgrade path where stale cached reports produce a silent `Accept` at 0.92.**
+
+**Nothing enforces the bump.** `EVIDENCE_SCHEMA_VERSION` (`evidence.rs:20`) has no pin test; `evidence.rs:321` only asserts that a constructed record carries it. **That is §21's level-2 problem — a manual convention, not an invariant.** The `SUMMARY_FORMAT_VERSION` precedent applies directly: a test pinning `EvidenceRecord`'s serialized shape, failing with a message naming the constant and what to do. **Proposed, not built.**
+
+#### Third instance of a contract whose premise moved
+
+`escalation.rs:7`: *"DEGRADES HONESTLY on any failure (**never fails the run**)."*
+
+**Correct when written** — escalation was an additive side-channel, and failing a run over a diagnostic would have been wrong. **`evidence_persist` has since become the sole populator of the aggregator's input**, so "degrade honestly" now means "silently produce `Accept` at 0.92".
+
+**Same shape as `assemble_reviewer_input`'s projection (§22.4) and `reviewer_synthesis`'s presentation-field classification.** All three were right for the contract they implemented, and all three had their premise moved underneath them. **Revising this one is part of B's work and should be explicit rather than incidental.**
+
+**Not established:** whether this has ever fired. `unwrap_or_default()` logs nothing, so there is no evidence either way.

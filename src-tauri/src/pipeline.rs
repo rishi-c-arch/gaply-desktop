@@ -52,8 +52,30 @@ const REPORT_TTL_SECS: i64 = 30 * 24 * 3600;
 /// pre-fix and a post-fix report for a month — two different answers, one of
 /// them wrong, with nothing to tell them apart. Bumping the key makes stale
 /// entries unreachable instead.
+///
+/// # `EVIDENCE_SCHEMA_VERSION` is part of the key
+///
+/// A cached report carries a serialized `Vec<EvidenceRecord>` under `evidence`,
+/// and `escalation.rs:72` deserializes it with `unwrap_or_default()`. **A cached
+/// report written by an older binary whose `EvidenceRecord` shape has since
+/// changed therefore deserializes to an EMPTY vector**, the early return fires,
+/// the aggregator sees zero findings, and the run yields `Accept` at 0.92 — a
+/// silent wrong answer with no error and no log line (ARCHITECTURE_TRACE
+/// §25.10). Cache entries survive rebuilds, so an upgrade is exactly when this
+/// fires.
+///
+/// Including the version makes a stale entry MISS rather than mis-parse: the
+/// report is recomputed from the manuscript, which is always correct and merely
+/// slower. This closes the demonstrable path; it does not close the class — a
+/// genuinely malformed record still deserializes to empty.
+///
+/// **RELEASE CONSTRAINT: any schema evolution that affects cached-report
+/// compatibility must require an `EVIDENCE_SCHEMA_VERSION` bump.** Compatibility,
+/// not modification — an optional field with a serde default leaves cached
+/// reports readable and needs no bump. Requiring one for every change would
+/// train reflexive bumping, which is how versions stop meaning anything.
 pub(crate) fn report_cache_key(report_id: &str) -> String {
-    format!("report:v2:{report_id}")
+    format!("report:v2:e{}:{report_id}", gaply_core::evidence::EVIDENCE_SCHEMA_VERSION)
 }
 /// The six agent lanes the frontend renders. Debate + compile happen after,
 /// under the "synthesis" pseudo-stage.
@@ -393,6 +415,40 @@ fn run_pipeline_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The cache key must change when the evidence schema does, so a report
+    /// written by an older binary MISSES rather than deserializing to an empty
+    /// evidence vector — which `escalation.rs:72`'s `unwrap_or_default()` would
+    /// turn into `Accept` at 0.92 (§25.10).
+    #[test]
+    fn the_cache_key_carries_the_evidence_schema_version() {
+        let key = report_cache_key("42");
+        assert!(key.starts_with("report:v2:"), "the v2 prefix is retained: {key}");
+        assert!(key.ends_with(":42"), "the report id is the last segment: {key}");
+        assert!(
+            key.contains(&format!("e{}", gaply_core::evidence::EVIDENCE_SCHEMA_VERSION)),
+            "the evidence schema version must be IN the key, or a stale cached report \
+             is read back with a mismatched EvidenceRecord shape: {key}"
+        );
+        // The property that matters is DISCRIMINATION: two schema versions must
+        // not collide on one key. Asserted by construction against the current
+        // format, so the test fails if the version is ever dropped from it.
+        let same_id_other_version = format!(
+            "report:v2:e{}:42",
+            gaply_core::evidence::EVIDENCE_SCHEMA_VERSION + 1
+        );
+        assert_ne!(key, same_id_other_version, "a version change must change the key");
+        // Same version, different manuscript -> still distinct.
+        assert_ne!(key, report_cache_key("43"));
+    }
+
+    /// A key written under the OLD (unversioned) format must not be readable
+    /// under the new one: the entry misses and the report is recomputed, which
+    /// is the whole mechanism.
+    #[test]
+    fn pre_versioning_keys_no_longer_match() {
+        assert_ne!(report_cache_key("42"), "report:v2:42");
+    }
 
     #[test]
     fn analysis_event_serializes_with_type_tag() {
