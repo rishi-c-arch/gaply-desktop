@@ -855,3 +855,78 @@ It records the **before** state. It does not establish that the **after** state 
 > The deterministic verdict has never been compared against the recommendation it would replace, on any manuscript — and the only manuscript we have evidence for shows it would output "Reject, 5% publication probability" for a paper whose actual defect is that it omits effect sizes. Promotion does not swap one recommendation source for another of comparable behaviour; it replaces a moderate LLM judgement with a decision tree that rejects ordinary manuscripts, and routes every known false positive straight into the headline verdict.
 
 F1's fix removes the `Critical → Reject` mechanism. **F2, F3, F4, F6 and F9 remain open.**
+
+---
+
+## 17. Box 4 capture attempt — run 20
+
+**Outcome: a successful operational run, NOT a valid reference baseline.** Those are related and not the same thing.
+
+### The positive result — the instrumentation is operational
+
+This is the main outcome. End to end, on a live proxy, in the real app:
+
+* comparison report emitted
+* JSONL sink written — `<app_data_dir>/box4_comparisons.jsonl`, 2772 bytes, exactly one parseable record
+* manuscript hash recorded
+* payload digest recorded
+* both recommendations recorded
+* disagreement recorded
+* persistence working
+
+**The baseline failed for an IDENTITY reason, not an instrumentation one.** That changes the remaining work from *building the instrumentation* to *capturing the correct reference run*.
+
+### `manuscript_sha256` is now a demonstrated capability, not a design argument
+
+The instrumentation recorded a hash; the hash did not match the intended frozen manuscript; the freeze condition failed on that basis; and **the incorrect record was not accepted as the baseline.**
+
+| | sha256 |
+|---|---|
+| Record (run 20) | `78c0aebde07c13a06e218eaa34eda23bb2205dd3d38a2a26ece540d02c6b1722` |
+| Frozen manuscript, verified on disk | `859880647c4579c34bc63b82c2280ab08bceac917a9547e0c839a821bc5bafd7` |
+
+`run_id: 20` is a local row id and would have told us nothing. Without the hash this record would have been frozen as the reference for a manuscript it does not describe.
+
+### The freeze condition
+
+| Condition | |
+|---|---|
+| Same manuscript hash | **FAIL** |
+| Same pipeline configuration | Independently failing — see the guideline difference below |
+| 42 → 8 persisted drop explained | See below: **invalid comparison**, not an explanation |
+
+**Step 6 not done.** Steps 3–5 passed on their own terms.
+
+### The 42 → 8 drop — an INVALID COMPARISON, not an explanation
+
+**The apparent 42 → 8 anomaly dissolved because the two runs were not on the same manuscript. Since the identity precondition failed, no causal inference about the count difference is warranted.**
+
+Recording it as "explained" would imply an inference that was not drawn.
+
+**`findings=48` was never evidence the runs were comparable.** That log line comes from `store_extraction`'s per-statistic and per-reference rows in the `findings` table — not report findings. An investigation instruction to *"trace 48 → ? → 8"* chased a number that did not mean what it was taken to mean. Worth recording as a methodological note: **a number appearing in two logs is not a shared quantity until its producer is traced.**
+
+### Run facts
+
+* `wholesale_recommendation` **OBSERVED** (`minor_revision`), `recommendation_agreement` **OBSERVED** (`false`) — both gated on `wholesale.available`, so a genuine live call, not the digest standing in for one.
+* `wholesale_payload_digest` **populated** (`1f942a0d…`), confirming it is not computed on the wrong side of a branch.
+* `model_identifier: gpt-4o-mini-2024-07-18`, `stop_reason: stop`.
+
+**Observed disagreement (n=1).** Shadow `major_revision` / 0.3; wholesale `minor_revision` / 70.0.
+
+One execution, one manuscript, one wholesale realization. **Not a rate, not evidence of superiority, and it must never be quoted as either.** The single valid product observation: **had Box 4 been promoted, this user would have seen a different editorial recommendation** — the first concrete evidence of what promotion does.
+
+**F1 confirmed live in this binary:** `critical` is all zeros in the breakdown, and `major_revision` follows from `major: {escalated_verified: 1}`. Pre-fix, the same run would have produced `Reject` at 0.05.
+
+### Two gaps this run exposed
+
+**Gap A — OBSERVABILITY DEFICIENCY (not a runtime defect).** `shadow_findings_sent` is an input to `ShadowInputs`, consumed to compute `shadow_issue_coverage`, and **never serialized**. So the COMPARISON invariant cannot be evaluated from the artifact because only one side is persisted. The `wholesale_findings_sent` counterpart added earlier has no shadow twin in the output.
+
+**Gap B — layer mismatch, not a broken gate.** `release_gate.rs` currently validates **pipeline behaviour** rather than **persisted operational artifacts**. Therefore COMPARISON and PERSISTENCE cannot become PASS from a successful Box 4 run alone. The gate is not broken; it validates a different layer than the one being authorised.
+
+### Unresolved before the retry
+
+**The guideline configuration.** Run 20 ingested `chunks=4`; the PLOS page previously produced 29. Either a different journal URL was used or the same page returned far less. Both are configuration differences that break comparability, and this must be settled before the reference run.
+
+### What the retry needs
+
+The verified frozen manuscript (`859880…`, *IJAS Manuscript JHA Bombyx haemolymph*), the intended guideline configuration, and the rebuilt app.
