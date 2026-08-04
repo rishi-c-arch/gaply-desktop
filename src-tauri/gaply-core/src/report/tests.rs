@@ -188,18 +188,32 @@ fn hard_constraint_findings_rank_first_regardless_of_soft_confidence() {
     // findings; the opinion still votes in consensus but yields no finding.
     let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
 
-    // Every leading finding is the CRITICAL hard constraint tier, before any
-    // 1.0-confidence soft finding.
+    // THE PROPERTY: hard-constraint findings lead, ahead of 1.0-confidence soft
+    // findings. The EPISTEMIC marker is the tier, not the severity.
+    //
+    // This previously asserted `severity == Critical`, which was asserting the
+    // ACCIDENT rather than the property — every validation flag was hardcoded
+    // Critical regardless of its rule's own severity. Severity now comes from
+    // the rule, and the property survives unchanged because the sort is
+    // severity -> tier -> confidence, so MathematicallyCertain still leads its
+    // band. Ordering never depended on the conflation.
     assert!(!report.findings.is_empty());
-    let n_critical = validation.flags.len();
-    for f in &report.findings[..n_critical] {
-        assert_eq!(f.severity, FindingSeverity::Critical, "critical first: {:?}", f.title);
-        assert_eq!(f.tier, CertaintyTier::MathematicallyCertain);
+    let n_hard = validation.flags.len();
+    for f in &report.findings[..n_hard] {
+        assert_eq!(f.tier, CertaintyTier::MathematicallyCertain, "hard constraint first: {:?}", f.title);
         assert_eq!(f.agent, AgentKind::ValidationMaths);
+        // Severity mirrors the RULE, and the finding's own provenance says so.
+        let sev = format!("{:?}", f.severity).to_uppercase();
+        assert!(
+            f.provenance.iter().any(|p| p.contains(&sev)),
+            "severity must match the rule severity printed in provenance: {:?} / {:?}",
+            f.severity, f.provenance
+        );
     }
-    assert!(report.findings[n_critical..]
+    assert!(report.findings[n_hard..]
         .iter()
-        .all(|f| f.severity != FindingSeverity::Critical));
+        .all(|f| f.tier != CertaintyTier::MathematicallyCertain),
+        "no hard-constraint finding may appear after the leading block");
     // and the debate itself was overridden by the constraint
     assert!(report.debate.overridden_by_constraint);
     assert_eq!(report.verdict, crate::swarm::ANSWER_CONCERN);

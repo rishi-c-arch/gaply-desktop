@@ -260,11 +260,32 @@ pub fn compile_report(
 ) -> PublishReadyReport {
     let mut items: Vec<ReportFinding> = Vec::new();
 
-    // --- hard constraints: every deterministic rule flag is CRITICAL ---------
+    // --- deterministic rule flags -------------------------------------------
+    //
+    // Severity comes from the RULE (`flag.severity`, i.e. `RuleId::severity()`),
+    // not from the fact that the flag is deterministic.
+    //
+    // This previously hardcoded Critical under the heading "hard constraints:
+    // every deterministic rule flag is CRITICAL", which conflated two orthogonal
+    // axes. "Hard constraint" is an EPISTEMIC claim from the swarm — the Maths
+    // engine's verdicts are never voted on — and it already has two correct
+    // homes: `Opinion::hard_constraint` and `CertaintyTier::MathematicallyCertain`.
+    // `FindingSeverity` is an EDITORIAL URGENCY claim. A missing effect size is
+    // certainly missing and only moderately serious; the hardcode said "fatal"
+    // because the producer meant "never voted on".
+    //
+    // The contradiction was visible in the output: the finding rendered
+    // `[critical]` while its own provenance line read `rule:MissingEffectSize
+    // (MAJOR)`, and `store_validation` wrote Major to the `findings` table for
+    // the same flag. Gap E2 (ONTOLOGY §2.1) records this confusion on the
+    // CertaintyTier axis; this was the same confusion on the severity axis.
     for flag in &validation.flags {
         items.push(paired(
             Finding {
-                severity: FindingSeverity::Critical,
+                severity: match flag.severity {
+                    crate::validate::Severity::Critical => FindingSeverity::Critical,
+                    crate::validate::Severity::Major => FindingSeverity::Major,
+                },
                 tier: CertaintyTier::MathematicallyCertain,
                 certainty_label: CertaintyTier::MathematicallyCertain.label().into(),
                 agent: AgentKind::ValidationMaths,
