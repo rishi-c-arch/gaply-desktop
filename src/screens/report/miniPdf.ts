@@ -44,13 +44,26 @@ export const UNREPRESENTABLE = '□';
  *     of their own. A visible mark states that something was here this renderer
  *     cannot show, which is the honest claim.
  *
- *  # What this is NOT
+ *  # TIER 1 HAS AN END-OF-LIFE — DO NOT PORT IT TO THE RUST RENDERER
  *
- *  Not a fix for the underlying limitation. The right answer for tier 1 is to
- *  RENDER those characters: base-14 fonts carry WinAnsiEncoding, covering
- *  Latin-1 at zero font cost. It is unreachable here because the UTF-8 Blob
- *  path would break the xref, so it belongs with the Rust renderer
- *  (ARCHITECTURE_TRACE §31.13).
+ *  Transliteration is a WORKAROUND for a byte-path limitation in THIS file, not
+ *  a design decision about how Gaply presents names.
+ *
+ *  The mechanism, checkable rather than asserted: `new Blob([string])` encodes
+ *  UTF-8, while `renderTextPdf` below computes xref offsets assuming ONE BYTE
+ *  PER CHARACTER. A Latin-1 character such as `ü` emits two bytes under UTF-8,
+ *  so every subsequent offset shifts and the PDF becomes unreadable.
+ *
+ *  Rust writes bytes directly, so the constraint disappears. Base-14 fonts carry
+ *  WinAnsiEncoding, which covers Latin-1 at ZERO FONT COST — meaning the Rust
+ *  renderer can display "Müller" correctly rather than transliterating it.
+ *
+ *  **When the Rust renderer lands, tier 1 is DELETED, not carried over.** Tier 2
+ *  survives until a font is embedded (ARCHITECTURE_TRACE §31.17).
+ *
+ *  Written here as well as in the trace because whoever deletes this file is not
+ *  necessarily whoever reads §31 — and a workaround copied past the thing it
+ *  worked around becomes "how Gaply handles names".
  */
 export function toAscii(s: string): string {
   const folded = s

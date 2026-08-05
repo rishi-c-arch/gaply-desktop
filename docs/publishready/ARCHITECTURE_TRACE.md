@@ -2872,3 +2872,26 @@ The code's own comment: *"wrong test / underpowered causal claim **invalidate th
 **The mark is kept distinct through `toAscii` and folded to `?` only in `escapePdf`**, so a manuscript that genuinely contains `?` is never confused with a character we could not render — and a test can tell them apart.
 
 **This is not a fix for the underlying limitation.** The right answer for tier 1 is to RENDER those characters: base-14 fonts carry WinAnsiEncoding, covering Latin-1 at **zero font cost**. It is unreachable in `miniPdf` because `new Blob([string])` encodes UTF-8 and a multi-byte character would shift the xref offsets — **a technical block, not a scope decision.** It belongs with the Rust renderer (§31.13).
+
+### 31.17 TO THE AUTHOR OF THE RUST RENDERER — tier 1 has a shelf life
+
+> **Latin transliteration (`Müller` → `Muller`) is a WORKAROUND for a TypeScript byte-path limitation. It is not a design decision, and it does not survive the port.**
+
+**The mechanism, stated so it can be checked rather than trusted:** `new Blob([string])` encodes **UTF-8**, while `miniPdf.ts`'s `renderTextPdf` computes xref offsets assuming **one byte per character**. A Latin-1 character such as `ü` emits two bytes under UTF-8, so **every subsequent offset shifts and the PDF becomes unreadable.** That is the whole reason the sanitizer exists.
+
+**Rust writes bytes directly, so the constraint disappears.** Base-14 fonts carry **WinAnsiEncoding**, covering Latin-1 at **zero font cost** — so the Rust renderer can display `Müller` correctly.
+
+| | Fate |
+|---|---|
+| **TIER 1** (Latin transliteration) | **DELETE at the port.** Render the characters instead |
+| **TIER 2** (non-Latin marked) | **survives** until a font is embedded |
+
+**Recorded in two places on purpose:** here, and in `toAscii`'s own doc as a `DO NOT PORT` warning. **Whoever deletes `miniPdf.ts` is not necessarily whoever reads §31**, and a workaround copied past the thing it worked around becomes *"how Gaply handles names"*.
+
+### 31.18 The font decision — deferred TO THE RENDERER PR, with a destination
+
+**Not "tracked".** Attached to the renderer PR, the way `StageUndelivered` was given a destination (§26.13).
+
+**The reasoning:** today's sentinel for Devanagari is **honest and rare** — most submissions to international journals carry Latin titles, so the marked case is the exception rather than the norm. **Solving it in TypeScript means embedding a font in a renderer that is being replaced; solving it in Rust means solving it once.**
+
+**What the renderer PR decides:** whether to embed Noto Sans / Noto Sans Devanagari (OFL, redistributable, ~450 KB and ~250 KB unsubsetted) or to keep tier 2's mark. **A bundle-size decision, not a technical one** — the technical answer is settled.

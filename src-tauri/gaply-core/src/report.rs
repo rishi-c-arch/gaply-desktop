@@ -84,7 +84,7 @@ fn match_type_label(m: &MatchSpan) -> &'static str {
 // Certainty tiers + severity
 // ============================================================================
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CertaintyTier {
     MathematicallyCertain,
@@ -140,7 +140,7 @@ impl FindingSeverity {
 // Findings + report
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
     pub severity: FindingSeverity,
     pub tier: CertaintyTier,
@@ -161,7 +161,7 @@ pub struct Finding {
     pub provenance: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChecklistItem {
     pub requirement: String,
     pub passed: bool,
@@ -171,7 +171,7 @@ pub struct ChecklistItem {
     pub guideline_source: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct DebateSummary {
     pub rounds_run: usize,
     pub converged: bool,
@@ -180,7 +180,7 @@ pub struct DebateSummary {
     pub revised_agents: Vec<AgentKind>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PublishReadyReport {
     /// Overall verdict from the debate (hard constraint wins if present).
     pub verdict: String,
