@@ -2896,6 +2896,39 @@ The code's own comment: *"wrong test / underpowered causal claim **invalidate th
 
 **What the renderer PR decides:** whether to embed Noto Sans / Noto Sans Devanagari (OFL, redistributable, ~450 KB and ~250 KB unsubsetted) or to keep tier 2's mark. **A bundle-size decision, not a technical one** — the technical answer is settled.
 
+### 31.21 Milestone 2 — the design changed mid-build, and the project's own rule caused it
+
+**The first implementation stored `severity_label` and `claim_label` on `Finding`**, following `certainty_label`'s precedent. **The compiler named twelve construction sites — and that was the signal to re-check the design rather than push through.**
+
+> **ONTOLOGY §4.19, recorded two commits earlier, forbids it: the ENGINE emits a report that knows nothing about presentation, so a user-facing label baked into the engine's PERSISTED OUTPUT is presentation leaking backwards.**
+
+**A rule written down caught a mistake being made by the person who wrote it, in the window where it was still cheap.** That is the best outcome available from a recorded rule, and it is worth naming as such.
+
+**The labels are attached at the BOUNDARY instead** — `vocabulary::enrich_report_labels`, called from `get_report` and from `run_publishready`'s IPC field. That is the COMPOSER's job under the three-layer rule.
+
+#### Both open questions DISSOLVED rather than being answered
+
+| Question | Under the boundary design |
+|---|---|
+| **Does this need a `CACHED_REPORT_SCHEMA_VERSION` bump?** | **No — the labels never enter the persisted shape.** Storing them WOULD have required one: a `serde(default)` empty label is *readable and wrong* (an old cached report renders findings with no severity), which is §26.4's compatible-and-wrong case |
+| **Do labels leak into `build_review_payload`?** | **Structurally impossible.** The payload is an explicit seven-key projection, and `summary_shape_is_pinned_to_the_format_version` already guards that key set. No label edit can move `summary_digest` (§31.7) |
+
+> **A design that makes questions unnecessary is better than one that answers them.**
+
+**A further property, unplanned:** enriching at the boundary means **a wording edit applies to reports cached before it**, because nothing stale was ever written.
+
+#### CORRECTION — `adapters.ts`'s five strings cannot read the wire
+
+An earlier proposal said they should *"read the wire or be deleted"*. **That was wrong.** `adapters.ts` builds **SYNTHETIC** `PublishReadyReport`s client-side from raw plagiarism and AI-detection output — **those reports never crossed a wire, so there is none to read.**
+
+**They are a genuine second copy, exactly like `matchTypeLabel`, and PINNING is the only available option.** Both are covered by the mirror artifact.
+
+#### The mirror pin
+
+`src/generated/vocabulary.json` is checked in. **Rust asserts the artifact matches its functions; vitest asserts the TypeScript tables match the artifact.** Neither side can drift without one failing — the shape that would have caught `synthesize.ts:45`, and the replacement for `83f192c`'s hand-kept lockstep plus a comment asking editors not to change the words.
+
+Regenerate with `UPDATE_VOCABULARY=1 cargo test -p gaply_core mirror`.
+
 ### 31.19 The refactor justified itself on first compile
 
 **`report_with_sentinel` — the report fixture nine `reviewer_agent` tests share — carried `"agent": "Plagiarism"`. That is not a valid `AgentKind`; the serialized form is `"plagiarism"`.** Untyped JSON accepted it for the life of the test.
@@ -2928,3 +2961,26 @@ During this refactor a mutation test was reverted with `git checkout --` on the 
 > **Both succeeded at what they do while doing something other than what was wanted, and both were caught by an EFFECT CHECK rather than by an exit code.**
 
 **Two instances is a pattern rather than two incidents.** The standing practice it argues for: **after any destructive or path-dependent command, assert the effect** — grep for the string that should be present, or `git status` for the file that should still be modified. An exit code reports whether the command ran, never whether it did the intended thing.
+
+#### THIRD INSTANCE — and the strongest form of the argument
+
+**One commit after recording the rule above, the same session broke it.** A `str.replace` patch adding `textTransform` to `ReviewerLetterPanel.tsx` did not match the real indentation, changed nothing, and reported *"header uppercases in CSS"*. **Caught by a failing test, not by the author.**
+
+> **§21's level-1 limit, demonstrated on the person who wrote the rule.** A rule that lives in prose does not stop the contributor who wrote it one commit earlier — which is the whole argument for level 3, made against the strongest possible case.
+
+#### THE MECHANICAL FIX — because the practice cannot be remembered
+
+```python
+# silent when the pattern is absent
+src = src.replace(old, new)
+
+# fails when the pattern is absent
+assert old in src, f"pattern not found: {old[:60]}"
+src = src.replace(old, new)
+```
+
+**`str.replace` returning the input unchanged is precisely the shape §31.20 names** — an operation succeeding at what it does while doing nothing that was wanted.
+
+**The `assert` converts a remembered check into a failure**, which is the level-1-to-level-3 move this project has now made three times: the `SUMMARY_FORMAT_VERSION` pin, the compatibility fixtures, and this.
+
+**Adopted for every patch from here.** Same principle in shell: **after any destructive or path-dependent command, assert the effect rather than trusting exit 0.**

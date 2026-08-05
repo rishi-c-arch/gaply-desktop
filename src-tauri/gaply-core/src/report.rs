@@ -94,12 +94,10 @@ pub enum CertaintyTier {
 
 impl CertaintyTier {
     /// Human-readable label — shown verbatim in the report.
+    /// Delegates to [`crate::vocabulary::tier_label`] — the wording is unchanged
+    /// and now lives with every other label, so a copy edit happens in one place.
     pub fn label(&self) -> &'static str {
-        match self {
-            CertaintyTier::MathematicallyCertain => "mathematically certain",
-            CertaintyTier::AiAssessedModerate => "AI-assessed, moderate confidence",
-            CertaintyTier::ReconsideredAfterPeerReview => "reconsidered after peer review",
-        }
+        crate::vocabulary::tier_label(*self)
     }
     fn rank(&self) -> u8 {
         match self {
@@ -243,6 +241,8 @@ fn opinion_claim(agent: AgentKind) -> ClaimKind {
     }
 }
 
+/// THE single funnel from `Finding` to its `EvidenceRecord` — and the one place
+/// the user-facing labels are attached, so no constructor can forget them.
 fn paired(finding: Finding, raw_confidence: f64) -> ReportFinding {
     let evidence = if finding.provenance.iter().any(|p| p.starts_with("swarm:rejected")) {
         EvidenceRecord::from_finding(&finding, String::new())

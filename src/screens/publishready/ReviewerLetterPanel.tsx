@@ -68,7 +68,15 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
   return (
     <div className="gds-pr" data-testid="reviewer-letter-panel">
       <div className="gds-pr__head">
-        <div className="gds-pr__verdict" data-status={status} data-testid="pr-verdict">
+        {/* Caps are PRESENTATION: the vocabulary returns sentence case so the
+            label is usable mid-sentence (the PDF needs it that way), and the
+            header shouts in CSS instead. */}
+        <div
+          className="gds-pr__verdict"
+          data-status={status}
+          data-testid="pr-verdict"
+          style={{ textTransform: 'uppercase' }}
+        >
           {RECOMMENDATION_LABEL[letter.recommendation]}
         </div>
         {/* No gauge when nothing computed a probability. The backend OMITS the

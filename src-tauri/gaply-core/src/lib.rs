@@ -44,6 +44,7 @@ pub mod stats_verify;
 pub mod swarm;
 pub mod validate;
 pub mod verify_agent;
+pub mod vocabulary;
 pub mod vector;
 
 pub use config::AppConfig;

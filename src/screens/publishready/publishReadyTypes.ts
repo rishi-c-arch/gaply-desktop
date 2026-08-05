@@ -83,12 +83,18 @@ export interface ProxyReviewPayload {
   checklist: Array<{ requirement: string; passed: boolean }>;
 }
 
+/** Mirrors `gaply_core::vocabulary::recommendation_label`, pinned by
+ *  `vocabulary.vitest.ts` against the generated artifact.
+ *
+ *  SENTENCE CASE: caps are PRESENTATION, not vocabulary. `'MAJOR REVISION'` is
+ *  unusable mid-sentence and the PDF needs it in one; a header wanting uppercase
+ *  applies `text-transform` in CSS. */
 export const RECOMMENDATION_LABEL: Record<Recommendation, string> = {
-  reject: 'REJECT',
-  major_revision: 'MAJOR REVISION',
-  minor_revision: 'MINOR REVISION',
-  accept: 'ACCEPT',
-  unknown: 'UNKNOWN',
+  reject: 'Reject',
+  major_revision: 'Major revision',
+  minor_revision: 'Minor revision',
+  accept: 'Accept',
+  unknown: 'Not determined',
 };
 
 export const RECOMMENDATION_STATUS: Record<Recommendation, 'certain' | 'assessed' | 'flagged'> = {

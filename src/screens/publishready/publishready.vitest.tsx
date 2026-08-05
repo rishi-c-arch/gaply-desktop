@@ -90,7 +90,13 @@ describe('premium gate', () => {
     fireEvent.click(screen.getByTestId('tab-Reviewer Letter'));
     expect(await screen.findByTestId('reviewer-letter-panel')).toBeTruthy();
     // major revision (1 critical + 1 refuted)
-    expect(screen.getByTestId('pr-verdict').textContent).toMatch(/MAJOR REVISION/);
+    // The LABEL is sentence case; the CAPS are presentation. textContent returns
+    // the source text, so asserting /MAJOR REVISION/ here would be asserting a
+    // CSS effect through the wrong channel — and would fail the moment the label
+    // became usable mid-sentence, which the PDF requires.
+    const verdict = screen.getByTestId('pr-verdict');
+    expect(verdict.textContent).toMatch(/Major revision/);
+    expect(verdict.style.textTransform).toBe('uppercase');
     expect(screen.getByTestId('pr-probability').textContent).toMatch(/%/);
   });
 });

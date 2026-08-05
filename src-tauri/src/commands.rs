@@ -236,13 +236,26 @@ pub fn check_plagiarism_exact(
 ///
 /// The asymmetry is the boundary: TYPE WHAT YOU COMPUTE FROM, pass through what
 /// you only forward.
+///
+/// It does ENRICH, which is not the same as computing from: `enrich_report_labels`
+/// ADDS presentation keys and reads none of the report's values into a decision.
+/// That is the COMPOSER's job under §4.19 — the engine emits data, the boundary
+/// attaches the words.
 #[tauri::command]
 #[tracing::instrument(skip(state))]
 pub fn get_report(state: State<'_, AppState>, report_id: String) -> Result<serde_json::Value, GaplyError> {
     let key = crate::pipeline::report_cache_key(&report_id);
     match state.db.cache_get(&key, now_epoch())? {
-        Some(json) => serde_json::from_str(&json)
-            .map_err(|e| GaplyError::Internal(format!("parse cached report: {e}"))),
+        Some(json) => {
+            let mut report: serde_json::Value = serde_json::from_str(&json)
+                .map_err(|e| GaplyError::Internal(format!("parse cached report: {e}")))?;
+            // COMPOSER, not engine (ONTOLOGY §4.19): the cached report carries no
+            // user-facing labels, and they are attached HERE — so a wording edit
+            // applies to reports cached before it, and the engine's output stays
+            // free of presentation.
+            gaply_core::vocabulary::enrich_report_labels(&mut report);
+            Ok(report)
+        }
         None => Err(GaplyError::NotFound { entity: "report", id: report_id }),
     }
 }
@@ -753,7 +766,11 @@ pub async fn run_publishready(
             // The IPC field stays JSON: the frontend renders it and does not need
             // the Rust type. Serializing the TYPED value guarantees it is exactly
             // what parsed, rather than the separately-parsed `report_json`.
-            report: serde_json::to_value(&report).unwrap_or(report_json),
+            report: {
+                let mut v = serde_json::to_value(&report).unwrap_or(report_json);
+                gaply_core::vocabulary::enrich_report_labels(&mut v);
+                v
+            },
             reviewer,
             proxy_payload,
             run_id: report_id,
