@@ -52,13 +52,6 @@ fn main() -> Result<(), GaplyError> {
     let details: Vec<String> = report["findings"].as_array().cloned().unwrap_or_default()
         .iter().filter_map(|f| f["detail"].as_str().map(str::to_string)).collect();
 
-    // Proxy availability decides which invariants can run at all.
-    let proxy_available = app_lib::models::proxy_client::ProxyReqwestClient::from_env().is_ok();
-
-    let mut gate = GateReport::default();
-    gate.record(PRIVACY, check_privacy(&payload, &details));
-    gate.record(PROVENANCE, check_provenance(&payload));
-    gate.record(SELECTION, check_selection(&payload));
     // COMPARISON and PERSISTENCE need the FULL command path, which produces the
     // Box 4 comparison record. Before §32 this runner passed literal `None`, so
     // both could only ever report SKIPPED and `ship_ready` was false by
@@ -95,10 +88,8 @@ fn main() -> Result<(), GaplyError> {
         .and_then(|l| l.iter().rev().find(|s| !s.trim().is_empty()))
         .and_then(|s| serde_json::from_str(s).ok());
 
-    gate.record(COMPARISON, check_comparison(record.as_ref()));
-    gate.record(PERSISTENCE, check_persistence(lines.as_deref()));
-    let liveness = check_liveness(&gate, proxy_available);
-    gate.record(LIVENESS, liveness);
+    // ONE enumeration of the checks, shared with the all-unavailable fixture.
+    let gate = run_all(&payload, &details, record.as_ref(), lines.as_deref());
 
     println!("\n=== RELEASE GATE ===");
     println!("report findings: {}  payload findings: {}  detail strings checked: {}",

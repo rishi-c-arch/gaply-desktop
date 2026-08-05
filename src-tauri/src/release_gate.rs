@@ -154,7 +154,28 @@ pub const PROVENANCE: &str = "PROVENANCE";
 pub const SELECTION: &str = "SELECTION";
 pub const COMPARISON: &str = "COMPARISON";
 pub const PERSISTENCE: &str = "PERSISTENCE";
-pub const LIVENESS: &str = "LIVENESS";
+
+/// Run EVERY invariant. **The single enumeration of the gate's checks.**
+///
+/// Both the runner and the all-unavailable fixture call this, so a seventh
+/// invariant is covered by the fixture ON THE DAY IT IS WRITTEN — nobody has to
+/// remember to add it in two places. That is precisely what LIVENESS could not
+/// do: it guarded two hard-coded NAMES, so a new check was outside it until
+/// someone classified it (ARCHITECTURE_TRACE §33).
+pub fn run_all(
+    payload: &Value,
+    report_details: &[String],
+    record: Option<&Value>,
+    lines: Option<&[String]>,
+) -> GateReport {
+    let mut gate = GateReport::default();
+    gate.record(PRIVACY, check_privacy(payload, report_details));
+    gate.record(PROVENANCE, check_provenance(payload));
+    gate.record(SELECTION, check_selection(payload));
+    gate.record(COMPARISON, check_comparison(record));
+    gate.record(PERSISTENCE, check_persistence(lines));
+    gate
+}
 
 /// **PRIVACY — no manuscript text crosses the proxy boundary.**
 ///
@@ -168,8 +189,14 @@ pub const LIVENESS: &str = "LIVENESS";
 /// the compiled report appears anywhere in the serialized payload. The second is
 /// what makes this end to end rather than structural.
 pub fn check_privacy(payload: &Value, report_details: &[String]) -> GateOutcome {
-    let empty = Vec::new();
-    let findings = payload["summary"]["findings"].as_array().unwrap_or(&empty);
+    // ABSENT is not EMPTY. `findings: []` is a clean manuscript and Pass is
+    // correct there; a MISSING or non-array `findings` means nothing was
+    // readable, and reporting Pass on that is a check passing on input it never
+    // got. Found by the fixture that replaced LIVENESS, on its first run (§33).
+    // Typed absence per §4.12.
+    let Some(findings) = payload["summary"]["findings"].as_array() else {
+        return GateOutcome::skip("payload has no summary.findings array — nothing was readable");
+    };
     for f in findings {
         if !f["detail"].is_null() {
             return GateOutcome::fail(
@@ -194,7 +221,10 @@ pub fn check_privacy(payload: &Value, report_details: &[String]) -> GateOutcome 
 /// **PROVENANCE — only the nine permitted structured prefixes.**
 pub fn check_provenance(payload: &Value) -> GateOutcome {
     let empty = Vec::new();
-    for f in payload["summary"]["findings"].as_array().unwrap_or(&empty) {
+    let Some(findings) = payload["summary"]["findings"].as_array() else {
+        return GateOutcome::skip("payload has no summary.findings array — nothing was readable");
+    };
+    for f in findings {
         for e in f["evidence"].as_array().unwrap_or(&empty) {
             let Some(s) = e.as_str() else {
                 return GateOutcome::fail(PROVENANCE, format!("non-string evidence entry: {e}"));
@@ -213,12 +243,19 @@ pub fn check_provenance(payload: &Value) -> GateOutcome {
 /// **SELECTION — the payload caps are never exceeded.**
 pub fn check_selection(payload: &Value) -> GateOutcome {
     use gaply_core::reviewer_agent::{MAX_CHECKLIST, MAX_FINDINGS};
-    let empty = Vec::new();
-    let f = payload["summary"]["findings"].as_array().unwrap_or(&empty).len();
+    let (Some(fs), Some(cs)) = (
+        payload["summary"]["findings"].as_array(),
+        payload["summary"]["checklist"].as_array(),
+    ) else {
+        return GateOutcome::skip(
+            "payload has no summary.findings/checklist arrays — nothing was readable",
+        );
+    };
+    let f = fs.len();
     if f > MAX_FINDINGS {
         return GateOutcome::fail(SELECTION, format!("{f} findings exceeds MAX_FINDINGS {MAX_FINDINGS}"));
     }
-    let c = payload["summary"]["checklist"].as_array().unwrap_or(&empty).len();
+    let c = cs.len();
     if c > MAX_CHECKLIST {
         return GateOutcome::fail(SELECTION, format!("{c} checklist items exceeds MAX_CHECKLIST {MAX_CHECKLIST}"));
     }
@@ -264,24 +301,83 @@ pub fn check_persistence(lines: Option<&[String]>) -> GateOutcome {
     }
 }
 
-/// **LIVENESS — a proxy-dependent invariant must never report Pass when the
-/// proxy was unavailable.**
-///
-/// The meta-invariant: it checks the REPORT, not the product. §4.12 applied to
-/// the instrument itself.
-pub fn check_liveness(report: &GateReport, proxy_available: bool) -> GateOutcome {
-    if proxy_available {
-        return GateOutcome::Pass;
+
+#[cfg(test)]
+mod all_unavailable {
+    //! **THE REPLACEMENT FOR LIVENESS.**
+    //!
+    //! LIVENESS asked *"did a proxy-dependent invariant report Pass with no
+    //! proxy?"* and answered it by consulting a hard-coded list of two names.
+    //! This asks the same question by CONSTRUCTION: feed every check inputs it
+    //! cannot read, and assert that none of them claims Pass.
+    //!
+    //! **Stronger on every axis.** It tests the property rather than a name
+    //! list; it needs no `proxy_available`, so it cannot be disabled by a
+    //! keychain entry; it runs at build time rather than on a gate run; and it
+    //! cannot go stale when an invariant changes its inputs, because the
+    //! assertion is over behaviour rather than over a classification.
+    use super::*;
+    use serde_json::json;
+
+    /// A comparison record whose every metric is `Unavailable`.
+    ///
+    /// `Metric` is `#[serde(tag = "status")]` with `Unavailable { source,
+    /// requires }` — **no `value` key** — so `record["x"]["value"]` is `Null`
+    /// and a check literally cannot read what is not there. That is a
+    /// STRUCTURAL property of the type, not a convention the check follows.
+    fn all_unavailable_record() -> serde_json::Value {
+        let u = json!({ "status": "unavailable", "source": "reviewer_output",
+                        "requires": "requires_live_proxy" });
+        json!({
+            "shadow_findings_sent": u,
+            "wholesale_findings_sent": u,
+            "wholesale_publication_probability": u,
+            "recommendation_agreement": u,
+        })
     }
-    for (name, outcome) in report.results() {
-        if matches!(*name, COMPARISON | PERSISTENCE) && outcome.is_pass() {
-            return GateOutcome::fail(
-                LIVENESS,
-                format!("{name} reported Pass with no proxy available — an implicit pass"),
+
+    /// **No check may report Pass on inputs it could not read.**
+    ///
+    /// Iterating `run_all` rather than naming COMPARISON is the entire point.
+    /// Today COMPARISON is the only check that reads a metric, so a fixture
+    /// naming it would assert the same thing and look equivalent. **The
+    /// difference appears when a seventh check arrives — which is exactly when
+    /// LIVENESS failed.**
+    #[test]
+    fn no_invariant_reports_pass_on_inputs_it_could_not_read() {
+        let report = run_all(
+            &serde_json::Value::Null,          // no payload
+            &[],                               // no report details
+            Some(&all_unavailable_record()),   // every metric Unavailable
+            None,                              // sink unreadable
+        );
+        assert_eq!(report.results().len(), 5, "run_all must enumerate every invariant");
+        for (name, outcome) in report.results() {
+            assert!(
+                !outcome.is_pass(),
+                "{name} reported Pass on inputs it could not read: {outcome:?}"
             );
         }
+        let cov = report.coverage();
+        assert!(cov.contains("not evaluated:"), "coverage must name what went unevaluated: {cov}");
     }
-    GateOutcome::Pass
+
+    /// The distinction the guards turn on: ABSENT is not EMPTY.
+    ///
+    /// A genuinely clean manuscript has `findings: []` and every check must
+    /// still PASS on it — otherwise the guards above would have converted a
+    /// correct result into a false skip.
+    #[test]
+    fn an_empty_findings_array_still_passes() {
+        let payload = json!({ "summary": { "findings": [], "checklist": [] } });
+        let report = run_all(&payload, &[], None, None);
+        for (name, outcome) in report.results() {
+            if matches!(*name, COMPARISON | PERSISTENCE) {
+                continue; // no record, no sink — skipped for unrelated reasons
+            }
+            assert!(outcome.is_pass(), "{name} must pass on a clean empty payload: {outcome:?}");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -426,25 +522,7 @@ mod tests {
         assert!(!c.is_pass() && !p.is_pass(), "a skip must never read as a pass");
     }
 
-    #[test]
-    fn liveness_fails_when_a_proxy_dependent_invariant_passed_without_a_proxy() {
-        let mut r = GateReport::default();
-        r.record(COMPARISON, GateOutcome::Pass);
-        match check_liveness(&r, false) {
-            GateOutcome::Fail { invariant, detail } => {
-                assert_eq!(invariant, LIVENESS);
-                assert!(detail.contains("implicit pass"), "{detail}");
-            }
-            o => panic!("expected LIVENESS failure, got {o:?}"),
-        }
-    }
 
-    #[test]
-    fn liveness_accepts_a_skip_without_a_proxy() {
-        let mut r = GateReport::default();
-        r.record(COMPARISON, GateOutcome::skip("no proxy"));
-        assert_eq!(check_liveness(&r, false), GateOutcome::Pass);
-    }
 
     #[test]
     fn the_summary_can_never_report_passes_without_skips() {

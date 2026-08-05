@@ -3488,3 +3488,111 @@ let proxy_available = ProxyReqwestClient::from_env().is_ok();
 3. **What should LIVENESS assert once COMPARISON and PERSISTENCE are local?** It may have no proxy-dependent invariant left to guard, in which case it is either retired or repointed at whatever genuinely is one.
 
 **Question 2 is the one worth answering first**: a hard-coded list of "which invariants need the proxy" is derived state duplicating what `MetricAvailability` already records — **§11.5's shape, and the reason this went stale silently.**
+
+## 33. LIVENESS deleted — the property moved into the data model
+
+### 33.1 The claim, stated narrowly
+
+> **For the current six invariants, LIVENESS is redundant, because none of them consume proxy-dependent metrics.**
+
+**Deliberately not "a redundant copy of the data model".** That overclaims: it would leave no room for a future invariant that genuinely does depend on live proxy data, and such an invariant is entirely plausible — anything reading `wholesale_publication_probability` or `recommendation_agreement` would be one.
+
+#### The closure that makes the narrow claim safe
+
+**If such an invariant is added later, the all-unavailable fixture catches it ON THE DAY IT IS WRITTEN, without anyone classifying it.** The check is added to `run_all`, the fixture iterates `run_all`, and a check that claims Pass on an unreadable metric fails the build immediately.
+
+> **That is exactly the case LIVENESS did not handle.** It guarded two hard-coded NAMES, so a seventh invariant was outside it until someone remembered to classify it — and nobody would, because the list is in a different file from the check.
+
+**The honest narrow claim and the replacement fit together**: the claim is true only of today's six, and the fixture is what makes tomorrow's seventh safe without widening the claim.
+
+#### The consequence for any future "liveness" concept
+
+> **Treat it as a FRESH DESIGN PROBLEM, not something preserved because it existed historically.**
+
+**And only if the new invariant cannot derive its requirement from the availability of the metrics it actually consumes.** If it can — and every metric-reading check can, because `Metric` carries its own status — then the requirement is already in the data and a second expression of it is the duplication this section exists to remove.
+
+### 33.2 The argument, recorded so the deletion is not re-litigated
+
+**1. The derived REQUIRED set is EMPTY, over the inputs a check READS.**
+
+| Check | Consults a `Metric`? |
+|---|---|
+| PRIVACY, PROVENANCE, SELECTION | no — the payload, built locally by the pure `build_review_payload` |
+| PERSISTENCE | no — line count and parseability |
+| **COMPARISON** | **yes — two, both `DeterministicLocal` and `Observed` offline** |
+
+**No invariant resists the derivation, so there is no residual list.** A guard over an empty set is a no-op with a name.
+
+**2. `Metric`'s shape makes "cannot read what is not there" STRUCTURAL, not conventional.**
+
+```rust
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum Metric<T> {
+    Observed { value: T, source: MetricSource },
+    Unavailable { source: MetricSource, requires: MetricAvailability },   // NO `value` KEY
+}
+```
+
+`record["x"]["value"]` is `Null` for an unavailable metric, `as_u64()` yields `None`, and `check_comparison`'s `_` arm returns **Skipped**. **The property lives in the type's serialization at the point of use.**
+
+**3. LIVENESS guarded two hard-coded names, not the property.** A check doing `.as_u64().unwrap_or(0)` would have passed on missing data and LIVENESS would not have noticed unless its name were in the list.
+
+**4. Deleting it removes the latent spurious failure §32.10 introduced.** With COMPARISON and PERSISTENCE reachable offline, `check_liveness(_, false)` would have FAILED every run on a machine with no keychain entry. There is no `proxy_available` left to mis-measure.
+
+### 33.3 The naive derivation, falsified — with its case
+
+**Tempting and wrong:** *"an invariant is proxy-dependent iff any metric in the record is `Unavailable{RequiresLiveProxy}`."*
+
+**Run 23's record falsifies it directly**, and `build_comparison_report` confirms the shape is structural rather than incidental to that capture:
+
+```
+wholesale_publication_probability  unavailable | requires: requires_live_proxy   (:385)
+recommendation_agreement           unavailable | requires: requires_live_proxy   (:395)
+wholesale_findings_sent            12 | source: deterministic_local | observed   (unconditional)
+shadow_findings_sent               12 | source: deterministic_local | observed   (iff shadow ran)
+```
+
+> **An unavailable proxy metric sat directly beside an evaluable invariant. COMPARISON reads the second pair and never the first.** Deriving from what the RECORD CARRIES marks COMPARISON proxy-dependent; deriving from what the CHECK READS does not.
+
+**This paragraph exists to stop the wrong derivation being rediscovered**, because it is the obvious one and it is available in one line of code.
+
+### 33.4 The fixture found a real defect on its first run
+
+**The replacement was not merely equivalent to what it replaced.** Feeding every check inputs it cannot read exposed that **PRIVACY, PROVENANCE and SELECTION all returned Pass on an unreadable payload** — `payload["summary"]["findings"].as_array().unwrap_or(&empty)` yields an empty slice, the loop does not execute, and the check reports Pass.
+
+> **A check passing on input it never got — the exact class LIVENESS was nominally about, in three invariants LIVENESS never guarded.**
+
+**A THIRD option was taken, beyond exclude-or-accept.** The two offered were to exclude the trivially-passing checks from the fixture or to accept the trivial pass. **Both would have recorded a known-wrong Pass as acceptable.** Instead the checks now distinguish **ABSENT from EMPTY**:
+
+* `findings: []` — a genuinely clean manuscript. **Pass is correct**, and `an_empty_findings_array_still_passes` pins it.
+* `findings` missing or not an array — **nothing was readable. Skipped**, with the reason, per §4.12.
+
+**Mutation-verified, two mutations, two kills:** reverting PRIVACY's guard reproduces the defect; removing a check from `run_all` fails the enumeration assertion.
+
+### 33.5 `run_all` is the structural half
+
+**Both the runner and the fixture call `run_all`.** A seventh invariant is added in one place and is covered in both. **Today COMPARISON is the only metric-reading check, so a fixture NAMING it would assert the same thing and look equivalent — the difference appears when a seventh check arrives, which is exactly when LIVENESS failed.**
+
+### 33.6 Coverage, and the vacuity gap that remains
+
+> **Coverage remains COMPLETE. The vacuous meta-check was REMOVED rather than counted.**
+
+**The point is not six becoming five.** It is that **the denominator now contains only checks that test observable behaviour** — every entry in it can fail on some input.
+
+**The gap NARROWS WITHOUT CLOSING.** SELECTION still passes at 11 findings against a cap of 12: **evaluated as a function, untested as an invariant.** A fixture that exercises `MAX_FINDINGS` end to end remains open (§32.11) — run 23 produced 20 findings on a real manuscript, and no committed fixture produces more than 11.
+
+### 33.7 Sequencing — §28 is independent
+
+**No check reads `requires`.** The derivation asks only whether a value is `Observed`, which is the `status` tag; §28 refines the `requires` reason. **Independent.**
+
+**Interaction, a preference and not a dependency:** if §28's four causes land first, the all-unavailable fixture becomes four cases rather than one, so building it after §28 avoids a rewrite. **It was built now because LIVENESS's deletion needed a replacement in the same commit**, and widening one fixture is cheaper than leaving the deletion uncovered.
+
+### 33.8 The gate after deletion
+
+```
+  PASS  PRIVACY      PASS  COMPARISON
+  PASS  PROVENANCE   PASS  PERSISTENCE
+  PASS  SELECTION
+  5 PASS, 0 FAIL, 0 SKIPPED
+  no_failures: true
+```
