@@ -2895,3 +2895,36 @@ The code's own comment: *"wrong test / underpowered causal claim **invalidate th
 **The reasoning:** today's sentinel for Devanagari is **honest and rare** — most submissions to international journals carry Latin titles, so the marked case is the exception rather than the norm. **Solving it in TypeScript means embedding a font in a renderer that is being replaced; solving it in Rust means solving it once.**
 
 **What the renderer PR decides:** whether to embed Noto Sans / Noto Sans Devanagari (OFL, redistributable, ~450 KB and ~250 KB unsubsetted) or to keep tier 2's mark. **A bundle-size decision, not a technical one** — the technical answer is settled.
+
+### 31.19 The refactor justified itself on first compile
+
+**`report_with_sentinel` — the report fixture nine `reviewer_agent` tests share — carried `"agent": "Plagiarism"`. That is not a valid `AgentKind`; the serialized form is `"plagiarism"`.** Untyped JSON accepted it for the life of the test.
+
+> **Data that could never come from production, sitting in the codebase's own tests, caught the moment parsing became strict — before the refactor touched a single real report.**
+
+#### Does the test READ that field? No — and both halves of the answer matter
+
+**Checked rather than assumed.** The nine tests assert on sentinel absence (privacy), `similarity:` provenance, supplementary bounds, injection safety, `run_id`, the summary key set, and digest behaviour. **None asserts the agent's VALUE.** `summary_shape_is_pinned_to_the_format_version` asserts that `agent` is among the keys (`:1869-1872`), not what it contains.
+
+**So correcting the fixture changes what the test PARSES, not what it TESTS.**
+
+**One consequence that is not inert:** the payload's `summary.findings[0].agent` now serializes as `"plagiarism"` rather than passing `"Plagiarism"` through, which changes `summary_digest`'s input. **No test pins a literal digest** — a repo-wide search for a 64-hex literal returns nothing — so nothing breaks, and the digest tests compare digests to each other rather than to a constant.
+
+**The precise statement: inert for every assertion, not inert for the serialized bytes, and nothing depended on those bytes.**
+
+### 31.20 A tooling pattern, recorded on its second instance
+
+**`git checkout -- <file>` is not an undo for a mutation. It is an undo for the WORKING TREE.**
+
+During this refactor a mutation test was reverted with `git checkout --` on the assumption that the file was *"clean apart from the mutation"*. **It was not** — it carried the typed `build_review_payload`, `review_manuscript`, and two fixtures. All were discarded. Caught by a `grep` for the typed signature, and redone; the next mutation used a backup copy.
+
+**This is the SAME SHAPE as the `cd src-tauri` failure recorded earlier in this work:**
+
+| | Command | Did | Was wanted |
+|---|---|---|---|
+| 1 | `cd src-tauri && python3 …` | `cd` failed, the patch never applied, **exit 0** | apply a patch |
+| 2 | `git checkout -- file` | reverted the file to HEAD, **exit 0** | revert one edit |
+
+> **Both succeeded at what they do while doing something other than what was wanted, and both were caught by an EFFECT CHECK rather than by an exit code.**
+
+**Two instances is a pattern rather than two incidents.** The standing practice it argues for: **after any destructive or path-dependent command, assert the effect** — grep for the string that should be present, or `git status` for the file that should still be modified. An exit code reports whether the command ran, never whether it did the intended thing.

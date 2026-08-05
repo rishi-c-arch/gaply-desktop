@@ -1078,8 +1078,9 @@ fn extraction_derived_findings_yield_to_more_urgent_findings_at_the_reviewer_cap
         report_a.findings.len()
     );
 
-    let json_a = serde_json::to_value(&report_a).unwrap();
-    let (payload_a, sent_a) = build_review_payload(&json_a, &journal, &[], "run-a");
+    // The typed report is passed directly: the to_value round-trip existed only
+    // because build_review_payload could not accept it.
+    let (payload_a, sent_a) = build_review_payload(&report_a, &journal, &[], "run-a");
     assert_eq!(sent_a.findings.len(), REVIEWER_MAX_FINDINGS, "payload caps at top-N");
     assert!(
         payload_a["summary"]["findings_omitted"].as_u64().unwrap_or(0) > 0,
@@ -1110,8 +1111,7 @@ fn extraction_derived_findings_yield_to_more_urgent_findings_at_the_reviewer_cap
         report_b.findings.len()
     );
 
-    let json_b = serde_json::to_value(&report_b).unwrap();
-    let (payload_b, sent_b) = build_review_payload(&json_b, &journal, &[], "run-b");
+    let (payload_b, sent_b) = build_review_payload(&report_b, &journal, &[], "run-b");
     assert_eq!(sent_b.findings.len(), report_b.findings.len(), "nothing dropped when it fits");
     assert_eq!(
         payload_b["summary"]["findings_omitted"].as_u64().unwrap_or(0),

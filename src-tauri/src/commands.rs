@@ -226,6 +226,16 @@ pub fn check_plagiarism_exact(
 /// Fetch a compiled report by id (the `report_id` from AnalysisEvent::Finished).
 /// Returns the REAL cached compile_report output — the report viewer routes to
 /// this instead of the sample fixture. NotFound if it expired / never existed.
+///
+/// # DELIBERATELY UNTYPED, unlike `run_publishready`'s parse
+///
+/// This hands the frontend the report it already renders, so a typed parse would
+/// add a failure mode to a path that has none and buy nothing — the wire is JSON
+/// either way. `run_publishready` types its parse because the value FEEDS THE
+/// AGGREGATOR, where a silent fallback becomes a wrong verdict identity (§31.7).
+///
+/// The asymmetry is the boundary: TYPE WHAT YOU COMPUTE FROM, pass through what
+/// you only forward.
 #[tauri::command]
 #[tracing::instrument(skip(state))]
 pub fn get_report(state: State<'_, AppState>, report_id: String) -> Result<serde_json::Value, GaplyError> {
@@ -543,8 +553,31 @@ pub async fn run_publishready(
         let json = db
             .cache_get(&crate::pipeline::report_cache_key(&report_id), gaply_core::now_epoch())?
             .ok_or_else(|| GaplyError::Internal("compiled report not found".into()))?;
-        let report: serde_json::Value =
-            serde_json::from_str(&json).map_err(|e| GaplyError::Internal(format!("parse report: {e}")))?;
+        // The escalation path still reads `report["evidence"]` as JSON — PR-2
+        // already made that path WITHHOLD rather than default, so it is correct
+        // as it stands and is deliberately unchanged.
+        let report_json: serde_json::Value = serde_json::from_str(&json)
+            .map_err(|e| GaplyError::Internal(format!("parse report: {e}")))?;
+        // TYPED. Strict parsing replaces four silent `unwrap_or` fallbacks — one
+        // of which let a malformed title become "" INSIDE BOTH DIGESTS (§31.7),
+        // producing a stable but wrong identity instead of a failure.
+        //
+        // The message states the OBSERVATION and the REMEDY and names no cause.
+        // That is not vagueness: putting the schema version in the cache key
+        // (`report_cache_key`) made STALENESS UNREACHABLE — a stale-shape report
+        // MISSES the key rather than mis-parsing — so a parse failure on a
+        // matching key can no longer be explained by a version mismatch, and
+        // naming one would be a guess. Re-running is the remedy either way.
+        let report: gaply_core::report::PublishReadyReport = serde_json::from_str(&json)
+            .map_err(|e| {
+                tracing::warn!(run_id = %report_id, error = %e, "cached report failed to parse");
+                GaplyError::Internal(
+                    "This saved report could not be read. Please run the analysis again to \
+                     generate a new report. If it keeps happening, that may indicate a bug — \
+                     email helloresearcher@gaply.in."
+                        .to_string(),
+                )
+            })?;
 
         // 2) Parse any supplementary files (memory-capped, app-crate) → JSON. The
         //    reviewer_agent llm_safe's every string; a file that fails to parse is
@@ -582,7 +615,7 @@ pub async fn run_publishready(
                 &db,
                 esc_proxy.as_ref().map(|c| c as &dyn ProxyClient),
                 &report_id,
-                &report,
+                &report_json,
                 &esc_policy,
                 gaply_core::now_epoch(),
             )
@@ -716,7 +749,16 @@ pub async fn run_publishready(
         }
 
         let shadow_reviewer = shadow_outcome.map(|o| o.letter);
-        Ok(PublishReadyOutcome { report, reviewer, proxy_payload, run_id: report_id, shadow_reviewer })
+        Ok(PublishReadyOutcome {
+            // The IPC field stays JSON: the frontend renders it and does not need
+            // the Rust type. Serializing the TYPED value guarantees it is exactly
+            // what parsed, rather than the separately-parsed `report_json`.
+            report: serde_json::to_value(&report).unwrap_or(report_json),
+            reviewer,
+            proxy_payload,
+            run_id: report_id,
+            shadow_reviewer,
+        })
     })
     .await
     .map_err(|e| GaplyError::Internal(format!("publishready task panicked: {e}")))?

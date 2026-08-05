@@ -54,7 +54,7 @@ const REPORT_TTL_SECS: i64 = 30 * 24 * 3600;
 /// them wrong, with nothing to tell them apart. Bumping the key makes stale
 /// entries unreachable instead.
 ///
-/// # `EVIDENCE_SCHEMA_VERSION` is part of the key
+/// # `CACHED_REPORT_SCHEMA_VERSION` is part of the key
 ///
 /// A cached report carries a serialized `Vec<EvidenceRecord>` under `evidence`,
 /// and `escalation.rs:72` deserializes it with `unwrap_or_default()`. **A cached
@@ -71,12 +71,12 @@ const REPORT_TTL_SECS: i64 = 30 * 24 * 3600;
 /// genuinely malformed record still deserializes to empty.
 ///
 /// **RELEASE CONSTRAINT: any schema evolution that affects cached-report
-/// compatibility must require an `EVIDENCE_SCHEMA_VERSION` bump.** Compatibility,
+/// compatibility must require an `CACHED_REPORT_SCHEMA_VERSION` bump.** Compatibility,
 /// not modification — an optional field with a serde default leaves cached
 /// reports readable and needs no bump. Requiring one for every change would
 /// train reflexive bumping, which is how versions stop meaning anything.
 pub(crate) fn report_cache_key(report_id: &str) -> String {
-    format!("report:v2:e{}:{report_id}", gaply_core::evidence::EVIDENCE_SCHEMA_VERSION)
+    format!("report:v2:e{}:{report_id}", gaply_core::evidence::CACHED_REPORT_SCHEMA_VERSION)
 }
 /// The six agent lanes the frontend renders. Debate + compile happen after,
 /// under the "synthesis" pseudo-stage.
@@ -452,7 +452,7 @@ mod tests {
         assert!(key.starts_with("report:v2:"), "the v2 prefix is retained: {key}");
         assert!(key.ends_with(":42"), "the report id is the last segment: {key}");
         assert!(
-            key.contains(&format!("e{}", gaply_core::evidence::EVIDENCE_SCHEMA_VERSION)),
+            key.contains(&format!("e{}", gaply_core::evidence::CACHED_REPORT_SCHEMA_VERSION)),
             "the evidence schema version must be IN the key, or a stale cached report \
              is read back with a mismatched EvidenceRecord shape: {key}"
         );
@@ -461,7 +461,7 @@ mod tests {
         // format, so the test fails if the version is ever dropped from it.
         let same_id_other_version = format!(
             "report:v2:e{}:42",
-            gaply_core::evidence::EVIDENCE_SCHEMA_VERSION + 1
+            gaply_core::evidence::CACHED_REPORT_SCHEMA_VERSION + 1
         );
         assert_ne!(key, same_id_other_version, "a version change must change the key");
         // Same version, different manuscript -> still distinct.

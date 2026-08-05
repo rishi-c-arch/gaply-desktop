@@ -497,6 +497,30 @@ The distinction matters: an assertion on `Finding.title` would pass while the PD
 
 **Not built.** Recorded as the shape it would take, so it is not rediscovered either.
 
+### 4.21 Standing rule — a new scholar should understand the label without learning Gaply's internals
+
+> **User-facing terminology names what the reader needs to know, not what the implementation calls it.**
+
+**Every terminology decision in the report workstream satisfies it:**
+
+| Internal | User-facing |
+|---|---|
+| `ProcessState` | **Technical check** |
+| `Grounded` | **Supported by evidence** |
+| `Counted` | **Used in recommendation** |
+| `Major` | **Important issue** |
+| `Critical` | **Unsupported conclusion** |
+
+#### The last one is the instructive case
+
+**The four finding labels split into TWO FAMILIES, not a flat severity ladder.** *Important issue*, *Smaller issue* and *Additional note* all describe **things to fix**. *Unsupported conclusion* describes **a claim that cannot currently be supported.**
+
+> **The semantic break teaches a reader that `Critical` is categorically different WITHOUT explaining anything about the engine.** It names **what is wrong** rather than **how bad it is**.
+
+That is the general shape: a good label carries the distinction the reader must act on, and carries no trace of where the distinction came from. `Critical` communicates severity and hides kind; *Unsupported conclusion* communicates kind, and severity follows from it.
+
+**The engine's own reasoning agrees** — `validate.rs:58-66`'s comment says the two rules that emit `Critical` *"invalidate the analysis"*, which is a statement about **kind**. The internal name was the one that lost information.
+
 ---
 
 ## 5. Evaluation Protocol

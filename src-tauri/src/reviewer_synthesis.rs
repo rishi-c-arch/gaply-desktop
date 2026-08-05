@@ -29,7 +29,7 @@ use serde_json::Value;
 
 use gaply_core::evidence::ClaimKind;
 use gaply_core::evidence_store::evidence_by_run;
-use gaply_core::report::FindingSeverity;
+use gaply_core::report::{FindingSeverity, PublishReadyReport};
 use gaply_core::reviewer_agent::{LaneExamination, VerdictWithheld};
 use gaply_core::swarm::AgentKind;
 use gaply_core::reviewer_agent::{
@@ -82,25 +82,26 @@ fn parse_severity(s: &str) -> FindingSeverity {
 pub fn assemble_reviewer_input(
     db: &Database,
     run_id: &str,
-    report: &Value,
+    report: &PublishReadyReport,
     journal: &TargetJournal,
     supplementary: &[Value],
     withheld: Option<VerdictWithheld>,
     lanes: LaneExamination,
 ) -> Result<ReviewerInput, GaplyError> {
     let rows = evidence_by_run(db, run_id)?;
-    let empty: Vec<Value> = Vec::new();
-    let report_findings = report["findings"].as_array().unwrap_or(&empty);
+    let report_findings = &report.findings;
 
     let findings = rows
         .into_iter()
         .map(|row| {
             // Join the title by PARSED f{N} index (not row position).
+            // TYPED: a missing index still yields "" (the join is positional and
+            // a store row may outlive its report entry), but a PRESENT finding
+            // can no longer have a non-string title silently become "".
             let title = parse_finding_index(&row.finding_id)
                 .and_then(|idx| report_findings.get(idx))
-                .and_then(|f| f["title"].as_str())
-                .unwrap_or("")
-                .to_string();
+                .map(|f| f.title.clone())
+                .unwrap_or_default();
             ReviewerFinding {
                 severity: parse_severity(&row.severity),
                 confidence: row.confidence,
@@ -116,11 +117,15 @@ pub fn assemble_reviewer_input(
         })
         .collect();
 
-    let checklist = report["checklist"].as_array().cloned().unwrap_or_default();
+    let checklist = report
+        .checklist
+        .iter()
+        .map(|c| serde_json::to_value(c).unwrap_or(Value::Null))
+        .collect();
     let metadata = ReviewerMeta {
         run_id: run_id.to_string(),
-        overall_verdict: report["verdict"].as_str().unwrap_or("").to_string(),
-        combined_confidence: report["combined_confidence"].as_f64().unwrap_or(0.0),
+        overall_verdict: report.verdict.clone(),
+        combined_confidence: report.combined_confidence,
     };
 
     Ok(ReviewerInput {
@@ -160,7 +165,7 @@ pub fn run_shadow_synthesis(
     db: &Database,
     proxy: Option<&dyn ProxyClient>,
     run_id: &str,
-    report: &Value,
+    report: &PublishReadyReport,
     journal: &TargetJournal,
     supplementary: &[Value],
     withheld: Option<VerdictWithheld>,
@@ -222,14 +227,41 @@ mod tests {
 
     // Build a minimal report JSON whose findings line up positionally with the
     // f{N} ids we persist.
-    fn report(titles: &[&str]) -> Value {
-        let findings: Vec<Value> = titles.iter().map(|t| json!({ "title": t })).collect();
-        json!({
+    /// A minimal well-formed report. Deserialized from the same JSON the fixture
+    /// always built — which only became possible with PublishReadyReport's
+    /// Deserialize derive, and is itself the smallest demonstration of it.
+    fn report(titles: &[&str]) -> PublishReadyReport {
+        let findings: Vec<Value> = titles
+            .iter()
+            .map(|t| {
+                json!({
+                    "severity": "minor",
+                    "tier": "ai_assessed_moderate",
+                    "certainty_label": "AI-assessed, moderate confidence",
+                    "agent": "extraction",
+                    "claim": "manuscript_defect",
+                    "title": t,
+                    "detail": "d",
+                    "confidence": 0.5,
+                    "provenance": ["signal:test"],
+                })
+            })
+            .collect();
+        serde_json::from_value(json!({
             "verdict": "concern",
             "combined_confidence": 0.66,
             "findings": findings,
-            "checklist": [ { "requirement": "IMRaD present", "passed": true } ],
-        })
+            "evidence": [],
+            "checklist": [
+                { "requirement": "IMRaD present", "passed": true, "detail": "ok",
+                  "guideline_source": null }
+            ],
+            "debate": { "rounds_run": 1, "converged": true,
+                        "overridden_by_constraint": false,
+                        "rejected_agents": [], "revised_agents": [] },
+            "disclaimer": "d",
+        }))
+        .expect("the fixture must be a well-formed report")
     }
 
     fn record(id: &str, agent: AgentKind, severity: Sev, confidence: f64) -> EvidenceRecord {
@@ -684,6 +716,75 @@ mod tests {
         assert_eq!(caveats.len(), 1, "the caveat must reach the letter: {:?}", letter.warnings);
         assert!(caveats[0].contains("Citation verification"));
         assert!(caveats[0].contains("no references were parsed"));
+    }
+
+    /// BLAST RADIUS. The typed-consumer refactor must change no verdict on a
+    /// well-formed report, so a parse regression and a decision regression stay
+    /// attributable — the same separation PR-1's pin enforced.
+    #[test]
+    fn typing_the_report_does_not_change_the_recommendation() {
+        use gaply_core::reviewer_agent::aggregate_reviewer_verdict;
+        let db = Database::in_memory().unwrap();
+        let run_id = "run-typed";
+        let records = vec![
+            EvidenceRecord::at_source("f1".to_string(), AgentKind::ValidationMaths, ClaimKind::ManuscriptDefect, Sev::Major, 1.0, vec![]),
+            EvidenceRecord::at_source("f2".to_string(), AgentKind::Extraction, ClaimKind::ManuscriptDefect, Sev::Minor, 0.5, vec![]),
+        ];
+        evidence_persist(&db, run_id, &records, gaply_core::now_epoch()).unwrap();
+        let input = assemble_reviewer_input(
+            &db, run_id, &report(&["a", "b"]), &journal(), &[], None, all_examined(),
+        )
+        .unwrap();
+        let agg = aggregate_reviewer_verdict(&input);
+        assert_eq!(agg.verdict.recommendation(), Some(Recommendation::MajorRevision));
+        assert_eq!(agg.verdict.probability(), Some(0.30));
+        assert_eq!(agg.breakdown.major.total(), 1);
+        assert_eq!(agg.breakdown.minor.total(), 1);
+    }
+
+    /// THE DEFECT THE TYPING REMOVES. A malformed title used to become "" via
+    /// `unwrap_or("")` — and `title` sits inside BOTH digests (§31.7), so a
+    /// malformed report produced a STABLE BUT WRONG identity rather than
+    /// failing. It must now fail to parse.
+    #[test]
+    fn a_malformed_title_fails_to_parse_instead_of_yielding_a_digest() {
+        use gaply_core::report::PublishReadyReport;
+        let malformed = json!({
+            "verdict": "concern",
+            "combined_confidence": 0.5,
+            "findings": [{
+                "severity": "major", "tier": "ai_assessed_moderate",
+                "certainty_label": "x", "agent": "extraction",
+                "claim": "manuscript_defect",
+                "title": 42,                       // not a string
+                "detail": "d", "confidence": 0.5, "provenance": []
+            }],
+            "evidence": [], "checklist": [],
+            "debate": {"rounds_run":1,"converged":true,"overridden_by_constraint":false,
+                       "rejected_agents":[],"revised_agents":[]},
+            "disclaimer": "d"
+        });
+        let parsed: Result<PublishReadyReport, _> = serde_json::from_value(malformed);
+        assert!(
+            parsed.is_err(),
+            "a non-string title must FAIL, not silently become \"\" inside the digests"
+        );
+
+        // A MISSING title fails too — the old code returned "" for both.
+        let missing = json!({
+            "verdict": "concern", "combined_confidence": 0.5,
+            "findings": [{
+                "severity": "major", "tier": "ai_assessed_moderate",
+                "certainty_label": "x", "agent": "extraction",
+                "claim": "manuscript_defect",
+                "detail": "d", "confidence": 0.5, "provenance": []
+            }],
+            "evidence": [], "checklist": [],
+            "debate": {"rounds_run":1,"converged":true,"overridden_by_constraint":false,
+                       "rejected_agents":[],"revised_agents":[]},
+            "disclaimer": "d"
+        });
+        assert!(serde_json::from_value::<PublishReadyReport>(missing).is_err());
     }
 
     #[test]

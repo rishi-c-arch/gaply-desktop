@@ -490,52 +490,51 @@ pub fn summary_digest(payload: &Value) -> String {
 }
 
 pub fn build_review_payload(
-    report: &Value,
+    report: &crate::report::PublishReadyReport,
     journal: &TargetJournal,
     supplementary: &[Value],
     run_id: &str,
 ) -> (Value, SentIds) {
-    let empty: Vec<Value> = Vec::new();
-    let all_findings = report["findings"].as_array().unwrap_or(&empty);
-
+    // TYPED. Every `unwrap_or` this replaced was a SILENT FALLBACK: a missing or
+    // non-string title became "", and `title` sits inside BOTH digests (§31.7),
+    // so a malformed report produced a stable but WRONG identity instead of
+    // failing. Parsing now rejects it at the boundary.
     let mut sent_ids = Vec::new();
     let mut payload_findings = Vec::new();
-    for (i, f) in all_findings.iter().take(MAX_FINDINGS).enumerate() {
+    for (i, f) in report.findings.iter().take(MAX_FINDINGS).enumerate() {
         let id = format!("f{}", i + 1);
         // Structured provenance ONLY — a raw excerpt is dropped here.
-        let evidence: Vec<String> = f["provenance"]
-            .as_array()
-            .unwrap_or(&empty)
+        let evidence: Vec<String> = f
+            .provenance
             .iter()
-            .filter_map(|p| p.as_str())
             .filter(|p| is_structured_provenance(p))
-            .map(clamp)
+            .map(|p| clamp(p))
             .collect();
         payload_findings.push(json!({
             "id": id,
-            "agent": f["agent"],
-            "tier": f["tier"],
-            "severity": f["severity"],
+            "agent": f.agent,
+            "tier": f.tier,
+            "severity": f.severity,
             // title only — `detail` is deliberately never read (privacy).
-            "title": clamp(f["title"].as_str().unwrap_or("")),
-            "confidence": f["confidence"],
+            "title": clamp(&f.title),
+            "confidence": f.confidence,
             "evidence": evidence,
         }));
         sent_ids.push(id);
     }
-    let dropped_findings = all_findings.len().saturating_sub(payload_findings.len());
+    let dropped_findings = report.findings.len().saturating_sub(payload_findings.len());
     if dropped_findings > 0 {
         tracing::info!(dropped_findings, "reviewer payload bounded to top-{MAX_FINDINGS} findings");
     }
 
     let mut checklist_ids = Vec::new();
     let mut checklist = Vec::new();
-    for (i, c) in report["checklist"].as_array().unwrap_or(&empty).iter().take(MAX_CHECKLIST).enumerate() {
+    for (i, c) in report.checklist.iter().take(MAX_CHECKLIST).enumerate() {
         let id = format!("chk{}", i + 1);
         checklist.push(json!({
             "id": id,
-            "requirement": clamp(c["requirement"].as_str().unwrap_or("")),
-            "passed": c["passed"],
+            "requirement": clamp(&c.requirement),
+            "passed": c.passed,
         }));
         checklist_ids.push(id);
     }
@@ -554,7 +553,7 @@ pub fn build_review_payload(
         "instruction": REVIEWER_INSTRUCTION,
         "summary": {
             "journal": { "name": clamp(&journal.name), "quartile": clamp(&journal.quartile) },
-            "overall_verdict": clamp(report["verdict"].as_str().unwrap_or("")),
+            "overall_verdict": clamp(&report.verdict),
             "findings_omitted": dropped_findings,
             "findings": payload_findings,
             "checklist": checklist,
@@ -725,7 +724,7 @@ fn gate_alternatives(
 /// [`build_review_payload`] and [`gate_reviewer_response`] directly.
 pub fn review_manuscript(
     proxy: &dyn ProxyClient,
-    report: &Value,
+    report: &crate::report::PublishReadyReport,
     journal: &TargetJournal,
     supplementary: &[Value],
     run_id: &str,
@@ -1510,18 +1509,31 @@ mod tests {
 
     /// A report whose finding.detail AND a non-structured provenance entry both
     /// carry the manuscript sentinel — neither must reach the payload.
-    fn report_with_sentinel() -> Value {
-        json!({
+    /// Well-formed and TYPED. The `agent` value moved from `"Plagiarism"` to
+    /// `"plagiarism"`: the old fixture was untyped JSON, so a value that is not a
+    /// valid `AgentKind` passed silently. Strict parsing rejects it — precisely
+    /// the class of silent acceptance this refactor removes.
+    fn report_with_sentinel() -> crate::report::PublishReadyReport {
+        serde_json::from_value(json!({
             "verdict": "revise",
+            "combined_confidence": 0.5,
             "findings": [{
                 "severity": "major", "tier": "ai_assessed_moderate",
-                "agent": "Plagiarism", "title": "Possible overlap with prior work",
+                "certainty_label": "AI-assessed, moderate confidence",
+                "agent": "plagiarism", "claim": "manuscript_defect",
+                "title": "Possible overlap with prior work",
                 "detail": format!("The sentence '{SENTINEL}' overlaps a source."),
                 "confidence": 0.7,
                 "provenance": ["similarity:0.82", format!("excerpt: {SENTINEL}"), "rule:not-a-prefix-match"]
             }],
-            "checklist": [{"requirement": "Structured abstract", "passed": false, "guideline_source": "http://j/g"}]
-        })
+            "evidence": [],
+            "checklist": [{"requirement": "Structured abstract", "passed": false,
+                           "detail": "", "guideline_source": "http://j/g"}],
+            "debate": {"rounds_run": 1, "converged": true, "overridden_by_constraint": false,
+                       "rejected_agents": [], "revised_agents": []},
+            "disclaimer": "d"
+        }))
+        .expect("the fixture must be a well-formed report")
     }
 
     /// Recursively sum string-leaf chars + max field length (mirror the proxy
@@ -1581,10 +1593,19 @@ mod tests {
     #[test]
     fn payload_bounds_finding_count() {
         let findings: Vec<Value> = (0..50)
-            .map(|i| json!({"severity":"minor","tier":"ai_assessed_moderate","agent":"AiDetection",
+            .map(|i| json!({"severity":"minor","tier":"ai_assessed_moderate",
+                "certainty_label":"AI-assessed, moderate confidence",
+                "agent":"ai_detection","claim":"manuscript_defect",
                 "title": format!("finding {i}"), "detail":"x", "confidence":0.5, "provenance":["rule:x"]}))
             .collect();
-        let report = json!({"verdict":"revise","findings": findings, "checklist": []});
+        let report: crate::report::PublishReadyReport = serde_json::from_value(json!({
+            "verdict":"revise","combined_confidence":0.5,"findings": findings,
+            "evidence": [], "checklist": [],
+            "debate": {"rounds_run":1,"converged":true,"overridden_by_constraint":false,
+                       "rejected_agents":[],"revised_agents":[]},
+            "disclaimer":"d"
+        }))
+        .expect("well-formed");
         let (payload, sent) = build_review_payload(&report, &journal(), &[], "run-test");
         assert_eq!(sent.findings.len(), MAX_FINDINGS);
         assert_eq!(payload["summary"]["findings_omitted"], json!(50 - MAX_FINDINGS));

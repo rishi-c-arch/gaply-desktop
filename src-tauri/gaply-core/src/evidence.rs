@@ -17,7 +17,16 @@ use crate::report::{Finding, FindingSeverity};
 use crate::swarm::AgentKind;
 
 /// Bump when a change AFFECTS CACHED-REPORT COMPATIBILITY — not on every
-/// modification. An optional field with a serde default leaves cached reports
+/// modification.
+///
+/// **Renamed from `EVIDENCE_SCHEMA_VERSION`, value carried forward so the rename
+/// itself invalidates nothing.** The old name described the `EvidenceRecord`
+/// shape while the rule was always stated in terms of the CACHED REPORT's
+/// compatibility — a mismatch latent since `8af96a7` that began to bite when the
+/// report itself became typed. One number meaning *"the cached report's bytes
+/// changed shape"* answers the question once; two versions in one key would ask
+/// *"did this touch the report shape, the evidence shape, or both?"* at every
+/// change. An optional field with a serde default leaves cached reports
 /// readable and needs no bump; requiring one for every change would train
 /// reflexive bumping, which is how versions stop meaning anything.
 ///
@@ -27,7 +36,7 @@ use crate::swarm::AgentKind;
 ///   process-state findings would count toward the verdict — §23.4's measured
 ///   defect, reintroduced for cached data and invisible. The version is in the
 ///   report cache key, so stale entries miss and recompute.
-pub const EVIDENCE_SCHEMA_VERSION: u32 = 2;
+pub const CACHED_REPORT_SCHEMA_VERSION: u32 = 2;
 
 /// Structured-provenance prefixes — THE canonical list (single source of truth;
 /// `reviewer_agent` imports [`is_structured_provenance`], it does not keep a copy).
@@ -270,7 +279,7 @@ impl EvidenceRecord {
             evidence_refs,
             routing_hint: routing_hint(agent),
             limitations: limitations(agent),
-            schema_version: EVIDENCE_SCHEMA_VERSION,
+            schema_version: CACHED_REPORT_SCHEMA_VERSION,
         }
     }
 
@@ -316,7 +325,7 @@ impl EvidenceRecord {
             evidence_refs,
             routing_hint: routing_hint_v,
             limitations: limitations_v,
-            schema_version: EVIDENCE_SCHEMA_VERSION,
+            schema_version: CACHED_REPORT_SCHEMA_VERSION,
         }
     }
 }
@@ -327,7 +336,7 @@ mod tests {
     use crate::report::CertaintyTier;
 
     // =====================================================================
-    // EVIDENCE_SCHEMA_VERSION compatibility pin
+    // CACHED_REPORT_SCHEMA_VERSION compatibility pin
     // =====================================================================
     //
     // A cached report carries a serialized `Vec<EvidenceRecord>`, and
@@ -444,7 +453,7 @@ mod tests {
     //
     // COMPILE ERROR (totality failure):
     //   A new enum variant has no compatibility fixture. Add a checked-in
-    //   fixture for this variant. Do NOT bump EVIDENCE_SCHEMA_VERSION merely
+    //   fixture for this variant. Do NOT bump CACHED_REPORT_SCHEMA_VERSION merely
     //   because a new variant was added.
     //
     // That is TEST COMPLETENESS, a different responsibility from the assertion
@@ -500,7 +509,7 @@ mod tests {
              schema. Cached reports written by older binaries are no longer compatible, and \
              escalation.rs:72 will parse them to an empty evidence vector yielding Accept at \
              0.92 (ARCHITECTURE_TRACE §25.10).\n\n\
-             If this incompatibility is INTENTIONAL, bump EVIDENCE_SCHEMA_VERSION — it is in \
+             If this incompatibility is INTENTIONAL, bump CACHED_REPORT_SCHEMA_VERSION — it is in \
              the report cache key, so stale entries will miss and recompute. Otherwise restore \
              compatibility."
         )
@@ -563,6 +572,56 @@ mod tests {
     /// acquire a default claim they never carried, reintroducing §23.4's
     /// measured defect for cached data and invisibly. The assertion therefore
     /// protects the reasoning behind the required field, not merely the bytes.
+    /// The CACHED REPORT's shape, pinned for the same reason `EvidenceRecord`'s
+    /// is: the whole report is now parsed strictly, so a field rename breaks
+    /// every cached report at upgrade time. `CACHED_REPORT_SCHEMA_VERSION` is in
+    /// the cache key, so a bump makes stale entries MISS and recompute — but the
+    /// bump only happens if someone notices, and this is what notices.
+    ///
+    /// A RELEASE ARTIFACT, not test data. Never edit or regenerate; append.
+    const CACHED_REPORT_V2: &str = r#"{
+        "verdict": "concern",
+        "combined_confidence": 0.66,
+        "findings": [{
+            "severity": "major",
+            "tier": "ai_assessed_moderate",
+            "certainty_label": "AI-assessed, moderate confidence",
+            "agent": "validation_maths",
+            "claim": "manuscript_defect",
+            "title": "statistical rule failed: missing effect size",
+            "detail": "A p-value is reported without an accompanying effect size.",
+            "confidence": 1.0,
+            "provenance": ["rule:MissingEffectSize (MAJOR)"]
+        }],
+        "evidence": [],
+        "checklist": [{
+            "requirement": "required section: Abstract",
+            "passed": true,
+            "detail": "Abstract section found",
+            "guideline_source": null
+        }],
+        "debate": {
+            "rounds_run": 1, "converged": true, "overridden_by_constraint": false,
+            "rejected_agents": [], "revised_agents": []
+        },
+        "disclaimer": "Certainty tiers: ..."
+    }"#;
+
+    #[test]
+    fn previously_written_cached_reports_still_deserialize() {
+        let parsed: Result<crate::report::PublishReadyReport, _> =
+            serde_json::from_str(CACHED_REPORT_V2);
+        assert!(
+            parsed.is_ok(),
+            "{}",
+            incompatible(&format!("CACHED_REPORT_V2 failed to parse: {parsed:?}"))
+        );
+        let r = parsed.unwrap();
+        assert_eq!(r.findings.len(), 1);
+        assert_eq!(r.findings[0].title, "statistical rule failed: missing effect size");
+        assert_eq!(r.checklist.len(), 1);
+    }
+
     #[test]
     fn retired_fixtures_no_longer_parse() {
         for (name, fixture, retired_at) in [
@@ -573,13 +632,13 @@ mod tests {
             assert!(
                 parsed.is_err(),
                 "{name} parses again, but it is recorded as retired at \
-                 EVIDENCE_SCHEMA_VERSION {retired_at}. If compatibility was restored, move it \
+                 CACHED_REPORT_SCHEMA_VERSION {retired_at}. If compatibility was restored, move it \
                  into the live fixture set; do not delete it."
             );
             assert!(
-                EVIDENCE_SCHEMA_VERSION >= retired_at,
+                CACHED_REPORT_SCHEMA_VERSION >= retired_at,
                 "{name} is retired at version {retired_at}, which is ahead of \
-                 EVIDENCE_SCHEMA_VERSION {EVIDENCE_SCHEMA_VERSION}"
+                 CACHED_REPORT_SCHEMA_VERSION {CACHED_REPORT_SCHEMA_VERSION}"
             );
         }
     }
@@ -677,7 +736,7 @@ mod tests {
         assert_eq!(rec.confidence, 0.91); // RAW, unrescaled
         assert_eq!(rec.confidence_kind, ConfidenceKind::WiredReal);
         assert_eq!(rec.routing_hint, RoutingHint::ThresholdEligible);
-        assert_eq!(rec.schema_version, EVIDENCE_SCHEMA_VERSION);
+        assert_eq!(rec.schema_version, CACHED_REPORT_SCHEMA_VERSION);
         // evidence_refs = only the structured tags; "prose note" filtered out.
         assert_eq!(rec.evidence_refs, vec!["similarity:0.910", "match_type:high word overlap"]);
         assert!(rec.limitations.is_none());
