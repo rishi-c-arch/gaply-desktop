@@ -329,6 +329,16 @@ The artifact case is the most dangerous of the first three because it destroys t
 
 The rule generalises past this codebase's current artifacts: any log, export, cache entry or telemetry record that is written *conditionally on success* has this defect. If the condition can fail, the record must still be written and must say the condition failed.
 
+#### THE LIMIT OF THIS RULE — it protects against NOTHING, not against ONE WRONG THING
+
+> **TYPED ABSENCE PROTECTS AGAINST NOTHING. IT OFFERS NO PROTECTION AGAINST ONE WRONG THING.**
+
+**Every layer above distinguishes PRESENT from ABSENT. None distinguishes PRESENT-AND-CORRECT from PRESENT-AND-WRONG**, so a defect that produces a plausible non-empty value passes all of them.
+
+**Measured instance (ARCHITECTURE_TRACE §45).** A PDF whose 26 reference entries collapse into one 6373-character paragraph yields a reference count of **1, not 0**. `refs > 0` is true, so the parse-failure branch does not fire; `!references.is_empty()` is true, so the lane reports it examined them; the author is shown *"1 reference"* — a number, not a silence. **Ten consumers degrade and every emptiness guard passes.**
+
+**Recorded here rather than only at the instance**, because a reader who has applied §4.12 correctly may believe the class is closed. It is not: the rule ends where a wrong value begins, and detecting that needs a different instrument — a plausibility or cross-source check, not an absence type.
+
 ### 4.13 Standing rule — identity is carried, not reconstructed
 
 > **Identity must be carried explicitly rather than reconstructed from derived properties such as position, count, timestamps, or non-unique attributes.**

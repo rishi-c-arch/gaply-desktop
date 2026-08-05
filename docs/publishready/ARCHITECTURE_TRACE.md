@@ -4510,3 +4510,150 @@ The verdict was right and the route to it was accidental: `12.4` is the only one
 4. **State any difference in PATH, not only in verdict.** A conclusion reached correctly for the wrong reason is one instrument change away from being wrong.
 
 **The sequencing is the point: instrument first, evidence second, conclusions third.** Committing them in that order makes the dependency visible in the history, so a later reader can see which claims were established under which instrument.
+
+## 45. Two stages disagreeing about what the text IS — the reference collapse
+
+### 45.1 THE CONTRADICTION, which is the finding
+
+**`split_document` special-cases the References section to ONE PARAGRAPH PER NON-EMPTY LINE** (`sections.rs:131-133`), with a comment stating exactly why: *"Reference lists are one entry per line — don't merge wrapped lines, or adjacent references would collapse into a single paragraph."*
+
+**`reflow_pdf_text` merges lines, and it runs FIRST.**
+
+> **The later stage's model of the text is defeated by the earlier stage before it executes. Two components hold contradictory beliefs about what the same bytes are, and there is nowhere the disagreement surfaces.**
+
+### 45.2 A NEW FORM OF THE PROJECTION PATTERN — and the third distinct one
+
+| Form | What happens | Instance |
+|---|---|---|
+| **Original (§22.4)** | a value is produced, persisted, then **dropped at a boundary** | `overall_verdict`, `confidence_kind`, `AgentKind`, `limitations` |
+| **Second** | a value **never becomes a value at all** — implementation without representation | §22.4's later note |
+| **THIRD — this one** | **no value is dropped and none is missing. TWO STAGES DISAGREE ABOUT WHAT THE INPUT IS**, and the earlier one silently wins | the reference collapse |
+
+**Nothing is lost in transit here either — but for a different reason than the second form.** The bytes all arrive. What is destroyed is the *structure the later stage was written to read*, by a stage that had a different structure in mind. **A projection failure needs neither a boundary nor a missing value; two models of the same text suffice.**
+
+### 45.3 The measurement
+
+Reflow isolated by running `pdf_extract::extract_text` and `reflow_pdf_text` separately over the same file:
+
+| | References paragraphs |
+|---|---|
+| `Cureus…docx` | **26** |
+| the same paper as PDF, **pre-reflow** | **76 lines** |
+| the same paper as PDF, **post-reflow** | **1 paragraph, 6373 chars** |
+
+**Reflow does not always do this, and the contrast names the trigger.** Reflow closes a block when `ends_sentence` is true:
+
+| | lines closing a sentence | line tails |
+|---|---|---|
+| **IJAS Bombyx** | **28 of 81 — 34%** | `…Sciences 1(3): 171–78.` |
+| **Cureus** | **9 of 76 — 11%** | `…Projects/Bio-Medical-` · `…Waste/AR_BMWM_2017.pdf` · `…Accessed: July 31, 2026:` |
+
+**The trigger is a citation style whose entries end in bare URLs and access dates, wrapped mid-token across PDF lines.** `ends_sentence`'s `strip_trailing_url` guard exists for precisely this case, but matches only `https:// http:// www. doi:` at the start of the final whitespace-delimited token — so a URL broken across two lines is invisible to it, and a line ending in `:` is not a terminator at all.
+
+**`docparse`'s own comment already named the weakness without knowing it generalised:** *"sentence completion standing in for block boundary"*. The proxy holds for prose and for numeric-terminated reference styles; it fails systematically for URL-terminated ones.
+
+**Evidence width, stated:** two PDFs with a References section; one collapses. **The mechanism is established by the contrast and the line-level rates, NOT by frequency** — how common URL-terminated styles are in real PDF submissions is not something this corpus can answer.
+
+### 45.4 WHY NOTHING CAUGHT IT — the transferable part
+
+> **The collapse yields ONE, not ZERO. Every emptiness guard passes.**
+
+* `refs > 0` is **true**, so the citation-density parse-failure branch does not fire.
+* `!extraction.references.is_empty()` is **true**, so `verification_examined` reports that the lane RAN.
+* The report tells the author *"1 reference"* — a number, not a silence.
+
+**§4.12's typed absence is the wrong instrument here, and this is its limit:**
+
+> **TYPED ABSENCE PROTECTS AGAINST NOTHING. IT OFFERS NO PROTECTION AGAINST ONE WRONG THING.**
+
+Every layer §4.12 names — field, report, artifact, input — distinguishes *present* from *absent*. **None of them distinguishes *present and correct* from *present and wrong*,** and a defect that produces a plausible non-empty value passes all of them. Recorded in ONTOLOGY beside §4.12 itself, because a reader applying that rule needs to know what it does not cover.
+
+### 45.5 THE DEPENDENCY GRAPH, read as RESTORATION
+
+One paragraph stream feeds ten consumers. With one entry where there are 26:
+
+| Consumer | Site | What it does with 1 |
+|---|---|---|
+| Citation verification | `pipeline.rs:363`, `aicheck.rs:224` | verifies one fabricated reference; 25 never checked |
+| `LaneExamination` | `pipeline.rs:473,481` | reports the lane examined the references |
+| Reference recency | `report.rs:1203-1208` | a finding about "1 dated reference" |
+| DOI syntax validity | `ai_signals.rs:362` | computed over a 6373-char blob |
+| Citation density | `ai_signals.rs:363` | denominator 1 |
+| Missing-DOI findings | `persist.rs:72` | one row instead of per-entry |
+| Reference count | `report_build.rs:191` | the author reads "1" |
+| Checklist | `report.rs:1402` | reference check over 1 |
+| Swarm opinion | `swarm.rs:329` | `n_refs = 1` |
+| Uncited references | `report.rs:1098-1130` | unwired, would inherit it |
+
+> **A PDF submission in this citation style loses the ENTIRE reference-side analysis SILENTLY.**
+
+**Stated as restoration rather than repair, because that is the size of it — one upstream invariant, SIX downstream capabilities recovered:**
+
+1. per-reference registry verification (CrossRef / OpenAlex / Retraction Watch / Unpaywall) across all 26 instead of 1
+2. the recency count over real publication years
+3. DOI syntax validity over real DOIs
+4. per-entry missing-DOI findings
+5. citation density's denominator
+6. the reference count the author reads
+
+### 45.6 AN OBSERVATION, not yet a taxonomy — three levels, and proxies between them
+
+**Three levels have emerged across this arc:**
+
+| Level | What lives there |
+|---|---|
+| **CHARACTERS** | what the parser reads — bytes, glyphs, decimal points |
+| **STRUCTURAL UNITS** | lines, blocks, paragraphs, reference entries |
+| **CLAIMS** | what the rules reason about — a reported statistic, a criterion, a defect |
+
+> **EVERY DEFECT MEASURED IN THIS ARC AROSE WHERE ONE LEVEL WAS USED AS A PROXY FOR ANOTHER:**
+
+| Proxy | Where | It failed on |
+|---|---|---|
+| **sentence → block** | `reflow_pdf_text` | a citation style whose entries end in URLs, not sentences |
+| **line → reference entry** | `split_document` | any PDF, where a rendered line is not an entry |
+| **paragraph → claim** | `validate.rs` | a flattened table, and a 12-character DOCX fragment |
+| **numeric literal → sentence boundary** | the utilities §4.24 corrected | `p ≤ 0.05` |
+
+**This is BROADER than the projection pattern and different in kind.** A projection loses a value at a boundary. **This loses nothing — a level simply stands in for the one above it, and the substitution holds until a document arrives where the two levels do not align.** The proxy is not wrong; it is *contingent*, and nothing records what it is contingent on.
+
+**Recorded as an observation and deliberately NOT built into a taxonomy.** Four instances is enough to notice a shape and not enough to fix its boundaries — §4.20's five classes took a milestone of instances before they were grouped, and were then found to be grouped by symptom rather than cause (§35.3). **The same mistake is available here and costs nothing to avoid by waiting.**
+
+### 45.7 Its relation to 1b — SIBLINGS, not parent and child
+
+**Different code sites and opposite directions:** 1b's measured mechanism is `parse_docx` emitting `\n\n` per `</w:p>`, making DOCX paragraphs too FINE. This is `reflow_pdf_text`'s block proxy making PDF lines too COARSE. **Fixing 1b's DOCX side would not touch this.**
+
+**Same missing invariant**, the one §41.12 named: nothing states what a paragraph is supposed to MEAN. §40.3 recorded the too-coarse end as a risk; this measures it, names its mechanism, and identifies its trigger.
+
+**So 1c proceeds as its own item with its own repair site** — the proxy failure IS its cause, not a downstream effect of 1b, and repairing it is not symptom-patching.
+
+#### A SCOPE CLAIM MADE AND REFUTED, recorded with its origin
+
+**An untested claim — that the repair for 1c would also govern BODY paragraphs and therefore repair 1b's PDF half — was converted into a decision about which item the fix belonged to, without the measurement that would settle it.** The claim originated in the design write-up; the conversion into a scoping decision was made at review, and neither step asked for the number.
+
+**Measured, and refuted: the document-wide median blank-line group size is 1 for ALL NINE PDFs on the machine, including the one whose References section measures 3.** A per-document determination classifies that document as blank-lines-are-noise and leaves the collapse exactly where it is.
+
+> **The convention is SECTION-LOCAL, not document-level. The fix is 1c's alone. 1b keeps both halves, unchanged.**
+
+**The general form is §32.6's, in its cheaper direction:** a premise asserted without measurement is hardest to check when it arrives already promoted to a decision. Here it cost one probe.
+
+### 45.8 The candidate outcomes, MEASURED
+
+| Candidate | IJAS (true **20**) | Cureus (true **26**) |
+|---|---|---|
+| current behaviour | **28** | **1** |
+| **A** — skip reflow in References | **81** | **76** |
+| **C** — References-specific rule: a blank line always closes | **75** | **27** |
+| **D** — classify the section by measured median blank-line group size | **28** | **27** |
+
+**On the structural reading, C and D differ only in whether the section-local rule is ASSUMED or MEASURED — same location, different epistemic status. That reading is correct and it understates the case.**
+
+> **C GIVES IJAS 75 AGAINST A TRUE 20. It is measurably wrong on a corpus document; D is right on both. That is an OUTCOME difference and needs no appeal to how either rule was arrived at.**
+
+**The structural humility stands and must not obscure the measurement.** Two rules in the same place with the same provenance would still be separated by this table.
+
+#### A POSSIBILITY, recorded and NOT acted on
+
+**The convention's natural unit may be the STYLE BLOCK rather than the section.** PDF renderers emit line spacing per paragraph style, which would explain why one document's body and references differ within it — *"section"* may be a proxy that happens to align here only because References is typically its own style.
+
+**n = 2, and the section is sufficient for everything measured. Recorded so it is available if a document ever splits conventions WITHIN a section, and deliberately not built on.**
