@@ -10,6 +10,7 @@ pub mod citations;
 pub mod docparse;
 pub mod persist;
 pub mod sections;
+pub mod sentence;
 pub mod stats;
 
 use serde::{Deserialize, Serialize};

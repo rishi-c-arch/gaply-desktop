@@ -55,27 +55,19 @@ const FURNITURE_MIN_REPEATS: usize = 3;
 /// sentence.
 const FURNITURE_MAX_CHARS: usize = 80;
 
-/// Tokens ending in '.' that do NOT end a sentence.
-const ABBREVIATIONS: &[&str] = &[
-    "et al.", "e.g.", "i.e.", "cf.", "vs.", "approx.", "ca.", "etc.", "Fig.", "Figs.", "Tab.",
-    "No.", "Dr.", "Prof.", "Mr.", "Mrs.", "Ms.", "St.", "Jr.", "Sr.", "Eq.", "Eqs.", "ref.",
-    "refs.", "Ref.", "min.", "max.", "sec.", "wt.", "vol.", "conc.", "temp.", "spp.", "sp.",
-    "subsp.", "var.", "p.", "pp.", "ed.", "eds.", "Inc.", "Ltd.", "Co.", "U.S.", "U.K.",
-];
-
-/// True when `tail` ends with `abbrev` **as a whole token** — the preceding
-/// character must be a non-alphanumeric or the string start. Without this,
-/// `"unaffected."` matches the `"ed."` abbreviation and a real sentence boundary
-/// is suppressed.
-fn ends_with_abbreviation(tail: &str) -> bool {
-    ABBREVIATIONS.iter().any(|a| {
-        tail.ends_with(a) && {
-            let before = tail.len() - a.len();
-            before == 0
-                || !tail[..before].chars().next_back().map(|c| c.is_alphanumeric()).unwrap_or(false)
-        }
-    })
-}
+// The abbreviation list and its whole-token test now live in
+// `extract::sentence`, which owns sentence-level lexical knowledge. ONE
+// definition, two callers with DIFFERENT boundary needs: this module decides
+// whether a physical LINE closes a reference block, `sentence::
+// sentence_containing` decides where a sentence begins and ends.
+//
+// The BOUNDARY DECISION is deliberately not shared. `ends_sentence` below
+// returns true for a prefix ending inside a decimal ("…p ≤ 0." → true), which is
+// harmless here — a rendered line does not end mid-number — and is exactly the
+// failure `sentence`'s invariant forbids. Sharing the decision would force one
+// caller to accept the other's failure mode; sharing the vocabulary costs
+// nothing and prevents the drift a second list would create.
+use crate::extract::sentence::ends_with_abbreviation;
 
 /// True when `s` looks like a completed sentence: ends in `.`/`!`/`?`, and the
 /// terminator is not an abbreviation dot or a single-capital initial ("… J.").
