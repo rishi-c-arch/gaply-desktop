@@ -4285,3 +4285,48 @@ Suppressing every p at 0.05 removes 8 false flags and costs 2 true ones — **4:
 3. **Item 1b** — decided third when it was a hypothesis; §41.9's identity check has since graduated it to a finding.
 
 **The ordering follows the evidence grades the investigation produced rather than treating three discoveries as equally established** — which is the durable part, and it survives 1b's promotion.
+
+### 41.12 The per-format check — item 1's detection is UNIT-ROBUST
+
+**Item 1's mechanism appeared to depend on the unit item 1b destabilises.** The 6-of-6 was measured on paragraphs as they exist today, and a fix that merges DOCX fragments or splits PDF tables changes what *"the same paragraph"* contains — so a policy phrase sitting with its p-value today might not tomorrow.
+
+#### THE DURABLE PROPERTY — a sentence is the atom beneath every unit
+
+> **In all six threshold cases the policy phrase and its p-value are in the same SENTENCE, not merely the same paragraph.** `parse_docx` breaks at `</w:p>`; `paragraphs_of` breaks at a blank line. **NEITHER ADAPTER SPLITS A SENTENCE.**
+
+**This licenses the claim for ANY unit 1b chooses**, which is a stronger statement than *"the dependency happened not to bind on this data"*. Every candidate re-unitisation — merging DOCX fragments, splitting flattened PDF tables, adopting some third rule — operates at paragraph granularity or coarser, and a property that holds at the sentence is untouched by all of them.
+
+**Its bound, stated so the licence is not read as unconditional: it would fail only under a change that SPLITS SENTENCES.** None is contemplated, and if one is ever proposed this is the property it must be checked against.
+
+#### The confirming instance
+
+**The structural argument does the licensing; this case shows it holding.** One document, both formats:
+
+| | Section | ¶ | Paragraph length | Policy phrase | p-value |
+|---|---|---|---|---|---|
+| DOCX | Methods | 96 | **510 chars** | `["was detected", "α"]` | `p < 0.05` |
+| PDF | Methods | 13 | **511 chars** | `["was detected", "α"]` | `p < 0.05` |
+
+**The section around it carried 102 paragraphs as DOCX and 17 as PDF.** Three of the six threshold cases were DOCX-sourced in the first place, and the 0-of-N held per format — **0 of 17 DOCX result locations and 0 of 11 PDF ones over-fired.**
+
+**The merge direction was tested incidentally and passed:** the PDF *is* the merged form of the DOCX, so if merging risked joining a policy phrase to a RESULT p-value that is where it would appear. It did not. One paper, and the only direct evidence either way.
+
+#### THE ORDERING STANDS — and the reason is recorded, not the rank
+
+It was decided on evidence grade while 1b was a hypothesis. **1b has since graduated to a finding, and the promotion changed its grade without changing the order** — because the live question was **DEPENDENCY, not severity**, and the dependency was measured and found absent.
+
+**Had it bound, 1b would have come first FOR THAT REASON and not for impact.** The two arguments point the same way here; they would not always, and only the dependency argument would have been decisive.
+
+#### WHAT THIS HANDS 1b — a storage unit has been treated as a semantic unit
+
+|  | needs | scope |
+|---|---|---|
+| **item 1** | *is this p-value a criterion?* | **SENTENCE** |
+| **rule 3** | *is there an effect size nearby?* | **wider than a sentence** |
+| **both use** | | **the paragraph** |
+
+> **"Paragraph" is how the text HAPPENS TO BE CHUNKED BY A FILE FORMAT. "Claim" is what the rule MEANS.** One value is serving two different semantic questions, and it was never chosen to answer either.
+
+**That is why the format difference EXPOSED the problem rather than causing it.** DOCX and PDF disagree about paragraphs because they disagree about storage; the disagreement is only visible as a defect because a storage unit had been promoted to a semantic one without anyone deciding to.
+
+**So 1b's fix is NOT "make the formats agree" — it is "state what proximity each rule needs."** Two rules wanting different scopes is not a conflict to be reconciled into one number; it is two requirements that were never written down. **Carried here so 1b's design starts from it rather than rediscovering it.**
