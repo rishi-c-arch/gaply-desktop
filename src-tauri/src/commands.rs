@@ -532,259 +532,308 @@ pub async fn run_publishready(
     // Logic unchanged.
     let db = state.db.clone();
     let embedder = state.embedder.clone();
-    // Content-addressed manuscript identity for the Box 4 comparison record.
-    // `run_id` is a local DB row id and cannot link records across machines.
-    let manuscript_sha256 = crate::harness_log::manuscript_sha256(std::path::Path::new(&path));
     tokio::task::spawn_blocking(move || {
-        use gaply_core::reviewer_agent::{self, ReviewerEvaluation, TargetJournal};
-        use gaply_core::verify_agent::ProxyClient;
-
-        // 1) Run the existing pipeline (composes on top; the 6 lanes are untouched).
-        let events = std::cell::RefCell::new(Vec::new());
-        let emit = |e: crate::pipeline::AnalysisEvent| events.borrow_mut().push(e);
-        // `user_token` threaded so the pipeline's cloud VERIFICATION tier can pass
-        // the proxy's entitlement gate. Without it that tier reached `/verify`
-        // with App Check but no user credential and was rejected 401
-        // user_token_missing, so every citation degraded to UNKNOWN.
-        // The pipeline now returns its extraction and plagiarism outputs too
-        // (§31.2's two unreachable sources). This path consumes `lanes` only;
-        // the local report model that consumes the rest is built by the PDF
-        // path, and the cached-report re-read below is deliberately left alone
-        // because it is what exercises PR-2's typed parse.
-        let pipeline_out = crate::pipeline::run_pipeline_measured(
-            db.clone(),
-            embedder.clone(),
+        run_publishready_measured(
+            db,
+            embedder,
             path,
-            None,
-            user_token.clone(),
-            guidelines_url.clone(),
-            &emit,
-        )?;
-        let lanes = pipeline_out.lanes;
-        let report_id = events
-            .into_inner()
-            .into_iter()
-            .find_map(|e| match e {
-                crate::pipeline::AnalysisEvent::Finished { report_id } => Some(report_id),
-                _ => None,
-            })
-            .ok_or_else(|| GaplyError::Internal("pipeline produced no report".into()))?;
-        let json = db
-            .cache_get(&crate::pipeline::report_cache_key(&report_id), gaply_core::now_epoch())?
-            .ok_or_else(|| GaplyError::Internal("compiled report not found".into()))?;
-        // The escalation path still reads `report["evidence"]` as JSON — PR-2
-        // already made that path WITHHOLD rather than default, so it is correct
-        // as it stands and is deliberately unchanged.
-        let report_json: serde_json::Value = serde_json::from_str(&json)
-            .map_err(|e| GaplyError::Internal(format!("parse report: {e}")))?;
-        // TYPED. Strict parsing replaces four silent `unwrap_or` fallbacks — one
-        // of which let a malformed title become "" INSIDE BOTH DIGESTS (§31.7),
-        // producing a stable but wrong identity instead of a failure.
-        //
-        // The message states the OBSERVATION and the REMEDY and names no cause.
-        // That is not vagueness: putting the schema version in the cache key
-        // (`report_cache_key`) made STALENESS UNREACHABLE — a stale-shape report
-        // MISSES the key rather than mis-parsing — so a parse failure on a
-        // matching key can no longer be explained by a version mismatch, and
-        // naming one would be a guess. Re-running is the remedy either way.
-        let report: gaply_core::report::PublishReadyReport = serde_json::from_str(&json)
-            .map_err(|e| {
-                tracing::warn!(run_id = %report_id, error = %e, "cached report failed to parse");
-                GaplyError::Internal(
-                    "This saved report could not be read. Please run the analysis again to \
-                     generate a new report. If it keeps happening, that may indicate a bug — \
-                     email helloresearcher@gaply.in."
-                        .to_string(),
-                )
-            })?;
-
-        // 2) Parse any supplementary files (memory-capped, app-crate) → JSON. The
-        //    reviewer_agent llm_safe's every string; a file that fails to parse is
-        //    skipped (honest), never fatal.
-        let supp_values: Vec<serde_json::Value> = supplementary_paths
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|p| match crate::supplementary::parse_supplementary(std::path::Path::new(p)) {
-                Ok(ev) => serde_json::to_value(&ev).ok(),
-                Err(e) => {
-                    tracing::warn!(path = %p, error = %e, "supplementary parse failed; skipped");
-                    None
-                }
-            })
-            .collect();
-
-        // Box 2 (ADDITIVE): targeted escalation — route this run's evidence,
-        // persist it, and ATTEMPT per-finding cloud adjudication. HONEST BOUNDARY:
-        // escalation CALLS degrade to "unavailable" until gaply-proxy implements a
-        // task:"escalate_findings" endpoint (server-side, out of scope) AND the
-        // reviewer-quality spike passes; this ships routing/persistence/idempotency
-        // infra, NOT working per-finding verdicts. The wholesale reviewer below is
-        // UNCHANGED. run_id == report_id == manuscript_id (one id for the whole run).
-        // The escalation summary was previously LOGGED AND DROPPED — the fifth
-        // instance of the projection pattern (§22.4), in exactly the place §26
-        // predicted the fix would go. `withheld` now crosses into the verdict.
-        let escalation_withheld: Option<gaply_core::reviewer_agent::VerdictWithheld>;
-        {
-            let esc_policy = gaply_core::orchestrator::DefaultRoutingPolicy::default();
-            let esc_proxy = ProxyReqwestClient::from_env()
-                .map(|c| c.with_user_token(user_token.clone()))
-                .ok()
-                .filter(|c| c.reachable());
-            escalation_withheld = crate::escalation::run_targeted_escalation(
-                &db,
-                esc_proxy.as_ref().map(|c| c as &dyn ProxyClient),
-                &report_id,
-                &report_json,
-                &esc_policy,
-                gaply_core::now_epoch(),
-            )
-            .withheld;
-            tracing::info!(run_id = %report_id, ?escalation_withheld, "targeted escalation (degrades until proxy escalate endpoint + reviewer-quality spike)");
-        }
-
-        // 3) Build the validator-compliant, privacy-guarded reviewer payload.
-        let journal = TargetJournal { name: journal_name, quartile: journal_quartile };
-        let (proxy_payload, sent_ids) =
-            reviewer_agent::build_review_payload(&report, &journal, &supp_values, &report_id);
-
-        // Box 4 (Stage 1, ADDITIVE SHADOW): synthesize a reviewer letter from the
-        // Evidence Store's per-finding verdicts, mirroring Box 2's additive wiring.
-        // The deterministic verdict is computed locally; the narrative is a cloud
-        // call that degrades honestly. Produced for comparison — the WHOLESALE
-        // reviewer below is still authoritative. Stage 2 (switch) / Stage 3
-        // (remove wholesale) are separate future decisions.
-        let (shadow_outcome, shadow_elapsed) = {
-            let shadow_proxy = ProxyReqwestClient::from_env()
-                .map(|c| c.with_user_token(user_token.clone()))
-                .ok()
-                .filter(|c| c.reachable());
-            let started = std::time::Instant::now();
-            let outcome = match crate::reviewer_synthesis::run_shadow_synthesis(
-                &db,
-                shadow_proxy.as_ref().map(|c| c as &dyn ProxyClient),
-                &report_id,
-                &report,
-                &journal,
-                &supp_values,
-                escalation_withheld,
-                lanes,
-            ) {
-                Ok(o) => {
-                    tracing::info!(
-                        run_id = %report_id,
-                        recommendation = ?o.letter.recommendation,
-                        narrative_available = o.narrative_available,
-                        "box4 shadow synthesis (NOT primary; wholesale reviewer still authoritative)"
-                    );
-                    Some(o)
-                }
-                Err(e) => {
-                    tracing::warn!(run_id = %report_id, error = %e, "box4 shadow synthesis failed; skipped");
-                    None
-                }
-            };
-            (outcome, started.elapsed())
-        };
-
-        // 3) Reviewer: cloud only, honest offline degradation. The user's JWT
-        //    rides along so the proxy can run THE REAL entitlement gate + consume
-        //    a use server-side (Set 8; enforcement joins the deployed proxy).
-        let mut proxy_meta: Option<gaply_core::reviewer_harness::ProxyMeta> = None;
-        let wholesale_started = std::time::Instant::now();
-        let reviewer = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
-            Ok(client) if client.reachable() => match client.verify_with_envelope(&proxy_payload) {
-                Ok((resp, env)) => {
-                    // Surface model/stop_reason for the harness (tokens/latency
-                    // are still absent from the envelope → they stay Unavailable).
-                    proxy_meta = Some(gaply_core::reviewer_harness::ProxyMeta {
-                        model: env.model,
-                        stop_reason: env.stop_reason,
-                        ..Default::default()
-                    });
-                    match reviewer_agent::gate_reviewer_response(&resp, &sent_ids) {
-                        Ok(ev) => ev,
-                        Err(e) => {
-                            tracing::warn!(error = %e, "reviewer gate failed; marking unavailable");
-                            ReviewerEvaluation::unavailable_offline()
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "reviewer cloud call failed; marking unavailable");
-                    ReviewerEvaluation::unavailable_offline()
-                }
-            },
-            _ => ReviewerEvaluation::unavailable_offline(),
-        };
-        let wholesale_elapsed = wholesale_started.elapsed();
-
-        // Box 4 shadow-comparison harness (Stage 1, LOG-ONLY): compare the shadow
-        // synthesis against the wholesale reviewer. Every metric carries its
-        // provenance by construction; proxy/LLM metrics render `unavailable` until
-        // the live proxy + escalate endpoint land. Drives NO production behavior.
-        {
-            use gaply_core::reviewer_harness::{
-                build_comparison_report, HarnessInputs, HarnessTiming, ShadowInputs,
-            };
-            // UNCONDITIONAL. Previously this whole block sat inside
-            // `if let Some(outcome) = &shadow_outcome`, so a run where the shadow
-            // synthesis produced nothing left NO record — indistinguishable from a
-            // broken sink. Typed absence at the artifact level: the record is
-            // always written, and when the shadow side is missing every shadow
-            // metric says so with a reason (ONTOLOGY §4.12).
-            let report = build_comparison_report(&HarnessInputs {
-                run_id: &report_id,
-                manuscript_sha256: &manuscript_sha256,
-                recorded_at: gaply_core::now_epoch(),
-                shadow: shadow_outcome.as_ref().map(|o| ShadowInputs {
-                    withheld: o.withheld,
-                    letter: &o.letter,
-                    breakdown: &o.aggregation.breakdown,
-                    findings_sent: o.findings_sent,
-                    narrative_available: o.narrative_available,
-                }),
-                wholesale: &reviewer,
-                wholesale_findings_sent: sent_ids.findings.len(),
-                // Both digests over the SAME `proxy_payload` Value that was
-                // handed to `verify_with_envelope` above — not a rebuilt or
-                // equivalent object, so `summary_digest` corresponds to the
-                // reviewer's actual input representation.
-                findings_projection_digest: &reviewer_agent::findings_projection_digest(
-                    &proxy_payload,
-                ),
-                summary_digest: &reviewer_agent::summary_digest(&proxy_payload),
-                summary_format_version: reviewer_agent::SUMMARY_FORMAT_VERSION,
-                journal_name: Some(journal.name.as_str()),
-                guidelines_url: guidelines_url.as_deref(),
-                timing: HarnessTiming {
-                    shadow: Some(shadow_elapsed),
-                    wholesale: Some(wholesale_elapsed),
-                },
-                proxy_meta, // model/stop_reason when /verify ran; tokens/latency still Tier 2c
-            });
-            tracing::info!(run_id = %report_id, "box4 shadow-comparison report:\n{}", report.to_markdown());
-            // Leave a record. Best-effort: a diagnostic never fails the analysis.
-            crate::harness_log::append(&report);
-        }
-
-        let shadow_reviewer = shadow_outcome.map(|o| o.letter);
-        Ok(PublishReadyOutcome {
-            // The IPC field stays JSON: the frontend renders it and does not need
-            // the Rust type. Serializing the TYPED value guarantees it is exactly
-            // what parsed, rather than the separately-parsed `report_json`.
-            report: {
-                let mut v = serde_json::to_value(&report).unwrap_or(report_json);
-                gaply_core::vocabulary::enrich_report_labels(&mut v);
-                v
-            },
-            reviewer,
-            proxy_payload,
-            run_id: report_id,
-            shadow_reviewer,
-        })
+            journal_name,
+            journal_quartile,
+            supplementary_paths,
+            user_token,
+            guidelines_url,
+        )
     })
     .await
     .map_err(|e| GaplyError::Internal(format!("publishready task panicked: {e}")))?
+}
+
+/// The whole PublishReady command path, WITHOUT Tauri.
+///
+/// # Why this exists — ARCHITECTURE_TRACE §32
+///
+/// `run_publishready` is a `#[tauri::command]` taking `State<'_, AppState>`,
+/// which an example binary cannot construct. That made **the entire command
+/// path unreachable outside the app** — and with it the Box 4 comparison
+/// record, so `release_gate`'s COMPARISON and PERSISTENCE invariants could only
+/// ever report SKIPPED. Two of the gate's six invariants had never once been
+/// evaluated, and `ship_ready` was false by construction.
+///
+/// **This is exactly the seam `pipeline::run_pipeline_measured` already is**, for
+/// exactly the same reason. It is not a new pattern; the command path simply
+/// never got one.
+///
+/// **Nothing here needs a proxy, an entitlement or a signed-in user.** The
+/// reviewer degrades to `ReviewerEvaluation::unavailable_offline()` on an
+/// unreachable proxy, a 401 or a 403, and the Box 4 harness block is
+/// UNCONDITIONAL (see its comment below). Both `findings_sent` counts are
+/// `DeterministicLocal` — the count of what WOULD be sent, never read from a
+/// response — so they are `Observed` offline, as run 23's 403-throughout
+/// capture shows.
+///
+/// `#[doc(hidden)]` on the measured entry point mirrors `run_pipeline_measured`:
+/// it is a seam for instruments, not app surface.
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
+pub fn run_publishready_measured(
+    db: std::sync::Arc<gaply_core::Database>,
+    embedder: std::sync::Arc<dyn gaply_core::embed::Embedder>,
+    path: String,
+    journal_name: String,
+    journal_quartile: String,
+    supplementary_paths: Option<Vec<String>>,
+    user_token: Option<String>,
+    guidelines_url: Option<String>,
+) -> Result<PublishReadyOutcome, GaplyError> {
+    // Content-addressed manuscript identity for the Box 4 comparison record.
+    // `run_id` is a local DB row id and cannot link records across machines.
+    let manuscript_sha256 = crate::harness_log::manuscript_sha256(std::path::Path::new(&path));
+    use gaply_core::reviewer_agent::{self, ReviewerEvaluation, TargetJournal};
+    use gaply_core::verify_agent::ProxyClient;
+
+    // 1) Run the existing pipeline (composes on top; the 6 lanes are untouched).
+    let events = std::cell::RefCell::new(Vec::new());
+    let emit = |e: crate::pipeline::AnalysisEvent| events.borrow_mut().push(e);
+    // `user_token` threaded so the pipeline's cloud VERIFICATION tier can pass
+    // the proxy's entitlement gate. Without it that tier reached `/verify`
+    // with App Check but no user credential and was rejected 401
+    // user_token_missing, so every citation degraded to UNKNOWN.
+    // The pipeline now returns its extraction and plagiarism outputs too
+    // (§31.2's two unreachable sources). This path consumes `lanes` only;
+    // the local report model that consumes the rest is built by the PDF
+    // path, and the cached-report re-read below is deliberately left alone
+    // because it is what exercises PR-2's typed parse.
+    let pipeline_out = crate::pipeline::run_pipeline_measured(
+        db.clone(),
+        embedder.clone(),
+        path,
+        None,
+        user_token.clone(),
+        guidelines_url.clone(),
+        &emit,
+    )?;
+    let lanes = pipeline_out.lanes;
+    let report_id = events
+        .into_inner()
+        .into_iter()
+        .find_map(|e| match e {
+            crate::pipeline::AnalysisEvent::Finished { report_id } => Some(report_id),
+            _ => None,
+        })
+        .ok_or_else(|| GaplyError::Internal("pipeline produced no report".into()))?;
+    let json = db
+        .cache_get(&crate::pipeline::report_cache_key(&report_id), gaply_core::now_epoch())?
+        .ok_or_else(|| GaplyError::Internal("compiled report not found".into()))?;
+    // The escalation path still reads `report["evidence"]` as JSON — PR-2
+    // already made that path WITHHOLD rather than default, so it is correct
+    // as it stands and is deliberately unchanged.
+    let report_json: serde_json::Value = serde_json::from_str(&json)
+        .map_err(|e| GaplyError::Internal(format!("parse report: {e}")))?;
+    // TYPED. Strict parsing replaces four silent `unwrap_or` fallbacks — one
+    // of which let a malformed title become "" INSIDE BOTH DIGESTS (§31.7),
+    // producing a stable but wrong identity instead of a failure.
+    //
+    // The message states the OBSERVATION and the REMEDY and names no cause.
+    // That is not vagueness: putting the schema version in the cache key
+    // (`report_cache_key`) made STALENESS UNREACHABLE — a stale-shape report
+    // MISSES the key rather than mis-parsing — so a parse failure on a
+    // matching key can no longer be explained by a version mismatch, and
+    // naming one would be a guess. Re-running is the remedy either way.
+    let report: gaply_core::report::PublishReadyReport = serde_json::from_str(&json)
+        .map_err(|e| {
+            tracing::warn!(run_id = %report_id, error = %e, "cached report failed to parse");
+            GaplyError::Internal(
+                "This saved report could not be read. Please run the analysis again to \
+                 generate a new report. If it keeps happening, that may indicate a bug — \
+                 email helloresearcher@gaply.in."
+                    .to_string(),
+            )
+        })?;
+
+    // 2) Parse any supplementary files (memory-capped, app-crate) → JSON. The
+    //    reviewer_agent llm_safe's every string; a file that fails to parse is
+    //    skipped (honest), never fatal.
+    let supp_values: Vec<serde_json::Value> = supplementary_paths
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|p| match crate::supplementary::parse_supplementary(std::path::Path::new(p)) {
+            Ok(ev) => serde_json::to_value(&ev).ok(),
+            Err(e) => {
+                tracing::warn!(path = %p, error = %e, "supplementary parse failed; skipped");
+                None
+            }
+        })
+        .collect();
+
+    // Box 2 (ADDITIVE): targeted escalation — route this run's evidence,
+    // persist it, and ATTEMPT per-finding cloud adjudication. HONEST BOUNDARY:
+    // escalation CALLS degrade to "unavailable" until gaply-proxy implements a
+    // task:"escalate_findings" endpoint (server-side, out of scope) AND the
+    // reviewer-quality spike passes; this ships routing/persistence/idempotency
+    // infra, NOT working per-finding verdicts. The wholesale reviewer below is
+    // UNCHANGED. run_id == report_id == manuscript_id (one id for the whole run).
+    // The escalation summary was previously LOGGED AND DROPPED — the fifth
+    // instance of the projection pattern (§22.4), in exactly the place §26
+    // predicted the fix would go. `withheld` now crosses into the verdict.
+    let escalation_withheld: Option<gaply_core::reviewer_agent::VerdictWithheld>;
+    {
+        let esc_policy = gaply_core::orchestrator::DefaultRoutingPolicy::default();
+        let esc_proxy = ProxyReqwestClient::from_env()
+            .map(|c| c.with_user_token(user_token.clone()))
+            .ok()
+            .filter(|c| c.reachable());
+        escalation_withheld = crate::escalation::run_targeted_escalation(
+            &db,
+            esc_proxy.as_ref().map(|c| c as &dyn ProxyClient),
+            &report_id,
+            &report_json,
+            &esc_policy,
+            gaply_core::now_epoch(),
+        )
+        .withheld;
+        tracing::info!(run_id = %report_id, ?escalation_withheld, "targeted escalation (degrades until proxy escalate endpoint + reviewer-quality spike)");
+    }
+
+    // 3) Build the validator-compliant, privacy-guarded reviewer payload.
+    let journal = TargetJournal { name: journal_name, quartile: journal_quartile };
+    let (proxy_payload, sent_ids) =
+        reviewer_agent::build_review_payload(&report, &journal, &supp_values, &report_id);
+
+    // Box 4 (Stage 1, ADDITIVE SHADOW): synthesize a reviewer letter from the
+    // Evidence Store's per-finding verdicts, mirroring Box 2's additive wiring.
+    // The deterministic verdict is computed locally; the narrative is a cloud
+    // call that degrades honestly. Produced for comparison — the WHOLESALE
+    // reviewer below is still authoritative. Stage 2 (switch) / Stage 3
+    // (remove wholesale) are separate future decisions.
+    let (shadow_outcome, shadow_elapsed) = {
+        let shadow_proxy = ProxyReqwestClient::from_env()
+            .map(|c| c.with_user_token(user_token.clone()))
+            .ok()
+            .filter(|c| c.reachable());
+        let started = std::time::Instant::now();
+        let outcome = match crate::reviewer_synthesis::run_shadow_synthesis(
+            &db,
+            shadow_proxy.as_ref().map(|c| c as &dyn ProxyClient),
+            &report_id,
+            &report,
+            &journal,
+            &supp_values,
+            escalation_withheld,
+            lanes,
+        ) {
+            Ok(o) => {
+                tracing::info!(
+                    run_id = %report_id,
+                    recommendation = ?o.letter.recommendation,
+                    narrative_available = o.narrative_available,
+                    "box4 shadow synthesis (NOT primary; wholesale reviewer still authoritative)"
+                );
+                Some(o)
+            }
+            Err(e) => {
+                tracing::warn!(run_id = %report_id, error = %e, "box4 shadow synthesis failed; skipped");
+                None
+            }
+        };
+        (outcome, started.elapsed())
+    };
+
+    // 3) Reviewer: cloud only, honest offline degradation. The user's JWT
+    //    rides along so the proxy can run THE REAL entitlement gate + consume
+    //    a use server-side (Set 8; enforcement joins the deployed proxy).
+    let mut proxy_meta: Option<gaply_core::reviewer_harness::ProxyMeta> = None;
+    let wholesale_started = std::time::Instant::now();
+    let reviewer = match ProxyReqwestClient::from_env().map(|c| c.with_user_token(user_token)) {
+        Ok(client) if client.reachable() => match client.verify_with_envelope(&proxy_payload) {
+            Ok((resp, env)) => {
+                // Surface model/stop_reason for the harness (tokens/latency
+                // are still absent from the envelope → they stay Unavailable).
+                proxy_meta = Some(gaply_core::reviewer_harness::ProxyMeta {
+                    model: env.model,
+                    stop_reason: env.stop_reason,
+                    ..Default::default()
+                });
+                match reviewer_agent::gate_reviewer_response(&resp, &sent_ids) {
+                    Ok(ev) => ev,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "reviewer gate failed; marking unavailable");
+                        ReviewerEvaluation::unavailable_offline()
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "reviewer cloud call failed; marking unavailable");
+                ReviewerEvaluation::unavailable_offline()
+            }
+        },
+        _ => ReviewerEvaluation::unavailable_offline(),
+    };
+    let wholesale_elapsed = wholesale_started.elapsed();
+
+    // Box 4 shadow-comparison harness (Stage 1, LOG-ONLY): compare the shadow
+    // synthesis against the wholesale reviewer. Every metric carries its
+    // provenance by construction; proxy/LLM metrics render `unavailable` until
+    // the live proxy + escalate endpoint land. Drives NO production behavior.
+    {
+        use gaply_core::reviewer_harness::{
+            build_comparison_report, HarnessInputs, HarnessTiming, ShadowInputs,
+        };
+        // UNCONDITIONAL. Previously this whole block sat inside
+        // `if let Some(outcome) = &shadow_outcome`, so a run where the shadow
+        // synthesis produced nothing left NO record — indistinguishable from a
+        // broken sink. Typed absence at the artifact level: the record is
+        // always written, and when the shadow side is missing every shadow
+        // metric says so with a reason (ONTOLOGY §4.12).
+        let report = build_comparison_report(&HarnessInputs {
+            run_id: &report_id,
+            manuscript_sha256: &manuscript_sha256,
+            recorded_at: gaply_core::now_epoch(),
+            shadow: shadow_outcome.as_ref().map(|o| ShadowInputs {
+                withheld: o.withheld,
+                letter: &o.letter,
+                breakdown: &o.aggregation.breakdown,
+                findings_sent: o.findings_sent,
+                narrative_available: o.narrative_available,
+            }),
+            wholesale: &reviewer,
+            wholesale_findings_sent: sent_ids.findings.len(),
+            // Both digests over the SAME `proxy_payload` Value that was
+            // handed to `verify_with_envelope` above — not a rebuilt or
+            // equivalent object, so `summary_digest` corresponds to the
+            // reviewer's actual input representation.
+            findings_projection_digest: &reviewer_agent::findings_projection_digest(
+                &proxy_payload,
+            ),
+            summary_digest: &reviewer_agent::summary_digest(&proxy_payload),
+            summary_format_version: reviewer_agent::SUMMARY_FORMAT_VERSION,
+            journal_name: Some(journal.name.as_str()),
+            guidelines_url: guidelines_url.as_deref(),
+            timing: HarnessTiming {
+                shadow: Some(shadow_elapsed),
+                wholesale: Some(wholesale_elapsed),
+            },
+            proxy_meta, // model/stop_reason when /verify ran; tokens/latency still Tier 2c
+        });
+        tracing::info!(run_id = %report_id, "box4 shadow-comparison report:\n{}", report.to_markdown());
+        // Leave a record. Best-effort: a diagnostic never fails the analysis.
+        crate::harness_log::append(&report);
+    }
+
+    let shadow_reviewer = shadow_outcome.map(|o| o.letter);
+    Ok(PublishReadyOutcome {
+        // The IPC field stays JSON: the frontend renders it and does not need
+        // the Rust type. Serializing the TYPED value guarantees it is exactly
+        // what parsed, rather than the separately-parsed `report_json`.
+        report: {
+            let mut v = serde_json::to_value(&report).unwrap_or(report_json);
+            gaply_core::vocabulary::enrich_report_labels(&mut v);
+            v
+        },
+        reviewer,
+        proxy_payload,
+        run_id: report_id,
+        shadow_reviewer,
+    })
 }
 
 /// Citation Manager (Set 2): resolve VERIFIED citation metadata from a paper

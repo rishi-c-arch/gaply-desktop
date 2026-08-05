@@ -395,7 +395,7 @@ Severity is amplified when a false-positive match has a destructive fallback: `s
 
 > **A consumer must not assume guarantees its producer does not explicitly provide.**
 
-Four instances in this project, the same shape each time: **the consumer's contract is tighter than anything the producer committed to, and the mismatch stays invisible until the producer exercises its actual latitude.**
+Five instances in this project, the same shape each time: **the consumer's contract is tighter than anything the producer committed to, and the mismatch stays invisible until the producer exercises its actual latitude.**
 
 | Consumer assumes | Producer guarantees | Result |
 |---|---|---|
@@ -403,6 +403,9 @@ Four instances in this project, the same shape each time: **the consumer's contr
 | bounded payload | unlimited citations | HTTP 422 |
 | document identity | a `source_type` filter only | cross-journal contamination |
 | probability semantics | a severity-count aggregate | misleading UI (**open**) |
+| **the proxy is REACHABLE** | **`from_env().is_ok()` — credentials exist in the keychain** | **`check_liveness` disables itself on any machine that has ever signed in** (ARCHITECTURE_TRACE §32.10, **open**) |
+
+**The fifth is the first instance found INSIDE AN INSTRUMENT**, and it is worth separating for that reason. `ProxyReqwestClient::from_env()` never claimed reachability — it reads a URL and a keychain entry and never touches the network. The consumer named the value `proxy_available` and branched on it as though it meant *responds*. **The producer is correct, the consumer is stricter, and the variable's NAME is where the assumption was recorded** — which is the least checkable place to put a contract.
 
 None was detectable by testing the consumer in isolation, because each failure arose from a mismatch between producer and consumer contracts — `serde_json::from_str` is right to reject non-JSON, and a checklist is right to expect one journal's requirements. **Each is a contract defect at a boundary, and each surfaced only when the producer did something it had always been free to do.**
 

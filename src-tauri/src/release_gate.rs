@@ -55,6 +55,33 @@ pub struct Counts {
 }
 
 #[derive(Debug, Default)]
+/// # WHY THERE IS NO `ship_ready` — ARCHITECTURE_TRACE §32
+///
+/// There was one. It returned `fail == 0 && skipped == 0`, and it was **false
+/// by construction**: the runner passed literal `None` to `check_comparison`
+/// and `check_persistence`, so two invariants always skipped and the boolean
+/// could never be `true` on any run, in any environment. It was read as a
+/// verdict about the SYSTEM when it was a fact about the RUNNER.
+///
+/// **The defect was not that it was always false. The defect is that one
+/// boolean had to answer two independent questions:**
+///
+/// > *"Did anything fail?"* and *"Was everything checked?"*
+///
+/// `no_failures()` answers the first. `coverage()` answers the second, as a
+/// statement rather than a bit. A caller wanting a ship decision must read
+/// both — which is correct, because the decision needs both.
+///
+/// ## Computing the boolean differently was CONSIDERED AND REJECTED
+///
+/// Excluding skips (`fail == 0` alone, called `ship_ready`) is the **worst**
+/// option available. On the run that exposed all of this it would have
+/// returned **`true`** — on a run where a third of the invariants never
+/// executed. It converts a visible structural gap into a green light.
+///
+/// `GateOutcome::Skipped` already carries its reason as typed absence (§4.12).
+/// **The summary was discarding it. The fix is to stop collapsing, not to
+/// collapse differently.**
 pub struct GateReport {
     results: Vec<(&'static str, GateOutcome)>,
 }
@@ -83,10 +110,38 @@ impl GateReport {
         let c = self.counts();
         format!("{} PASS, {} FAIL, {} SKIPPED", c.pass, c.fail, c.skipped)
     }
-    /// Shipping requires every invariant to have PASSED. A skip is not a pass.
-    pub fn ship_ready(&self) -> bool {
+    /// **Did anything FAIL?** Varies per run, and is false only on a real
+    /// failure.
+    ///
+    /// This is HALF of what `ship_ready` used to claim, and it is the half that
+    /// can honestly be a boolean.
+    pub fn no_failures(&self) -> bool {
+        self.counts().fail == 0
+    }
+
+    /// **What was EVALUATED, and what was not — and why.**
+    ///
+    /// A STATEMENT, not a verdict. It names each skipped invariant with the
+    /// reason the skip already carries, instead of collapsing all of them into
+    /// one bit.
+    pub fn coverage(&self) -> String {
         let c = self.counts();
-        c.fail == 0 && c.skipped == 0
+        let total = c.pass + c.fail + c.skipped;
+        let evaluated = c.pass + c.fail;
+        let mut out = format!("{evaluated} of {total} invariants evaluated");
+        let skipped: Vec<String> = self
+            .results
+            .iter()
+            .filter_map(|(name, o)| match o {
+                GateOutcome::Skipped { reason } => Some(format!("{name} ({reason})")),
+                _ => None,
+            })
+            .collect();
+        if !skipped.is_empty() {
+            out.push_str("; not evaluated: ");
+            out.push_str(&skipped.join(", "));
+        }
+        out
     }
 }
 
@@ -400,7 +455,13 @@ mod tests {
         let s = r.summary();
         assert!(s.contains("2 PASS"), "{s}");
         assert!(s.contains("1 SKIPPED"), "{s}");
-        assert!(!r.ship_ready(), "a skip must block shipping");
+        // A skip is NOT a failure — that distinction is the whole point of the
+        // two-value summary. `no_failures` stays true; `coverage` is what says
+        // the run is incomplete, and it must NAME the invariant and its reason.
+        assert!(r.no_failures(), "a skip is not a failure");
+        let cov = r.coverage();
+        assert!(cov.contains("not evaluated:"), "coverage must state what was not evaluated: {cov}");
+        assert!(cov.contains(COMPARISON), "coverage must name the skipped invariant: {cov}");
         assert_eq!(r.counts(), Counts { pass: 2, fail: 0, skipped: 1 });
     }
 }

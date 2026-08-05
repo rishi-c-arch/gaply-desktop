@@ -22,7 +22,7 @@ fn main() -> Result<(), GaplyError> {
     let events = std::cell::RefCell::new(Vec::new());
     let emit = |e: app_lib::pipeline::AnalysisEvent| events.borrow_mut().push(e);
     app_lib::pipeline::run_pipeline_measured(
-        db.clone(), embedder, path, None, None, guidelines, &emit,
+        db.clone(), embedder.clone(), path.clone(), None, None, guidelines.clone(), &emit,
     )?;
     let report_id = events.into_inner().into_iter().find_map(|e| match e {
         app_lib::pipeline::AnalysisEvent::Finished { report_id } => Some(report_id),
@@ -59,8 +59,44 @@ fn main() -> Result<(), GaplyError> {
     gate.record(PRIVACY, check_privacy(&payload, &details));
     gate.record(PROVENANCE, check_provenance(&payload));
     gate.record(SELECTION, check_selection(&payload));
-    gate.record(COMPARISON, check_comparison(None));
-    gate.record(PERSISTENCE, check_persistence(None));
+    // COMPARISON and PERSISTENCE need the FULL command path, which produces the
+    // Box 4 comparison record. Before §32 this runner passed literal `None`, so
+    // both could only ever report SKIPPED and `ship_ready` was false by
+    // construction. `run_publishready_measured` is the seam that makes the
+    // command path reachable outside Tauri; `harness_log::set_dir` is the second
+    // half, because `append` is a silent no-op with no directory configured.
+    //
+    // NO PROXY IS REQUIRED. The reviewer degrades to unavailable_offline and the
+    // harness block is unconditional; both findings_sent counts are
+    // DeterministicLocal, so they are Observed offline.
+    let sink = std::env::temp_dir().join(format!("gaply_gate_{}", std::process::id()));
+    std::fs::create_dir_all(&sink).expect("create comparison sink dir");
+    app_lib::harness_log::set_dir(sink.clone());
+    let full_path_err = app_lib::commands::run_publishready_measured(
+        db.clone(),
+        embedder.clone(),
+        path.clone(),
+        "PLOS ONE".to_string(),
+        "Q1".to_string(),
+        None,
+        None,
+        guidelines.clone(),
+    )
+    .err();
+    if let Some(e) = &full_path_err {
+        println!("[full-path] run_publishready_measured failed: {e}");
+    }
+    let sink_file = sink.join("box4_comparisons.jsonl");
+    let lines: Option<Vec<String>> = std::fs::read_to_string(&sink_file)
+        .ok()
+        .map(|c| c.lines().map(str::to_string).collect());
+    let record: Option<serde_json::Value> = lines
+        .as_ref()
+        .and_then(|l| l.iter().rev().find(|s| !s.trim().is_empty()))
+        .and_then(|s| serde_json::from_str(s).ok());
+
+    gate.record(COMPARISON, check_comparison(record.as_ref()));
+    gate.record(PERSISTENCE, check_persistence(lines.as_deref()));
     let liveness = check_liveness(&gate, proxy_available);
     gate.record(LIVENESS, liveness);
 
@@ -77,6 +113,10 @@ fn main() -> Result<(), GaplyError> {
         }
     }
     println!("\n{}", gate.summary());
-    println!("ship_ready: {}", gate.ship_ready());
+    // TWO VALUES, not one. "Did anything fail?" and "was everything checked?"
+    // are independent questions and one boolean cannot answer both (§32).
+    println!("no_failures: {}", gate.no_failures());
+    println!("coverage:    {}", gate.coverage());
+    let _ = std::fs::remove_dir_all(&sink);
     Ok(())
 }

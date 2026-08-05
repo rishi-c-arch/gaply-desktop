@@ -1576,7 +1576,9 @@ report.json fixture → build_review_payload(…) → check_privacy / check_prov
 
 **No manuscript, no pipeline, no DB, no proxy.** PRIVACY's end-to-end half needs the report's `detail` strings, which come from the same fixture.
 
-**What such a run must assert: the three outcomes, not `ship_ready`.** `ship_ready()` requires zero fails **and** zero skips, so a proxy-free run reports *3 PASS, 3 SKIPPED, `ship_ready` false* — honest, and wrong to gate on. `ship_ready` answers *"may we ship?"*, which a proxy-free run cannot answer, **and a job that is always red gets suppressed or worked around.** `counts()` already returns all three numbers together, so no new machinery is needed, and the Skipped results stay recorded as typed absence per §4.12 rather than being read as failure.
+**What such a run must assert: the three outcomes, not `ship_ready`.** `ship_ready()` requires zero fails **and** zero skips, so a proxy-free run reports *3 PASS, 3 SKIPPED, `ship_ready` false* — honest, and wrong to gate on.
+
+> **CORRECTED BY §32, on the gate's first actual execution.** Two errors here, and the conclusion above survives both while its reasoning does not. **(a) The numbers were predicted, not observed:** the real figure is **4 PASS, 2 SKIPPED** — LIVENESS *passes* rather than skipping, because it is a meta-invariant over the report and needs no proxy. **(b) The attribution is wrong (§4.14):** COMPARISON and PERSISTENCE do not skip because the proxy is absent. They skip because **the runner passes literal `None`** and drives `run_pipeline_measured` rather than `run_publishready`, so no comparison record can exist **on any run, with or without a proxy.** *"A proxy-free run cannot answer `ship_ready`"* is therefore too weak: **this runner cannot answer it, ever.** `ship_ready` answers *"may we ship?"*, which a proxy-free run cannot answer, **and a job that is always red gets suppressed or worked around.** `counts()` already returns all three numbers together, so no new machinery is needed, and the Skipped results stay recorded as typed absence per §4.12 rather than being read as failure.
 
 ### The observed progression
 
@@ -3226,3 +3228,263 @@ The instrumentation gap here is not a missing test, it is a **missing TARGET**. 
 **This is why the implementation is pinned by a test named for the PROPERTY** — `folding_alone_discloses_only_simplification` asserts `Lukasz`, with the comment *"the case NFD cannot handle"*. **If the table is ever replaced by "real" NFD as a simplification, that test fails.**
 
 **Related but distinct from §4.17** (*assert the invariant, not the implementation*), which governs how a test is written once the requirement is known. **This one is upstream of that: it governs how the requirement is STATED at approval time.** A method approved as a requirement produces tests that assert the method, and §4.17's failure follows from it rather than causing it.
+
+### 31.26 VERIFY THE PREMISE BEFORE OPTIMIZING THE SOLUTION — four instances in one milestone
+
+**Four recommendations in Milestone 3 were CHANGED by measuring their premise.** Each had been reasoned to confidently, and each was wrong in the same direction.
+
+| # | Premise assumed | Measured | Recommendation before → after |
+|---|---|---|---|
+| 1 | `unicode-segmentation` is "already in the tree" (it is in `Cargo.lock`) | **every path runs through the APP crate**; `gaply_core` has none | grapheme sentinels → **drop the length claim** |
+| 2 | `pdf-extract` may not decode WinAnsi; the instrument might need another reader | round-trips `0x8A→Š`, `0x9E→ž` — CP1252, not ISO-8859-1 | evaluate readers → **use it, verified** |
+| 3 | The examples gap needs `cargo check --all-targets` promoted | **plain `cargo test` already builds examples**; the gap is the `--lib` flag | add a command → **remove a flag** |
+| 4 | So removing `--lib` is the cheap fix | **`cargo test` costs +108s per edit** (22 example binaries link candle/tauri); `check --all-targets` costs **+3s** | remove a flag → **`check --all-targets && test --lib`** |
+
+#### What makes this worth recording rather than filing under "good practice"
+
+> **In every case the measurement made the design SIMPLER. No new dependency, no different oracle, no extra command, no two-minute suite.**
+
+**That is the asymmetry.** An unverified premise is nearly always a premise about a CONSTRAINT — *this crate is unavailable, this library is unreliable, this command does not cover that target, this fix must be slow.* **Machinery is then designed to work around the constraint.** When the constraint turns out not to exist, the machinery has no purpose left, and the simpler design was available from the start.
+
+**The failure is invisible while it happens.** Adding a dependency, an oracle or a command all look like diligence. **Nothing about the resulting design announces that it is solving a problem that was not there** — it just looks slightly heavier than it needed to be, which is indistinguishable from thoroughness.
+
+#### Instance 4 is the sharpest, because measuring reversed a measured conclusion
+
+**Instance 3 was itself a measurement** — an example was deliberately broken and three commands were compared, showing `cargo test` catches it and `cargo test --lib` does not. **That measurement was correct and its recommendation was still wrong**, because it established COVERAGE without establishing COST.
+
+> **A measurement answers the question it was asked. "Does this command catch the error?" is not "should this be the standing command?"**
+
+**The second measurement (`--all-targets` at 3s versus `cargo test` at 133s) is what settled it.** The 108-second gap is entirely codegen and linking for 22 example binaries — work `check` skips while still type-checking every target.
+
+#### The standing-command numbers
+
+Measured after `touch src/lib.rs` (the realistic edit path), then twice warm:
+
+| Command | After edit | Warm | Tests run | Examples compiled |
+|---|---|---|---|---|
+| `cargo test --lib` *(today)* | **24.6s** | 2.8s | 177 | **no** |
+| `cargo test --tests` | 54.5s | 2.6s | 182 | **no** |
+| `cargo test` | **132.7s** | 3.0s | 182 | yes |
+| `cargo check --all-targets` | **3.0s** | 0.3s | 0 | yes |
+| **`cargo check --all-targets && cargo test --lib`** | **27.6s** | 3.1s | 177 | **yes** |
+
+> **+3 seconds, +12%, one command line — and the class of defect that hid `release_gate.rs`'s non-compilation for four PRs becomes impossible.**
+
+**Warm cost is identical across all of them (~3s), so the only figure that discriminates is the edit path** — which is the path the command is actually run on.
+
+**The decision rule's second branch does not fire.** The overhead is not substantial, so nothing needs to be documented as a cost to be tolerated: **a standing command avoided because it is slow is a routine that is not run**, and 3 seconds does not produce avoidance where 24 did not.
+
+#### A SEPARATE FAILURE — the overturn was RECORDED but never REPORTED
+
+**The table above was written into this document in the same turn the measurement ran. It was not stated in the reply.** That turn's response led with the release gate's matrix and never mentioned the timings, the +108s, or the fact that recommendation (a) — *"drop `--lib`"* — had just been overturned.
+
+> **For two turns the RECORD held the measured answer while the CONVERSATION still carried the reasoned one.** The discrepancy surfaced only because a later commit message quoted the corrected command and the reader noticed it conflicted with a recommendation nobody had retracted.
+
+**This is not the verify-the-premise failure; the premise was verified.** It is a reporting failure, and it is worse in one specific way: **a correction that exists only in a document nobody has re-read has not yet corrected anything.** The reader was still reasoning from the superseded recommendation, and had to reconstruct the 108-second figure independently to challenge it.
+
+**The rule:** when a measurement OVERTURNS a recommendation already given, the reversal is the headline of that turn's report, not a row in a table written the same hour. **Writing it down is necessary and is not the same as saying it.**
+
+## 32. The release gate's first execution since PR-3 — a measurement
+
+**Run against `gaply-core/tests/fixtures/manuscript.txt`** (260 words, committed, so the run is reproducible and no private document was involved). **11 report findings, 11 payload findings, 11 detail strings checked.**
+
+### 32.1 `ship_ready: false` — and it has never been capable of anything else
+
+> **The headline is not "4 PASS, 0 FAIL, 2 SKIPPED". The headline is that `ship_ready` is FALSE BY CONSTRUCTION.**
+
+`ship_ready()` requires `fail == 0 && skipped == 0`. **Two invariants always skip**, for reasons that have nothing to do with the run:
+
+```rust
+gate.record(COMPARISON,  check_comparison(None));   // examples/release_gate.rs:62
+gate.record(PERSISTENCE, check_persistence(None));  // examples/release_gate.rs:63
+```
+
+**The arguments are literal `None`, and the runner drives `run_pipeline_measured`, not `run_publishready`** — so the comparison record those two invariants read is never produced, on any run, in any environment.
+
+> **`ship_ready` has never returned `true` and, as the runner is written, never can.**
+
+**The skip REASONS are honest** — *"the full command path did not run"* is exactly correct. **The verdict computed from them is not**, because it presents a permanent structural fact as a per-run outcome.
+
+### 32.2 The project already misread this, and the misreading has a name
+
+**§21 recorded the gate's expected output as an observation about the SYSTEM.** It was an observation about the RUNNER.
+
+| | §21 | Measured |
+|---|---|---|
+| Counts | *3 PASS, 3 SKIPPED* (predicted) | **4 PASS, 2 SKIPPED** |
+| Why the skips | *"a proxy-free run cannot answer"* | **the runner passes `None`; the proxy is irrelevant** |
+| `ship_ready` false | a property of that run | **a property of the tool** |
+
+**Two ontology rules apply, and they are different failures:**
+
+**§4.20's PRESENTATION class, applied to an INSTRUMENT.** `ship_ready` is a field implying a computation that cannot occur — the same shape as `publication_probability` rendered as a percentage gauge over a four-value lookup. **A boolean named "ship_ready" asserts that shipping-readiness was evaluated.** It was not; two of its six inputs were never obtainable.
+
+**§24's "unexamined, not unstated" shape.** **Nobody decided `ship_ready` would be permanently false.** Nobody wrote it down, argued for it, or accepted it as a cost. **And nobody examined whether it could be otherwise** — the field was read as a verdict for as long as the gate went unrun, which is to say for its entire life since PR-3.
+
+> **An instrument can carry the same defect it was built to detect, and it is harder to see there, because the instrument is what you would normally check WITH.**
+
+### 32.3 The coverage claim, restated
+
+**The gate is recorded throughout this document as SIX invariants.** What it actually is:
+
+| | Count | |
+|---|---|---|
+| **Real coverage** | **4** | PRIVACY, PROVENANCE, SELECTION, and LIVENESS as a meta-check |
+| **Unreachable from this runner** | **2** | COMPARISON, PERSISTENCE |
+| **Summary that can vary** | **0** | `ship_ready` is constant |
+
+**LIVENESS is a meta-invariant** — it checks the REPORT, not the product, asserting that no proxy-dependent invariant claims Pass without a proxy. **It currently guards two invariants that cannot run**, so it passes in its cheapest possible configuration with nothing to catch. It is correct and it is nearly free of content on this input.
+
+**§21 promoted the gate as level-3 self-detecting.** **That is true of the four and false of what the six-invariant framing implies.** The correction is to the coverage claim, not to the gate's value — four end-to-end invariants asserted against real bytes is a real instrument.
+
+### 32.4 The genuinely new result — an ARGUMENT became a MEASUREMENT
+
+**PRIVACY and PROVENANCE passing is a first measurement, not a re-confirmation.** Both ran against a system substantially changed since they last executed: F2/F6's four PRs, `build_review_payload`'s typed `&PublishReadyReport` boundary, `ClaimKind` on every `Finding`, the vocabulary, and `enrich_report_labels`.
+
+**§31.21 ARGUED that labels could not leak into the payload**, on the grounds that the payload is an explicit seven-key projection and `summary_shape_is_pinned_to_the_format_version` guards the key set. **The reasoning was sound and it was reasoning.**
+
+> **The gate now confirms it against SERIALIZED BYTES: no payload finding carries a `detail` field, and none of the 11 `detail` strings appears anywhere in the payload's serialization.**
+
+**This is the move the project keeps setting up and rarely completes** — §4.17's *assert the invariant, not the implementation*, reaching the artifact rather than stopping at the argument. **It is worth naming because the argument was CORRECT.** The value was never in catching an error; it was in converting a claim that had to be trusted into one that is checked.
+
+### 32.5 Two smaller observations
+
+**SELECTION passed at 11 findings against a cap of 12.** **Not vacuous** — the check compared and did not fire. But **the invariant's claim is that the cap holds UNDER LOAD, and that went untested at the narrowest possible margin.** Run 23 produced **20 findings** on a real manuscript; this fixture produces 11. **The one input that would exercise the invariant is the one the reproducible fixture cannot supply.**
+
+**LIVENESS passed with nothing to catch**, as above — recorded so that a future green LIVENESS is not read as evidence that the implicit-pass hazard was tested.
+
+### 32.6 The fourth unchecked premise came from the TASK, not the work
+
+**The task framing stated:** *"The runner would have to drive the full command path, which needs a proxy, entitlement, and a signed-in user — that is why it drives the pipeline instead."*
+
+**Checked, and false.** `commands.rs:724` carries an explicit comment: **"UNCONDITIONAL. Previously this whole block sat inside `if let Some(outcome) = &shadow_outcome`"** — the Box 4 harness block runs on every call. The reviewer degrades to `ReviewerEvaluation::unavailable_offline()` on an unreachable proxy, a 401 and a 403 alike. **None of the three stated prerequisites is one.**
+
+> **This is §31.26's fourth instance, and the first where the unchecked premise came from the person SETTING the task rather than being caught inside the work.**
+
+#### The framing biases the answer even when the question is open
+
+The same message asked to *"state honestly whether a runnable version is feasible at all, or whether those two invariants belong somewhere other than this runner."* **That question is genuinely open. The sentence before it was not, and it did the damage.**
+
+**The first response proposed Option B — move the invariants elsewhere — and reasoned to it from the stated blocker.** Option B is coherent, defensible, and solves a problem that does not exist. **Asking for an honest assessment does not undo presenting the constraint as established**, because the assessment is then performed *within* the constraint rather than *on* it.
+
+**The general form, which is the durable part:** a premise stated as fact by the requester is the hardest kind to check, because checking it reads as doubting the request rather than doing it. **That is exactly when it most needs checking** — the four instances in this milestone cost minutes each, and this one would have redirected an entire piece of work.
+
+### 32.7 The COMPARISON caveat was withdrawn before it was recorded
+
+**Claimed:** with no proxy the wholesale side is `unavailable_offline`, so `wholesale_findings_sent` may be `Unavailable` and `check_comparison` would return SKIPPED — "five and a half of six".
+
+**Falsified by run 23's own record**, captured with the proxy returning 403 throughout:
+
+```
+wholesale_path_available   false | status: observed
+wholesale_findings_sent    12    | source: deterministic_local | status: observed
+shadow_findings_sent       12    | source: deterministic_local | status: observed
+```
+
+**And confirmed in the source rather than inferred from the capture:**
+
+```rust
+wholesale_findings_sent: Metric::observed(inp.wholesale_findings_sent, DeterministicLocal),   // unconditional
+shadow_findings_sent:    sh.map(|s| Metric::observed(s.findings_sent, DeterministicLocal)),   // iff the shadow ran — local
+```
+
+> **Both counts are the number of findings that WOULD be sent, computed locally. Neither is read from a response.** `wholesale_path_available: false` and `wholesale_findings_sent: 12 (observed)` are consistent, and the pair is the clearest example in the record of why §26's Metric type distinguishes SOURCE from AVAILABILITY.
+
+**A fifth instance of the same pattern, caught before it reached the document.**
+
+### 32.8 Option A implemented — six of six, for the first time
+
+**`run_publishready_measured` extracted** from `run_publishready`'s `spawn_blocking` body; the command now calls it. **Not a new pattern — `pipeline::run_pipeline_measured` is the same seam for the same reason**, and the command path simply never got one. The runner additionally calls `harness_log::set_dir`, without which `append` is a documented silent no-op.
+
+```
+  PASS  PRIVACY      PASS  COMPARISON
+  PASS  PROVENANCE   PASS  PERSISTENCE
+  PASS  SELECTION    PASS  LIVENESS
+  6 PASS, 0 FAIL, 0 SKIPPED
+  no_failures: true
+  coverage:    6 of 6 invariants evaluated
+```
+
+**COMPARISON and PERSISTENCE have never reported anything before.** This is not a passing run of a known-good check; it is the first data either has produced.
+
+### 32.9 `ship_ready` replaced by two values
+
+`no_failures() -> bool` and `coverage() -> String`. **The reasoning lives on `GateReport`'s own docs, not only here.**
+
+> **The defect was never that `ship_ready` was always false. It is that ONE BOOLEAN had to answer TWO INDEPENDENT QUESTIONS — "did anything fail?" and "was everything checked?"**
+
+**Computing the boolean differently was CONSIDERED AND REJECTED as the worst option available.** Excluding skips (`fail == 0` alone) would have returned **`true`** on the very run that exposed all of this — a run where a third of the invariants never executed. **It converts a visible structural gap into a green light.**
+
+**`GateOutcome::Skipped` already carried its reason as typed absence (§4.12); the SUMMARY was discarding it. The fix is to stop collapsing, not to collapse differently** — `coverage()` now names each skipped invariant with its reason.
+
+#### AND `coverage()` INHERITS THE SAME DEFECT, ONE LEVEL DOWN
+
+**The new summary reads `6 of 6 invariants evaluated`. That is true, and it overstates.**
+
+> **LIVENESS was EVALUATED and checked nothing** — it returned Pass on its first line because `proxy_available` was true. **"Evaluated" is not "exercised", and `coverage()` counts the first while reading as the second.**
+
+**`ship_ready` conflated "did anything fail?" with "was everything checked?". `coverage()` separates those two and then conflates "was it checked?" with "did the check have content?"** — the same collapse, one level further in, introduced by the fix for the original.
+
+**Not repaired here, and recorded rather than left to be rediscovered**, because the repair is the same decision as LIVENESS's: a check that cannot fail on a given input is not distinguishable from one that passed, and expressing that distinction needs the gate to know when an invariant was VACUOUS. **§32.11's SELECTION observation is the same class** — it passed at 11 against a cap of 12, evaluated and barely exercised.
+
+**The honest reading of today's output is therefore: 6 evaluated, 4 with content, 2 vacuous** (LIVENESS entirely, SELECTION at the margin). **No field says that.**
+
+### 32.10 LIVENESS has now passed THREE TIMES, never once by doing its job
+
+| Run | Why it passed |
+|---|---|
+| §21 (predicted) | expected to SKIP |
+| §32 first execution | COMPARISON and PERSISTENCE were SKIPPED — nothing to catch |
+| §32.8, after Option A | **`proxy_available` was TRUE, so it returned Pass on line 1** |
+
+#### `proxy_available` measures CONFIGURATION, not reachability
+
+```rust
+let proxy_available = ProxyReqwestClient::from_env().is_ok();
+```
+
+`from_env` reads `GAPLY_PROXY_URL` (defaulting when unset) and `TokenSigner::from_keychain()`. **It succeeds when a signing key exists in the keychain. It never touches the network.** The production path uses `client.reachable()`, which probes `/health` — a different question, asked with a different call.
+
+> **A Tailscale-hidden, completely unreachable proxy reports `proxy_available: true`** on any machine that has ever signed in. **§4.20's PRESENTATION class again, and again inside the instrument: a name asserting a measurement that was not performed.**
+
+**The pass is DEDUCIBLE, not assumed:** `check_liveness` returns `Fail` when COMPARISON or PERSISTENCE report Pass and `proxy_available` is false. Both reported Pass and LIVENESS did not fail, therefore `proxy_available` was true.
+
+#### And Option A introduced a LATENT SPURIOUS FAILURE — recorded, not fixed
+
+**On a machine with no keychain entry, `proxy_available` is false.** COMPARISON and PERSISTENCE still pass, because they are `DeterministicLocal` and need no proxy. **`check_liveness` would then FAIL the run** for an implicit pass that did not occur.
+
+> **LIVENESS's premise is now false: it classifies COMPARISON and PERSISTENCE as PROXY-DEPENDENT, and §32.7 established that neither is.**
+
+**The invariant was correct when written** — before Option A those two could only come from a path that needed the command, and the proxy was assumed to be part of it. **Making them reachable offline falsified the classification rather than the check.** The fix is to LIVENESS's invariant list or to what `proxy_available` measures, and it is deliberately not made here.
+
+### 32.11 Still open, recorded not fixed
+
+**SELECTION passed at 11 findings against `MAX_FINDINGS` 12.** The check compared and did not fire, so it is not vacuous — **but the invariant's claim is that the cap holds UNDER LOAD, and that remains untested at the narrowest possible margin.** Run 23 produced **20 findings** on a real manuscript; this fixture produces 11.
+
+**A fixture that exercises the cap is worth considering and is NOT changed here.** Two shapes, neither built: a second committed fixture long enough to exceed 12 findings, or a unit-level assertion over a synthetic 20-finding report — **which `check_selection` already has**, meaning the gap is specifically in the END-TO-END path, where a real payload is built from a real manuscript. **The second option does not close it; only the first does.**
+
+### 32.12 The shape of the LIVENESS repair — three concepts in one value, NOT STARTED
+
+**`proxy_available` mixes three questions that must be separated before anything is repaired.** Recording the framing, because the repair follows from it and is a DECISION rather than a typo.
+
+| Concept | Question | What measures it today |
+|---|---|---|
+| **CONFIGURED** | do credentials and a URL exist? | **`from_env().is_ok()`** — what the value actually holds |
+| **REACHABLE** | does the proxy respond? | **`reachable()`**, which probes `/health` — what the check NEEDS |
+| **REQUIRED** | does this invariant depend on the proxy at all? | **LIVENESS's hard-coded list** `COMPARISON \| PERSISTENCE` |
+
+#### Two separate errors, in one value
+
+> **(1) The check reads CONFIGURED while meaning REACHABLE.** A Tailscale-hidden proxy that answers nothing reports `true` on any machine that has ever signed in, and LIVENESS disables itself. **ONTOLOGY §4.16's fifth instance, and its first inside an instrument.**
+
+> **(2) The REQUIRED list is stale.** COMPARISON and PERSISTENCE were classified proxy-dependent; §32.7 established both counts are `DeterministicLocal` and `Observed` offline. **The classification was true when written and was falsified by Option A**, not by any change to the check.
+
+**They compound in opposite directions, which is why the gate looks green.** Error (1) makes LIVENESS pass when it should test; error (2) means that if error (1) were fixed alone, LIVENESS would FAIL every offline run for an implicit pass that cannot occur. **Fixing either one in isolation makes the gate wrong in a new way** — which is the whole reason this is recorded as a decision and not attempted.
+
+#### What a repair must decide, not assume
+
+1. **Does LIVENESS take REACHABLE as its input?** If so, `reachable()` costs a network probe on every gate run, including offline ones.
+2. **Is REQUIRED still a fixed list, or does it come from the record?** Every `Metric` already carries `MetricSource` and `MetricAvailability` — **the record can say whether a value needed the proxy, so the list may not need to exist at all.**
+3. **What should LIVENESS assert once COMPARISON and PERSISTENCE are local?** It may have no proxy-dependent invariant left to guard, in which case it is either retired or repointed at whatever genuinely is one.
+
+**Question 2 is the one worth answering first**: a hard-coded list of "which invariants need the proxy" is derived state duplicating what `MetricAvailability` already records — **§11.5's shape, and the reason this went stale silently.**
