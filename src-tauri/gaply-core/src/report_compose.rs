@@ -1,0 +1,345 @@
+//! The COMPOSER layer — "how should a researcher read this?"
+//!
+//! Owns section ordering, grouping, what belongs together, and EVERY
+//! user-facing string that is not a `vocabulary` label. Owns no facts: see
+//! `report_model`'s module docs for the three-layer contract.
+//!
+//! # Why `Block` is FLAT — a refinement of the approved design
+//!
+//! The design proposal listed `FindingGroup { severity, findings }` and
+//! `ChecklistTable { rows }` as block variants. **Both were dropped**, because
+//! either one hands the renderer a question it is forbidden to answer: *what
+//! does a finding look like?* A renderer receiving `FindingGroup` must decide
+//! whether the title is bold, whether the detail is indented, whether provenance
+//! is shown — presentation decisions, made below the composer.
+//!
+//! With a flat block set the composer EXPANDS a group into headings, paragraphs
+//! and bullets, and the renderer's whole job reduces to turning a line of text
+//! at a size into glyphs at a position. **That is a stricter reading of the
+//! contract than the proposal's, not a looser one**, and it is what makes a
+//! second renderer (HTML, DOCX) cheap.
+//!
+//! A new `Block` variant still breaks every renderer's `match` — the totality
+//! discipline is unchanged.
+
+use crate::report::FindingSeverity;
+use crate::report_model::LocalReportModel;
+use crate::vocabulary::{claim_label, severity_label, tier_label};
+
+/// One unit of composed output. Deliberately close to "a line of text with a
+/// role" — see the module docs for why it is not richer.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Block {
+    /// Document title page. `meta` is label/value pairs.
+    Cover { title: String, subtitle: String, meta: Vec<(String, String)> },
+    /// `level` 1 = section, 2 = subsection, 3 = finding title.
+    Heading { text: String, level: u8 },
+    Paragraph { text: String },
+    /// `indent` 0 = flush bullet, 1 = nested.
+    Bullet { text: String, indent: u8 },
+    /// A caveat, disclosure or limitation. Rendered de-emphasised.
+    Note { text: String },
+    PageBreak,
+}
+
+/// Disclosure for characters FOLDED to a Latin base letter (`Śarmā` → `Sarma`).
+///
+/// # Why these two strings live here but are emitted by the renderer
+///
+/// Only the renderer knows what happened to a character — the outcome depends
+/// on the font, which the composer is forbidden to know about. But the WORDING
+/// is a user-facing string, which is the composer's. So ownership splits along
+/// that line: **the composer owns what is said, the renderer owns whether it
+/// applies.** Disclosing a renderer's own limitation is not a decision about
+/// content; it is the render-path form of §4.14's absence attribution.
+///
+/// # Why TWO strings and not one
+///
+/// Under the folding rule a character is INTACT, SIMPLIFIED, or MARKED, and the
+/// last two are different facts:
+///
+/// | | Outcome | What the reader must understand |
+/// |---|---|---|
+/// | `Śarmā` → `Sarma` | **simplified** | the name is ALTERED and readable |
+/// | `हिन्दी` → `??????` | **marked** | the text is ABSENT and visible |
+///
+/// One note covering both would blur them. **A reader judging whether to trust
+/// a name needs the first specifically** — "some characters could not be
+/// displayed" gives them no reason to doubt a name that is right there on the
+/// page, spelled wrongly.
+/// # A DISCLOSURE CANNOT USE AN UNRENDERABLE EXAMPLE
+///
+/// The first draft read *"for example, a name written Śarmā appears here as
+/// Sarma"*. **`Śarmā` is exactly what this renderer cannot represent**, so the
+/// sentence rendered as *"a name written Sarma appears here as Sarma"* — a note
+/// explaining an alteration, silently altered, into nonsense.
+///
+/// Caught by a `debug_assert` that the disclosure strings are themselves ASCII,
+/// on the instrument's first run. **The wording therefore names the CLASS of
+/// change rather than showing an instance of it**: showing one is impossible in
+/// the medium doing the showing.
+pub const NOTE_SIMPLIFIED: &str =
+    "Some letters in this report were simplified to their closest basic Latin form, so \
+     a letter carrying an accent or other mark may appear here as its plain equivalent. \
+     The spelling in your manuscript is unchanged.";
+
+/// Disclosure for characters this renderer cannot represent at all.
+///
+/// **States no count.** The marks are per code point, which is not the unit a
+/// reader counts: `हिन्दी` is six code points but three visual clusters, so any
+/// length claim would assert a character count nobody would recognise. Getting
+/// that right needs grapheme segmentation, which `gaply_core` does not depend
+/// on. **The marks show THAT something is missing, not how much** — see
+/// ARCHITECTURE_TRACE §31.
+pub const NOTE_MARKED: &str =
+    "Some characters could not be displayed in this report and appear as a question \
+     mark. This is a limitation of the report's font, not of the analysis — nothing \
+     was skipped or removed.";
+
+/// The severities, in the order the report presents them. Explicit rather than
+/// derived from an enum ordering, so a reordering is a visible edit.
+const SEVERITY_ORDER: [FindingSeverity; 4] = [
+    FindingSeverity::Critical,
+    FindingSeverity::Major,
+    FindingSeverity::Minor,
+    FindingSeverity::Info,
+];
+
+/// Compose the report. Pure: same model in, same blocks out.
+pub fn compose(model: &LocalReportModel) -> Vec<Block> {
+    let mut out = Vec::new();
+    cover(model, &mut out);
+    summary(model, &mut out);
+    findings(model, &mut out);
+    statistics(model, &mut out);
+    checklist(model, &mut out);
+    similarity(model, &mut out);
+    limitations(model, &mut out);
+    out
+}
+
+fn cover(model: &LocalReportModel, out: &mut Vec<Block>) {
+    let mut meta = vec![("Run".into(), model.run_id.clone())];
+    if let Some(j) = &model.journal_name {
+        meta.push(("Target journal".into(), j.clone()));
+    }
+    if let Some(g) = &model.guidelines_url {
+        meta.push(("Guidelines".into(), g.clone()));
+    }
+    meta.push(("Findings".into(), model.findings.len().to_string()));
+    out.push(Block::Cover {
+        title: model.manuscript.title.clone().unwrap_or_else(|| "Untitled manuscript".into()),
+        subtitle: "Gaply PublishReady report".into(),
+        meta,
+    });
+}
+
+fn summary(model: &LocalReportModel, out: &mut Vec<Block>) {
+    out.push(Block::Heading { text: "Summary".into(), level: 1 });
+    out.push(Block::Paragraph { text: format!("Overall assessment: {}.", model.verdict) });
+    out.push(Block::Paragraph {
+        text: format!(
+            "This manuscript has {} sections, {} tables and {} references.",
+            model.manuscript.section_count,
+            model.manuscript.table_count,
+            model.manuscript.reference_count
+        ),
+    });
+    out.push(Block::Note { text: model.disclaimer.clone() });
+}
+
+fn findings(model: &LocalReportModel, out: &mut Vec<Block>) {
+    out.push(Block::PageBreak);
+    // DECIDED (§31): "Fix these first" became "Issues by severity". The old
+    // heading asserted a REMEDIATION ORDER the engine never computed —
+    // ONTOLOGY §4.20's PRIORITY class, and its first recorded instance.
+    out.push(Block::Heading { text: "Issues by severity".into(), level: 1 });
+    out.push(Block::Paragraph {
+        text: "Listed from most serious to least serious. The time needed to fix each \
+               issue depends on your manuscript."
+            .into(),
+    });
+
+    if model.findings.is_empty() {
+        out.push(Block::Paragraph {
+            text: "No issues were found by the checks that ran. The limitations section \
+                   lists what was not examined."
+                .into(),
+        });
+        return;
+    }
+
+    // NO CAP. `MAX_FINDINGS = 12` exists for the proxy's 8000-character budget
+    // (reviewer_agent.rs) — a constraint a PDF does not have. See §31.22.
+    let mut n = 0usize;
+    for severity in SEVERITY_ORDER {
+        let group = model.findings_by_severity(severity);
+        if group.is_empty() {
+            continue;
+        }
+        out.push(Block::Heading {
+            text: format!("{} ({})", severity_label(severity), group.len()),
+            level: 2,
+        });
+        for f in group {
+            n += 1;
+            out.push(Block::Heading { text: format!("{n}. {}", f.title), level: 3 });
+            out.push(Block::Paragraph { text: f.detail.clone() });
+            // The claim label says WHAT KIND of statement this is; absent for
+            // ManuscriptDefect, where the finding speaks for itself.
+            if let Some(c) = claim_label(f.claim) {
+                out.push(Block::Bullet { text: format!("Type: {c}"), indent: 0 });
+            }
+            out.push(Block::Bullet {
+                text: format!("Certainty: {}", tier_label(f.tier)),
+                indent: 0,
+            });
+            if let Some(near) = &f.nearby_text {
+                out.push(Block::Bullet { text: format!("In your manuscript: \"{near}\""), indent: 1 });
+            }
+        }
+    }
+}
+
+fn statistics(model: &LocalReportModel, out: &mut Vec<Block>) {
+    if model.manuscript.statistics.is_empty() {
+        return;
+    }
+    out.push(Block::PageBreak);
+    out.push(Block::Heading { text: "Statistics reported".into(), level: 1 });
+
+    let missing = model.statistics_missing_effect_size();
+    let with_effect = model.manuscript.statistics.len() - missing.len();
+
+    out.push(Block::Heading {
+        text: format!("Reported with an effect size ({with_effect})"),
+        level: 2,
+    });
+    if with_effect == 0 {
+        out.push(Block::Paragraph { text: "None.".into() });
+    } else {
+        for s in model.manuscript.statistics.iter().filter(|s| s.effect_size_present) {
+            out.push(Block::Bullet {
+                text: format!("{} — {} ({})", s.kind, s.reported, s.location),
+                indent: 0,
+            });
+        }
+    }
+
+    out.push(Block::Heading {
+        text: format!("Reported without an effect size ({})", missing.len()),
+        level: 2,
+    });
+    if missing.is_empty() {
+        out.push(Block::Paragraph { text: "None.".into() });
+    } else {
+        out.push(Block::Paragraph {
+            text: "Many journals ask for an effect size alongside a significance test."
+                .into(),
+        });
+        for s in missing {
+            out.push(Block::Bullet {
+                text: format!("{} — {} ({})", s.kind, s.reported, s.location),
+                indent: 0,
+            });
+        }
+    }
+}
+
+fn checklist(model: &LocalReportModel, out: &mut Vec<Block>) {
+    if model.checklist.is_empty() {
+        return;
+    }
+    out.push(Block::PageBreak);
+    out.push(Block::Heading { text: "Guideline checklist".into(), level: 1 });
+    for item in &model.checklist {
+        out.push(Block::Bullet {
+            text: format!(
+                "[{}] {} — {}",
+                if item.passed { "met" } else { "not met" },
+                item.requirement,
+                item.detail
+            ),
+            indent: 0,
+        });
+    }
+}
+
+fn similarity(model: &LocalReportModel, out: &mut Vec<Block>) {
+    out.push(Block::PageBreak);
+    out.push(Block::Heading { text: "Text similarity".into(), level: 1 });
+
+    // §26 PR-4's distinction, stated on the page: "no matches" and "nothing to
+    // compare against" are different facts and must not share a sentence.
+    if model.corpus_chunks_available == 0 {
+        out.push(Block::Paragraph {
+            text: "No reference corpus was available on this machine, so this manuscript \
+                   was not compared against other documents. This is not a statement that \
+                   no overlap exists."
+                .into(),
+        });
+    } else if model.similarity.is_empty() {
+        out.push(Block::Paragraph {
+            text: format!(
+                "Compared against {} reference passages. No passage exceeded the \
+                 similarity threshold.",
+                model.corpus_chunks_available
+            ),
+        });
+    } else {
+        out.push(Block::Paragraph {
+            text: format!(
+                "Compared against {} reference passages. {} passage(s) exceeded the \
+                 similarity threshold. Similarity is not plagiarism — quoted, standard \
+                 or methodological wording scores highly and is often correct.",
+                model.corpus_chunks_available,
+                model.similarity.len()
+            ),
+        });
+        for r in &model.similarity {
+            out.push(Block::Bullet {
+                text: format!(
+                    "{:.0}% similar to {}{}",
+                    r.similarity * 100.0,
+                    r.source,
+                    if r.self_match { " (elsewhere in this manuscript)" } else { "" }
+                ),
+                indent: 0,
+            });
+            out.push(Block::Bullet { text: format!("\"{}\"", r.excerpt), indent: 1 });
+        }
+    }
+}
+
+fn limitations(model: &LocalReportModel, out: &mut Vec<Block>) {
+    out.push(Block::PageBreak);
+    out.push(Block::Heading { text: "What was not examined".into(), level: 1 });
+
+    let l = &model.lanes;
+    let unexamined: Vec<&str> = [
+        (!l.verification_examined, "Reference checking — no references were parsed."),
+        (!l.validation_examined, "Statistical checking — no statistics were found."),
+        (!l.plagiarism_examined, "Text similarity — nothing was available to compare against."),
+        (!l.ai_detection_examined, "AI writing signals — the manuscript was too short to score."),
+        (!l.extraction_examined, "Table and reference checks — neither was found."),
+    ]
+    .iter()
+    .filter(|(unex, _)| *unex)
+    .map(|(_, s)| *s)
+    .collect();
+
+    if unexamined.is_empty() {
+        out.push(Block::Paragraph { text: "Every check ran on this manuscript.".into() });
+    } else {
+        // ONTOLOGY §4.20, COMPLETENESS: a findings list with no statement of
+        // what did not run reads as "this is everything".
+        out.push(Block::Paragraph {
+            text: "These checks did not run. Their silence is not a pass — it means \
+                   nothing was looked at."
+                .into(),
+        });
+        for u in unexamined {
+            out.push(Block::Bullet { text: u.into(), indent: 0 });
+        }
+    }
+}

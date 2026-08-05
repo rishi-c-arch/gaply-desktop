@@ -479,7 +479,7 @@ A fabricated finding can be disputed on its merits. A name with characters remov
 | **NUMBERS** | rounding or formatting that changes what a value says | **`83f192c`** — a bag-of-words cosine rendered as *"% similarity"*, later corrected to *"% word overlap"* |
 | **LABELS** | an internal enum leaking as its own name | **ARCHITECTURE_TRACE §31.6** — `FindingSeverity` has no label function, so every severity a user sees is `.toUpperCase()` on the enum |
 | **PRESENTATION** | a visual implication beyond the computed evidence | **this workstream** — `publication_probability`, a four-value lookup, rendered as a percentage in a gauge |
-| **ORDERING** | a sort implying a ranking the engine never computed | **no instance examined.** Findings are sorted severity → tier → confidence; whether that reads as a ranking has not been tested |
+| **ORDERING** | a sort implying a ranking the engine never computed | **FIRST INSTANCE (§31)** — the PDF's findings heading read *"Fix these first"*, asserting a REMEDIATION ORDER over a severity sort. Severity is computed; remediation order never was. Now *"Issues by severity"* |
 
 > **Naming the class means the next instance is caught AS AN INSTANCE rather than rediscovered from first principles** — the same argument that made §21's instrumentation-maturity section worth writing.
 
@@ -495,7 +495,24 @@ A fabricated finding can be disputed on its merits. A name with characters remov
 
 The distinction matters: an assertion on `Finding.title` would pass while the PDF says `arm`. **The test has to read the output file.**
 
-**Not built.** Recorded as the shape it would take, so it is not rediscovered either.
+**BUILT — `gaply-core/src/report_pdf.rs`, ARCHITECTURE_TRACE §31 Milestone 3.** The instrument drives `LocalReportModel → compose() → render_pdf() → PDF bytes → pdf-extract` and asserts on the extracted text. **This rule moves from §21 level 1 (holds while remembered) to level 3 (holds because a test fails).**
+
+**Its oracle was verified before it was trusted.** A hand-written WinAnsi PDF was round-tripped through `pdf-extract` first, confirming it decodes CP1252's `0x80`–`0x9F` block rather than assuming ISO-8859-1 — a library quirk there would make the instrument pass or fail for reasons having nothing to do with the renderer.
+
+#### THE STANDING REVIEW CHECKLIST — apply it, do not remember it
+
+> **For EVERY visual element in EVERY renderer PR, ask whether it implies PRIORITY, CONFIDENCE, CAUSALITY, COMPLETENESS, CHRONOLOGY or IMPORTANCE — and whether the engine computed that. If not, reconsider the presentation.**
+
+| Implication | Rendered by | Did the engine compute it? |
+|---|---|---|
+| **PRIORITY** | order, numbering, "fix first" | severity **yes**; remediation order **NO** |
+| **CONFIDENCE** | gauges, rings, percentages | `confidence` yes; **CALIBRATION no** |
+| **CAUSALITY** | "because", arrows, adjacency | **NEVER** |
+| **COMPLETENESS** | "all findings", or the absence of a caveat | only with `LaneExamination` |
+| **CHRONOLOGY** | timelines, "then", left-to-right flow | **NEVER** |
+| **IMPORTANCE** | size, colour, emphasis, position | severity only |
+
+**Recorded as a CHECKLIST rather than a principle** because §31.20 established that a rule needing to be remembered is not enforced. Unlike an `assert`, **a layout claim has no executor** — nothing can run this — so a checklist applied per PR is the strongest available form. **The instrument covers TEXT; the checklist covers the four classes no test can reach.**
 
 ### 4.21 Standing rule — a new scholar should understand the label without learning Gaply's internals
 
@@ -522,6 +539,67 @@ That is the general shape: a good label carries the distinction the reader must 
 **The engine's own reasoning agrees** — `validate.rs:58-66`'s comment says the two rules that emit `Critical` *"invalidate the analysis"*, which is a statement about **kind**. The internal name was the one that lost information.
 
 ---
+
+### 4.22 Standing rule — a type that can carry manuscript prose is NOT serializable by default
+
+> **If a type can hold full manuscript text, it does not derive `Serialize`. Making it serializable is a deliberate architectural decision, not a convenience.**
+
+**This is a boundary rule, not a proxy rule.** The proxy is today's egress; a connector, a telemetry hook, a crash reporter, a support-bundle exporter or a debug dump are tomorrow's, and each would reach for a derive that happened to exist. **The rule protects the paths that do not exist yet**, which is the only time it is cheap to state.
+
+#### Why the DERIVE is the right place to hold it
+
+The privacy invariant is currently held by CONVENTION in one place: `build_review_payload` refrains from reading `Finding.detail`, guarded by a comment and by `summary_shape_is_pinned_to_the_format_version`. **That works, and it protects exactly one function.** A rule that lives in a comment protects whoever read the comment.
+
+> **With no `Serialize` derive, the accidental path does not fail review — it fails to compile.**
+
+**Two models, one-way conversion.** The local model carries prose; the wire model has **no field of any type that could hold it**; a single conversion function reads titles and never `nearby_text`, and there is no path back. **Reading the prose into the payload stops being a discipline and becomes a type error.**
+
+#### Currently in scope
+
+| Type | Carries |
+|---|---|
+| `pipeline::PipelineResult` | `text` — the entire manuscript |
+| `report_model::LocalReportModel` | `nearby_text`, similarity excerpts, title |
+
+**Anything later that holds manuscript text joins this list.** The test is what the type CAN carry, not what a given instance happens to hold.
+
+#### What this rule does NOT claim
+
+**It is not a privacy guarantee.** A determined caller can construct a payload field by field, and `Debug` still prints. **It removes the ACCIDENTAL path** — the one where prose crosses a boundary because serializing the whole struct was the easy thing to write — which is the path that has actually produced incidents.
+
+### 4.23 Standing rule — a disclosure cannot rely on an example the medium cannot faithfully reproduce
+
+> **A disclosure must NAME THE CLASS of change rather than EXHIBIT AN INSTANCE of it, whenever the medium doing the disclosing is the medium that performs the change.**
+
+#### The sequence that produced this rule
+
+1. The PDF renderer folds characters base-14 cannot represent (`Śarmā` → `Sarma`) and discloses that it did so.
+2. The disclosure read: *"for example, a name written **Śarmā** appears here as Sarma."*
+3. **`Ś` is exactly what the renderer cannot represent.**
+4. So the disclosure rendered as: *"a name written **Sarma** appears here as Sarma."*
+
+> **The sentence explaining an alteration was itself altered, by the very alteration it was explaining — into a statement that is grammatical, fluent, and meaningless.**
+
+**Caught by a `debug_assert` that the disclosure strings are themselves ASCII, on the instrument's first run.** Nothing else would have caught it: it is not a crash, not a parse error, and not visibly wrong on the page.
+
+#### Why this is §4.20 pointed at itself
+
+§4.20 exists because **silently altered evidence looks like evidence.** The disclosure is the mechanism meant to make that alteration visible. **When the disclosure is subject to the same transformation, the mechanism fails in exactly the way it exists to prevent — and fails invisibly, because a sentence that still reads as a sentence raises no alarm.**
+
+#### It is not specific to PDFs
+
+The same shape appears wherever the explanation travels the channel it describes:
+
+| Medium | Disclosure that cannot survive it |
+|---|---|
+| A renderer that folds characters | an example containing a folded character |
+| A plain-text email fallback | *"headings appear **like this**"* |
+| A log line with a length cap | an example longer than the cap |
+| A redacting exporter | an example containing the redacted pattern |
+
+**The test:** would this disclosure still be TRUE and LEGIBLE after passing through the transformation it describes? **If the answer depends on the example, remove the example.**
+
+**Naming the class costs a little clarity and buys correctness** — *"a letter carrying an accent or other mark may appear here as its plain equivalent"* is vaguer than a worked example, and it is the strongest statement the medium can carry without contradicting itself.
 
 ## 5. Evaluation Protocol
 

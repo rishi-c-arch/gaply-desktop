@@ -546,7 +546,12 @@ pub async fn run_publishready(
         // the proxy's entitlement gate. Without it that tier reached `/verify`
         // with App Check but no user credential and was rejected 401
         // user_token_missing, so every citation degraded to UNKNOWN.
-        let lanes = crate::pipeline::run_pipeline_measured(
+        // The pipeline now returns its extraction and plagiarism outputs too
+        // (§31.2's two unreachable sources). This path consumes `lanes` only;
+        // the local report model that consumes the rest is built by the PDF
+        // path, and the cached-report re-read below is deliberately left alone
+        // because it is what exercises PR-2's typed parse.
+        let pipeline_out = crate::pipeline::run_pipeline_measured(
             db.clone(),
             embedder.clone(),
             path,
@@ -555,6 +560,7 @@ pub async fn run_publishready(
             guidelines_url.clone(),
             &emit,
         )?;
+        let lanes = pipeline_out.lanes;
         let report_id = events
             .into_inner()
             .into_iter()

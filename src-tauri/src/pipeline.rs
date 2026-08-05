@@ -32,7 +32,9 @@ use gaply_core::embed::Embedder;
 use gaply_core::extract::citations::Reference;
 use gaply_core::refverify::ReferenceVerification;
 use gaply_core::reviewer_agent::LaneExamination;
-use gaply_core::report::{build_checklist, compile_report};
+use gaply_core::extract::ExtractionResult;
+use gaply_core::plagiarism::PlagiarismReport;
+use gaply_core::report::{build_checklist, compile_report, PublishReadyReport};
 use gaply_core::swarm::{adapters, run_debate, DebateConfig, PrecomputedAgent, SwarmAgent};
 use gaply_core::verify_agent::{verify_citations, MockProxyClient};
 use gaply_core::{ai_detect, extract, now_epoch, plagiarism, rag, validate, Database, GaplyError};
@@ -75,7 +77,12 @@ const REPORT_TTL_SECS: i64 = 30 * 24 * 3600;
 /// not modification — an optional field with a serde default leaves cached
 /// reports readable and needs no bump. Requiring one for every change would
 /// train reflexive bumping, which is how versions stop meaning anything.
-pub(crate) fn report_cache_key(report_id: &str) -> String {
+/// **`pub`, not `pub(crate)`.** Two release-gate EXAMPLES hand-built
+/// `report:v2:{id}` and drifted when the schema version entered the key —
+/// silently, because nothing that runs in CI compiles examples. A key builder
+/// whose whole purpose is "ONE definition so writer and readers cannot drift
+/// apart" cannot be unreachable to half its readers.
+pub fn report_cache_key(report_id: &str) -> String {
     format!("report:v2:e{}:{report_id}", gaply_core::evidence::CACHED_REPORT_SCHEMA_VERSION)
 }
 /// The six agent lanes the frontend renders. Debate + compile happen after,
@@ -166,6 +173,43 @@ fn lane<T>(
     }
 }
 
+/// Everything the pipeline produced, including the two sources that were
+/// previously LOCALS DROPPED AT THE RETURN (ARCHITECTURE_TRACE §31.2).
+///
+/// `run_pipeline_inner` already widened its return once — from `()` to
+/// `LaneExamination` (§26 PR-4) — and this is the same move for the same
+/// reason: the data exists, in scope, at the moment of return, and the only
+/// thing standing between it and its consumer is the return type.
+///
+/// Rejected alternatives, recorded so they are not re-proposed: a callback
+/// inverts control for what is simply a return value; a global adds shared
+/// mutable state to an otherwise pure pipeline; re-reading from the database
+/// can disagree with what this run actually computed.
+///
+/// # NOT `Serialize`, ON PURPOSE — see ONTOLOGY §4.22
+///
+/// `text` is the ENTIRE manuscript and `extraction.sections` carries its prose.
+/// This type therefore carries exactly what must never leave the machine. The
+/// absence of a `Serialize` derive is the guarantee: no connector, telemetry
+/// hook, export path or debug dump can serialize it by reaching for a derive
+/// that happens to exist. Adding one is a deliberate architectural decision,
+/// which is the point.
+pub struct PipelineResult {
+    pub report_id: String,
+    pub report: PublishReadyReport,
+    /// Which lanes examined anything — §26 PR-4's verdict-eligibility input.
+    pub lanes: LaneExamination,
+    /// Title, tables, references, statistics, and the section prose the
+    /// Reported/Missing block and nearby-text lookup are built from.
+    pub extraction: ExtractionResult,
+    /// Similarity regions plus `corpus_chunks_available`, without which
+    /// "no matches" cannot be told apart from "nothing to compare against".
+    pub plagiarism: PlagiarismReport,
+    /// The whole manuscript. Held for nearby-text lookup and NEVER copied
+    /// wholesale into `LocalReportModel` — only extracted snippets are.
+    pub text: String,
+}
+
 /// Channel wrapper: forward emitted events to the IPC channel (closed channel
 /// ignored — the frontend navigated away).
 fn run_pipeline(
@@ -182,7 +226,7 @@ fn run_pipeline(
     run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, &|ev| {
         let _ = ch.send(ev);
     })
-    .map(|_lanes| ())
+    .map(|_result| ())
 }
 
 /// Measurement-only entry point (Set 4 8GB memory proof): drives the REAL
@@ -197,7 +241,7 @@ pub fn run_pipeline_measured(
     user_token: Option<String>,
     guidelines_url: Option<String>,
     emit: &dyn Fn(AnalysisEvent),
-) -> Result<LaneExamination, GaplyError> {
+) -> Result<PipelineResult, GaplyError> {
     run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, emit)
 }
 
@@ -218,7 +262,7 @@ fn run_pipeline_inner(
     // identity is PROPAGATED, not reconstructed from corpus state.
     guidelines_url: Option<String>,
     emit: &dyn Fn(AnalysisEvent),
-) -> Result<LaneExamination, GaplyError> {
+) -> Result<PipelineResult, GaplyError> {
     // Parse once, up front (part of the extraction lane's work).
     let text = lane(emit, "extraction", 1, || {
         let text = extract::docparse::parse_path(std::path::Path::new(&path))?;
@@ -417,14 +461,14 @@ fn run_pipeline_inner(
         .map_err(|e| GaplyError::Internal(format!("serialize report: {e}")))?;
     db.cache_put(&report_cache_key(&report_id), &json, REPORT_TTL_SECS, now_epoch())?;
 
-    emit(AnalysisEvent::Finished { report_id });
+    emit(AnalysisEvent::Finished { report_id: report_id.clone() });
 
     // §26 PR-4's criterion, applied at the ONLY place the inputs are in scope.
     // (a) `Rag` is absent — it produces `ProcessState` only, so it could never
     // have contributed to a verdict and its silence says nothing.
     // (b) Each flag asks whether the INPUT to eligible-claim production was
     // present, never whether the lane produced output.
-    Ok(LaneExamination {
+    let lanes = LaneExamination {
         // The whole lane is gated on `!refs.is_empty()`.
         verification_examined: !extraction.references.is_empty(),
         // `validate()` iterates `result.statistics`; empty in, no flags out.
@@ -435,7 +479,11 @@ fn run_pipeline_inner(
         ai_detection_examined: text.split_whitespace().count() >= MIN_STYLOMETRY_WORDS,
         // Its eligible outputs are table-caption and reference-recency findings.
         extraction_examined: !extraction.tables.is_empty() || !extraction.references.is_empty(),
-    })
+    };
+
+    // The two sources §31.2 found unreachable now leave the function instead of
+    // being dropped at its closing brace.
+    Ok(PipelineResult { report_id, report, lanes, extraction, plagiarism: plag, text })
 }
 
 #[cfg(test)]
@@ -790,6 +838,63 @@ A night of sleep improved memory consolidation in this sample.
                 "a gated-off run must not load a candle model; got {summary:?}"
             );
         }
+    }
+
+    /// END TO END, through the artifact: a REAL pipeline run projected into the
+    /// engine model, composed, rendered, and read back out of the PDF bytes.
+    ///
+    /// The unit tests in `report_pdf` prove the render path on a synthetic
+    /// fixture. **This one proves the THREADING** — that `ExtractionResult` and
+    /// `PlagiarismReport` actually reach the page, which is the whole point of
+    /// widening the pipeline's return type (§31.23). It fails if either source
+    /// goes back to being dropped at the return.
+    #[test]
+    fn a_real_run_reaches_the_pdf_through_extraction_and_plagiarism() {
+        let db = Arc::new(Database::in_memory().expect("in-memory db"));
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+        let path = std::env::temp_dir()
+            .join(format!("gaply_pdf_e2e_{}_{}.txt", std::process::id(), now_epoch()));
+        std::fs::write(&path, MANUSCRIPT).expect("write manuscript");
+        let emit = |_e: AnalysisEvent| {};
+        let result = run_pipeline_inner(
+            db,
+            embedder,
+            path.to_string_lossy().to_string(),
+            Some("pdf e2e".into()),
+            None,
+            None,
+            &emit,
+        );
+        let _ = std::fs::remove_file(&path);
+        let result = result.expect("pipeline should complete");
+
+        // The two previously unreachable sources, asserted BEFORE projection so
+        // a failure names which link broke.
+        assert!(!result.extraction.sections.is_empty(), "extraction did not reach the caller");
+        assert!(result.plagiarism.chunk_count > 0, "plagiarism did not reach the caller");
+        assert!(!result.text.is_empty(), "manuscript text did not reach the caller");
+
+        let model = result.into_report_model(Some("Journal of Testing".into()), None);
+        let sections = model.manuscript.section_count;
+        let stats = model.manuscript.statistics.len();
+        assert!(sections > 0 && stats > 0, "model lost extraction facts");
+
+        let bytes = gaply_core::report_pdf::render_pdf(&gaply_core::report_compose::compose(&model));
+        let text: String = pdf_extract::extract_text_from_mem(&bytes)
+            .expect("our own PDF must be readable")
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+
+        // Facts that exist ONLY because extraction was threaded through.
+        assert!(text.contains("JournalofTesting"), "journal name missing from the report");
+        assert!(text.contains(&format!("{sections}sections")), "section count missing");
+        assert!(text.contains("Statisticsreported"), "the statistics block is absent");
+        // And the plagiarism-derived distinction §26 PR-4 exists to preserve.
+        assert!(
+            text.contains("Textsimilarity"),
+            "the similarity section is absent, so corpus_chunks_available never arrived"
+        );
     }
 
     fn run_and_get_report(db: &Arc<Database>, embedder: Arc<dyn Embedder>) -> serde_json::Value {

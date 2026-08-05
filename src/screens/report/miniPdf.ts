@@ -44,22 +44,46 @@ export const UNREPRESENTABLE = '□';
  *     of their own. A visible mark states that something was here this renderer
  *     cannot show, which is the honest claim.
  *
- *  # TIER 1 HAS AN END-OF-LIFE — DO NOT PORT IT TO THE RUST RENDERER
+ *  # TIER 1 NARROWS AT THE PORT — IT DOES NOT DISAPPEAR. DO NOT DELETE IT.
  *
- *  Transliteration is a WORKAROUND for a byte-path limitation in THIS file, not
- *  a design decision about how Gaply presents names.
+ *  THIS PARAGRAPH REPLACES A "DO NOT PORT IT" WARNING THAT WAS MEASURABLY
+ *  FALSE. Acting on the old wording — deleting the NFD logic when writing the
+ *  Rust renderer — ships "?arm?" for a name. Read the measurement below before
+ *  changing anything here.
  *
- *  The mechanism, checkable rather than asserted: `new Blob([string])` encodes
- *  UTF-8, while `renderTextPdf` below computes xref offsets assuming ONE BYTE
- *  PER CHARACTER. A Latin-1 character such as `ü` emits two bytes under UTF-8,
- *  so every subsequent offset shifts and the PDF becomes unreadable.
+ *  The old claim: Rust writes bytes directly, base-14 fonts carry
+ *  WinAnsiEncoding, WinAnsi covers Latin-1, therefore transliteration is
+ *  unnecessary. Every step is true except the conclusion's scope. WinAnsi
+ *  covers LATIN-1, which is NOT the same as LATIN.
  *
- *  Rust writes bytes directly, so the constraint disappears. Base-14 fonts carry
- *  WinAnsiEncoding, which covers Latin-1 at ZERO FONT COST — meaning the Rust
- *  renderer can display "Müller" correctly rather than transliterating it.
+ *  MEASURED: WinAnsiEncoding contains exactly SEVEN characters from Latin
+ *  Extended-A — Œ œ Š š Ÿ Ž ž. Everything else in that block is absent, which
+ *  covers most Polish, Czech, Turkish, Hungarian, Romanian and romanized
+ *  Sanskrit letters:
  *
- *  **When the Rust renderer lands, tier 1 is DELETED, not carried over.** Tier 2
- *  survives until a font is embedded (ARCHITECTURE_TRACE §31.17).
+ *      Müller, García, François, Žilina   -> intact, byte-exact
+ *      Śarmā                              -> "?arm?"    without tier 1
+ *      Łukasz                             -> "?ukasz"   without tier 1
+ *      Dvořák                             -> "Dvo?ák"   without tier 1
+ *      Öztürk Şahin                       -> "Öztürk ?ahin"
+ *      Ştefănescu                         -> "?tef?nescu"
+ *
+ *  SO THE PORT NARROWS TIER 1'S SCOPE RATHER THAN REMOVING IT:
+ *
+ *      here (UTF-8 byte path)  tier 1 applies to EVERYTHING non-ASCII
+ *      Rust (WinAnsi bytes)    tier 1 applies to LATIN BEYOND LATIN-1
+ *
+ *  Rust can WRITE Latin-1 bytes, so "Müller" stops being transliterated and
+ *  renders exactly. Base-14 still cannot REPRESENT Latin Extended-A, so "Śarmā"
+ *  must still fold to "Sarma". Two different limits; only the first one lifts.
+ *
+ *  Why fold rather than mark: "?ukasz" is unusable while "Lukasz" is wrong but
+ *  readable, and for a NAME recognisability is the axis that matters to its
+ *  owner. Latin-1 stays byte-exact and untouched; only what base-14 cannot
+ *  represent at all is folded, and only to its own base letter.
+ *
+ *  Tier 2 (non-Latin MARKED) survives unchanged until a font is embedded.
+ *  ARCHITECTURE_TRACE §31.17.
  *
  *  Written here as well as in the trace because whoever deletes this file is not
  *  necessarily whoever reads §31 — and a workaround copied past the thing it

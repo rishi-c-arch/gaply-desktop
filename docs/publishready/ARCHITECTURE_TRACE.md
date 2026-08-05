@@ -2264,6 +2264,8 @@ Consistent with §24.2, which already established the measurement is right for t
 
 **The payload digest will not detect the divergence.** `findings_projection_digest` covers `summary.findings` as sent (§18.3), and **the exclusion happens after** — inside the aggregator, on a set the digest never sees. Two runs can therefore share a digest while their verdicts were computed over different evidence, and nothing in the record will say so.
 
+**A SECOND divergence, added by §31.22 — the PDF report drops `MAX_FINDINGS`.** The reviewer payload forwards at most 12 findings because the proxy caps a request at 8000 characters; the PDF has no such budget and shows every one. **Contract 1 stands unchanged — the payload is not modified by that decision** — but *"the report"* and *"what the model saw"* stop being interchangeable phrases, and this document has used them interchangeably. A run with 20 findings shows 20 on the page and sent 12 to the reviewer.
+
 ### 26.11 PR-2 serialization audit — what a withheld run actually emits
 
 **Bytes, not accessor paths.** The boundary test asserts what consumers *observe*; serialization is a different question, because `derive(Serialize)` emits every field regardless of whether an accessor was called.
@@ -2871,22 +2873,64 @@ The code's own comment: *"wrong test / underpowered causal claim **invalidate th
 
 **The mark is kept distinct through `toAscii` and folded to `?` only in `escapePdf`**, so a manuscript that genuinely contains `?` is never confused with a character we could not render — and a test can tell them apart.
 
-**This is not a fix for the underlying limitation.** The right answer for tier 1 is to RENDER those characters: base-14 fonts carry WinAnsiEncoding, covering Latin-1 at **zero font cost**. It is unreachable in `miniPdf` because `new Blob([string])` encodes UTF-8 and a multi-byte character would shift the xref offsets — **a technical block, not a scope decision.** It belongs with the Rust renderer (§31.13).
+**This is not a fix for the underlying limitation.** Part of tier 1's work can be replaced by RENDERING the characters: base-14 fonts carry WinAnsiEncoding, covering Latin-1 at **zero font cost**. It is unreachable in `miniPdf` because `new Blob([string])` encodes UTF-8 and a multi-byte character would shift the xref offsets — **a technical block, not a scope decision.** It belongs with the Rust renderer (§31.13).
 
-### 31.17 TO THE AUTHOR OF THE RUST RENDERER — tier 1 has a shelf life
+> **SCOPE CORRECTION (§31.17.1): "part of" is load-bearing and was absent when this paragraph was first written.** WinAnsi covers **Latin-1**, not **Latin**. Tier 1 narrows at the port; it does not lift.
 
-> **Latin transliteration (`Müller` → `Muller`) is a WORKAROUND for a TypeScript byte-path limitation. It is not a design decision, and it does not survive the port.**
+### 31.17 TO THE AUTHOR OF THE RUST RENDERER — tier 1 NARROWS, it does not vanish
 
-**The mechanism, stated so it can be checked rather than trusted:** `new Blob([string])` encodes **UTF-8**, while `miniPdf.ts`'s `renderTextPdf` computes xref offsets assuming **one byte per character**. A Latin-1 character such as `ü` emits two bytes under UTF-8, so **every subsequent offset shifts and the PDF becomes unreadable.** That is the whole reason the sanitizer exists.
+> **THIS SECTION REPLACES A CLAIM THAT WAS MEASURABLY FALSE.** The previous §31.17 said Latin transliteration *"does not survive the port"* and instructed the renderer's author to **DELETE** tier 1. Acting on that instruction ships `?arm?` for a name. **§4.4 — the claim is corrected, not caveated.**
 
-**Rust writes bytes directly, so the constraint disappears.** Base-14 fonts carry **WinAnsiEncoding**, covering Latin-1 at **zero font cost** — so the Rust renderer can display `Müller` correctly.
+#### What was true, and where it stopped being true
 
-| | Fate |
+The old reasoning: Rust writes bytes directly → base-14 carries WinAnsiEncoding → WinAnsi covers Latin-1 → therefore transliteration is unnecessary.
+
+**Every step is true except the conclusion's scope.** `Latin-1` is not `Latin`, and the whole error fits in that one substitution.
+
+#### The measurement, so the claim is checkable rather than trusted
+
+> **WinAnsiEncoding contains exactly SEVEN characters from Latin Extended-A: `Œ œ Š š Ÿ Ž ž`.**
+
+Everything else in that block is absent — which is most of the Polish, Czech, Turkish, Hungarian, Romanian and romanized-Sanskrit alphabets.
+
+| Author name | Base-14 WinAnsi, no tier 1 | |
+|---|---|---|
+| Müller, García, François, Žilina | unchanged | **intact, byte-exact** |
+| **Śarmā** | `?arm?` | sentinels |
+| **Łukasz** | `?ukasz` | sentinels |
+| **Dvořák** | `Dvo?ák` | sentinels |
+| **Öztürk Şahin** | `Öztürk ?ahin` | sentinels |
+| **Ştefănescu** | `?tef?nescu` | sentinels |
+
+#### The corrected fate — a narrowing, stated as a scope change
+
+| | Tier 1 applies to |
 |---|---|
-| **TIER 1** (Latin transliteration) | **DELETE at the port.** Render the characters instead |
-| **TIER 2** (non-Latin marked) | **survives** until a font is embedded |
+| **`miniPdf.ts`** (UTF-8 byte path) | **everything non-ASCII** |
+| **Rust renderer** (WinAnsi bytes) | **Latin beyond Latin-1** |
 
-**Recorded in two places on purpose:** here, and in `toAscii`'s own doc as a `DO NOT PORT` warning. **Whoever deletes `miniPdf.ts` is not necessarily whoever reads §31**, and a workaround copied past the thing it worked around becomes *"how Gaply handles names"*.
+**Two different limits, and only the first one lifts.** Rust can *write* Latin-1 bytes, so `Müller` stops being transliterated and renders exactly — that part of the old claim holds. Base-14 still cannot *represent* Latin Extended-A, so `Śarmā` must still fold to `Sarma`.
+
+| | Fate at the port |
+|---|---|
+| **TIER 1** (Latin transliteration) | **NARROWS to Latin-beyond-Latin-1. Do not delete** |
+| **TIER 2** (non-Latin marked) | **survives unchanged** until a font is embedded |
+
+#### Why folding beats marking, for names specifically
+
+> **`?ukasz` is unusable while `Lukasz` is wrong but readable, and for a NAME recognisability is the axis that matters to its owner.**
+
+**Latin-1 stays byte-exact and untouched; only what base-14 cannot represent at all is folded, and only to its own base letter.** This is narrower than `miniPdf`'s tier 1, which folds `ü` as well — the Rust renderer must not.
+
+#### The error was in the design document, and the check that caught it
+
+**The Milestone 3 design proposal asserted that the render-path instrument would prove `Śarmā` appears in the PDF bytes AS `Śarmā`** — described there as *"the assertion the sanitizer test cannot make"*.
+
+> **That assertion is not merely untested. It is IMPOSSIBLE in base-14, and the fixture would have failed on its first run.**
+
+**Caught by checking whether the character was encodable BEFORE building the test around it** — the same discipline, applied in the same hour, that verified `pdf-extract` decodes WinAnsi before the instrument was allowed to trust it as an oracle. **Both checks were cheap; both would have been expensive as first failures**, and one of them would have been debugged as a renderer bug when the renderer was correct.
+
+**This is §31.20's pattern in a new medium.** There the rule was *assert the pattern matched before replacing it*; here it is **verify the fixture is representable, and the oracle is trustworthy, before either is load-bearing.**
 
 ### 31.18 The font decision — deferred TO THE RENDERER PR, with a destination
 
@@ -2984,3 +3028,201 @@ src = src.replace(old, new)
 **The `assert` converts a remembered check into a failure**, which is the level-1-to-level-3 move this project has now made three times: the `SUMMARY_FORMAT_VERSION` pin, the compatibility fixtures, and this.
 
 **Adopted for every patch from here.** Same principle in shell: **after any destructive or path-dependent command, assert the effect rather than trusting exit 0.**
+
+### 31.22 `MAX_FINDINGS` in the PDF — NO CAP, and the position stated rather than left implicit
+
+**The constant answers the question itself**, in `gaply-core/src/reviewer_agent.rs:54`:
+
+```rust
+/// Max findings forwarded (report is severity-ordered, so this is the top-N).
+/// Keeps the payload comfortably under the proxy's 8000-char total cap.
+pub const MAX_FINDINGS: usize = 12;
+```
+
+> **It exists for the proxy's character budget. A PDF has no character budget.**
+
+**No UX argument survives contact with *"why is finding 13 missing?"*** once the technical reason is gone — and run 23 produced 20 findings, so this is measured rather than hypothetical.
+
+#### THE POSITION: do not reintroduce a limit without an evidence-based requirement
+
+**Not "no cap for now".** A cap is a decision to withhold findings from the person who asked for them, and it needs a reason of its own — an observed readability failure, not an assumption of one.
+
+| Findings | Behaviour |
+|---|---|
+| **~20** | straightforward — a handful of pages, read start to finish |
+| **~50** | acceptable with severity grouping, which the composer already emits |
+| **~200** | a long appendix. Genuinely unwieldy, and still complete |
+
+**If readability ever does become a real concern, the answer is STRUCTURE, not TRUNCATION** — a grouped appendix here, collapsible sections in an HTML renderer. Both preserve completeness; a cap destroys it, and destroys it silently at exactly the manuscript that needed the report most.
+
+> **The report's job is to be COMPLETE. The reviewer payload's job is to FIT A BUDGET. Those are different jobs, and one constant should not have been serving both.**
+
+**The middle option — summarising long severity groups — was rejected** because it reintroduces a composer decision about what a reader may skip, which is the class of judgement this whole workstream has been removing.
+
+**Pinned by test:** `every_finding_reaches_the_page_regardless_of_count` renders 40 findings and asserts all 40 appear in the extracted PDF text. Mutation-verified — reintroducing a 12-cap in the composer fails it.
+
+### 31.23 Milestone 3 — the renderer, and three corrections it forced
+
+#### The three layers, as a contract
+
+| Layer | Module | Question | Forbidden |
+|---|---|---|---|
+| **ENGINE** | `report_model.rs` | what exists? | naming a page, font, column |
+| **COMPOSER** | `report_compose.rs` | how should a researcher read this? | computing any manuscript fact |
+| **RENDERER** | `report_pdf.rs` | how do these become pages? | any decision — ordering, filtering, ranking, truncation |
+
+> **The ENGINE may not name a page, the COMPOSER may not compute a fact, the RENDERER may not make a decision.**
+
+**Each prohibition is structural, not advisory.** `compose(&LocalReportModel) -> Vec<Block>` holds no `Database` and nothing to compute a fact *from*; `render_pdf(&[Block]) -> Vec<u8>` receives no severity to re-rank and no finding it could drop. **If the composer needs a number the model lacks, the model is wrong.**
+
+#### TWO DEVIATIONS from the approved design, both tightening it
+
+| Proposed | Built | Why |
+|---|---|---|
+| `Block::FindingGroup`, `Block::ChecklistTable` | **flat blocks only** — `Cover`, `Heading`, `Paragraph`, `Bullet`, `Note`, `PageBreak` | A `FindingGroup` hands the renderer *"what does a finding look like?"* — a presentation decision made below the composer. The composer now expands groups itself |
+| `render_pdf` in the app crate ("it is I/O") | **in `gaply_core`** | It is not I/O. `&[Block] -> Vec<u8>` is pure — no filesystem, clock or network. It also sits beside `pdf-extract`, which the instrument needs. The real I/O stays in the app crate |
+
+#### The threading — PR-4's precedent, applied a second time
+
+`run_pipeline_inner` widened from `()` to `LaneExamination` in PR-4; it now returns `PipelineResult`, carrying the two sources §31.2 found unreachable.
+
+| Source | Contributes | Lost without it |
+|---|---|---|
+| `ExtractionResult` | title, table/reference counts, **statistics for the Reported/Missing block**, section prose | the report's most actionable block |
+| `PlagiarismReport` | similarity regions, `corpus_chunks_available` | the similarity section, **and the ability to say "nothing to compare against" instead of "no matches"** |
+
+**Rejected and recorded so they are not re-proposed:** a callback inverts control for what is simply a return value; a global adds shared mutable state to a pure pipeline; re-reading from the database can disagree with what the run computed.
+
+#### The folding rule — three outcomes, two disclosures
+
+| | Outcome | Disclosure |
+|---|---|---|
+| `Müller` | **INTACT** — byte-exact through WinAnsi | none |
+| `Śarmā` → `Sarma` | **SIMPLIFIED** — altered and readable | `NOTE_SIMPLIFIED` |
+| `हिन्दी` → `??????` | **MARKED** — absent and visible | `NOTE_MARKED` |
+
+**One note covering the last two would blur different facts.** A reader judging whether to trust a name needs the first specifically — *"some characters could not be displayed"* gives them no reason to doubt a name sitting right there on the page, spelled wrongly.
+
+**`NOTE_MARKED` states no count.** The marks are per code point, which is not the unit a reader counts: `हिन्दी` is six code points and three visual clusters, so any length claim asserts a character count nobody would recognise. Grapheme segmentation would fix it and needs `unicode-segmentation`, which reaches `gaply_core` through no path today — **every route to that crate in the workspace runs through the app crate.** The marks show THAT something is missing, not how much.
+
+#### A TABLE beats NFD, on the case that motivated the rule
+
+The obvious fold decomposes with NFD and drops combining marks. **`Ł` has no decomposition**, so NFD leaves `Łukasz` as `?ukasz` — the exact outcome the rule exists to prevent. A 60-line table maps `Ł → L` directly, needs no new dependency, and covers Latin Extended-A plus the Romanian comma-below letters. **Latin Extended Additional (Vietnamese) is a known gap** and falls through to `MARKED`.
+
+#### CORRECTION 3 — a disclosure cannot use an unrenderable example
+
+`NOTE_SIMPLIFIED` first read *"for example, a name written Śarmā appears here as Sarma."*
+
+> **`Śarmā` is precisely what the renderer cannot represent. The sentence rendered as "a name written Sarma appears here as Sarma" — a note explaining an alteration, silently altered, into nonsense.**
+
+**Caught by a `debug_assert` that the disclosure strings are themselves ASCII**, on the instrument's first run. The wording now names the CLASS of change rather than showing an instance: **showing one is impossible in the medium doing the showing.**
+
+**This is §4.20 turned on the disclosure itself** — the mechanism meant to reveal silent alteration, silently altered. Worth naming because the failure is invisible by construction: the note still reads as a sentence.
+
+#### The instrument, and its oracle verified first
+
+`LocalReportModel → compose() → render_pdf() → PDF bytes → pdf-extract → assert`. **The assertion is on the extracted text, never on an intermediate structure** — an assertion on `Finding.title` passes while the PDF says `arm`.
+
+**Before the instrument was allowed to trust `pdf-extract`, a hand-written 666-byte WinAnsi PDF was round-tripped through it:**
+
+| Byte | Expected | Returned |
+|---|---|---|
+| `0xFC` | ü | `U+00FC` |
+| `0xE9` | é | `U+00E9` |
+| **`0x8A`** | **Š** | **`U+0160`** |
+| **`0x9E`** | **ž** | **`U+017E`** |
+
+**The last two are the ones that mattered.** They live in CP1252's `0x80`–`0x9F` block, which ISO-8859-1 defines as control characters — a reader assuming Latin-1 would have returned control codes, and the failure would have been debugged as a renderer bug while the renderer was correct.
+
+**Mutation-verified, four mutations, four kills:** `latin_base` never folds · Latin-1 not identity-mapped · disclosures always emitted · a 12-cap reintroduced in the composer.
+
+#### What the milestone actually cost, in corrections
+
+**Three claims in this document were false when Milestone 3 began**, and all three were found by checking rather than by failure:
+
+1. **§31.17** — *"tier 1 does not survive the port"*. WinAnsi covers Latin-1, not Latin.
+2. **The design proposal** — the instrument would prove `Śarmā` appears as `Śarmā`. Impossible in base-14.
+3. **`NOTE_SIMPLIFIED`** — a disclosure whose example the disclosure's own subject destroys.
+
+> **Each was cheap now and expensive later, and none would have announced itself.** The first ships `?arm?` via an instruction to delete working code; the second fails on first run and reads as a renderer bug; the third renders as a grammatical sentence that means nothing.
+
+### 31.24 The standing suite never compiled the examples — found by widening a return type
+
+**Widening `run_pipeline_inner`'s return broke `examples/mem_probe.rs`, which is expected.** Running `cargo check --all-targets` to confirm the fix surfaced **two failures that had nothing to do with this work**:
+
+| Example | Broken by | Since |
+|---|---|---|
+| `release_gate.rs` | `build_review_payload` became typed | **§26 PR-3** |
+| `publishready_mem_probe.rs` | same | **§26 PR-3** |
+
+**Verified against `HEAD` rather than assumed:** `git show HEAD:…/reviewer_agent.rs` already declares `report: &crate::report::PublishReadyReport`, and `git show HEAD:…/release_gate.rs` still passes a `serde_json::Value`. **Both were already broken before this milestone began.**
+
+#### Why nobody noticed
+
+> **The project's standing "full suite" is `cargo test -p gaply_core` plus `cargo test --lib`. NEITHER COMPILES EXAMPLES.** Windows CI runs `cargo test -p gaply_core`, which does not either.
+
+**A typed refactor that the compiler was supposed to police went unpoliced in exactly the directory that holds the release-gate tooling.** §26 PR-3's whole argument was that types make a class of error impossible — and they did, for every caller the build actually looked at.
+
+#### And underneath it, a SECOND defect the compiler could never have caught
+
+`report_cache_key` carries the comment *"ONE definition, so writer and readers cannot drift apart."* **Three examples hand-built the key instead**, and all three had drifted:
+
+| Site | Built | Actual |
+|---|---|---|
+| `release_gate.rs` | `report:v2:{id}` | `report:v2:e{N}:{id}` |
+| `read_report.rs` | `report:v2:{id}` | `report:v2:e{N}:{id}` |
+| `publishready_mem_probe.rs` | `report:{id}` | `report:v2:e{N}:{id}` |
+
+**These compile perfectly.** They fail at RUNTIME, on `.expect("report")`, because the lookup misses — and they are the tools used to gate a release. The last one is two schema bumps stale.
+
+**Cause: `report_cache_key` was `pub(crate)`,** so examples — which are separate crates — could not call the one definition even if they wanted to. **A drift-prevention mechanism unreachable to half its readers prevents nothing.** Now `pub`, and all three call it.
+
+#### THE GENERAL LESSON, in its strongest form
+
+> **A VERIFICATION TOOL THAT SILENTLY STOPS BEING EXECUTABLE IS NO LONGER A VERIFICATION TOOL.**
+
+**This is stronger than §21's level-1-versus-level-2 distinction, and it has to be.** Level 1 says a check holds only while someone remembers to run it — the failure mode is a check not run, and everyone knows it was not run. **Here the failure mode is worse: a tool PRESENT IN THE TREE implies it works.** Its file is there, its name says what it guarantees, and every reader — including this document — treats its existence as coverage. **Absence would have been noticed. Silent non-execution was not.**
+
+#### What specifically was not running
+
+**`release_gate.rs` asserts PRIVACY, PROVENANCE and SELECTION** — it drives a real pipeline, builds the real reviewer payload, and checks that no `detail` string from the compiled report crosses the wire.
+
+> **It has not compiled since §26 PR-3 — through the entire F2/F6 arc.**
+
+That arc is precisely where the payload contract was designed, argued, decided (§26.10, contract 1) and implemented across four PRs. **The tool whose job was to check the payload's privacy properties was non-executable for all of it.**
+
+**The baseline, stated precisely:** *the baseline was frozen using the harness protocol rather than the release gate, because the gate had silently become non-executable.* **§30's freeze did not depend on the gate.** That is a different claim from the freeze having been compromised by the gate's absence, and this record must not be read as the second — the harness protocol is what §30 ran, and what it measured stands.
+
+#### THE CAUSE IS THE DURABLE PART
+
+`report_cache_key` was **`pub(crate)`**. Examples are separate crates, so they could not call it. **Three of them hand-built the key instead, and all three drifted** — `release_gate.rs` and `read_report.rs` by one schema version, `publishready_mem_probe.rs` by two.
+
+> **`pub(crate)` prevented legitimate reuse, duplication followed, and the duplication drifted.**
+
+**Same family as `matchTypeLabel` and `synthesize.ts:45`, different root cause.** Those were oversights — a second copy written because nobody noticed the first. **This one was MANUFACTURED by an access-control decision:** the copies were not careless, they were the only option available to a correct author.
+
+> **A visibility modifier on a value that examples or tests legitimately need is a DUPLICATION GENERATOR.**
+
+**That is the checkable form.** Before narrowing visibility, ask who legitimately needs the value — and note that examples and integration tests are OUTSIDE the crate, so `pub(crate)` excludes them by construction. **A drift-prevention mechanism unreachable to half its readers prevents nothing; it converts a shared definition into a private one plus copies.**
+
+#### And the §21 form
+
+The instrumentation gap here is not a missing test, it is a **missing TARGET**. `--all-targets` should be part of what "full suite" means; until it is, `examples/` is a directory the compiler is never asked about. **Recorded as an observation with a named fix rather than adopted unilaterally** — CI is manual-dispatch-only (§21), so what the standing local command is remains a decision to be made, not assumed.
+
+### 31.25 An approval error worth recording — a METHOD was approved where a PROPERTY was meant
+
+**The character-folding decision was approved as *"(b) NFD base-letter fallback"*. The approval was not wrong about the goal**; the reasoning recorded alongside it states the goal exactly — *"`?ukasz` is unusable while `Lukasz` is wrong but readable, and for a name recognisability is the axis that matters to its owner."*
+
+> **What was approved was an ALGORITHM. What was meant was a PROPERTY: preserve the recognisability of Latin-script names wherever possible.**
+
+**`Ł` is where the two diverge.** It carries no combining mark and has no NFD decomposition, so pure NFD leaves it untouched and `Łukasz` still renders `?ukasz` — **the algorithm named in the approval fails the very case the approval's own reasoning used to justify it.** A lookup table satisfies the property; NFD does not.
+
+#### The general form
+
+> **Approving a method is weaker than approving the property the method must satisfy, because ONLY THE PROPERTY CAN BE CHECKED AGAINST A CASE.**
+
+**A method can only be checked against itself.** *"Did we implement NFD correctly?"* has a yes/no answer that stays yes while `Łukasz` renders `?ukasz`. *"Is this name recognisable to its owner?"* fails immediately on the same input. **The property admits counter-examples; the method does not.**
+
+**This is why the implementation is pinned by a test named for the PROPERTY** — `folding_alone_discloses_only_simplification` asserts `Lukasz`, with the comment *"the case NFD cannot handle"*. **If the table is ever replaced by "real" NFD as a simplification, that test fails.**
+
+**Related but distinct from §4.17** (*assert the invariant, not the implementation*), which governs how a test is written once the requirement is known. **This one is upstream of that: it governs how the requirement is STATED at approval time.** A method approved as a requirement produces tests that assert the method, and §4.17's failure follows from it rather than causing it.

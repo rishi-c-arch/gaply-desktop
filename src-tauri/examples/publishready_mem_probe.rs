@@ -225,12 +225,14 @@ fn main() {
 
         // ---- run_publishready's post-pipeline steps, same order ----------
         let id = report_id.lock().unwrap().clone();
-        let report_json: serde_json::Value = serde_json::from_str(
-            &db.cache_get(&format!("report:{id}"), gaply_core::now_epoch())
-                .expect("cache read")
-                .expect("compiled report present"),
-        )
-        .expect("report parses");
+        // Was `format!("report:{id}")` — two schema-version bumps stale. Use the
+        // one definition rather than a third hand-built copy.
+        let report_str = db
+            .cache_get(&app_lib::pipeline::report_cache_key(&id), gaply_core::now_epoch())
+            .expect("cache read")
+            .expect("compiled report present");
+        let report_typed: gaply_core::report::PublishReadyReport =
+            serde_json::from_str(&report_str).expect("report parses");
 
         set_stage(&stage, "supplementary_xlsx");
         let ev_xlsx = parse_supplementary(&xlsx).expect("xlsx parses");
@@ -247,7 +249,7 @@ fn main() {
             serde_json::to_value(&ev_csv).unwrap(),
         ];
         let (payload, _sent) = reviewer_agent::build_review_payload(
-            &report_json,
+            &report_typed,
             &journal,
             &supp_values,
             &format!("mem-probe-{run_no}"),

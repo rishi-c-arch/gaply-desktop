@@ -168,7 +168,7 @@ fn main() {
         );
         *stage_post.lock().unwrap() = format!("between-runs-{run_no}");
         match res {
-            Ok(()) => println!("=== RUN {run_no} OK (t+{}ms) ===", start.elapsed().as_millis()),
+            Ok(_) => println!("=== RUN {run_no} OK (t+{}ms) ===", start.elapsed().as_millis()),
             Err(e) => println!("=== RUN {run_no} ERROR: {e} ==="),
         }
     };

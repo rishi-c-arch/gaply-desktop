@@ -64,7 +64,7 @@ fn main() -> Result<(), GaplyError> {
         AnalysisEvent::Finished { report_id } => Some(report_id),
         _ => None,
     }).ok_or_else(|| GaplyError::Internal("no report".into()))?;
-    let json = db.cache_get(&format!("report:v2:{report_id}"), now_epoch())?.expect("report cached");
+    let json = db.cache_get(&app_lib::pipeline::report_cache_key(&report_id), now_epoch())?.expect("report cached");
     let r: serde_json::Value = serde_json::from_str(&json).unwrap();
 
     println!("\n================ REPORT ================");

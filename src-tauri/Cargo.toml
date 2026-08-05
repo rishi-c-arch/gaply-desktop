@@ -77,4 +77,8 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 libc = "0.2"
 
 [dev-dependencies]
+# Reads the rendered report back OUT of the PDF bytes for the render-path
+# end-to-end test (ONTOLOGY §4.20). Already a gaply-core dependency; declared
+# here because a dependency of a dependency is not in scope for this crate.
+pdf-extract = "0.7"
 tauri = { version = "2.11.3", features = ["test"] }

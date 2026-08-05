@@ -29,15 +29,24 @@ fn main() -> Result<(), GaplyError> {
         _ => None,
     }).ok_or_else(|| GaplyError::Internal("no report".into()))?;
 
-    let json = db.cache_get(&format!("report:v2:{report_id}"), now_epoch())?.expect("report");
+    // Was `format!("report:v2:{report_id}")` — which drifted when the evidence
+    // schema version entered the key, so this lookup returned None and the
+    // release gate panicked. Use the one definition.
+    let json = db
+        .cache_get(&app_lib::pipeline::report_cache_key(&report_id), now_epoch())?
+        .expect("report");
     let report: serde_json::Value = serde_json::from_str(&json).unwrap();
+    // `build_review_payload` is typed since §26 PR-3; the JSON copy above is
+    // still used below to read `detail` strings the payload must NOT contain.
+    let report_typed: gaply_core::report::PublishReadyReport =
+        serde_json::from_str(&json).expect("compiled report parses");
 
     // The REAL payload builder — the stage read_report.rs never reaches.
     let journal = gaply_core::reviewer_agent::TargetJournal {
         name: "PLOS ONE".into(), quartile: "Q1".into(),
     };
     let (payload, _sent) =
-        gaply_core::reviewer_agent::build_review_payload(&report, &journal, &[], &report_id);
+        gaply_core::reviewer_agent::build_review_payload(&report_typed, &journal, &[], &report_id);
 
     // Every `detail` from the compiled report — the strings that must NOT cross.
     let details: Vec<String> = report["findings"].as_array().cloned().unwrap_or_default()
