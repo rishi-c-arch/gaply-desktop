@@ -4066,3 +4066,68 @@ What it can be chosen for is whether the reader receives a whole opening sentenc
 * the **frequency** claims in the design were unmeasured — "real academic paragraphs run 500–1000 chars" was a guess that happened to bracket the measured 728.
 
 **One design claim was confirmed by running it rather than by argument**: `Option<Location>` does not fire `previously_written_cached_reports_still_deserialize`, and the required form fails it with `missing field \`location\``. **`CACHED_REPORT_SCHEMA_VERSION` is NOT bumped** — `pipeline.rs`'s rule, that a compatible change must not bump, or bumping stops meaning anything.
+
+## 40. Two results from Step 3's first real execution
+
+### 40.1 Head-anchoring survived a case it was NOT CHOSEN FOR
+
+The head of the quotation was chosen because a PARAGRAPH begins at a blank line, so its first characters are a clean sentence start and the best search key the report can offer. **The reference manuscript supplied a case that was not in that argument: 4 of the 5 located findings quote a FLATTENED TABLE, which is not prose at all.**
+
+**The decision held, for a reason the argument never used** — a flattened table's head is its CAPTION, the most identifying string it contains:
+
+> *"Table 1 Main effect of juvenile hormone analogue and of its concentration on the haemolymph biochemical constituents of B. mori (CSR2 × CSR4)…"*
+
+An author searching that lands on Table 1 exactly. **The anchor the design rejected — a window centred on the statistic — would have emitted `"3.57 3.40 3.37 0.052"`, which locates nothing** and cannot be searched for, because those digits recur throughout the table.
+
+**A decision that holds on a case outside the reasoning that produced it is better evidenced than one confirmed by its own argument**, which is the distinction §36 draws between operational success and semantic correctness — here in the rare direction where the evidence is stronger than the claim.
+
+### 40.2 THE INSTRUMENT REVEALED A FALSE-POSITIVE CLASS ON ITS FIRST RUN — in extraction, not in the rules
+
+**The investigated hypothesis was refused on evidence.** It supposed rule 3 scans an adjacency window that column-flattening could disrupt. `validate.rs:261` is whole-paragraph CONTAINMENT — it measures no distance — and the manuscript reports **no effect size anywhere** (`EFFECT_SIZE_ALTERNATION`: 0 matches in 33,516 chars), so nothing could have been hidden.
+
+**What the quotation exposed instead is bigger, and is not about tables.** Every p-value extracted from this manuscript is `p ≤ 0.05`, and every occurrence is a SIGNIFICANCE-THRESHOLD DECLARATION:
+
+| Location | Text | |
+|---|---|---|
+| Methods ¶6 | "compared by the critical difference **at p ≤ 0.05**" | prose |
+| Results ¶3 | "NS, **not significant at p ≤ 0.05**" | Table 1 legend |
+| Results ¶4 | "NS, **not significant at p ≤ 0.05**" | Table 2 legend |
+
+`Stat::PValue { operator: "<=", value: 0.05 }` is assigned to all three. Rule 3 then tells the author *"A p-value is reported without an accompanying effect size"* and rule 4 *"A primary statistical claim reports a p-value but no confidence interval"* — **about text that reports no statistical claim.**
+
+**Table 3 produced no flag** (Results ¶7, 1247 chars, detected and captioned — its legend lacks the string). The flag follows the threshold text, not the table, which is what distinguishes a mechanism from a correlation here.
+
+**Nothing was watching this before a quotation existed.** The findings were correct-looking sentences over correct-looking counts; only the manuscript's own words, on the page, made the mismatch visible — §35's silent-divergence family, caught by adding an observer rather than an assertion.
+
+#### SCALE — DEMONSTRATED, NOT MEASURED
+
+> **This class is expected to affect a large fraction of quantitative manuscripts, because significance-threshold declarations are common. The reference manuscript demonstrates the MECHANISM; measuring additional manuscripts is the next step.**
+
+**An earlier draft of this note read *"a guaranteed false finding on nearly every paper"*, and it was corrected before it was recorded.** One manuscript demonstrates a mechanism, not a rate — **the same n=1 discipline §30 holds the promotion delta to**, where *"one manuscript, one execution … not a rate"* is stated on a result that was equally tempting to generalise.
+
+**The overreach came from the TASK rather than from the work, which is the THIRD instance of that shape:** §32.6 (the first, and the section that named it), the adjacency-window mechanism refused above (the second), and this. **The count is offered as checkable, not as authority** — the second instance was hedged with an *"if"*, so a reader may reasonably score it differently.
+
+#### STEP 3 MADE IT LEGIBLY WRONG, WHICH RAISES SEVERITY
+
+**Before quotations existed a user had little way to judge whether a finding was grounded correctly.** The finding named a rule, a section and a paragraph number; verifying it meant counting paragraphs in their own document and inferring what the engine had read.
+
+**After Step 3 they see the rule, the quoted text, and the mismatch TOGETHER, in one bullet.** The defect was always there — the instrument made it observable, which is what it was built to do. **The consequence for sequencing: the visibility ships to every user the moment Step 3 does.** The severity of the underlying defect is unchanged; its exposure is not.
+
+#### BASELINE IMPACT — the verdict does not move, the report does
+
+**Run 25 (§27.1): 11 Major findings counted, of which FIVE are this class** — three `MissingEffectSize`, two `MissingConfidenceInterval` — and six are internal-duplication spans at 81–86% word overlap.
+
+| | |
+|---|---|
+| Major findings, run 25 | **11** → **6** with this class removed |
+| Deterministic verdict | **`MajorRevision` either way** |
+
+**One eligible Major finding is sufficient for `MajorRevision`** (`reviewer_synthesis.rs`'s resolver matrix: `Sev::Major => Recommendation::MajorRevision`), so six still yields it. **§30's promotion delta is therefore UNAFFECTED.**
+
+> **But 5 of 9 findings would leave the report** in the extraction-only execution used for Step 3's first run, and 5 of 11 Majors in run 25's full execution. **Verdict stability and finding content are different measures of the same system**, and a reader of §30 should know which one moved. *(Two runs, two denominators — the scopes are stated because the counts are not comparable.)*
+
+### 40.3 The window risk, opposite in sign and NOT MEASURED
+
+Flattening makes the rule's unit BIGGER: Results ¶3 is 2131 chars and 156 decimal numbers against a 741-char median prose paragraph in the same section. *"Same paragraph ≈ same claim"* fails there, and the consequence is **suppression** — one effect size anywhere in a large table would silence every p-value flag in it. **A false NEGATIVE class, and unobservable on this corpus** (zero effect sizes), so it is recorded as a structural risk and not as a measurement.
+
+`ExtractionResult.tables` already holds Table 1/2/3 with captions and locations. `validate.rs` cannot see it and has no notion of table structure. **The information exists; the rules do not consult it.**
