@@ -3715,6 +3715,25 @@ The item is still the cheapest of the four — the ordering is unchanged — but
 
 **The scope belongs WITH the number**, not in the reader's head. An unqualified count is read as total, and this one was — §34.1 recorded "1 match site" and the build found three.
 
+#### EXTENSION — the scope is not enough. RECORD THE COMMAND.
+
+**The rule above was applied correctly and still let a number through that nobody could check.** A design brief carried *"Location on Finding — 25 construction sites"*. The scope was implied and the figure looked measured; **the COMMAND that produced it was never written down.**
+
+> **A number with a stated scope but no command is one NOBODY CAN FALSIFY.** "12 in `report.rs`" is checkable only if the command is there to re-run. Without it, the reader's only options are to trust the number or to re-derive it from scratch — and re-deriving is what nobody does to a figure that looks already measured.
+
+**That is how 25 survived into a design brief and out the other side.** It was reproduced by no scope that was tried:
+
+| Counted | Command | N |
+|---|---|---|
+| `Finding {` literals | `grep -n "Finding {" gaply-core/src/report.rs` | **12** |
+| …plus the `evidence.rs` test helper | same over `gaply-core/src src` | **13** |
+| distinct emitting **branches** | reading `compile_report`'s call graph | **18** (17 wired + 1 unwired) |
+| `ChecklistItem {` sites | `grep -n "ChecklistItem {" gaply-core/src/report.rs` | 4 |
+
+**18 EMITTING BRANCHES is the right unit**, because `stylo_finding` is ONE literal serving SEVEN branches — a literal count understates the decisions to be made by six, and a branch count is what "which sites can supply a location" was actually asking.
+
+**This does not weaken §34.5's rule; it completes it.** The scope says what was looked at, the command says how — and only the second is re-runnable by the next reader.
+
 ### 34.6 The `effect_size_pattern_is_unchanged` pin fired on its first run — on its author
 
 **The shared-alternation refactor was written via a Python patch script, with `\b` inside a NON-RAW Python string.** Python read it as a backspace and wrote **ten literal `0x08` bytes** into `stats.rs`. The regex still compiled — `\x08` is a valid literal character — and silently stopped matching word boundaries.
@@ -3974,3 +3993,76 @@ The signal Step 2 wants does not exist in `report.rs` or in `sections.rs`. It ex
 | **Prerequisite** | a corpus containing real subsections; the present one has none |
 
 **Recorded with that home and that value so it is not later re-scoped as "5 sites" in `report.rs`** — which is the number §34.5's scope-erased measurement produced, and the reason §37 exists.
+
+## 39. Step 3 — the finding's location, and what building it revealed
+
+**`Finding` gained `Option<Location>`; `LocalFinding::nearby_text` fills from it through the resolver the RULE uses.** The design was investigated before implementation so that implementation would decide nothing; this section records what it decided anyway, and what it found.
+
+### 39.1 The result the design turned on
+
+**`validate::paragraph` was not a lookup helper — it was THE TEXT THE RULES EVALUATE** (`max_group_count`, the overclaim scan, the effect-size scan, the causal scan all read it). Promoting it to `extract::paragraph_at` means:
+
+> **The quotation is the string that PRODUCED the finding, not a re-derivation of where the finding meant.** A quotation cannot disagree with the finding it illustrates, because there is one resolver and both go through it.
+
+§34.3's one-predicate-producer-and-checker shape, reached from a different direction.
+
+### 39.2 The section-ordinal ambiguity — SHIPPED WITHOUT FIXING, and the argument is not "pre-existing"
+
+`split_document` emits one section per recognised heading, so a document with two headings that classify alike (`"Abstract"` + `"Summary"`, `"Introduction"` + `"Background"`) yields two sections of one kind. `Location` is then not a unique address, and `find` takes the first.
+
+**"It is pre-existing" is true and is the WEAK form of the argument. The strong form:**
+
+> **Today a repeated `SectionKind` means the RULE evaluated the wrong paragraph — the finding is already wrong, silently, with nothing able to show it. After Step 3 the author sees a quotation that does not contain the problem the finding describes.**
+>
+> **Step 3 does not introduce the ambiguity. It is the INSTRUMENT THAT WOULD REVEAL IT.**
+
+**Stated so a future reader cannot attribute it to the wrong layer:** *Step 3 deliberately preserves the existing `Location` semantics and makes any repeated-`SectionKind` ambiguity visible in the rendered report rather than silently masking it. **The ambiguity originates in the EXTRACTION MODEL, not in the reporting layer.***
+
+Shipping the instrument before the fix is therefore correct ordering, not deferred debt. Fixing it first would mean fixing a defect no one can currently observe.
+
+*(Measured on the reference manuscript: 5 sections, 5 distinct kinds — no repeat. The frequency in real manuscripts is unknown, which is why the fix waits for evidence.)*
+
+### 39.3 A SHIPPING DEFECT found while scoping, ranked above the join hazard
+
+**`"citation c3 REFUTED by evidence"` names a position in an internal filtered list and identifies nothing to the author.** `citation_id` is `format!("c{}", idx + 1)` over `verify_citations`'s `items` slice, which `pipeline.rs` builds by SKIPPING references whose refverify call errored.
+
+**Two distinct problems, and they are not the same size:**
+
+| | | |
+|---|---|---|
+| **The label** | **SHIPPING DEFECT** | live today, in the author's report, independent of Step 3 and of whether any location join is ever built. `c3` is not a name the author can resolve to anything. |
+| The skew | latent join hazard | `items[i] != references[i]` after any refverify failure, so a future `c{N} → references[N-1] → ¶N-1` join is silently off by the number of prior failures |
+
+**The label is the item to open.** The skew only matters if someone builds the join; the label is being read now. Recorded here rather than fixed because it is not Step 3's diff.
+
+### 39.4 The cap was MEASURED, and the measurement changed the reasoning
+
+Design reasoned to ~300 characters. The frozen reference manuscript (`sha256 859880647c…`) through `parse_path` → `extract_from_text`:
+
+| body paragraphs | median | mean | p90 | max | over 300 chars |
+|---|---|---|---|---|---|
+| 36 | **728** | 749 | 1269 | 2131 | **32 of 36 (89%)** |
+
+> **The reasoning was wrong about the SHAPE OF THE CHOICE, not merely the number. Truncation is the NORMAL case — no cap avoids it**, so the cap cannot be chosen to minimise how often it fires, which is what "300 is enough for one or two sentences" implicitly assumed.
+
+What it can be chosen for is whether the reader receives a whole opening sentence — first-sentence length: median 189, **p75 270**, p90 439. Paragraphs receiving less than their first full sentence: **8 at 300, 5 at 350, still 5 at 400.** **350 is where the curve flattens**, and the earlier sizing (the bundled `sample_manuscript.txt`, median 140 chars) was a toy that would have produced a defensible-looking wrong answer.
+
+**A second measurement made the whitespace snap load-bearing rather than decorative:** a blind `chars().take(350)` lands mid-token on 23 of the 32 truncated paragraphs and **inside a NUMBER on 2** — `p = 0.03` shown as `p = 0.0` is §4.20's TEXT class in a report about statistics.
+
+### 39.5 What the report gains, on the real document
+
+5 of 9 findings located; every quotation resolves; the two flattened tables are quoted at 367 and 371 characters with the numeric run cut at a whitespace boundary and marked. **Head-anchoring is vindicated by the hardest case in the corpus:** a flattened table's head is its CAPTION — *"Table 1 Main effect of juvenile hormone analogue and of its concentration on the haemolymph…"* — which is the most searchable string it contains. An anchor near the statistic would have emitted `"3.57 3.40 3.37 0.052"`.
+
+**Two observations recorded, neither a Step 3 defect:**
+
+1. **The statistical rules are firing on flattened TABLE content** — 4 of the 5 located findings quote a table, not prose. The quotation makes that visible for the first time. Whether a p-value inside a table should be evaluated as prose is a separate question, now askable because the evidence is on the page.
+2. **The same paragraph is quoted twice** where two rules fire on it (`MissingEffectSize` + `MissingConfidenceInterval` on Results ¶3 and ¶4), so the report shows an identical 367-character block twice. The duplicate FINDINGS already existed; the quotation makes the redundancy conspicuous.
+
+### 39.6 Where the design was wrong
+
+**Nothing in the design had to be reversed at implementation.** Two corrections, both from measurement rather than from the code:
+
+* the cap moved 300 → **350**, and the *reason* for having a cap changed (§39.4);
+* the **frequency** claims in the design were unmeasured — "real academic paragraphs run 500–1000 chars" was a guess that happened to bracket the measured 728.
+
+**One design claim was confirmed by running it rather than by argument**: `Option<Location>` does not fire `previously_written_cached_reports_still_deserialize`, and the required form fails it with `missing field \`location\``. **`CACHED_REPORT_SCHEMA_VERSION` is NOT bumped** — `pipeline.rs`'s rule, that a compatible change must not bump, or bumping stops meaning anything.
