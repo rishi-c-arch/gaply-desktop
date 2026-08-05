@@ -606,6 +606,35 @@ The same shape appears wherever the explanation travels the channel it describes
 
 **Naming the class costs a little clarity and buys correctness** — *"a letter carrying an accent or other mark may appear here as its plain equivalent"* is vaguer than a worked example, and it is the strongest statement the medium can carry without contradicting itself.
 
+### 4.24 Standing rule — a sentence boundary may never fall inside a numeric literal
+
+> **A SENTENCE BOUNDARY MAY NEVER FALL INSIDE A NUMERIC LITERAL.**
+
+**This is §4.20's TEXT class caught BEFORE it shipped rather than after**, which is the first time that has happened in this record. Every prior instance — `miniPdf.ts`'s `[^\x20-\x7E]` deletion, the `% similarity` label, the `FindingSeverity` enum leak — was found in something already running.
+
+#### Why the rule is not "be careful with sentence splitting"
+
+A boundary inside `0.05` yields `p ≤ 0.`, and **a truncated number still reads as a number.** There is no parse error, no crash, no visibly mangled output — the same property that makes §4.20 the more insidious principle. In a product whose subject is statistical reporting, the values are the evidence.
+
+#### It belongs to ANY sentence consumer, not to the one that motivated it
+
+The rule was written while classifying significance criteria (ARCHITECTURE_TRACE §42), and it is stated without reference to that use on purpose. **The implementation may be replaced; the property may not.** A future sentence splitter — for display, for chunking, for an LLM payload — inherits it.
+
+#### The two existing utilities both FAILED it, for different reasons, and one was found by RUNNING it
+
+| Utility | Abbreviations | Numeric literals |
+|---|---|---|
+| `ai_detect::split_sentences` | ✗ splits on every `.` | ✗ `"p < 0.001"` → `"p < 0."` |
+| `docparse::ends_sentence` | ✓ `"Smith et al."` → false | **✗ `"…p ≤ 0."` → TRUE** |
+
+**The second was described in review as "the correct logic, just private and line-oriented". It is not correct — it fires inside decimals.** Reading it supported the first description; running it produced the second. **The distinguishing act was execution**, and it is recorded because the same mistake is available on any function whose behaviour looks obvious.
+
+**`ends_sentence` was left ALONE.** It is not wrong *for its caller* — it decides whether a physical LINE closes a reference block during PDF reflow, and a line does not end mid-number. Changing it would alter a measured pipeline for a defect it does not exhibit there. **What is shared is the abbreviation vocabulary; what is not shared is the boundary decision**, because sharing that would force one caller to accept the other's failure mode.
+
+#### The invariant is held by a TEST, not by a clause
+
+Mutation found that **`extract::sentence` enforces it twice** — the digit-either-side guard and the token-boundary rule each suffice alone, so removing either leaves the property standing and only removing both breaks it. **Both are kept and the overlap is recorded**, so a future reader knows a one-clause edit is safe and a two-clause edit is not, and knows which test notices.
+
 ## 5. Evaluation Protocol
 
 **Standing three-question rule.** No capability is accepted unless all three are answered *before* implementation:

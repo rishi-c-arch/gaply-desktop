@@ -492,4 +492,68 @@ mod tests {
             .unwrap();
         assert!(critical >= 1, "expected at least one CRITICAL finding");
     }
+
+    /// **A DECLARED CRITERION MUST NOT REACH `pvalue_locs`** — ARCHITECTURE_TRACE
+    /// §42, and the defect that motivated the whole item.
+    ///
+    /// Before this, `"significance was determined at p < 0.05"` produced
+    /// `MissingEffectSize` ("A p-value is reported without an accompanying
+    /// effect size") about a sentence that reports no result. On the frozen
+    /// reference manuscript that was FIVE of five located findings.
+    ///
+    /// The three rules keyed on `pvalue_locs` are fixed by a change that touches
+    /// no rule: `validate`'s `match` carries a wildcard, so a statistic that is
+    /// no longer a `Stat::PValue` is simply never indexed.
+    #[test]
+    fn a_declared_criterion_produces_no_finding() {
+        let text = "Study\n\nMethods\nStatistical significance was determined at p < 0.05 \
+                    unless otherwise stated.\n";
+        let ex = crate::extract::extract_from_text(text);
+        assert!(
+            ex.statistics.iter().any(|s| matches!(
+                s.stat,
+                crate::extract::stats::Stat::SignificanceThreshold { .. }
+            )),
+            "fixture must extract a criterion: {:?}",
+            ex.statistics
+        );
+        let report = validate(&ex);
+        assert!(
+            report.flags.is_empty(),
+            "a threshold declaration reports no result, so nothing can be missing from it: {:?}",
+            report.flags
+        );
+        assert!(report.passed);
+    }
+
+    /// The other direction, so the fix cannot be "stop flagging p-values".
+    #[test]
+    fn a_reported_result_still_produces_its_finding() {
+        let text = "Study\n\nResults\nThe intervention improved recall (p = 0.002).\n";
+        let ex = crate::extract::extract_from_text(text);
+        let report = validate(&ex);
+        assert!(
+            report.flags.iter().any(|f| f.rule == RuleId::MissingEffectSize),
+            "a genuine reported p-value must still be flagged: {:?}",
+            report.flags
+        );
+    }
+
+    /// **Both in one paragraph**, which is the case the paragraph unit would get
+    /// wrong: the declaration is skipped and the result is still flagged.
+    #[test]
+    fn a_declaration_beside_a_result_flags_only_the_result() {
+        let text = "Study\n\nResults\nSignificance was determined at p < 0.05. The \
+                    intervention improved recall (p = 0.002).\n";
+        let ex = crate::extract::extract_from_text(text);
+        let report = validate(&ex);
+        let missing: Vec<_> =
+            report.flags.iter().filter(|f| f.rule == RuleId::MissingEffectSize).collect();
+        assert_eq!(
+            missing.len(),
+            1,
+            "exactly one MissingEffectSize — for the result, not the criterion: {:?}",
+            report.flags
+        );
+    }
 }

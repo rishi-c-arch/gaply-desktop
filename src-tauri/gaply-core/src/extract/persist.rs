@@ -32,6 +32,12 @@ fn describe_stat(claim: &StatClaim) -> (String, String) {
             format!("{name}({}) = {value} ({where_})", dfs.join(", "))
         }
         Stat::EffectSize { name, value, .. } => format!("effect size: {name} = {value} ({where_})"),
+        // FORCED DECISION (§42). The old text — "p-value p <= 0.05" — asserted a
+        // reported result. A criterion is a real fact about the manuscript and
+        // is still stored, named for what it is.
+        Stat::SignificanceThreshold { operator, value, .. } => {
+            format!("significance threshold p {operator} {value} ({where_})")
+        }
     };
     ("statistic".to_string(), msg)
 }

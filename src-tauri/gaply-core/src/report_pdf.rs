@@ -496,6 +496,7 @@ mod tests {
                     reported: "p = 0.03".into(),
                     location: "Results, paragraph 2".into(),
                     effect_size_present: false,
+                    is_threshold: false,
                 }],
             },
             journal_name: None,

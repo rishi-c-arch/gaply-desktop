@@ -4330,3 +4330,183 @@ It was decided on evidence grade while 1b was a hypothesis. **1b has since gradu
 **That is why the format difference EXPOSED the problem rather than causing it.** DOCX and PDF disagree about paragraphs because they disagree about storage; the disagreement is only visible as a defect because a storage unit had been promoted to a semantic one without anyone deciding to.
 
 **So 1b's fix is NOT "make the formats agree" — it is "state what proximity each rule needs."** Two rules wanting different scopes is not a conflict to be reconciled into one number; it is two requirements that were never written down. **Carried here so 1b's design starts from it rather than rediscovering it.**
+
+## 42. Board item 1 built — the criterion/result classification
+
+**`Stat::SignificanceThreshold` exists. A p-value used as a DECISION RULE is no longer a p-value.**
+
+### 42.1 The result, on the corpus that found the defect
+
+| Paper | Flags before | Flags after | |
+|---|---|---|---|
+| **IJAS Bombyx** | **5** | **0** | every finding it produced was false; all three p-values are criteria |
+| Chapter 5-6 | 12 | **10** | the two declaration flags gone, ten real findings kept |
+| BMW PDSA / Cureus | 28 | 28 | see §42.5 — its criterion's marker was rejected as over-fire-prone |
+| ILI Chapter 6 | 2 | 2 | both were genuine results and are untouched |
+| **Total** | **47** | **40** | **7 of the 8 false flags removed, and NO real finding lost** |
+
+**The zero-over-fire property held on the whole corpus**: every document whose p-values are results kept its exact flag count. That is the 0-of-24 measurement (§41.2) re-confirmed end to end after the change, on the same documents.
+
+### 42.2 Three rules fixed by a change that touches no rule
+
+`validate`'s `match` carries a wildcard, so a statistic that is no longer a `Stat::PValue` is never indexed into `pvalue_locs`. `MissingEffectSize`, `MissingConfidenceInterval` and `PValueOverclaim` are all corrected without a line changing in any of them.
+
+> **`MissingConfidenceInterval` reads no text at all and still gets the fix.** Under a flag on `PValue` it would have had to start reading text or start reading a field — a change to a rule that needs none. **That is the payoff of classifying at the STATISTIC.**
+
+### 42.3 THE CONSUMER SPLIT — the strongest architectural result
+
+**Six consumers read `Stat`. Measured before choosing the shape:**
+
+| | Match shape | A new variant… | |
+|---|---|---|---|
+| `report_build::describe` | exhaustive | **BREAKS THE BUILD** | **displays** |
+| `extract/persist::describe_stat` | exhaustive | **BREAKS THE BUILD** | **persists** |
+| `paper_corpus.rs` | exhaustive or-pattern | **BREAKS THE BUILD** | **displays** |
+| `validate.rs` | `_ => {}` | silently skipped | **reasons** |
+| `stats_verdict.rs` | `_ => None` | silently skipped | **reasons** |
+
+> **The three that break are exactly the display/persist consumers. The two that skip are exactly the reasoning consumers.** The match shapes had ALREADY ENCODED the display-versus-reason distinction before anyone named it, so the type system enforces a decision nobody had written down.
+
+**That is why the variant beats a flag on more than the forgotten-consumer risk.** A flag would have made every one of the six a manual edit, with the correct behaviour depending on remembering which kind each was — §21 level 1 applied six times. The compiler asks only the three that must answer.
+
+All three were answered rather than silenced: the report labels it *"Significance threshold"*, the database stores *"significance threshold p ≤ 0.05"*, and the Gap Finder excludes it, because **a criterion is not a claim the manuscript makes — it is the rule by which its claims were judged.**
+
+### 42.4 ONE POSITIVE STATE
+
+> **The current design distinguishes only ONE POSITIVE STATE — Criterion. Everything else is "not established as a criterion". A distinct Result state would require a SECOND DETECTOR with independent evidence. Until that capability exists, materialising a third state would encode certainty the system does not possess.**
+
+**The error directions are not symmetric.** A marker that over-fires drops a real finding SILENTLY — an absence with no attribution (§4.14). A marker that under-fires leaves today's behaviour unchanged. **The corpus measured specificity (0 of 24) and nothing about recall**, and a one-sided test is exactly the claim that evidence supports: **anything else would be spending a specificity result on a sensitivity decision.**
+
+### 42.5 What was REJECTED, and what it cost
+
+Two markers were observed in the corpus and refused:
+
+* **`"was detected"`** — *"a significant effect was detected (p = 0.03)"* is an ordinary result sentence.
+* **bare `"α"`** — *"Cronbach's α = 0.85"* is a reliability coefficient.
+
+**Cost: one of the six measured criteria** — BMW PDSA's conditional *"where significant autocorrelation was detected"* — which is why its 28 flags are unchanged in §42.1. **Under a one-sided design that cost is coverage, never correctness**, and it is recorded so the miss is not read later as a detector failure.
+
+### 42.6 The boundary property, and a correction to a review claim
+
+The classification's input is the SENTENCE (§41.12). **Neither existing utility could supply one**, and the reason for the second was found by RUNNING it:
+
+> **`docparse::ends_sentence` was described in review as "the correct logic, just private and line-oriented". It is not correct — `ends_sentence("…p ≤ 0.")` returns TRUE, firing inside the decimal.** Reading it supported the first description; running it produced the second.
+
+**Both existing utilities fail the invariant, for the same underlying reason** — neither was written to protect a numeric literal, because neither had a caller that needed it. The new invariant is ONTOLOGY §4.24, stated for every future sentence consumer rather than for this one. **`ends_sentence` is left alone**: it is not wrong for its caller, and changing it would alter a measured reflow pipeline for a defect it does not exhibit there.
+
+**Mutation found the invariant is enforced TWICE** — removing either the digit guard or the token-boundary rule leaves it holding; only removing both breaks it. Both are kept, the overlap is recorded at the code as INTENTIONAL, and **the property is held by the test rather than by either clause.**
+
+> **Established against a STRENGTHENED test, not the original one.** The boundary test's guard was widened first (`bf829b5`) because it had been firing through one literal of four, and both survivals were then RE-RUN (`fb679aa`) before anything here cited them. Outcome unchanged, which is a stronger claim than the first run could support.
+
+**ONE THING DIFFERED, and it is the part worth carrying.** The control mutation — both clauses removed — is now caught through **`0.05`**, the literal this module exists to protect. Under the weak guard it could only have been caught through **`12.4`**, the one literal whose decimal point sat where the old prefix test happened to look. **Same verdict, different route** — and **the first run's failure output was never captured, so nobody would have seen the difference.**
+
+### 42.7 Ownership, enforced rather than asserted
+
+**One producer: `extract::stats::extract`.** `threshold_markers_are_owned_by_extraction` walks the workspace and fails if the marker identifier is named anywhere else, or if a marker phrase appears in another file's PRODUCTION code.
+
+**It caught its own author twice on the first run** — a doc example in `extract/sentence.rs` and a test fixture in `validate.rs`. The first was a genuine copy and was removed; the second is a caller feeding text *through* the one producer, which is the intended use, and is what established that the phrase check belongs at production scope while the identifier check belongs everywhere.
+
+### 42.8 What this does NOT cover
+
+* **Four papers, one labeller, three observed phrasings.** Recall is unmeasured; the vocabulary is a sample.
+* **`≤` is not used as a signal** — 3 of 3 criteria, all one author's house style.
+* **The value is not used** — 70% at 0.05 is not a decision, and *"p < 0.05 at 12 h"* falsifies the clean version.
+* **A true statement was lost, and it is named so it is not rediscovered as a regression.** IJAS reports no effect size anywhere (0 matches in 33,516 chars). Gaply said so — for the wrong reason, at the wrong place, five times — and now says nothing. **A correctly-grounded document-level finding is a legitimate separate feature with evidence that actually exists.**
+* **Item 1b is untouched.** A criterion correctly skipped in a 12-character DOCX paragraph still leaves a *result* p-value in that paragraph flagged by a window no effect size could occupy.
+
+## 43. The third principle — A RECOVERY MECHANISM MUST REMAIN USABLE IN THE FAILURE MODE IT IS INTENDED TO RECOVER FROM
+
+**§35 and §36 are about not trusting a RESULT.** Silent divergence, unsupported claims, operational success mistaken for semantic correctness — all of them concern whether an ANSWER can be believed.
+
+> **This one is about not trusting a REMEDY.** It is recorded ALONGSIDE them rather than inside them, because the failure it names happens after everything has already gone wrong, and the two families need different habits.
+
+### 43.1 The instance
+
+Mutation testing during §42 backed up eight files with `tar`, mutated one, ran a test, and restored with `tar x`. **The volume filled mid-run.** `tar` needs free space to extract, so the restore failed at exactly the moment it was required:
+
+* `extract/sentence.rs` — **deleted**
+* `report_compose.rs` — **deleted**
+* `report_build.rs` — **corrupted to a binary blob** (git reported `Bin 16349 -> 17001`)
+
+**The suite would have passed on a partial restore**, because a mutation left applied in a file no test covers is invisible. It did not, only because the damage was severe enough to break compilation.
+
+### 43.2 The general form, which is the durable part
+
+> **A recovery path whose prerequisites do not hold under the failure condition is not a recovery path.**
+
+`tar` is one member of a family:
+
+| Remedy | Prerequisite | Fails when |
+|---|---|---|
+| `tar x` from an archive | **free space** | the disk is full — the case it was protecting against |
+| a rollback that fetches the previous artifact | **the network** | the outage is the network |
+| an undo log stored on the volume it protects | **that volume** | the volume is what failed |
+| a backup restore that needs the process it restarts | **that process** | the process is what died |
+
+**Prefer recovery paths whose prerequisites still hold under the failure condition.** `cp` to a sibling path writes no new bytes beyond the copy already sized; `git stash` and `git checkout --` work from object storage that already exists. Both were available and neither was used.
+
+### 43.3 It belongs to the SAME FAMILY as two instances already recorded
+
+**`git checkout --` and the `cd` path errors elsewhere in this record are the same shape: a tool succeeding perfectly at what it does, while the situation made that success useless.** `git checkout --` restores a file to HEAD flawlessly — and would have destroyed uncommitted work. A `cd` in a compound command changes directory exactly as asked — and the next command's relative path then resolves somewhere else.
+
+> **None of the three is a bug in the tool. All three are a mismatch between what the tool guarantees and what the moment required**, which is why no amount of care with the tool prevents them and only asking *"does this still work under the condition I am invoking it for?"* does.
+
+### 43.4 What it cost, and what it did not
+
+**Cost:** two files reconstructed rather than edited — `sentence.rs` from context, `report_compose.rs` and `report_build.rs` from `git` plus re-applied edits — and a verification pass to prove the reconstruction faithful.
+
+**It did not cost correctness, and that was CHECKED rather than assumed.** `git diff` against the last commit showed only the intended edits in both restored files, and the file with no baseline was read end to end. **The suite passing was explicitly not accepted as evidence** — §36's own rule, applied to the recovery from an incident that §43 exists to name.
+
+## 44. The fourth principle — STRENGTHENING A VERIFICATION INSTRUMENT INVALIDATES CONCLUSIONS DRAWN SOLELY FROM THE WEAKER INSTRUMENT UNTIL THEY ARE RECHECKED
+
+> **A rule about CLAIMS, not about code.** Fixing a test is a code change and is finished when it lands. **This is what happens to everything the test previously said**, and it is not finished when the fix lands — it is finished when the affected conclusions have been re-derived or withdrawn.
+
+**§35 and §36 govern what a result MEANS. §43 governs whether a REMEDY works. This governs what a result STILL MEANS after the thing that produced it changes.**
+
+### 44.1 What makes it earned rather than proposed
+
+**Two instances are already in this record, and both were re-derived by ACCIDENT, later, at greater cost.**
+
+| The instrument was strengthened | The conclusions left standing | How the gap was eventually found |
+|---|---|---|
+| **The release gate** — LIVENESS deleted and an all-unavailable fixture added (§33), after §32 found `ship_ready` structurally incapable of being true | §21's **"4 PASS, 0 FAIL, 2 SKIPPED"** stood unrechecked | §32.1 — the passes were **structurally determined, not measured**; §32.10 records LIVENESS passing three times, *"never once by doing its job"* |
+| **The standing command** — `--lib` widened to `--workspace` (§37) | every earlier **"all tests pass"** stood, from a period when the examples had not compiled since PR-3 | §31.24 — found by widening an unrelated return type and watching a target fail that nothing had been compiling |
+
+> **In both cases the instrument change was correct, landed, and celebrated — and the claims it retroactively undermined were left in place until something unrelated tripped over them.** The rule is to re-derive ON PURPOSE, at the moment the instrument changes, rather than by accident months later.
+
+### 44.2 The instance that produced it
+
+`bf829b5` widened the boundary test's guard: it had been firing through one literal of four, skipping `0.05` and `0.001` — the two the module exists to protect.
+
+**Two conclusions rested solely on the weaker instrument** — the double-enforcement finding's two surviving mutations (§42.6). `fb679aa` re-ran them before anything downstream was allowed to cite them.
+
+**Outcome: unchanged.** Both still survive, so the redundancy is real rather than an artifact — a stronger claim than the first run could support.
+
+#### THE SURVIVALS ARE NOT THE EVIDENCE FOR THIS RULE. THE CONTROL IS.
+
+**A reader will otherwise take the two survivals as the point, and they are the part that DID NOT CHANGE — they prove the finding, not the rule.** What earns the rule is the third row:
+
+| | weak guard | strengthened guard |
+|---|---|---|
+| control mutation (both clauses removed) | CAUGHT — **via `12.4`** | CAUGHT — **via `0.05`** |
+
+> **A CONCLUSION REACHED CORRECTLY FOR THE WRONG REASON IS ONE INSTRUMENT CHANGE AWAY FROM BEING WRONG.**
+
+The verdict was right and the route to it was accidental: `12.4` is the only one of the four literals whose decimal point sat where the old prefix test happened to look, and `0.05` and `0.001` — the two the module exists to protect — were being skipped. **A later edit that broke only the p-value case would have passed a green test.** And **the first run's failure output was never captured**, so the difference was invisible: nothing in the record would have shown that the catch depended on the wrong literal.
+
+**That is the whole case for the rule.** An unchanged verdict is not evidence the instrument was adequate — only re-derivation shows whether it was.
+
+### 44.3 This section was written AFTER the re-run it governs
+
+**Recorded because the rule asks it of anyone applying it.** §44 exists in commit 3 and the re-run is commit 2 — the conclusion is written after the evidence it rests on was re-established, not before, and the commit order carries that dependency in the history rather than in a claim about it.
+
+**A rule about re-derivation, written before its own re-derivation, would be an instance of what it warns against.**
+
+### 44.4 The procedure, which is the reusable part
+
+1. **When an instrument is strengthened, enumerate what it previously certified.** Not everything — only conclusions that rest SOLELY on it.
+2. **Re-derive each, before anything new cites it.**
+3. **Record the outcome even when nothing changes** — "re-run, unchanged" is the evidence that step 2 happened, and its absence is indistinguishable from having skipped it.
+4. **State any difference in PATH, not only in verdict.** A conclusion reached correctly for the wrong reason is one instrument change away from being wrong.
+
+**The sequencing is the point: instrument first, evidence second, conclusions third.** Committing them in that order makes the dependency visible in the history, so a later reader can see which claims were established under which instrument.

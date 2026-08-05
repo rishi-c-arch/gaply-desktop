@@ -48,6 +48,11 @@ fn describe(stat: &Stat) -> (String, String) {
             (format!("{name}({})", dfs.join(", ")), raw.clone())
         }
         Stat::EffectSize { name, raw, .. } => (name.clone(), raw.clone()),
+        // FORCED DECISION (§42). Named for what it is. Presenting a criterion
+        // as a reported statistic is ONTOLOGY §4.20's LABELS class — the value
+        // is unchanged, the terminology asserts something the engine did not
+        // find.
+        Stat::SignificanceThreshold { raw, .. } => ("Significance threshold".into(), raw.clone()),
     }
 }
 
@@ -97,6 +102,10 @@ pub fn reported_statistics(extraction: &ExtractionResult) -> Vec<ReportedStatist
                     s.location.paragraph + 1
                 ),
                 effect_size_present: effect_locs.contains(&s.location),
+                // A criterion belongs in NEITHER effect-size bucket: "reported
+                // without an effect size" would tell the author to add one to a
+                // sentence that reports nothing.
+                is_threshold: matches!(s.stat, Stat::SignificanceThreshold { .. }),
             }
         })
         .collect()
@@ -343,6 +352,28 @@ mod tests {
         let model =
             pipeline_with(vec![located(loc(SectionKind::Results, 0))]).into_report_model(None, None);
         assert_eq!(model.findings[0].nearby_text.as_deref(), Some(expected));
+    }
+
+    /// **A DECLARED CRITERION REACHES THE REPORT AS A CRITERION**, end to end
+    /// from raw text — §42. Asserted on what the MODEL carries, not on
+    /// `describe`, for the reason recorded on `reported_statistics`.
+    #[test]
+    fn a_declared_criterion_reaches_the_report_as_a_criterion() {
+        let text = "Study\n\nMethods\nStatistical significance was determined at p < 0.05.\n\n\
+                    Results\nThe intervention improved recall (p = 0.002).\n";
+        let ex = gaply_core::extract::extract_from_text(text);
+        let reported = reported_statistics(&ex);
+
+        let thresholds: Vec<&ReportedStatistic> =
+            reported.iter().filter(|r| r.is_threshold).collect();
+        assert_eq!(thresholds.len(), 1, "exactly one criterion: {reported:?}");
+        assert_eq!(thresholds[0].kind, "Significance threshold");
+        assert_eq!(thresholds[0].reported, "p < 0.05", "the value as WRITTEN, unaltered");
+
+        let results: Vec<&ReportedStatistic> =
+            reported.iter().filter(|r| !r.is_threshold && r.kind == "p-value").collect();
+        assert_eq!(results.len(), 1, "the reported p-value is untouched: {reported:?}");
+        assert_eq!(results[0].reported, "p = 0.002");
     }
 
     /// The join that makes `effect_size_present` real, end to end from raw text.

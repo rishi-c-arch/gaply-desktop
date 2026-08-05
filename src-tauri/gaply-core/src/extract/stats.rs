@@ -28,6 +28,88 @@ pub enum Stat {
     /// was ever captured and the report could say "Missing: effect size" and
     /// never "Reported: Cohen's d = 0.42" (§31.2).
     EffectSize { name: String, value: f64, raw: String },
+    /// A significance CRITERION — `p ≤ 0.05` used as a decision rule rather
+    /// than as a reported result (ARCHITECTURE_TRACE §41, §42).
+    ///
+    /// # A SEPARATE VARIANT, not a flag on `PValue`
+    ///
+    /// Measured across the six `Stat` consumers: the three that DISPLAY or
+    /// PERSIST a statistic match exhaustively, so a new variant breaks their
+    /// build and forces a decision; the two that REASON over one carry a
+    /// wildcard, so they skip it silently — which is exactly the fix. The match
+    /// shapes had already encoded the display-versus-reason distinction before
+    /// anyone named it.
+    ///
+    /// # ONE POSITIVE STATE
+    ///
+    /// This variant means *"established as a criterion"*. Everything remaining a
+    /// `PValue` means *"NOT established as a criterion"* — which is not the same
+    /// as *"established as a result"*. A distinct Result state would require a
+    /// SECOND DETECTOR with independent evidence; until that capability exists,
+    /// materialising one would encode certainty the system does not possess
+    /// (ONTOLOGY §4.12).
+    SignificanceThreshold { operator: String, value: f64, raw: String },
+}
+
+/// Phrases whose presence in a p-value's SENTENCE establishes that the p-value
+/// is a significance CRITERION.
+///
+/// # THE ONLY DEFINITION — `threshold_markers_are_owned_by_extraction` proves it
+///
+/// Three rules and three non-rule consumers read `Stat`. Any of them
+/// re-deriving this decision from surrounding text would recreate the
+/// duplication this work exists to remove, so the list lives here and the
+/// classification is made ONCE, at extraction.
+///
+/// # CONSERVATIVE ON PURPOSE — the error directions are not symmetric
+///
+/// A marker that over-fires classifies a REPORTED result as a criterion, and the
+/// rules then drop a real finding **silently** — an absence with no attribution
+/// (§4.14). A marker that under-fires leaves today's behaviour unchanged. **The
+/// harmful direction is over-inclusion**, so every entry is a phrase that states
+/// a DECISION RULE by its own semantics, not merely a phrase observed near one.
+///
+/// Two candidates were REJECTED for that reason after being observed in the
+/// corpus:
+///
+/// * **`"was detected"`** — *"a significant effect was detected (p = 0.03)"* is
+///   an ordinary result sentence.
+/// * **bare `"α"`** — *"Cronbach's α = 0.85"* is a reliability coefficient.
+///
+/// Rejecting them costs one of the six measured criteria (a conditional
+/// *"where significant autocorrelation was detected"*). Under a one-sided design
+/// that cost is coverage, never correctness.
+///
+/// **Three phrasings from three papers is a sample, not a vocabulary.** Recall is
+/// unmeasured.
+const THRESHOLD_MARKERS: &[&str] = &[
+    // observed
+    "significance level",
+    "significance was determined at",
+    "critical difference at",
+    "not significant at",
+    // same construction, unobserved — each states a decision rule outright
+    "level of significance",
+    "significance was set at",
+    "significance was set to",
+    "significance threshold",
+    "considered significant at",
+    "considered statistically significant at",
+    "alpha level",
+];
+
+/// Whether the p-value beginning at byte offset `at` in `paragraph` is a
+/// significance criterion.
+///
+/// **The input is the SENTENCE, not the paragraph** — ARCHITECTURE_TRACE §41.12.
+/// In all six measured cases the marker and its p-value share a sentence, and a
+/// sentence is the atom beneath every paragraph unit, so this classification is
+/// unaffected by the format-dependent paragraph sizes item 1b addresses. The
+/// paragraph would also be wrong on its merits: a Methods paragraph declaring a
+/// threshold and later reporting a result would classify both alike.
+fn is_significance_criterion(paragraph: &str, at: usize) -> bool {
+    let sentence = crate::extract::sentence::sentence_containing(paragraph, at).to_lowercase();
+    THRESHOLD_MARKERS.iter().any(|m| sentence.contains(m))
 }
 
 /// The alternation naming every effect-size measure Gaply recognises.
@@ -166,13 +248,18 @@ pub fn extract(paragraph: &str, loc: &Location) -> Vec<StatClaim> {
     let mut out = Vec::new();
     let mut push = |stat: Stat| out.push(StatClaim { stat, location: loc.clone() });
 
+    // THE ONE PRODUCER of the criterion/result decision. Every consumer reads
+    // the variant; none re-derives it.
     for c in re.p_value.captures_iter(paragraph) {
         if let Some(value) = parse_number(&c[2]) {
-            push(Stat::PValue {
-                operator: normalize_operator(&c[1]),
-                value,
-                raw: c[0].trim().to_string(),
-            });
+            let whole = c.get(0).expect("group 0 always matches");
+            let operator = normalize_operator(&c[1]);
+            let raw = whole.as_str().trim().to_string();
+            if is_significance_criterion(paragraph, whole.start()) {
+                push(Stat::SignificanceThreshold { operator, value, raw });
+            } else {
+                push(Stat::PValue { operator, value, raw });
+            }
         }
     }
 
@@ -359,5 +446,172 @@ mod tests {
         assert_eq!(names("a chi-squared test"), vec!["chi-square"]);
         assert_eq!(names("Mann-Whitney U"), vec!["Mann-Whitney U test"]);
         assert!(names("Fisher's exact test").contains(&"Fisher's exact test".to_string()));
+    }
+
+    // =======================================================================
+    // §42 — the criterion/result classification
+    // =======================================================================
+
+    fn kinds(text: &str) -> Vec<String> {
+        let l = Location { section: SectionKind::Methods, paragraph: 0 };
+        extract(text, &l)
+            .into_iter()
+            .filter_map(|c| match c.stat {
+                Stat::PValue { raw, .. } => Some(format!("result:{raw}")),
+                Stat::SignificanceThreshold { raw, .. } => Some(format!("criterion:{raw}")),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// **Every threshold case measured across the corpus.** These are verbatim
+    /// constructions from three real manuscripts (ARCHITECTURE_TRACE §41), not
+    /// invented examples — the phrasing is the evidence.
+    #[test]
+    fn declared_criteria_are_classified_as_criteria() {
+        for text in [
+            "Treatment means were compared by the critical difference at p \u{2264} 0.05.",
+            "CD (C), critical difference for the concentration; NS, not significant at p \u{2264} 0.05.",
+            "Analysis was by one-way ANOVA with post-hoc Tukey's test (significance level p < 0.05).",
+            "Statistical significance was determined at p < 0.05 unless otherwise stated.",
+        ] {
+            assert_eq!(
+                kinds(text).len(),
+                1,
+                "fixture must yield exactly one p-value: {text:?}"
+            );
+            assert!(
+                kinds(text)[0].starts_with("criterion:"),
+                "must classify as a criterion: {text:?} -> {:?}",
+                kinds(text)
+            );
+        }
+    }
+
+    /// **Every result case must survive.** The corpus measured 0 over-fires in
+    /// 24 result paragraphs; these are the constructions that produced it,
+    /// including the two that falsify the tempting shortcuts.
+    #[test]
+    fn reported_results_are_not_classified_as_criteria() {
+        for text in [
+            // the VALUE falsifier — a real result at exactly 0.05
+            "Permeation differed at all time points (p < 0.0001 at 1 h; p < 0.05 at 12 h).",
+            // the MARKER falsifier — "significant at" in a RESULT sentence
+            "All four differences are significant at p < 0.001.",
+            "One-way ANOVA (F = 1842.6, df = 8, p < 0.0001) confirmed the difference.",
+            "The pre-intervention trend was flat (\u{3b2}1 = -0.092, p = 0.066).",
+            "Indistinguishable from the negative control (97.4%; p > 0.05).",
+        ] {
+            let k = kinds(text);
+            assert!(!k.is_empty(), "fixture must yield a p-value: {text:?}");
+            assert!(
+                k.iter().all(|s| s.starts_with("result:")),
+                "must NOT classify as a criterion: {text:?} -> {k:?}"
+            );
+        }
+    }
+
+    /// **The classification input is the SENTENCE, not the paragraph.** A
+    /// Methods paragraph that declares a threshold and then reports a result
+    /// must classify them differently — the case the paragraph unit gets wrong.
+    #[test]
+    fn a_declaration_and_a_result_in_one_paragraph_classify_differently() {
+        let text = "Statistical significance was determined at p < 0.05. \
+                    The intervention improved recall (p = 0.002).";
+        let k = kinds(text);
+        assert_eq!(k.len(), 2, "{k:?}");
+        assert!(k.iter().any(|s| s == "criterion:p < 0.05"), "{k:?}");
+        assert!(k.iter().any(|s| s == "result:p = 0.002"), "{k:?}");
+    }
+
+    /// A criterion carries its operator and value like any other statistic —
+    /// the classification changes what it MEANS, not what was read.
+    #[test]
+    fn a_criterion_preserves_the_value_as_written() {
+        let l = Location { section: SectionKind::Methods, paragraph: 0 };
+        let out = extract("Significance was determined at p < 0.05.", &l);
+        match &out[0].stat {
+            Stat::SignificanceThreshold { operator, value, raw } => {
+                assert_eq!(operator, "<");
+                assert!((value - 0.05).abs() < 1e-12);
+                assert_eq!(raw, "p < 0.05");
+            }
+            other => panic!("expected a criterion, got {other:?}"),
+        }
+    }
+
+    /// **OWNERSHIP, GREP-PROVEN.** Exactly one module may decide whether a
+    /// p-value is a criterion. A consumer that re-derives the decision from
+    /// surrounding text recreates the duplication §41.3 exists to remove, and a
+    /// doc comment saying so is §21 level 1.
+    ///
+    /// Checks the workspace source for the marker vocabulary outside this file.
+    /// A copy-pasted phrase list and a second `THRESHOLD_MARKERS` both fail.
+    #[test]
+    fn threshold_markers_are_owned_by_extraction() {
+        use std::path::Path;
+        // gaply-core/ -> src-tauri/
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+        let owner = root.join("gaply-core/src/extract/stats.rs");
+
+        fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+            let Ok(rd) = std::fs::read_dir(dir) else { return };
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    if p.file_name().map(|n| n == "target").unwrap_or(false) {
+                        continue;
+                    }
+                    walk(&p, out);
+                } else if p.extension().map(|x| x == "rs").unwrap_or(false) {
+                    out.push(p);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(&root, &mut files);
+        assert!(files.len() > 20, "the walk must find the workspace sources: {}", files.len());
+        assert!(files.contains(&owner), "the owning file must be in the walk");
+
+        // TWO CHECKS, at two scopes.
+        //
+        // The IDENTIFIER may not be named anywhere else at all — reading the
+        // marker list from another module IS the duplication, test or not.
+        //
+        // The PHRASES are checked in PRODUCTION code only, i.e. everything
+        // before a file's `#[cfg(test)]`. A test fixture containing
+        // "significance was determined at" is a caller feeding text THROUGH the
+        // one producer, which is the intended use; a `#[cfg(test)]` block ships
+        // no behaviour. This test caught its own author twice — a doc example in
+        // `sentence.rs` and a fixture in `validate.rs` — which is the evidence
+        // that the scope needed stating rather than assuming.
+        const IDENT: &str = "THRESHOLD_MARKERS";
+        const PHRASES: &[&str] = &["critical difference at", "significance was determined at"];
+
+        for f in &files {
+            if f == &owner {
+                continue;
+            }
+            let Ok(src) = std::fs::read_to_string(f) else { continue };
+            assert!(
+                !src.contains(IDENT),
+                "{} names {IDENT}. The criterion/result decision has ONE producer \
+                 (extract::stats::extract); reading its vocabulary elsewhere recreates the \
+                 duplication ARCHITECTURE_TRACE §41.3 exists to remove. Read the \
+                 `Stat::SignificanceThreshold` variant instead.",
+                f.display()
+            );
+            let production = src.split("#[cfg(test)]").next().unwrap_or("");
+            for phrase in PHRASES {
+                assert!(
+                    !production.contains(phrase),
+                    "{} contains {phrase:?} in PRODUCTION code. The criterion/result decision \
+                     has ONE producer; a consumer re-deriving it from text recreates the \
+                     duplication ARCHITECTURE_TRACE §41.3 exists to remove. Read the \
+                     `Stat::SignificanceThreshold` variant instead.",
+                    f.display()
+                );
+            }
+        }
     }
 }

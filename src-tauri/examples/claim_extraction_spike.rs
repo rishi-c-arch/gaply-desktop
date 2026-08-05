@@ -755,6 +755,10 @@ fn main() {
                     // format is a checked-in comparison table.
                     Stat::TestStatistic { .. } => t += 1,
                     Stat::EffectSize { .. } => {}
+                    // §42: a significance criterion is not a p-value. Counted
+                    // nowhere rather than folded into `p`, which would make this
+                    // spike's checked-in comparison table silently wrong.
+                    Stat::SignificanceThreshold { .. } => {}
                 }
             }
             (p, ci, n, t)

@@ -244,24 +244,28 @@ fn digest_paper(id: &str, origin: &str, text: &str) -> PaperDigest {
         truncated.set(true);
     }
 
-    let claims: Vec<String> = ex
+    use gaply_core::extract::stats::Stat;
+    // FORCED DECISION (§42). A significance criterion is NOT a claim the
+    // manuscript makes — it is the rule by which its claims were judged, so it
+    // is excluded rather than clamped into a list of claims. Excluded BEFORE the
+    // cap, so a paper declaring several thresholds does not lose real claims to
+    // them, and `truncated` counts what was actually eligible.
+    let eligible: Vec<&String> = ex
         .statistics
         .iter()
-        .take(MAX_CLAIMS)
-        .map(|c| {
-            use gaply_core::extract::stats::Stat;
-            let raw = match &c.stat {
-                Stat::PValue { raw, .. }
-                | Stat::ConfidenceInterval { raw, .. }
-                | Stat::SampleSize { raw, .. }
-                | Stat::Test { raw, .. }
-                | Stat::TestStatistic { raw, .. }
-                | Stat::EffectSize { raw, .. } => raw,
-            };
-            clamp(raw, CLAIM_CLAMP)
+        .filter_map(|c| match &c.stat {
+            Stat::SignificanceThreshold { .. } => None,
+            Stat::PValue { raw, .. }
+            | Stat::ConfidenceInterval { raw, .. }
+            | Stat::SampleSize { raw, .. }
+            | Stat::Test { raw, .. }
+            | Stat::TestStatistic { raw, .. }
+            | Stat::EffectSize { raw, .. } => Some(raw),
         })
         .collect();
-    if ex.statistics.len() > MAX_CLAIMS {
+    let claims: Vec<String> =
+        eligible.iter().take(MAX_CLAIMS).map(|raw| clamp(raw, CLAIM_CLAMP)).collect();
+    if eligible.len() > MAX_CLAIMS {
         truncated.set(true);
     }
 

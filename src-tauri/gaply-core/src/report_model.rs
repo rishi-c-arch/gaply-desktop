@@ -73,6 +73,10 @@ pub struct ReportedStatistic {
     pub location: String,
     /// Whether an effect size was found alongside this statistic.
     pub effect_size_present: bool,
+    /// True when this is a significance CRITERION (`p ≤ 0.05` as a decision
+    /// rule) rather than a reported result. Such a row belongs in neither
+    /// effect-size bucket — see `statistics_missing_effect_size`.
+    pub is_threshold: bool,
 }
 
 /// A finding plus the manuscript context that never crossed the proxy.
@@ -133,7 +137,21 @@ impl LocalReportModel {
     }
 
     /// Statistics reported WITHOUT an accompanying effect size.
+    ///
+    /// **Excludes significance criteria.** A declared threshold reports no
+    /// result, so "add an effect size to it" is advice about a sentence that
+    /// makes no claim — the same mistake `MissingEffectSize` made before §42.
     pub fn statistics_missing_effect_size(&self) -> Vec<&ReportedStatistic> {
-        self.manuscript.statistics.iter().filter(|s| !s.effect_size_present).collect()
+        self.manuscript
+            .statistics
+            .iter()
+            .filter(|s| !s.is_threshold && !s.effect_size_present)
+            .collect()
+    }
+
+    /// Significance criteria the manuscript declared. A fact about the paper,
+    /// reported as itself rather than as a statistic it is not.
+    pub fn significance_thresholds(&self) -> Vec<&ReportedStatistic> {
+        self.manuscript.statistics.iter().filter(|s| s.is_threshold).collect()
     }
 }

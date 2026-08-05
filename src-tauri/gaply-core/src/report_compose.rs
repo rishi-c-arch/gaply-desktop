@@ -302,7 +302,8 @@ fn statistics(model: &LocalReportModel, out: &mut Vec<Block>) {
     out.push(Block::Heading { text: "Statistics reported".into(), level: 1 });
 
     let missing = model.statistics_missing_effect_size();
-    let with_effect = model.manuscript.statistics.len() - missing.len();
+    let thresholds = model.significance_thresholds();
+    let with_effect = model.manuscript.statistics.len() - missing.len() - thresholds.len();
 
     out.push(Block::Heading {
         text: format!("Reported with an effect size ({with_effect})"),
@@ -311,7 +312,9 @@ fn statistics(model: &LocalReportModel, out: &mut Vec<Block>) {
     if with_effect == 0 {
         out.push(Block::Paragraph { text: "None.".into() });
     } else {
-        for s in model.manuscript.statistics.iter().filter(|s| s.effect_size_present) {
+        for s in
+            model.manuscript.statistics.iter().filter(|s| !s.is_threshold && s.effect_size_present)
+        {
             out.push(Block::Bullet {
                 text: format!("{} — {} ({})", s.kind, s.reported, s.location),
                 indent: 0,
@@ -335,6 +338,26 @@ fn statistics(model: &LocalReportModel, out: &mut Vec<Block>) {
                 text: format!("{} — {} ({})", s.kind, s.reported, s.location),
                 indent: 0,
             });
+        }
+    }
+
+    // A DECLARED CRITERION IS NOT A REPORTED STATISTIC (§42). It is shown,
+    // because it is a real fact about the manuscript and the author benefits
+    // from seeing the engine read it correctly — but in its own block, because
+    // filing it under either effect-size heading would advise adding an effect
+    // size to a sentence that reports no result.
+    if !thresholds.is_empty() {
+        out.push(Block::Heading {
+            text: format!("Significance criteria declared ({})", thresholds.len()),
+            level: 2,
+        });
+        out.push(Block::Paragraph {
+            text: "These state the threshold your analysis used. They are not results, \
+                   and nothing below is a finding about them."
+                .into(),
+        });
+        for s in thresholds {
+            out.push(Block::Bullet { text: format!("{} ({})", s.reported, s.location), indent: 0 });
         }
     }
 }
@@ -479,6 +502,7 @@ mod tests {
             reported: reported.into(),
             location: "Results, paragraph 1".into(),
             effect_size_present: effect,
+            is_threshold: false,
         }
     }
 
@@ -640,6 +664,40 @@ mod tests {
         assert!(
             para[inner.len()..].starts_with(char::is_whitespace),
             "the cut must land on a whitespace boundary: {inner:?}"
+        );
+    }
+
+    fn threshold(reported: &str) -> ReportedStatistic {
+        ReportedStatistic {
+            kind: "Significance threshold".into(),
+            reported: reported.into(),
+            location: "Methods, paragraph 1".into(),
+            effect_size_present: false,
+            is_threshold: true,
+        }
+    }
+
+    /// **A DECLARED CRITERION IS NOT FILED UNDER EITHER EFFECT-SIZE HEADING.**
+    ///
+    /// Filing it under "Reported without an effect size" would tell the author
+    /// to add an effect size to a sentence that reports no result — the same
+    /// mistake `MissingEffectSize` made before §42, reappearing one layer up.
+    #[test]
+    fn a_significance_criterion_gets_its_own_block_not_the_missing_bucket() {
+        let blocks =
+            compose(&model_with(vec![stat("p-value", "p = 0.01", false), threshold("p < 0.05")]));
+        let h = headings(&blocks);
+        assert!(
+            h.iter().any(|t| t == "Significance criteria declared (1)"),
+            "the criterion must have its own block: {h:?}"
+        );
+        assert!(
+            h.iter().any(|t| t == "Reported without an effect size (1)"),
+            "only the real p-value counts as missing one: {h:?}"
+        );
+        assert!(
+            h.iter().any(|t| t == "Reported with an effect size (0)"),
+            "and the criterion must not inflate the accompanied count either: {h:?}"
         );
     }
 
