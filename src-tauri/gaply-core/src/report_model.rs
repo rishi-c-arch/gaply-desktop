@@ -57,6 +57,11 @@ pub struct ManuscriptFacts {
 }
 
 /// One extracted statistical claim, as reported by the manuscript.
+///
+/// `Debug` but NOT `Serialize` — §4.22 governs serialization, and its own text
+/// already records that `Debug` still prints, so this widens nothing the rule
+/// claimed to close. `reported` holds a statistic (`p = 0.01`), not prose.
+#[derive(Debug)]
 pub struct ReportedStatistic {
     /// Test or quantity name as the extractor classified it ("p-value", "t").
     pub kind: String,

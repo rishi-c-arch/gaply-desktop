@@ -27,6 +27,11 @@ fn describe_stat(claim: &StatClaim) -> (String, String) {
         }
         Stat::SampleSize { n, .. } => format!("sample size n = {n} ({where_})"),
         Stat::Test { name, .. } => format!("statistical test: {name} ({where_})"),
+        Stat::TestStatistic { name, value, df, .. } => {
+            let dfs: Vec<String> = df.iter().map(|d| d.to_string()).collect();
+            format!("{name}({}) = {value} ({where_})", dfs.join(", "))
+        }
+        Stat::EffectSize { name, value, .. } => format!("effect size: {name} = {value} ({where_})"),
     };
     ("statistic".to_string(), msg)
 }

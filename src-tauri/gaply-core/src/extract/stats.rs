@@ -15,7 +15,39 @@ pub enum Stat {
     ConfidenceInterval { level: Option<f64>, low: f64, high: f64, raw: String },
     SampleSize { n: i64, raw: String },
     Test { name: String, raw: String },
+    /// A test STATISTIC with its degrees of freedom — `F(2, 57) = 4.82`.
+    ///
+    /// Distinct from `Test`, whose `raw` is the test NAME match ("one-way
+    /// ANOVA"). The name told the report which test ran; this tells it what the
+    /// test produced, which is what the Reported column needs.
+    TestStatistic { name: String, value: f64, df: Vec<f64>, raw: String },
+    /// A reported effect size with its VALUE — `Cohen's d = 0.42`.
+    ///
+    /// `validate.rs` has detected the PRESENCE of an effect size since the
+    /// MissingEffectSize rule was written, but only as `is_match`, so no value
+    /// was ever captured and the report could say "Missing: effect size" and
+    /// never "Reported: Cohen's d = 0.42" (§31.2).
+    EffectSize { name: String, value: f64, raw: String },
 }
+
+/// The alternation naming every effect-size measure Gaply recognises.
+///
+/// # ONE SOURCE, two consumers
+///
+/// `validate::patterns().effect_size` (detection, for the MissingEffectSize
+/// rule) and `regexes().effect_size_value` (extraction, with a value group) are
+/// both BUILT FROM THIS. Two independently written patterns would be two
+/// definitions of "what counts as an effect size", and they would drift — the
+/// `matchTypeLabel` and `report_cache_key` shape (§31.24).
+///
+/// `effect_size_pattern_is_unchanged` pins the composed detection pattern to the
+/// literal that shipped, so sharing the source did not alter which paragraphs
+/// the rule fires on.
+pub const EFFECT_SIZE_ALTERNATION: &str = concat!(
+    r"cohen'?s\s*d|hedges'?\s*g|eta[\s-]*squared|η2|η²|partial\s+eta|",
+    r"omega[\s-]*squared|cramer'?s\s*v|odds\s+ratio|hazard\s+ratio|risk\s+ratio|",
+    r"effect\s+size|\bOR\s*=|\bHR\s*=|\bRR\s*=|\bd\s*=|\bg\s*=|\br\s*=|\bR2\b|R²|\bf2\b"
+);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StatClaim {
@@ -30,6 +62,11 @@ pub struct Regexes {
     pub sample_size: Regex,
     pub sample_phrase: Regex,
     pub tests: Vec<(Regex, &'static str)>,
+    /// `F(2, 57) = 4.82` — the statistic, not the test name.
+    pub f_statistic: Regex,
+    /// An effect-size measure followed by its value. Built from
+    /// [`EFFECT_SIZE_ALTERNATION`].
+    pub effect_size_value: Regex,
     pub heading_number: Regex,
     pub table_caption: Regex,
     pub doi: Regex,
@@ -75,6 +112,19 @@ pub fn regexes() -> &'static Regexes {
                 test(r"(?i)\bspearman(?:'?s)?\b", "Spearman correlation"),
                 test(r"(?i)\b(?:linear|logistic|multiple)\s+regression\b", "regression"),
             ],
+            // Only F is captured here. t(df) and chi-square(df) share the shape
+            // exactly and are deliberately out of this milestone's scope; adding
+            // them is another entry in this list plus a name.
+            f_statistic: Regex::new(
+                r"(?i)\bF\s*\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)\s*=\s*(-?\d+(?:\.\d+)?)",
+            )
+            .unwrap(),
+            // `=?` is optional because the alternation already embeds `=` for the
+            // shorthand forms (`\bOR\s*=`), and omits it for the named ones.
+            effect_size_value: Regex::new(&format!(
+                r"(?i)({EFFECT_SIZE_ALTERNATION})\s*(?:=|:|of)?\s*(-?\d+(?:\.\d+)?)"
+            ))
+            .unwrap(),
             heading_number: Regex::new(r"^\s*(?:\d+(?:\.\d+)*|[IVXLCM]+)[.)]?\s+").unwrap(),
             table_caption: Regex::new(r"(?i)^table\s+(\d+)[.:]?\s*(.*)$").unwrap(),
             doi: Regex::new(r"(?i)\b(10\.\d{4,9}/[^\s]+)").unwrap(),
@@ -156,13 +206,94 @@ pub fn extract(paragraph: &str, loc: &Location) -> Vec<StatClaim> {
         }
     }
 
+    for c in re.f_statistic.captures_iter(paragraph) {
+        if let (Some(df1), Some(df2), Some(value)) =
+            (parse_number(&c[1]), parse_number(&c[2]), parse_number(&c[3]))
+        {
+            push(Stat::TestStatistic {
+                name: "F".to_string(),
+                value,
+                df: vec![df1, df2],
+                raw: c[0].trim().to_string(),
+            });
+        }
+    }
+
+    for c in re.effect_size_value.captures_iter(paragraph) {
+        if let Some(value) = parse_number(&c[2]) {
+            push(Stat::EffectSize {
+                // The matched measure as WRITTEN, trailing `=` and whitespace
+                // trimmed — the alternation embeds `=` for shorthand forms.
+                name: c[1].trim().trim_end_matches('=').trim().to_string(),
+                value,
+                raw: c[0].trim().to_string(),
+            });
+        }
+    }
+
     out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::extract::SectionKind;
+    use crate::extract::{Location, SectionKind};
+
+    fn stats_of(text: &str) -> Vec<Stat> {
+        let l = Location { section: SectionKind::Results, paragraph: 0 };
+        extract(text, &l).into_iter().map(|c| c.stat).collect()
+    }
+
+    /// Item 1 — the STATISTIC, not the test name. Before this, a paragraph
+    /// reporting `F(2, 57) = 4.82` produced only `Test { name: "ANOVA" }`, so
+    /// the report could name the test and never what it produced.
+    #[test]
+    fn an_f_statistic_is_extracted_with_its_degrees_of_freedom() {
+        let stats = stats_of("A one-way ANOVA was significant, F(2, 57) = 4.82, p = 0.011.");
+        let f = stats
+            .iter()
+            .find_map(|s| match s {
+                Stat::TestStatistic { name, value, df, .. } => Some((name.clone(), *value, df.clone())),
+                _ => None,
+            })
+            .expect("F statistic must be extracted");
+        assert_eq!(f.0, "F");
+        assert_eq!(f.1, 4.82);
+        assert_eq!(f.2, vec![2.0, 57.0]);
+        // The test NAME is still extracted — the two are different facts.
+        assert!(stats.iter().any(|s| matches!(s, Stat::Test { name, .. } if name == "ANOVA")));
+    }
+
+    /// Item 2 — a PRESENT effect size becomes a value. `validate.rs` has
+    /// detected presence since MissingEffectSize was written, but only as
+    /// `is_match`, so nothing carried the number.
+    #[test]
+    fn a_reported_effect_size_is_extracted_with_its_value() {
+        for (text, name, value) in [
+            ("The effect was moderate, Cohen's d = 0.42.", "Cohen's d", 0.42),
+            ("Group differences were large (eta-squared = 0.31).", "eta-squared", 0.31),
+            ("The odds ratio was substantial, OR = 2.75.", "OR", 2.75),
+        ] {
+            let stats = stats_of(text);
+            let e = stats
+                .iter()
+                .find_map(|s| match s {
+                    Stat::EffectSize { name, value, .. } => Some((name.clone(), *value)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("no effect size extracted from {text:?}"));
+            assert_eq!(e.0.to_lowercase(), name.to_lowercase(), "measure name");
+            assert_eq!(e.1, value, "measure value");
+        }
+    }
+
+    /// A paragraph with no effect size must produce none — otherwise the
+    /// Reported/Missing split would be meaningless in the other direction.
+    #[test]
+    fn a_paragraph_without_an_effect_size_yields_none() {
+        let stats = stats_of("The difference was significant, p = 0.03.");
+        assert!(!stats.iter().any(|s| matches!(s, Stat::EffectSize { .. })));
+    }
 
     fn loc() -> Location {
         Location { section: SectionKind::Results, paragraph: 0 }

@@ -343,3 +343,95 @@ fn limitations(model: &LocalReportModel, out: &mut Vec<Block>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::report_model::{LocalReportModel, ManuscriptFacts, ReportedStatistic};
+    use crate::reviewer_agent::LaneExamination;
+
+    fn model_with(stats: Vec<ReportedStatistic>) -> LocalReportModel {
+        LocalReportModel {
+            run_id: "r".into(),
+            manuscript: ManuscriptFacts {
+                title: None,
+                word_count: 100,
+                section_count: 1,
+                table_count: 0,
+                reference_count: 0,
+                statistics: stats,
+            },
+            journal_name: None,
+            guidelines_url: None,
+            findings: vec![],
+            verdict: "Minor revision".into(),
+            combined_confidence: 0.5,
+            checklist: vec![],
+            similarity: vec![],
+            corpus_chunks_available: 0,
+            lanes: LaneExamination {
+                verification_examined: true,
+                validation_examined: true,
+                plagiarism_examined: true,
+                ai_detection_examined: true,
+                extraction_examined: true,
+            },
+            disclaimer: "d".into(),
+        }
+    }
+
+    fn stat(kind: &str, reported: &str, effect: bool) -> ReportedStatistic {
+        ReportedStatistic {
+            kind: kind.into(),
+            reported: reported.into(),
+            location: "Results, paragraph 1".into(),
+            effect_size_present: effect,
+        }
+    }
+
+    fn headings(blocks: &[Block]) -> Vec<String> {
+        blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Heading { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// **The block Milestone 4 exists to fill.** Before `Stat::EffectSize`,
+    /// `has_effect_size` returned `false` unconditionally, so this heading read
+    /// "Reported with an effect size (0)" followed by "None." on every report
+    /// ever produced.
+    #[test]
+    fn the_reported_with_an_effect_size_block_can_now_fill() {
+        let blocks = compose(&model_with(vec![
+            stat("p-value", "p = 0.01", true),
+            stat("Cohen's d", "d = 0.42", true),
+            stat("p-value", "p = 0.20", false),
+        ]));
+        let h = headings(&blocks);
+        assert!(
+            h.iter().any(|t| t == "Reported with an effect size (2)"),
+            "the with-effect-size block must fill: {h:?}"
+        );
+        assert!(h.iter().any(|t| t == "Reported without an effect size (1)"), "{h:?}");
+        // And "None." must NOT appear under the filled block.
+        let text: Vec<String> = blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Paragraph { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(text.iter().filter(|t| *t == "None.").count(), 0, "{text:?}");
+    }
+
+    /// The other direction still reports honestly.
+    #[test]
+    fn a_report_with_no_effect_sizes_still_says_none() {
+        let blocks = compose(&model_with(vec![stat("p-value", "p = 0.01", false)]));
+        let h = headings(&blocks);
+        assert!(h.iter().any(|t| t == "Reported with an effect size (0)"), "{h:?}");
+    }
+}

@@ -484,6 +484,8 @@ A fabricated finding can be disputed on its merits. A name with characters remov
 | **PRESENTATION** | a visual implication beyond the computed evidence | **this workstream** — `publication_probability`, a four-value lookup, rendered as a percentage in a gauge |
 | **ORDERING** | a sort implying a ranking the engine never computed | **FIRST INSTANCE (§31)** — the PDF's findings heading read *"Fix these first"*, asserting a REMEDIATION ORDER over a severity sort. Severity is computed; remediation order never was. Now *"Issues by severity"* |
 
+> **THESE FIVE CLASSES ARE GROUPED BY SYMPTOM, NOT BY CAUSE — see ARCHITECTURE_TRACE §35.3.** LABELS lands in EITHER repair family depending on whether a second copy exists, and a cause-grouped taxonomy cannot have such a member. **Before choosing a remedy, ask §35.4's question: is a second artifact intended to express the same fact?** If yes, remove the duplication or instrument the coupling; if no, weaken the claim or compute what it asserts.
+
 > **Naming the class means the next instance is caught AS AN INSTANCE rather than rediscovered from first principles** — the same argument that made §21's instrumentation-maturity section worth writing.
 
 **The taxonomy, read as a whole:** TEXT is character preservation · NUMBERS is numeric meaning · LABELS is terminology · **PRESENTATION is visual implication beyond computed evidence** · ORDERING is sequence implying ranking. *(PRESENTATION was first written as FORMAT; the value was never corrupted — its VISUAL PRESENTATION implied semantics the implementation did not support, which is what the name should say.)*

@@ -10,7 +10,7 @@
 //! something the engine already decided.
 
 use gaply_core::extract::stats::Stat;
-use gaply_core::extract::SectionKind;
+use gaply_core::extract::{ExtractionResult, Location, SectionKind};
 use gaply_core::plagiarism::MatchSource;
 use gaply_core::report_model::{
     LocalFinding, LocalReportModel, ManuscriptFacts, ReportedStatistic, SimilarityRegion,
@@ -43,20 +43,63 @@ fn describe(stat: &Stat) -> (String, String) {
         Stat::ConfidenceInterval { raw, .. } => ("Confidence interval".into(), raw.clone()),
         Stat::SampleSize { raw, .. } => ("Sample size".into(), raw.clone()),
         Stat::Test { name, raw } => (name.clone(), raw.clone()),
+        Stat::TestStatistic { name, df, raw, .. } => {
+            let dfs: Vec<String> = df.iter().map(|d| d.to_string()).collect();
+            (format!("{name}({})", dfs.join(", ")), raw.clone())
+        }
+        Stat::EffectSize { name, raw, .. } => (name.clone(), raw.clone()),
     }
 }
 
-/// Whether an effect size accompanies this statistic.
+/// Locations at which an effect size was extracted.
 ///
-/// **TYPED ABSENCE, honestly reported (§4.12).** The extractor has no effect-size
-/// category today, so this is `false` for every statistic and the composer's
-/// "Reported without an effect size" list is currently the full list. That is
-/// the CORRECT reading of what the engine knows — an effect size was not found —
-/// and it is not the same claim as "the manuscript reports none". Milestone 4's
-/// engine work (`Stat::EffectSize`) is what makes the distinction real; until
-/// then this function is the single place that changes.
-fn has_effect_size(_stat: &Stat) -> bool {
-    false
+/// # The join is BY PARAGRAPH, matching the rule it mirrors
+///
+/// `validate.rs`'s MissingEffectSize fires when no effect size appears in the
+/// SAME PARAGRAPH as a p-value. This uses the same unit, so the report's
+/// Reported/Missing split and the finding it explains can never disagree — a
+/// statistic listed as "reported without an effect size" is exactly one the rule
+/// would flag.
+///
+/// **Milestone 4 replaced a function that returned `false` unconditionally.**
+/// The extractor had no effect-size category, so every statistic was reported as
+/// missing one — the CORRECT reading of what the engine knew, and a different
+/// claim from "the manuscript reports none" (§4.12).
+fn effect_size_locations(extraction: &ExtractionResult) -> Vec<Location> {
+    extraction
+        .statistics
+        .iter()
+        .filter(|s| matches!(s.stat, Stat::EffectSize { .. }))
+        .map(|s| s.location.clone())
+        .collect()
+}
+
+/// Project every extracted statistic into the report's `ReportedStatistic`.
+///
+/// Split out of `into_report_model` so the Reported/Missing join is TESTABLE
+/// WITHOUT constructing a whole `PipelineResult`. It was inline until a mutation
+/// — hard-coding `effect_size_present: false` again — SURVIVED the test suite:
+/// the test asserted on `effect_size_locations` rather than on what the model
+/// actually carried, so it verified the helper and not the wiring.
+pub fn reported_statistics(extraction: &ExtractionResult) -> Vec<ReportedStatistic> {
+    let effect_locs = effect_size_locations(extraction);
+    extraction
+        .statistics
+        .iter()
+        .map(|s| {
+            let (kind, reported) = describe(&s.stat);
+            ReportedStatistic {
+                kind,
+                reported,
+                location: format!(
+                    "{}, paragraph {}",
+                    section_name(s.location.section),
+                    s.location.paragraph + 1
+                ),
+                effect_size_present: effect_locs.contains(&s.location),
+            }
+        })
+        .collect()
 }
 
 impl PipelineResult {
@@ -72,24 +115,7 @@ impl PipelineResult {
     ) -> LocalReportModel {
         let word_count = self.text.split_whitespace().count();
 
-        let statistics = self
-            .extraction
-            .statistics
-            .iter()
-            .map(|s| {
-                let (kind, reported) = describe(&s.stat);
-                ReportedStatistic {
-                    kind,
-                    reported,
-                    location: format!(
-                        "{}, paragraph {}",
-                        section_name(s.location.section),
-                        s.location.paragraph + 1
-                    ),
-                    effect_size_present: has_effect_size(&s.stat),
-                }
-            })
-            .collect();
+        let statistics = reported_statistics(&self.extraction);
 
         let similarity = self
             .plagiarism
@@ -151,5 +177,42 @@ impl PipelineResult {
             lanes: self.lanes,
             disclaimer: self.report.disclaimer.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gaply_core::extract::stats::Stat;
+
+    /// The join that makes `effect_size_present` real, end to end from raw text.
+    ///
+    /// **Same unit as the rule it mirrors:** `validate.rs`'s MissingEffectSize
+    /// fires when no effect size appears in the same PARAGRAPH as a p-value, so
+    /// a statistic the report lists as "reported without an effect size" is
+    /// exactly one that rule would flag. If these used different units the
+    /// report would contradict its own finding.
+    #[test]
+    fn an_effect_size_in_the_same_paragraph_marks_the_p_value_as_accompanied() {
+        let text = "Results\n\nThe intervention improved outcomes significantly, \
+                    p = 0.01, Cohen's d = 0.42.\n\nA secondary measure was not \
+                    significant, p = 0.44.\n";
+        let ex = gaply_core::extract::extract_from_text(text);
+        assert!(
+            ex.statistics.iter().any(|c| matches!(c.stat, Stat::EffectSize { .. })),
+            "an effect size must be extracted from the fixture"
+        );
+
+        // Asserted on what the MODEL CARRIES, not on the helper — a mutation
+        // hard-coding `effect_size_present: false` must fail this.
+        let reported = reported_statistics(&ex);
+        let p_values: Vec<&ReportedStatistic> =
+            reported.iter().filter(|r| r.kind == "p-value").collect();
+        assert_eq!(p_values.len(), 2, "fixture must yield two p-values: {reported:?}");
+        assert_eq!(
+            p_values.iter().filter(|r| r.effect_size_present).count(),
+            1,
+            "exactly the p-value beside Cohen's d is accompanied: {reported:?}"
+        );
     }
 }

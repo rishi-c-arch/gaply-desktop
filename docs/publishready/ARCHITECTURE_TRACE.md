@@ -3596,3 +3596,302 @@ shadow_findings_sent               12 | source: deterministic_local | observed  
   5 PASS, 0 FAIL, 0 SKIPPED
   no_failures: true
 ```
+
+## 34. Milestone 4 — scoping, and an estimate wrong in both directions
+
+**Four items that move report fields from "the engine cannot produce this faithfully" to "it can".** Unlike Milestones 1–3, these increase what the engine KNOWS rather than how it reports what it knows.
+
+### 34.1 The measured order REVERSES §31.2's estimate
+
+| Item | Measured | §31.2 estimated |
+|---|---|---|
+| **1+2** `Stat::TestStatistic` / `EffectSize` | **1 match site** (`extract/persist.rs:22`) | "F-statistic next" |
+| **4** `Location.subsection` | **5 construction sites** | **"the largest of the four"** |
+| **3** `Finding.location` | **25 construction sites** | **"nearby-text cheapest"** |
+
+> **The sixth instance of §31.26's pattern, and the first where the estimate failed in BOTH DIRECTIONS AT ONCE.**
+
+**Nearby-text was priced on its ALGORITHM and cost its PLUMBING.** *"A lookup, no extraction"* is true — the lookup is `sections[k].paragraphs[loc.paragraph]`, three lines. **But there is nothing to look up FROM until `Finding` carries a `Location`, and that is 25 construction sites.** The estimate measured the interesting part and the boring part was the whole cost.
+
+**Subsection was priced as touching "every Location producer AND THE EVIDENCE SCHEMA".** `EvidenceRecord` has no `Location` field. **`grep Location gaply-core/src/evidence.rs` returns nothing** — one grep, and it was never run.
+
+**The two failures are different and worth separating.** The first is a genuine estimation difficulty: plumbing is invisible when you are thinking about the algorithm. **The second is not estimation at all — it is a factual claim about the codebase, stated without checking**, and it inflated the item that turned out to be second-cheapest.
+
+### 34.2 TWO RULES CONVERGED on `Option<Location>`
+
+**The field is `Option<Location>`, and it is NOT chosen for compatibility.**
+
+> **A document-level AI-detection finding has no manuscript position. Neither does a `ProcessState` finding about a lane that did not run. A required `Location` would demand a FABRICATED one.**
+
+**§4.12 (typed absence) reaches `Option` from the domain.** **§26.4 (compatibility) reaches `Option` from the cache**, because `Option<T>` deserializes a record that lacks the key — measured, not assumed:
+
+```
+Option<T>, no serde attr : parses a record missing the key   → true
+Option<T>, serde(default): parses                            → true
+required T               : parses                            → false
+```
+
+**Two rules arriving at the same shape INDEPENDENTLY is evidence the shape is right rather than convenient.** Had they diverged — had the honest shape been incompatible — the honest shape would still have won and the version would have moved. **They did not diverge, and that is a fact about the design rather than a compromise made to avoid a bump.**
+
+#### A correct prediction about the wrong design
+
+**The task framing predicted:** *"Item 3 in particular — a required Location on Finding — is INCOMPATIBLE by the rule as stated."*
+
+> **Correct about the REQUIRED form, and irrelevant to the form that should be built.**
+
+**Confirmed against the pin rather than asserted, both ways.** A required `Location` makes `CACHED_REPORT_V2` fail and `previously_written_cached_reports_still_deserialize` fire; `Option<Location>` does not. **The pin covers `Finding` — `CACHED_REPORT_V2` deserializes a whole `PublishReadyReport` — so the trigger is armed and correctly aimed. This milestone simply does not pull it.**
+
+**Worth recording because a prediction can be right and still not bear on the decision.** Checking it was still correct: the confirmation is what establishes that the pin's coverage reaches `Finding` at all, which nothing had previously demonstrated.
+
+### 34.3 `check_provenance` — ONE PREDICATE, producer and checker
+
+**A DIFFERENT SHAPE from §32.9's vacuity, and recorded separately for that reason.**
+
+```rust
+build_review_payload:  .filter(|p| is_structured_provenance(p))      // producer
+check_provenance:      if !is_structured_provenance(s) { fail(…) }   // checker
+```
+
+> **PROVENANCE can detect a BYPASSED filter. It cannot detect a WRONG PREDICATE.**
+
+**If `is_structured_provenance` accepted something it should not, both sides would agree and the check would pass.** The two are not independent observations of the same property — they are **one predicate consulted twice**.
+
+**The name is where the gap shows.** *"PROVENANCE"* implies it validates the STRUCTURE of provenance. **It validates that THE FILTER RAN.** Those coincide everywhere except where the predicate is wrong — which is the only place an independent check would have been worth having.
+
+**Not vacuity.** §32.9's checks pass because their inputs are trivial; this one passes because it is asking the producer to confirm its own definition. **A regression guard on the filter, which is genuinely useful and is not what the name claims.**
+
+**Noted, not fixed in this milestone.**
+
+### 34.4 Build order
+
+**By measured cost, not by estimate:** items 1+2 together (they share `persist.rs:22` and the extraction loop, so splitting pays the overhead twice) → item 4 → item 3.
+
+**Item 3 last for a second reason beyond cost:** it is the only item whose wrong shape trips the pin, so it should land when nothing else is in the diff to confuse the signal.
+
+### 34.4b The scoping SEQUENCE, kept because it is reusable
+
+**Four steps, in this order, and the order matters:**
+
+| | Step | Why here |
+|---|---|---|
+| **1** | **What produces it today, and what would have to change** | Establishes the surface before anything is priced. Item 2 turned out to be *promoting an existing pattern*, not writing a new one |
+| **2** | **Schema impact, CONFIRMED AGAINST THE PIN BY EXPERIMENT** | Not reasoned. A required field was added, the pin was run, it fired; `Option` was added, it did not. **The prediction and its confirmation are different acts** |
+| **3** | **What the report gains, QUOTED** | *"Reported with an effect size (0) → None."* is checkable; "better statistics coverage" is not. A gain that cannot be quoted is a gain that cannot be verified afterwards |
+| **4** | **Cost measured by COMPILING, not estimating** | Add the field, count the errors, revert. §31.2's estimate was wrong at both ends and this took four minutes |
+
+**Step 2 before step 4 is deliberate.** An incompatible change is a different KIND of work regardless of its site count — it moves a version, retires fixtures, and invalidates caches. **Pricing it before knowing that produces a number attached to the wrong question.**
+
+### 34.5 The measurement was scoped to one crate — 1 match site was really 3
+
+**§34.1 recorded item 1+2's cost as "1 match site (`extract/persist.rs:22`)".** That figure came from `cargo check -p gaply_core --all-targets`.
+
+**The workspace has three:**
+
+| Site | Crate |
+|---|---|
+| `extract/persist.rs:22` | `gaply_core` |
+| `paper_corpus.rs:253` | **app** |
+| `examples/claim_extraction_spike.rs:748` | **app (example)** |
+
+> **`-p gaply_core` answers "what breaks in the core", and the question asked was "what does this item cost".** A measurement that is correct within its scope and wrong about the question is the same failure as §31.26's instance 3 — *"does this command catch the error?"* is not *"should this be the standing command?"*
+
+The item is still the cheapest of the four — the ordering is unchanged — but the number was wrong by 3×, and wrong in the direction that makes an item look easier than it is.
+
+#### The rule, stated WITHOUT naming a command
+
+> **A cost measurement must be taken over the WIDEST SCOPE THE CHANGE CAN REACH, and the result must CARRY THAT SCOPE.** "3 sites" is not a fact; "3 sites in `gaply_core`" is.
+
+**Deliberately not "run `cargo check --all-targets`".** Commands change — this one was adopted three sections ago and the project has already reconsidered its standing suite twice. **A rule naming a command decays into a rule nobody can apply once the command is renamed**, whereas *"the widest scope the change can reach"* is answerable in any toolchain and for any kind of change, including ones with no compiler at all.
+
+**The scope belongs WITH the number**, not in the reader's head. An unqualified count is read as total, and this one was — §34.1 recorded "1 match site" and the build found three.
+
+### 34.6 The `effect_size_pattern_is_unchanged` pin fired on its first run — on its author
+
+**The shared-alternation refactor was written via a Python patch script, with `\b` inside a NON-RAW Python string.** Python read it as a backspace and wrote **ten literal `0x08` bytes** into `stats.rs`. The regex still compiled — `\x08` is a valid literal character — and silently stopped matching word boundaries.
+
+```
+left:  "…|\u{8}OR\\s*=|\u{8}HR\\s*=|…|\u{8}R2\u{8}|R²|\u{8}f2\u{8})"
+right: "…|\\bOR\\s*=|\\bHR\\s*=|…|\\bR2\\b|R²|\\bf2\\b)"
+```
+
+> **The pin written minutes earlier, to prove the refactor did not change the pattern, caught the refactor changing the pattern.**
+
+**Two failures worth separating.** The defect is **§31.20's own lesson, missed by the person who recorded it.** That section is specifically about Python patch scripts silently doing the wrong thing, and its remedy — `assert old in src` — guards the MATCH but not the REPLACEMENT. **An assertion that the pattern was found says nothing about whether what you wrote in its place is what you meant.**
+
+**The catch is the strongest available evidence for byte-identity pins.** Without it the corruption surfaced as two unrelated golden-report tests failing, which reads as *"the new extraction changed the goldens"* — a plausible and expected consequence of this very milestone. **It would have been accepted as correct.**
+
+**Remedy adopted:** a patch script that writes regex or escape-bearing text into source uses a RAW Python string, and any such refactor carries a byte-identity pin against a checked-in literal.
+
+### 34.7 A mutation SURVIVED, and the fix was structural
+
+**`effect_size_present: false` — the exact pre-Milestone-4 behaviour — was hard-coded back in, and the suite stayed green.**
+
+**Cause:** the test asserted on `effect_size_locations(&ex)` and performed its own `contains` check. **It verified the HELPER and never the WIRING**, so the model could carry `false` while the test proved the join worked.
+
+#### The PROPERTY, not the incident
+
+> **A test that reimplements the thing it is testing is INSENSITIVE TO THE WIRING. It passes whether or not the production path uses the code under test — so it measures the helper's correctness and reports it as the feature's.**
+
+**Stated as a property because the incident is not the useful part.** The specific mutation (`effect_size_present: false`) is one of an unbounded family; what is checkable in review is the SHAPE — **a test that computes the expected value by the same route the production code would, rather than reading what the production code produced.**
+
+**The diagnostic:** if the test would still pass with the production call site deleted, it is testing the helper. **`reported_statistics` exists so there is a production call site to read from.**
+
+**Fixed by making the wiring reachable:** the statistics mapping is now `pub fn reported_statistics(&ExtractionResult) -> Vec<ReportedStatistic>`, split out of `into_report_model` so a test can assert on **what the model carries** without constructing a whole `PipelineResult`. **The mutation now fails.**
+
+**§4.17 in a new place** — *assert the invariant, not the implementation*. Here the test asserted an implementation it had itself written, which is the same error with the test as its own producer. **Related to §34.3's one-predicate-two-consumers finding:** both are cases where checker and checked share a source, and neither can detect what they agree on.
+
+## 35. Two families of defect — and the boundary between them
+
+**This section names the pattern most of this record's findings belong to, AND marks where it stops.** It is one of two families, not a unified theory of everything found here — and the second is recorded immediately below precisely so the first is not stretched over it.
+
+### 35.1 PREVENT SILENT DIVERGENCE
+
+> **Whenever two artifacts are intended to stay aligned, REMOVE the place where they could drift, or INSTRUMENT it. A coupling that is intended but unenforced is a coupling that will break, and it will break quietly.**
+
+**"Quietly" is the operative word.** Divergence produces no error. Both artifacts remain individually valid; only their relationship is wrong, and nothing owns a relationship.
+
+#### The four practices are a LIFECYCLE, not four habits
+
+| Stage | Practice | Failure it prevents |
+|---|---|---|
+| **DESIGN** | one definition, multiple consumers | **forked definitions** |
+| **VERIFICATION** | mechanically verify the coupling | **hidden uncoupling** |
+| **MEASUREMENT** | carry scope with the result | **scope inflation** |
+| **IMPLEMENTATION** | investigate reuse before rewriting | **duplicate implementations** |
+
+**They are ordered by when the divergence is cheapest to prevent.** A forked definition prevented at DESIGN costs nothing; the same fork caught at VERIFICATION costs a test; missed at MEASUREMENT it produces a wrong estimate that a decision is then made on; reached at IMPLEMENTATION it is a second copy someone must find. **Each stage is the last chance before the next one gets more expensive.**
+
+#### Instances already in this record
+
+| Instance | Stage that would have caught it |
+|---|---|
+| Projections dropping values (§22.4, six instances) | DESIGN |
+| `matchTypeLabel`, `adapters.ts`'s five label strings | DESIGN → pinned at VERIFICATION |
+| Three hand-built report cache keys (§31.24) | DESIGN — `pub(crate)` made reuse impossible |
+| LIVENESS's REQUIRED list vs `MetricAvailability` (§33) | DESIGN — derivable, so the list should not exist |
+| The tier-1 doc comment vs reality (§31.17) | VERIFICATION |
+| BillingPage's *"metering isn't deployed"* | VERIFICATION |
+| `Śarmā` rendered as `arm` (§4.20 TEXT) | VERIFICATION — the render-path instrument |
+| `effect_size` alternation, two patterns (§34) | DESIGN — one const, byte-identity pin |
+| "1 match site" that was 3 (§34.5) | MEASUREMENT |
+| `validate.rs:257` nearly rewritten (§34) | IMPLEMENTATION |
+
+**The remedy is always one of two:** remove the second copy, or instrument the gap. **Never "be careful" — that is the state every one of these was already in.**
+
+### 35.2 THE BOUNDARY — the other family is UNSUPPORTED CLAIM
+
+> **ONE artifact asserting more than its evidence, with NO SECOND ARTIFACT to diverge from.**
+
+**Nothing here is out of sync.** The value is faithful, the pipeline is correct, and the defect is entirely in what the presentation claims about it.
+
+| Instance | The value is right | The FORM claims |
+|---|---|---|
+| `publication_probability` in a gauge | 0.30 rendered faithfully | **calibration** |
+| *"Fix these first"* | ordered by severity, correctly | **remediation order** |
+| `ship_ready` | `fail == 0 && skipped == 0`, computed correctly | **that readiness was evaluated** |
+| *"% similarity"* on a cosine | the cosine is correct | **semantic similarity** |
+| `MAX_FINDINGS = 12` | the top 12 by severity | **that these are the twelve that matter** |
+
+**Looking for a second copy here finds nothing, because there is none.** Applying §35.1's remedy — "remove the duplicate" — has no target, which is the diagnostic that tells the two families apart.
+
+> **DIVERGENCE is fixed by removing the second copy or instrumenting the gap. AN UNSUPPORTED CLAIM is fixed by WEAKENING THE CLAIM or COMPUTING WHAT IT ASSERTS.**
+
+**Both remedies are available for every unsupported claim, and the choice is a product decision.** *"Fix these first"* → *"Issues by severity"* weakens the claim; computing a real remediation order would have been the other answer. `ship_ready` → `no_failures` + `coverage` weakens; making COMPARISON reachable computed.
+
+### 35.3 ONE CLASS SPANS BOTH — which is how we know §4.20 is grouped by symptom
+
+**The sharper result is not that §4.20 spans both families. It is that a SINGLE CLASS does.**
+
+> **LABELS is DIVERGENCE when a second copy exists, and an UNSUPPORTED CLAIM when none does.**
+
+| LABELS instance | Second copy? | Family |
+|---|---|---|
+| `matchTypeLabel`, `adapters.ts`'s five strings | **yes** — the Rust vocabulary says the same thing | **divergence** — share a source, or pin it |
+| The severity enum `.toUpperCase()`d onto the screen | **no** — nothing else claims to name it | **unsupported claim** — an internal identifier asserting it is a user-facing term |
+
+#### Why that is stronger than "§4.20 spans both families"
+
+**A taxonomy grouped by CAUSE cannot have a member that lands in either family.** If the classes named what went wrong, each would resolve to one repair. LABELS resolves to two, **and which one is decided by something outside the class entirely** — whether a second artifact happens to exist elsewhere in the codebase.
+
+> **So §4.20's classes are grouped by SYMPTOM: by how the defect LOOKS in the rendered artifact, not by what produced it.**
+
+| §4.20 class | Family |
+|---|---|
+| **TEXT** — characters dropped or substituted | divergence |
+| **NUMBERS** — a cosine labelled *"% similarity"* | unsupported claim |
+| **PRESENTATION** — a lookup drawn as a gauge | unsupported claim |
+| **ORDERING** — a sort implying a ranking | unsupported claim |
+| **LABELS** — an internal name reaching the screen | **either** |
+
+**"Spans both" would have been compatible with the classes being cause-grouped** — a taxonomy can straddle two families while every member sits cleanly in one. **A member landing in either is not compatible with that**, and that is the whole force of the finding.
+
+### 35.4 THE DECISION PROCEDURE
+
+**Before choosing a remedy, ask ONE question:**
+
+> **Is a SECOND ARTIFACT intended to express the same fact?**
+
+| Answer | Family | Remedy |
+|---|---|---|
+| **Yes** | **Prevent Silent Divergence** | **remove the duplication, or instrument the coupling** |
+| **No** | **Unsupported Claim** | **weaken the claim, or compute what it asserts** |
+
+**The question is answerable without knowing the taxonomy**, which is the point — it is what another engineer can actually apply at the moment of repair. **And it is answerable by looking**: the second artifact either exists in the tree or it does not.
+
+**Worked, on the two LABELS cases.** `matchTypeLabel` — does anything else name a match type? Yes, `vocabulary.rs`. → remove or pin. The uppercased severity enum — does anything else name a severity? Before Milestone 2, **nothing did**. → the remedy was to COMPUTE what the rendering asserted, which is what `severity_label` is.
+
+### 35.5 §4.20 IS NOT RESTRUCTURED — two taxonomies, two questions
+
+**Both are kept, because they answer different questions and are used at different moments:**
+
+| | Question | Used |
+|---|---|---|
+| **§4.20's five classes** | *"What kinds of implication can this rendered artifact accidentally make?"* | **at review** — a checklist run over a diff |
+| **§35's two families** | *"What kind of engineering defect produced this implication?"* | **at repair** — after something is found |
+
+> **A checklist wants to be grouped by symptom, because symptoms are what a reviewer can see.** A repair guide wants to be grouped by cause, because causes are what determine the fix. **Collapsing them would make one of the two worse.**
+
+**A cross-reference preserves both**, and is recorded in ONTOLOGY §4.20 beside the classes so the family question is asked where the classes are used.
+
+## 36. The second principle — OPERATIONAL SUCCESS IS NOT EVIDENCE OF SEMANTIC CORRECTNESS
+
+> **A thing that RAN is not a thing that DID WHAT WAS WANTED. The report of success and the effect are different facts, and only one of them was checked.**
+
+**§31.20 recorded this on two instances and named the remedy. It now has four instances and a practice set**, which is what makes it a principle rather than a habit about `cd`.
+
+### 36.1 The four practices
+
+| Practice | The false signal it refuses |
+|---|---|
+| **Do not trust an EXIT CODE** | the command ran → *the command did the intended thing* |
+| **Do not trust a COUNT without its SCOPE** | 3 sites → *3 sites everywhere* |
+| **Do not trust a RULE THAT IS NOT EXECUTED** | the rule is written down → *the rule is in force* |
+| **Do not trust a SUCCESSFUL COMMAND until the EFFECT it was meant to produce is VERIFIED** | success → *the effect happened* |
+
+**The four are one refusal applied to four kinds of report.** In each case something reported success truthfully — the command really did exit 0, the count really was 3, the rule really is written, the command really succeeded — **and the report was about a different question than the one being asked.**
+
+### 36.2 The four instances
+
+| # | What reported success | What was actually true |
+|---|---|---|
+| 1 | `cd src-tauri && python3 …` — **exit 0** | `cd` failed, the patch never applied (§31.20) |
+| 2 | `git checkout -- file` — **exit 0** | the file reverted to HEAD, discarding the work (§31.20) |
+| 3 | `cargo check -p gaply_core` — **1 match site** | 3 in the workspace; the count was true *within its scope* (§34.5) |
+| 4 | `cargo check --all-targets` — **1 error** | run from the repo root with no manifest. **Nothing was checked at all** |
+
+**Instance 4 is today's, and it is the sharpest of the four** because the failure it fabricated was in the direction of alarm rather than of comfort. **A false green is dangerous and a false red is expensive**, and both come from the same refusal to ask what the command actually measured. It was caught by asking *"which directory was that run in?"* before reporting a regression — an effect check, applied to a diagnostic rather than to a mutation.
+
+**A fifth is arguably `assert old in src` itself (§34.6):** the assertion succeeded, the pattern really was found, and **the replacement text was corrupt.** The guard was correct about the question it asked. That instance is recorded under §34.6 because its remedy is specific (raw strings, byte-identity pins), but it belongs to this family.
+
+### 36.3 The ontology converged on two principles, each with a practice set
+
+**Not a designed shape — an observed one.**
+
+| Principle | Practice set | Failure mode |
+|---|---|---|
+| **PREVENT SILENT DIVERGENCE** (§35) | design · verification · measurement · implementation | two artifacts that should agree, quietly disagreeing |
+| **OPERATIONAL SUCCESS IS NOT SEMANTIC CORRECTNESS** (§36) | exit codes · counts · rules · effects | a truthful report about the wrong question |
+
+**Both were reached by accumulating instances and noticing the shape afterwards**, which is the same route §21's instrumentation-maturity section and §4.20's classes took. **The record has never yet produced a useful principle by stating one first**, and that is worth noting about the method rather than only about the principles.
+
+**They are genuinely distinct.** Divergence needs two artifacts; this one needs only a report and a question. **But they compose at the boundary — an unexecuted rule (§36) is how a divergence (§35) stays silent**, which is why the LIVENESS list, the drifting cache keys, and the tier-1 doc comment each appear under §35 while their persistence is explained by §36.

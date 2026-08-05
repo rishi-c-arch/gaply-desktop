@@ -254,7 +254,9 @@ fn digest_paper(id: &str, origin: &str, text: &str) -> PaperDigest {
                 Stat::PValue { raw, .. }
                 | Stat::ConfidenceInterval { raw, .. }
                 | Stat::SampleSize { raw, .. }
-                | Stat::Test { raw, .. } => raw,
+                | Stat::Test { raw, .. }
+                | Stat::TestStatistic { raw, .. }
+                | Stat::EffectSize { raw, .. } => raw,
             };
             clamp(raw, CLAIM_CLAMP)
         })

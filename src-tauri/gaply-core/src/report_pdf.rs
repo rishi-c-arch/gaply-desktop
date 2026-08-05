@@ -443,7 +443,7 @@ mod tests {
     use crate::report::{CertaintyTier, ChecklistItem, FindingSeverity};
     use crate::report_compose::compose;
     use crate::report_model::{
-        LocalFinding, LocalReportModel, ManuscriptFacts, ReportedStatistic, SimilarityRegion,
+        LocalFinding, LocalReportModel, ManuscriptFacts, ReportedStatistic,
     };
     use crate::reviewer_agent::LaneExamination;
     use crate::swarm::AgentKind;

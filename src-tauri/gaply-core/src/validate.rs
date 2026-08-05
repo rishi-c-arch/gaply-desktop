@@ -129,9 +129,13 @@ fn patterns() -> &'static Patterns {
         )
         .unwrap(),
         // effect-size measures: named statistics or their `x =` shorthands
-        effect_size: Regex::new(
-            r"(?i)(cohen'?s\s*d|hedges'?\s*g|eta[\s-]*squared|η2|η²|partial\s+eta|omega[\s-]*squared|cramer'?s\s*v|odds\s+ratio|hazard\s+ratio|risk\s+ratio|effect\s+size|\bOR\s*=|\bHR\s*=|\bRR\s*=|\bd\s*=|\bg\s*=|\br\s*=|\bR2\b|R²|\bf2\b)",
-        )
+        // Built from stats::EFFECT_SIZE_ALTERNATION so DETECTION here and
+        // EXTRACTION in stats.rs cannot drift apart. `effect_size_pattern_is_unchanged`
+        // pins the composed string to the literal that shipped.
+        effect_size: Regex::new(&format!(
+            "(?i)({})",
+            crate::extract::stats::EFFECT_SIZE_ALTERNATION
+        ))
         .unwrap(),
         causal: Regex::new(
             r"(?i)\b(causes?|caused|causal|causes|leads?\s+to|led\s+to|results?\s+in|resulted\s+in|responsible\s+for|drives?|produces?|induces?|proves?)\b",
@@ -330,6 +334,21 @@ pub fn store_validation(
 
 #[cfg(test)]
 mod tests {
+    /// Sharing the alternation must not have changed WHICH paragraphs the
+    /// MissingEffectSize rule fires on. This asserts the composed pattern is
+    /// byte-identical to the literal that shipped before the change.
+    ///
+    /// A RELEASE ARTIFACT in the same sense as the compatibility fixtures: it is
+    /// a string that has existed in production, and it is never regenerated from
+    /// the live constant — that would assert the constant equals itself.
+    #[test]
+    fn effect_size_pattern_is_unchanged() {
+        const SHIPPED: &str = r"(?i)(cohen'?s\s*d|hedges'?\s*g|eta[\s-]*squared|η2|η²|partial\s+eta|omega[\s-]*squared|cramer'?s\s*v|odds\s+ratio|hazard\s+ratio|risk\s+ratio|effect\s+size|\bOR\s*=|\bHR\s*=|\bRR\s*=|\bd\s*=|\bg\s*=|\br\s*=|\bR2\b|R²|\bf2\b)";
+        let composed =
+            format!("(?i)({})", crate::extract::stats::EFFECT_SIZE_ALTERNATION);
+        assert_eq!(composed, SHIPPED, "the shared alternation changed the detection pattern");
+    }
+
     use super::*;
     use crate::extract::extract_from_text;
 

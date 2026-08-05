@@ -750,6 +750,11 @@ fn main() {
                     Stat::ConfidenceInterval { .. } => ci += 1,
                     Stat::SampleSize { .. } => n += 1,
                     Stat::Test { .. } => t += 1,
+                    // Milestone 4 variants: counted with the test they belong to
+                    // rather than given new columns, since this spike's output
+                    // format is a checked-in comparison table.
+                    Stat::TestStatistic { .. } => t += 1,
+                    Stat::EffectSize { .. } => {}
                 }
             }
             (p, ci, n, t)
