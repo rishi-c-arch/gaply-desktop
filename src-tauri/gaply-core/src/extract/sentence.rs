@@ -78,12 +78,18 @@ pub(crate) fn ends_with_abbreviation(tail: &str) -> bool {
 /// A closing terminator must also be followed by whitespace or the end of the
 /// text — `"0.05."` at the end of a clause closes, `"v1.2beta"` does not.
 ///
-/// # THE INVARIANT IS ENFORCED TWICE, and that was found by mutation
+/// # THE INVARIANT IS ENFORCED TWICE — established against a STRENGTHENED test
 ///
 /// Removing (1) alone leaves the property holding, because a decimal point is
 /// also followed by a digit and so fails the token-boundary rule. Removing the
 /// token-boundary rule alone leaves it holding too, because (1) catches it.
 /// **Only removing BOTH breaks the invariant, and the test catches that.**
+///
+/// **Both survivals were RE-RUN after the test's guard was widened**, so the
+/// redundancy is not an artifact of a weak instrument — which is a stronger
+/// claim than the first run could support. The control (both clauses removed)
+/// is now caught through `0.05`, the literal this module exists to protect;
+/// under the weaker guard it was caught only through `12.4`.
 ///
 /// Both clauses are kept. They overlap on decimals and are independently
 /// justified elsewhere — (1) states the invariant where a reader looks for it,
@@ -91,6 +97,10 @@ pub(crate) fn ends_with_abbreviation(tail: &str) -> bool {
 /// **The property is held by the TEST, not by either clause**, which is the
 /// honest reading and the reason a single-clause edit is safe and a two-clause
 /// edit is not.
+///
+/// **THE REDUNDANCY IS INTENTIONAL AND RECORDED HERE** so a future reader does
+/// not remove one clause as dead — finding the tests still green — and then
+/// remove the other as equally dead.
 fn closes_sentence(text: &str, i: usize) -> bool {
     let bytes = text.as_bytes();
     let terminator = bytes[i] as char;
