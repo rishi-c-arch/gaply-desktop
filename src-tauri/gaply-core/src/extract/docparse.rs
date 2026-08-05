@@ -159,6 +159,98 @@ fn page_furniture(lines: &[&str]) -> std::collections::HashSet<String> {
         .collect()
 }
 
+/// Which convention a document's References section uses for blank lines.
+///
+/// # ARCHITECTURE_TRACE §45–§46 — three arms, THREE KINDS OF WARRANT
+///
+/// `split_document` special-cases References to ONE PARAGRAPH PER NON-EMPTY
+/// LINE. `reflow_pdf_text` merges lines and runs FIRST, so on a PDF whose
+/// entries do not end in a sentence — a citation style ending in bare URLs and
+/// access dates — every line joins into one block and 26 references become 1.
+/// Measured: 76 lines to one 6373-character paragraph, with ten downstream
+/// consumers degraded and every emptiness guard passing because the count is 1
+/// rather than 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RefConvention {
+    /// A blank line after EVERY rendered line, so blank lines carry no entry
+    /// information and sentence completion is the only signal.
+    ///
+    /// **PROVED, from what the median measures rather than from the corpus:** a
+    /// noise convention gives every group size exactly 1, so the median is
+    /// exactly 1. A median above 1 means the document is NOT using it. No
+    /// document can falsify this.
+    Noise,
+    /// A blank line only BETWEEN entries, so a blank line closes the block.
+    ///
+    /// **OBSERVED at median 3 in one corpus document; DEFAULTED for every other
+    /// non-`Noise` measurement.** Ruling out `Noise` does not establish that one
+    /// alternative remains — a mixed-convention section, OCR artifacts, a
+    /// publisher conversion quirk or a malformed PDF are all untouched by that
+    /// argument. Mapping them here is a CHOICE, made because no third convention
+    /// has been observed, and it is the arm a future document can overturn
+    /// without either of the others being wrong.
+    Structure,
+    /// The section cannot be classified, so the incumbent behaviour governs.
+    ///
+    /// **Not a third convention — an absence of the signal the measure reads**
+    /// (§4.12's typed absence, one level up). The non-obvious member is a
+    /// section with NO BLANK LINES AT ALL: 75 lines, one group, median 75. Under
+    /// a naive `median > 1` rule that classifies as `Structure`, finds nothing to
+    /// close on, and collapses the whole section — the defect this exists to
+    /// prevent, reached from the opposite direction. Size is not the only way a
+    /// measurement can be insufficient (§46.7).
+    Unclassified,
+}
+
+/// Classify the References section's blank-line convention.
+///
+/// `body` is the region AFTER the References heading. `furniture` lines are
+/// skipped exactly as `reflow_pdf_text` skips them, so the classification reads
+/// the same line stream the reflow will.
+fn classify_references(body: &[&str], furniture: &std::collections::HashSet<String>) -> RefConvention {
+    let (mut groups, mut nonempty, mut run) = (0usize, 0usize, 0usize);
+    let mut sizes: Vec<usize> = Vec::new();
+    for line in body {
+        let t = line.trim();
+        if furniture.contains(t) {
+            continue;
+        }
+        if t.is_empty() {
+            if run > 0 {
+                groups += 1;
+                sizes.push(run);
+                run = 0;
+            }
+        } else {
+            nonempty += 1;
+            run += 1;
+        }
+    }
+    if run > 0 {
+        groups += 1;
+        sizes.push(run);
+    }
+
+    if nonempty == 0 {
+        return RefConvention::Unclassified;
+    }
+    // The signal is ABSENT, not scarce: with one group there are no blank lines
+    // to read a convention from. Tested BEFORE the median, which would be huge.
+    if groups <= 1 {
+        return RefConvention::Unclassified;
+    }
+    sizes.sort_unstable();
+    // The MEDIAN, not "any group exceeds one line". The `any` form is a cliff:
+    // ONE wrapped entry in a 75-entry noise-convention section flips it to true
+    // and produces the catastrophic branch. Measured — the median is unmoved by
+    // that case, and 38 of 75 groups would have to exceed one line to move it.
+    if sizes[sizes.len() / 2] == 1 {
+        RefConvention::Noise
+    } else {
+        RefConvention::Structure
+    }
+}
+
 /// Rejoin PDF text that `pdf-extract` broke at rendered-line boundaries, so the
 /// section splitter sees real paragraphs.
 ///
@@ -182,6 +274,16 @@ pub(crate) fn reflow_pdf_text(text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let furniture = page_furniture(&lines);
 
+    // PRE-PASS. `page_furniture` above is already one; this is a second over the
+    // same vector, so there is no streaming constraint to work around — the
+    // whole line stream is in hand before any block decision is made.
+    let ref_convention = lines
+        .iter()
+        .position(|l| matches!(sections::detect_heading(l), Some((sections::SectionKind::References, _))))
+        .map(|i| classify_references(&lines[i + 1..], &furniture))
+        .unwrap_or(RefConvention::Unclassified);
+    let mut in_references = false;
+
     let mut blocks: Vec<String> = Vec::new();
     let mut cur = String::new();
     let flush = |cur: &mut String, blocks: &mut Vec<String>| {
@@ -196,7 +298,13 @@ pub(crate) fn reflow_pdf_text(text: &str) -> String {
         let t = line.trim();
 
         if t.is_empty() {
-            if ends_sentence(&cur) {
+            // In a References section using the Structure convention, a blank
+            // line IS the entry boundary — the signal `split_document` expects
+            // and that sentence completion cannot see. Everywhere else the
+            // incumbent rule stands unchanged.
+            if (in_references && ref_convention == RefConvention::Structure)
+                || ends_sentence(&cur)
+            {
                 flush(&mut cur, &mut blocks);
             }
             continue;
@@ -210,15 +318,23 @@ pub(crate) fn reflow_pdf_text(text: &str) -> String {
         // prose line already ended a sentence, the block closes and the bare DOI
         // line would otherwise become the HEAD of the next entry — putting a URL
         // where the author belongs. Measured: two entries lost that way.
-        if cur.is_empty() && is_url_only(t) {
+        // Under the Structure convention a blank line has already closed the
+        // entry, so a bare-URL line that follows is the NEXT entry's start, not
+        // trailing metadata of the last. Appending it there would merge two
+        // entries — the defect this whole path exists to prevent.
+        if cur.is_empty()
+            && is_url_only(t)
+            && !(in_references && ref_convention == RefConvention::Structure)
+        {
             if let Some(last) = blocks.last_mut() {
                 last.push(' ');
                 last.push_str(t);
             }
             continue;
         }
-        if sections::detect_heading(line).is_some() {
+        if let Some((kind, _)) = sections::detect_heading(line) {
             flush(&mut cur, &mut blocks);
+            in_references = kind == sections::SectionKind::References;
             blocks.push(t.to_string());
             continue;
         }
@@ -681,5 +797,221 @@ mod tests {
         let text = parse_pdf_bytes(&bytes).expect("valid PDF bytes should parse through the guard");
         assert!(text.to_lowercase().contains("methods"), "got: {text:?}");
         assert!(text.to_lowercase().contains("participants"), "got: {text:?}");
+    }
+}
+
+#[cfg(test)]
+mod reference_convention_tests {
+    use super::*;
+    use crate::extract::sections::{split_document, SectionKind};
+
+    fn no_furniture() -> std::collections::HashSet<String> {
+        std::collections::HashSet::new()
+    }
+
+    // FIXTURES MUST NOT REPEAT A LINE VERBATIM. `page_furniture` drops any line
+    // under 80 chars seen three or more times, treating it as a running header —
+    // so a reference template with an identical line per entry has that line
+    // removed BEFORE the classifier sees it, and the fixture then measures
+    // something other than what it claims. Caught by a mutation whose test
+    // failed for this reason rather than the intended one.
+
+    /// A NOISE-convention References section: a blank line after every rendered
+    /// line, entries wrapped across lines. This is the shape reflow was built
+    /// for and must keep handling.
+    fn noise_refs(entries: usize) -> String {
+        let mut s = String::from("A Study\n\nResults\n\nWe measured things.\n\nReferences\n\n");
+        for i in 0..entries {
+            s.push_str(&format!("Author {i} A B. 2020. A title that wraps across\n\n"));
+            s.push_str(&format!("more than one rendered line. Journal of Things {i}: 1-9.\n\n"));
+        }
+        s
+    }
+
+    /// A STRUCTURE-convention References section: entries separated by blank
+    /// lines, wrapped lines contiguous, and entries ending in a bare URL so
+    /// `ends_sentence` never closes them.
+    fn structure_refs(entries: usize) -> String {
+        let mut s = String::from("A Study\n\nResults\n\nWe measured things.\n\nReferences\n\n");
+        for i in 0..entries {
+            s.push_str(&format!("Author {i} A B. Annual Report {i} on Waste Management. CPCB: New\n"));
+            s.push_str(&format!("Delhi; 201{i}. Accessed: July 3{i}, 2026:\n"));
+            s.push_str(&format!("https://example.org/uploads/Projects/Report_{i}.pdf\n\n"));
+        }
+        s
+    }
+
+    fn ref_count(text: &str) -> usize {
+        let (_t, secs) = split_document(&reflow_pdf_text(text));
+        secs.iter().find(|s| s.kind == SectionKind::References).map(|s| s.paragraphs.len()).unwrap_or(0)
+    }
+
+    fn classify(text: &str) -> RefConvention {
+        let lines: Vec<&str> = text.lines().collect();
+        let furn = page_furniture(&lines);
+        let i = lines
+            .iter()
+            .position(|l| matches!(crate::extract::sections::detect_heading(l), Some((SectionKind::References, _))))
+            .expect("fixture has a References heading");
+        classify_references(&lines[i + 1..], &furn)
+    }
+
+    /// **THE REPAIR.** Entries ending in a bare URL close no sentence, so before
+    /// this the whole list became ONE paragraph (§45: 26 references measured as
+    /// 1 on a real manuscript).
+    #[test]
+    fn a_structure_convention_reference_list_keeps_its_entries() {
+        let text = structure_refs(12);
+        assert_eq!(classify(&text), RefConvention::Structure);
+        assert_eq!(ref_count(&text), 12, "each blank-separated entry is one reference");
+    }
+
+    /// **THE INCUMBENT, UNTOUCHED.** A noise-convention list must still have its
+    /// wrapped lines rejoined — skipping reflow here would restore the measured
+    /// defect of one reference row per rendered line.
+    #[test]
+    fn a_noise_convention_reference_list_still_has_its_wrapped_lines_rejoined() {
+        let text = noise_refs(10);
+        assert_eq!(classify(&text), RefConvention::Noise);
+        assert_eq!(ref_count(&text), 10, "two rendered lines per entry, rejoined");
+    }
+
+    /// **THE MEDIAN, NOT THE `any` FORM.** One wrapped entry in an otherwise
+    /// noise-convention list flips "does any group exceed one line" to true. The
+    /// median does not move, and the classification must not either — the `any`
+    /// form would send this document down the Structure branch and split every
+    /// wrapped entry in two.
+    #[test]
+    fn one_wrapped_entry_does_not_reclassify_a_noise_section() {
+        // 10 single-line entries, then ONE that wraps without a blank inside.
+        let mut text = String::from("A Study\n\nReferences\n\n");
+        for i in 0..10 {
+            text.push_str(&format!("Author {i} A B. 2020. A complete title. Journal {i}: 1-9.\n\n"));
+        }
+        text.push_str("Author X A B. 2021. A title that wraps here\nand continues on the next line. Journal X: 1-9.\n\n");
+
+        let lines: Vec<&str> = text.lines().collect();
+        let furn = no_furniture();
+        let i = lines
+            .iter()
+            .position(|l| matches!(crate::extract::sections::detect_heading(l), Some((SectionKind::References, _))))
+            .unwrap();
+        let body = &lines[i + 1..];
+        // the `any` form WOULD flip — assert the fixture really exercises it
+        let mut sizes = Vec::new();
+        let mut run = 0;
+        for l in body {
+            if l.trim().is_empty() { if run > 0 { sizes.push(run); run = 0; } } else { run += 1 }
+        }
+        if run > 0 { sizes.push(run) }
+        assert!(sizes.iter().any(|s| *s > 1), "fixture must contain a wrapped entry");
+
+        assert_eq!(
+            classify_references(body, &furn),
+            RefConvention::Noise,
+            "the median is unmoved by one wrapped entry; the `any` form would not be"
+        );
+    }
+
+    /// **THE SIGNAL IS ABSENT, NOT SCARCE.** A large, well-formed References
+    /// section with NO blank lines at all has one group and a huge median. A
+    /// naive `median > 1` rule classifies it Structure, finds nothing to close
+    /// on, and collapses the whole section — the defect this prevents, reached
+    /// from the opposite direction (§46.7).
+    #[test]
+    fn a_reference_section_with_no_blank_lines_is_unclassified() {
+        let mut text = String::from("A Study\n\nReferences\n\n");
+        for i in 0..40 {
+            text.push_str(&format!("Author {i} A B. 2020. A complete title. Journal {i}: 1-9.\n"));
+        }
+        assert_eq!(classify(&text), RefConvention::Unclassified);
+    }
+
+    /// An empty References section classifies as absent, not as a convention.
+    #[test]
+    fn an_empty_reference_section_is_unclassified() {
+        assert_eq!(classify("A Study\n\nReferences\n\n"), RefConvention::Unclassified);
+    }
+
+    /// The switch is scoped to References. A body paragraph in the same document
+    /// keeps the incumbent rule, so the Structure classification cannot leak
+    /// into prose.
+    #[test]
+    fn the_structure_switch_does_not_reach_body_paragraphs() {
+        let mut text = String::from("A Study\n\nResults\n\nOne sentence that wraps\nacross two rendered lines.\n\n");
+        text.push_str("A second paragraph, also wrapped\nacross two lines.\n\n");
+        text.push_str(&structure_refs(3)[structure_refs(3).find("References").unwrap()..]);
+        let (_t, secs) = split_document(&reflow_pdf_text(&text));
+        let results = secs.iter().find(|s| s.kind == SectionKind::Results).unwrap();
+        assert_eq!(results.paragraphs.len(), 2, "wrapped body lines stay rejoined: {:?}", results.paragraphs);
+    }
+
+    /// **A BARE URL ON ITS OWN LINE IS THE NEXT ENTRY'S, NOT THE LAST ONE'S.**
+    ///
+    /// The `is_url_only` guard exists because under the incumbent rule a lone
+    /// DOI line would become the HEAD of the next entry. Under `Structure` the
+    /// blank line has ALREADY closed the previous entry, so appending it there
+    /// merges two references — the defect this path exists to prevent.
+    ///
+    /// The earlier fixture never reached the guard: its URL was the third line
+    /// of a three-line entry, so `cur` was non-empty. This one puts the URL in
+    /// its own blank-separated group, which is what the guard actually tests.
+    #[test]
+    fn a_lone_url_line_starts_its_entry_rather_than_joining_the_previous_one() {
+        let mut text = String::from("A Study\n\nReferences\n\n");
+        for i in 0..6 {
+            text.push_str(&format!("Author {i} A B. A report {i} on waste management. CPCB: New\n"));
+            text.push_str(&format!("Delhi; 201{i}. Accessed: July 3{i}, 2026:\n\n"));
+            text.push_str(&format!("https://example.org/uploads/Report_{i}.pdf\n\n"));
+        }
+        assert_eq!(classify(&text), RefConvention::Structure);
+        // 6 entries x 2 blank-separated groups = 12 paragraphs, and CRUCIALLY
+        // none of the URL groups may be swallowed into the group before it.
+        let (_t, secs) = split_document(&reflow_pdf_text(&text));
+        let refs = secs.iter().find(|s| s.kind == SectionKind::References).unwrap();
+        assert_eq!(refs.paragraphs.len(), 12, "no group may be merged: {:?}", refs.paragraphs);
+        assert!(
+            refs.paragraphs.iter().filter(|p| p.starts_with("https://")).count() == 6,
+            "every URL group must stand alone: {:?}",
+            refs.paragraphs
+        );
+    }
+
+    /// **THE STRUCTURE CONVENTION MUST NOT LEAK PAST THE REFERENCES SECTION.**
+    ///
+    /// A recognised heading AFTER References returns to the incumbent rule. If
+    /// the in-references flag were merely set and never cleared, a
+    /// noise-convention section following the reference list would have every
+    /// rendered line closed into its own paragraph — 1b's damage, caused here.
+    #[test]
+    fn a_section_after_references_returns_to_the_incumbent_rule() {
+        let mut text = String::from("A Study\n\nReferences\n\n");
+        for i in 0..6 {
+            text.push_str(&format!("Author {i} A B. A report {i}. CPCB: New\n"));
+            text.push_str(&format!("Delhi; 201{i}. Accessed: {i}:\n\n"));
+        }
+        text.push_str("Conclusion\n\nA closing paragraph that wraps\n\nacross two rendered lines.\n\n");
+        assert_eq!(classify(&text), RefConvention::Structure);
+
+        let (_t, secs) = split_document(&reflow_pdf_text(&text));
+        let concl = secs.iter().find(|s| s.kind == SectionKind::Conclusion).unwrap();
+        assert_eq!(
+            concl.paragraphs.len(),
+            1,
+            "the wrapped conclusion must be rejoined, not split by the References rule: {:?}",
+            concl.paragraphs
+        );
+    }
+
+    /// **DOCX IS UNTOUCHED — asserted, not assumed.** `reflow_pdf_text` is called
+    /// only from `parse_pdf`; a DOCX reference list must parse identically before
+    /// and after this change, which it does because reflow never runs on it.
+    #[test]
+    fn docx_reference_parsing_does_not_route_through_reflow() {
+        // One Word paragraph per entry is what parse_docx emits (\n\n per </w:p>).
+        let docx_like = "A Study\n\nReferences\n\nAuthor A. 2020. First. J 1: 1-9.\n\nAuthor B. 2021. Second. J 2: 1-9.\n\nAuthor C. 2022. Third. J 3: 1-9.\n\n";
+        let (_t, secs) = split_document(docx_like);
+        let refs = secs.iter().find(|s| s.kind == SectionKind::References).unwrap();
+        assert_eq!(refs.paragraphs.len(), 3, "the DOCX path does not call reflow at all");
     }
 }
