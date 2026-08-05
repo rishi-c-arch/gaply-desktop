@@ -10,7 +10,7 @@
 //! something the engine already decided.
 
 use gaply_core::extract::stats::Stat;
-use gaply_core::extract::{ExtractionResult, Location, SectionKind};
+use gaply_core::extract::{paragraph_at, ExtractionResult, Location, SectionKind};
 use gaply_core::plagiarism::MatchSource;
 use gaply_core::report_model::{
     LocalFinding, LocalReportModel, ManuscriptFacts, ReportedStatistic, SimilarityRegion,
@@ -148,11 +148,27 @@ impl PipelineResult {
                 detail: f.detail.clone(),
                 confidence: f.confidence,
                 provenance: f.provenance.clone(),
-                // TYPED ABSENCE, not an empty string: `Finding` carries no
-                // `Location`, so there is nothing to look up text near. Milestone
-                // 4 adds it; until then the report simply does not show a
-                // manuscript quotation, which is honest.
-                nearby_text: None,
+                // TYPED ABSENCE, not an empty string, at BOTH steps: a finding
+                // with no `Location` is about the whole document, and a
+                // `Location` that does not resolve produces no quotation rather
+                // than an empty one.
+                //
+                // THE SAME RESOLVER THE RULE USED. `paragraph_at` is the
+                // promoted body of `validate::paragraph`, which is the text the
+                // five deterministic rules evaluate. The quotation is therefore
+                // the string that produced the finding, not a re-derivation of
+                // where we think the finding meant — a distinction §4.20's TEXT
+                // class exists to protect, in the field built to serve it.
+                //
+                // NOT TRUNCATED HERE. Truncation is a presentation decision and
+                // belongs to the composer (`report_model`'s three-layer
+                // contract names it among the RENDERER's prohibitions, and the
+                // ENGINE holds facts). The model carries the paragraph whole.
+                nearby_text: f
+                    .location
+                    .as_ref()
+                    .and_then(|loc| paragraph_at(&self.extraction, loc))
+                    .map(str::to_string),
             })
             .collect();
 
@@ -184,6 +200,150 @@ impl PipelineResult {
 mod tests {
     use super::*;
     use gaply_core::extract::stats::Stat;
+
+
+    use gaply_core::extract::SectionKind;
+    use gaply_core::plagiarism::PlagiarismReport;
+    use gaply_core::report::{
+        CertaintyTier, DebateSummary, Finding, FindingSeverity, PublishReadyReport,
+    };
+    use gaply_core::reviewer_agent::LaneExamination;
+    use gaply_core::swarm::AgentKind;
+    use gaply_core::evidence::ClaimKind;
+
+    /// Two Results paragraphs with distinguishable markers, so a quotation
+    /// resolved from the wrong index shows the OTHER paragraph's text.
+    const TWO_PARAGRAPHS: &str = "Located\n\nMethods\nThe gamma marker was \
+        measured (p = 0.04).\n\nResults\nThe ALPHAMARKER improved recall \
+        (p = 0.01).\n\nThe BETAMARKER reduced errors (p = 0.02).\n";
+
+    fn located(location: Option<gaply_core::extract::Location>) -> Finding {
+        Finding {
+            severity: FindingSeverity::Major,
+            tier: CertaintyTier::MathematicallyCertain,
+            certainty_label: CertaintyTier::MathematicallyCertain.label().into(),
+            agent: AgentKind::ValidationMaths,
+            claim: ClaimKind::ManuscriptDefect,
+            title: "statistical rule failed".into(),
+            detail: "d".into(),
+            confidence: 1.0,
+            provenance: vec!["rule:MissingEffectSize (MAJOR)".into()],
+            location,
+        }
+    }
+
+    /// A whole `PipelineResult`, because the join under test lives in
+    /// `into_report_model` and the assertion must be made on WHAT THE MODEL
+    /// CARRIES. The doc comment on `reported_statistics` records why: a mutation
+    /// once survived because a test asserted on the helper instead.
+    fn pipeline_with(findings: Vec<Finding>) -> PipelineResult {
+        PipelineResult {
+            report_id: "r1".into(),
+            report: PublishReadyReport {
+                verdict: "Minor revision".into(),
+                combined_confidence: 0.5,
+                findings,
+                evidence: vec![],
+                checklist: vec![],
+                debate: DebateSummary {
+                    rounds_run: 1,
+                    converged: true,
+                    overridden_by_constraint: false,
+                    rejected_agents: vec![],
+                    revised_agents: vec![],
+                },
+                disclaimer: "d".into(),
+            },
+            lanes: LaneExamination {
+                verification_examined: false,
+                validation_examined: true,
+                plagiarism_examined: false,
+                ai_detection_examined: false,
+                extraction_examined: true,
+            },
+            extraction: gaply_core::extract::extract_from_text(TWO_PARAGRAPHS),
+            plagiarism: PlagiarismReport {
+                chunk_count: 0,
+                corpus_chunks_available: 0,
+                threshold: 0.8,
+                corpus_matches: vec![],
+                self_matches: vec![],
+                note: "n".into(),
+            },
+            text: TWO_PARAGRAPHS.into(),
+        }
+    }
+
+    fn loc(section: SectionKind, paragraph: usize) -> Option<Location> {
+        Some(Location { section, paragraph })
+    }
+
+    /// **Each located finding quotes ITS OWN paragraph.**
+    ///
+    /// The mutations this is built to kill all leave the plumbing intact and the
+    /// resolution wrong: `paragraphs.get(0)` (index ignored), `paragraph + 1` /
+    /// `paragraph - 1` (off by one), and dropping the `find(kind)` filter
+    /// (section ignored). Each produces a real, plausible sentence from the
+    /// wrong place — which is the failure `nearby_text` exists to prevent.
+    #[test]
+    fn each_located_finding_quotes_its_own_paragraph() {
+        let model = pipeline_with(vec![
+            located(loc(SectionKind::Results, 0)),
+            located(loc(SectionKind::Results, 1)),
+            located(loc(SectionKind::Methods, 0)),
+        ])
+        .into_report_model(None, None);
+
+        let near: Vec<&str> = model
+            .findings
+            .iter()
+            .map(|f| f.nearby_text.as_deref().unwrap_or("<none>"))
+            .collect();
+
+        assert!(near[0].contains("ALPHAMARKER"), "Results ¶1: {near:?}");
+        assert!(!near[0].contains("BETAMARKER"), "Results ¶1 quoted ¶2: {near:?}");
+        assert!(near[1].contains("BETAMARKER"), "Results ¶2: {near:?}");
+        assert!(!near[1].contains("ALPHAMARKER"), "Results ¶2 quoted ¶1: {near:?}");
+        assert!(near[2].contains("gamma marker"), "Methods ¶1: {near:?}");
+        assert!(
+            !near[2].contains("ALPHAMARKER") && !near[2].contains("BETAMARKER"),
+            "Methods ¶1 quoted a Results paragraph — the section filter was dropped: {near:?}"
+        );
+    }
+
+    /// **Absence stays typed at BOTH steps.** No location, and an unresolvable
+    /// location, must each yield `None` — never `Some("")`, which would render
+    /// as an empty quotation asserting the manuscript says nothing.
+    #[test]
+    fn an_absent_or_unresolvable_location_yields_no_quotation() {
+        let model = pipeline_with(vec![
+            located(None),
+            located(loc(SectionKind::Results, 99)),
+            located(loc(SectionKind::Discussion, 0)),
+        ])
+        .into_report_model(None, None);
+
+        for (i, f) in model.findings.iter().enumerate() {
+            assert_eq!(f.nearby_text, None, "finding {i} must carry no quotation");
+        }
+    }
+
+    /// The quotation is the paragraph VERBATIM — the engine carries the fact,
+    /// the composer cuts it. A model that pre-truncated would put a presentation
+    /// decision in the engine and make the fact unrecoverable downstream.
+    #[test]
+    fn the_model_carries_the_paragraph_whole() {
+        let ex = gaply_core::extract::extract_from_text(TWO_PARAGRAPHS);
+        let expected = gaply_core::extract::paragraph_at(
+            &ex,
+            &Location { section: SectionKind::Results, paragraph: 0 },
+        )
+        .unwrap();
+
+        let model =
+            pipeline_with(vec![located(loc(SectionKind::Results, 0))]).into_report_model(None, None);
+        assert_eq!(model.findings[0].nearby_text.as_deref(), Some(expected));
+    }
 
     /// The join that makes `effect_size_present` real, end to end from raw text.
     ///

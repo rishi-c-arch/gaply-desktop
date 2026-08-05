@@ -175,14 +175,13 @@ fn is_primary(section: SectionKind) -> bool {
     matches!(section, SectionKind::Abstract | SectionKind::Results)
 }
 
+/// The text a rule evaluates. Thin wrapper over [`crate::extract::paragraph_at`],
+/// which is where this function's body now lives — the report quotes the SAME
+/// string through the same resolver, so a finding and its quotation cannot
+/// disagree. An unresolvable location yields `""`, which no rule matches, which
+/// is the pre-existing behaviour.
 fn paragraph<'a>(result: &'a ExtractionResult, loc: &Location) -> &'a str {
-    result
-        .sections
-        .iter()
-        .find(|s| s.kind == loc.section)
-        .and_then(|s| s.paragraphs.get(loc.paragraph))
-        .map(String::as_str)
-        .unwrap_or("")
+    crate::extract::paragraph_at(result, loc).unwrap_or("")
 }
 
 /// Run all five rules over an extraction result. Deterministic and total.

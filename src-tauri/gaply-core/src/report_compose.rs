@@ -96,6 +96,93 @@ pub const NOTE_MARKED: &str =
      mark. This is a limitation of the report's font, not of the analysis — nothing \
      was skipped or removed.";
 
+/// How much of the quoted manuscript paragraph a finding's bullet shows.
+///
+/// # MEASURED, not reasoned — on the frozen reference manuscript
+///
+/// The engine carries the paragraph WHOLE (a fact); this is where it is cut,
+/// because truncation is a presentation decision and `report_model`'s contract
+/// names it among the RENDERER's prohibitions. The number comes from the
+/// project's reference document (`sha256 859880647c…`), parsed through
+/// `parse_path` → `extract_from_text`:
+///
+/// | | chars |
+/// |---|---|
+/// | body paragraphs | 36 |
+/// | median / mean | **728 / 749** |
+/// | p90 / max | 1269 / 2131 |
+/// | over 300 chars | **32 of 36 (89%)** |
+///
+/// **Truncation is the NORMAL case, not the exception** — no cap avoids it, so
+/// the cap cannot be chosen to minimise how often it fires. What it can be
+/// chosen for is whether the reader gets a whole opening sentence, since the
+/// snippet's job is to be searchable in their own document:
+///
+/// | | first sentence, chars |
+/// |---|---|
+/// | median / mean | 189 / 244 |
+/// | **p75** | **270** |
+/// | p90 | 439 |
+///
+/// **350 is where that curve flattens.** Paragraphs receiving less than their
+/// first full sentence: 8 at a 300 cap, **5 at 350, and still 5 at 400** — the
+/// extra 50 characters buy nothing. At 350 the p75 opening sentence (270) fits
+/// whole, and the reader gets it plus the start of the next.
+///
+/// # PROVENANCE AND ITS WIDTH — n = 1
+///
+/// **Thirty-six paragraphs from ONE manuscript.** Measured rather than reasoned,
+/// which is why it is 350 and not the 300 the design argued for — but measured
+/// on a single document, so a second manuscript could shift the first-sentence
+/// distribution and move where the curve flattens. **Stated so the figure is not
+/// read as a population estimate**, the same discipline the promotion delta was
+/// held to. Not a reason to change it; a reason to re-measure before defending
+/// it against a second corpus.
+const NEARBY_TEXT_CHARS: usize = 350;
+
+/// Cut a quoted paragraph to [`NEARBY_TEXT_CHARS`], **snapping back to the last
+/// whitespace** so no word or number is split, and marking the cut with `…`.
+///
+/// # The snap is load-bearing, and measured
+///
+/// A blind `chars().take(n)` lands mid-token on 23 of the 32 truncated
+/// paragraphs of the reference manuscript, and **inside a NUMBER on 2 of them** —
+/// which in a report about statistics is §4.20's TEXT class exactly: `p = 0.03`
+/// shown as `p = 0.0` is altered evidence that still reads as evidence. The snap
+/// removes the whole class rather than the two instances.
+///
+/// A token longer than the cap has no whitespace to snap to; it is cut and
+/// marked, because showing nothing would be worse than showing a marked prefix.
+///
+/// # WHY NOT TRIM TO A SENTENCE — the obvious improvement, REFUSED
+///
+/// **No safe sentence splitter exists in this crate.** `ai_detect::
+/// split_sentences` breaks on EVERY `.`, so `p < 0.001` becomes `p < 0.` — in a
+/// report whose subject is statistics, that is §4.20's TEXT class committed by
+/// the very function meant to make the quotation read better.
+/// `docparse::ends_sentence` carries the correct abbreviation logic but is
+/// line-oriented and private; reusing it is a shared utility with its own tests,
+/// not a tidy-up.
+///
+/// **And the objection sentence-trimming would answer does not apply here.** The
+/// similarity work found chunk-prefix excerpts read as mid-sentence fragments
+/// because a CHUNK starts wherever token 448 lands. A PARAGRAPH starts at a
+/// blank line, so its head is already a clean sentence start — only the tail is
+/// ragged, and `…` marks it. Head-anchoring is also the better shape for the
+/// job: the opening of a paragraph is the string the author can search for.
+fn shorten(text: &str) -> String {
+    let t = text.trim();
+    if t.chars().count() <= NEARBY_TEXT_CHARS {
+        return t.to_string();
+    }
+    let head: String = t.chars().take(NEARBY_TEXT_CHARS).collect();
+    let cut = match head.rfind(char::is_whitespace) {
+        Some(i) => &head[..i],
+        None => head.as_str(),
+    };
+    format!("{}…", cut.trim_end())
+}
+
 /// The severities, in the order the report presents them. Explicit rather than
 /// derived from an enum ordering, so a reordering is a visible edit.
 const SEVERITY_ORDER: [FindingSeverity; 4] = [
@@ -194,8 +281,14 @@ fn findings(model: &LocalReportModel, out: &mut Vec<Block>) {
                 text: format!("Certainty: {}", tier_label(f.tier)),
                 indent: 0,
             });
+            // `if let Some` and no `else`: a finding with no location emits NO
+            // bullet rather than an empty quotation. Most findings are about the
+            // whole document and correctly have none.
             if let Some(near) = &f.nearby_text {
-                out.push(Block::Bullet { text: format!("In your manuscript: \"{near}\""), indent: 1 });
+                out.push(Block::Bullet {
+                    text: format!("In your manuscript: \"{}\"", shorten(near)),
+                    indent: 1,
+                });
             }
         }
     }
@@ -433,5 +526,129 @@ mod tests {
         let blocks = compose(&model_with(vec![stat("p-value", "p = 0.01", false)]));
         let h = headings(&blocks);
         assert!(h.iter().any(|t| t == "Reported with an effect size (0)"), "{h:?}");
+    }
+
+    fn finding_with(nearby: Option<&str>) -> crate::report_model::LocalFinding {
+        crate::report_model::LocalFinding {
+            id: "f1".into(),
+            severity: FindingSeverity::Major,
+            tier: crate::report::CertaintyTier::MathematicallyCertain,
+            claim: crate::evidence::ClaimKind::ManuscriptDefect,
+            agent: crate::swarm::AgentKind::ValidationMaths,
+            title: "statistical rule failed: missing effect size".into(),
+            detail: "A p-value is reported without an accompanying effect size.".into(),
+            confidence: 1.0,
+            provenance: vec!["rule:MissingEffectSize (MAJOR)".into()],
+            nearby_text: nearby.map(String::from),
+        }
+    }
+
+    fn bullets(blocks: &[Block]) -> Vec<String> {
+        blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Bullet { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn quoted(blocks: &[Block]) -> Vec<String> {
+        bullets(blocks).into_iter().filter(|t| t.starts_with("In your manuscript:")).collect()
+    }
+
+    /// **An absent quotation emits NO bullet — not an empty one.**
+    ///
+    /// Most findings are about the whole document and correctly carry no
+    /// location. A composer that rendered `In your manuscript: ""` would turn
+    /// that correct absence into a claim that the manuscript says nothing.
+    #[test]
+    fn a_finding_without_a_quotation_emits_no_quotation_bullet() {
+        let mut model = model_with(vec![]);
+        model.findings = vec![finding_with(None)];
+        let blocks = compose(&model);
+        assert!(
+            quoted(&blocks).is_empty(),
+            "no quotation bullet may appear: {:?}",
+            bullets(&blocks)
+        );
+        // The finding itself must still render.
+        assert!(
+            bullets(&blocks).iter().any(|b| b.starts_with("Certainty:")),
+            "the finding must still render its other bullets"
+        );
+    }
+
+    /// The bullet the report gains, nested under the finding it illustrates.
+    #[test]
+    fn a_finding_with_a_quotation_emits_it_nested() {
+        let mut model = model_with(vec![]);
+        model.findings = vec![finding_with(Some("Recall improved with sleep (p = 0.03)."))];
+        let blocks = compose(&model);
+        let q = quoted(&blocks);
+        assert_eq!(q.len(), 1, "{:?}", bullets(&blocks));
+        assert_eq!(q[0], "In your manuscript: \"Recall improved with sleep (p = 0.03).\"");
+        let indent = blocks.iter().find_map(|b| match b {
+            Block::Bullet { text, indent } if text.starts_with("In your manuscript:") => Some(*indent),
+            _ => None,
+        });
+        assert_eq!(indent, Some(1), "the quotation nests under its finding");
+    }
+
+    /// **TRUNCATION MUST NOT SPLIT A TOKEN — and a NUMBER is the case that
+    /// matters.**
+    ///
+    /// Measured on the reference manuscript: a blind `chars().take(350)` lands
+    /// mid-token on 23 of 32 truncated paragraphs and inside a NUMBER on 2. In a
+    /// report whose subject is statistics, `p = 0.03` shown as `p = 0.0` is
+    /// §4.20's TEXT class — altered evidence that still reads as evidence.
+    #[test]
+    fn a_truncated_quotation_never_splits_a_token() {
+        // Build a paragraph whose cap-th character falls INSIDE "0.0125":
+        // pad to exactly cap-3 chars, then " 0.0125" puts '0' at cap-2, '.' at
+        // cap-1 and '0' at cap, so a blind cut yields a trailing "0.".
+        let mut pad = String::new();
+        while pad.chars().count() < NEARBY_TEXT_CHARS - 3 {
+            pad.push_str("word ");
+        }
+        let pad: String = pad.chars().take(NEARBY_TEXT_CHARS - 3).collect();
+        let para = format!("{pad} 0.0125 and more text follows here to force a cut.");
+        assert!(para.chars().count() > NEARBY_TEXT_CHARS);
+        assert!(
+            !para.chars().nth(NEARBY_TEXT_CHARS - 1).unwrap().is_whitespace()
+                && !para.chars().nth(NEARBY_TEXT_CHARS).unwrap().is_whitespace(),
+            "the fixture must place the raw cut inside a token"
+        );
+
+        let mut model = model_with(vec![]);
+        model.findings = vec![finding_with(Some(&para))];
+        let q = quoted(&compose(&model));
+        assert_eq!(q.len(), 1);
+        let shown = &q[0];
+
+        assert!(shown.ends_with("…\""), "a truncated quotation must be marked: {shown}");
+        // The partial number must not appear. Either the whole value is shown or
+        // none of it is; "0.0" or "0.01" as the final token is the defect.
+        for partial in ["0.0…", "0.01…", "0.012…"] {
+            assert!(!shown.contains(partial), "a number was split: {shown}");
+        }
+        // And the cut landed on a word boundary of the ORIGINAL text.
+        let inner = shown
+            .trim_start_matches("In your manuscript: \"")
+            .trim_end_matches("…\"");
+        assert!(para.starts_with(inner), "the shown prefix must be verbatim: {inner:?}");
+        assert!(
+            para[inner.len()..].starts_with(char::is_whitespace),
+            "the cut must land on a whitespace boundary: {inner:?}"
+        );
+    }
+
+    /// A quotation at or under the cap is shown whole, with no ellipsis.
+    #[test]
+    fn a_short_quotation_is_not_marked_as_truncated() {
+        let mut model = model_with(vec![]);
+        model.findings = vec![finding_with(Some("A short sentence (p = 0.03)."))];
+        let q = quoted(&compose(&model));
+        assert!(!q[0].contains('…'), "an untruncated quotation carries no ellipsis: {}", q[0]);
     }
 }

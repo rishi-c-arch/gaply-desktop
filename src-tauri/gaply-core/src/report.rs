@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::evidence::{ClaimKind, EvidenceRecord};
 use crate::extract::sections::SectionKind;
-use crate::extract::ExtractionResult;
+use crate::extract::{ExtractionResult, Location};
 use crate::plagiarism::{MatchSource, MatchSpan, PlagiarismReport};
 use crate::rag::RagHit;
 use crate::refverify::ReferenceVerification;
@@ -157,6 +157,31 @@ pub struct Finding {
     /// Non-empty for every finding: rule ids, evidence refs, debate weights,
     /// source URLs — whatever grounds this finding.
     pub provenance: Vec<String>,
+    /// WHERE in the manuscript this finding is, when the finding is about one
+    /// place. Resolved to a quotation by `report_build::into_report_model`
+    /// through [`crate::extract::paragraph_at`], and shown as
+    /// `LocalFinding::nearby_text`.
+    ///
+    /// # `Option`, and the alternative was measured
+    ///
+    /// A REQUIRED field breaks every cached report: the `CACHED_REPORT_V2`
+    /// release artifact has no `location`, and `evidence::tests::
+    /// previously_written_cached_reports_still_deserialize` fails with
+    /// `missing field \`location\`` — run both ways before choosing this shape.
+    /// `Option` deserializes to `None` on a missing key, so the pin passes and
+    /// `CACHED_REPORT_SCHEMA_VERSION` must NOT be bumped (`pipeline.rs`'s rule:
+    /// bumping for a compatible change trains reflexive bumping).
+    ///
+    /// # `None` IS A DECISION AT EVERY SITE
+    ///
+    /// Most findings are about the whole document — a stylometric ratio, a
+    /// reference-year count, an agent's aggregate opinion — and for those `None`
+    /// is CORRECT, not missing. A few families have an address the type does not
+    /// carry yet; those are marked GAP at their site. The two are distinguished
+    /// in the comment at every construction, and
+    /// `only_located_families_carry_a_location` pins the wired set so a new
+    /// family cannot default into silence.
+    pub location: Option<Location>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -308,6 +333,11 @@ pub fn compile_report(
         items.push(paired(
             Finding {
                 // a deterministic statistical rule failed in the manuscript
+                //
+                // THE ONE LOCATED FAMILY. `flag.location` is the location the
+                // rule itself evaluated (`validate::paragraph`), so quoting it
+                // shows the reader the exact text that produced this finding.
+                location: Some(flag.location.clone()),
                 claim: ClaimKind::ManuscriptDefect,
                 severity: match flag.severity {
                     crate::validate::Severity::Critical => FindingSeverity::Critical,
@@ -383,6 +413,14 @@ pub fn compile_report(
             items.push(paired(
                 Finding {
                     // a citation is refuted or supported by external evidence
+                    //
+                    // GAP, not a document-level finding. This IS about one
+                    // place, and no join to it is safe: `citation_id` is
+                    // `c{i+1}` over the `items` slice, which `pipeline.rs`
+                    // builds by SKIPPING references whose refverify call
+                    // errored. `items[i]` is therefore not `references[i]`, and
+                    // `Reference` carries no `Location` to join to anyway.
+                    location: None,
                     claim: ClaimKind::ManuscriptDefect,
                     severity,
                     tier: verification_tier,
@@ -418,6 +456,10 @@ pub fn compile_report(
             items.push(paired(
                 Finding {
                     // OUR verification lane could not check them (§23.4 f4)
+                    //
+                    // CORRECT None: one finding covering N citations. Any single
+                    // location would name one of them and misrepresent the rest.
+                    location: None,
                     claim: ClaimKind::ProcessState,
                     severity: FindingSeverity::Minor,
                     tier: verification_tier,
@@ -459,6 +501,15 @@ pub fn compile_report(
             items.push(paired(
                 Finding {
                     // this text overlaps another document
+                    //
+                    // CORRECT None, on two independent grounds. (1) The span's
+                    // address is `manuscript_chunk_seq`, an index into 512-token
+                    // chunks stepping 448 over the WHOLE text — one chunk spans
+                    // many paragraphs and can cross a section boundary, so the
+                    // mapping is one-to-many, and §12.3.3 measured that a
+                    // preprocessing change shifts every boundary. (2) This
+                    // finding ALREADY quotes the manuscript, in `detail` below.
+                    location: None,
                     claim: ClaimKind::ManuscriptDefect,
                     severity: if m.similarity >= pr.threshold {
                         FindingSeverity::Major
@@ -525,6 +576,10 @@ pub fn compile_report(
         items.push(paired(
             Finding {
                 // depends on WHICH lane opined — total match below
+                //
+                // CORRECT None: an `Opinion` is an agent's aggregate stance on
+                // the whole manuscript by construction (`swarm::Opinion`).
+                location: None,
                 claim: opinion_claim(op.agent),
                 severity,
                 tier,
@@ -549,6 +604,10 @@ pub fn compile_report(
         items.push(paired(
             Finding {
                 // OUR internal gate rejected an agent's output (§23.4 f5)
+                //
+                // CORRECT None: a statement about OUR gate, not about a place
+                // in the manuscript.
+                location: None,
                 claim: ClaimKind::ProcessState,
                 severity: FindingSeverity::Minor,
                 tier: CertaintyTier::AiAssessedModerate,
@@ -682,6 +741,13 @@ fn stylo_finding(signal: &str, dev: Deviation, title: String, detail: String, ev
     paired(
         Finding {
             // writing quality — report.rs's own scoping excludes the authorship tells
+            //
+            // CORRECT None, for all SEVEN branches that call this constructor.
+            // Every one reports a document-level aggregate — a sentence-length
+            // CV, an MTLD, a repeated-3-gram rate, a citations-per-1000-words
+            // density, a dominant-style share, a valid-DOI share. None of them
+            // is computed at a place, so none of them has one.
+            location: None,
             claim: ClaimKind::ManuscriptDefect,
             severity: FindingSeverity::Minor,
             tier: CertaintyTier::AiAssessedModerate,
@@ -786,6 +852,10 @@ fn stylometry_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
             out.push(paired(
                 Finding {
                     // OUR parse could not measure citation density
+                    //
+                    // CORRECT None: a statement about our parse of the whole
+                    // document.
+                    location: None,
                     claim: ClaimKind::ProcessState,
                     severity: FindingSeverity::Info,
                     tier: CertaintyTier::AiAssessedModerate,
@@ -884,6 +954,12 @@ fn table_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
     paired(
         Finding {
             // tables and their captions are the manuscript's
+            //
+            // CORRECT None for THIS finding, though the address exists.
+            // `TableRef.location` is real, but this is one aggregate count over
+            // every table; a single location would name one of them. Per-table
+            // findings would be a different feature, and would carry one.
+            location: None,
             claim: ClaimKind::ManuscriptDefect,
             severity: if complete { FindingSeverity::Info } else { FindingSeverity::Minor },
             tier: CertaintyTier::AiAssessedModerate,
@@ -941,6 +1017,9 @@ fn citation_count_findings(registry: &[ReferenceVerification]) -> Vec<ReportFind
     paired(
         Finding {
             // how many references WE resolved counts for
+            //
+            // CORRECT None: a count over the registry, not a place in the text.
+            location: None,
             claim: ClaimKind::ProcessState,
             severity: FindingSeverity::Info,
             tier: CertaintyTier::AiAssessedModerate,
@@ -1072,6 +1151,13 @@ fn uncited_reference_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
     paired(
         Finding {
             // references the manuscript never cites
+            //
+            // GAP (and moot while this is unwired). Each uncited entry has an
+            // address — `parse_reference_list` maps paragraph i of the
+            // References section to `references[i]` — but `Reference` carries no
+            // `Location`, and this finding is an aggregate over several entries
+            // regardless.
+            location: None,
             claim: ClaimKind::ManuscriptDefect,
             severity: FindingSeverity::Minor,
             tier: CertaintyTier::AiAssessedModerate,
@@ -1144,6 +1230,11 @@ fn reference_recency_findings(ex: &ExtractionResult, current_year: i32) -> Vec<R
     paired(
         Finding {
             // the manuscript's references are old
+            //
+            // CORRECT None: an arithmetic summary over the whole bibliography.
+            // (Per-reference findings would hit the same missing-`Location`-on-
+            // `Reference` gap the uncited-reference builder records.)
+            location: None,
             claim: ClaimKind::ManuscriptDefect,
             severity,
             tier: CertaintyTier::AiAssessedModerate,

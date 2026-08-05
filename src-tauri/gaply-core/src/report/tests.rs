@@ -1244,3 +1244,203 @@ fn match_type_label_wording_is_supported_by_the_algorithm() {
     assert!(note.contains("lexical-overlap signal"), "note must name the real signal: {note}");
     assert!(!note.contains("semantic"), "note must not claim semantics: {note}");
 }
+
+// ===========================================================================
+// Step 3 — the finding's location, and the quotation it resolves to
+// ===========================================================================
+
+/// Two Results paragraphs, each reporting a p-value with no effect size, so
+/// `MissingEffectSize` fires TWICE at two DIFFERENT paragraph indices. A
+/// resolver that ignores the index, or is off by one, or ignores the section,
+/// produces prose from the wrong paragraph — which is what these tests catch.
+const TWO_LOCATED_PARAGRAPHS: &str = "Located Findings\n\nMethods\nThe gamma \
+    marker was measured (p = 0.04).\n\nResults\nThe ALPHAMARKER improved recall \
+    (p = 0.01).\n\nThe BETAMARKER reduced errors (p = 0.02).\n";
+
+/// **The location a finding carries is the location its RULE evaluated.**
+///
+/// Not "a location that looks right": `validate.rs` reads
+/// `extract::paragraph_at(result, &flag.location)` to decide whether the rule
+/// fires, so carrying `flag.location` unchanged means the quotation the report
+/// shows is the exact string that produced the finding. Asserted as a MULTISET
+/// against `validation.flags` rather than positionally, so the sort order of
+/// `compile_report` is not silently under test here.
+#[test]
+fn validation_findings_carry_the_location_their_rule_evaluated() {
+    let ex = crate::extract::extract_from_text(TWO_LOCATED_PARAGRAPHS);
+    let validation = crate::validate::validate(&ex);
+    assert!(
+        validation.flags.len() >= 2,
+        "fixture must produce at least two located flags: {:?}",
+        validation.flags
+    );
+
+    let report = compile_report(
+        &minimal_outcome(),
+        &validation,
+        None,
+        None,
+        None,
+        TEST_YEAR,
+        vec![],
+        &[],
+    );
+
+    let mut from_findings: Vec<Location> =
+        report.findings.iter().filter_map(|f| f.location.clone()).collect();
+    let mut from_flags: Vec<Location> =
+        validation.flags.iter().map(|f| f.location.clone()).collect();
+    from_findings.sort();
+    from_flags.sort();
+    assert_eq!(
+        from_findings, from_flags,
+        "every validation flag's location must reach its finding unchanged"
+    );
+
+    // And each distinct location must resolve to ITS OWN paragraph. The markers
+    // are unique, so a wrong index or a dropped section filter shows up as the
+    // other paragraph's marker rather than as an absence.
+    let want = [
+        (SectionKind::Results, 0usize, "ALPHAMARKER", "BETAMARKER"),
+        (SectionKind::Results, 1, "BETAMARKER", "ALPHAMARKER"),
+        (SectionKind::Methods, 0, "gamma marker", "ALPHAMARKER"),
+    ];
+    for (section, paragraph, expected, forbidden) in want {
+        let loc = Location { section, paragraph };
+        let text = crate::extract::paragraph_at(&ex, &loc)
+            .unwrap_or_else(|| panic!("{loc:?} must resolve"));
+        assert!(text.contains(expected), "{loc:?} resolved to {text:?}, missing {expected:?}");
+        assert!(
+            !text.contains(forbidden),
+            "{loc:?} resolved to {text:?}, which is another paragraph's text"
+        );
+    }
+}
+
+/// An unresolvable location yields `None`, never `Some("")`.
+///
+/// The rule path wants `""` (no regex matches it, so no rule fires); the report
+/// path wants `None` (no quotation is shown). `paragraph_at` returns the typed
+/// absence and `validate::paragraph` adds the `""` — so one resolver serves both
+/// without either faking a result for the other.
+#[test]
+fn an_unresolvable_location_resolves_to_a_typed_absence() {
+    let ex = crate::extract::extract_from_text(TWO_LOCATED_PARAGRAPHS);
+    assert_eq!(
+        crate::extract::paragraph_at(&ex, &Location { section: SectionKind::Results, paragraph: 99 }),
+        None,
+        "a paragraph index past the end must not resolve"
+    );
+    assert_eq!(
+        crate::extract::paragraph_at(&ex, &Location { section: SectionKind::Discussion, paragraph: 0 }),
+        None,
+        "a section the document does not have must not resolve"
+    );
+}
+
+/// **The set of families carrying a location is PINNED.**
+///
+/// `None` is the correct answer for a finding about the whole document, and a
+/// gap for a finding that has a place the type does not carry. Both look
+/// identical at runtime, so this fixes the wired set: a new family that acquires
+/// a location, or an existing one that quietly loses it, fails here and the
+/// decision has to be made in the open rather than defaulting to silence.
+#[test]
+fn only_located_families_carry_a_location() {
+    let ex = crate::extract::extract_from_text(TWO_LOCATED_PARAGRAPHS);
+    let validation = crate::validate::validate(&ex);
+    let plag = plagiarism_with_n_major_matches(2);
+    let verdicts = VerificationReport {
+        verdicts: vec![CitationVerdict {
+            citation_id: "c1".into(),
+            verdict: Verdict::Refuted,
+            confidence: 0.7,
+            rationale: "no match".into(),
+            evidence_refs: vec![],
+            gate_flags: vec![],
+        }],
+        warnings: vec![],
+    };
+    let report = compile_report(
+        &minimal_outcome(),
+        &validation,
+        Some(&verdicts),
+        Some(&plag),
+        Some(&extraction_with_two_dated_references()),
+        TEST_YEAR,
+        vec![],
+        &[],
+    );
+
+    let mut families: Vec<(AgentKind, bool)> =
+        report.findings.iter().map(|f| (f.agent, f.location.is_some())).collect();
+    families.sort_by_key(|(a, l)| (format!("{a:?}"), *l));
+    families.dedup();
+
+    for (agent, located) in &families {
+        assert_eq!(
+            *located,
+            *agent == AgentKind::ValidationMaths,
+            "agent {agent:?} located={located}: exactly ValidationMaths carries a location \
+             today. If this family gained one, wire it and update this pin; if it lost one, \
+             that is a regression."
+        );
+    }
+    assert!(
+        families.iter().any(|(a, l)| *a == AgentKind::ValidationMaths && *l),
+        "the fixture must exercise at least one located finding: {families:?}"
+    );
+    assert!(
+        families.len() > 1,
+        "the fixture must exercise more than one family: {families:?}"
+    );
+}
+
+/// **THE LOCATION DOES NOT CROSS THE PROXY BOUNDARY, AND NEITHER DOES THE PROSE
+/// IT RESOLVES TO.**
+///
+/// `build_review_payload` is a positive construction — a `json!` literal naming
+/// seven keys — so a new field on `Finding` cannot leak by being carried along.
+/// This asserts that property rather than trusting it: the finding's location
+/// names a real section and paragraph of a real manuscript, and neither the key,
+/// the section name, nor any word of the quoted paragraph appears in the bytes
+/// that would be sent.
+///
+/// The stronger half is structural and lives elsewhere: `LocalReportModel`,
+/// which holds the resolved paragraph, has NO `Serialize` derive, so the type
+/// carrying the prose cannot be serialized at all (ONTOLOGY §4.22).
+#[test]
+fn a_findings_location_never_reaches_the_reviewer_payload() {
+    use crate::reviewer_agent::{build_review_payload, TargetJournal};
+    let ex = crate::extract::extract_from_text(TWO_LOCATED_PARAGRAPHS);
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(
+        &minimal_outcome(),
+        &validation,
+        None,
+        None,
+        None,
+        TEST_YEAR,
+        vec![],
+        &[],
+    );
+    assert!(
+        report.findings.iter().any(|f| f.location.is_some()),
+        "the fixture must produce a located finding"
+    );
+
+    let (payload, _sent) = build_review_payload(
+        &report,
+        &TargetJournal { name: "J".into(), quartile: "Q1".into() },
+        &[],
+        "run-loc",
+    );
+    let bytes = serde_json::to_string(&payload).unwrap();
+
+    assert!(!bytes.contains("location"), "the location key reached the payload: {bytes}");
+    assert!(!bytes.contains("paragraph"), "a paragraph index reached the payload: {bytes}");
+    // The manuscript markers are unique to the quoted paragraphs.
+    for marker in ["ALPHAMARKER", "BETAMARKER", "gamma marker"] {
+        assert!(!bytes.contains(marker), "manuscript prose {marker:?} reached the payload: {bytes}");
+    }
+}

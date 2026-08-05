@@ -679,6 +679,9 @@ mod tests {
             detail: "d".into(),
             confidence,
             provenance: provenance.iter().map(|s| s.to_string()).collect(),
+            // These tests are about the Finding -> EvidenceRecord mapping, which
+            // reads agent/claim/severity/confidence/provenance and nothing else.
+            location: None,
         }
     }
 

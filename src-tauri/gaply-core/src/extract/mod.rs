@@ -26,6 +26,49 @@ pub struct Location {
     pub paragraph: usize,
 }
 
+/// The paragraph text at `loc`, or `None` if the location does not resolve.
+///
+/// # It must mirror the PRODUCER, and it does
+///
+/// `paragraph` is an index into ONE SECTION's `paragraphs`, not a document-wide
+/// count — `extract_from_text` builds it with `section.paragraphs.iter()
+/// .enumerate()`, so the counter restarts at every section. This function is the
+/// inverse of that loop and of nothing else.
+///
+/// # ONE definition, producer AND consumer
+///
+/// This was `validate::paragraph`, private, and it is *the text the five rules
+/// evaluate* — `max_group_count`, the overclaim scan, the effect-size scan and
+/// the causal scan all read it. Promoting it means the rule that raises a flag
+/// and the report that quotes the flag read the SAME string by construction, so
+/// a quotation can never disagree with the finding it illustrates. §34.3's
+/// one-predicate-producer-and-checker shape, applied again.
+///
+/// # A REPEATED `SectionKind` resolves to the FIRST section of that kind
+///
+/// `split_document` emits one section per recognised heading, so a document with
+/// two headings that classify alike (`"Abstract"` + `"Summary"`,
+/// `"Introduction"` + `"Background"`) yields two sections of one kind — and a
+/// `Location` is then not a unique address. `find` takes the first.
+///
+/// **This is deliberate.** Every rule in `validate.rs` has always resolved a
+/// `Location` this way, so a repeated kind ALREADY makes the rule evaluate the
+/// wrong paragraph. Matching that behaviour exactly is what makes the quotation
+/// faithful — it shows the text the engine read.
+///
+/// > **The reporting layer deliberately preserves the existing `Location`
+/// > semantics and makes any repeated-`SectionKind` ambiguity VISIBLE in the
+/// > rendered report rather than silently masking it. The ambiguity originates
+/// > in the EXTRACTION MODEL, not in the reporting layer.**
+pub fn paragraph_at<'a>(result: &'a ExtractionResult, loc: &Location) -> Option<&'a str> {
+    result
+        .sections
+        .iter()
+        .find(|s| s.kind == loc.section)
+        .and_then(|s| s.paragraphs.get(loc.paragraph))
+        .map(String::as_str)
+}
+
 /// A referenced table (e.g. "Table 1") and its caption, if the paragraph is
 /// the caption itself.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
