@@ -77,6 +77,14 @@ time injection.
 
 ## Working norms (standing)
 
+- **Standing verification commands (from `src-tauri/`, measured — ARCHITECTURE_TRACE §37):**
+  - inner loop — `cargo check --workspace --all-targets` (~7s after a core edit, 0.3s warm)
+  - before a commit — `cargo test --workspace` (~93s, 752 tests)
+
+  **`--workspace` is load-bearing.** Without it, cargo checks the app package's
+  targets and `gaply_core` only as a lib dependency, so a broken or failing
+  `gaply_core` test passes. That gap hid `release_gate.rs`'s non-compilation for
+  four PRs.
 - Commit ONLY when Rishi provides/approves the message; never push unprompted.
 - Canonical remote: `desktop` (`rishi-c-arch/gaply-desktop`); `main` there is
   the backup of local main. Push only when explicitly requested, never forced.

@@ -3268,7 +3268,17 @@ Measured after `touch src/lib.rs` (the realistic edit path), then twice warm:
 | `cargo check --all-targets` | **3.0s** | 0.3s | 0 | yes |
 | **`cargo check --all-targets && cargo test --lib`** | **27.6s** | 3.1s | 177 | **yes** |
 
-> **+3 seconds, +12%, one command line — and the class of defect that hid `release_gate.rs`'s non-compilation for four PRs becomes impossible.**
+> **CORRECTED BY §37 — the "Examples compiled" column DOES NOT SAY WHOSE.** It means the APP package's examples. Run from `src-tauri`, `cargo check --all-targets` checks the app package's targets and `gaply_core` only as a LIB DEPENDENCY — **it cannot see `gaply_core`'s tests or examples at all.** Measured: a deliberate type error in a `gaply_core` test PASSES this command.
+
+> **~~+3 seconds, +12%, one command line — and the class of defect that hid `release_gate.rs`'s non-compilation for four PRs becomes impossible.~~ SUPERSEDED BY §37.** True for the app package, false for the workspace. **`release_gate.rs` is an app example, which is exactly why this command caught it — and why the defect looked closed when it was not.**
+
+#### THE SHARPEST FORM OF THE ERROR
+
+**§34.5's scope-erasure rule — *"a count must carry its scope; '3 sites' is not a fact, '3 sites in `gaply_core`' is"* — was derived PARTLY FROM THE TABLE ABOVE.**
+
+> **The rule was correct, and its own evidence was an instance of what it warned about.** A column reading *"Examples compiled: yes"* is a count without its scope, sitting in the section that named the failure.
+
+**It then produced a wrong Step 2 estimate TWICE, IN OPPOSITE DIRECTIONS**, from two different scope-limited commands: `-p gaply_core --all-targets` reported 5 sites, `--all-targets` reported 1, **and neither was the union, which is 6.**
 
 **Warm cost is identical across all of them (~3s), so the only figure that discriminates is the edit path** — which is the path the command is actually run on.
 
@@ -3895,3 +3905,48 @@ right: "…|\\bOR\\s*=|\\bHR\\s*=|…|\\bR2\\b|R²|\\bf2\\b)"
 **Both were reached by accumulating instances and noticing the shape afterwards**, which is the same route §21's instrumentation-maturity section and §4.20's classes took. **The record has never yet produced a useful principle by stating one first**, and that is worth noting about the method rather than only about the principles.
 
 **They are genuinely distinct.** Divergence needs two artifacts; this one needs only a report and a question. **But they compose at the boundary — an unexecuted rule (§36) is how a divergence (§35) stays silent**, which is why the LIVENESS list, the drifting cache keys, and the tier-1 doc comment each appear under §35 while their persistence is explained by §36.
+
+## 37. The standing command, measured at workspace scope
+
+**§31.26 chose `cargo check --all-targets && cargo test --lib` from measurements taken inside the app package. Both halves are blind to `gaply_core`'s own targets.**
+
+### 37.1 Correctness, measured by injecting three faults
+
+| Fault | `check --all-targets && test --lib` | **the routine actually run** | `check --workspace --all-targets` | `test --workspace` |
+|---|---|---|---|---|
+| Compile error in a **`gaply_core` test** | **MISS** | CAUGHT | CAUGHT | CAUGHT |
+| Compile error in an **app example** | CAUGHT | CAUGHT | CAUGHT | CAUGHT |
+| **Failing** (compiling) `gaply_core` test | **MISS** | CAUGHT | **MISS** | CAUGHT |
+
+> **`check --workspace --all-targets` alone CANNOT replace a test run** — it executes no tests, so a failing test passes it. That was the question worth asking, and measuring it is what answered it.
+
+> **`cargo test --workspace` alone catches all three.**
+
+### 37.2 Cost, after a CORE edit (`gaply-core/src/lib.rs` touched — what Steps 2 and 3 modify)
+
+| Command | After core edit | Warm | Tests |
+|---|---|---|---|
+| the routine actually run (three commands) | **42.2s** | 4.9s | 752 |
+| `cargo test --workspace` | **93.4s** | 5.1s | 752 |
+| `cargo check --workspace --all-targets` | **7.0s** | 0.3s | 0 |
+
+### 37.3 THE ARGUMENT AGAINST KEEPING WHAT IS RUN TODAY
+
+**The three-command routine misses nothing, and that is not a property of the commands.**
+
+> **Its coverage is an ACCIDENT OF HABIT: it misses nothing only because three commands happen to be run and one of them happens to be `-p gaply_core`.** Drop that third command — or run the two that §31.26 actually recorded — and a broken `gaply_core` test compiles to green.
+
+**§31.24 named exactly this: a verification tool whose correctness depends on something other than the tool stops being a verification tool.** The recorded standing command and the practised one had diverged, and the practised one was carrying the coverage.
+
+**The 51-second premium buys eliminating the accident**, it is **paid once before a commit rather than on every edit**, and **the inner loop gets FASTER — 36.6s → 7.0s.**
+
+### 37.4 ADOPTED
+
+| | Command | Cost | Catches |
+|---|---|---|---|
+| **Inner loop** | `cargo check --workspace --all-targets` | **7.0s / 0.3s warm** | every compile error, both packages, all targets |
+| **Before commit** | `cargo test --workspace` | 93.4s | everything, including failing tests |
+
+**Recorded in `CLAUDE.md` as well as here.** A standing routine that lives only in an architecture record is at §21's level 1 — it holds while someone remembers it — and `CLAUDE.md` is the file actually read at the start of a session.
+
+**This does not make the routine enforced.** Nothing runs it automatically; CI remains manual-dispatch-only (§21). **It makes the DEFAULT correct, which is the most a local command can do**, and it removes the case where following the written instruction gives less coverage than the habit.
