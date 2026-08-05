@@ -2772,3 +2772,103 @@ Contrast `CertaintyTier`, which **does** have `label()` (`report.rs:97`) and who
 > **The composer is what the rule actually names, and collapsing it into either neighbour reintroduces the problem it solves.**
 
 **The renderer receives ONE IMMUTABLE STRUCTURE. No SQLite, no filesystem lookups, no business logic.** That is what makes a second renderer cheap and a third one safe.
+
+### 31.11 REFRAMING — §31 is not fundamentally about PDF generation
+
+**It is about the primary artifact meeting the standards already imposed on the engine.**
+
+| The engine already requires | The artifact now requires |
+|---|---|
+| typed data, not untyped projection | `ReportModel`, not `serde_json::Value` re-parsed at `commands.rs:546` |
+| presentation vocabulary, not leaked internals | `severity_label`, not `.toUpperCase()` on the enum |
+| explicit omissions, not silent gaps | a marked omission, not `[^\x20-\x7E]` deletion |
+| labels only where a concept needs one | `claim_label` returning `Option`, `None` for the default |
+| rendering that preserves evidence | the render path asserted, not just the analysis path |
+
+> **The report architecture is an EXTENSION OF THE CORRECTNESS PHILOSOPHY, not a separate UI effort.**
+
+Every item above is a rule this project already applies to the engine, applied one hop further. **PDF generation is the occasion, not the subject.**
+
+### 31.12 The `Deserialize` gap — five derives, no deliberate omission
+
+`PublishReadyReport`, `Finding`, `ChecklistItem`, `DebateSummary` and `CertaintyTier` are `Serialize` only. `FindingSeverity`, `AgentKind`, `ClaimKind` and `EvidenceRecord` already have `Deserialize`.
+
+**Nothing in the tree resists it** — `Finding`'s only non-derived member is `CertaintyTier`; `ChecklistItem` is strings and bools; `DebateSummary` holds `Vec<AgentKind>`, already covered.
+
+**No deliberate omission.** `evidence.rs:164-166` records the opposite case explicitly — *"Derives `Deserialize` (added in Box 2) so the Orchestrator can reconstruct records… this also pulled `Deserialize` onto `AgentKind`/`FindingSeverity`."* **The pattern was to add it when a consumer appeared. No consumer appeared for the report, because `commands.rs` reached for `Value` instead.**
+
+> **Five derives would make `commands.rs:546` parse a typed report, let `build_review_payload` stop indexing `report["findings"]`, and turn §22's `overall_verdict`-reduced-to-a-string into a typed field. `ReportModel` then becomes mostly NAMING rather than mostly RECOVERY.**
+
+**Two caveats.** `#[serde(flatten)]`/`#[serde(tag)]` interact awkwardly with `Deserialize` — not present in these types, but worth checking as they grow. And **`Deserialize` on a public type is a CONTRACT**: anything shaped like the JSON becomes a `PublishReadyReport`, so §26.4's compatibility-pin discipline extends to them. **A benefit, but a decision rather than a side effect.**
+
+### 31.13 The base-14 limit is a MARKET problem, and the current behaviour is worse than missing glyphs
+
+**`miniPdf.ts:29` — `.replace(/[^\x20-\x7E]/g, '')`. Not WinAnsi: ASCII printable, everything else SILENTLY DELETED.**
+
+| Input | Renders as |
+|---|---|
+| `Müller` | **`Mller`** |
+| `Kumar Śarmā` | **`Kumar arm`** |
+| `हिन्दी` | **empty** |
+
+Lines 23-28 first fold typographic quotes, dashes and ellipses to ASCII — deliberate and correct. **Line 29 then removes the remainder.**
+
+> **The failure is not missing glyphs. It is silent, plausible-looking corruption** — `Mller` reads as a name, and a viewer shows no error because the characters were gone before the PDF was written. **ONTOLOGY §4.20's TEXT class, and the instance that named it.**
+
+**Against Gaply's market this is not an edge case.** Indian academic and legal research means diacritics routinely and Devanagari in titles, and **a manuscript title is on page one of the primary artifact.**
+
+**The fallback, in increasing cost:**
+
+1. **Mark the omission** — a visible sentinel instead of deletion. One line. **Required regardless of what else is decided.**
+2. **Extend to WinAnsi** — Latin-1 covers `Müller` and `naïve` with **no font file**, since base-14 carries WinAnsiEncoding. An encoding map. **Does nothing for Devanagari.**
+3. **Embed Noto Sans / Noto Sans Devanagari** — OFL, redistributable, ~450 KB and ~250 KB unsubsetted; subsetting is a further crate.
+
+**This changes §31's v1 estimate.** *"Direct `lopdf` + an AFM table, no font file"* holds **only if the market is Latin-1**. It is not — so **the font decision is deferrable for LAYOUT but not for CORRECTNESS**, and (1) is what makes deferring it honest.
+
+### 31.14 The three vocabulary gaps, settled
+
+**`ManuscriptDefect` → `claim_label` returns `Option<&'static str>`, `None`.** Typed absence rather than an invented word. **The label exists to mark the EXCEPTIONS** — a counted finding is just a finding; only excluded ones need to say why they did not count. This is what the specimen already did.
+
+**`Critical` — the case, found before naming it.** Two rules emit it (`validate.rs:58-66`):
+
+* `TestGroupMismatch` — *"A t-test compares exactly two groups, but the surrounding text refers to {count} groups… inflates the false-positive rate"*
+* `SmallSampleCausalClaim` — *"A strong causal claim is paired with a very small sample (n = {n} < 10)… conclusions are unreliable"*
+
+The code's own comment: *"wrong test / underpowered causal claim **invalidate the analysis**"*.
+
+> **Both say the same thing, and it is not "more serious than Major" — it is a DIFFERENT KIND of problem. `Major` findings are things MISSING from a sound analysis; `Critical` findings are things WRONG WITH the analysis itself.** The label should be about validity, not severity.
+
+**Unobserved across runs 22-25** (`critical: 0` every time), so whatever word is chosen ships untested against real output.
+
+**`RECOMMENDATION_LABEL` → sentence case.** `"Major revision"`, with `text-transform` doing headers. **Caps are presentation, and the PDF needs the label in a sentence.**
+
+### 31.15 The two instruments for §4.20 — a contract, not a plan
+
+| | Verifies | Ships |
+|---|---|---|
+| **PARTIAL** | the SANITIZER'S TRANSFORMATION — what `toAscii` returns for a given input | **now** |
+| **FULL** | REPRESENTATION CORRECTNESS — the artifact's rendered BYTES against known Unicode input | **with the Rust renderer** |
+
+> ## PASSING THE FIRST DOES NOT IMPLY THE SECOND.
+>
+> **The sanitizer can be correct while the renderer is wrong, and the reverse.** An assertion on `Finding.title` passes while the PDF says `arm`. **A future reader must not conclude the sanitizer test covers §4.20 — it covers one function inside it.**
+
+**Why the full instrument waits, stated rather than tracked:** asserting `miniPdf`'s bytes today would **instrument the thing being replaced.** Its home is the first PDF PR. *(Said explicitly because `StageUndelivered` nearly drifted into an open-ended wait for the same reason — §26.13.)*
+
+**The partial ships anyway** because the Rust renderer may be weeks out and **the fix should not sit unguarded in the interval.**
+
+### 31.16 The sanitization policy — two tiers, argued rather than assumed
+
+**The invariant is NEVER SILENTLY DELETE. The transformation policy is a separate decision, and the honest answer differs by script.**
+
+**TIER 1 — Latin with diacritics → TRANSLITERATED.** NFD decomposition drops the combining marks: `Müller` → `Muller`, `Kumar Śarmā` → `Kumar Sarma`.
+
+**Why transliteration and not a mark:** it is what library catalogues do, **the reader recovers the original**, the name stays recognisable, and the meaning is unchanged. `M?ller` satisfies the invariant and is hostile to every European name in the corpus.
+
+**TIER 2 — non-Latin → MARKED, never transliterated.** `हिन्दी` → `□□□□□□`, folded to `?` at the byte layer.
+
+**Why marking and not transliteration:** **no ASCII form of Devanagari, CJK or Arabic preserves meaning for a reader.** IAST and ITRANS are scholarly conventions rather than rendering fallbacks, and both carry diacritics of their own — so transliterating here would produce a plausible-looking romanisation that is **§4.20's error in a new place**. A visible mark states what is true: something was here this renderer cannot show.
+
+**The mark is kept distinct through `toAscii` and folded to `?` only in `escapePdf`**, so a manuscript that genuinely contains `?` is never confused with a character we could not render — and a test can tell them apart.
+
+**This is not a fix for the underlying limitation.** The right answer for tier 1 is to RENDER those characters: base-14 fonts carry WinAnsiEncoding, covering Latin-1 at **zero font cost**. It is unreachable in `miniPdf` because `new Blob([string])` encodes UTF-8 and a multi-byte character would shift the xref offsets — **a technical block, not a scope decision.** It belongs with the Rust renderer (§31.13).

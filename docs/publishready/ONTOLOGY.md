@@ -454,6 +454,49 @@ Three instances, the same shape each time:
 
 **The renderer receives ONE IMMUTABLE STRUCTURE** — no database, no filesystem, no business logic. That is the property that makes a second renderer cheap and a third one safe, and it is the same discipline §4.10 applies to correctness: a component that reaches outside its input cannot be reasoned about from its input.
 
+### 4.20 Standing rule — representation correctness, the second correctness principle
+
+> **EVIDENCE CORRECTNESS — do not invent evidence.**
+> **REPRESENTATION CORRECTNESS — do not silently change evidence while rendering it.**
+
+**Every rule this document has accumulated is about the first.** §4.4 corrects claims exceeding their evidence; §4.5 keeps judgements out of extraction; §4.12 and §4.14 make absence typed and attributed; §4.16 stops a consumer assuming a guarantee. **All of them watch what the engine ASSERTS.**
+
+**None of them watches the last hop.** The engine may hold `Śarmā` correctly at extraction, carry it through the finding, through aggregation, into the persisted record — and the artifact still says `arm`.
+
+#### Why the second is the more insidious
+
+> **Invented evidence is at least visible as a claim someone can check. Silently altered evidence LOOKS LIKE EVIDENCE.**
+
+A fabricated finding can be disputed on its merits. A name with characters removed reads as a name. `Mller` is not obviously wrong; `हिन्दी` rendered as nothing is not obviously missing. **There is no claim to check, because the corruption happened after the claim was correct.**
+
+#### It is BROADER than the encoding case that demonstrated it
+
+**Any rendering transformation that silently changes what the evidence MEANS.** Five classes, and the project has already corrected three of them **without having the category**:
+
+| Class | | Instance |
+|---|---|---|
+| **TEXT** | characters dropped or substituted | **NEW** — `miniPdf.ts:29`'s `[^\x20-\x7E]` deletion. `Śarmā` → `arm`, silently |
+| **NUMBERS** | rounding or formatting that changes what a value says | **`83f192c`** — a bag-of-words cosine rendered as *"% similarity"*, later corrected to *"% word overlap"* |
+| **LABELS** | an internal enum leaking as its own name | **ARCHITECTURE_TRACE §31.6** — `FindingSeverity` has no label function, so every severity a user sees is `.toUpperCase()` on the enum |
+| **PRESENTATION** | a visual implication beyond the computed evidence | **this workstream** — `publication_probability`, a four-value lookup, rendered as a percentage in a gauge |
+| **ORDERING** | a sort implying a ranking the engine never computed | **no instance examined.** Findings are sorted severity → tier → confidence; whether that reads as a ranking has not been tested |
+
+> **Naming the class means the next instance is caught AS AN INSTANCE rather than rediscovered from first principles** — the same argument that made §21's instrumentation-maturity section worth writing.
+
+**The taxonomy, read as a whole:** TEXT is character preservation · NUMBERS is numeric meaning · LABELS is terminology · **PRESENTATION is visual implication beyond computed evidence** · ORDERING is sequence implying ranking. *(PRESENTATION was first written as FORMAT; the value was never corrupted — its VISUAL PRESENTATION implied semantics the implementation did not support, which is what the name should say.)*
+
+#### It has NO INSTRUMENT
+
+**This rule sits at §21's level 1, like most of the others: it holds only while a contributor remembers it.**
+
+**An instrument would have to test the RENDER path, not the analysis path.** Every existing test asserts what the engine produces; none asserts what the artifact contains. The shape:
+
+> **A fixture carrying non-ASCII text — a Devanagari title, a diacritic author name — driven end to end, with the assertion made against the ARTIFACT'S BYTES rather than against any intermediate structure.**
+
+The distinction matters: an assertion on `Finding.title` would pass while the PDF says `arm`. **The test has to read the output file.**
+
+**Not built.** Recorded as the shape it would take, so it is not rediscovered either.
+
 ---
 
 ## 5. Evaluation Protocol

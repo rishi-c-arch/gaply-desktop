@@ -15,23 +15,75 @@ export interface PdfLine {
 const PAGE_W = 595; // A4 @ 72dpi
 const PAGE_H = 842;
 const MARGIN = 48;
+/** Marks a character this renderer cannot represent. Visible on purpose. */
+export const UNREPRESENTABLE = '□';
 
-/** Transliterate smart punctuation and drop other non-ASCII, so every char is
- *  one byte — keeping PDF xref offsets simple and the output free of mojibake. */
-function toAscii(s: string): string {
-  return s
+/** Reduce text to one-byte characters WITHOUT EVER SILENTLY DROPPING ONE.
+ *
+ *  Every char must be one byte: `new Blob([string])` encodes UTF-8, so a
+ *  multi-byte char would shift the xref offsets computed below.
+ *
+ *  # The invariant
+ *
+ *  NEVER SILENTLY DELETE. The previous implementation ended with
+ *  `.replace(/[^\x20-\x7E]/g, '')`, removing characters BEFORE the PDF was
+ *  written — so a viewer never had the chance to report a missing glyph, and
+ *  "Muller" (with an umlaut) exported as "Mller", which reads as a name.
+ *  ONTOLOGY §4.20's TEXT class: silently altered evidence looks like evidence.
+ *
+ *  # Two tiers, because the honest answer differs by script
+ *
+ *  1. LATIN WITH DIACRITICS -> TRANSLITERATED. NFD decomposition drops the
+ *     combining marks, so an umlauted "Muller" becomes "Muller" and "Sarma"
+ *     with diacritics becomes "Sarma". This is what library catalogues do: the
+ *     name stays recognisable, a reader recovers the original, and the meaning
+ *     is unchanged.
+ *  2. NON-LATIN -> MARKED, NEVER TRANSLITERATED. No ASCII form of Devanagari,
+ *     CJK or Arabic preserves meaning for a reader. IAST and ITRANS are
+ *     scholarly conventions, not rendering fallbacks, and both need diacritics
+ *     of their own. A visible mark states that something was here this renderer
+ *     cannot show, which is the honest claim.
+ *
+ *  # What this is NOT
+ *
+ *  Not a fix for the underlying limitation. The right answer for tier 1 is to
+ *  RENDER those characters: base-14 fonts carry WinAnsiEncoding, covering
+ *  Latin-1 at zero font cost. It is unreachable here because the UTF-8 Blob
+ *  path would break the xref, so it belongs with the Rust renderer
+ *  (ARCHITECTURE_TRACE §31.13).
+ */
+export function toAscii(s: string): string {
+  const folded = s
     .replace(/[‘’′]/g, "'")
     .replace(/[“”″]/g, '"')
     .replace(/[–—]/g, '-')
     .replace(/…/g, '...')
     .replace(/[•●]/g, '*')
     .replace(/ /g, ' ')
-    .replace(/[^\x20-\x7E]/g, '');
+    // TIER 1 — strip the combining marks NFD leaves behind, so an accented
+    // Latin letter becomes its base letter rather than vanishing.
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+  // TIER 2 — anything still outside printable ASCII is MARKED, not removed.
+  let out = '';
+  for (const ch of folded) {
+    out += ch >= ' ' && ch <= '~' ? ch : UNREPRESENTABLE;
+  }
+  return out;
 }
 
 /** Escape a PDF literal string. */
 function escapePdf(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  // The unrepresentable mark folds to '?' HERE, not in toAscii: it must be ONE
+  // BYTE for the xref offsets, and '?' is the conventional stand-in no viewer
+  // hides. toAscii keeps the distinct mark so tests can tell a marked omission
+  // apart from a literal question mark in the manuscript.
+  return s
+    .split(UNREPRESENTABLE)
+    .join('?')
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)');
 }
 
 /** Greedy word-wrap using an average Helvetica glyph width (~0.5em). */
