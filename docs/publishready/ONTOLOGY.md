@@ -440,6 +440,20 @@ Three instances, the same shape each time:
 
 **The check, before shipping a correctness fix:** does the defect currently suppress work? If so, what does that work cost, who pays it, and is there a sequencing choice that makes the fix free? In the §15.2 case there is one — metering per caller first, and the repair draws on its own counter rather than the reviewer's allowance.
 
+### 4.19 Standing rule — the report is semantic first, visual second
+
+> **The engine must not think in pages, columns or page breaks.**
+
+**Three layers, and the middle one is what the rule names:**
+
+* **ENGINE → `ReportModel`.** Data. Knows nothing about documents.
+* **COMPOSER → semantic blocks.** Decides **which sections exist and in what order**, in ONE place.
+* **RENDERER → PDF / HTML / DOCX / email.** Lays blocks out, **computes nothing**.
+
+**Two layers do not hold.** An engine that emits blocks knows what a cover is — presentation leaking backwards. Renderers that decide sections diverge on the first edit, which is the drift recorded four times in ARCHITECTURE_TRACE (`matchTypeLabel`'s hand mirror, `adapters.ts`'s hardcoded tiers, `synthesize.ts:45`, `certainty_label`).
+
+**The renderer receives ONE IMMUTABLE STRUCTURE** — no database, no filesystem, no business logic. That is the property that makes a second renderer cheap and a third one safe, and it is the same discipline §4.10 applies to correctness: a component that reaches outside its input cannot be reasoned about from its input.
+
 ---
 
 ## 5. Evaluation Protocol

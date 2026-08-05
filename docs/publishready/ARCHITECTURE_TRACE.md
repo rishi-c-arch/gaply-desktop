@@ -2621,3 +2621,154 @@ Deferred from PR-4 because bundling would make its blast radius two things at on
 **What they would buy:** with `summary`, `instruction` and the system prompt all covered, **identical digests plus different recommendations WOULD be the controlled demonstration §18.1 wanted.**
 
 **Not implemented. Whether the promotion decision needs that level of proof is a separate question** — §30.2's delta is already measurable without it.
+
+---
+
+## 31. The PDF report contract — Milestone 1
+
+**The PDF becomes PublishReady's primary output; the desktop app becomes the engine that produces it.** `publication_probability`, the gauge and the score ring are removed. **The recommendation is the product and the evidence explains it.** Similarity percentages stay, because those are measured.
+
+### 31.0 THE GOVERNING RULE
+
+> ## THE REPORT MUST DESCRIBE WHAT THE ENGINE MEASURED, NOT WHAT A HUMAN NATURALLY INFERS FROM IT.
+
+**It generalises past this document.** A field that exists is a field the engine owns; a field the engine cannot produce faithfully is omitted, not fabricated and not inferred. This is F2/F6's principle applied to presentation rather than to the verdict.
+
+### 31.1 THE HEADLINE — similarity, and the DESIGN overclaimed
+
+**Not the engine underdelivering.** `MatchSpan.similarity` is **cosine over whole-chunk embeddings** (`plagiarism.rs:187-204`). There is **no sub-chunk match to locate, and no offsets because there is nothing to offset** — the comparison unit *is* the chunk.
+
+> **Turnitin shows exact matched text because it does string matching. This engine does embedding similarity over chunks.** A side-by-side layout under a similarity number implies *"these passages matched"* when the engine established *"these two chunks are similar"*.
+
+**VOCABULARY, DECIDED.** Do **not** say *"matching passage"*, *"matched text"*, or *"N% of the words are the same"*. Say **SIMILAR TEXT REGIONS** or **SIMILAR DOCUMENT REGIONS** — the unit named is the unit the engine compared.
+
+**What a match carries today:** `manuscript_chunk_seq`, `manuscript_excerpt`, `similarity`, and the other side's `excerpt` (both `Corpus` and `SelfManuscript`). `excerpt()` is `trim()` truncated at `EXCERPT_CHARS` with an ellipsis — **a chunk prefix, not a sentence**, and chunks are not sentence-aligned.
+
+#### The existing wording was already corrected — do not reopen it
+
+**`83f192c` — *"correct labels that claimed more than the algorithm measures"*.** Its rationale is recorded per replacement:
+
+| Was | Became | Why |
+|---|---|---|
+| *"internal duplication (self-plagiarism)"* | *"(same manuscript)"* | asserted self-plagiarism as a finding |
+| *"verbatim"* | *"near-identical wording"* | word-order-blind cosine cannot establish byte identity |
+| *"near-verbatim"* | *"high word overlap"* | inherited the identity claim at a weaker threshold |
+| *"paraphrase"* | *"partial lexical overlap"* | **inverted** — a real paraphrase scores BELOW threshold and is never reported |
+| *"{N}% similarity"* | *"{N}% word overlap"* | *"similarity"* reads as semantic |
+| *"semantic signal"* | *"lexical-overlap signal"* | asserted a semantic model not in the tree |
+
+**Both sides carry a comment explaining why the words were chosen "so they are not 'improved' back."** That was a considered decision, made well.
+
+**The narrower question, answered:** *"word overlap"* remains the best available description of the **dimension** — lexical, not semantic, word-order-blind. **The residual imprecision is the `%`, not the phrase:** cosine over feature-hashed term-frequency vectors is not literally the fraction of shared words. **That is a rendering question for Milestone 2**, and it points the same way as removing the probability gauge.
+
+### 31.2 Classification
+
+**A — READY TODAY, presentation only**
+
+manuscript title (`Option`, so absence is honest) · target journal · assessment date · run id · **reference count** · **table count** · finding counts by tier · **excluded count and per-finding reasons** · section location · recency numbers · citation-style percentage · table caption count · checklist with the guideline/structural split.
+
+**THE REPORTED-STATISTICS BLOCK IS A, minus the F value.** `MissingEffectSize` is emitted per p-value location (`validate.rs:256-266`), and `Flag.location` is the same `Location` carried by every `StatClaim` — so filtering `extraction.statistics` on matching `location` recovers what *was* reported. `Stat::Test { name }` gives a canonical test label and `Stat::PValue { operator, value }` renders `p < 0.05` exactly. **"Reported: One-way ANOVA, p = 0.02 · Missing: effect size" ships at zero engine cost, and it is the most actionable block in the report.**
+
+**B — HONEST PLACEHOLDER**, with the smallest change to reach A:
+
+| Item | Why | Smallest change |
+|---|---|---|
+| **F statistic** | `Test.raw` is the *test-name* match, not `F(2,27)=14.3`; no F extractor | one regex + a `Stat::TestStatistic` variant — **additive, no schema bump** |
+| **nearby text** | no finding carries a manuscript snippet | a lookup: `sections[k].paragraphs[loc.paragraph]`. **No extraction change** — see §31.3 |
+| **similarity excerpts** | chunk prefixes, not passages | **possibly zero code** — a vocabulary decision (§31.1) |
+| **page count** | pagination is lost at parse; the engine never receives one | **stays B and OMITTED** — see §31.4 |
+| **subsection** | `Location` has `section` + `paragraph`; `SectionKind` is flat | `subsection: Option<String>` on `Location` — **largest**: touches every producer and the evidence schema |
+
+**C — NEW PRODUCT FEATURE**
+
+**A prioritised revision checklist**, if it means remediation advice rather than a restatement of findings. A restatement is A. **Advice is a separate PR and must not enter the report work.**
+
+### 31.3 The nearby-text boundary is STRUCTURAL, not conventional
+
+The lookup is cheap **and it puts manuscript prose into the report.** The PDF is a **local artifact**, so that is appropriate. `build_review_payload` **crosses to the proxy**, so it is not.
+
+> **The snippet must live in a type the payload builder CANNOT REACH — a report-assembly-layer or local-only type — so it cannot accidentally flow remote, rather than merely not doing so today.**
+
+`build_review_payload` already drops `detail` deliberately for exactly this reason. **A convention that "we don't put snippets in the payload" is a rule someone can forget; a type that has no snippet field is one they cannot.**
+
+### 31.4 Page count — omitted, with the substitution recorded
+
+The frontend has `estimatePdfPageCount`, and threading it in would be easy. **It is an ESTIMATE**, so rendering *"13 pages"* is the report implying knowledge the engine lacks — §31.0 exactly.
+
+> **Once the PDF exists, its own page count is a fact the report genuinely owns.** That is the substitution: not the manuscript's page count, the report's.
+
+### 31.5 `exportPdf.ts` — REPLACE, not a starting point
+
+62 lines. It emits **combined confidence as a percentage** and **per-finding confidence as a percentage** — two of the precision claims this workstream exists to remove. No cover, no grouping, no exclusions, no similarity, no journal section.
+
+**Its only reusable asset is the `lines.push({ text, size, gray })` primitive.**
+
+### 31.6 The severity leak is an ABSTRACTION leak, not a wording problem
+
+**FACT.** `FindingSeverity` has **no label function in Rust** — `rank()` only (`report.rs:126-137`). Every severity string a user sees is TypeScript doing `f.severity.toUpperCase()`.
+
+> **No presentation layer for severity exists at all. Nobody chose "Major" as user-facing language — the product has been exposing an internal enum value, uppercased.**
+
+**So introducing *"Important issue"* is CREATING the first presentation vocabulary for severity, not rebranding an existing one.** Materially smaller and cleaner than a rename: there is no prior decision to overturn and no second site to keep in step, because the second site is `.toUpperCase()`.
+
+Contrast `CertaintyTier`, which **does** have `label()` (`report.rs:97`) and whose wording was deliberately chosen. **Severity never got that treatment.**
+
+### 31.7 VERIFIED — both digests are already partly EDITORIAL
+
+**`title` is user-facing prose, and it is inside both digests.**
+
+* `build_review_payload` emits `"title": clamp(f["title"])` per finding (`reviewer_agent.rs:520`).
+* `findings_projection_digest` hashes `(id, severity, **title**)` (`:411-415`).
+* `summary_digest` hashes all of `payload["summary"]`, which contains those findings.
+
+> **A typo fix, a wording improvement or a clarity edit to any finding title changes BOTH digests today.**
+
+**Another claim-narrower-than-assumed correction, in the same family as §18.3 and §30.3.** `summary_digest` is **already partly an EDITORIAL digest, not purely an analytical one**, and identical digests imply **identical presentation-plus-analysis**, not identical analysis.
+
+**True since §18.7 and never stated.** It sharpens the Milestone 2 caution: moving labels onto the wire would not *make* the digest editorial — **it already is**. What changes is how often an editorial edit moves it.
+
+### 31.8 The nine label sites, classified
+
+**The guard that stops the vocabulary becoming "every string in the application"**, which would recreate the coupling it exists to remove.
+
+| Site | Class |
+|---|---|
+| `FindingSeverity` *(no producer — TS `.toUpperCase()`)* | **ANALYTICAL** |
+| `ClaimKind` → *Technical check* / *AI writing signal* | **ANALYTICAL** |
+| `Recommendation` / `RECOMMENDATION_LABEL` | **ANALYTICAL** |
+| `CertaintyTier::label` (`report.rs:97`) | **ANALYTICAL** — already correct, already Rust-owned |
+| `match_type_label` (`report.rs:66`) + `matchTypeLabel` (`adapters.ts:38`) | **ANALYTICAL** — hand-mirrored today |
+| `RuleId::label` (`validate.rs:68`) | **GENERATED** — a rule identity, consumed *inside* a title |
+| **finding `title`** (12 constructors) | **GENERATED** |
+| `adapters.ts` hardcoded `certainty_label` (5×) | **ANALYTICAL, currently duplicated** — the wire already carries it |
+| `AGENT_LABEL` (`exportPdf.ts`), `STAGE_LABEL` (`useAnalysis.ts`) | **PURE UI** |
+
+> **THE BOUNDARY: vocabulary owns closed concepts · producers own generated findings · presentation maps concepts and never generates evidence.**
+
+**Carried forward, unresolved:** finding titles are **formatted sentences with interpolated data**, and the vocabulary cannot own them — **centralising them would replace typed producers with string templates, which is a regression.** And the agreed mappings still need reconciling against these sites, including `RECOMMENDATION_LABEL`'s caps.
+
+### 31.9 ARCHITECTURAL DECISION — the report is the canonical output and Rust owns it
+
+**Phase 4 of the project: artifact ownership.**
+
+> **The UI becomes a VIEWER of the report, rather than the report being an EXPORT of the UI.**
+
+**The reason is not that Rust makes better PDFs.** It is that **every milestone completed was about the report and none was about the React screen** — identity (§26), provenance (§22), evidence (§23), exclusions (§26 PR-3), guideline traceability (§18.6), the recommendation (§26 PR-4), the baseline freeze (§30), digest discipline (§18.7, §30.3). **The React screen has been the accidental owner of the thing the whole project was building.**
+
+**What made this decidable without a trade-off:** §31.5's estimate found that **layout is the work, and it is the same work in either language**. Neither `lopdf` nor `miniPdf.ts` does layout; the current word-wrap is an approximation either way.
+
+> **Cost is language-neutral; only ownership differs. That is the REVERSE of the usual shape, where the better architecture costs more.**
+
+### 31.10 THREE LAYERS — the refinement that makes the rule hold
+
+| Layer | Owns | Knows nothing about |
+|---|---|---|
+| **ENGINE** | `ReportModel` — data | documents, pages, sections-as-layout |
+| **COMPOSER** | semantic blocks: **which sections exist and in what order**, in ONE place | pages, columns, breaks |
+| **RENDERER** | PDF / HTML / DOCX / email: **lays blocks out, computes nothing** | the database, the filesystem, business logic |
+
+**Why not two layers.** If the **engine** emits blocks it knows what a cover is — **presentation leaking backwards**. If **renderers** decide sections, three renderers diverge on the first edit — **the drift this project has now seen four times** (`matchTypeLabel`'s hand mirror, `adapters.ts`'s hardcoded tiers, `synthesize.ts:45`, `certainty_label`).
+
+> **The composer is what the rule actually names, and collapsing it into either neighbour reintroduces the problem it solves.**
+
+**The renderer receives ONE IMMUTABLE STRUCTURE. No SQLite, no filesystem lookups, no business logic.** That is what makes a second renderer cheap and a third one safe.
