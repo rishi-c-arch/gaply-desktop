@@ -3950,3 +3950,27 @@ right: "…|\\bOR\\s*=|\\bHR\\s*=|…|\\bR2\\b|R²|\\bf2\\b)"
 **Recorded in `CLAUDE.md` as well as here.** A standing routine that lives only in an architecture record is at §21's level 1 — it holds while someone remembers it — and `CLAUDE.md` is the file actually read at the start of a session.
 
 **This does not make the routine enforced.** Nothing runs it automatically; CI remains manual-dispatch-only (§21). **It makes the DEFAULT correct, which is the most a local command can do**, and it removes the case where following the written instruction gives less coverage than the habit.
+
+## 38. Step 2 is a DOCPARSE item, and its value is navigation, not findability
+
+**Step 2 (numbered subsections in a `Location`) is deferred and reclassified. It is not a `report.rs` item and never was.**
+
+### 38.1 Why the rejection was right, and why narrowing was more right
+
+The corpus available to tune it has **zero true subsections**. A rule tuned against such a corpus can only be tuned until its false positives fall silent — **it is tuned against no positive evidence at all**, which is §4.9's absence-operand problem wearing a threshold. Low recall would have been defensible; *unmeasurable precision* is not.
+
+### 38.2 The stronger reason — Step 3 supersedes the purpose
+
+**`nearby_text` supersedes the subsection FOR THE PURPOSE THE SUBSECTION SERVED.** "Results › Primary outcomes, paragraph 3" still requires the reader to count paragraphs. "Results, paragraph 3 — '…the quoted sentence…'" is found by searching the author's own document. **Step 3 delivers findability directly**, and once the sentence is present a numbered-only subheading is a label nobody needs.
+
+### 38.3 Its real home, and its real value
+
+The signal Step 2 wants does not exist in `report.rs` or in `sections.rs`. It exists in **DOCX paragraph styles and PDF font-size runs, which `docparse` currently discards** — `parse_docx` reads `w:t` text and drops `w:pStyle`; `parse_pdf` takes `pdf_extract::extract_text`, which returns no font metrics at all. A heuristic over plaintext is a reconstruction of information the format already carried and the adapter threw away.
+
+| | |
+|---|---|
+| **Home** | `extract/docparse.rs` — surface style/size runs the adapters discard |
+| **Value** | **navigation polish**, not findability |
+| **Prerequisite** | a corpus containing real subsections; the present one has none |
+
+**Recorded with that home and that value so it is not later re-scoped as "5 sites" in `report.rs`** — which is the number §34.5's scope-erased measurement produced, and the reason §37 exists.
