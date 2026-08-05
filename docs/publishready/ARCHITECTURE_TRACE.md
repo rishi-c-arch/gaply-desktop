@@ -4657,3 +4657,84 @@ One paragraph stream feeds ten consumers. With one entry where there are 26:
 **The convention's natural unit may be the STYLE BLOCK rather than the section.** PDF renderers emit line spacing per paragraph style, which would explain why one document's body and references differ within it — *"section"* may be a proxy that happens to align here only because References is typically its own style.
 
 **n = 2, and the section is sufficient for everything measured. Recorded so it is available if a document ever splits conventions WITHIN a section, and deliberately not built on.**
+
+## 46. Item 1c's classifier — three kinds of warrant, kept apart
+
+**The classifier reads a References section's blank-line grouping and decides which convention governs it. Its three arms do NOT rest on the same kind of evidence, and collapsing them into one rule would hide which part a future document could overturn.**
+
+### 46.1 PROVED — `median == 1` uniquely identifies the Noise convention
+
+**From what the median MEASURES, not from the corpus.** A noise convention means a blank line after every rendered line, so **every group has size exactly 1 and the median is exactly 1.** Contrapositive: **a median above 1 means at least half the groups contain multiple lines, so the document is not using the noise convention.**
+
+**That is a consequence of the definition. No document can falsify it.**
+
+### 46.2 What is NOT proved — that not-Noise implies Structure
+
+> **Ruling out one convention does not establish that only one alternative remains.**
+
+The argument eliminates Noise. It does not eliminate: a **mixed-convention** section, **OCR artifacts** producing uneven blanks, **publisher conversion quirks**, a **malformed PDF**. **None of these need exist in the corpus** — the point is that the argument does not exclude them, and an implementation that maps every non-Noise measurement to Structure is choosing, not deducing.
+
+### 46.3 The three arms, by warrant
+
+| | Arm | Warrant |
+|---|---|---|
+| **PROVED** | `median == 1` → **Noise** | a property of the measure; unfalsifiable |
+| **OBSERVED** | `median == 3` → **Structure** | **one** corpus document |
+| **DEFAULTED** | every other non-Noise measurement → **Structure** | **no third convention has been observed or evidenced** |
+
+> **A mathematical property, a measurement, and an engineering default. Only the third can be overturned by a future document without either of the first two being wrong**, and that is precisely why it is labelled rather than folded in.
+
+**This supersedes the earlier recommendation to treat `median == 2` as unclassifiable.** That recommendation was reasoning from *"no corpus document has a median of 2"* — true, and it treated an unobserved value as though it were an uncertain one. **Under the split above, 2 is not uncertain; it is DEFAULTED, like every other non-Noise value, and the default is named.**
+
+### 46.4 DO NOT SUBSTITUTE UNCERTAINTY FOR ABSENCE OF EVIDENCE
+
+> **An UNOBSERVED value calls for MEASUREMENT. Only AMBIGUOUS EVIDENCE calls for a DECISION RULE.**
+
+**Treating the first as the second builds machinery to handle doubt that does not exist** — a third state, a discontinuity, a confidence band — **and the machinery then needs its own justification**, which cannot come from the evidence, because there was none. The median-2 recommendation was exactly this: a discontinuity proposed to protect against uncertainty at a value that had simply never been seen.
+
+**Stated METHODOLOGICALLY, not absolutely.** There are cases where an unobserved value genuinely IS uncertain — a model predicting a range over unseen outcomes is one, and so is any estimator asked to extrapolate. **This is a rule about how THIS PROJECT'S ENGINEERING DECISIONS proceed, not a claim about inference in general:** when a decision could be settled by one measurement, measure; do not build a state for it.
+
+#### The project mostly got this right, which is what makes it worth stating
+
+| Unmeasured quantity | How it was held |
+|---|---|
+| how often real manuscripts repeat a `SectionKind` (§39.2, §45.7) | **UNMEASURED** — *"the frequency in real manuscripts is unknown, which is why the fix waits for evidence"* |
+| what fraction of quantitative manuscripts the threshold class affects (§40.2) | **UNMEASURED** — *"demonstrates the MECHANISM; measuring additional manuscripts is the next step"* |
+| what a References median of 2 means | **swapped for DOUBTFUL** — and a third state was designed for it |
+
+**Two held correctly, one swapped.** A rule that the record had already been following in two places and broke in a third is worth writing down precisely because it was invisible while it was working.
+
+### 46.5 MIXED CONVENTION IS NOT UNCERTAINTY — it is the model's scope being exceeded
+
+**The classifier assumes ONE convention governs an entire References section.** A section that switches conventions partway does not make the classifier *unsure*; it makes the classifier's premise **false**.
+
+> **Uncertainty WITHIN a model and the model's SCOPE BEING EXCEEDED deserve different treatment, and conflating them hides the second inside the first.**
+
+A confidence value, a third state, or a wider threshold all express the first. **None of them expresses the second**, because the quantity being reported is no longer about the thing it claims to describe. Recorded here so that a future document exhibiting it is diagnosed as *out of scope* rather than as *hard to classify* — the same distinction §4.12 draws between an absent value and a value that could not be computed, one level up.
+
+### 46.6 THE PROVED PART, VERIFIED AGAINST THE DATA
+
+**In principle a median above 1 cannot arise from a noise convention. Checked empirically anyway:**
+
+| | |
+|---|---|
+| sections characterised across all nine PDFs (≥5 groups) | **20** |
+| sections measuring **median > 1** | **1** — Cureus's References (median 3, 27 groups, max 5) |
+
+**Nineteen noise-convention sections, every one measuring exactly 1.** Nothing in the corpus produces a median above 1 from text that is genuinely double-spaced by the renderer, so **the proof holds against the available evidence as well as in principle.**
+
+### 46.7 THE QUESTION'S SHAPE — how the second edge case was found
+
+**The reusable part is not the edge case. It is the question that reached it.**
+
+| | |
+|---|---|
+| **original** | *"too few lines?"* |
+| **broadened** | *"when is the measurement insufficient to CLASSIFY?"* |
+| **found** | a large, well-formed References section with **no blank lines at all** — 75 lines, ONE group, median 75 |
+
+> **The narrow question assumed SIZE was the only failure mode. The broad one reached a case that has nothing to do with size** — a section big enough to characterise and structurally incapable of being characterised, because the signal the measure reads is absent rather than scarce.
+
+**And the case matters: under a naive `median > 1 → Structure` rule it classifies as Structure, then finds no blank lines to close on, and the entire section becomes one block — the exact collapse the classifier exists to prevent, reached from the opposite direction.** The classifier therefore tests `groups <= 1` before reading the median at all.
+
+**The general form:** when asking what defeats a measurement, ask what the measurement REQUIRES, not what it is small enough to miss. **Scarcity is one failure mode and the obvious one; absence of the signal, and violation of its preconditions, are others, and neither is reached by making the scarcity question more precise.**
