@@ -4131,3 +4131,157 @@ An author searching that lands on Table 1 exactly. **The anchor the design rejec
 Flattening makes the rule's unit BIGGER: Results ¶3 is 2131 chars and 156 decimal numbers against a 741-char median prose paragraph in the same section. *"Same paragraph ≈ same claim"* fails there, and the consequence is **suppression** — one effect size anywhere in a large table would silence every p-value flag in it. **A false NEGATIVE class, and unobservable on this corpus** (zero effect sizes), so it is recorded as a structural risk and not as a measurement.
 
 `ExtractionResult.tables` already holds Table 1/2/3 with captions and locations. `validate.rs` cannot see it and has no notion of table structure. **The information exists; the rules do not consult it.**
+
+## 41. Board item 1 investigated — and a load-bearing claim of the investigation was wrong
+
+### 41.1 The corpus, and what it is not
+
+35 real documents parsed from one machine (0 unreadable), after excluding 11 Word lock files, 4 Gaply design PDFs and 5 non-manuscripts. **Nine files contain an extractor-matched p-value; they reduce to FOUR DISTINCT PAPERS** — six of the nine are revisions or format-variants of one QI paper. 252 p-value matches across files; **47 validation flags across the four distinct papers.**
+
+> **Every threshold-vs-result classification below was made by ONE labeller reading 57 contexts.** No inter-rater agreement was measured. That is the binding limit on every rate in this section, and it is stated first because a table of percentages reads as a measurement whatever the caveat says.
+
+### 41.2 THE CORRECTION — "the evidence is discarded at extraction" IS FALSE
+
+**The investigation's load-bearing claim was that `Stat::PValue.raw` holds only the eight characters `p ≤ 0.05`, so the distinguishing text is gone before any rule runs and no rule-side fix is a candidate.**
+
+**Checked against Step 3's own work, and refuted.** `raw` is not the rule's input:
+
+```rust
+// validate.rs:260 — rule 3
+if !patterns().effect_size.is_match(paragraph(result, loc)) {
+```
+
+`paragraph(result, loc)` is `extract::paragraph_at`, which returns **the whole paragraph**. `StatClaim` carries a `Location`; Step 3 promoted the resolver precisely so this string has one definition. **`validate.rs` can read "compared by the critical difference at" today.**
+
+**Measured over the corpus, on the exact string each rule reads:**
+
+| | flagged paragraphs | policy phrase present |
+|---|---|---|
+| **Threshold-derived** | **6** | **6 — 100%** |
+| Result-derived | 24 | **0 — 0%** |
+
+**`raw` being eight characters is TRUE and does not imply unavailability.** The two are independent, and the investigation collapsed them.
+
+#### THE 0-OF-24 IS THE STRONGER HALF
+
+> **6 of 6 shows the policy phrases are AVAILABLE. 0 of 24 shows they DO NOT OVER-FIRE — and that is the harder half, and the one any detection strategy actually rests on.**
+
+**Availability alone would justify nothing.** A phrase list that appears in every threshold paragraph *and also* in half the result paragraphs is not a signal; it is a way of flagging most p-values. The measurement that matters is the negative one: **24 paragraphs whose p-values are genuine reported results, and not one of them carries a policy phrase.** The 6 says the evidence is reachable; the 24 says reaching for it discriminates.
+
+### 41.3 The conclusion survives; the argument for it does not
+
+**Extraction-side is still the right home — for a DRY reason rather than a forced one.**
+
+> **The classification belongs to the STATISTIC, not to any rule.** Three rules (`PValueOverclaim`, `MissingEffectSize`, `MissingConfidenceInterval`) plus three non-rule consumers (`report_build::describe`, `paper_corpus.rs`, `extract/persist.rs`) all key on `Stat::PValue`. Deciding *"criterion or result"* inside each is the duplication generator this record has found repeatedly — `matchTypeLabel`, `report_cache_key`, the effect-size alternation (§31.24). **Classify once and every consumer inherits it.**
+
+**Why the distinction is worth the paragraph it costs:** *a decision justified by a FALSE CONSTRAINT goes unexamined when the constraint is later found not to hold.* Had "the evidence is gone" stood, a future reader finding `paragraph_at` in `validate.rs` would have concluded the placement was wrong and moved it — because the recorded reason would be visibly false, and nothing would have recorded the real one. **The conclusion survived the correction; the argument for it did not, and only the argument is reusable.**
+
+### 41.4 THE MARKER FALSIFIER — the most useful negative result
+
+**No surface-marker regex is currently justified, and the reason is a case, not an intuition.** ILI Chapter 6:
+
+> "…all four differences are **significant at** p < 0.001."
+
+**A RESULT, using the same construction as IJAS's threshold legend** *"NS, not significant at p ≤ 0.05"*. The bare marker appears in both classes, so it cannot separate them.
+
+**What separated cleanly in §41.2's 6/0 measurement was a POLICY VERB** — *"significance level"*, *"significance was determined at"*, *"critical difference at"*, *"not significant at"* (negated, in a legend), *"was detected"*. **The 0-of-24 is evidence these do not over-fire on results IN THIS CORPUS. It is NOT evidence the list is complete** — three phrasings from three papers is a sample, not a vocabulary, and the falsifier shows how narrow the margin is between a phrase that separates and one that does not.
+
+### 41.5 The value heuristic — FOLK KNOWLEDGE, and half of it falsified
+
+| | occurrences | criteria |
+|---|---|---|
+| at 0.05 | 10 | **7 (70%)** |
+| away from 0.05 | 47 | **0** |
+
+**The falsifier**, Chapter 5-6: *"p < 0.0001 at 1, 2, 4 and 6 h; p < 0.001 at 8 h; **p < 0.05 at 12 h**"* — a reported result, at 0.05, with `<`.
+
+> **The value can rule a criterion OUT (47/47 away from 0.05 are results), never IN (70% is not a decision).** Labelled folk knowledge because that is what it is; the asymmetry is the only part the corpus supports.
+
+**Operators:** `=` is a result 47/47 and never appears as `p = 0.05`. `≤` is a criterion 3/3 — **all three in one paper, in one author's house style, which is not a convention.** `<` is used for both.
+
+### 41.6 The false-negative trade
+
+Suppressing every p at 0.05 removes 8 false flags and costs 2 true ones — **4:1, measured on the corpus that produced the heuristic**, with a 30% error rate at 0.05, and the drop would be **silent**: an absence with no attribution (§4.14). The ratio is the trap, not the argument.
+
+### 41.7 What inherits it
+
+**THREE rules, not two.** `pvalue_locs` feeds `PValueOverclaim` (`:244`), `MissingEffectSize` (`:260`), `MissingConfidenceInterval` (`:274`) — 13 / 85 / 82 flags across the corpus. Rules 1 and 5 key on other sets and are unaffected. **Note rule 4 reads no text at all today** — it tests `is_primary(section) && !ci_locs.contains(loc)` — so it is the one rule for which the evidence is *available but unused*.
+
+**`stats_verdict.rs:127` already guards, with a DIFFERENT rationale:** *"an `=`-reported p is a point value we can compare; inequalities are bounds, not values"*. **Bound-vs-value, not criterion-vs-result** — `p < 0.001` is a genuine result and also a bound. It is a precedent that the split is implementable, **not evidence that it is the right split**, and reading it as support would borrow a conclusion from an argument that does not reach it.
+
+### 41.8 The rate
+
+| Paper | Format | Flags | From a threshold |
+|---|---|---|---|
+| IJAS Bombyx | PDF | 5 | **5 — 100%** |
+| Chapter 5-6 | DOCX | 12 | 2 |
+| BMW PDSA / Cureus | DOCX | 28 | 1 |
+| ILI Chapter 6 | DOCX | 2 | 0 |
+| | | **47** | **8 — 17%** |
+
+**One paper in four has an entirely false statistical-finding set.** Mechanism confirmed on three papers; **the 17% is n=4, one labeller, and is not a population figure.**
+
+### 41.9 Items 1b and 1c — and the identity check 1b required
+
+**1c IS ESTABLISHED REGARDLESS OF THE PAIRING.** The same QI paper yields **26 references as DOCX and 1 as PDF**. A reference count collapsing to one survives any doubt about revisions.
+
+**1b needed an identity check, and it PASSED.** *"Cureus Manuscript (Revised).docx"* vs *"final Cureus Manuscript (Revised).pdf"*:
+
+| | |
+|---|---|
+| 8-gram shingle overlap | **93.2% A→B, 92.2% B→A** |
+| Abstract | identical opening, 6 paragraphs both |
+| Words | 8222 / 8318 |
+| Residual non-overlap | PDF hyphenation and reflow artefacts — `"hindi- english"`, `"post- intervention"`, `"heteroskedasticity- and"` |
+
+**The doubt was worth raising and did not survive it.** §17/§19/§23.4's pattern — two artifacts assumed identical — checked for the fourth time, and this time the assumption held.
+
+**What the pair then isolates:** 74 statistics extracted from the DOCX, 71 from the PDF — **near-identical statistics, 29 flags versus 16.** The difference is not content and not extraction of the statistics; it is the paragraph UNIT. Methods 102 paragraphs vs 17; Results 312 vs 32.
+
+| Document | Format | Paragraphs | Median chars |
+|---|---|---|---|
+| IJAS Bombyx | PDF | 36 | **728** |
+| Cureus | PDF | 86 | **545** |
+| BMW PDSA | DOCX | 477 | **14** |
+| Chapter 5-6 | DOCX | 991 | **12** |
+| ILI Chapter 6 | DOCX | 2360 | **4** |
+
+`parse_docx` writes `\n\n` at every `</w:p>` (`docparse.rs:370`), so every heading, table cell and one-line row becomes a paragraph; `reflow_pdf_text` is PDF-only. **Flagged DOCX paragraphs of 9, 12, 19, 21 and 30 characters were observed — windows in which no effect size could ever appear, so the flag is structurally guaranteed.**
+
+> **§40.3 recorded the opposite end of this: PDF table flattening makes the window too LARGE. Both are real. They are two ends of one missing invariant — nothing in the system states what "same paragraph" is supposed to MEAN.**
+
+#### 1b's SEVERITY IS STRUCTURAL, NOT FREQUENCY-BASED
+
+**A flagged DOCX paragraph of 9, 12, 19, 21 or 30 characters is a window in which no effect size could fit.** `MissingEffectSize` there is not wrong *on this manuscript* — **it CANNOT BE TRUE. It is false by construction**, and no manuscript exists on which it could be right.
+
+**That is a DIFFERENT CLASS from item 1**, and the difference should not be blurred by both being called false positives:
+
+| | Item 1 | Item 1b |
+|---|---|---|
+| What is wrong | the finding's **grounding** — it points at a criterion and calls it a reported result | the finding **cannot be true** — the window admits no effect size |
+| Does the advice survive? | **often yes** — this manuscript genuinely reports no effect sizes, so "no effect size" is right for the wrong reason | **no** — nothing is being measured |
+| Depends on the manuscript? | yes — 1 paper in 4 was wholly affected | **no — structural** |
+
+**And the exposure is worse than the corpus suggests. DOCX is what most authors upload**, and **the baseline never saw it: run 25 was the PDF** (`manuscript_sha256 859880647c…`, §30.1). **Every operational measurement this record holds was taken on the format with the LARGER window** — so §30's baseline, §27.1's finding decomposition and §40.2's rate are all PDF figures, and the DOCX path has never been measured end to end.
+
+**1b has therefore graduated from hypothesis to finding.** The ordering below was decided when it had not.
+
+### 41.10 The corpus was PRICED AND DECLINED
+
+| | |
+|---|---|
+| Source | PubMed Central OA subset; this machine cannot supply it — 35 documents yielded 4 with p-values |
+| Fetch + parse | ~1 hour, negligible compute |
+| **Labelling** | 50 papers × ~15 p-values ≈ **750 contexts, 2–4 hours focused** |
+| Second labeller | doubles it — and inter-rater agreement should be measured, not assumed |
+| **Total** | **half a day to a day of human labelling** |
+
+**DECLINED, and the reason is not cost.** The mechanism holds on three papers and the fix's location is settled without it. **The rate matters for prioritising this against other work, not for deciding whether it is real** — and paying for a number that cannot change the decision is the shape §31.26 warns about.
+
+### 41.11 Ordering, decided on evidence grade
+
+1. **Item 1** — it produces incorrect claims about the manuscript, the fix's location is settled, no corpus is needed to begin.
+2. **Item 1c** — established, and likely an independent extraction defect.
+3. **Item 1b** — decided third when it was a hypothesis; §41.9's identity check has since graduated it to a finding.
+
+**The ordering follows the evidence grades the investigation produced rather than treating three discoveries as equally established** — which is the durable part, and it survives 1b's promotion.
