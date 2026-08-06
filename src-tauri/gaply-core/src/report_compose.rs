@@ -362,16 +362,49 @@ fn statistics(model: &LocalReportModel, out: &mut Vec<Block>) {
     }
 }
 
+/// Shown when the run consulted no journal guidelines at all.
+///
+/// # Why the heading alone was not enough
+///
+/// `build_checklist` with `guidelines_url: None` returns the ALWAYS-ON
+/// structural checks and nothing else — the honest empty case. But the section
+/// was headed "Guideline checklist" either way, so a reader saw a list of met
+/// requirements under a heading promising a journal comparison that never
+/// happened. §4.12's typed absence, one layer up: the checklist was present,
+/// plausible, and not what it appeared to be.
+pub const NOTE_NO_GUIDELINES: &str =
+    "No journal guidelines were consulted for this run, so nothing below compares your \
+     manuscript against a specific journal's requirements. These are Gaply's always-on \
+     structural checks. Their silence is not a journal's approval.";
+
 fn checklist(model: &LocalReportModel, out: &mut Vec<Block>) {
     if model.checklist.is_empty() {
         return;
     }
+    // The DATA already distinguishes the two kinds: `guideline_source` is the
+    // RAG source URL an item came from, and `None` marks the always-on
+    // structural checks. Nothing read it.
+    let from_guidelines = model.checklist.iter().any(|i| i.guideline_source.is_some());
+
     out.push(Block::PageBreak);
-    out.push(Block::Heading { text: "Guideline checklist".into(), level: 1 });
+    out.push(Block::Heading {
+        text: if from_guidelines { "Guideline checklist".into() } else { "Structural checks".into() },
+        level: 1,
+    });
+    if !from_guidelines {
+        out.push(Block::Note { text: NOTE_NO_GUIDELINES.into() });
+    }
     for item in &model.checklist {
+        // In a MIXED list the structural items must not read as the journal's
+        // requirements either.
+        let origin = if from_guidelines && item.guideline_source.is_none() {
+            " (structural check, not a journal requirement)"
+        } else {
+            ""
+        };
         out.push(Block::Bullet {
             text: format!(
-                "[{}] {} — {}",
+                "[{}] {} — {}{origin}",
                 if item.passed { "met" } else { "not met" },
                 item.requirement,
                 item.detail
@@ -701,6 +734,65 @@ mod tests {
         );
     }
 
+
+    fn chk(req: &str, source: Option<&str>) -> crate::report::ChecklistItem {
+        crate::report::ChecklistItem {
+            requirement: req.into(),
+            passed: true,
+            detail: "d".into(),
+            guideline_source: source.map(String::from),
+        }
+    }
+
+    /// **A CHECKLIST BUILT FROM NO GUIDELINES MUST SAY SO.**
+    ///
+    /// `build_checklist` with `guidelines_url: None` returns the always-on
+    /// structural checks — the honest empty case — but the section was headed
+    /// "Guideline checklist" regardless, so a reader saw met requirements under
+    /// a heading promising a journal comparison that never happened.
+    #[test]
+    fn a_checklist_with_no_guidelines_is_labelled_structural_and_discloses_it() {
+        let mut m = model_with(vec![]);
+        m.checklist = vec![chk("required section: Abstract", None), chk("has references", None)];
+        let blocks = compose(&m);
+        let h = headings(&blocks);
+        assert!(h.iter().any(|t| t == "Structural checks"), "heading must not promise guidelines: {h:?}");
+        assert!(!h.iter().any(|t| t == "Guideline checklist"), "{h:?}");
+        assert!(
+            blocks.iter().any(|b| matches!(b, Block::Note { text } if text == NOTE_NO_GUIDELINES)),
+            "the disclosure must be emitted"
+        );
+    }
+
+    /// The real thing still reads as the real thing.
+    #[test]
+    fn a_checklist_built_from_guidelines_keeps_its_heading_and_no_disclosure() {
+        let mut m = model_with(vec![]);
+        m.checklist = vec![chk("word limit 5000", Some("https://journal/guide"))];
+        let blocks = compose(&m);
+        assert!(headings(&blocks).iter().any(|t| t == "Guideline checklist"));
+        assert!(
+            !blocks.iter().any(|b| matches!(b, Block::Note { text } if text == NOTE_NO_GUIDELINES)),
+            "no disclosure when guidelines WERE consulted"
+        );
+    }
+
+    /// **IN A MIXED LIST the structural items must not read as the journal's.**
+    #[test]
+    fn structural_items_are_marked_inside_a_guideline_checklist() {
+        let mut m = model_with(vec![]);
+        m.checklist =
+            vec![chk("word limit 5000", Some("https://journal/guide")), chk("required section: Abstract", None)];
+        let bullets = bullets(&compose(&m));
+        assert!(
+            bullets.iter().any(|b| b.contains("word limit 5000") && !b.contains("structural check")),
+            "a real requirement is unmarked: {bullets:?}"
+        );
+        assert!(
+            bullets.iter().any(|b| b.contains("Abstract") && b.contains("structural check, not a journal requirement")),
+            "the structural item must be marked: {bullets:?}"
+        );
+    }
     /// A quotation at or under the cap is shown whole, with no ellipsis.
     #[test]
     fn a_short_quotation_is_not_marked_as_truncated() {
