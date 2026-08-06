@@ -18,6 +18,52 @@ const MARGIN = 48;
 /** Marks a character this renderer cannot represent. Visible on purpose. */
 export const UNREPRESENTABLE = '□';
 
+/** Disclosure for characters FOLDED to a Latin base letter (`Śarmā` → `Sarma`).
+ *
+ *  PORTED VERBATIM from `gaply_core::report_compose::NOTE_SIMPLIFIED` rather
+ *  than rewritten. That wording was measured and reviewed — including the
+ *  correction that a disclosure cannot EXHIBIT an instance of the change it
+ *  describes, because `Śarmā` is exactly what this renderer cannot represent
+ *  (ONTOLOGY §4.23). A second wording would be a second thing to drift.
+ *
+ *  `toAscii` MARKS rather than deletes, so this is a DISCLOSURE, not a
+ *  correctness fix: nothing is silently removed, but the FOLD was silent. */
+export const NOTE_SIMPLIFIED =
+  'Some letters in this report were simplified to their closest basic Latin form, so ' +
+  'a letter carrying an accent or other mark may appear here as its plain equivalent. ' +
+  'The spelling in your manuscript is unchanged.';
+
+/** Disclosure for characters this renderer cannot represent at all.
+ *
+ *  Ported verbatim from `NOTE_MARKED`. States NO COUNT: the marks are per code
+ *  point, which is not the unit a reader counts, so any length claim would
+ *  assert a character count nobody would recognise. */
+export const NOTE_MARKED =
+  'Some characters could not be displayed in this report and appear as a question ' +
+  'mark. This is a limitation of the report\'s font, not of the analysis — nothing ' +
+  'was skipped or removed.';
+
+/** Which disclosures a rendered string set actually needs.
+ *
+ *  The composer owns the WORDING; only the renderer knows what happened to a
+ *  character, because the outcome depends on the font. So the check runs over
+ *  the strings as they were BEFORE folding, compared with after. */
+export function disclosuresFor(originals: string[]): string[] {
+  let simplified = false;
+  let marked = false;
+  for (const s of originals) {
+    const folded = toAscii(s);
+    if (folded.includes(UNREPRESENTABLE)) marked = true;
+    // A fold happened if stripping combining marks changed the text but the
+    // result is still representable.
+    if (!simplified && s.normalize('NFD').replace(/[\u0300-\u036f]/g, '') !== s) simplified = true;
+  }
+  const out: string[] = [];
+  if (simplified) out.push(NOTE_SIMPLIFIED);
+  if (marked) out.push(NOTE_MARKED);
+  return out;
+}
+
 /** Reduce text to one-byte characters WITHOUT EVER SILENTLY DROPPING ONE.
  *
  *  Every char must be one byte: `new Blob([string])` encodes UTF-8, so a

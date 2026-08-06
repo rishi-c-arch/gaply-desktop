@@ -5,7 +5,7 @@
 // defense — rejects). Findings are emitted in priority order with certainty
 // tier + provenance, plus the mandatory disclaimer.
 import { AGENT_LABEL, PublishReadyReport, sortFindings } from './reportTypes';
-import { PdfLine, renderTextPdf } from './miniPdf';
+import { disclosuresFor, PdfLine, renderTextPdf } from './miniPdf';
 
 function reportLines(report: PublishReadyReport, title: string): PdfLine[] {
   const lines: PdfLine[] = [];
@@ -40,6 +40,15 @@ function reportLines(report: PublishReadyReport, title: string): PdfLine[] {
 
   lines.push({ text: ' ', size: 8 });
   lines.push({ text: report.disclaimer, size: 8, gray: 0.5 });
+
+  // §4.23: this renderer folds accented letters to their base form and marks
+  // what it cannot represent. It said neither. The disclosures are emitted only
+  // when the transformation actually occurred, computed from the strings that
+  // went in — the composer owns the wording, the renderer owns whether it
+  // applies.
+  for (const note of disclosuresFor(lines.map((l) => l.text))) {
+    lines.push({ text: note, size: 8, gray: 0.5 });
+  }
   return lines;
 }
 

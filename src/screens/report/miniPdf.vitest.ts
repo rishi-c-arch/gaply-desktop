@@ -17,7 +17,13 @@
 // should not sit unguarded in the interval.
 // ══════════════════════════════════════════════════════════════════════════
 import { describe, expect, it } from 'vitest';
-import { toAscii, UNREPRESENTABLE } from './miniPdf';
+import {
+  disclosuresFor,
+  NOTE_MARKED,
+  NOTE_SIMPLIFIED,
+  toAscii,
+  UNREPRESENTABLE,
+} from './miniPdf';
 
 describe('toAscii — never silently deletes', () => {
   // THE INVARIANT. Whatever the transformation policy, no character may vanish
@@ -70,5 +76,43 @@ describe('toAscii — never silently deletes', () => {
     expect(out).toContain('Sarma');
     expect(out).toContain('2024');
     expect(out).toContain(UNREPRESENTABLE);
+  });
+});
+
+
+describe('fold disclosure (§4.23) — the renderer says what it did', () => {
+  it('an accented name triggers the SIMPLIFIED note and nothing else', () => {
+    const notes = disclosuresFor(['Reported by Śarmā and colleagues']);
+    expect(notes).toContain(NOTE_SIMPLIFIED);
+    expect(notes).not.toContain(NOTE_MARKED);
+  });
+
+  it('an unrepresentable script triggers the MARKED note', () => {
+    const notes = disclosuresFor(['A title in हिन्दी']);
+    expect(notes).toContain(NOTE_MARKED);
+  });
+
+  it('plain ASCII triggers NEITHER — a disclosure that always fires says nothing', () => {
+    expect(disclosuresFor(['A perfectly ordinary ASCII title', 'p = 0.03'])).toEqual([]);
+  });
+
+  it('a disclosure never exhibits an instance of the change it describes', () => {
+    // ONTOLOGY §4.23: the first draft exhibited "Śarmā", which this renderer
+    // folds, so the sentence explaining an alteration was itself altered into
+    // nonsense. The property is NOT "byte-identical after toAscii" — an em dash
+    // normalising to a hyphen is punctuation, not the LETTER fold the note is
+    // about, and the Rust renderer does the same. The property is that no note
+    // contains an accented letter or an unrepresentable character.
+    for (const n of [NOTE_SIMPLIFIED, NOTE_MARKED]) {
+      expect(toAscii(n)).not.toContain(UNREPRESENTABLE);
+      expect(n.normalize('NFD').replace(/[\u0300-\u036f]/g, '')).toBe(n);
+    }
+  });
+
+  it('the wording is byte-identical to the Rust composer constants', () => {
+    // Ported verbatim; a second wording is a second thing to drift.
+    expect(NOTE_SIMPLIFIED.startsWith('Some letters in this report were simplified')).toBe(true);
+    expect(NOTE_SIMPLIFIED.endsWith('The spelling in your manuscript is unchanged.')).toBe(true);
+    expect(NOTE_MARKED.endsWith('was skipped or removed.')).toBe(true);
   });
 });
