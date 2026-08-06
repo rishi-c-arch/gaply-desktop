@@ -70,6 +70,85 @@ pub fn paragraph_at<'a>(result: &'a ExtractionResult, loc: &Location) -> Option<
         .map(String::as_str)
 }
 
+/// A span of the document a rule searches — §47.1's WINDOW form, made explicit.
+///
+/// # Why a REGION and not a `Location`
+///
+/// Rule 3 asks *"is an effect size reported NEAR this p-value"*, which is a
+/// question about a span. Answering it with a `Location` equality test would
+/// answer a different question — *"trust whatever this `Location` currently
+/// means"* — and would move rule 3 from §47.1's WINDOW family into its KEY
+/// family, where a boundary change flips a `bool` with no "nearly" to absorb it.
+///
+/// **Today a region is exactly one paragraph, so the two are behaviourally
+/// identical.** They diverge when item 1b decides what a region should be, which
+/// is precisely when the coupling would otherwise have bitten. The type exists so
+/// that change is a widening HERE rather than a semantic change at every caller.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Region {
+    pub section: SectionKind,
+    /// Inclusive paragraph range.
+    pub first_paragraph: usize,
+    pub last_paragraph: usize,
+}
+
+impl Region {
+    /// The single paragraph at `loc` — the only region shape that exists today.
+    pub fn paragraph(loc: &Location) -> Self {
+        Region {
+            section: loc.section,
+            first_paragraph: loc.paragraph,
+            last_paragraph: loc.paragraph,
+        }
+    }
+
+    pub fn contains(&self, loc: &Location) -> bool {
+        loc.section == self.section
+            && loc.paragraph >= self.first_paragraph
+            && loc.paragraph <= self.last_paragraph
+    }
+}
+
+/// Locations at which an effect size was EXTRACTED — a typed `Stat::EffectSize`
+/// with a value, not a text match.
+///
+/// # ONE definition, two consumers (§42's shape, applied a third time)
+///
+/// `validate.rs`'s MissingEffectSize rule and the report's Reported/Missing
+/// split both ask whether an effect size accompanies a statistic. Before this
+/// they asked it two different ways — the rule scanned TEXT with
+/// `EFFECT_SIZE_ALTERNATION`, the report joined on typed locations — so the
+/// report could list a statistic as "reported without an effect size" that the
+/// rule had declined to flag. **Now both read this.**
+pub fn effect_size_locations(result: &ExtractionResult) -> Vec<Location> {
+    result
+        .statistics
+        .iter()
+        .filter(|s| matches!(s.stat, stats::Stat::EffectSize { .. }))
+        .map(|s| s.location.clone())
+        .collect()
+}
+
+/// Whether a typed effect size falls within `region`.
+///
+/// # Why this replaced a text scan — ARCHITECTURE_TRACE §48, §49
+///
+/// The rule used to ask `EFFECT_SIZE_ALTERNATION.is_match(paragraph)`, which
+/// answers *"is an effect-size TOKEN present"*. That is not the question:
+/// measured on a pharmaceutical paper, `\bf2\b` (Cohen's f²) matched formulation
+/// BATCH LABELS — `F1, F2, F3` — and suppressed **six** real MissingEffectSize
+/// findings. A token is not a reported effect size; a typed extraction with a
+/// value is.
+///
+/// **This is the whole of shape 3**: detection consults the same typed data
+/// extraction produces, over a REGION rather than at a point.
+pub fn has_effect_size_in(result: &ExtractionResult, region: &Region) -> bool {
+    result
+        .statistics
+        .iter()
+        .any(|s| matches!(s.stat, stats::Stat::EffectSize { .. }) && region.contains(&s.location))
+}
+
 /// A referenced table (e.g. "Table 1") and its caption, if the paragraph is
 /// the caption itself.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

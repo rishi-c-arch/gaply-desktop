@@ -113,7 +113,6 @@ impl StatsValidityReport {
 struct Patterns {
     group_count: Regex,
     overclaim: Regex,
-    effect_size: Regex,
     causal: Regex,
 }
 
@@ -127,15 +126,6 @@ fn patterns() -> &'static Patterns {
         overclaim: Regex::new(
             r"(?i)\b(proves?|proven|proved|confirms?|confirmed|conclusively|definitively)\b",
         )
-        .unwrap(),
-        // effect-size measures: named statistics or their `x =` shorthands
-        // Built from stats::EFFECT_SIZE_ALTERNATION so DETECTION here and
-        // EXTRACTION in stats.rs cannot drift apart. `effect_size_pattern_is_unchanged`
-        // pins the composed string to the literal that shipped.
-        effect_size: Regex::new(&format!(
-            "(?i)({})",
-            crate::extract::stats::EFFECT_SIZE_ALTERNATION
-        ))
         .unwrap(),
         causal: Regex::new(
             r"(?i)\b(causes?|caused|causal|causes|leads?\s+to|led\s+to|results?\s+in|resulted\s+in|responsible\s+for|drives?|produces?|induces?|proves?)\b",
@@ -256,8 +246,18 @@ pub fn validate(result: &ExtractionResult) -> StatsValidityReport {
     }
 
     // Rule 3: p-value reported with no effect size nearby.
+    //
+    // A TYPED REGION QUERY, not a text scan (§48, §49 shape 3). Asking
+    // "is an effect-size TOKEN present in this paragraph" let `\bf2\b` match
+    // formulation batch labels F1/F2/F3 and suppress six real findings on one
+    // measured paper. The question is whether an effect size was REPORTED, and
+    // a typed `Stat::EffectSize` with a value is what answers it.
+    //
+    // A REGION rather than a `Location` key: rule 3 is a §47.1 WINDOW consumer
+    // and must stay one, so item 1b's decision about what a region is widens
+    // `Region` rather than changing what this rule asks.
     for loc in &pvalue_locs {
-        if !patterns().effect_size.is_match(paragraph(result, loc)) {
+        if !crate::extract::has_effect_size_in(result, &crate::extract::Region::paragraph(loc)) {
             flags.push(mk(
                 RuleId::MissingEffectSize,
                 loc.clone(),
@@ -555,5 +555,88 @@ mod tests {
             "exactly one MissingEffectSize — for the result, not the criterion: {:?}",
             report.flags
         );
+    }
+
+    // =======================================================================
+    // §48–§49 — rule 3 asks a TYPED REGION query, not a text scan
+    // =======================================================================
+
+    /// **THE MEASURED DEFECT.** `\bf2\b` is Cohen's f²; a formulation paper
+    /// names its gel batches F1…F4. Before shape 3, `is_match` over the
+    /// paragraph text saw "F2", concluded an effect size was present, and
+    /// suppressed the flag. Measured on a real manuscript: SIX suppressions,
+    /// every one of them a batch label.
+    #[test]
+    fn a_bare_batch_label_no_longer_suppresses_the_missing_effect_size_flag() {
+        let text = "Study\n\nResults\nBatch F2 was the optimized formulation and                     released faster than F1 and F3 (p = 0.01).\n";
+        let ex = crate::extract::extract_from_text(text);
+        assert!(
+            !ex.statistics.iter().any(|s| matches!(s.stat, Stat::EffectSize { .. })),
+            "no effect size is REPORTED here — only a batch label: {:?}",
+            ex.statistics
+        );
+        let report = validate(&ex);
+        assert!(
+            report.flags.iter().any(|f| f.rule == RuleId::MissingEffectSize),
+            "a p-value with no reported effect size must be flagged: {:?}",
+            report.flags
+        );
+    }
+
+    /// **THE LEGITIMATE SUPPRESSION MUST SURVIVE.** BMW PDSA ¶159 —
+    /// "(+36.5 pp, Cohen's d = 2.14, p < 0.001)" — genuinely reports an effect
+    /// size, and the flag must stay suppressed.
+    #[test]
+    fn a_reported_effect_size_still_suppresses_the_flag() {
+        let text = "Study\n\nResults\nMedical doctors improved from 52.8% to 89.3%                     (+36.5 pp, Cohen's d = 2.14, p < 0.001).\n";
+        let ex = crate::extract::extract_from_text(text);
+        assert!(
+            ex.statistics.iter().any(|s| matches!(s.stat, Stat::EffectSize { .. })),
+            "the fixture must yield a typed effect size: {:?}",
+            ex.statistics
+        );
+        let report = validate(&ex);
+        assert!(
+            !report.flags.iter().any(|f| f.rule == RuleId::MissingEffectSize),
+            "a genuinely reported effect size must still suppress: {:?}",
+            report.flags
+        );
+    }
+
+    /// **A NAME WITHOUT A VALUE IS NOT A REPORTED EFFECT SIZE.** The old text
+    /// scan matched the phrase "effect size" itself, so a Methods sentence
+    /// describing the analysis suppressed the flag for every p-value beside it.
+    #[test]
+    fn naming_a_measure_without_reporting_one_does_not_suppress() {
+        let text = "Study\n\nMethods\nEffect sizes were computed as Cohen's d where                     appropriate, and differences were tested (p = 0.02).\n";
+        let ex = crate::extract::extract_from_text(text);
+        let report = validate(&ex);
+        assert!(
+            report.flags.iter().any(|f| f.rule == RuleId::MissingEffectSize),
+            "a NAME is not a reported value: {:?}",
+            report.flags
+        );
+    }
+
+    /// **THE QUERY IS A REGION, NOT A KEY** — §47.1's window form, kept.
+    ///
+    /// Today a `Region` is exactly one paragraph, so this asserts the shape
+    /// rather than a behavioural difference: an effect size in a DIFFERENT
+    /// paragraph does not satisfy the current region, and one in the SAME
+    /// paragraph does. When item 1b widens what a region is, this test is what
+    /// notices that the rule's answer changed with it.
+    #[test]
+    fn the_region_query_is_scoped_to_the_region_it_is_given() {
+        use crate::extract::{has_effect_size_in, Location, Region};
+        let text = "Study\n\nResults\nThe first paragraph reports a difference                     (p = 0.01).\n\nA later paragraph reports Cohen's d = 0.42.\n";
+        let ex = crate::extract::extract_from_text(text);
+        let p0 = Location { section: SectionKind::Results, paragraph: 0 };
+        let p1 = Location { section: SectionKind::Results, paragraph: 1 };
+        assert!(!has_effect_size_in(&ex, &Region::paragraph(&p0)), "not in ¶1's region");
+        assert!(has_effect_size_in(&ex, &Region::paragraph(&p1)), "it is in ¶2's region");
+
+        // and a region spanning both DOES contain it — the widening 1b would do
+        let both = Region { section: SectionKind::Results, first_paragraph: 0, last_paragraph: 1 };
+        assert!(has_effect_size_in(&ex, &both), "a widened region finds it");
     }
 }

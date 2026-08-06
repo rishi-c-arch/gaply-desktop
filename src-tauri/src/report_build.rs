@@ -10,7 +10,7 @@
 //! something the engine already decided.
 
 use gaply_core::extract::stats::Stat;
-use gaply_core::extract::{paragraph_at, ExtractionResult, Location, SectionKind};
+use gaply_core::extract::{has_effect_size_in, paragraph_at, ExtractionResult, Region, SectionKind};
 use gaply_core::plagiarism::MatchSource;
 use gaply_core::report_model::{
     LocalFinding, LocalReportModel, ManuscriptFacts, ReportedStatistic, SimilarityRegion,
@@ -56,29 +56,6 @@ fn describe(stat: &Stat) -> (String, String) {
     }
 }
 
-/// Locations at which an effect size was extracted.
-///
-/// # The join is BY PARAGRAPH, matching the rule it mirrors
-///
-/// `validate.rs`'s MissingEffectSize fires when no effect size appears in the
-/// SAME PARAGRAPH as a p-value. This uses the same unit, so the report's
-/// Reported/Missing split and the finding it explains can never disagree — a
-/// statistic listed as "reported without an effect size" is exactly one the rule
-/// would flag.
-///
-/// **Milestone 4 replaced a function that returned `false` unconditionally.**
-/// The extractor had no effect-size category, so every statistic was reported as
-/// missing one — the CORRECT reading of what the engine knew, and a different
-/// claim from "the manuscript reports none" (§4.12).
-fn effect_size_locations(extraction: &ExtractionResult) -> Vec<Location> {
-    extraction
-        .statistics
-        .iter()
-        .filter(|s| matches!(s.stat, Stat::EffectSize { .. }))
-        .map(|s| s.location.clone())
-        .collect()
-}
-
 /// Project every extracted statistic into the report's `ReportedStatistic`.
 ///
 /// Split out of `into_report_model` so the Reported/Missing join is TESTABLE
@@ -87,7 +64,6 @@ fn effect_size_locations(extraction: &ExtractionResult) -> Vec<Location> {
 /// the test asserted on `effect_size_locations` rather than on what the model
 /// actually carried, so it verified the helper and not the wiring.
 pub fn reported_statistics(extraction: &ExtractionResult) -> Vec<ReportedStatistic> {
-    let effect_locs = effect_size_locations(extraction);
     extraction
         .statistics
         .iter()
@@ -101,7 +77,13 @@ pub fn reported_statistics(extraction: &ExtractionResult) -> Vec<ReportedStatist
                     section_name(s.location.section),
                     s.location.paragraph + 1
                 ),
-                effect_size_present: effect_locs.contains(&s.location),
+                // THE SAME QUESTION THE RULE ASKS, through the same function
+                // (§49). Before shape 3 the rule scanned TEXT while this joined
+                // on typed locations, so the report could list a statistic as
+                // "reported without an effect size" that the rule had declined
+                // to flag. Both now read `has_effect_size_in` over the same
+                // region, so they cannot disagree.
+                effect_size_present: has_effect_size_in(extraction, &Region::paragraph(&s.location)),
                 // A criterion belongs in NEITHER effect-size bucket: "reported
                 // without an effect size" would tell the author to add one to a
                 // sentence that reports nothing.
@@ -208,6 +190,7 @@ impl PipelineResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gaply_core::extract::Location;
     use gaply_core::extract::stats::Stat;
 
 
