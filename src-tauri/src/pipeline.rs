@@ -874,7 +874,7 @@ A night of sleep improved memory consolidation in this sample.
         assert!(result.plagiarism.chunk_count > 0, "plagiarism did not reach the caller");
         assert!(!result.text.is_empty(), "manuscript text did not reach the caller");
 
-        let model = result.into_report_model(Some("Journal of Testing".into()), None);
+        let model = result.into_report_model(Some("Journal of Testing".into()), None, None);
         let sections = model.manuscript.section_count;
         let stats = model.manuscript.statistics.len();
         assert!(sections > 0 && stats > 0, "model lost extraction facts");

@@ -5089,3 +5089,72 @@ Of the alternation's twenty alternatives, **exactly three match a BARE SYMBOL wi
 * **"PLOS ONE is missing" is true and trivial.** PLOS ONE is genuinely absent from the 258; **PLOS Medicine is present**, and it is what §30's baseline used.
 
 **Closed.** The directory carries journal websites and zero author-guideline URLs, which `PublishReadyPage:344-356` already documents as deliberate (§18.6.2) — noted, not an item.
+
+## 52. Five artifact defects — and the wrapper explains one symptom, not the phenomenon
+
+**The report was generated and read. Five content defects, every one visible in the extracted text, after 815 tests, thirteen mutations and a corpus re-measurement had all passed.**
+
+> **The tests covered what the code COMPUTES. Nobody had asserted what the document SAYS.** The render-path instrument reads the PDF's text back — and checks that headings survive encoding, not that the sentences are true.
+
+### 52.1 THE WRONG VERDICT — two verdict concepts, one label
+
+`report_compose.rs:226` prints `model.verdict`, which traces to `report.rs:732` — `outcome.result.answer`, the **swarm debate's consensus answer**, a two-value categorical (`ANSWER_PASS` / `ANSWER_CONCERN`). The **recommendation** — `MajorRevision` — comes from `aggregate_reviewer_verdict` and **never reached `LocalReportModel` at all**.
+
+**The line was not wrong about what it read. It read a value answering a different question, under the label "Overall assessment", which belongs to the recommendation.** One label over two concepts, again.
+
+### 52.2 ITEM 5a — WRAPPER CONTAMINATION: confirmed, bounded, corpus-specific
+
+**The frozen PDF (`sha 859880…`) is an AI-detection report with the manuscript inside it.** Measured against clean manuscripts:
+
+| Document | `extraction.title` | self-matches |
+|---|---|---|
+| **IJAS (frozen)** | **`"0% detected as AI The percentage indicates…"`** | 6 |
+| Cureus PDF | *its real title* | **0** |
+| BMW PDSA DOCX | *its real title* | **0** |
+| Chapter 5-6 | `"CHAPTER 5"` | 2 |
+| ILI Ch 6 | `"CHAPTER 6"` | **108** |
+
+**The title defect disappears on every clean manuscript.** `"CHAPTER 5"` and `"CHAPTER 6"` are genuinely those documents' first lines — thesis chapters — not a defect. **This is a corpus problem for one file, and §12.3.3 stays deferred on its own terms.**
+
+#### A CLAIM OF MINE, MEASURED AND REFUTED
+
+**I wrote that the wrapper's front matter becomes a preamble `Other` section "which shifts every `Location.paragraph` index that follows". That is FALSE.** Measured on IJAS:
+
+```
+SECTION Other  4 paragraphs      STAT Methods idx 5
+SECTION Abstract 5               STAT Results idx 2
+SECTION Methods 6                STAT Results idx 3
+SECTION Results 21
+```
+
+**Results' statistics sit at index 2 and 3 — not offset by the preamble's four paragraphs.** §Q3.1's finding holds exactly: `p_idx` resets per section, so an extra preamble shifts nothing downstream.
+
+**This also settles `nearby_text`**, which was NOT YET MEASURED: it resolves through `paragraph_at`, and since indices do not shift, no quotation can resolve into wrapper text.
+
+**Corrected blast radius:**
+
+| Stage | |
+|---|---|
+| Title extraction | **VERIFIED AFFECTED** |
+| Section detection | **VERIFIED AFFECTED IN COUNT ONLY** — an extra `Other` section exists; it shifts no index |
+| Plagiarism | **VERIFIED AFFECTED, and not the main cause** — 1 of 6 |
+| Statistics | **VERIFIED UNAFFECTED IN CONTENT, POSITION NOT YET MEASURED** |
+| Reference extraction | **VERIFIED UNAFFECTED** — 28 real entries |
+| `nearby_text` | **VERIFIED UNAFFECTED** — indices do not shift |
+| Checklist | **NOT YET MEASURED** |
+| Similarity block · composition | **VERIFIED AFFECTED** |
+
+> **"Verified unaffected in CONTENT, position NOT YET MEASURED" is the durable distinction** — a count surviving is not the same as a location surviving, and I had collapsed them.
+
+### 52.3 ITEM 5b — INTRINSIC SELF-MATCHING: confirmed independently, and larger
+
+**ILI Chapter 6 has NO wrapper and produces 108 self-matches**, its top two being the same excerpt at 91% and 90%. IJAS's six break down as **one wrapper match and five genuine manuscript passages**, three of which are the same passage reported three times.
+
+> **THE WRAPPER EXPLAINS ONE SYMPTOM, NOT THE PHENOMENON. Removing it would delete 1 of 6 on IJAS and 0 of 108 on ILI.** Recorded explicitly so this is never reopened expecting wrapper removal to solve it.
+
+**Self-matches become findings one-to-one**, so a thesis chapter would produce **108 "Important issue" entries**. **Ranked above the SHOULD board. Not investigated now.**
+
+### 52.4 The other three, as scoped
+
+* **`p ? 0.05`** — U+2264 has no Latin base, so `latin_base` returns `None` and the sentinel fires correctly. The mechanism works; **the fold table is incomplete for mathematical typography.**
+* **PLOS Medicine vs plosone guidelines** — `journal` comes from the directory, `guidelinesUrl` from a free-text field. §18.6.2 removed prefill deliberately and **nothing replaced it with a comparison**. Neither the UI pairing nor the directory entry is wrong; the two inputs are simply independent.

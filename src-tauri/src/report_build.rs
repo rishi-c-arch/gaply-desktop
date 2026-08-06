@@ -12,6 +12,7 @@
 use gaply_core::extract::stats::Stat;
 use gaply_core::extract::{has_effect_size_in, paragraph_at, ExtractionResult, Region, SectionKind};
 use gaply_core::plagiarism::MatchSource;
+use gaply_core::reviewer_agent::Recommendation;
 use gaply_core::report_model::{
     LocalFinding, LocalReportModel, ManuscriptFacts, ReportedStatistic, SimilarityRegion,
 };
@@ -111,6 +112,7 @@ impl PipelineResult {
         &self,
         journal_name: Option<String>,
         guidelines_url: Option<String>,
+        recommendation: Option<Recommendation>,
     ) -> LocalReportModel {
         let word_count = self.text.split_whitespace().count();
 
@@ -185,6 +187,7 @@ impl PipelineResult {
             guidelines_url,
             findings,
             verdict: self.report.verdict.clone(),
+            recommendation,
             combined_confidence: self.report.combined_confidence,
             checklist: self.report.checklist.clone(),
             similarity,
@@ -199,8 +202,9 @@ impl PipelineResult {
         self,
         journal_name: Option<String>,
         guidelines_url: Option<String>,
+        recommendation: Option<Recommendation>,
     ) -> LocalReportModel {
-        self.report_model(journal_name, guidelines_url)
+        self.report_model(journal_name, guidelines_url, recommendation)
     }
 }
 
@@ -301,7 +305,7 @@ mod tests {
             located(loc(SectionKind::Results, 1)),
             located(loc(SectionKind::Methods, 0)),
         ])
-        .into_report_model(None, None);
+        .into_report_model(None, None, None);
 
         let near: Vec<&str> = model
             .findings
@@ -330,7 +334,7 @@ mod tests {
             located(loc(SectionKind::Results, 99)),
             located(loc(SectionKind::Discussion, 0)),
         ])
-        .into_report_model(None, None);
+        .into_report_model(None, None, None);
 
         for (i, f) in model.findings.iter().enumerate() {
             assert_eq!(f.nearby_text, None, "finding {i} must carry no quotation");
@@ -350,7 +354,7 @@ mod tests {
         .unwrap();
 
         let model =
-            pipeline_with(vec![located(loc(SectionKind::Results, 0))]).into_report_model(None, None);
+            pipeline_with(vec![located(loc(SectionKind::Results, 0))]).into_report_model(None, None, None);
         assert_eq!(model.findings[0].nearby_text.as_deref(), Some(expected));
     }
 
@@ -374,9 +378,9 @@ mod tests {
     #[test]
     fn the_borrowing_and_consuming_model_builders_agree() {
         let a = pipeline_with(vec![located(loc(SectionKind::Results, 0))])
-            .report_model(Some("J".into()), None);
+            .report_model(Some("J".into()), None, None);
         let b = pipeline_with(vec![located(loc(SectionKind::Results, 0))])
-            .into_report_model(Some("J".into()), None);
+            .into_report_model(Some("J".into()), None, None);
 
         assert_eq!(a.run_id, b.run_id);
         assert_eq!(a.verdict, b.verdict);
@@ -401,7 +405,7 @@ mod tests {
     fn the_rendered_report_contains_the_blocks_the_summary_export_lacks() {
         use gaply_core::report_compose::{compose, Block};
         let model =
-            pipeline_with(vec![located(loc(SectionKind::Results, 0))]).report_model(None, None);
+            pipeline_with(vec![located(loc(SectionKind::Results, 0))]).report_model(None, None, None);
         let headings: Vec<String> = compose(&model)
             .iter()
             .filter_map(|b| match b {
@@ -425,7 +429,7 @@ mod tests {
     fn the_run_produces_a_non_trivial_pdf() {
         use gaply_core::{report_compose::compose, report_pdf::render_pdf};
         let model =
-            pipeline_with(vec![located(loc(SectionKind::Results, 0))]).report_model(None, None);
+            pipeline_with(vec![located(loc(SectionKind::Results, 0))]).report_model(None, None, None);
         let bytes = render_pdf(&compose(&model));
         assert!(bytes.starts_with(b"%PDF"), "must be a PDF");
         assert!(bytes.len() > 2000, "a real report is not a stub: {} bytes", bytes.len());

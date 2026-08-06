@@ -40,7 +40,7 @@
 
 use crate::evidence::ClaimKind;
 use crate::report::{CertaintyTier, ChecklistItem, FindingSeverity};
-use crate::reviewer_agent::LaneExamination;
+use crate::reviewer_agent::{LaneExamination, Recommendation};
 use crate::swarm::AgentKind;
 
 /// Facts about the manuscript itself, all COUNTED rather than judged.
@@ -114,7 +114,19 @@ pub struct LocalReportModel {
     pub journal_name: Option<String>,
     pub guidelines_url: Option<String>,
     pub findings: Vec<LocalFinding>,
+    /// The DEBATE's consensus answer — `"pass"` / `"concern"` — which is a
+    /// two-value categorical from the round table, NOT a publication
+    /// recommendation. It wore the label "Overall assessment" until §52; one
+    /// label over two concepts is what this record keeps finding.
     pub verdict: String,
+    /// THE RECOMMENDATION — what the report exists to state.
+    ///
+    /// Produced by `aggregate_reviewer_verdict` from the severity breakdown,
+    /// and absent from this model entirely until §52, which is why the PDF read
+    /// "Overall assessment: pass" on a run the log recorded as MajorRevision.
+    /// `None` when no recommendation was produced, which is a real state
+    /// (`VerdictWithheld`) and must not be rendered as an approval.
+    pub recommendation: Option<Recommendation>,
     pub combined_confidence: f64,
     pub checklist: Vec<ChecklistItem>,
     pub similarity: Vec<SimilarityRegion>,

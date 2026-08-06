@@ -206,7 +206,19 @@ pub fn compose(model: &LocalReportModel) -> Vec<Block> {
 }
 
 fn cover(model: &LocalReportModel, out: &mut Vec<Block>) {
-    let mut meta = vec![("Run".into(), model.run_id.clone())];
+    // THE RECOMMENDATION LEADS. It is what the report exists to state, and the
+    // cover said nothing about it until §52 — the model did not carry it.
+    //
+    // A missing recommendation is a REAL state (`VerdictWithheld`), so it is
+    // said rather than omitted: an absent line reads as approval.
+    let mut meta = vec![(
+        "Recommendation".into(),
+        match model.recommendation {
+            Some(r) => crate::vocabulary::recommendation_label(r).to_string(),
+            None => "No recommendation was produced for this run".to_string(),
+        },
+    )];
+    meta.push(("Run".into(), model.run_id.clone()));
     if let Some(j) = &model.journal_name {
         meta.push(("Target journal".into(), j.clone()));
     }
@@ -223,7 +235,12 @@ fn cover(model: &LocalReportModel, out: &mut Vec<Block>) {
 
 fn summary(model: &LocalReportModel, out: &mut Vec<Block>) {
     out.push(Block::Heading { text: "Summary".into(), level: 1 });
-    out.push(Block::Paragraph { text: format!("Overall assessment: {}.", model.verdict) });
+    // NOT "Overall assessment" — that label belongs to the RECOMMENDATION, and
+    // this is the round table's two-value consensus answer (§52.1). One label
+    // over two concepts is what let the PDF read "pass" on a MajorRevision run.
+    out.push(Block::Paragraph {
+        text: format!("Agreement across the checks: {}.", model.verdict),
+    });
     out.push(Block::Paragraph {
         text: format!(
             "This manuscript has {} sections, {} tables and {} references.",
@@ -514,6 +531,7 @@ mod tests {
             guidelines_url: None,
             findings: vec![],
             verdict: "Minor revision".into(),
+            recommendation: None,
             combined_confidence: 0.5,
             checklist: vec![],
             similarity: vec![],

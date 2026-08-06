@@ -303,20 +303,104 @@ pub fn verify_citations(
         return Ok(VerificationReport { verdicts: Vec::new(), warnings: Vec::new() });
     }
 
-    // --- build the structured bundle (the ONLY thing that leaves the machine)
+    // --- build the structured bundle once; ids are stable across all batches
     let bundled: Vec<BundledCitation> = items
         .iter()
         .enumerate()
         .map(|(i, (r, rv))| bundle_citation(i, r, rv))
         .collect();
 
-    // --- BUDGET THE PAYLOAD AS A SET (ARCHITECTURE_TRACE §15.2.1, §52)
+    // --- BUDGET THE PAYLOAD AS A SET, THEN CONTINUE IN BATCHES (§15.2.1, §52)
     //
-    // The endpoint expects a BOUNDED structured summary; this client sent an
-    // unbounded one, growing linearly with reference count — measured at 16,255
-    // chars for 28 references against a 8,000 cap, and every verdict came back
-    // Unknown because the request never reached the model.
+    // The endpoint expects a BOUNDED structured summary; this client once sent
+    // an unbounded one, growing linearly with reference count — measured at
+    // 16,255 chars for 28 references against an 8,000 cap, and every verdict
+    // came back Unknown because the request never reached the model.
     //
+    // The first fix budgeted the payload as a set and honestly reported the
+    // omitted count. This second fix keeps sending omitted citations in
+    // additional bounded calls until every reference has been processed or the
+    // service fails. No citation disappears; ordering stays deterministic.
+    let mut all_verdicts: Vec<CitationVerdict> = Vec::with_capacity(bundled.len());
+    let mut all_warnings: Vec<String> = Vec::new();
+    let mut remaining: &[BundledCitation] = &bundled;
+    let mut batch = 0usize;
+
+    while !remaining.is_empty() {
+        batch += 1;
+        let (sent, tail, used) = budget_batch(remaining);
+        let omitted = tail.len();
+
+        if omitted > 0 {
+            tracing::info!(
+                batch,
+                omitted = omitted,
+                sent = sent.len(),
+                chars = used,
+                "citation payload bounded to the proxy's character budget"
+            );
+        }
+
+        let payload = json!({
+            "task": "citation_verification",
+            "instruction": INSTRUCTION,
+            "output_schema": output_schema(),
+            "summary": {
+                "citations": sent.iter().map(|b| b.json.clone()).collect::<Vec<_>>(),
+                // Mirrors `build_review_payload`'s `findings_omitted`: the model is
+                // told what it did not see, rather than shown a truncated set as if
+                // it were the whole.
+                "citations_omitted": omitted,
+            },
+        });
+
+        match proxy.verify(&payload) {
+            Ok(response) => {
+                let mut report = gate_response(&response, sent)?;
+                all_verdicts.append(&mut report.verdicts);
+                all_warnings.append(&mut report.warnings);
+                remaining = tail;
+            }
+            Err(e) => {
+                if all_verdicts.is_empty() {
+                    // Total failure on the very first batch: keep the existing
+                    // contract where a caller may fall back to all-UNKNOWN.
+                    return Err(e);
+                }
+                // Partial failure: preserve already-gated verdicts and honestly
+                // mark the rest as Unknown rather than discarding the partial
+                // result. This matches the project's degradation posture.
+                tracing::warn!(
+                    batch,
+                    error = %e,
+                    remaining = remaining.len(),
+                    "citation verification aborted mid-batch; preserving prior verdicts"
+                );
+                for b in remaining {
+                    all_verdicts.push(CitationVerdict {
+                        citation_id: b.id.clone(),
+                        verdict: Verdict::Unknown,
+                        confidence: 0.0,
+                        rationale: format!(
+                            "not sent: citation verification aborted after {} successful batch(es): {}",
+                            batch - 1,
+                            e
+                        ),
+                        evidence_refs: Vec::new(),
+                        gate_flags: Vec::new(),
+                    });
+                }
+                break;
+            }
+        }
+    }
+
+    Ok(VerificationReport { verdicts: all_verdicts, warnings: all_warnings })
+}
+
+/// Budget the next prefix of `bundled` that fits under `PAYLOAD_TOTAL_BUDGET`.
+/// Returns `(sent, remaining_tail, used_chars)`.
+fn budget_batch(bundled: &[BundledCitation]) -> (&[BundledCitation], &[BundledCitation], usize) {
     // The fixed cost (task, instruction, output_schema) is measured at runtime
     // rather than assumed, so an instruction edit shrinks the citation budget
     // instead of silently overflowing it.
@@ -328,7 +412,7 @@ pub fn verify_citations(
     });
     let mut used = string_leaf_chars(&envelope);
     let mut keep = 0usize;
-    for b in &bundled {
+    for b in bundled {
         let cost = string_leaf_chars(&b.json);
         // At least ONE citation always goes: a request that verifies nothing is
         // worse than one bounded to a single reference, and the omitted count
@@ -339,51 +423,8 @@ pub fn verify_citations(
         used += cost;
         keep += 1;
     }
-    let (sent, omitted) = bundled.split_at(keep);
-    if !omitted.is_empty() {
-        tracing::info!(
-            omitted = omitted.len(),
-            sent = sent.len(),
-            chars = used,
-            "citation payload bounded to the proxy's character budget"
-        );
-    }
-
-    let payload = json!({
-        "task": "citation_verification",
-        "instruction": INSTRUCTION,
-        "output_schema": output_schema(),
-        "summary": {
-            "citations": sent.iter().map(|b| b.json.clone()).collect::<Vec<_>>(),
-            // Mirrors `build_review_payload`'s `findings_omitted`: the model is
-            // told what it did not see, rather than shown a truncated set as if
-            // it were the whole.
-            "citations_omitted": omitted.len(),
-        },
-    });
-
-    // --- the single cloud hop, through the proxy seam
-    let response = proxy.verify(&payload)?;
-
-    // --- parse with strict schema, then harness-gate against WHAT WAS SENT
-    let mut report = gate_response(&response, sent)?;
-
-    // A dropped citation must not VANISH. It gets an honest Unknown, which the
-    // report's existing collapse renders as "N of M citation(s) were not
-    // checked … it is not a finding about your references" — the mechanism that
-    // already exists for this exact user-facing fact.
-    for b in omitted {
-        report.verdicts.push(CitationVerdict {
-            citation_id: b.id.clone(),
-            verdict: Verdict::Unknown,
-            confidence: 0.0,
-            rationale: "not sent: the citation payload was bounded to the service's size limit"
-                .to_string(),
-            evidence_refs: Vec::new(),
-            gate_flags: Vec::new(),
-        });
-    }
-    Ok(report)
+    let (sent, tail) = bundled.split_at(keep);
+    (sent, tail, used)
 }
 
 /// Strict-parse Claude's reply and validate it against the evidence bundle.
@@ -628,7 +669,7 @@ mod tests;
 #[cfg(test)]
 mod payload_budget_tests {
     use super::*;
-    use crate::refverify::ReferenceVerification;
+    use crate::refverify::{ExistenceCheck, Provenance, ReferenceVerification, UntrustedText};
 
     fn refs(n: usize, title_len: usize) -> Vec<(Reference, ReferenceVerification)> {
         (0..n)
@@ -651,6 +692,121 @@ mod payload_budget_tests {
             .collect()
     }
 
+    fn refs_with_evidence(n: usize, title_len: usize) -> Vec<(Reference, ReferenceVerification)> {
+        let p = Provenance {
+            source: "crossref".into(),
+            url: "https://api.crossref.example/works/10.1/abc".into(),
+            fetched_at: 1_000,
+            checksum: "c".repeat(64),
+            from_cache: false,
+        };
+        (0..n)
+            .map(|i| {
+                let title = "x".repeat(title_len);
+                let raw = format!("Author {i} A B. 20{:02}. {}. Journal {i}: 1-9.", i % 100, title);
+                let r = Reference {
+                    raw: raw.clone(),
+                    authors: format!("Author {i} A B"),
+                    year: Some(2000 + (i % 25) as i32),
+                    title: Some(title.clone()),
+                    doi: Some(format!("10.1000/j{i}")),
+                };
+                let rv = ReferenceVerification {
+                    reference_raw: raw,
+                    exists: Some(ExistenceCheck {
+                        source: "crossref",
+                        found: true,
+                        doi: Some(format!("10.1000/j{i}")),
+                        title: Some(UntrustedText::new(&title, p.clone())),
+                        matched_authors: None,
+                        matched_year: None,
+                        is_retracted_hint: None,
+                        provenance: p.clone(),
+                    }),
+                    retraction: None,
+                    open_access: None,
+                    enrichment: None,
+                    provenance: vec![p.clone()],
+                    warnings: vec![],
+                };
+                (r, rv)
+            })
+            .collect()
+    }
+
+    /// Test double that returns a scripted sequence of Ok/Err responses, and
+    /// optionally records payloads for inspection.
+    struct ScriptedProxyClient {
+        queue: Mutex<Vec<Result<Value, GaplyError>>>,
+        payloads: Mutex<Vec<Value>>,
+    }
+
+    impl ScriptedProxyClient {
+        fn new(responses: Vec<Result<Value, GaplyError>>) -> Self {
+            Self { queue: Mutex::new(responses), payloads: Mutex::new(Vec::new()) }
+        }
+        fn sent_payloads(&self) -> Vec<Value> {
+            self.payloads.lock().unwrap().clone()
+        }
+    }
+
+    impl ProxyClient for ScriptedProxyClient {
+        fn verify(&self, payload: &Value) -> Result<Value, GaplyError> {
+            self.payloads.lock().unwrap().push(payload.clone());
+            let mut q = self.queue.lock().unwrap();
+            if q.is_empty() {
+                panic!("ScriptedProxyClient ran out of responses")
+            }
+            q.remove(0)
+        }
+    }
+
+    /// Proxy that returns a SUPPORTED verdict for every citation id it is sent,
+    /// citing the first evidence key for that id. `fail_after` injects an error
+    /// after the given number of *successful* calls (0 = fail the first call).
+    struct VerdictPerCallProxy {
+        calls: Mutex<usize>,
+        fail_after: Option<usize>,
+    }
+
+    impl VerdictPerCallProxy {
+        fn new(fail_after: Option<usize>) -> Self {
+            Self { calls: Mutex::new(0), fail_after }
+        }
+        fn calls(&self) -> usize {
+            *self.calls.lock().unwrap()
+        }
+    }
+
+    impl ProxyClient for VerdictPerCallProxy {
+        fn verify(&self, payload: &Value) -> Result<Value, GaplyError> {
+            let mut calls = self.calls.lock().unwrap();
+            *calls += 1;
+            if self.fail_after == Some(*calls - 1) {
+                return Err(GaplyError::Internal("injected batch failure".into()));
+            }
+            let ids: Vec<String> = payload["summary"]["citations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c["id"].as_str().unwrap().to_string())
+                .collect();
+            let verdicts = ids
+                .iter()
+                .map(|id| {
+                    json!({
+                        "citation_id": id,
+                        "verdict": "SUPPORTED",
+                        "confidence": 0.9,
+                        "rationale": "matches the evidence",
+                        "evidence_refs": [format!("ev-{id}-0")],
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({ "verdicts": verdicts }))
+        }
+    }
+
     /// **THE PAYLOAD IS BOUNDED AS A SET.** §15.2 measured 16,255 chars for 28
     /// references against the proxy's 8,000 cap; every verdict came back
     /// Unknown because the request never reached the model.
@@ -660,41 +816,76 @@ mod payload_budget_tests {
         let proxy = MockProxyClient::returning(json!({ "verdicts": [] }));
         let _ = verify_citations(&proxy, &items).expect("must not fail");
 
-        let sent = proxy.sent_payloads().pop().expect("the mock captured a payload");
-        let total = string_leaf_chars(&sent);
-        assert!(
-            total <= PAYLOAD_TOTAL_BUDGET,
-            "payload must fit the client budget: {total} > {PAYLOAD_TOTAL_BUDGET}"
-        );
-        assert!(total < 8_000, "and therefore the proxy's cap: {total}");
+        let payloads = proxy.sent_payloads();
+        assert!(payloads.len() > 1, "large list must be split across multiple calls");
+        for (i, sent) in payloads.iter().enumerate() {
+            let total = string_leaf_chars(&sent);
+            assert!(
+                total <= PAYLOAD_TOTAL_BUDGET,
+                "payload {i} must fit the client budget: {total} > {PAYLOAD_TOTAL_BUDGET}"
+            );
+            assert!(total < 8_000, "payload {i} must therefore fit the proxy cap: {total}");
+        }
     }
 
-    /// **THE DROP IS REPORTED, NOT SILENT** — mirroring `findings_omitted`.
+    /// **THE DROP IS REPORTED PER BATCH, NOT SILENT** — mirroring `findings_omitted`.
     #[test]
-    fn the_omitted_count_is_sent_to_the_model() {
+    fn the_omitted_count_is_sent_to_the_model_per_batch() {
         let items = refs(60, 300);
         let proxy = MockProxyClient::returning(json!({ "verdicts": [] }));
         let _ = verify_citations(&proxy, &items).unwrap();
-        let sent = proxy.sent_payloads().pop().unwrap();
-        let omitted = sent["summary"]["citations_omitted"].as_u64().unwrap();
-        let carried = sent["summary"]["citations"].as_array().unwrap().len();
-        assert!(omitted > 0, "this fixture must overflow the budget");
-        assert_eq!(carried + omitted as usize, 60, "every citation is either sent or counted");
+        let payloads = proxy.sent_payloads();
+        assert!(payloads.len() > 1, "must be batched");
+
+        let total_sent: usize = payloads
+            .iter()
+            .map(|p| p["summary"]["citations"].as_array().unwrap().len())
+            .sum();
+        assert_eq!(total_sent, 60, "every citation is sent in exactly one batch");
+
+        let first_omitted = payloads[0]["summary"]["citations_omitted"].as_u64().unwrap();
+        assert!(first_omitted > 0, "first payload must report omitted citations");
+
+        // The omitted count is the number still remaining AFTER this batch, so it
+        // must be monotonically non-increasing and end at zero.
+        let mut prev: Option<u64> = None;
+        for (i, p) in payloads.iter().enumerate() {
+            let omitted = p["summary"]["citations_omitted"].as_u64().unwrap();
+            if let Some(prev) = prev {
+                assert!(
+                    omitted <= prev,
+                    "omitted count must not increase across batches (batch {i}: {omitted} > {prev})"
+                );
+            }
+            prev = Some(omitted);
+        }
+        assert_eq!(prev, Some(0), "last batch must report zero omitted");
     }
 
-    /// **A DROPPED CITATION DOES NOT VANISH.** It gets an honest Unknown, which
-    /// the report's existing collapse renders as "N of M were not checked".
+    /// **A DROPPED CITATION DOES NOT VANISH.** With batching, "dropped" now means
+    /// "verification aborted before this citation could be sent". Those remaining
+    /// citations get an honest Unknown, which the report's existing collapse
+    /// renders as "N of M were not checked".
     #[test]
-    fn every_dropped_citation_still_receives_an_unknown_verdict() {
-        let items = refs(60, 300);
-        let proxy = MockProxyClient::returning(json!({ "verdicts": [] }));
+    fn remaining_citations_are_unknown_when_verification_aborts() {
+        let items = refs_with_evidence(60, 300);
+        let proxy = VerdictPerCallProxy::new(Some(1)); // fail after first successful batch
         let report = verify_citations(&proxy, &items).unwrap();
+
         assert_eq!(report.verdicts.len(), 60, "one verdict per reference, always");
-        let unknown = report.verdicts.iter().filter(|v| v.verdict == Verdict::Unknown).count();
-        assert_eq!(unknown, 60, "the mock returns no verdicts, so all are Unknown");
+        assert!(proxy.calls() >= 2, "must attempt at least two batches");
+
+        let supported = report.verdicts.iter().filter(|v| v.verdict == Verdict::Supported).count();
+        let aborted = report
+            .verdicts
+            .iter()
+            .filter(|v| v.rationale.contains("aborted"))
+            .count();
+        assert!(supported > 0, "first-batch verdicts must be preserved");
+        assert!(aborted > 0, "remaining citations must be marked Unknown with abort rationale");
         assert!(
-            report.verdicts.iter().any(|v| v.rationale.contains("bounded to the service's size limit")),
-            "the dropped ones say WHY they were not checked"
+            report.verdicts.iter().any(|v| v.rationale.contains("not sent")),
+            "the unsent ones say WHY they were not checked"
         );
     }
 
@@ -704,9 +895,10 @@ mod payload_budget_tests {
         let items = refs(3, 40);
         let proxy = MockProxyClient::returning(json!({ "verdicts": [] }));
         let _ = verify_citations(&proxy, &items).unwrap();
-        let sent = proxy.sent_payloads().pop().unwrap();
-        assert_eq!(sent["summary"]["citations_omitted"], json!(0));
-        assert_eq!(sent["summary"]["citations"].as_array().unwrap().len(), 3);
+        let payloads = proxy.sent_payloads();
+        assert_eq!(payloads.len(), 1, "small list must fit in a single call");
+        assert_eq!(payloads[0]["summary"]["citations_omitted"], json!(0));
+        assert_eq!(payloads[0]["summary"]["citations"].as_array().unwrap().len(), 3);
     }
 
     /// **AT LEAST ONE CITATION ALWAYS GOES.** A single reference larger than the
@@ -717,10 +909,106 @@ mod payload_budget_tests {
         let items = refs(1, 20_000);
         let proxy = MockProxyClient::returning(json!({ "verdicts": [] }));
         let report = verify_citations(&proxy, &items).unwrap();
-        let sent = proxy.sent_payloads().pop().unwrap();
-        assert_eq!(sent["summary"]["citations"].as_array().unwrap().len(), 1);
-        assert_eq!(sent["summary"]["citations_omitted"], json!(0));
+        let payloads = proxy.sent_payloads();
+        assert_eq!(payloads.len(), 1, "one citation is one batch");
+        assert_eq!(payloads[0]["summary"]["citations"].as_array().unwrap().len(), 1);
+        assert_eq!(payloads[0]["summary"]["citations_omitted"], json!(0));
         assert_eq!(report.verdicts.len(), 1);
+    }
+
+    /// **ALL CITATIONS ARE PROCESSED WHEN THE SERVICE SUCCEEDS.** With enough
+    /// successful batches, no citation should remain as an unverified Unknown.
+    #[test]
+    fn a_large_reference_list_is_fully_verified_in_batches() {
+        let items = refs_with_evidence(60, 300);
+        let proxy = VerdictPerCallProxy::new(None);
+        let report = verify_citations(&proxy, &items).unwrap();
+
+        assert!(proxy.calls() > 1, "must be split into multiple batches");
+        assert_eq!(report.verdicts.len(), 60, "one verdict per reference");
+        assert!(
+            report.verdicts.iter().all(|v| v.verdict == Verdict::Supported),
+            "every citation must be verified when all batches succeed"
+        );
+        assert!(
+            !report.verdicts.iter().any(|v| v.rationale.contains("not sent")),
+            "no citation should be left as unverified"
+        );
+
+        // Deterministic ordering: c1, c2, ..., c60.
+        for (i, v) in report.verdicts.iter().enumerate() {
+            assert_eq!(v.citation_id, format!("c{}", i + 1), "verdicts must stay in input order");
+        }
+    }
+
+    /// **PARTIAL FAILURE PRESERVES ALREADY-GATED VERDICTS.** A mid-run proxy
+    /// error must not discard verdicts from earlier successful batches.
+    #[test]
+    fn partial_failure_preserves_prior_verdicts() {
+        let items = refs_with_evidence(60, 300);
+        let proxy = VerdictPerCallProxy::new(Some(1)); // fail after first batch
+        let report = verify_citations(&proxy, &items).unwrap();
+
+        let supported = report.verdicts.iter().filter(|v| v.verdict == Verdict::Supported).count();
+        let aborted = report
+            .verdicts
+            .iter()
+            .filter(|v| v.rationale.contains("aborted"))
+            .count();
+        assert!(
+            supported > 0 && aborted > 0,
+            "must preserve some verdicts and mark the rest Unknown; got {supported} supported, {aborted} aborted"
+        );
+        assert_eq!(
+            supported + aborted,
+            60,
+            "every citation must be accounted for after partial failure"
+        );
+    }
+
+    /// **WARNINGS FROM MULTIPLE BATCHES ARE MERGED.** Each batch can produce its
+    /// own gate warnings; the final report must contain all of them.
+    #[test]
+    fn warnings_from_multiple_batches_are_merged() {
+        let items = refs_with_evidence(60, 300);
+        // Every batch receives a response with one extra unknown citation id.
+        let proxy = MockProxyClient::returning(json!({
+            "verdicts": [
+                { "citation_id": "cUNKNOWN", "verdict": "SUPPORTED", "confidence": 0.9, "rationale": "", "evidence_refs": [] }
+            ]
+        }));
+        let report = verify_citations(&proxy, &items).unwrap();
+        assert!(
+            report.warnings.len() >= proxy.sent_payloads().len(),
+            "each batch with an unknown id must contribute a warning"
+        );
+    }
+
+    /// **TOTAL FAILURE ON THE FIRST BATCH STILL RETURNS ERR.** This preserves the
+    /// existing contract for callers that fall back to all-UNKNOWN on Err.
+    #[test]
+    fn total_failure_on_first_batch_returns_err() {
+        let items = refs_with_evidence(10, 300);
+        let proxy = ScriptedProxyClient::new(vec![Err(GaplyError::Internal("first batch failed".into()))]);
+        let err = verify_citations(&proxy, &items).unwrap_err();
+        assert!(format!("{err}").contains("first batch failed"));
+    }
+
+    /// Property-style invariant: for a range of reference counts, every citation
+    /// is sent exactly once across all batches.
+    #[test]
+    fn total_sent_across_batches_equals_input_count() {
+        for n in [1, 3, 10, 28, 60, 100] {
+            let items = refs(n, 300);
+            let proxy = MockProxyClient::returning(json!({ "verdicts": [] }));
+            let _ = verify_citations(&proxy, &items).unwrap();
+            let total_sent: usize = proxy
+                .sent_payloads()
+                .iter()
+                .map(|p| p["summary"]["citations"].as_array().unwrap().len())
+                .sum();
+            assert_eq!(total_sent, n, "every citation sent exactly once for n={n}");
+        }
     }
 
     /// The counter must match the proxy's rule: string leaves, VALUES only.

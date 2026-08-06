@@ -636,18 +636,6 @@ pub fn run_publishready_measured(
     )?;
     let lanes = pipeline_out.lanes;
 
-    // RENDER DURING THE RUN — the only moment the model can exist.
-    //
-    // `LocalReportModel` carries manuscript prose and is deliberately not
-    // `Serialize` (§4.22), so it cannot be rebuilt later from anything
-    // persisted: the cached JSON has no statistics block, no similarity
-    // regions, no lane record and no `nearby_text`. This is also the only
-    // place `journal_name` and the run are both in scope. Bytes are returned
-    // to the caller and held in memory; nothing is written (§51).
-    let pdf_bytes = gaply_core::report_pdf::render_pdf(&gaply_core::report_compose::compose(
-        &pipeline_out.report_model(Some(journal_name.clone()), guidelines_url.clone()),
-    ));
-
     let report_id = events
         .into_inner()
         .into_iter()
@@ -772,6 +760,29 @@ pub fn run_publishready_measured(
         };
         (outcome, started.elapsed())
     };
+
+    // RENDER, AFTER THE AGGREGATION — the report exists to state the
+    // RECOMMENDATION, and it is not computed until here (§52.1). Rendering
+    // earlier is what let the PDF read "Overall assessment: pass" on a run the
+    // log recorded as MajorRevision: the composer was printing the debate's
+    // consensus answer, which is a different quantity wearing that label.
+    //
+    // `LocalReportModel` carries manuscript prose and is deliberately not
+    // `Serialize` (§4.22), so it cannot be rebuilt later from anything
+    // persisted. The DETERMINISTIC recommendation is used — computed locally
+    // from the severity breakdown, always available, and the one §27.1 and §30
+    // treat as the deterministic verdict. `None` when none was produced, which
+    // `VerdictWithheld` makes a real state and the cover must not render as
+    // approval.
+    let recommendation =
+        shadow_outcome.as_ref().and_then(|o| o.aggregation.verdict.recommendation());
+    let pdf_bytes = gaply_core::report_pdf::render_pdf(&gaply_core::report_compose::compose(
+        &pipeline_out.report_model(
+            Some(journal.name.clone()),
+            guidelines_url.clone(),
+            recommendation,
+        ),
+    ));
 
     // 3) Reviewer: cloud only, honest offline degradation. The user's JWT
     //    rides along so the proxy can run THE REAL entitlement gate + consume

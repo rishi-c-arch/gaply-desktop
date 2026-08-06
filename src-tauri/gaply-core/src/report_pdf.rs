@@ -141,6 +141,25 @@ pub fn winansi_byte(ch: char) -> Option<u8> {
 /// gap** and falls through to `Marked`.
 fn latin_base(ch: char) -> Option<&'static str> {
     Some(match ch {
+        // ── MATHEMATICAL TYPOGRAPHY ──────────────────────────────────────
+        //
+        // These are NOT unrepresentable — they are ordinary notation with an
+        // exact ASCII spelling, so folding them is the same class as the
+        // em-dash and curly-quote folding already done, not a loss.
+        //
+        // Measured on the reference manuscript: `p ≤ 0.05` rendered as
+        // `p ? 0.05`, which made EVERY significance criterion unreadable in a
+        // report whose subject is statistics (§52.4). The sentinel was working;
+        // the table was incomplete.
+        '\u{2264}' => "<=", // ≤
+        '\u{2265}' => ">=", // ≥
+        '\u{2260}' => "!=", // ≠
+        '\u{2212}' => "-",  // − MINUS SIGN, not HYPHEN-MINUS
+        '\u{2032}' => "'",  // ′ prime
+        '\u{2033}' => "\"", // ″ double prime
+        '\u{2192}' => "->", // →
+        '\u{2190}' => "<-", // ←
+
         'Ā' | 'Ă' | 'Ą' => "A",
         'ā' | 'ă' | 'ą' => "a",
         'Ć' | 'Ĉ' | 'Ċ' | 'Č' => "C",
@@ -192,10 +211,28 @@ fn latin_base(ch: char) -> Option<&'static str> {
 /// base-14 cannot represent at all is folded, and only to its own base letter —
 /// `?ukasz` is unusable while `Lukasz` is wrong but readable, and for a NAME
 /// recognisability is the axis that matters to its owner.
+/// Characters that ARE representable, at a different codepoint.
+///
+/// GREEK SMALL LETTER MU and WinAnsi's MICRO SIGN are the same mark; a PDF may
+/// carry either. Canonicalising BEFORE the WinAnsi lookup makes the result
+/// `Intact` rather than `Simplified`, which is correct — nothing was altered,
+/// so no fold disclosure is owed.
+///
+/// This is deliberately NOT part of `latin_base`, whose contract is that every
+/// base it returns is ASCII: returning `"\u{00B5}"` there would push its two
+/// UTF-8 bytes into a WinAnsi stream. Caught by a test asserting the encoded
+/// byte, which the first attempt failed.
+fn canonical(ch: char) -> char {
+    match ch {
+        '\u{03BC}' => '\u{00B5}', // μ → µ
+        other => other,
+    }
+}
+
 pub fn encode_winansi(s: &str) -> (Vec<u8>, EncodingOutcome) {
     let mut bytes = Vec::with_capacity(s.len());
     let mut outcome = EncodingOutcome::default();
-    for ch in s.chars() {
+    for ch in s.chars().map(canonical) {
         if let Some(b) = winansi_byte(ch) {
             bytes.push(b);
             outcome.record(CharFate::Intact);
@@ -790,6 +827,7 @@ mod tests {
     fn model(title: Option<&str>, findings: Vec<LocalFinding>) -> LocalReportModel {
         LocalReportModel {
             run_id: "run-1".into(),
+            recommendation: None,
             manuscript: ManuscriptFacts {
                 title: title.map(str::to_string),
                 word_count: 4000,
@@ -1014,6 +1052,7 @@ mod layout_tests {
                 ),
             }],
             verdict: "concern".into(),
+            recommendation: None,
             combined_confidence: 0.62,
             checklist: vec![crate::report::ChecklistItem {
                 requirement: "structured abstract".into(),
@@ -1035,6 +1074,63 @@ mod layout_tests {
         compose(&m)
     }
 
+
+    /// **`p ≤ 0.05` MUST NOT RENDER AS `p ? 0.05`.**
+    ///
+    /// Measured on the reference manuscript: every significance criterion was
+    /// unreadable because U+2264 has no Latin base and hit the unrepresentable
+    /// sentinel. These characters have an exact ASCII spelling — folding them
+    /// is the em-dash class, not a loss.
+    #[test]
+    fn mathematical_notation_folds_rather_than_marking() {
+        for (input, want) in [
+            ("p \u{2264} 0.05", "p <= 0.05"),
+            ("p \u{2265} 0.05", "p >= 0.05"),
+            ("d \u{2260} 0", "d != 0"),
+            ("\u{2212}0.092", "-0.092"),
+            ("1\u{2032}", "1'"),
+            ("2\u{2033}", "2\""),
+            ("a \u{2192} b", "a -> b"),
+        ] {
+            let (bytes, o) = encode_winansi(input);
+            assert_eq!(String::from_utf8_lossy(&bytes), want, "{input:?}");
+            assert!(!o.any_marked, "{input:?} must not hit the sentinel");
+            assert!(o.any_simplified, "{input:?} is a fold, and must be disclosed as one");
+            assert!(bytes.iter().all(|b| b.is_ascii()), "a fold must emit ASCII, never UTF-8");
+        }
+    }
+
+    /// Both mu codepoints survive: GREEK SMALL LETTER MU folds to WinAnsi's
+    /// MICRO SIGN, which is the same mark at a different codepoint.
+    #[test]
+    fn both_mu_codepoints_reach_the_page() {
+        for input in ["\u{03BC}g/cm2", "\u{00B5}g/cm2"] {
+            let (bytes, o) = encode_winansi(input);
+            assert_eq!(bytes[0], 0xB5, "{input:?} must encode as the micro sign");
+            // The same mark at a different codepoint is NOT an alteration, so
+            // no fold disclosure is owed for it.
+            assert_eq!(o, EncodingOutcome::default(), "{input:?} is intact, not folded");
+        }
+    }
+
+    /// `±` is already WinAnsi 0xB1 — the first attempt added a "+/-" fold for
+    /// it, which was unreachable and would have been wrong.
+    #[test]
+    fn plus_minus_is_already_representable() {
+        let (bytes, o) = encode_winansi("\u{00B1}0.1");
+        assert_eq!(bytes[0], 0xB1);
+        assert_eq!(o, EncodingOutcome::default());
+    }
+
+    /// Characters already IN WinAnsi must still pass through untouched — the
+    /// new folds must not have caught them.
+    #[test]
+    fn superscript_two_and_multiply_still_pass_through_intact() {
+        let (bytes, o) = encode_winansi("cm\u{00B2} 3 \u{00D7} 4");
+        assert_eq!(bytes[2], 0xB2, "superscript two is WinAnsi 0xB2");
+        assert_eq!(bytes[6], 0xD7, "multiplication sign is WinAnsi 0xD7");
+        assert_eq!(o, EncodingOutcome::default(), "neither is folded or marked");
+    }
     /// **NO DRAWN RULE OR FILL ESCAPES THE MARGINS.**
     #[test]
     fn every_rule_and_fill_sits_inside_the_page() {
