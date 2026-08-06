@@ -4880,3 +4880,127 @@ tokens matched inside p-value paragraphs: {"f2": 7, "r2": 1}
 **Reuse is not automatically good or bad; it depends on whether the abstraction boundary matches the semantics.** The test is **not** *"are there two copies?"* but **"are they asking the same thing?"** Here they are not: detection asks *"is an effect size mentioned near this p-value?"* and extraction asks *"what effect size was reported, and what was its value?"* **The second is strictly narrower, and the shared vocabulary silently gives detection the broader reading.**
 
 > **`effect_size_pattern_is_unchanged` WILL FIRE on any narrowing, and a future reader could misread that as the vocabulary being CORRECT rather than as the pin DOING ITS JOB.** The pin asserts the composed string has not changed. It asserts nothing about whether the string is right. **Recorded because a firing pin reads as a verdict and is only a notification.**
+
+## 49. Item 3's fix — SHAPE 3, and one candidate rejected on the record
+
+### 49.1 SHAPE 3 IS CHOSEN — detection consults typed extraction BY REGION
+
+**Rule 3 asks *"is there a `Stat::EffectSize` whose `Location` falls within this span?"*, reusing `effect_size_locations` rather than duplicating it.** Rule 3 then asks the same question the report already asks — §42's one-definition-producer-and-consumer, applied a third time.
+
+**Three shapes were considered:**
+
+| | Changes | Vocabulary tension | Form | Coupled to 1b |
+|---|---|---|---|---|
+| 1 — key: *"at this `Location`?"* | ownership | resolved | **key** | **yes** |
+| 2 — narrow `EFFECT_SIZE_ALTERNATION` | recognition | **unresolved** | window | no |
+| **3 — region: *"within this span?"*** | ownership | resolved | **window** | no |
+
+#### Why 3 over 1
+
+**Rule 3's question IS a region question.** Answering it with an identity test would convert a WINDOW consumer into a KEY consumer and **move it across §47.1's split by accident.**
+
+> **A window expresses *"search this region"*. A key expresses *"trust whatever this `Location` currently means".***
+
+**They are behaviourally identical today, because `Location` IS the paragraph.** The difference appears exactly when 1b changes what a region is — **which is precisely when shape 1's coupling would have bitten**, silently, with no "nearly" to absorb it.
+
+#### Why 3 over 2
+
+Narrowing the pattern leaves **detection and extraction asking different questions with one definition** — §48.4's tension intact. And it **cannot fix the dissolution `f2`, which is a NAMING problem rather than a BREADTH problem**: no narrowing distinguishes Cohen's *f²* from the similarity factor, because they are written identically.
+
+#### The pin stays SILENT
+
+`effect_size_pattern_is_unchanged` composes from `EFFECT_SIZE_ALTERNATION` directly and asserts it equals the shipped literal. **Shape 3 does not touch the alternation, so the pin does not fire.**
+
+> **A silent pin is not evidence the vocabulary is right.** It asserts the string has not changed; it asserts nothing about whether the string is correct. §48.4's note therefore does not apply to this change — and its absence is not a clearance.
+
+### 49.2 The value requirement — MEASURED and UNMEASURED
+
+| | |
+|---|---|
+| **MEASURED** | the six Chapter 5-6 suppressions clear; BMW PDSA ¶159's legitimate suppression survives; **zero legitimate suppressions lost** |
+| **UNMEASURED** | whether the vocabulary remains safe **across other domains** |
+
+**The proof of the second half, and it is not hypothetical.** `f2` is ALSO the **FDA/EMA dissolution similarity factor**, standard methodology, reported as `"f2 = 65.2"`. **This paper's `F2` was a bare batch label with no value and clears. A dissolution paper's `f2 = 65.2` would collide WITH a value and would not.**
+
+> **Requiring a value changes WHICH OCCURRENCES detection attends to. It does not resolve the vocabulary's ambiguity.**
+
+#### And extraction already types it — a FALSE EXTRACTION, independent of detection
+
+Measured by running the extractor:
+
+```
+"The similarity factor was acceptable (f2 = 65.2)"  ->  EffectSize name="f2" value=65.2
+"…using the similarity factor f2 = 55.8."           ->  EffectSize name="f2" value=55.8
+"The effect was moderate (Cohen's f2 = 0.35)."      ->  EffectSize name="f2" value=0.35
+"Batch F2 was the optimized formulation (p = 0.03)" ->  (none — bare label, no value)
+```
+
+**Cohen's *f²* runs roughly 0.02–0.35; the similarity factor runs 0–100 with ≥50 as acceptance.** The same token, the same syntax, two unrelated statistics — and the report would print `f2 — f2 = 65.2` under *"Reported with an effect size"*. **This is reachable today, belongs to item 3, and is not fixed by shape 3.**
+
+### 49.3 RANGE DISAMBIGUATION IS REJECTED, on the record
+
+**The tempting rule — *"f2 ≤ 0.35 is Cohen's, f2 ≥ 50 is the similarity factor"* — is refused.**
+
+> **It is the same shape as *"0.05 with ≤ means a criterion"*, which was MEASURED at 70% and rejected as folk knowledge (§41.5).** That heuristic at least had ten corpus observations behind it. **Range disambiguation for `f2` has ZERO — no dissolution paper is among the four.**
+
+**It is therefore weaker than a heuristic this record has already rejected**, and it is written down here so it is not proposed later as the obvious answer.
+
+### 49.4 The two defensible candidates, priced against each other
+
+| Candidate | What it does |
+|---|---|
+| **REQUIRE THE QUALIFIER** — `cohen'?s\s*f2` replaces `\bf2\b` | *"Cohen's f2"* is unambiguous; bare *"f2"* is not. **The qualifier is POSITIVE EVIDENCE OF IDENTITY** — item 1's one-sided detector shape applied to a different vocabulary: accept on evidence rather than guess on an ambiguous token. |
+| **REMOVE `f2` ENTIRELY** | removes the ambiguity rather than narrowing it |
+
+**A structural observation that supports the first.** Of the alternation's twenty alternatives, **only three match a BARE SYMBOL with no `=` and no distinctive phrase: `\bR2\b`, `R²`, `\bf2\b`.** Everything else is either a multi-word name (*"odds ratio"*, *"effect size"*) or requires an operator (`\bd\s*=`, `\bOR\s*=`). **The bare-symbol alternatives are exactly the collision-prone ones, and `f2` is the one measured to collide.**
+
+**MY CHOICE: require the qualifier.** It accepts a strict SUPERSET of what removal accepts — *"Cohen's f2 = 0.35"* survives, which removal loses — while rejecting both the batch label and the dissolution factor. **On correctness they are identical; on coverage the qualifier strictly dominates.**
+
+> **BOTH REDUCE COVERAGE RELATIVE TO TODAY, and the corpus does NOT establish whether the reductions are equal — they are not.** How much the qualifier still loses depends on **how often papers write bare `f²` for Cohen's f²**, which is unmeasured. The direction of the inequality is known; its size is not.
+
+**Neither gains a false positive.** This is the same trade already accepted for *"was detected"* and bare `α` in item 1 (§42.5): **coverage falls, correctness does not.**
+
+**THE PIN FIRES for either candidate**, since both change the alternation — unlike shape 3 itself. That is `effect_size_pattern_is_unchanged` doing its job, and per §49.1 its firing is a notification rather than a verdict.
+
+### 49.4b A THIRD RESOLUTION — check whether a consumer should be a consumer at all
+
+**§48.4 framed the shared-vocabulary problem as a choice between two options: FORK the definition, or SHARE it and accept the tension.** Implementing shape 3 produced a third, and it was not on the table when the choice was framed.
+
+> **When two consumers ask different questions of one definition, ask whether one of them should be a CONSUMER AT ALL.**
+
+Removing rule 3's text scan left `patterns().effect_size` with **no caller**, so it is gone. `EFFECT_SIZE_ALTERNATION` now has **exactly one consumer — extraction**. **§48.4's tension did not have to be managed; it DISSOLVED.**
+
+**The third option is qualitatively different from the first two.** Forking adds a definition to maintain and a drift risk. Sharing keeps one definition and accepts that it answers two questions. **Eliminating a consumer reduces coupling AND maintenance together** — there is no residual cost to carry, and the question "are they asking the same thing?" stops needing an answer because there is no longer a "they".
+
+**It is not always available**, and that is the point of recording it: it was available here only because rule 3 had a better source for its answer (the typed extraction) than the one it was using. **The check is cheap and was not made — the framing of two options is what prevented it.**
+
+### 49.4c THE BARE-SYMBOL FINDING IS STRUCTURAL, not a list of instances
+
+Of the alternation's twenty alternatives, **exactly three match a BARE SYMBOL with no operator and no qualifying phrase: `\bR2\b`, `R²`, `\bf2\b`.** Every other alternative is either a multi-word name (`odds ratio`, `effect size`, `cohen'?s\s*d`) or requires an operator (`\bOR\s*=`, `\bd\s*=`, `\br\s*=`).
+
+> **Those three are exactly the collision-prone ones, and that is a property of their SYNTAX rather than an observation about which ones happened to collide.**
+
+**This changes the class from a list into a shape.** `\bd\s*=` and `\br\s*=` already carry structural evidence narrowing their interpretation — an operator and a value follow — so they are **WEAKER collision candidates, not equal ones.** §48.2 recorded them as plausible members; this refines that: **they are plausible members of a class whose defining feature they only partly have.**
+
+**Measured instances so far are both bare symbols:** `f2` matching batch labels `F1…F4`, and `R2` matching the ICH guideline revision `Q1A(R2)` — **both in the same paragraph of the same paper.**
+
+### 49.5 The ordering claim, weakened to what the evidence supports
+
+> **Item 3's LEXICAL half proceeds independently of 1b.**
+
+**The semantic association questions stay with 1b, confirmed unchanged:** four of BMW PDSA's five retained suppressions are `R²` **with typed values**, which no lexical or value-based change touches. R² is a real effect-size measure attributed to the wrong statistical object — the model rather than the coefficient whose p-value sits beside it.
+
+### 49.6 THE ARC'S SHAPE — why the work felt repetitive
+
+> **A PROXY IS A CONFLATION, so unpicking one necessarily yields at least two things it was standing in for.**
+
+| Item | Began as | Separated |
+|---|---|---|
+| **1** | "findings are wrong" | **criterion** from **result** |
+| **1c** | "references collapse" | **line structure** from **paragraph structure** |
+| **3** | "a flag is suppressed" | **recognition** from **association** |
+| **1b** | "the paragraph is wrong" | **window** from **key** |
+
+**Each began as one bug and ended as two or three orthogonal questions, and the discovery each time was WHICH TWO THINGS HAD BEEN COLLAPSED** — not what the fix was.
+
+**This predicts the remaining proxies decompose the same way.** **1b's step 5 should therefore be expected to produce ONE MORE SEPARATION rather than a single answer**, and a design that yields exactly one answer should be treated as suspect rather than as finished.
