@@ -5065,3 +5065,27 @@ Of the alternation's twenty alternatives, **exactly three match a BARE SYMBOL wi
 * **The journal directory does not exist.** `PLOS ONE` / `plosone` appear nowhere in `src/` or `src-tauri/src/`. "Missing PLOS ONE" understates it: the surface the immutable-selection concern refers to is absent, so that concern cannot be assessed as written.
 * **NOT ESTABLISHED — the free-tier 403 path.** `publishready_limit_free: int = 0` (`config.py:57`) is passed as `free=` at `entitlement.py:292`; whether that means *0 allowed* or *unmetered* was **not** read out of the code path, and is not asserted here.
 * **NOT RE-VERIFIED — the shadow-narrative JSON parse failure.** Not carried forward as confirmed.
+
+## 51. Three items CLOSED, two records corrected
+
+**Verified rather than trusted. None of these should be reopened without new evidence.**
+
+### 51.1 `miniPdf.ts`'s "silent deletion" DOES NOT EXIST — the record was stale
+
+`toAscii` implements **the same two-tier scheme as the Rust renderer**: TIER 1 folds combining marks to the base letter, TIER 2 **MARKS** anything still outside printable ASCII (`out += ch >= ' ' && ch <= '~' ? ch : UNREPRESENTABLE`). **Nothing is removed.** ONTOLOGY §4.20's live TEXT instance — the `[^\x20-\x7E]` deletion — was fixed and the record was not updated.
+
+**What survives is narrower and is a SHOULD, not a MUST: the fold is UNDISCLOSED.** `exportPdf.ts` has no `NOTE_SIMPLIFIED`/`NOTE_MARKED` equivalent, so `Śarmā → Sarma` happens without the sentence §4.23 exists to supply.
+
+> **And the path CANNOT be deleted.** `downloadReportPdf` has two callers: `PublishReadyPage` (the summary) and **`ReportViewerPage:111` — the general integrity report, which has NO Rust renderer.** Removing it would delete a report with no replacement.
+
+### 51.2 The shadow-narrative JSON parse — RETIRED AS UNREPRODUCED
+
+`response_format` appears nowhere in the proxy, which is **the absence of a guard, not an observed failure.** The record documents no reproduction, the shadow path still runs (`commands.rs:743`, `:857`), and `shadow_reviewer: None` is already handled as non-fatal. **Retired.** If it recurs it presents as `None`, which the code tolerates by design.
+
+### 51.3 The journal directory — MISRECORDED ON BOTH COUNTS
+
+* **It exists.** `src/data/scopusDirectory.json`, **258 journals**, surfaced by `screens/journal/journalData.ts` and searched in `PublishReadyPage` (`journalQuery` → `journalMatches` → `setJournal`).
+* **Selection is NOT immutable.** `journal` is `useState`, every match is a `setJournal` button, and the field stays searchable until the run starts.
+* **"PLOS ONE is missing" is true and trivial.** PLOS ONE is genuinely absent from the 258; **PLOS Medicine is present**, and it is what §30's baseline used.
+
+**Closed.** The directory carries journal websites and zero author-guideline URLs, which `PublishReadyPage:344-356` already documents as deliberate (§18.6.2) — noted, not an item.
