@@ -5004,3 +5004,64 @@ Of the alternation's twenty alternatives, **exactly three match a BARE SYMBOL wi
 **Each began as one bug and ended as two or three orthogonal questions, and the discovery each time was WHICH TWO THINGS HAD BEEN COLLAPSED** — not what the fix was.
 
 **This predicts the remaining proxies decompose the same way.** **1b's step 5 should therefore be expected to produce ONE MORE SEPARATION rather than a single answer**, and a design that yields exactly one answer should be treated as suspect rather than as finished.
+
+## 50. The completion investigation — and a premise of mine, corrected
+
+### 50.1 THE HEADLINE: THERE ARE TWO RENDERERS, AND THE WRONG ONE SHIPS
+
+**I reported that no report reaches users. That is FALSE.** One does — `src/screens/report/exportPdf.ts` with `miniPdf.ts`, a dependency-free TypeScript PDF writer that reads the cached JSON. **The unreachable renderer is the three-layer one** (`report_pdf::render_pdf`), whose only caller is `pipeline.rs:882`, inside `#[cfg(test)]` opened at line 489. No Tauri command, no `invoke_handler` entry — verified against the full registration list. (`export_report` is registered but writes AI-Check **HTML** and opens a browser; unrelated.)
+
+| | Reaches the user |
+|---|---|
+| **item 1, item 3, 1c** | **YES** — the TS path reads `report.findings`, so every finding-level fix lands |
+| `nearby_text` quotations (§42) | **NO** |
+| Statistics reported · Significance criteria declared | **NO** |
+| Text similarity · What was not examined | **NO** |
+| vocabulary labels · folding disclosures | **NO** |
+
+> **The correction matters more than the fact.** "No report reaches users" makes M1 a wiring task. "The wrong renderer ships" makes it a decision about which renderer is the product — and it means the composer layer's entire output has never been seen by anyone.
+
+### 50.2 TWO LIVE DEFECTS THE SECOND RENDERER EXPOSES — both MUST
+
+**1. `miniPdf.ts` folds combining marks in production.** Lines 94–103 replace curly quotes, dashes, ellipses and bullets, and strip the combining-diacritics range — so **`Śarmā` silently becomes `Sarma` in the PDF a user receives.** That is ONTOLOGY §4.20's TEXT class, **live**, while `NOTE_SIMPLIFIED` and `NOTE_MARKED` — the disclosures written precisely for this (§4.23) — sit in the unreachable path.
+
+**2. `exportPdf.ts:22` prints `f.severity.toUpperCase()`** while `severity_label` and `claim_label` are enriched into every cached report at `commands.rs:256` and consumed by **nothing** — zero frontend readers.
+
+> **Milestone 2's vocabulary has Milestone 3's shape: built, correct, and unreachable.** §31.6's raw-enum leak is still live in the path users actually get, and the labels that fix it are already in the payload.
+
+### 50.3 THE MASKING RULE
+
+> **A CORRECTNESS FIX CAN ACTIVATE A LATENT DEFECT DOWNSTREAM. A fix's blast radius includes what it stops SUPPRESSING.**
+
+**Item 1c is the instance.** Before it, the Cureus PDF parsed **one** reference, so `verify_citations`' payload was trivially small and §15.2's cap could not fire. After it, 27 references.
+
+**Measured, replicating `validation.py`'s `_string_leaves` sum exactly:**
+
+| Document | refs | payload chars | |
+|---|---|---|---|
+| Cureus PDF (post-1c) | 27 | **6,555** | **A FLOOR** — `ReferenceVerification` empty |
+| IJAS | 28 | 5,275 | a floor |
+| fixed overhead | — | 1,126 | — |
+
+**§15.2 measured the real IJAS run at 16,255 chars for 28 references — ~540 per reference against this floor's 148.** At that rate Cureus post-1c lands near **15.7k**, over the 8,000 cap.
+
+> **6,555 is MEASURED and is a FLOOR. ~15.7k is an EXTRAPOLATION from IJAS's measured per-reference rate.** Registry evidence cannot be attached without network, and the distinction is kept because one number is evidence and the other is arithmetic on someone else's evidence.
+
+**The reference collapse was masking the payload bug for that document.** Two defects, one hiding the other, and the fix to the first exposes the second — which is why a blast-radius check must ask what a fix stops suppressing, not only what it changes.
+
+### 50.3b A REASONING ERROR IN THE REJECTED CANDIDATE
+
+**The bytes-caching candidate was argued for with *"the manuscript is already on that disk"*. That conflates THE USER'S OWN FILE with GAPLY'S DATABASE.**
+
+> **A user's manuscript sitting in their Documents folder is theirs. A quotation from it copied into Gaply's cache table is a new artifact, created by us, with its own lifetime and its own exposure.** "The data already exists somewhere" is not an argument that a second copy is free.
+
+**The PDF carries `nearby_text` quotations and similarity excerpts, which exist in NO persisted artifact today** — they live only in the deliberately non-`Serialize` `LocalReportModel` (§4.22). Persisting the render would be the first time manuscript prose entered storage.
+
+**But Q3 is the SHARPER rejection, and it would hold even if Q4 did not.** `report_cache_key` is keyed on `CACHED_REPORT_SCHEMA_VERSION` — the EVIDENCE schema. **A cache keyed on the evidence schema cannot detect a composer or renderer change**, so a wording edit would serve a stale PDF for up to 30 days with nothing to notice. The privacy argument makes caching undesirable; **the key argument makes it wrong.**
+
+### 50.4 Other findings, and two things NOT established
+
+* **`build_checklist` silent empty** — `report.rs:1301-1304`: `guidelines_url: None` yields `hits = Vec::new()`, and the checklist is built from no guidelines with no signal that none were consulted. Structural checks still emit, so it **looks complete**.
+* **The journal directory does not exist.** `PLOS ONE` / `plosone` appear nowhere in `src/` or `src-tauri/src/`. "Missing PLOS ONE" understates it: the surface the immutable-selection concern refers to is absent, so that concern cannot be assessed as written.
+* **NOT ESTABLISHED — the free-tier 403 path.** `publishready_limit_free: int = 0` (`config.py:57`) is passed as `free=` at `entitlement.py:292`; whether that means *0 allowed* or *unmetered* was **not** read out of the code path, and is not asserted here.
+* **NOT RE-VERIFIED — the shadow-narrative JSON parse failure.** Not carried forward as confirmed.
