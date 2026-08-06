@@ -65,6 +65,7 @@ interface PublishReadyOutcome {
   report: PublishReadyReport; // shape aligns 1:1 (verdict/combined_confidence/findings/checklist/debate/disclaimer)
   reviewer: BackendReviewer;
   proxy_payload: unknown; // { task, instruction, summary: { journal, findings, checklist, … } }
+  run_id?: string;
 }
 
 /** Map the backend outcome → the frontend result. The three fields the backend
@@ -99,7 +100,15 @@ export function adaptOutcome(o: PublishReadyOutcome, journal: TargetJournal): Pu
     })),
     warnings: r.warnings ?? [],
   };
-  return { report: o.report, reviewerLetter, proxyPayload: adaptPayload(o.proxy_payload, journal) };
+  return {
+    report: o.report,
+    reviewerLetter,
+    proxyPayload: adaptPayload(o.proxy_payload, journal),
+    // Needed by `export_publishready_pdf`: the Rust renderer's bytes are held
+    // in session memory under this id. Dropped before, so the button had
+    // nothing to ask for.
+    runId: o.run_id,
+  };
 }
 
 /** Re-shape the backend payload (nested under `summary`) into the frontend's

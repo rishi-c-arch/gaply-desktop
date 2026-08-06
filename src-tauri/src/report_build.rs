@@ -99,8 +99,16 @@ impl PipelineResult {
     /// `journal_name` and `guidelines_url` come from the CALLER because they are
     /// the user's stated intent, propagated rather than reconstructed from
     /// corpus state (§18.6's rule, applied again here).
-    pub fn into_report_model(
-        self,
+    /// Project the run into the report's engine model, BORROWING it.
+    ///
+    /// `into_report_model` consumes `self` and is what callers that own the run
+    /// use. This variant exists because the PDF must be rendered DURING the run
+    /// — the model carries manuscript prose and is deliberately not
+    /// serializable (§4.22), so it cannot be rebuilt later from anything
+    /// persisted. The body already cloned nearly every field; this makes the
+    /// remaining two clones explicit rather than moving.
+    pub fn report_model(
+        &self,
         journal_name: Option<String>,
         guidelines_url: Option<String>,
     ) -> LocalReportModel {
@@ -164,7 +172,7 @@ impl PipelineResult {
             .collect();
 
         LocalReportModel {
-            run_id: self.report_id,
+            run_id: self.report_id.clone(),
             manuscript: ManuscriptFacts {
                 title: self.extraction.title.clone(),
                 word_count,
@@ -184,6 +192,15 @@ impl PipelineResult {
             lanes: self.lanes,
             disclaimer: self.report.disclaimer.clone(),
         }
+    }
+
+    /// Consuming form, kept for callers that own the run and are done with it.
+    pub fn into_report_model(
+        self,
+        journal_name: Option<String>,
+        guidelines_url: Option<String>,
+    ) -> LocalReportModel {
+        self.report_model(journal_name, guidelines_url)
     }
 }
 
@@ -335,6 +352,83 @@ mod tests {
         let model =
             pipeline_with(vec![located(loc(SectionKind::Results, 0))]).into_report_model(None, None);
         assert_eq!(model.findings[0].nearby_text.as_deref(), Some(expected));
+    }
+
+    /// **THE BORROWING BUILDER AND THE CONSUMING ONE AGREE.**
+    ///
+    /// `report_model` exists so the PDF can be rendered DURING the run without
+    /// consuming the result, and `into_report_model` DELEGATES to it.
+    ///
+    /// # What this guards, and what it CANNOT
+    ///
+    /// Because of the delegation the two share one body, so **a defect in that
+    /// body changes both and this test still passes** — verified by mutation:
+    /// dropping `nearby_text` from the builder leaves this green. It is not
+    /// vacuous, but its guarantee is narrower than it looks: **it fires only if
+    /// someone gives `into_report_model` its own implementation again**, which
+    /// is the re-duplication that would reintroduce drift.
+    ///
+    /// **The body itself is covered by
+    /// `the_rendered_report_contains_the_blocks_the_summary_export_lacks`**,
+    /// which the same mutation DOES fail.
+    #[test]
+    fn the_borrowing_and_consuming_model_builders_agree() {
+        let a = pipeline_with(vec![located(loc(SectionKind::Results, 0))])
+            .report_model(Some("J".into()), None);
+        let b = pipeline_with(vec![located(loc(SectionKind::Results, 0))])
+            .into_report_model(Some("J".into()), None);
+
+        assert_eq!(a.run_id, b.run_id);
+        assert_eq!(a.verdict, b.verdict);
+        assert_eq!(a.journal_name, b.journal_name);
+        assert_eq!(a.manuscript.word_count, b.manuscript.word_count);
+        assert_eq!(a.manuscript.section_count, b.manuscript.section_count);
+        assert_eq!(a.manuscript.statistics.len(), b.manuscript.statistics.len());
+        assert_eq!(a.findings.len(), b.findings.len());
+        assert_eq!(
+            a.findings.iter().map(|f| f.nearby_text.clone()).collect::<Vec<_>>(),
+            b.findings.iter().map(|f| f.nearby_text.clone()).collect::<Vec<_>>(),
+            "the quotations must survive the borrowing path — they are the reason it exists"
+        );
+    }
+
+    /// **THE RENDERED REPORT CARRIES WHAT THE SUMMARY EXPORT CANNOT.**
+    ///
+    /// The TS `exportPdf.ts` reads only `report.findings`. This asserts the
+    /// Rust path emits the blocks that motivated wiring it at all, so a
+    /// regression that quietly reduced it to a findings list would fail here.
+    #[test]
+    fn the_rendered_report_contains_the_blocks_the_summary_export_lacks() {
+        use gaply_core::report_compose::{compose, Block};
+        let model =
+            pipeline_with(vec![located(loc(SectionKind::Results, 0))]).report_model(None, None);
+        let headings: Vec<String> = compose(&model)
+            .iter()
+            .filter_map(|b| match b {
+                Block::Heading { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        for expected in ["Statistics reported", "Text similarity", "What was not examined"] {
+            assert!(
+                headings.iter().any(|h| h == expected),
+                "the composed report must contain {expected:?}: {headings:?}"
+            );
+        }
+        let quoted = compose(&model).iter().any(|b| matches!(
+            b, Block::Bullet { text, .. } if text.starts_with("In your manuscript:")));
+        assert!(quoted, "the quotation block must reach the rendered report");
+    }
+
+    /// A rendered report is real bytes, not an empty buffer.
+    #[test]
+    fn the_run_produces_a_non_trivial_pdf() {
+        use gaply_core::{report_compose::compose, report_pdf::render_pdf};
+        let model =
+            pipeline_with(vec![located(loc(SectionKind::Results, 0))]).report_model(None, None);
+        let bytes = render_pdf(&compose(&model));
+        assert!(bytes.starts_with(b"%PDF"), "must be a PDF");
+        assert!(bytes.len() > 2000, "a real report is not a stub: {} bytes", bytes.len());
     }
 
     /// **A DECLARED CRITERION REACHES THE REPORT AS A CRITERION**, end to end

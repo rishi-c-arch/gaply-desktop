@@ -63,6 +63,10 @@ export interface PublishReadyResult {
   /** The EXACT structured payload sent to the proxy — structured findings only,
    *  never raw manuscript text. Exposed so the UI (and tests) can inspect it. */
   proxyPayload: ProxyReviewPayload;
+  /** Identity of the run. The Rust-rendered PDF is held in session memory under
+   *  this id; `export_publishready_pdf` fetches it. Optional because the
+   *  dev/mock bridge derives a result without running the pipeline. */
+  runId?: string;
 }
 
 /** Structured-summary payload — the ONLY thing that leaves the device. */

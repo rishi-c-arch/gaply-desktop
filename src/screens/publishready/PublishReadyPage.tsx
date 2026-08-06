@@ -266,8 +266,32 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
                     .catch(() => toast('Export failed', 'flagged'))
                 }
               >
-                Export PublishReady PDF
+                Export summary PDF
               </Button>
+              {/* The FULL report — statistics, significance criteria, text
+                  similarity, what was not examined, and the manuscript
+                  quotations — rendered by the Rust composer during the run.
+                  The summary export above reads only `findings`. */}
+              {result.runId && (
+                <Button
+                  data-testid="pr-export-full"
+                  onClick={() =>
+                    void import('@tauri-apps/api/core')
+                      .then(({ invoke }) =>
+                        invoke('export_publishready_pdf', { reportId: result.runId }),
+                      )
+                      .then(() => toast('Full report opened', 'certain'))
+                      .catch((e) =>
+                        toast(
+                          typeof e === 'string' ? e : 'Could not open the full report',
+                          'flagged',
+                        ),
+                      )
+                  }
+                >
+                  Open full report
+                </Button>
+              )}
             </HeaderBar>
           }
         >

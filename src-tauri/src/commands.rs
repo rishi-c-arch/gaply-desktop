@@ -505,6 +505,12 @@ pub struct PublishReadyOutcome {
     /// the wholesale path), which are separate future decisions gated on the
     /// proxy escalate endpoint + reviewer-quality spike landing.
     pub shadow_reviewer: Option<gaply_core::reviewer_agent::ReviewerEvaluation>,
+    /// The rendered PDF, produced during the run because the model it needs
+    /// cannot be rebuilt afterwards. NOT serialized to the frontend — see the
+    /// `#[serde(skip)]`; it is lifted into `AppState` by `run_publishready`
+    /// and fetched by `export_publishready_pdf`.
+    #[serde(skip)]
+    pub pdf_bytes: Vec<u8>,
 }
 
 /// PublishReady: run the existing 6-lane pipeline (UNMODIFIED), then layer a
@@ -532,7 +538,8 @@ pub async fn run_publishready(
     // Logic unchanged.
     let db = state.db.clone();
     let embedder = state.embedder.clone();
-    tokio::task::spawn_blocking(move || {
+    let pdfs = state.report_pdfs.clone();
+    let mut outcome = tokio::task::spawn_blocking(move || {
         run_publishready_measured(
             db,
             embedder,
@@ -545,7 +552,22 @@ pub async fn run_publishready(
         )
     })
     .await
-    .map_err(|e| GaplyError::Internal(format!("publishready task panicked: {e}")))?
+    .map_err(|e| GaplyError::Internal(format!("publishready task panicked: {e}")))??;
+
+    // Lift the rendered bytes into session memory and drop them from the value
+    // that crosses the IPC boundary — the frontend never receives a PDF it did
+    // not ask for, and `#[serde(skip)]` means it could not anyway.
+    let bytes = std::mem::take(&mut outcome.pdf_bytes);
+    if !bytes.is_empty() {
+        if let Ok(mut q) = pdfs.lock() {
+            q.retain(|(id, _)| id != &outcome.run_id);
+            q.push_back((outcome.run_id.clone(), bytes));
+            while q.len() > crate::state::MAX_CACHED_PDFS {
+                q.pop_front();
+            }
+        }
+    }
+    Ok(outcome)
 }
 
 /// The whole PublishReady command path, WITHOUT Tauri.
@@ -613,6 +635,19 @@ pub fn run_publishready_measured(
         &emit,
     )?;
     let lanes = pipeline_out.lanes;
+
+    // RENDER DURING THE RUN — the only moment the model can exist.
+    //
+    // `LocalReportModel` carries manuscript prose and is deliberately not
+    // `Serialize` (§4.22), so it cannot be rebuilt later from anything
+    // persisted: the cached JSON has no statistics block, no similarity
+    // regions, no lane record and no `nearby_text`. This is also the only
+    // place `journal_name` and the run are both in scope. Bytes are returned
+    // to the caller and held in memory; nothing is written (§51).
+    let pdf_bytes = gaply_core::report_pdf::render_pdf(&gaply_core::report_compose::compose(
+        &pipeline_out.report_model(Some(journal_name.clone()), guidelines_url.clone()),
+    ));
+
     let report_id = events
         .into_inner()
         .into_iter()
@@ -821,6 +856,7 @@ pub fn run_publishready_measured(
 
     let shadow_reviewer = shadow_outcome.map(|o| o.letter);
     Ok(PublishReadyOutcome {
+        pdf_bytes,
         // The IPC field stays JSON: the frontend renders it and does not need
         // the Rust type. Serializing the TYPED value guarantees it is exactly
         // what parsed, rather than the separately-parsed `report_json`.
@@ -1212,6 +1248,65 @@ pub fn export_report(app: tauri::AppHandle, html: String) -> Result<(), GaplyErr
         .open_path(file.to_string_lossy().to_string(), None::<String>)
         .map_err(|e| GaplyError::Internal(format!("failed to open report in browser: {e}")))?;
     Ok(())
+}
+
+/// Write the PublishReady PDF for `report_id` to disk and open it.
+///
+/// # Why the bytes come from memory rather than from a store
+///
+/// They were rendered during the run (§51). The model they came from carries
+/// manuscript prose and is deliberately not `Serialize` (§4.22), so it cannot
+/// be rebuilt from the cached JSON — that carries findings but no statistics
+/// block, no similarity regions, no lane record and no quotations.
+///
+/// **A miss is honest, not fatal:** the report is still in the viewer, and
+/// re-running produces the bytes again. The alternative — persisting rendered
+/// prose — is what §4.22 exists to prevent.
+///
+/// Uses `tauri-plugin-opener`, already a dependency, exactly as `export_report`
+/// does; `tauri-plugin-dialog` is not present and adding it is not needed to
+/// deliver the file.
+#[tauri::command]
+#[tracing::instrument(skip(state, app))]
+pub fn export_publishready_pdf(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    report_id: String,
+) -> Result<String, GaplyError> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let bytes = {
+        let q = state
+            .report_pdfs
+            .lock()
+            .map_err(|_| GaplyError::Internal("report cache poisoned".into()))?;
+        q.iter().find(|(id, _)| id == &report_id).map(|(_, b)| b.clone())
+    };
+    let bytes = bytes.ok_or_else(|| {
+        GaplyError::Validation(
+            "This report's PDF is no longer in memory. Run the analysis again to export it."
+                .into(),
+        )
+    })?;
+
+    let dir = std::env::temp_dir();
+    // Sweep prior exports so the temp dir does not grow one stale PDF per click.
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("gaply-publishready-") && name.ends_with(".pdf") {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    let file = dir.join(format!("gaply-publishready-{report_id}-{}.pdf", now_epoch()));
+    std::fs::write(&file, &bytes)?;
+    let path = file.to_string_lossy().to_string();
+    app.opener()
+        .open_path(path.clone(), None::<String>)
+        .map_err(|e| GaplyError::Internal(format!("failed to open the report: {e}")))?;
+    Ok(path)
 }
 
 /// Research Gap Finder (Set 2): build the session's paper corpus — N uploaded

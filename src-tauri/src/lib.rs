@@ -141,6 +141,7 @@ pub fn run() {
             commands::log_storage_error,
             commands::read_import_file,
             commands::export_report,
+            commands::export_publishready_pdf,
             commands::get_report,
             commands::sample_manuscript_path,
             commands::ingest_guidelines,
