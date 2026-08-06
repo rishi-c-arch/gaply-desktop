@@ -645,6 +645,32 @@ The rule was written while classifying significance criteria (ARCHITECTURE_TRACE
 
 Mutation found that **`extract::sentence` enforces it twice** — the digit-either-side guard and the token-boundary rule each suffice alone, so removing either leaves the property standing and only removing both breaks it. **Both are kept and the overlap is recorded**, so a future reader knows a one-clause edit is safe and a two-clause edit is not, and knows which test notices.
 
+### 4.25 Standing rule — FIXTURE VALIDITY is a separate property from test correctness
+
+> **A perfectly correct test can certify the wrong thing, if preprocessing silently changes the fixture before the code under test ever sees it.**
+
+**Two properties, and only one of them is what testing discipline usually means:**
+
+| | The question | Remedy |
+|---|---|---|
+| **TEST CORRECTNESS** | do the assertions evaluate the input that **actually reached** the code? | better assertions, mutation testing, stronger invariants |
+| **FIXTURE VALIDITY** | does the fixture **survive the same preprocessing as production input** while still representing the intended scenario? | pass fixtures through production preprocessing, or **explicitly verify** that preprocessing preserves the intended scenario |
+
+**THE REMEDIES DO NOT OVERLAP.** Stronger assertions and more mutations improve test correctness and **cannot touch fixture validity** — a mutation reveals it only by accident, when a test fails for a reason other than the mutation. **Fixture validity is a property of how a fixture is BUILT, not of what a test asserts.**
+
+#### Both instances in this record
+
+| Instance | What made the fixture invalid |
+|---|---|
+| A References fixture repeating one line verbatim across six entries (ARCHITECTURE_TRACE §46) | **`page_furniture` removes a short line seen three or more times as a running header**, so the line was gone before the classifier saw it. The assertions were internally correct for the input that arrived; the fixture no longer represented the scenario it claimed to construct. |
+| `report_with_sentinel`'s `"agent": "plagiarism"` (`reviewer_agent.rs:1523`) | a fixture carrying **data production could never emit** — invalid at construction rather than by preprocessing |
+
+**The two failure modes are opposite ends of the same property.** One fixture was changed on its way in; the other was never producible in the first place. **Both ask the same question — is this input something the system could really receive, in the state the test believes it is in?**
+
+#### Why it needs stating
+
+**The first instance was found by a mutation failing for the WRONG REASON**, which is a coincidence, not a method. Nothing in the suite could have reported it: every assertion passed, the test was green, and the scenario it named was not the scenario it ran. **A green test whose fixture was silently rewritten is indistinguishable from a green test that verified something** — which is exactly the shape §4.12's limit describes, one level up: the value is present, plausible, and wrong.
+
 ## 5. Evaluation Protocol
 
 **Standing three-question rule.** No capability is accepted unless all three are answered *before* implementation:

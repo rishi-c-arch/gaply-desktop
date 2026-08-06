@@ -4738,3 +4738,87 @@ A confidence value, a third state, or a wider threshold all express the first. *
 **And the case matters: under a naive `median > 1 → Structure` rule it classifies as Structure, then finds no blank lines to close on, and the entire section becomes one block — the exact collapse the classifier exists to prevent, reached from the opposite direction.** The classifier therefore tests `groups <= 1` before reading the median at all.
 
 **The general form:** when asking what defeats a measurement, ask what the measurement REQUIRES, not what it is small enough to miss. **Scarcity is one failure mode and the obvious one; absence of the signal, and violation of its preconditions, are others, and neither is reached by making the scarcity question more precise.**
+
+## 47. Item 1b, enumerated — the paragraph is TWO different things
+
+### 47.1 THE HEADLINE: WINDOW and KEY
+
+**Enumerating every consumer of paragraph scope produced a split that was not visible before doing it.**
+
+| | Consumers | The paragraph is | Degrades |
+|---|---|---|---|
+| **WINDOW** | rules 1, 2, 3, 5 — `validate.rs:227, 244, 260, 288` | a **text region to scan** | **CONTINUOUSLY** — a narrower window finds less, a wider one finds more |
+| **KEY** | the four `Location` indexes (`:192-213`), **rule 4** (`:274`), the Reported/Missing join (`report_build.rs:104`) | an **identity to compare** | **DISCONTINUOUSLY** — two things are in the same paragraph or they are not; there is no "nearly" |
+
+> **A change tuned to make WINDOWS right can put KEYS just past a boundary, with nothing to show it.** A window that is 10% too small returns slightly less text. A key that is 10% too small returns `false`.
+
+**The same 9-character DOCX paragraph hits two rules by DIFFERENT MECHANISMS while looking like one defect:**
+
+* **Rule 3** (window): the region contains no effect size **because it contains almost nothing** — `is_match` over nine characters. The flag fires because there is nothing to find.
+* **Rule 4** (key): the p-value and its confidence interval land in **different paragraphs**, so `ci_locs.contains(loc)` is `false`. The flag fires because two co-located things stopped being co-located.
+
+**One symptom, two causes, and a fix aimed at either one need not touch the other.** Recorded because "make paragraphs bigger" reads as a single remedy and is not.
+
+### 47.2 RULES 1 AND 5 ARE PROBABLY NOT SCOPE PROBLEMS — separate them from 1b
+
+| Rule | What it needs | Where its operands conventionally live |
+|---|---|---|
+| **1 `TestGroupMismatch`** | a group count, matched to the test it belongs to | count in **Methods**, t-test named in **Results** |
+| **5 `SmallSampleCausalClaim`** | a sample size, matched to a causal claim | *n* in **Methods**, claim in **Discussion** |
+
+> **No definition of "paragraph" reaches those.** They are operands the paragraph model never had a way to connect, and **widening a window cannot fix a rule whose operands are in different sections.**
+
+**So they are SEPARATED from 1b rather than carried inside it.** Whatever 1b decides a paragraph is, these two are unaffected — they need a cross-section join, which is a different problem with a different shape. **Carrying them along would let 1b appear to fail when it had simply never been their fix.**
+
+### 47.3 What each consumer is actually asking
+
+| Consumer | The question, in its own words | Implied unit |
+|---|---|---|
+| criterion classification | *is this p-value a decision rule or a result?* | **SENTENCE** — settled (§41.12, §42) |
+| reference reconstruction | *where does this bibliographic entry end?* | **ENTRY** — settled (§46) |
+| 2 `PValueOverclaim` | *does the author overstate what THIS p-value shows?* | the claim sentence |
+| 3 `MissingEffectSize` | *is the magnitude of THIS effect reported with its significance?* | the reporting unit — a parenthetical or a sentence |
+| 4 `MissingConfidenceInterval` | *is an interval reported for THIS estimate?* | the same reporting unit as 3 — **but implemented as a key** |
+| 1, 5 | see §47.2 | not a paragraph question at all |
+
+**Three distinct scopes, one value serving all of them.**
+
+### 47.4 `nearby_text` is NOT INDEPENDENT
+
+§42 established the quotation must come from **the same function the rule read**, so its scope is DERIVED from the rule's. **If a rule widens, the quotation widens with it or stops being "the text the engine read"** — the property that made it safe. A rule scanning a sentence while the report quotes a paragraph would be showing text the rule never saw.
+
+**Scope changes are not free at the presentation layer, and that constraint belongs to 1b's design rather than to its implementation.**
+
+### 47.5 Effect-size proximity — measured, with UNMEASURED and UNCERTAIN kept apart
+
+| Paper | p-values | regex hits in doc | typed `EffectSize` | same-paren | same-sentence | adj-sentence | same-para | none in para |
+|---|---|---|---|---|---|---|---|---|
+| Chapter 5-6 | 10 | **68** | **3** | 0 | 3 | 3 | 3 | 1 |
+| BMW PDSA | 40 | 25 | 16 | **5** | 1 | 0 | 15 | 19 |
+| IJAS | 0 | **0** | 0 | 0 | 0 | 0 | 0 | 0 |
+| ILI Ch 6 | 2 | **20** | **1** | 0 | 0 | 0 | 0 | 2 |
+
+**There ARE positive instances — 52 p-values with an effect size somewhere in their paragraph, across two papers.** The corpus is not empty on this question, which corrects the expectation that framed the step.
+
+**But the numbers do not license a proximity rule, and the two reasons are different in kind:**
+
+* **UNMEASURED** — IJAS contributes nothing: zero p-values after §42 reclassified all three as criteria, and zero effect-size hits in 33,516 characters. **Silent, not evidence of distance.**
+* **UNCERTAIN** — **68 regex hits against 3 typed extractions** in Chapter 5-6, and 20 against 1 in ILI. `EFFECT_SIZE_ALTERNATION` is firing far more often than real effect sizes occur, so **the proximity counts are measured over a signal not yet separable from noise.** That is ambiguity in existing observations, not their absence.
+
+**The one clean signal:** BMW PDSA's **5 same-parenthetical** hits with 16 typed extractions — `(+36.5 pp, Cohen's d = 2.14, p < 0.001)` — the conventional reporting unit, and the only category where the regex and the typed extractor agree.
+
+> **DO NOT INVENT A PROXIMITY RULE.** The defensible options remain: widen the corpus, or **retain the incumbent paragraph scope and record its justification as PRESENTLY UNEVIDENCED** rather than replacing it with something differently unevidenced.
+
+**One concrete input to step 5:** narrowing rule 3 from paragraph to sentence would lose **15 of BMW PDSA's 19 same-paragraph hits** if they are genuine — a cost that is measurable while the benefit is not, on this corpus.
+
+### 47.6 A NEW FORM OF §43 — a remedy that RAN CORRECTLY, on the wrong input
+
+**§43 recorded remedies that cannot run under the failure they address.** This is the other way.
+
+`cd src-tauri` failed again — the fourth instance of §31.20's pattern — but this time the `;` continuation after it meant the **backup copy still executed**, capturing a file that **already carried a probe from the previous failed attempt.** The later restore then **succeeded**: it copied the backup back, faithfully, and restored the wrong state.
+
+> **Not a remedy that could not run. A remedy that ran correctly and restored something that was never the intended baseline.** §43's family gains a member whose failure is invisible precisely because the operation reports success.
+
+**Caught by checking `git diff` — 76 added, 0 removed — rather than trusting the copy.** The restore came from `git` instead, which was safe only because the deletions count was zero.
+
+**The practice, stated:** *establish `pwd` before running anything*, and **verify a restore against a source that did not participate in the failure** — `git` rather than a copy made during it.
