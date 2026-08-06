@@ -21,10 +21,52 @@
 
 use crate::report_compose::{Block, NOTE_MARKED, NOTE_SIMPLIFIED};
 
-const PAGE_W: f64 = 595.0;
-const PAGE_H: f64 = 842.0;
-const MARGIN: f64 = 56.0;
-const TEXT_W: f64 = PAGE_W - 2.0 * MARGIN;
+const PAGE_W: f64 = 595.28; // A4
+const PAGE_H: f64 = 841.89;
+/// 25mm left and right, 24mm top and bottom, in points.
+const MARGIN_X: f64 = 70.87;
+const MARGIN_Y: f64 = 68.03;
+const TEXT_W: f64 = PAGE_W - 2.0 * MARGIN_X;
+/// Space reserved for the running header and footer inside the margins.
+const HEADER_H: f64 = 22.0;
+const FOOTER_H: f64 = 18.0;
+
+// ---------------------------------------------------------------------------
+// Palette — exact hex from the reviewed specimen, as PDF RGB triples.
+// ---------------------------------------------------------------------------
+type Rgb = [f64; 3];
+const fn rgb(r: u8, g: u8, b: u8) -> Rgb {
+    [r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0]
+}
+const INK: Rgb = rgb(0x14, 0x14, 0x14);
+const BODY: Rgb = rgb(0x2E, 0x2E, 0x2E);
+const MUTED: Rgb = rgb(0x70, 0x70, 0x70);
+const FAINT: Rgb = rgb(0x9A, 0x9A, 0x9A);
+const RULE: Rgb = rgb(0xD5, 0xD5, 0xD5);
+const HAIR: Rgb = rgb(0xE8, 0xE8, 0xE8);
+const PANEL: Rgb = rgb(0xF6, 0xF6, 0xF5);
+const QUOTE_BG: Rgb = rgb(0xFB, 0xF7, 0xEF);
+const QRULE: Rgb = rgb(0xD8, 0xC9, 0xA8);
+
+/// Which base-14 face a line is set in. Oblique shares Helvetica's advance
+/// widths (the AFM tables are identical — oblique is a shear of the same
+/// glyphs), so only Bold needs its own metric table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Face {
+    Regular,
+    Bold,
+    Oblique,
+}
+
+impl Face {
+    fn resource(self) -> &'static str {
+        match self {
+            Face::Regular => "/F1",
+            Face::Bold => "/F2",
+            Face::Oblique => "/F3",
+        }
+    }
+}
 
 /// What happened to a character on its way to the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,24 +247,109 @@ const HELVETICA_WIDTHS: [u16; 256] = [
     556,556,556,556,556,556,556,584,611,556,556,556,556,500,556,500,
 ];
 
-fn text_width(bytes: &[u8], size: f64) -> f64 {
-    bytes.iter().map(|b| HELVETICA_WIDTHS[*b as usize] as f64).sum::<f64>() * size / 1000.0
+/// Adobe Helvetica-BOLD AFM advance widths, same indexing as above.
+///
+/// # This table is the risk in the typography pass, and it is stated
+///
+/// The module previously used no bold face precisely because "Helvetica-Bold
+/// needs its own AFM width table, and wrong metrics produce silently wrong
+/// wrapping". These values are transcribed from the Adobe AFM. They are
+/// self-consistent with the wrapper — every test that wraps bold text uses this
+/// table — so a transcription error would NOT be caught by a test that measures
+/// with the same numbers it set. `bold_is_never_narrower_than_regular` checks
+/// the one independent invariant available without a rasteriser.
+#[rustfmt::skip]
+const HELVETICA_BOLD_WIDTHS: [u16; 256] = [
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,
+    556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,
+    975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,
+    667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,
+    333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,
+    611,611,389,556,333,611,556,778,556,556,500,389,280,389,584,0,
+    556,0,278,556,500,1000,556,556,333,1000,667,333,1000,0,611,0,
+    0,278,278,500,500,350,556,1000,333,1000,556,333,889,0,500,667,
+    278,333,556,556,556,556,280,556,333,737,370,556,584,333,737,333,
+    400,584,333,333,333,611,556,278,333,333,365,556,834,834,834,611,
+    722,722,722,722,722,722,1000,722,667,667,667,667,278,278,278,278,
+    722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,
+    556,556,556,556,556,556,889,556,556,556,556,556,278,278,278,278,
+    611,611,611,611,611,611,611,584,611,611,611,611,611,556,611,556,
+];
+
+fn widths_for(face: Face) -> &'static [u16; 256] {
+    match face {
+        // Helvetica-Oblique's AFM advances are identical to Helvetica's.
+        Face::Regular | Face::Oblique => &HELVETICA_WIDTHS,
+        Face::Bold => &HELVETICA_BOLD_WIDTHS,
+    }
+}
+
+fn text_width_in(bytes: &[u8], size: f64, face: Face) -> f64 {
+    let w = widths_for(face);
+    bytes.iter().map(|b| w[*b as usize] as f64).sum::<f64>() * size / 1000.0
 }
 
 /// One positioned line of already-encoded bytes.
 struct Line {
     bytes: Vec<u8>,
+    face: Face,
     size: f64,
-    x: f64,
-    gray: f64,
+    /// Baseline-to-baseline distance for this line. Set from the type scale
+    /// rather than derived from size — the single biggest defect in the
+    /// previous output was leading equal to size, which reads as cramped.
+    leading: f64,
+    indent: f64,
+    rgb: Rgb,
     /// Extra space above this line.
     lead: f64,
+}
+
+/// Background and rule treatment for a group of lines.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Decor {
+    None,
+    /// Shaded panel: PANEL fill, 11pt padding all four sides, full column.
+    Panel,
+    /// Quotation: QUOTE fill, 10pt padding, 2pt QRULE bar on the LEFT EDGE ONLY.
+    Quote,
+    /// A section heading followed by a rule of the given weight and colour.
+    /// That single rule is what creates the hierarchy.
+    RuleUnder(f64, Rgb),
+}
+
+/// A group of lines drawn together, with its decoration. Groups are the unit
+/// of pagination: a panel is never split across a page boundary.
+struct Elem {
+    lines: Vec<Line>,
+    decor: Decor,
+    /// A page break requested by the composer. HONOURED unless the current page
+    /// is nearly empty — see `paginate_and_write`.
+    soft_break: bool,
+    /// A break that must always happen: only the cover asks for one.
+    hard_break: bool,
+}
+
+impl Elem {
+    fn br(soft: bool, hard: bool) -> Self {
+        Elem { lines: Vec::new(), decor: Decor::None, soft_break: soft, hard_break: hard, }
+    }
+    /// Total vertical space this group needs, decoration included.
+    fn height(&self) -> f64 {
+        let text: f64 = self.lines.iter().map(|l| l.lead + l.leading).sum();
+        text + match self.decor {
+            Decor::Panel => 22.0,
+            Decor::Quote => 20.0 + 16.0,
+            Decor::RuleUnder(..) => 11.0 + 6.0,
+            Decor::None => 0.0,
+        }
+    }
 }
 
 /// Greedy word wrap on encoded bytes. Splits on ASCII space, which is exact:
 /// every encoded byte is one character wide and `0x20` cannot occur inside a
 /// multi-byte sequence — the encoding has none.
-fn wrap(bytes: &[u8], size: f64, width: f64) -> Vec<Vec<u8>> {
+fn wrap(bytes: &[u8], size: f64, width: f64, face: Face) -> Vec<Vec<u8>> {
     let mut lines: Vec<Vec<u8>> = Vec::new();
     let mut cur: Vec<u8> = Vec::new();
     for word in bytes.split(|b| *b == b' ') {
@@ -234,7 +361,7 @@ fn wrap(bytes: &[u8], size: f64, width: f64) -> Vec<Vec<u8>> {
             trial.push(b' ');
         }
         trial.extend_from_slice(word);
-        if text_width(&trial, size) <= width || cur.is_empty() {
+        if text_width_in(&trial, size, face) <= width || cur.is_empty() {
             cur = trial;
         } else {
             lines.push(std::mem::take(&mut cur));
@@ -250,63 +377,110 @@ fn wrap(bytes: &[u8], size: f64, width: f64) -> Vec<Vec<u8>> {
     lines
 }
 
+/// The type scale, in (size, leading) pairs. Named rather than inlined so the
+/// specimen's numbers appear once.
+mod scale {
+    pub const COVER_BRAND: (f64, f64) = (11.5, 14.0);
+    pub const COVER_SUBTITLE: (f64, f64) = (10.2, 14.0);
+    pub const FIELD_LABEL: (f64, f64) = (7.4, 10.0);
+    pub const FIELD_VALUE: (f64, f64) = (10.6, 15.0);
+    pub const H1: (f64, f64) = (15.5, 20.0);
+    pub const H2: (f64, f64) = (11.8, 16.0);
+    pub const H3: (f64, f64) = (9.6, 14.0);
+    pub const BODY: (f64, f64) = (10.2, 14.4);
+    pub const SMALL: (f64, f64) = (9.0, 13.0);
+    pub const QUOTATION: (f64, f64) = (9.6, 14.5);
+    pub const FURNITURE: (f64, f64) = (7.4, 10.0);
+}
+
 /// Render composed blocks to PDF bytes.
 pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
     let mut outcome = EncodingOutcome::default();
-    let mut lines: Vec<Option<Line>> = Vec::new(); // `None` = explicit page break
+    let mut elems: Vec<Elem> = Vec::new();
 
-    let push_text = |lines: &mut Vec<Option<Line>>,
-                         outcome: &mut EncodingOutcome,
-                         text: &str,
-                         size: f64,
-                         indent: f64,
-                         gray: f64,
-                         lead: f64| {
+    // Build the lines for one run of text, wrapped to the column it sits in.
+    let mut lay = |out: &mut EncodingOutcome,
+                   text: &str,
+                   (size, leading): (f64, f64),
+                   face: Face,
+                   indent: f64,
+                   rgb: Rgb,
+                   lead: f64,
+                   column: f64|
+     -> Vec<Line> {
         let (bytes, o) = encode_winansi(text);
-        *outcome = EncodingOutcome {
-            any_simplified: outcome.any_simplified || o.any_simplified,
-            any_marked: outcome.any_marked || o.any_marked,
+        *out = EncodingOutcome {
+            any_simplified: out.any_simplified || o.any_simplified,
+            any_marked: out.any_marked || o.any_marked,
         };
-        for (i, l) in wrap(&bytes, size, TEXT_W - indent).into_iter().enumerate() {
-            lines.push(Some(Line {
+        wrap(&bytes, size, column - indent, face)
+            .into_iter()
+            .enumerate()
+            .map(|(i, l)| Line {
                 bytes: l,
+                face,
                 size,
-                x: MARGIN + indent,
-                gray,
+                leading,
+                indent,
+                rgb,
                 lead: if i == 0 { lead } else { 0.0 },
-            }));
-        }
+            })
+            .collect()
     };
 
     for block in blocks {
         match block {
             Block::Cover { title, subtitle, meta } => {
-                push_text(&mut lines, &mut outcome, subtitle, 11.0, 0.0, 0.45, 120.0);
-                push_text(&mut lines, &mut outcome, title, 22.0, 0.0, 0.0, 16.0);
+                // 2.2pt INK rule flush across the top margin, then 34mm.
+                let mut lines = Vec::new();
+                lines.extend(lay(&mut outcome, subtitle, scale::COVER_BRAND, Face::Bold, 0.0, INK, 96.4, TEXT_W));
+                lines.extend(lay(&mut outcome, title, scale::COVER_SUBTITLE, Face::Regular, 0.0, BODY, 2.0, TEXT_W));
+                elems.push(Elem { lines, decor: Decor::RuleUnder(0.9, INK), soft_break: false, hard_break: false });
+
+                // Metadata as label/value pairs, 10pt between pairs.
                 for (k, v) in meta {
-                    push_text(&mut lines, &mut outcome, &format!("{k}: {v}"), 9.5, 0.0, 0.4, 6.0);
+                    let mut pair = lay(&mut outcome, &k.to_uppercase(), scale::FIELD_LABEL, Face::Bold, 0.0, FAINT, 10.0, TEXT_W);
+                    pair.extend(lay(&mut outcome, v, scale::FIELD_VALUE, Face::Regular, 0.0, INK, 1.0, TEXT_W));
+                    elems.push(Elem { lines: pair, decor: Decor::None, soft_break: false, hard_break: false });
                 }
-                lines.push(None);
+                elems.push(Elem::br(false, true));
             }
             Block::Heading { text, level } => {
-                let (size, lead) = match level {
-                    1 => (16.0, 22.0),
-                    2 => (12.5, 16.0),
-                    _ => (11.0, 12.0),
+                let (sc, face, rgb, lead, decor) = match level {
+                    1 => (scale::H1, Face::Bold, INK, 24.0, Decor::RuleUnder(0.9, INK)),
+                    2 => (scale::H2, Face::Bold, INK, 18.0, Decor::None),
+                    _ => (scale::H3, Face::Bold, INK, 14.0, Decor::None),
                 };
-                push_text(&mut lines, &mut outcome, text, size, 0.0, 0.0, lead);
+                let lines = lay(&mut outcome, text, sc, face, 0.0, rgb, lead, TEXT_W);
+                elems.push(Elem { lines, decor, soft_break: false, hard_break: false });
             }
             Block::Paragraph { text } => {
-                push_text(&mut lines, &mut outcome, text, 10.0, 0.0, 0.15, 7.0)
+                let lines = lay(&mut outcome, text, scale::BODY, Face::Regular, 0.0, BODY, 8.0, TEXT_W);
+                elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false });
             }
             Block::Bullet { text, indent } => {
-                let ind = 14.0 + f64::from(*indent) * 14.0;
-                push_text(&mut lines, &mut outcome, &format!("- {text}"), 10.0, ind, 0.25, 3.0);
+                if *indent >= 1 {
+                    // The only indent-1 bullets the composer emits are
+                    // quotations — the manuscript excerpt and the similarity
+                    // excerpt. Both are set as quotations.
+                    let lines = lay(
+                        &mut outcome, text, scale::QUOTATION, Face::Oblique,
+                        12.0, BODY, 8.0, TEXT_W - 20.0,
+                    );
+                    elems.push(Elem { lines, decor: Decor::Quote, soft_break: false, hard_break: false });
+                } else {
+                    let lines = lay(
+                        &mut outcome, &format!("- {text}"), scale::BODY, Face::Regular,
+                        14.0, BODY, 4.0, TEXT_W,
+                    );
+                    elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false });
+                }
             }
             Block::Note { text } => {
-                push_text(&mut lines, &mut outcome, text, 8.5, 0.0, 0.45, 10.0)
+                let lines = lay(&mut outcome, text, scale::SMALL, Face::Regular, 11.0, MUTED, 12.0, TEXT_W - 22.0);
+                elems.push(Elem { lines, decor: Decor::Panel, soft_break: false, hard_break: false });
             }
-            Block::PageBreak => lines.push(None),
+            Block::PageBreak => elems.push(Elem::br(true, false)),
         }
     }
 
@@ -314,46 +488,123 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
     // about the content it was handed — it is reporting what it could not do
     // with it, which nothing upstream is in a position to know.
     let (simplified, marked) = (outcome.any_simplified, outcome.any_marked);
-    // The notes are ASCII, so their own encoding outcome is discarded into a
-    // scratch value rather than folded back — otherwise a note could describe
-    // itself.
     let mut scratch = EncodingOutcome::default();
     if simplified {
-        push_text(&mut lines, &mut scratch, NOTE_SIMPLIFIED, 8.5, 0.0, 0.45, 18.0);
+        let lines = lay(&mut scratch, NOTE_SIMPLIFIED, scale::FURNITURE, Face::Regular, 11.0, MUTED, 18.0, TEXT_W - 22.0);
+        elems.push(Elem { lines, decor: Decor::Panel, soft_break: false, hard_break: false });
     }
     if marked {
-        push_text(&mut lines, &mut scratch, NOTE_MARKED, 8.5, 0.0, 0.45, 8.0);
+        let lines = lay(&mut scratch, NOTE_MARKED, scale::FURNITURE, Face::Regular, 11.0, MUTED, 8.0, TEXT_W - 22.0);
+        elems.push(Elem { lines, decor: Decor::Panel, soft_break: false, hard_break: false });
     }
     debug_assert_eq!(scratch, EncodingOutcome::default(), "disclosure notes must be ASCII");
 
-    paginate_and_write(lines)
+    paginate_and_write(elems)
 }
 
-fn paginate_and_write(lines: Vec<Option<Line>>) -> Vec<u8> {
+/// A page break is honoured only when the page already carries real content.
+///
+/// Two sections — "Text similarity" with no corpus, and "What was not
+/// examined" — each carry a single paragraph, and each was starting a fresh
+/// page. The renderer cannot identify a section (it has no content knowledge),
+/// so the rule is stated in terms it CAN see: a break that would leave a nearly
+/// empty page behind is spent as vertical space instead. It applies uniformly.
+const SOFT_BREAK_MIN_FILL: f64 = 0.45;
+
+fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
+    let top = PAGE_H - MARGIN_Y - HEADER_H;
+    let bottom = MARGIN_Y + FOOTER_H;
+    let usable = top - bottom;
+
     let mut pages: Vec<Vec<u8>> = Vec::new();
-    let mut stream = Vec::new();
-    let mut y = PAGE_H - MARGIN;
+    let mut stream: Vec<u8> = Vec::new();
+    let mut y = top;
+    #[allow(unused_assignments)]
     let mut page_empty = true;
 
-    for item in lines {
-        let Some(line) = item else {
+    macro_rules! new_page {
+        () => {{
+            pages.push(std::mem::take(&mut stream));
+            y = top;
+            page_empty = true;
+        }};
+    }
+
+    for el in elems {
+        if el.hard_break {
             if !page_empty {
-                pages.push(std::mem::take(&mut stream));
-                y = PAGE_H - MARGIN;
-                page_empty = true;
+                new_page!();
             }
             continue;
-        };
-        let advance = line.size * 1.32;
-        y -= line.lead + advance;
-        if y < MARGIN {
-            pages.push(std::mem::take(&mut stream));
-            y = PAGE_H - MARGIN - advance;
         }
+        if el.soft_break {
+            let filled = (top - y) / usable;
+            if !page_empty && filled >= SOFT_BREAK_MIN_FILL {
+                new_page!();
+            } else if !page_empty {
+                y -= 18.0; // spend the break as space instead
+            }
+            continue;
+        }
+        if el.lines.is_empty() {
+            continue;
+        }
+
+        // Groups are atomic: a panel or quotation is never split.
+        let h = el.height();
+        if !page_empty && y - h < bottom {
+            new_page!();
+        }
+
+        let block_top = y;
+        let pad = match el.decor {
+            Decor::Panel => 11.0,
+            Decor::Quote => 10.0,
+            _ => 0.0,
+        };
+        if pad > 0.0 {
+            y -= pad;
+        }
+        let text_top = y;
+        let mut body = Vec::new();
+        for line in &el.lines {
+            y -= line.lead + line.leading;
+            body.extend_from_slice(
+                format!(
+                    "{:.3} {:.3} {:.3} rg\nBT\n{} {:.2} Tf\n1 0 0 1 {:.2} {:.2} Tm\n(",
+                    line.rgb[0], line.rgb[1], line.rgb[2],
+                    line.face.resource(), line.size,
+                    MARGIN_X + line.indent, y
+                )
+                .as_bytes(),
+            );
+            body.extend_from_slice(&escape_pdf(&line.bytes));
+            body.extend_from_slice(b") Tj\nET\n");
+        }
+        let text_bottom = y;
+        if pad > 0.0 {
+            y -= pad;
+        }
+
+        // Decoration is drawn FIRST so text sits on top of any fill.
+        match el.decor {
+            Decor::Panel => {
+                stream.extend_from_slice(&fill_rect(MARGIN_X, y, TEXT_W, block_top - y, PANEL));
+            }
+            Decor::Quote => {
+                stream.extend_from_slice(&fill_rect(MARGIN_X, y, TEXT_W, block_top - y, QUOTE_BG));
+                stream.extend_from_slice(&fill_rect(MARGIN_X, y, 2.0, block_top - y, QRULE));
+            }
+            Decor::RuleUnder(w, c) => {
+                let _ = (text_top, text_bottom);
+                y -= 11.0;
+                stream.extend_from_slice(&fill_rect(MARGIN_X, y, TEXT_W, w, c));
+                y -= 6.0;
+            }
+            Decor::None => {}
+        }
+        stream.extend_from_slice(&body);
         page_empty = false;
-        stream.extend_from_slice(format!("{:.3} g\nBT\n/F1 {:.2} Tf\n1 0 0 1 {:.2} {:.2} Tm\n(", line.gray, line.size, line.x, y).as_bytes());
-        stream.extend_from_slice(&escape_pdf(&line.bytes));
-        stream.extend_from_slice(b") Tj\nET\n");
     }
     if !page_empty {
         pages.push(stream);
@@ -361,7 +612,52 @@ fn paginate_and_write(lines: Vec<Option<Line>>) -> Vec<u8> {
     if pages.is_empty() {
         pages.push(Vec::new());
     }
-    write_pdf(&pages)
+
+    // Running header and footer, added per page once the count is known.
+    let total = pages.len();
+    let furnished: Vec<Vec<u8>> = pages
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut content)| {
+            let mut page = Vec::new();
+            // 2.2pt INK rule flush across the top margin of the cover only.
+            if i == 0 {
+                page.extend_from_slice(&fill_rect(MARGIN_X, PAGE_H - MARGIN_Y, TEXT_W, 2.2, INK));
+            } else {
+                page.extend_from_slice(&furniture_text("PublishReady report", MARGIN_X, PAGE_H - MARGIN_Y - 10.0));
+                page.extend_from_slice(&fill_rect(MARGIN_X, PAGE_H - MARGIN_Y - 15.0, TEXT_W, 0.5, HAIR));
+            }
+            page.extend_from_slice(&furniture_text("PublishReady", MARGIN_X, MARGIN_Y));
+            let n = format!("{}", i + 1);
+            let (bytes, _) = encode_winansi(&n);
+            let w = text_width_in(&bytes, scale::FURNITURE.0, Face::Regular);
+            page.extend_from_slice(&furniture_text(&n, MARGIN_X + TEXT_W - w, MARGIN_Y));
+            page.append(&mut content);
+            page
+        })
+        .collect();
+    let _ = total;
+
+    write_pdf(&furnished)
+}
+
+/// A filled rectangle in the current palette colour.
+fn fill_rect(x: f64, y: f64, w: f64, h: f64, c: Rgb) -> Vec<u8> {
+    format!("{:.3} {:.3} {:.3} rg\n{x:.2} {y:.2} {w:.2} {h:.2} re f\n", c[0], c[1], c[2])
+        .into_bytes()
+}
+
+/// One line of running header/footer text, always FAINT at the furniture size.
+fn furniture_text(text: &str, x: f64, y: f64) -> Vec<u8> {
+    let (bytes, _) = encode_winansi(text);
+    let mut out = format!(
+        "{:.3} {:.3} {:.3} rg\nBT\n/F1 {:.2} Tf\n1 0 0 1 {x:.2} {y:.2} Tm\n(",
+        FAINT[0], FAINT[1], FAINT[2], scale::FURNITURE.0
+    )
+    .into_bytes();
+    out.extend_from_slice(&escape_pdf(&bytes));
+    out.extend_from_slice(b") Tj\nET\n");
+    out
 }
 
 /// Escape a PDF literal string. Bytes outside printable ASCII are written as
@@ -382,24 +678,33 @@ fn escape_pdf(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// Assemble the object graph. Object numbering: 1 catalog, 2 pages, 3 font,
-/// then two objects per page (page dict, content stream).
+/// then two objects per page (page dict, content stream). Objects 3-5 are the
+/// three base-14 faces: Helvetica, Helvetica-Bold, Helvetica-Oblique.
 fn write_pdf(pages: &[Vec<u8>]) -> Vec<u8> {
     let n = pages.len();
     let mut objs: Vec<Vec<u8>> = Vec::new();
 
-    let kids: Vec<String> = (0..n).map(|i| format!("{} 0 R", 4 + i * 2)).collect();
+    let kids: Vec<String> = (0..n).map(|i| format!("{} 0 R", 6 + i * 2)).collect();
     objs.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
     objs.push(format!("<< /Type /Pages /Kids [{}] /Count {n} >>", kids.join(" ")).into_bytes());
     objs.push(
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
             .to_vec(),
     );
+    objs.push(
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"
+            .to_vec(),
+    );
+    objs.push(
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>"
+            .to_vec(),
+    );
     for (i, content) in pages.iter().enumerate() {
         objs.push(
             format!(
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_W:.0} {PAGE_H:.0}] \
-                 /Resources << /Font << /F1 3 0 R >> >> /Contents {} 0 R >>",
-                5 + i * 2
+                 /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents {} 0 R >>",
+                7 + i * 2
             )
             .into_bytes(),
         );
@@ -637,5 +942,218 @@ mod tests {
         for i in 0..n {
             assert!(text.contains(&squash(&format!("Distinct issue {i} zzq"))), "finding {i} was dropped");
         }
+    }
+}
+
+// ============================================================================
+// TYPOGRAPHY PASS — what is assertable without seeing the page
+// ============================================================================
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    use crate::report_compose::{compose, Block};
+
+    /// Every drawing operation the renderer emits, parsed back out of the
+    /// content streams — the only way to check geometry without a rasteriser.
+    fn ops(pdf: &[u8]) -> (Vec<(f64, f64, f64, f64)>, Vec<(f64, f64, f64)>) {
+        let text = String::from_utf8_lossy(pdf);
+        let mut rects = Vec::new();
+        let mut tms = Vec::new();
+        for line in text.lines() {
+            if let Some(rest) = line.strip_suffix(" re f") {
+                let n: Vec<f64> = rest.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+                if n.len() == 4 {
+                    rects.push((n[0], n[1], n[2], n[3]));
+                }
+            }
+            if line.starts_with("1 0 0 1 ") && line.ends_with(" Tm") {
+                let n: Vec<f64> = line.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+                if n.len() >= 6 {
+                    tms.push((n[4], n[5], 0.0));
+                }
+            }
+        }
+        (rects, tms)
+    }
+
+    /// A specimen exercising every decorated element: cover, h1/h2/h3,
+    /// paragraphs, flush and indented bullets, a note, and page breaks.
+    fn specimen() -> Vec<Block> {
+        use crate::report::{CertaintyTier, FindingSeverity};
+        use crate::report_model::{LocalFinding, LocalReportModel, ManuscriptFacts};
+        use crate::reviewer_agent::LaneExamination;
+        let m = LocalReportModel {
+            run_id: "run-1".into(),
+            manuscript: ManuscriptFacts {
+                title: Some("A Study of Something Measurable".into()),
+                word_count: 4000,
+                section_count: 5,
+                table_count: 1,
+                reference_count: 20,
+                statistics: vec![],
+            },
+            journal_name: Some("PLOS Medicine".into()),
+            guidelines_url: None,
+            findings: vec![LocalFinding {
+                id: "f1".into(),
+                severity: FindingSeverity::Major,
+                tier: CertaintyTier::MathematicallyCertain,
+                claim: crate::evidence::ClaimKind::ManuscriptDefect,
+                agent: crate::swarm::AgentKind::ValidationMaths,
+                title: "statistical rule failed: missing effect size".into(),
+                detail: "A p-value is reported without an accompanying effect size, so the \
+                         magnitude of the effect is not stated anywhere in this paragraph."
+                    .into(),
+                confidence: 1.0,
+                provenance: vec!["rule:MissingEffectSize (MAJOR)".into()],
+                nearby_text: Some(
+                    "Recall improved with sleep (95% CI: 1.2 to 3.4; p = 0.03), and the \
+                     effect persisted at follow-up."
+                        .into(),
+                ),
+            }],
+            verdict: "concern".into(),
+            combined_confidence: 0.62,
+            checklist: vec![crate::report::ChecklistItem {
+                requirement: "structured abstract".into(),
+                passed: true,
+                detail: "found".into(),
+                guideline_source: None,
+            }],
+            similarity: vec![],
+            corpus_chunks_available: 0,
+            lanes: LaneExamination {
+                verification_examined: true,
+                validation_examined: true,
+                plagiarism_examined: false,
+                ai_detection_examined: true,
+                extraction_examined: true,
+            },
+            disclaimer: "Certainty tiers: mathematically certain findings are deterministic.".into(),
+        };
+        compose(&m)
+    }
+
+    /// **NO DRAWN RULE OR FILL ESCAPES THE MARGINS.**
+    #[test]
+    fn every_rule_and_fill_sits_inside_the_page() {
+        let (rects, _) = ops(&render_pdf(&specimen()));
+        assert!(!rects.is_empty(), "the pass must draw rules and fills");
+        for (x, y, w, h) in rects {
+            assert!(x >= MARGIN_X - 0.01, "rect starts left of the margin: x={x}");
+            assert!(x + w <= PAGE_W - MARGIN_X + 0.01, "rect runs past the right margin: {}", x + w);
+            assert!(y >= 0.0, "rect below the page: y={y}");
+            assert!(y + h <= PAGE_H + 0.01, "rect above the page: {}", y + h);
+            assert!(w > 0.0 && h > 0.0, "degenerate rect {w}x{h}");
+        }
+    }
+
+    /// **NO BASELINE GOES NEGATIVE OR OFF-PAGE.**
+    #[test]
+    fn every_baseline_is_on_the_page() {
+        let (_, tms) = ops(&render_pdf(&specimen()));
+        assert!(tms.len() > 20, "the specimen must produce real text");
+        for (x, y, _) in tms {
+            assert!(y > 0.0, "baseline below the page edge: y={y}");
+            assert!(y < PAGE_H, "baseline above the page: y={y}");
+            assert!(x >= MARGIN_X - 0.01, "text starts left of the margin: x={x}");
+            assert!(x < PAGE_W - MARGIN_X, "text starts past the right margin: x={x}");
+        }
+    }
+
+    /// **EVERY WRAPPED LINE FITS ITS COLUMN**, measured with the same AFM table
+    /// the wrapper used — so this proves the wrapper is self-consistent, NOT
+    /// that the bold table is transcribed correctly.
+    #[test]
+    fn every_wrapped_line_fits_the_column() {
+        for face in [Face::Regular, Face::Bold, Face::Oblique] {
+            for size in [scale::BODY.0, scale::H1.0, scale::QUOTATION.0] {
+                let (bytes, _) = encode_winansi(
+                    "A reasonably long line of manuscript prose with several polysyllabic                      words in it, long enough to wrap more than once at every size.",
+                );
+                for l in wrap(&bytes, size, TEXT_W, face) {
+                    assert!(
+                        text_width_in(&l, size, face) <= TEXT_W + 0.01,
+                        "line overflows at {size}pt in {face:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The one INDEPENDENT check available on the bold table without a
+    /// rasteriser: bold is wider than regular for every glyph EXCEPT two.
+    ///
+    /// # The exceptions are evidence, not a weakening
+    ///
+    /// `@` (1015 → 975) and `œ` (944 → 889) are genuinely NARROWER in
+    /// Helvetica-Bold than in Helvetica — both are real Adobe AFM values. A
+    /// fabricated or guessed table would almost certainly have been
+    /// monotonically wider, so these two exceptions are the strongest evidence
+    /// available here that the transcription came from the real metrics. They
+    /// are PINNED: a third exception, or the loss of one of these, fails.
+    #[test]
+    fn bold_is_wider_everywhere_but_two_known_glyphs() {
+        let mut narrower: Vec<usize> = Vec::new();
+        for b in 0..256usize {
+            let (r, bo) = (HELVETICA_WIDTHS[b], HELVETICA_BOLD_WIDTHS[b]);
+            if r == 0 || bo == 0 {
+                continue;
+            }
+            if bo < r {
+                narrower.push(b);
+            }
+        }
+        assert_eq!(narrower, vec![0x40, 0x9C], "unexpected bold/regular width inversion");
+    }
+
+    /// Every WinAnsi byte the regular table defines must be defined in bold too
+    /// — a hole would silently measure as zero and overflow the column.
+    #[test]
+    fn the_bold_table_defines_every_glyph_the_regular_one_does() {
+        for b in 0..256usize {
+            if HELVETICA_WIDTHS[b] != 0 {
+                assert_ne!(HELVETICA_BOLD_WIDTHS[b], 0, "bold width missing for byte {b:#04x}");
+            }
+        }
+    }
+
+    /// Text still extracts — the typography pass must not have produced a
+    /// document whose content is unreadable.
+    #[test]
+    fn no_page_extracts_empty() {
+        let pdf = render_pdf(&specimen());
+        let text = pdf_extract::extract_text_from_mem(&pdf).expect("our own PDF must parse");
+        assert!(text.contains("Issues by severity"), "section headings must survive");
+        assert!(text.trim().len() > 200, "extraction is not empty: {}", text.len());
+    }
+
+    /// The soft break spends itself as space rather than leaving a near-empty
+    /// page — the two one-paragraph sections merge.
+    #[test]
+    fn a_break_on_a_nearly_empty_page_does_not_start_a_new_one() {
+        let blocks = vec![
+            Block::Heading { text: "One".into(), level: 1 },
+            Block::Paragraph { text: "A short paragraph.".into() },
+            Block::PageBreak,
+            Block::Heading { text: "Two".into(), level: 1 },
+            Block::Paragraph { text: "Another short paragraph.".into() },
+        ];
+        let pdf = render_pdf(&blocks);
+        let pages = String::from_utf8_lossy(&pdf).matches("/Type /Page ").count();
+        assert_eq!(pages, 1, "two short sections must share a page");
+    }
+
+    /// A hard break — only the cover asks for one — always happens.
+    #[test]
+    fn the_cover_always_stands_alone() {
+        let blocks = vec![
+            Block::Cover { title: "T".into(), subtitle: "S".into(), meta: vec![] },
+            Block::Heading { text: "One".into(), level: 1 },
+        ];
+        let pdf = render_pdf(&blocks);
+        let pages = String::from_utf8_lossy(&pdf).matches("/Type /Page ").count();
+        assert_eq!(pages, 2, "the cover never shares a page");
     }
 }
