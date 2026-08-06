@@ -273,6 +273,28 @@ fn output_schema() -> Value {
 /// `items` pairs each extracted [`Reference`] with its [`ReferenceVerification`]
 /// from the Prompt-16 connectors. Returns one verdict per citation, harness-
 /// gated against the evidence actually provided.
+/// Total string-leaf characters the proxy's validator will count.
+///
+/// Mirrors `gaply-proxy/app/validation.py`'s `_string_leaves` exactly: every
+/// STRING LEAF anywhere in the payload, VALUES ONLY (keys are not counted).
+/// Kept here rather than approximated, because a client budget computed by a
+/// different rule than the server's is not a budget.
+fn string_leaf_chars(v: &Value) -> usize {
+    match v {
+        Value::String(s) => s.chars().count(),
+        Value::Object(m) => m.values().map(string_leaf_chars).sum(),
+        Value::Array(a) => a.iter().map(string_leaf_chars).sum(),
+        _ => 0,
+    }
+}
+
+/// The client's share of the proxy's `MAX_TOTAL_CHARS = 8000`.
+///
+/// Held below the server limit so a payload that fits here is not rejected on a
+/// boundary — the margin absorbs a future instruction or schema edit without
+/// silently reintroducing the 422 this budget exists to prevent.
+const PAYLOAD_TOTAL_BUDGET: usize = 7_600;
+
 pub fn verify_citations(
     proxy: &dyn ProxyClient,
     items: &[(Reference, ReferenceVerification)],
@@ -287,20 +309,81 @@ pub fn verify_citations(
         .enumerate()
         .map(|(i, (r, rv))| bundle_citation(i, r, rv))
         .collect();
+
+    // --- BUDGET THE PAYLOAD AS A SET (ARCHITECTURE_TRACE §15.2.1, §52)
+    //
+    // The endpoint expects a BOUNDED structured summary; this client sent an
+    // unbounded one, growing linearly with reference count — measured at 16,255
+    // chars for 28 references against a 8,000 cap, and every verdict came back
+    // Unknown because the request never reached the model.
+    //
+    // The fixed cost (task, instruction, output_schema) is measured at runtime
+    // rather than assumed, so an instruction edit shrinks the citation budget
+    // instead of silently overflowing it.
+    let envelope = json!({
+        "task": "citation_verification",
+        "instruction": INSTRUCTION,
+        "output_schema": output_schema(),
+        "summary": { "citations": [], "citations_omitted": 0 },
+    });
+    let mut used = string_leaf_chars(&envelope);
+    let mut keep = 0usize;
+    for b in &bundled {
+        let cost = string_leaf_chars(&b.json);
+        // At least ONE citation always goes: a request that verifies nothing is
+        // worse than one bounded to a single reference, and the omitted count
+        // reports the rest honestly either way.
+        if keep > 0 && used + cost > PAYLOAD_TOTAL_BUDGET {
+            break;
+        }
+        used += cost;
+        keep += 1;
+    }
+    let (sent, omitted) = bundled.split_at(keep);
+    if !omitted.is_empty() {
+        tracing::info!(
+            omitted = omitted.len(),
+            sent = sent.len(),
+            chars = used,
+            "citation payload bounded to the proxy's character budget"
+        );
+    }
+
     let payload = json!({
         "task": "citation_verification",
         "instruction": INSTRUCTION,
         "output_schema": output_schema(),
         "summary": {
-            "citations": bundled.iter().map(|b| b.json.clone()).collect::<Vec<_>>(),
+            "citations": sent.iter().map(|b| b.json.clone()).collect::<Vec<_>>(),
+            // Mirrors `build_review_payload`'s `findings_omitted`: the model is
+            // told what it did not see, rather than shown a truncated set as if
+            // it were the whole.
+            "citations_omitted": omitted.len(),
         },
     });
 
     // --- the single cloud hop, through the proxy seam
     let response = proxy.verify(&payload)?;
 
-    // --- parse with strict schema, then harness-gate against the bundle
-    gate_response(&response, &bundled)
+    // --- parse with strict schema, then harness-gate against WHAT WAS SENT
+    let mut report = gate_response(&response, sent)?;
+
+    // A dropped citation must not VANISH. It gets an honest Unknown, which the
+    // report's existing collapse renders as "N of M citation(s) were not
+    // checked … it is not a finding about your references" — the mechanism that
+    // already exists for this exact user-facing fact.
+    for b in omitted {
+        report.verdicts.push(CitationVerdict {
+            citation_id: b.id.clone(),
+            verdict: Verdict::Unknown,
+            confidence: 0.0,
+            rationale: "not sent: the citation payload was bounded to the service's size limit"
+                .to_string(),
+            evidence_refs: Vec::new(),
+            gate_flags: Vec::new(),
+        });
+    }
+    Ok(report)
 }
 
 /// Strict-parse Claude's reply and validate it against the evidence bundle.
@@ -541,3 +624,110 @@ pub fn reconsider_citations(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod payload_budget_tests {
+    use super::*;
+    use crate::refverify::ReferenceVerification;
+
+    fn refs(n: usize, title_len: usize) -> Vec<(Reference, ReferenceVerification)> {
+        (0..n)
+            .map(|i| {
+                let raw = format!("Author {i} A B. 20{:02}. {}. Journal {i}: 1-9.", i % 100, "x".repeat(title_len));
+                let r = Reference {
+                    raw: raw.clone(),
+                    authors: format!("Author {i} A B"),
+                    year: Some(2000 + (i % 25) as i32),
+                    title: Some("x".repeat(title_len)),
+                    doi: Some(format!("10.1000/j{i}")),
+                };
+                let rv = ReferenceVerification {
+                    reference_raw: raw,
+                    exists: None, retraction: None, open_access: None, enrichment: None,
+                    provenance: vec![], warnings: vec![],
+                };
+                (r, rv)
+            })
+            .collect()
+    }
+
+    /// **THE PAYLOAD IS BOUNDED AS A SET.** §15.2 measured 16,255 chars for 28
+    /// references against the proxy's 8,000 cap; every verdict came back
+    /// Unknown because the request never reached the model.
+    #[test]
+    fn a_large_reference_list_is_bounded_below_the_proxy_cap() {
+        let items = refs(60, 300);
+        let proxy = MockProxyClient::returning(json!({ "verdicts": [] }));
+        let _ = verify_citations(&proxy, &items).expect("must not fail");
+
+        let sent = proxy.sent_payloads().pop().expect("the mock captured a payload");
+        let total = string_leaf_chars(&sent);
+        assert!(
+            total <= PAYLOAD_TOTAL_BUDGET,
+            "payload must fit the client budget: {total} > {PAYLOAD_TOTAL_BUDGET}"
+        );
+        assert!(total < 8_000, "and therefore the proxy's cap: {total}");
+    }
+
+    /// **THE DROP IS REPORTED, NOT SILENT** — mirroring `findings_omitted`.
+    #[test]
+    fn the_omitted_count_is_sent_to_the_model() {
+        let items = refs(60, 300);
+        let proxy = MockProxyClient::returning(json!({ "verdicts": [] }));
+        let _ = verify_citations(&proxy, &items).unwrap();
+        let sent = proxy.sent_payloads().pop().unwrap();
+        let omitted = sent["summary"]["citations_omitted"].as_u64().unwrap();
+        let carried = sent["summary"]["citations"].as_array().unwrap().len();
+        assert!(omitted > 0, "this fixture must overflow the budget");
+        assert_eq!(carried + omitted as usize, 60, "every citation is either sent or counted");
+    }
+
+    /// **A DROPPED CITATION DOES NOT VANISH.** It gets an honest Unknown, which
+    /// the report's existing collapse renders as "N of M were not checked".
+    #[test]
+    fn every_dropped_citation_still_receives_an_unknown_verdict() {
+        let items = refs(60, 300);
+        let proxy = MockProxyClient::returning(json!({ "verdicts": [] }));
+        let report = verify_citations(&proxy, &items).unwrap();
+        assert_eq!(report.verdicts.len(), 60, "one verdict per reference, always");
+        let unknown = report.verdicts.iter().filter(|v| v.verdict == Verdict::Unknown).count();
+        assert_eq!(unknown, 60, "the mock returns no verdicts, so all are Unknown");
+        assert!(
+            report.verdicts.iter().any(|v| v.rationale.contains("bounded to the service's size limit")),
+            "the dropped ones say WHY they were not checked"
+        );
+    }
+
+    /// A list that already fits is untouched — no drop, no omitted count.
+    #[test]
+    fn a_small_reference_list_is_sent_whole() {
+        let items = refs(3, 40);
+        let proxy = MockProxyClient::returning(json!({ "verdicts": [] }));
+        let _ = verify_citations(&proxy, &items).unwrap();
+        let sent = proxy.sent_payloads().pop().unwrap();
+        assert_eq!(sent["summary"]["citations_omitted"], json!(0));
+        assert_eq!(sent["summary"]["citations"].as_array().unwrap().len(), 3);
+    }
+
+    /// **AT LEAST ONE CITATION ALWAYS GOES.** A single reference larger than the
+    /// whole budget must still be verified rather than yielding a request that
+    /// checks nothing.
+    #[test]
+    fn one_oversized_citation_is_still_sent() {
+        let items = refs(1, 20_000);
+        let proxy = MockProxyClient::returning(json!({ "verdicts": [] }));
+        let report = verify_citations(&proxy, &items).unwrap();
+        let sent = proxy.sent_payloads().pop().unwrap();
+        assert_eq!(sent["summary"]["citations"].as_array().unwrap().len(), 1);
+        assert_eq!(sent["summary"]["citations_omitted"], json!(0));
+        assert_eq!(report.verdicts.len(), 1);
+    }
+
+    /// The counter must match the proxy's rule: string leaves, VALUES only.
+    #[test]
+    fn the_char_counter_mirrors_the_proxy_validator() {
+        let v = json!({ "a": "12345", "b": { "c": "xy" }, "d": [ "z", 7, true ], "e": 42 });
+        // "12345" + "xy" + "z" = 5 + 2 + 1; keys and non-strings are not counted.
+        assert_eq!(string_leaf_chars(&v), 8);
+    }
+}
