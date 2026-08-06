@@ -4822,3 +4822,61 @@ A confidence value, a third state, or a wider threshold all express the first. *
 **Caught by checking `git diff` — 76 added, 0 removed — rather than trusting the copy.** The restore came from `git` instead, which was safe only because the deletions count was zero.
 
 **The practice, stated:** *establish `pwd` before running anything*, and **verify a restore against a source that did not participate in the failure** — `git` rather than a copy made during it.
+
+## 48. Item 3 — false-negative suppression by lexical collision
+
+**Opposite in direction to item 1.** Item 1 was a false POSITIVE: a threshold declaration flagged as a reported result. This is a false NEGATIVE: a real `MissingEffectSize` finding suppressed because `EFFECT_SIZE_ALTERNATION` matched a token that is not an effect size.
+
+### 48.1 The measurement
+
+| Paper | regex hits | with a value | **name-only** | typed `EffectSize` |
+|---|---|---|---|---|
+| **Chapter 5-6** | 68 | **4** | **64** | 3 |
+| BMW PDSA | 25 | 16 | 9 | 16 |
+| ILI Ch 6 | 20 | 20 | 0 | 1 |
+
+**Neither candidate explanation dominates.** The gap is not "a name without a value" and not `\bd\s*=` matching a distance. **`\bf2\b` — Cohen's *f²* — is matching formulation BATCH LABELS** in a pharmaceutical paper whose gels are named F1…F4:
+
+```
+[F2] …Four gel batches (F1, F2, F3 and F4) were prepared…
+[F2] …the optimized NE in-situ gel batch (F2) selected from the preliminary…
+```
+
+**And the suppression is real, measured at the rule rather than inferred:**
+
+```
+Methods ¶178  suppressed by ["f2", "r2"]        Results ¶661  suppressed by ["f2"]
+Results ¶379  suppressed by ["f2"]              Results ¶664  suppressed by ["f2"]
+Results ¶469  suppressed by ["f2", "f2"]        Results ¶703  suppressed by ["f2"]
+
+tokens matched inside p-value paragraphs: {"f2": 7, "r2": 1}
+```
+
+**Six paragraphs report a p-value with no effect size, and Gaply says nothing about any of them.**
+
+### 48.2 WHAT THE EVIDENCE SUPPORTS, stated precisely
+
+> **The measurement demonstrates the EXISTENCE of a lexical-collision class. It does NOT demonstrate that `\bd\s*=`, `\br\s*=` or `\bR2\b` exhibit the same behaviour in this corpus.**
+
+**Those are PLAUSIBLE MEMBERS — design hypotheses, not measured instances.** `\br\s*=` in particular may be entirely correct: *r* IS a legitimate effect size. **Recorded as hypotheses so a future reader does not cite this section as having measured them.**
+
+> **"Six suppressions in one paper" is an EXISTENCE PROOF, not a MAGNITUDE.** The rate is domain-dependent — `f2` collides with batch labels in formulation science and would collide with nothing in an epidemiology paper. **Four papers measure four domains**, which is enough to establish that the class occurs and nothing about how often.
+
+### 48.3 THE TWO SUB-CAUSES ASK DIFFERENT QUESTIONS
+
+| Sub-cause | The question | Kind | Belongs to |
+|---|---|---|---|
+| **`F2` batch labels** | *did we recognise the WRONG TOKEN?* | **lexical** | **item 3** |
+| **`R²` model fit** | *did we associate the RIGHT TOKEN with the WRONG STATISTICAL OBJECT?* | **semantic** | **item 1b** |
+
+**`R²` is a real effect-size measure — for the MODEL, not for the specific coefficient whose p-value sits beside it.** That is an association question, not a vocabulary question, and it is the same shape as 1b's *"what is this rule's operand"*. **One change should not resolve both**, and calling them one defect would put a semantic problem inside a lexical fix.
+
+### 48.4 THE SHARED-VOCABULARY REFINEMENT — a durable principle
+
+`EFFECT_SIZE_ALTERNATION` has ONE definition serving two consumers: detection (`validate.rs`, `is_match`, no value required) and extraction (`stats.rs`, `effect_size_value`, a value required). §31.24's rule made that sharing a virtue — two patterns would drift.
+
+> **A SHARED DEFINITION IS APPROPRIATE ONLY WHEN ALL CONSUMERS ARE ANSWERING THE SAME SEMANTIC QUESTION.**
+
+**Reuse is not automatically good or bad; it depends on whether the abstraction boundary matches the semantics.** The test is **not** *"are there two copies?"* but **"are they asking the same thing?"** Here they are not: detection asks *"is an effect size mentioned near this p-value?"* and extraction asks *"what effect size was reported, and what was its value?"* **The second is strictly narrower, and the shared vocabulary silently gives detection the broader reading.**
+
+> **`effect_size_pattern_is_unchanged` WILL FIRE on any narrowing, and a future reader could misread that as the vocabulary being CORRECT rather than as the pin DOING ITS JOB.** The pin asserts the composed string has not changed. It asserts nothing about whether the string is right. **Recorded because a firing pin reads as a verdict and is only a notification.**
