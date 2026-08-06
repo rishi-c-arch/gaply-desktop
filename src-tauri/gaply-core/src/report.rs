@@ -284,6 +284,61 @@ fn paired(finding: Finding, raw_confidence: f64) -> ReportFinding {
     ReportFinding { finding, evidence }
 }
 
+/// How much of a reference to show when naming it in a finding title.
+const CITATION_LABEL_CHARS: usize = 80;
+
+/// A name the AUTHOR can resolve, for a citation id they cannot.
+///
+/// # `c3` names nothing
+///
+/// `citation_id` is `c{i+1}` over `verify_citations`' `items` slice — an
+/// INTERNAL INDEX into a list the author never sees, and one that
+/// `pipeline.rs` builds by SKIPPING references whose refverify call errored, so
+/// it is not even the position in their bibliography.
+///
+/// `registry` is `items.into_iter().map(|(_, rv)| rv)` — the SAME order — so
+/// `registry[i]` is the verification of `c{i+1}`, and `reference_raw` is the
+/// entry as the manuscript wrote it. That mapping is already in scope here; it
+/// was simply never used.
+///
+/// **A miss is typed, not guessed:** when the id does not parse or the registry
+/// is shorter than it claims, the finding says "a reference" rather than
+/// inventing one or falling back to the index (§4.12).
+fn citation_label(citation_id: &str, registry: &[ReferenceVerification]) -> String {
+    // A TITLE must name a subject, so it falls back; a LIST must not repeat
+    // "a reference" N times, so it uses the Option form below and omits.
+    citation_label_opt(citation_id, registry).unwrap_or_else(|| "a reference".to_string())
+}
+
+/// The resolvable form. `None` when the id does not map to a reference.
+fn citation_label_opt(citation_id: &str, registry: &[ReferenceVerification]) -> Option<String> {
+    let raw = citation_id
+        .strip_prefix('c')
+        .and_then(|n| n.parse::<usize>().ok())
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|i| registry.get(i))
+        .map(|rv| rv.reference_raw.trim());
+    match raw {
+        Some(r) if !r.is_empty() => {
+            if r.chars().count() <= CITATION_LABEL_CHARS {
+                format!("\u{201c}{r}\u{201d}")
+            } else {
+                let cut: String = r.chars().take(CITATION_LABEL_CHARS).collect();
+                // Snap to a word boundary so a truncated reference does not end
+                // mid-token — ONTOLOGY §4.20's TEXT class, same rule the report
+                // quotation follows.
+                let cut = match cut.rfind(char::is_whitespace) {
+                    Some(i) => &cut[..i],
+                    None => cut.as_str(),
+                };
+                format!("\u{201c}{}\u{2026}\u{201d}", cut.trim_end())
+            }
+        }
+        _ => return None,
+    }
+    .into()
+}
+
 /// Aggregate the debate outcome + underlying agent reports into the final,
 /// priority-ordered report.
 ///
@@ -396,11 +451,17 @@ pub fn compile_report(
             let (severity, title) = match v.verdict {
                 Verdict::Refuted => (
                     FindingSeverity::Major,
-                    format!("citation {} REFUTED by evidence", v.citation_id),
+                    format!(
+                        "citation refuted by the literature: {}",
+                        citation_label(&v.citation_id, registry)
+                    ),
                 ),
                 Verdict::Supported => (
                     FindingSeverity::Info,
-                    format!("citation {} supported by evidence", v.citation_id),
+                    format!(
+                        "citation supported by the literature: {}",
+                        citation_label(&v.citation_id, registry)
+                    ),
                 ),
                 Verdict::Unknown => unreachable!("Unknown is collected above"),
             };
@@ -436,19 +497,31 @@ pub fn compile_report(
         }
         if !unknown_ids.is_empty() {
             let total = vr.verdicts.len();
-            let shown: Vec<String> = unknown_ids.iter().take(UNKNOWN_ID_LIMIT).cloned().collect();
-            let extra = unknown_ids.len().saturating_sub(shown.len());
-            let ids = if extra > 0 {
-                format!("{}, and {extra} more", shown.join(", "))
+            // Same defect, same call site: this listed c1, c2, c3 verbatim.
+            //
+            // Unresolvable ids are OMITTED rather than rendered as a repeated
+            // placeholder — "a reference, a reference, and 20 more" names
+            // nothing and reads as a bug. When none resolve the sentence simply
+            // carries the count, which is the honest content.
+            let resolved: Vec<String> = unknown_ids
+                .iter()
+                .filter_map(|id| citation_label_opt(id, registry))
+                .take(UNKNOWN_ID_LIMIT)
+                .collect();
+            let extra = unknown_ids.len().saturating_sub(resolved.len());
+            let ids = if resolved.is_empty() {
+                String::new()
+            } else if extra > 0 {
+                format!(": {}, and {extra} more", resolved.join(", "))
             } else {
-                shown.join(", ")
+                format!(": {}", resolved.join(", "))
             };
             // Author-facing: say the check did not RUN and what that means for
             // them. The per-verdict rationale describes OUR infrastructure
             // ("model returned no verdict") and does not belong in their report.
             let detail = format!(
                 "{} of {total} citation(s) were not checked against the literature, so nothing \
-                 is claimed about them either way: {ids}. This check needs the citation \
+                 is claimed about them either way{ids}. This check needs the citation \
                  verification service, which was unavailable for this run — it is not a finding \
                  about your references.",
                 unknown_ids.len()

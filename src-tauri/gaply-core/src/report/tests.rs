@@ -978,8 +978,12 @@ fn many_unknown_verdicts_collapse_into_one_finding() {
     assert_eq!(unchecked.len(), 1, "28 Unknown verdicts must yield ONE finding");
     let f = unchecked[0];
     assert!(f.title.contains("28 of 28"), "count and denominator in the title: {}", f.title);
-    assert!(f.detail.contains("c1, c2"), "ids must survive the collapse: {}", f.detail);
-    assert!(f.detail.contains("and 20 more"), "remainder summarised: {}", f.detail);
+    // The collapse must not name INTERNAL INDICES. With no registry nothing
+    // resolves, so the list is OMITTED rather than rendered as a repeated
+    // placeholder — the count still carries the fact.
+    assert!(!f.detail.contains("c1"), "internal index leaked: {}", f.detail);
+    assert!(!f.detail.contains("a reference, a reference"), "placeholder repeated: {}", f.detail);
+    assert!(f.detail.contains("28 of 28"), "the count survives: {}", f.detail);
     // Author-facing wording — our infrastructure must not appear in their report.
     assert!(!f.detail.contains("model returned no verdict"), "infra wording leaked: {}", f.detail);
     assert!(f.detail.contains("not a finding about your references"), "{}", f.detail);
@@ -1002,8 +1006,19 @@ fn refuted_and_supported_still_fan_out_per_citation() {
     let report = compile_report(
         &minimal_outcome(), &validation, Some(&v), None, Some(&ex), TEST_YEAR, vec![], &[],
     );
-    assert!(report.findings.iter().any(|f| f.title.contains("c1 REFUTED")), "Refuted stays per-citation");
-    assert!(report.findings.iter().any(|f| f.title.contains("c2 supported")), "Supported stays per-citation");
+    // Per-citation fan-out survives; the TITLES no longer name c1/c2.
+    assert!(
+        report.findings.iter().any(|f| f.title.contains("refuted by the literature")),
+        "Refuted stays per-citation"
+    );
+    assert!(
+        report.findings.iter().any(|f| f.title.contains("supported by the literature")),
+        "Supported stays per-citation"
+    );
+    assert!(
+        !report.findings.iter().any(|f| f.title.contains("c1") || f.title.contains("c2")),
+        "no title may name an internal index"
+    );
     assert_eq!(
         report.findings.iter().filter(|f| f.provenance.iter().any(|p| p == "signal:citations_unchecked")).count(),
         1
@@ -1443,4 +1458,66 @@ fn a_findings_location_never_reaches_the_reviewer_payload() {
     for marker in ["ALPHAMARKER", "BETAMARKER", "gamma marker"] {
         assert!(!bytes.contains(marker), "manuscript prose {marker:?} reached the payload: {bytes}");
     }
+}
+
+/// **A FINDING MUST NOT NAME AN INTERNAL INDEX.** `citation_id` is `c{i+1}`
+/// over a slice `pipeline.rs` builds by SKIPPING failed lookups, so it is not
+/// even the author's bibliography position. The registry carries the entry as
+/// the manuscript wrote it, in the same order.
+#[test]
+fn a_citation_finding_names_the_reference_not_its_index() {
+    let ex = crate::extract::extract_from_text(TWO_LOCATED_PARAGRAPHS);
+    let validation = crate::validate::validate(&ex);
+    let verdicts = VerificationReport {
+        verdicts: vec![CitationVerdict {
+            citation_id: "c1".into(),
+            verdict: Verdict::Refuted,
+            confidence: 0.7,
+            rationale: "no match".into(),
+            evidence_refs: vec![],
+            gate_flags: vec![],
+        }],
+        warnings: vec![],
+    };
+    let reg = vec![rv("Smith J. 2020. A paper about things. Journal of Things 1: 1-9.", None, None)];
+    let report = compile_report(
+        &minimal_outcome(), &validation, Some(&verdicts), None, None, TEST_YEAR, vec![], &reg);
+
+    let title = report
+        .findings
+        .iter()
+        .find(|f| f.agent == AgentKind::Verification && f.severity == FindingSeverity::Major)
+        .map(|f| f.title.clone())
+        .expect("a refuted-citation finding");
+    assert!(title.contains("Smith J. 2020"), "must name the reference: {title}");
+    assert!(!title.contains("c1"), "must NOT name the internal index: {title}");
+}
+
+/// When the id cannot be resolved the finding says so rather than falling back
+/// to the index or inventing a reference (§4.12).
+#[test]
+fn an_unresolvable_citation_id_yields_a_typed_absence_not_an_index() {
+    let ex = crate::extract::extract_from_text(TWO_LOCATED_PARAGRAPHS);
+    let validation = crate::validate::validate(&ex);
+    let verdicts = VerificationReport {
+        verdicts: vec![CitationVerdict {
+            citation_id: "c9".into(),
+            verdict: Verdict::Refuted,
+            confidence: 0.7,
+            rationale: "no match".into(),
+            evidence_refs: vec![],
+            gate_flags: vec![],
+        }],
+        warnings: vec![],
+    };
+    let report = compile_report(
+        &minimal_outcome(), &validation, Some(&verdicts), None, None, TEST_YEAR, vec![], &[]);
+    let title = report
+        .findings
+        .iter()
+        .find(|f| f.agent == AgentKind::Verification && f.severity == FindingSeverity::Major)
+        .map(|f| f.title.clone())
+        .expect("a refuted-citation finding");
+    assert!(title.contains("a reference"), "typed absence: {title}");
+    assert!(!title.contains("c9"), "must not leak the index: {title}");
 }
