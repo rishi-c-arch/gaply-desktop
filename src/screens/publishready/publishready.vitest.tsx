@@ -97,7 +97,8 @@ describe('premium gate', () => {
     const verdict = screen.getByTestId('pr-verdict');
     expect(verdict.textContent).toMatch(/Major revision/);
     expect(verdict.style.textTransform).toBe('uppercase');
-    expect(screen.getByTestId('pr-probability').textContent).toMatch(/%/);
+    // The report renders WITHOUT a publication-probability gauge (§4.20).
+    expect(screen.queryByTestId('pr-probability')).toBeNull();
   });
 });
 

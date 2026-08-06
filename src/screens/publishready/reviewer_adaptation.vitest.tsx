@@ -54,7 +54,10 @@ describe('ReviewerLetterPanel — backend adaptation (Option B)', () => {
     const verdict = screen.getByTestId('pr-verdict');
     expect(verdict.textContent).toMatch(/Major revision/);
     expect(verdict.style.textTransform).toBe('uppercase');
-    expect(screen.getByTestId('pr-probability').textContent).toMatch(/61%/);
+    // NO PROBABILITY IS RENDERED. publication_probability is a four-value
+    // lookup from the recommendation, not a calibrated probability — §4.20's
+    // PRESENTATION class. The recommendation itself is what is shown.
+    expect(screen.queryByTestId('pr-probability')).toBeNull();
     expect(screen.getByTestId('pr-body')).toBeTruthy();
     // gated issues render honestly (finding_ref grounded)
     expect(screen.getByTestId('pr-issues')).toBeTruthy();
@@ -107,7 +110,9 @@ describe('ReviewerLetterPanel — backend adaptation (Option B)', () => {
     expect(ne).not.toMatch(/excluded from the recommendation/);
     expect(screen.getByTestId('pr-excluded').textContent).toMatch(/f4/);
     // and the recommendation is still shown — the caveat qualifies, not withholds
-    expect(screen.getByTestId('pr-probability')).toBeTruthy();
+    // The caveat qualifies the RECOMMENDATION, which is still shown; the
+    // probability never is.
+    expect(screen.queryByTestId('pr-probability')).toBeNull();
   });
 
   it('renders the honest unavailable-offline state (no faked letter)', () => {

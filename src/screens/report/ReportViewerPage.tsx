@@ -15,7 +15,6 @@ import {
   HeaderBar,
   NavRail,
   Panel,
-  ScoreRing,
   ThreePanelWorkspace,
 } from '../../design-system';
 import { useToast, ToastProvider } from '../../design-system/Toast';
@@ -167,13 +166,12 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
                         <span className="gds-inspector__label">Finding</span>
                         <div style={{ fontWeight: 600 }}>{selected.title}</div>
                       </div>
+                      {/* NO RING. `confidence` is not calibrated — ONTOLOGY
+                          §4.20's standing checklist marks CONFIDENCE as
+                          "gauges, rings, percentages … calibration NO", and
+                          the certainty TIER is the claim the engine actually
+                          supports. The badge carries it. */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <ScoreRing
-                          size={54}
-                          strokeWidth={5}
-                          score={Math.round(selected.confidence * 100)}
-                          status={tierStatus(selected.tier)}
-                        />
                         <Badge status={tierStatus(selected.tier)} data-testid="inspector-tier">
                           {selected.certainty_label}
                         </Badge>
@@ -291,10 +289,9 @@ const OverviewView: React.FC<{
 }> = ({ report, sections, ordered, activeSection, selected, onSelectFinding }) => (
   <div style={{ display: 'grid', gap: 16 }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-      <ScoreRing
-        score={Math.round(report.combined_confidence * 100)}
-        status={report.verdict === 'pass' ? 'certain' : 'flagged'}
-      />
+      {/* NO RING — same reason as the inspector's. `combined_confidence` is a
+          rescaled debate weight, not a calibrated probability, and a ring reads
+          as one. The verdict below is what was computed. */}
       <div>
         <div style={{ fontWeight: 700 }}>Verdict: {report.verdict.toUpperCase()}</div>
         <div className="gds-finding__detail">

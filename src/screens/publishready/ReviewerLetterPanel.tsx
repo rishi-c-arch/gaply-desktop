@@ -1,7 +1,7 @@
 // Gaply — the Reviewer Letter panel (renders inside the F6 viewer's paid tab).
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Card, ScoreRing } from '../../design-system';
+import { Badge, Card } from '../../design-system';
 import {
   RECOMMENDATION_LABEL,
   RECOMMENDATION_STATUS,
@@ -79,23 +79,14 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
         >
           {RECOMMENDATION_LABEL[letter.recommendation]}
         </div>
-        {/* No gauge when nothing computed a probability. The backend OMITS the
-            key rather than sending 0, so there is no sentinel to mistake for a
-            real score — and this branch renders nothing rather than 0%. */}
-        {letter.publicationProbability !== null && (
-          <div className="gds-pr__gauge">
-            <ScoreRing
-              score={letter.publicationProbability}
-              status={status}
-              size={96}
-              strokeWidth={8}
-              label={`publication probability ${letter.publicationProbability}%`}
-            />
-            <span className="gds-pr__gauge-label" data-testid="pr-probability">
-              {letter.publicationProbability}% publication probability
-            </span>
-          </div>
-        )}
+        {/* NO GAUGE. `publication_probability` is a FOUR-VALUE LOOKUP from the
+            recommendation (reviewer_agent.rs:1161), not a calibrated
+            probability — rendering it as a percentage in a ring is ONTOLOGY
+            §4.20's PRESENTATION class: a visual implication beyond the computed
+            evidence. The Rust report never showed it, and now that the Rust
+            report is the one users open, the desktop screen must not either.
+            The recommendation itself is shown above, which is what the engine
+            actually produced. */}
       </div>
 
       <Card title="Reviewer summary">
