@@ -128,7 +128,12 @@ fn is_significance_criterion(paragraph: &str, at: usize) -> bool {
 pub const EFFECT_SIZE_ALTERNATION: &str = concat!(
     r"cohen'?s\s*d|hedges'?\s*g|eta[\s-]*squared|η2|η²|partial\s+eta|",
     r"omega[\s-]*squared|cramer'?s\s*v|odds\s+ratio|hazard\s+ratio|risk\s+ratio|",
-    r"effect\s+size|\bOR\s*=|\bHR\s*=|\bRR\s*=|\bd\s*=|\bg\s*=|\br\s*=|\bR2\b|R²|\bf2\b"
+    // `cohen'?s\s*f2?` — the QUALIFIER is required. Bare `\bf2\b` was measured
+    // matching formulation batch labels (F1…F4) and would equally match the
+    // FDA/EMA dissolution similarity factor, written identically as `f2 = 65.2`
+    // but ranging 0–100 against Cohen's f²'s 0.02–0.35. See §49.4.
+    r"effect\s+size|cohen'?s\s*f2|cohen'?s\s*f²|",
+    r"\bOR\s*=|\bHR\s*=|\bRR\s*=|\bd\s*=|\bg\s*=|\br\s*=|\bR2\b|R²"
 );
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -394,6 +399,41 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// The alternation, pinned to the literal that ships.
+    ///
+    /// # A RELEASE ARTIFACT — appended to, never rewritten
+    ///
+    /// Same convention as `evidence.rs`'s compatibility fixtures: a string that
+    /// has existed in production is kept, and a superseded one is retained as
+    /// the evidence of a deliberate break rather than deleted. Regenerating from
+    /// the live constant would assert the constant equals itself.
+    ///
+    /// # It moved here, and its rationale changed
+    ///
+    /// It lived in `validate.rs` and read *"sharing the alternation must not
+    /// have changed WHICH PARAGRAPHS the MissingEffectSize rule fires on"*.
+    /// **That rationale is now void: rule 3 consults the TYPED extraction and
+    /// never reads this pattern** (§49 shape 3). The alternation has exactly one
+    /// consumer — extraction — so the pin belongs beside it, and what it now
+    /// guards is which STRINGS are extracted as an effect size.
+    #[test]
+    fn effect_size_pattern_is_unchanged() {
+        /// SUPERSEDED at §49.4 — bare `\bf2\b` matched formulation batch labels
+        /// (F1…F4) and would equally match the FDA/EMA dissolution similarity
+        /// factor, written `f2 = 65.2` but ranging 0–100 against Cohen's f²'s
+        /// 0.02–0.35. Kept as the evidence of the change, not as a live pin.
+        const RETIRED_AT_49: &str = r"(?i)(cohen'?s\s*d|hedges'?\s*g|eta[\s-]*squared|η2|η²|partial\s+eta|omega[\s-]*squared|cramer'?s\s*v|odds\s+ratio|hazard\s+ratio|risk\s+ratio|effect\s+size|\bOR\s*=|\bHR\s*=|\bRR\s*=|\bd\s*=|\bg\s*=|\br\s*=|\bR2\b|R²|\bf2\b)";
+        const SHIPPED: &str = r"(?i)(cohen'?s\s*d|hedges'?\s*g|eta[\s-]*squared|η2|η²|partial\s+eta|omega[\s-]*squared|cramer'?s\s*v|odds\s+ratio|hazard\s+ratio|risk\s+ratio|effect\s+size|cohen'?s\s*f2|cohen'?s\s*f²|\bOR\s*=|\bHR\s*=|\bRR\s*=|\bd\s*=|\bg\s*=|\br\s*=|\bR2\b|R²)";
+
+        let composed = format!("(?i)({})", EFFECT_SIZE_ALTERNATION);
+        assert_eq!(composed, SHIPPED, "the alternation changed; regenerate DELIBERATELY and append the old literal");
+        assert_ne!(
+            composed, RETIRED_AT_49,
+            "the retired literal is live again — if that is intended, move it into SHIPPED and \
+             retire the current one; do not delete it"
+        );
     }
 
     #[test]
