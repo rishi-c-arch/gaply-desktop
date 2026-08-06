@@ -88,12 +88,17 @@ const Inner: React.FC<BillingPageProps> = ({ razorpay }) => {
               </p>
             </Card>
 
-            {/* free-tier online features — honestly unlimited (no enforceable
-                per-user cap client-side; server-side metering isn't deployed) */}
+            {/* The premise this once carried — "server-side metering isn't
+                deployed" — is no longer true. The proxy meters /verify per user
+                and per period, and the shipped free limit is ZERO: entitlement.py
+                returns not-entitled with reason `no_plan` when the tier limit is
+                <= 0, so a free account's FIRST cloud call is refused. Saying
+                "unlimited" here promised the opposite of what ships. */}
             {session && !isPremium && (
-              <Card title="Free online features">
+              <Card title="Cloud features">
                 <p style={{ maxWidth: 480, color: 'var(--g-text-2)' }} data-testid="free-online-note">
-                  Citation verification and journal checks are currently unlimited on the free tier.
+                  Citation verification, journal checks and the PublishReady review run in the
+                  cloud and need a paid plan. Every on-device suite stays free and unlimited.
                 </p>
               </Card>
             )}

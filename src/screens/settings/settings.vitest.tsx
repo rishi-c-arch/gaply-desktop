@@ -189,11 +189,18 @@ describe('"Where your data lives" privacy panel', () => {
 
 /* ----------------------- free online features note ---------------------- */
 
-describe('free-tier online features shown as unlimited (no phantom meter — H3)', () => {
-  it('an honest "unlimited on the free tier" note replaces the old 0/5, 0/3 meters', async () => {
+describe('free-tier cloud features stated honestly (no phantom meter — H3)', () => {
+  it('the note says cloud features need a paid plan, and never claims free-tier unlimited', async () => {
     renderSettings();
     const note = await screen.findByTestId('free-online-note');
-    expect(note.textContent).toMatch(/unlimited on the free tier/i);
+    // The proxy meters /verify per user per period and the shipped free limit
+    // is ZERO — entitlement.py returns not-entitled (`no_plan`) when the tier
+    // limit is <= 0, so a free account's FIRST cloud call is refused. This test
+    // once pinned the opposite claim.
+    expect(note.textContent).toMatch(/need a paid plan/i);
+    expect(note.textContent).not.toMatch(/unlimited on the free tier/i);
+    // on-device work IS free, and the note must still say so
+    expect(note.textContent).toMatch(/on your device/i);
     // the old permanently-0 phantom meters are gone
     expect(screen.queryByTestId('settings-usage-meters')).toBeNull();
   });

@@ -322,7 +322,8 @@ const Inner: React.FC<SettingsPageProps> = ({ profileService }) => {
                   </div>
                   {session && !isPremium && (
                     <p className="gds-set__muted" data-testid="free-online-note">
-                      Citation verification and journal checks are currently unlimited on the free tier.
+                      Cloud features — citation verification, journal checks and the PublishReady
+                      review — need a paid plan. Everything that runs on your device stays free.
                     </p>
                   )}
                   <p className="gds-set__muted">

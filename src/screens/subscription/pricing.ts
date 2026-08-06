@@ -41,7 +41,11 @@ export const PLANS: Plan[] = [
   plan('pro', 'Pro', 499, 'For active researchers', [
     'Everything in Basic',
     'Deep plagiarism analysis (coming soon)',
-    'Unlimited online verifications & journal checks',
+    // NOT "unlimited": the proxy meters /verify per user per period
+    // (publishready_limit_premium defaults to 20). The exact allowance is a
+    // server setting the client cannot know, so the copy states the feature
+    // without asserting a quantity.
+    'Online verifications & journal checks',
   ]),
   plan('max', 'Max', 999, 'For labs & supervisors', [
     'Everything in Pro',
