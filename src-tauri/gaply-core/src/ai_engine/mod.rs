@@ -25,12 +25,19 @@
 //! are queryable foreign keys in `ai_evidence_card_chunks` — `provenance_json`
 //! may duplicate them but is never the only record.
 //!
-//! # Phase 1 scope
+//! # Scope so far
 //!
-//! Schema (migration v14) plus page-aware chunk persistence. Deliberately no
-//! embeddings, no retrieval, no model of any kind. The DAO here therefore covers
-//! `ai_chunks` only: the jobs, evidence-card and model-registry DAOs ship with
-//! the phases that actually write those tables, rather than landing now as
-//! untested speculative code.
+//! **Phase 1** (migration v14): page-aware chunk persistence — [`store`].
+//! **Phase 2** (migration v15): vector storage and similarity
+//! ([`embeddings`]) plus FTS5-prefiltered retrieval ([`retrieval`]).
+//!
+//! This module stores and compares vectors; it never PRODUCES one. Producing a
+//! vector needs a model, models need candle, and candle lives in the app crate
+//! — the same seam that keeps `cargo test -p gaply_core` free of TLS and ML.
+//!
+//! The jobs and evidence-card DAOs ship with the phases that write those
+//! tables, rather than landing now as untested speculative code.
 
+pub mod embeddings;
+pub mod retrieval;
 pub mod store;
