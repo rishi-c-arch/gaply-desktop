@@ -271,30 +271,63 @@ fn classify_references(body: &[&str], furniture: &std::collections::HashSet<Stri
 /// Blocks are emitted `\n\n`-separated, which is the contract
 /// `sections::paragraphs_of` already expects.
 pub(crate) fn reflow_pdf_text(text: &str) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let furniture = page_furniture(&lines);
+    // Thin wrapper over the paged algorithm, with every line untagged. Behaviour
+    // is byte-identical to the pre-refactor implementation — the existing tests
+    // in this module are the acceptance condition for that claim.
+    let lines: Vec<(Option<u32>, &str)> = text.lines().map(|l| (None, l)).collect();
+    reflow_pdf_lines(&lines)
+        .into_iter()
+        .map(|(_, block)| block)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+/// The reflow algorithm, carrying a PAGE TAG per input line.
+///
+/// One algorithm, two entry points (plan §11 D3): [`reflow_pdf_text`] passes
+/// `None` for every line and joins the result, which is exactly what every
+/// existing caller — plagiarism, AI Check, PublishReady, Gap Finder — already
+/// did. The page-aware ingest passes real page numbers from
+/// `pdf_extract::extract_text_by_pages`.
+///
+/// PAGE ATTRIBUTION: a block is attributed to the page of the line that
+/// STARTED it. A paragraph spanning a page break belongs to the page it starts
+/// on. This is a recorded fact and never an estimate — a source with no page
+/// information yields `None` all the way through, and `None` is stored as SQL
+/// NULL rather than being guessed at from position.
+pub(crate) fn reflow_pdf_lines(lines: &[(Option<u32>, &str)]) -> Vec<(Option<u32>, String)> {
+    // Furniture detection and the References-convention pre-pass both work over
+    // the WHOLE line stream, across page boundaries — a running header repeats
+    // per page and is only recognisable globally. Hence one flat &str view.
+    let flat: Vec<&str> = lines.iter().map(|(_, l)| *l).collect();
+    let lines_view = &flat;
+    let furniture = page_furniture(lines_view);
 
     // PRE-PASS. `page_furniture` above is already one; this is a second over the
     // same vector, so there is no streaming constraint to work around — the
     // whole line stream is in hand before any block decision is made.
-    let ref_convention = lines
+    let ref_convention = lines_view
         .iter()
         .position(|l| matches!(sections::detect_heading(l), Some((sections::SectionKind::References, _))))
-        .map(|i| classify_references(&lines[i + 1..], &furniture))
+        .map(|i| classify_references(&lines_view[i + 1..], &furniture))
         .unwrap_or(RefConvention::Unclassified);
     let mut in_references = false;
 
-    let mut blocks: Vec<String> = Vec::new();
+    let mut blocks: Vec<(Option<u32>, String)> = Vec::new();
     let mut cur = String::new();
-    let flush = |cur: &mut String, blocks: &mut Vec<String>| {
+    // The page of the line that opened `cur`. Set when the block starts, so a
+    // block continuing onto the next page keeps the page it began on.
+    let mut cur_page: Option<u32> = None;
+    let flush = |cur: &mut String, cur_page: &mut Option<u32>, blocks: &mut Vec<(Option<u32>, String)>| {
         let t = cur.trim();
         if !t.is_empty() {
-            blocks.push(t.to_string());
+            blocks.push((*cur_page, t.to_string()));
         }
         cur.clear();
+        *cur_page = None;
     };
 
-    for line in &lines {
+    for (page, line) in lines {
         let t = line.trim();
 
         if t.is_empty() {
@@ -305,7 +338,7 @@ pub(crate) fn reflow_pdf_text(text: &str) -> String {
             if (in_references && ref_convention == RefConvention::Structure)
                 || ends_sentence(&cur)
             {
-                flush(&mut cur, &mut blocks);
+                flush(&mut cur, &mut cur_page, &mut blocks);
             }
             continue;
         }
@@ -326,26 +359,28 @@ pub(crate) fn reflow_pdf_text(text: &str) -> String {
             && is_url_only(t)
             && !(in_references && ref_convention == RefConvention::Structure)
         {
-            if let Some(last) = blocks.last_mut() {
+            if let Some((_, last)) = blocks.last_mut() {
                 last.push(' ');
                 last.push_str(t);
             }
             continue;
         }
         if let Some((kind, _)) = sections::detect_heading(line) {
-            flush(&mut cur, &mut blocks);
+            flush(&mut cur, &mut cur_page, &mut blocks);
             in_references = kind == sections::SectionKind::References;
-            blocks.push(t.to_string());
+            blocks.push((*page, t.to_string()));
             continue;
         }
-        if !cur.is_empty() {
+        if cur.is_empty() {
+            cur_page = *page;
+        } else {
             cur.push(' ');
         }
         cur.push_str(t);
     }
-    flush(&mut cur, &mut blocks);
+    flush(&mut cur, &mut cur_page, &mut blocks);
 
-    blocks.join("\n\n")
+    blocks
 }
 
 /// Run a `pdf-extract` call behind a panic boundary.
@@ -402,6 +437,88 @@ pub fn parse_path(path: &Path) -> Result<String, GaplyError> {
             "unsupported manuscript format: .{other} (expected pdf, docx, txt)"
         ))),
     }
+}
+
+/// One reflowed block together with the page it was recorded on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PagedBlock {
+    /// The page the block STARTED on, 1-based.
+    ///
+    /// `None` means the source carries no reliable page boundaries — a DOCX,
+    /// TXT or MD file, or a PDF whose pages could not be read. It is NEVER an
+    /// estimate: page is provenance, so an unknown page is stored as SQL NULL
+    /// rather than inferred from position in the text.
+    pub page: Option<u32>,
+    pub text: String,
+}
+
+/// Parse a file into reflowed blocks, each tagged with its recorded page.
+///
+/// The page-aware sibling of [`parse_path`], added for the AI ingest path. It
+/// does not replace or alter `parse_path`, and no existing caller changes
+/// behaviour: PDFs go through `pdf_extract::extract_text_by_pages` (the flat
+/// `extract_text` loses page boundaries irrecoverably) and then through the SAME
+/// reflow algorithm, via [`reflow_pdf_lines`].
+///
+/// Furniture detection still runs across the whole document, not per page — a
+/// running header is only recognisable by its repetition across pages.
+pub fn parse_path_paged(path: &Path) -> Result<Vec<PagedBlock>, GaplyError> {
+    if !path.exists() {
+        return Err(GaplyError::Validation(format!(
+            "file not found: {} — the desktop app must pass an absolute file path.",
+            path.display()
+        )));
+    }
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "pdf" => parse_pdf_paged(path),
+        // No pagination exists in these formats, so every block is honestly
+        // page-less. Blocks are the blank-line-separated paragraphs the
+        // non-paged path already produces.
+        _ => {
+            let text = parse_path(path)?;
+            Ok(blocks_without_pages(&text))
+        }
+    }
+}
+
+/// Split already-parsed text into page-less blocks on blank lines — the same
+/// block contract `sections::paragraphs_of` expects.
+fn blocks_without_pages(text: &str) -> Vec<PagedBlock> {
+    text.split("\n\n")
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+        .map(|b| PagedBlock { page: None, text: b.to_string() })
+        .collect()
+}
+
+fn parse_pdf_paged(path: &Path) -> Result<Vec<PagedBlock>, GaplyError> {
+    // Same panic boundary as every other pdf-extract call site.
+    let pages = catch_pdf_panic(|| pdf_extract::extract_text_by_pages(path))?
+        .map_err(|e| GaplyError::Internal(format!("pdf parse failed: {e}")))?;
+
+    // Tag every line with its 1-based page, then reflow the whole stream at
+    // once so cross-page furniture detection still works.
+    let mut tagged: Vec<(Option<u32>, &str)> = Vec::new();
+    for (i, page_text) in pages.iter().enumerate() {
+        let page = u32::try_from(i + 1).ok();
+        tagged.extend(page_text.lines().map(|l| (page, l)));
+    }
+
+    let blocks = reflow_pdf_lines(&tagged);
+    let joined: String = blocks.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("\n\n");
+    if !has_extractable_text(&joined) {
+        return Err(GaplyError::Validation(
+            "This PDF has no extractable text — it looks scanned or image-only. \
+             Extraction needs a text-based PDF (export from your editor, or run OCR first)."
+                .to_string(),
+        ));
+    }
+    Ok(blocks.into_iter().map(|(page, text)| PagedBlock { page, text }).collect())
 }
 
 fn parse_pdf(path: &Path) -> Result<String, GaplyError> {
@@ -560,6 +677,37 @@ mod tests {
         assert!(!out.contains("JOURNAL BANNER"), "banner survived: {out}");
         assert!(out.contains("Body line one."));
         assert!(out.contains("Body line three."));
+    }
+
+    #[test]
+    fn a_paragraph_wrapping_a_page_break_is_one_block_on_its_starting_page() {
+        // Page 2 ends mid-sentence; page 3 continues it. The reflow must join
+        // them into ONE block and attribute it to page 2 — the page it started
+        // on — never to page 3 and never to a guess.
+        let lines: Vec<(Option<u32>, &str)> = vec![
+            (Some(2), "the shortfall is traced largely"),
+            (Some(2), ""),
+            (Some(3), "to poor larval growth."),
+            (Some(3), ""),
+            (Some(3), "A new paragraph starts here."),
+        ];
+        let blocks = reflow_pdf_lines(&lines);
+        assert_eq!(blocks.len(), 2, "unexpected blocks: {blocks:?}");
+        assert_eq!(blocks[0].1, "the shortfall is traced largely to poor larval growth.");
+        assert_eq!(blocks[0].0, Some(2), "the spanning paragraph lost its starting page");
+        assert_eq!(blocks[1].0, Some(3));
+    }
+
+    #[test]
+    fn untagged_lines_stay_page_less_and_match_the_flat_reflow() {
+        // reflow_pdf_text is the same algorithm with every page tag None; a
+        // page-less source must never acquire a page.
+        let raw = "Body text here.\n\nMore body text.";
+        let lines: Vec<(Option<u32>, &str)> = raw.lines().map(|l| (None, l)).collect();
+        let blocks = reflow_pdf_lines(&lines);
+        assert!(blocks.iter().all(|(p, _)| p.is_none()));
+        let joined = blocks.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("\n\n");
+        assert_eq!(joined, reflow_pdf_text(raw), "the two entry points diverged");
     }
 
     #[test]

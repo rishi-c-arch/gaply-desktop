@@ -516,3 +516,17 @@ points.
 *Page attribution rule:* a block is attributed to the page of the line that **started** it. A
 paragraph spanning a page break belongs to the page it starts on. This is a recorded fact, never an
 estimate. Non-paginated sources (DOCX, TXT, MD) yield `page = NULL` by construction.
+
+### D4 — `char_start` / `char_end` hold UTF-8 BYTE offsets
+
+The schema column names are `char_start` / `char_end`, and they are kept. The values stored in them
+are **UTF-8 byte offsets** (Rust slice indices) into the document text, not Unicode scalar counts.
+
+Byte offsets are what make the grounding invariant mechanically checkable:
+`document_text[char_start..char_end] == content`, byte-identical, is a one-line assertion in Rust and
+is exactly what `validate.rs` will need to prove an evidence quote was not paraphrased. Scalar counts
+would require a conversion pass on every check and would silently disagree with `content` on any
+document containing non-ASCII — which, for a citation tool, is most of them.
+
+Recorded rather than renamed because the column names are already specified and a rename buys
+nothing; the semantics are documented on `PagedChunk` at the point of use.
