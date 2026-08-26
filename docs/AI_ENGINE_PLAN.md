@@ -560,3 +560,40 @@ does not tell the indexer what to read.
 `path` is therefore accepted explicitly and falls back to the row's `source_url` when omitted. When
 neither yields a readable file the command fails with an honest error rather than indexing nothing
 and reporting success. The parameter disappears once an AI ingestion command owns document creation.
+
+### D6 — FLAGGED, NOT CHANGED: `EMBED_POOLING = mean` contradicts the model card
+
+The pinned preprocessing constants specify `EMBED_POOLING = mean, then L2-normalize`. The published
+configuration for `bge-small-en-v1.5` specifies **CLS pooling**:
+
+- `1_Pooling/config.json` — `"pooling_mode_cls_token": true`, `"pooling_mode_mean_tokens": false`
+- model card — *"select the last hidden state of the first token (i.e., \[CLS\]) as the sentence
+  embedding"*, with the reference snippet `sentence_embeddings = model_output[0][:, 0]`
+
+BGE was trained with a CLS-pooled objective, so mean pooling reads a representation the model was
+not optimised to produce. It is not catastrophic — the vectors remain usable and exact-match
+retrieval is unaffected — but paraphrase retrieval is where the difference would show.
+
+**The constant is implemented as specified (`mean`) and has NOT been silently changed.** Pooling is a
+pinned enum (`EMBED_POOLING`) so switching is a one-line edit, and `PREPROCESSING_VERSION` exists
+precisely to make that switch safe: changing the pooling requires bumping to `bge-v1.5-p2`, after
+which the single-`(model_id, preprocessing_version)` rule refuses the old vectors rather than mixing
+two representations. Measured comparison of both poolings on the paraphrase needle test is reported
+with this phase.
+
+The two other constants were verified and MATCH:
+- `EMBED_QUERY_PREFIX` — the card lists exactly
+  `Represent this sentence for searching relevant passages: ` for this model.
+- `EMBED_DOC_PREFIX = ""` — the card states *"In all cases, no instruction needs to be added to
+  passages."*
+
+Model identity is pinned to revision `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`, not `main`, so
+"pinned" means a fixed tree rather than a moving branch.
+
+### D7 — retrieval is a strict FTS prefilter at this scale
+
+Per §9.6 the eventual shape is an FTS ∪ vector union. This phase ships the prefilter pipeline
+described in the task: FTS5 → top 200 candidates → cosine → top k, with a full-scope cosine fallback
+when FTS returns fewer than k. Full-library brute-force cosine is acceptable at current scale and is
+recorded here as a known ceiling, not an oversight: a chunk that FTS misses cannot be recovered by
+vector similarity until §9.6 lands.
