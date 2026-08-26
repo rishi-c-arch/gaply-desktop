@@ -42,6 +42,12 @@ export interface Citation {
   /** Scope B: epoch (ms) of the CrossRef confirmation, persisted so a verified
    *  entry can show when it was verified. Absent = never verified online. */
   verifiedAt?: number | null;
+  /** Axis C: the outcome of the last RETRACTION check — 'clear' (a registry
+   *  answered and said no) vs 'check_failed' (we tried and couldn't reach it).
+   *  ABSENT MEANS NEVER CHECKED, which is deliberately a different fact from
+   *  'clear'. See the Axis C block below for why that distinction is the whole
+   *  point. Never write 'clear' from a default or a falsy coercion. */
+  retractionOutcome?: 'clear' | 'check_failed';
   /** Local-first (Set 4): tags on this reference. */
   tags?: string[];
   /** Local-first (Set 4): honest sync marker (local sqlite is the truth). */
@@ -111,6 +117,68 @@ export const VERIFY_LABEL: Record<VerificationState, string> = {
   unverified: 'not verified online',
   not_found: 'not found on CrossRef',
   check_failed: 'check failed — try again',
+};
+
+/* ======================= Axis C — RETRACTION ============================
+ * THE TYPED ABSENCE. This axis exists because the code had no way to say "we
+ * did not check", so it said "clear" instead — and three separate defects fell
+ * out of that one gap:
+ *
+ *   • a DOI-less entry was skipped by the sweep and rendered identically to a
+ *     checked-and-clean one;
+ *   • `Boolean(v.retraction?.retracted || …)` turned a NULL retraction block
+ *     (Retraction Watch unreachable) into a confident `retracted: false`;
+ *   • one rejected lookup in a Promise.all discarded EVERY result, after which
+ *     the sidebar read "Retracted Items (0)" over a library holding a
+ *     retracted paper.
+ *
+ * All three are the same bug: unchecked collapsed into clean. A researcher can
+ * submit a paper citing a retracted study because Gaply showed no badge, so
+ * this axis is deliberately pessimistic — anything short of a registry actually
+ * answering "not retracted" reads as NOT CHECKED.
+ *
+ * Completeness (computeStatus) and verification (Axis B) are separate facts and
+ * still must not share a word with this one.
+ *
+ * DURABILITY: `retracted` IS persisted (localLibrary Scope B), so a confirmed
+ * retraction survives a reload. `retractionOutcome` is NOT persisted yet — the
+ * store's column set lives in gaply_core and is a separate workstream — so
+ * after a reload a checked-and-clear entry honestly reverts to 'unchecked'
+ * until re-swept. That is the safe direction, and the same Scope-A/Scope-B
+ * staging Axis B went through: under-claiming is safe, over-claiming is not.
+ *
+ * THAT REVERT IS EXPECTED, NOT A BUG. It is a KNOWN, STAGED gap with a known
+ * completion step: add a `retraction_outcome` column beside the existing Scope
+ * B ones in gaply_core::citation_library, thread it through
+ * citation_lib_upsert / StoredReference / storedToCitation, and the axis is
+ * complete. Do that when the gaply_core workstream is next open — it is
+ * deliberately not done from here. Until then, do NOT "fix" the revert by
+ * defaulting a reloaded row to 'clear'; that reinstates the exact defect this
+ * axis exists to remove. */
+export type RetractionState = 'retracted' | 'clear' | 'unchecked' | 'check_failed';
+
+/** An entry is 'clear' ONLY when a retraction registry actually answered "no".
+ *  Absence of an outcome is 'unchecked' — never 'clear'. */
+export function retractionState(c: Citation): RetractionState {
+  if (c.retracted) return 'retracted';
+  if (c.retractionOutcome === 'check_failed') return 'check_failed';
+  if (c.retractionOutcome === 'clear') return 'clear';
+  return 'unchecked';
+}
+
+/** True when this entry's retraction status has NOT been established — either
+ *  never attempted or attempted and failed. Both mean the same thing to a
+ *  researcher: you cannot rely on the absence of a badge. */
+export const retractionUnsettled = (c: Citation): boolean => {
+  const s = retractionState(c);
+  return s === 'unchecked' || s === 'check_failed';
+};
+
+export const RETRACTION_LABEL: Record<RetractionState, string> = {
+  retracted: 'RETRACTED',
+  clear: 'no retraction found',
+  unchecked: 'not checked for retraction',
+  check_failed: 'retraction check failed — try again',
 };
 
 /** Map a Citation → the citation_library row shape (metadata only). */

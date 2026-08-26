@@ -47,11 +47,21 @@ export function applyVerification(base: Citation, v: ReferenceVerification): Cit
   if (v.exists?.doi) csl.DOI = v.exists.doi;
   if (v.exists?.title?.safe_text) csl.title = csl.title || v.exists.title.safe_text;
   if (v.enrichment?.venue?.safe_text) csl.containerTitle = csl.containerTitle || v.enrichment.venue.safe_text;
+  // Axis C (the typed absence). `retracted` was previously the whole story:
+  // `Boolean(v.retraction?.retracted || v.exists?.is_retracted_hint)` reads
+  // `false` when the retraction block is NULL — i.e. when Retraction Watch was
+  // never reached — so "we couldn't check" became "not retracted". A null block
+  // is not evidence of anything. Only a block that actually came back and said
+  // no earns 'clear'; otherwise the outcome stays ABSENT, which renders as
+  // "not checked for retraction". Never coerce this one.
+  const retracted = Boolean(v.retraction?.retracted || v.exists?.is_retracted_hint);
+  const registryAnswered = v.retraction != null;
   return {
     ...base,
     csl,
     doi: v.exists?.doi ?? base.doi,
-    retracted: Boolean(v.retraction?.retracted || v.exists?.is_retracted_hint),
+    retracted,
+    retractionOutcome: !retracted && registryAnswered ? 'clear' : undefined,
     noticeUrl: v.retraction?.notice_url ?? base.noticeUrl,
     provenance: v.provenance.map((p) => `${p.source}:${p.url}`),
   };

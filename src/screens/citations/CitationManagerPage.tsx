@@ -14,6 +14,9 @@ import {
   citationToRow,
   computeStatus,
   parseDoi,
+  RETRACTION_LABEL,
+  retractionState,
+  retractionUnsettled,
   STATUS_LABEL,
   verificationState,
   VerificationState,
@@ -74,6 +77,30 @@ const CiteLine: React.FC<{ c: Citation }> = ({ c }) => {
         {doi ? ` · ${doi}` : ''}
       </p>
     </div>
+  );
+};
+
+/** Axis C chip. Rendered ONLY when the retraction status is UNSETTLED —
+ *  'retracted' already carries its own prominent red chip and 'clear' needs no
+ *  chip at all. The unsettled states are the ones that must never be silent:
+ *  before this existed, an entry nobody had checked looked exactly like one
+ *  checked and found clean, so the absence of a red badge read as a clean bill
+ *  of health it had never earned. A fresh library therefore shows this on every
+ *  card until the user runs a sweep — that noise IS the honest state. */
+const RetractionChip: React.FC<{ c: Citation }> = ({ c }) => {
+  const s = retractionState(c);
+  if (!retractionUnsettled(c)) return null;
+  const base = 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-label text-xs';
+  return s === 'check_failed' ? (
+    <span className={`${base} bg-surface-container-high text-on-surface-variant`} data-testid="badge-retraction-failed">
+      <span className="material-symbols-outlined text-xs" aria-hidden="true">sync_problem</span>
+      {RETRACTION_LABEL[s]}
+    </span>
+  ) : (
+    <span className={`${base} bg-surface-container text-on-surface-variant border border-outline-variant/30`} data-testid="badge-retraction-unchecked">
+      <span className="material-symbols-outlined text-xs" aria-hidden="true">help</span>
+      {RETRACTION_LABEL[s]}
+    </span>
   );
 };
 
@@ -227,6 +254,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   }, [query, local]);
 
   const retractedCount = citations.filter((c) => c.retracted).length;
+  // How many entries have NO established retraction status. "Retracted Items
+  // (0)" over an unchecked library asserts a clean bill of health that was
+  // never established — the count is only meaningful next to this one.
+  const uncheckedCount = citations.filter(retractionUnsettled).length;
 
   const visible = useMemo(() => {
     const base = (() => {
@@ -566,6 +597,13 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     verifyCancelRef.current = false;
     setVerifyProgress({ done: 0, total: targets.length });
     let done = 0;
+    // Outcome counters, NOT an attempt counter. `done` (attempts) used to be
+    // reported as `Verified ${done}` — three network failures rendered as
+    // "Verified 3 entries online" at severity 'certain' while all three cards
+    // showed "check failed". `done` now drives the progress bar only.
+    let verified = 0;
+    let notFound = 0;
+    let failed = 0;
     for (const c of targets) {
       // CANCELLATION SEMANTICS — the OPPOSITE of AI Check's: partial VERIFICATION
       // is valid. Each entry's CrossRef result stands alone (verified/not-found/
@@ -589,13 +627,16 @@ const Inner: React.FC<CitationManagerPageProps> = ({
             /* the existence-check metadata already stands */
           }
           await persistUpdate(updated);
+          verified += 1;
         } else {
           // CrossRef reached, DOI does not resolve — a real problem for a researcher.
           await persistUpdate({ ...c, verifyOutcome: 'not_found' });
+          notFound += 1;
         }
       } catch {
         // Network/transport error — transient, retriable; NOT the same as not-found.
         await persistUpdate({ ...c, verifyOutcome: 'check_failed' });
+        failed += 1;
       }
       done += 1;
       setVerifyProgress({ done, total: targets.length });
@@ -603,11 +644,16 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     const stopped = verifyCancelRef.current;
     setVerifying(false);
     setVerifyProgress(null);
+    const parts = [`${verified} verified`];
+    if (notFound) parts.push(`${notFound} not found`);
+    if (failed) parts.push(`${failed} check failed`);
     toast(
       stopped
-        ? `Verification stopped — ${done} checked (kept), the rest unchanged`
-        : `Verified ${done} ${done === 1 ? 'entry' : 'entries'} online`,
-      'certain',
+        ? `Verification stopped — ${parts.join(', ')}; the rest unchanged`
+        : `Verification complete — ${parts.join(', ')}`,
+      // 'certain' ONLY when every entry actually verified. A pass that found
+      // nothing, or partly failed, is not a certain result.
+      notFound || failed || verified === 0 ? 'assessed' : 'certain',
     );
   };
 
@@ -632,17 +678,76 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     }
     setBusy(true);
     try {
-      const updated = await Promise.all(
-        citations.map(async (c) => {
-          if (!c.doi) return c;
-          const v = await rv.verify({ raw: c.csl.title, doi: c.doi });
-          return applyVerification(c, v);
-        })
+      // PER-ITEM SETTLE. This was Promise.all, so ONE rejected lookup discarded
+      // every other entry's result — including confirmed retractions — and the
+      // sidebar then read "Retracted Items (0)" over a library holding a
+      // retracted paper. allSettled keeps each entry's own outcome, and an
+      // entry we could not reach lands in 'check_failed', never in the same
+      // state as one we checked and found clean.
+      const settled = await Promise.allSettled(
+        citations.map(async (c) => (c.doi ? rv.verify({ raw: c.csl.title, doi: c.doi }) : null))
       );
+      let clear = 0;
+      let found = 0;
+      let failed = 0;
+      let noDoi = 0;
+      const changed: Citation[] = [];
+      const updated = citations.map((c, i) => {
+        const r = settled[i];
+        if (r.status === 'rejected') {
+          // Transport failure — retriable, and NOT evidence of being clean.
+          failed += 1;
+          const next: Citation = { ...c, retractionOutcome: 'check_failed' };
+          changed.push(next);
+          return next;
+        }
+        if (r.value === null) {
+          // No DOI to check against. Previously returned unchanged, which left
+          // it indistinguishable from a checked-clean entry; now it stays
+          // honestly unchecked and says so on the card.
+          noDoi += 1;
+          return c.retractionOutcome === undefined ? c : { ...c, retractionOutcome: undefined };
+        }
+        let next = applyVerification(c, r.value);
+        if (next.retracted) {
+          found += 1;
+        } else if (next.retractionOutcome === 'clear') {
+          clear += 1;
+        } else {
+          // The call came back but carried no registry answer. applyVerification
+          // can't tell "not consulted" from "consulted and failed" and so leaves
+          // the outcome absent; here we DO know an attempt was made, so name it
+          // — otherwise the summary would say "check failed" while the card said
+          // "not checked", and the two must agree.
+          failed += 1;
+          next = { ...next, retractionOutcome: 'check_failed' };
+        }
+        changed.push(next);
+        return next;
+      });
       setCitations(updated);
-      const nowRetracted = updated.filter((c) => c.retracted).length;
-      toast(`Retraction sweep complete — ${nowRetracted} retracted`, nowRetracted ? 'flagged' : 'certain');
+      // `retracted` is a durable column, so a confirmed retraction must survive
+      // a reload rather than living only in React state. (The local-write
+      // failure is still swallowed here — that is D11, fixed in its own group.)
+      for (const c of changed) {
+        try {
+          await local.upsert(c, c.tags ?? []);
+        } catch {
+          /* in-memory only — D11 */
+        }
+      }
+      // Report what THIS PASS touched. The old summary recounted the whole
+      // library, so entries never checked in this sweep were folded into its
+      // number, and it claimed 'certain' regardless of how much had failed.
+      const parts = [`${found} retracted`, `${clear} clear`];
+      if (failed) parts.push(`${failed} check failed`);
+      if (noDoi) parts.push(`${noDoi} not checkable (no DOI)`);
+      toast(
+        `Retraction check — ${parts.join(', ')}`,
+        found ? 'flagged' : failed || noDoi ? 'assessed' : 'certain',
+      );
     } catch (e) {
+      // Only a non-per-entry failure reaches here now (allSettled never rejects).
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[citations] retraction sweep failed:', msg);
       toast(`Retraction re-check failed: ${msg}`, 'flagged');
@@ -692,7 +797,9 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     ['all', `Library (${citations.length})`, 'book_2'],
     ['manuscript', 'From manuscript', 'description'],
     ['orphans', 'Orphans', 'link_off'],
-    ['retracted', `Retracted Items (${retractedCount})`, 'warning'],
+    // The unchecked tail is part of the label, not a footnote: the count alone
+    // reads as a verdict on the whole library.
+    ['retracted', `Retracted Items (${retractedCount})${uncheckedCount ? ` · ${uncheckedCount} unchecked` : ''}`, 'warning'],
   ];
 
   return (
@@ -1168,7 +1275,15 @@ const Inner: React.FC<CitationManagerPageProps> = ({
             <div className="space-y-3" data-testid="citation-list">
               {visible.length === 0 ? (
                 <p className="text-sm text-on-surface-variant" data-testid="empty">
-                  {collection === 'retracted' ? 'No retracted items — good.' : 'No citations yet. Add one above.'}
+                  {/* "No retracted items — good." was a verdict on a library
+                      that may never have been checked. An empty list here means
+                      "none FOUND", which is only good news once everything has
+                      actually been looked at. */}
+                  {collection !== 'retracted' || citations.length === 0
+                    ? 'No citations yet. Add one above.'
+                    : uncheckedCount
+                      ? `No retracted items found — but ${uncheckedCount} of ${citations.length} have not been checked. Run “Check all for retractions”.`
+                      : `No retracted items — all ${citations.length} checked.`}
                 </p>
               ) : (
                 visible.map((c) => {
@@ -1248,6 +1363,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                               </span>
                             );
                           })()}
+                          <RetractionChip c={c} />
                         </p>
                       </button>
                       <button
@@ -1368,6 +1484,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
               <div className="text-xs text-on-surface-variant space-y-1">
                 <div data-testid="detail-metadata">Metadata: {STATUS_LABEL[computeStatus(selected)]}</div>
                 <div data-testid="detail-verification">Verification: {VERIFY_LABEL[verificationState(selected)]}</div>
+                <div data-testid="detail-retraction">Retraction: {RETRACTION_LABEL[retractionState(selected)]}</div>
                 {selected.provenance && selected.provenance.length > 0 && (
                   <div className="font-mono mt-1.5" data-testid="detail-provenance">
                     {selected.provenance.slice(0, 3).join('  ·  ')}
