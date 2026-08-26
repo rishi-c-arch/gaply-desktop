@@ -391,6 +391,142 @@ pub const MIGRATIONS: &[Migration] = &[
         // SQLite cannot drop a column on older versions; the table is rebuilt.
         down: "ALTER TABLE evidence DROP COLUMN claim;",
     },
+    Migration {
+        version: 14,
+        name: "ai_engine_phase1",
+        // Citation Intelligence, Phase 1 (docs/AI_ENGINE_PLAN.md §4, §11).
+        //
+        // PURELY ADDITIVE. No existing table is altered. Every new table takes
+        // the `ai_` prefix (§11 D1): `chunks` and `documents` already exist from
+        // v6 (rag_documents), so an unprefixed `chunks` would collide outright,
+        // and one prefix rule beats per-table exceptions.
+        //
+        // Chunks reference the EXISTING `documents` table rather than a parallel
+        // `documents_ai`: rag.rs already writes provenance there (checksum,
+        // status, quarantine reason) and a second registry would mean two
+        // ingestion truths.
+        //
+        // PROVENANCE IS THE POINT. Every model-derived row carries model_id,
+        // model_version, prompt_version and created_at, and every chunk it drew
+        // on is a QUERYABLE FOREIGN KEY in ai_evidence_card_chunks —
+        // provenance_json may duplicate that, but is never the only record.
+        //
+        // `page` is nullable EVERYWHERE and is a RECORDED fact, never inferred.
+        // NULL means the source had no reliable page boundaries (DOCX/TXT, or a
+        // PDF whose pages could not be read). A page is never estimated from
+        // text position.
+        up: "
+            CREATE TABLE ai_chunks (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id    INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                page           INTEGER,
+                section        TEXT,
+                char_start     INTEGER NOT NULL,
+                char_end       INTEGER NOT NULL,
+                content        TEXT NOT NULL,
+                token_estimate INTEGER NOT NULL,
+                content_hash   TEXT NOT NULL,
+                created_at     INTEGER NOT NULL,
+                UNIQUE (document_id, content_hash)
+            );
+            CREATE INDEX idx_ai_chunks_document ON ai_chunks(document_id);
+            CREATE INDEX idx_ai_chunks_page ON ai_chunks(document_id, page);
+
+            -- model_id is MANDATORY: two embedding spaces must never be
+            -- silently mixable, and a vector with no recorded model is a
+            -- vector nobody can safely compare.
+            CREATE TABLE ai_chunk_embeddings (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                chunk_id   INTEGER NOT NULL REFERENCES ai_chunks(id) ON DELETE CASCADE,
+                model_id   TEXT NOT NULL REFERENCES ai_model_registry(id),
+                dim        INTEGER NOT NULL,
+                vector     BLOB NOT NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE (chunk_id, model_id)
+            );
+            CREATE INDEX idx_ai_chunk_embeddings_chunk ON ai_chunk_embeddings(chunk_id);
+
+            CREATE TABLE ai_model_registry (
+                id            TEXT PRIMARY KEY,
+                kind          TEXT NOT NULL CHECK (kind IN ('embedding','generative')),
+                display_name  TEXT NOT NULL DEFAULT '',
+                file_path     TEXT NOT NULL DEFAULT '',
+                sha256        TEXT,
+                dim           INTEGER,
+                quant         TEXT,
+                registered_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE ai_jobs (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind           TEXT NOT NULL,
+                status         TEXT NOT NULL CHECK (status IN ('queued','running','done','failed','cancelled')),
+                document_id    INTEGER REFERENCES documents(id) ON DELETE CASCADE,
+                total_items    INTEGER NOT NULL DEFAULT 0,
+                done_items     INTEGER NOT NULL DEFAULT 0,
+                model_id       TEXT REFERENCES ai_model_registry(id),
+                prompt_version TEXT NOT NULL DEFAULT '',
+                error          TEXT,
+                created_at     INTEGER NOT NULL,
+                started_at     INTEGER,
+                finished_at    INTEGER
+            );
+            CREATE INDEX idx_ai_jobs_status ON ai_jobs(status, created_at);
+
+            CREATE TABLE ai_job_items (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id      INTEGER NOT NULL REFERENCES ai_jobs(id) ON DELETE CASCADE,
+                chunk_id    INTEGER NOT NULL REFERENCES ai_chunks(id) ON DELETE CASCADE,
+                status      TEXT NOT NULL CHECK (status IN ('queued','running','done','failed','skipped')),
+                attempts    INTEGER NOT NULL DEFAULT 0,
+                error       TEXT,
+                created_at  INTEGER NOT NULL,
+                finished_at INTEGER,
+                UNIQUE (job_id, chunk_id)
+            );
+            CREATE INDEX idx_ai_job_items_job ON ai_job_items(job_id, status);
+
+            -- chunk_id is the PRIMARY chunk and is nullable: a multi-source card
+            -- has no single primary, and every chunk it used lives in the join
+            -- table below regardless.
+            CREATE TABLE ai_evidence_cards (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id     INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                chunk_id        INTEGER REFERENCES ai_chunks(id) ON DELETE SET NULL,
+                page            INTEGER,
+                claim           TEXT NOT NULL,
+                evidence_text   TEXT NOT NULL,
+                evidence_type   TEXT NOT NULL,
+                verdict         TEXT,
+                confidence      REAL,
+                model_id        TEXT NOT NULL REFERENCES ai_model_registry(id),
+                model_version   TEXT NOT NULL,
+                prompt_version  TEXT NOT NULL,
+                provenance_json TEXT NOT NULL DEFAULT '{}',
+                created_at      INTEGER NOT NULL
+            );
+            CREATE INDEX idx_ai_evidence_cards_document ON ai_evidence_cards(document_id);
+            CREATE INDEX idx_ai_evidence_cards_chunk ON ai_evidence_cards(chunk_id);
+
+            CREATE TABLE ai_evidence_card_chunks (
+                card_id  INTEGER NOT NULL REFERENCES ai_evidence_cards(id) ON DELETE CASCADE,
+                chunk_id INTEGER NOT NULL REFERENCES ai_chunks(id) ON DELETE CASCADE,
+                role     TEXT NOT NULL CHECK (role IN ('primary','supporting','contradicting')),
+                PRIMARY KEY (card_id, chunk_id, role)
+            );
+            CREATE INDEX idx_ai_evidence_card_chunks_chunk ON ai_evidence_card_chunks(chunk_id);
+        ",
+        // Reverse dependency order so the FKs unwind cleanly.
+        down: "
+            DROP TABLE ai_evidence_card_chunks;
+            DROP TABLE ai_evidence_cards;
+            DROP TABLE ai_job_items;
+            DROP TABLE ai_jobs;
+            DROP TABLE ai_chunk_embeddings;
+            DROP TABLE ai_model_registry;
+            DROP TABLE ai_chunks;
+        ",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -463,6 +599,7 @@ pub fn migrate_down(conn: &mut Connection, target: i64) -> Result<Vec<&'static s
 mod tests {
     use super::*;
     use crate::db::test_connection;
+    use rusqlite::params;
 
     fn table_names(conn: &Connection) -> Vec<String> {
         let mut stmt = conn
@@ -533,6 +670,7 @@ mod tests {
         assert_eq!(
             reverted,
             vec![
+                "ai_engine_phase1",
                 "evidence_claim_kind",
                 "evidence_store",
                 "citation_library_verification_persist",
@@ -612,10 +750,11 @@ mod tests {
                 "plagiarism_library_citation_link",
                 "citation_library_verification_persist",
                 "evidence_store",
-                "evidence_claim_kind"
+                "evidence_claim_kind",
+                "ai_engine_phase1"
             ]
         );
-        assert_eq!(current_version(&conn).unwrap(), 13);
+        assert_eq!(current_version(&conn).unwrap(), 14);
 
         // the column + index now exist; the pre-existing row is intact, NULL id
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -655,7 +794,8 @@ mod tests {
                 "plagiarism_library_citation_link",
                 "citation_library_verification_persist",
                 "evidence_store",
-                "evidence_claim_kind"
+                "evidence_claim_kind",
+                "ai_engine_phase1"
             ]
         );
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -682,8 +822,8 @@ mod tests {
 
         // apply v11 (+ v12 rides along; it does not touch citation_library)
         let applied = migrate_up(&mut conn).unwrap();
-        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind"]);
-        assert_eq!(current_version(&conn).unwrap(), 13);
+        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1"]);
+        assert_eq!(current_version(&conn).unwrap(), 14);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(column_names(&conn, "citation_library").iter().any(|n| n == c), "missing column {c}");
         }
@@ -712,7 +852,7 @@ mod tests {
 
         // down to v10 peels v12 (evidence_store) then v11 (the subject here).
         let reverted = migrate_down(&mut conn, 10).unwrap();
-        assert_eq!(reverted, vec!["evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
+        assert_eq!(reverted, vec!["ai_engine_phase1", "evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(!column_names(&conn, "citation_library").iter().any(|n| n == c), "{c} should be dropped");
         }
@@ -720,6 +860,145 @@ mod tests {
 
         // re-applies cleanly (idempotent up after a partial down): v11 + v12
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind"]);
+        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1"]);
+    }
+
+    /* ------------------------- v14: AI engine, Phase 1 --------------------- */
+
+    const AI_TABLES: &[&str] = &[
+        "ai_chunk_embeddings",
+        "ai_chunks",
+        "ai_evidence_card_chunks",
+        "ai_evidence_cards",
+        "ai_job_items",
+        "ai_jobs",
+        "ai_model_registry",
+    ];
+
+    #[test]
+    fn v14_round_trips_and_touches_no_existing_table() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        assert_eq!(current_version(&conn).unwrap(), 14);
+        for t in AI_TABLES {
+            assert!(table_names(&conn).iter().any(|n| n == t), "missing {t}");
+        }
+        // The pre-v14 tables the AI layer builds on are untouched and still
+        // carry their own columns (purely additive).
+        assert!(table_names(&conn).iter().any(|n| n == "documents"));
+        assert!(table_names(&conn).iter().any(|n| n == "chunks"));
+        let v6_chunks = column_names(&conn, "chunks");
+        assert!(v6_chunks.iter().any(|c| c == "token_count"), "v6 chunks was altered");
+        assert!(!v6_chunks.iter().any(|c| c == "page"), "v6 chunks gained an AI column");
+
+        // down → every ai_ table is gone, everything else survives
+        let reverted = migrate_down(&mut conn, 13).unwrap();
+        assert_eq!(reverted, vec!["ai_engine_phase1"]);
+        assert_eq!(current_version(&conn).unwrap(), 13);
+        for t in AI_TABLES {
+            assert!(!table_names(&conn).iter().any(|n| n == t), "{t} survived the down migration");
+        }
+        assert!(table_names(&conn).iter().any(|n| n == "documents"), "down migration took documents with it");
+        assert!(table_names(&conn).iter().any(|n| n == "chunks"), "down migration took v6 chunks with it");
+
+        // and re-applies cleanly
+        let reapplied = migrate_up(&mut conn).unwrap();
+        assert_eq!(reapplied, vec!["ai_engine_phase1"]);
+        for t in AI_TABLES {
+            assert!(table_names(&conn).iter().any(|n| n == t), "{t} missing after re-apply");
+        }
+    }
+
+    /// Seed the minimum rows an evidence card needs: a document, a chunk, a
+    /// model, and a card. Returns (document_id, chunk_id, card_id).
+    fn seed_card(conn: &Connection) -> (i64, i64, i64) {
+        conn.execute(
+            "INSERT INTO documents (source_type, title, source_url, fetched_at, checksum, status, created_at)
+             VALUES ('test', 'Doc', '', 1, 'sum-1', 'ingested', 1)",
+            [],
+        )
+        .unwrap();
+        let doc = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO ai_chunks (document_id, page, section, char_start, char_end, content, token_estimate, content_hash, created_at)
+             VALUES (?1, 3, 'Methods', 0, 10, 'some text', 2, 'hash-1', 1)",
+            params![doc],
+        )
+        .unwrap();
+        let chunk = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO ai_model_registry (id, kind, display_name, file_path, registered_at)
+             VALUES ('m1', 'generative', 'M', '/tmp/m', 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO ai_evidence_cards
+                (document_id, chunk_id, page, claim, evidence_text, evidence_type,
+                 model_id, model_version, prompt_version, created_at)
+             VALUES (?1, ?2, 3, 'c', 'e', 'support', 'm1', 'v1', 'p1', 1)",
+            params![doc, chunk],
+        )
+        .unwrap();
+        (doc, chunk, conn.last_insert_rowid())
+    }
+
+    #[test]
+    fn ai_evidence_card_chunks_rejects_an_invalid_role() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        let (_doc, chunk, card) = seed_card(&conn);
+
+        // the three legal roles are accepted
+        for role in ["primary", "supporting", "contradicting"] {
+            conn.execute(
+                "INSERT INTO ai_evidence_card_chunks (card_id, chunk_id, role) VALUES (?1, ?2, ?3)",
+                params![card, chunk, role],
+            )
+            .unwrap_or_else(|e| panic!("legal role {role} rejected: {e}"));
+        }
+        // anything else is refused by the CHECK constraint
+        let err = conn.execute(
+            "INSERT INTO ai_evidence_card_chunks (card_id, chunk_id, role) VALUES (?1, ?2, 'refuting')",
+            params![card, chunk],
+        );
+        assert!(err.is_err(), "an invalid role was accepted");
+    }
+
+    #[test]
+    fn ai_evidence_card_chunks_rejects_an_orphan_chunk_id() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        let (_doc, _chunk, card) = seed_card(&conn);
+
+        // A chunk_id that does not exist must be refused — chunk references are
+        // real foreign keys, not advisory ids duplicated out of provenance_json.
+        let err = conn.execute(
+            "INSERT INTO ai_evidence_card_chunks (card_id, chunk_id, role) VALUES (?1, 999999, 'primary')",
+            params![card],
+        );
+        assert!(err.is_err(), "an orphan chunk_id was accepted — FK not enforced");
+
+        // and an orphan card_id likewise
+        let err = conn.execute(
+            "INSERT INTO ai_evidence_card_chunks (card_id, chunk_id, role) VALUES (999999, 1, 'primary')",
+            [],
+        );
+        assert!(err.is_err(), "an orphan card_id was accepted");
+    }
+
+    #[test]
+    fn ai_chunk_embeddings_requires_a_model_id() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        let (_doc, chunk, _card) = seed_card(&conn);
+        // NOT NULL: a vector with no recorded model space is unusable, so the
+        // schema refuses it rather than storing something incomparable.
+        let err = conn.execute(
+            "INSERT INTO ai_chunk_embeddings (chunk_id, model_id, dim, vector, created_at)
+             VALUES (?1, NULL, 384, X'00', 1)",
+            params![chunk],
+        );
+        assert!(err.is_err(), "a NULL model_id was accepted");
     }
 }
