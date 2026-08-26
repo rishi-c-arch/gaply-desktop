@@ -581,6 +581,25 @@ which the single-`(model_id, preprocessing_version)` rule refuses the old vector
 two representations. Measured comparison of both poolings on the paraphrase needle test is reported
 with this phase.
 
+**MEASURED (2026-08-27, release build, real model, 500-chunk corpus).** Both poolings were run on
+the paraphrase needle test. The relevant number is not the needle's absolute score but its SEPARATION
+from the best distractor, since that is what ranking depends on:
+
+| Pooling | needle score | best distractor | **margin** | needle rank |
+|---|---|---|---|---|
+| `Mean` (pinned) | 0.7258 | 0.5445 | **0.1813** | 1 |
+| `Cls` (model card) | 0.7669 | 0.6210 | **0.1459** | 1 |
+
+CLS scores everything higher, including the distractors, so on this test the pinned `Mean` gives the
+*wider* margin — the opposite of what the model card alone would predict. Both rank the needle first.
+
+**This does not settle the question and must not be read as doing so.** One query against one
+synthetic corpus is not an evaluation; the card's guidance reflects broad benchmark training, which a
+single needle cannot contradict. The honest reading is: `Mean` is not costing us anything detectable
+yet, so there is no urgency to change it, and the choice should be made on real eval data alongside
+§9.6. The measurement is recorded here so that decision starts from evidence rather than from the
+default assumption either way.
+
 The two other constants were verified and MATCH:
 - `EMBED_QUERY_PREFIX` — the card lists exactly
   `Represent this sentence for searching relevant passages: ` for this model.
