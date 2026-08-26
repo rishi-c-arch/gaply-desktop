@@ -128,6 +128,8 @@ pub fn run() {
             commands::citation_lib_set_tags,
             commands::citation_lib_delete,
             commands::citation_lib_set_sync_status,
+            commands::ai_index_document,
+            commands::ai_index_status,
             commands::note_create,
             commands::note_update,
             commands::note_get,

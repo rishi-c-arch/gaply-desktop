@@ -196,6 +196,33 @@ pub fn index_status(db: &Database, document_id: i64) -> Result<IndexStatus, Gapl
     })
 }
 
+/// The recorded source of a document — its `source_url`, which for a locally
+/// ingested paper is its path.
+///
+/// An unknown id, or a row with no recorded source, is an honest error rather
+/// than an empty string that would later fail as a confusing "file not found".
+pub fn document_source(db: &Database, document_id: i64) -> Result<String, GaplyError> {
+    let conn = db.conn()?;
+    let source: Option<String> = conn
+        .query_row(
+            "SELECT source_url FROM documents WHERE id = ?1",
+            params![document_id],
+            |r| r.get(0),
+        )
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })?;
+    match source {
+        Some(s) if !s.trim().is_empty() => Ok(s),
+        Some(_) => Err(GaplyError::Validation(format!(
+            "document {document_id} has no recorded source path — pass one explicitly"
+        ))),
+        None => Err(GaplyError::NotFound { entity: "document", id: document_id.to_string() }),
+    }
+}
+
 /// Drop a document's chunks so it can be re-indexed from scratch (a re-parse
 /// after an extraction fix, say). Returns the number removed.
 pub fn clear_chunks(db: &Database, document_id: i64) -> Result<usize, GaplyError> {

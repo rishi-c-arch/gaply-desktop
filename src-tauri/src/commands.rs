@@ -992,6 +992,76 @@ pub fn citation_lib_set_sync_status(
     gaply_core::citation_library::set_sync_status(&state.db, &id, &status)
 }
 
+// ---------------------------------------------------------------------------
+// Citation Intelligence — AI engine, Phase 1 (docs/AI_ENGINE_PLAN.md)
+// ---------------------------------------------------------------------------
+//
+// Thin IPC wrappers over `gaply_core::ai_engine::store`, following the
+// citation_lib_* precedent: no logic lives here. Phase 1 writes `ai_chunks`
+// ONLY — no embeddings, no model, and the existing `embeddings` table is not
+// touched.
+
+/// What one indexing pass did, reported honestly.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AiIndexReport {
+    pub document_id: i64,
+    pub outcome: gaply_core::ai_engine::store::IndexOutcome,
+    pub status: gaply_core::ai_engine::store::IndexStatus,
+    /// True when the source yielded real page boundaries. False means every
+    /// chunk is honestly page-less — NOT that pages were guessed.
+    pub pages_detected: bool,
+}
+
+/// Parse a document, chunk it page-aware, and store the chunks.
+///
+/// `path` is where to READ the document; `document_id` is the `documents` row it
+/// belongs to. The path is accepted explicitly because the v6 `documents` table
+/// has no local-path column (plan §11 D5); when omitted it falls back to the
+/// row's `source_url`, and if neither names a readable file the command fails
+/// rather than silently indexing nothing.
+///
+/// Async + spawn_blocking: parsing a PDF is blocking work and must not run on
+/// the async runtime thread (the `verify_reference` precedent). Re-running is
+/// safe — `index_chunks` is idempotent by database constraint.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn ai_index_document(
+    state: State<'_, AppState>,
+    document_id: i64,
+    path: Option<String>,
+) -> Result<AiIndexReport, GaplyError> {
+    use gaply_core::ai_engine::store;
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let source = match path {
+            Some(p) if !p.trim().is_empty() => p,
+            _ => store::document_source(&db, document_id)?,
+        };
+        let blocks = gaply_core::extract::docparse::parse_path_paged(std::path::Path::new(&source))?;
+        let chunks = gaply_core::chunk::chunk_paged_default(&blocks);
+        let outcome = store::index_chunks(&db, document_id, &chunks)?;
+        let status = store::index_status(&db, document_id)?;
+        Ok(AiIndexReport {
+            document_id,
+            pages_detected: status.with_page > 0,
+            outcome,
+            status,
+        })
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("ai_index_document task panicked: {e}")))?
+}
+
+/// What is currently indexed for a document. Sync — a single indexed read.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn ai_index_status(
+    state: State<'_, AppState>,
+    document_id: i64,
+) -> Result<gaply_core::ai_engine::store::IndexStatus, GaplyError> {
+    gaply_core::ai_engine::store::index_status(&state.db, document_id)
+}
+
 /// Note Creator (Set 3): thin IPC wrappers over the Set 2 notes store
 /// (`gaply_core::notes`). All fully local/offline sqlite — no network, no LLM,
 /// no sign-in, no entitlement (Note Creator is free). No logic lives here.
