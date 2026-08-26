@@ -4,13 +4,13 @@
 //! lives here. The Tauri layer only adapts these functions to IPC.
 
 pub mod ai_detect;
+pub mod ai_engine;
 pub mod ai_features;
 pub mod ai_signals;
 pub mod app_check;
 pub mod cache;
 pub mod chat_agent;
 pub mod chunk;
-pub mod ai_engine;
 pub mod citation_library;
 pub mod config;
 pub mod db;
@@ -40,7 +40,6 @@ pub mod refverify;
 pub mod reviewer_agent;
 pub mod reviewer_harness;
 pub mod sanitize;
-pub mod scientific_model;
 pub mod secrets;
 pub mod stage1_norms;
 pub mod stats_chat;
