@@ -1062,6 +1062,143 @@ pub fn ai_index_status(
     gaply_core::ai_engine::store::index_status(&state.db, document_id)
 }
 
+// --- Citation Intelligence, Phase 2: embeddings + semantic search ----------
+//
+// R4: the ONLY network operation in the AI layer is ai_model_install, and it
+// runs only from explicit user action. Nothing here sends telemetry, queries,
+// document content or embeddings anywhere.
+
+/// Install the pinned embedding model: download what is missing, verify every
+/// file's sha256, register, then load. Streams progress; cancellable.
+///
+/// OFFLINE INSTALL: if the files are already in the app data dir with matching
+/// hashes, this registers and loads with NO network call at all.
+#[tauri::command]
+#[tracing::instrument(skip(state, on_event))]
+pub async fn ai_model_install(
+    state: State<'_, AppState>,
+    on_event: tauri::ipc::Channel<crate::ai::model_install::InstallEvent>,
+) -> Result<crate::ai::model_install::InstallReport, GaplyError> {
+    let db = state.db.clone();
+    let dir = state.app_data_dir.clone();
+    let slot = state.ai_embed.clone();
+    let cancel = state.ai_install_cancel.clone();
+    cancel.store(false, std::sync::atomic::Ordering::SeqCst); // never poison the next run
+    let report = tokio::task::spawn_blocking(move || {
+        let emit = move |ev| {
+            let _ = on_event.send(ev); // the user may have navigated away
+        };
+        let r = crate::ai::model_install::install(&db, &dir, &cancel, &emit)?;
+        slot.reload(&dir); // load what we just verified — still no network
+        Ok::<_, GaplyError>(r)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("ai_model_install task panicked: {e}")))??;
+    Ok(report)
+}
+
+#[tauri::command]
+pub fn ai_model_install_cancel(state: State<'_, AppState>) {
+    state.ai_install_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// What the embedding engine can honestly say about itself.
+#[tauri::command]
+pub fn ai_model_status(state: State<'_, AppState>) -> crate::ai::embeddings::EngineState {
+    state.ai_embed.state()
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AiEmbedEvent {
+    Started { pending: usize },
+    Progress { done: usize, total: usize },
+    Cancelled { done: usize, total: usize },
+    Done { embedded: usize },
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AiEmbedReport {
+    pub document_id: Option<i64>,
+    pub embedded: usize,
+    pub remaining: usize,
+    pub cancelled: bool,
+}
+
+/// Embed a document's un-embedded chunks. EXPLICIT, NEVER AUTOMATIC — importing
+/// or indexing a PDF does not trigger this; only a user action does.
+///
+/// Resumable by construction: the pending set is computed from the absence of a
+/// vector, so a cancelled run leaves exactly the un-embedded rows and the next
+/// run picks up there. There is no progress cursor to fall out of step.
+#[tauri::command]
+#[tracing::instrument(skip(state, on_event))]
+pub async fn ai_embed_document(
+    state: State<'_, AppState>,
+    document_id: Option<i64>,
+    on_event: tauri::ipc::Channel<AiEmbedEvent>,
+) -> Result<AiEmbedReport, GaplyError> {
+    use gaply_core::ai_engine::embeddings as core_emb;
+    let db = state.db.clone();
+    let slot = state.ai_embed.clone();
+    let cancel = state.ai_embed_cancel.clone();
+    cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+    tokio::task::spawn_blocking(move || {
+        use std::sync::atomic::Ordering;
+        let space = crate::ai::embedding_space();
+        let pending = core_emb::chunks_missing_embeddings(&db, document_id, &space.model_id)?;
+        let total = pending.len();
+        let _ = on_event.send(AiEmbedEvent::Started { pending: total });
+
+        let mut done = 0usize;
+        for batch in pending.chunks(crate::ai::EMBED_BATCH_SIZE) {
+            if cancel.load(Ordering::SeqCst) {
+                let _ = on_event.send(AiEmbedEvent::Cancelled { done, total });
+                let remaining =
+                    core_emb::chunks_missing_embeddings(&db, document_id, &space.model_id)?.len();
+                return Ok(AiEmbedReport { document_id, embedded: done, remaining, cancelled: true });
+            }
+            let texts: Vec<String> = batch.iter().map(|p| p.content.clone()).collect();
+            let vectors = slot.with(|e| e.embed_documents(&texts))?;
+            let rows: Vec<(i64, Vec<f32>)> =
+                batch.iter().map(|p| p.chunk_id).zip(vectors).collect();
+            core_emb::put_embeddings(&db, &space, &rows)?;
+            done += rows.len();
+            let _ = on_event.send(AiEmbedEvent::Progress { done, total });
+        }
+        let _ = on_event.send(AiEmbedEvent::Done { embedded: done });
+        Ok(AiEmbedReport { document_id, embedded: done, remaining: 0, cancelled: false })
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("ai_embed_document task panicked: {e}")))?
+}
+
+#[tauri::command]
+pub fn ai_embed_cancel(state: State<'_, AppState>) {
+    state.ai_embed_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Semantic search: embed the query (with the query prefix), FTS prefilter,
+/// cosine rerank, top k.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn ai_semantic_search(
+    state: State<'_, AppState>,
+    query: String,
+    document_id: Option<i64>,
+    k: Option<usize>,
+) -> Result<gaply_core::ai_engine::retrieval::SearchResult, GaplyError> {
+    let db = state.db.clone();
+    let slot = state.ai_embed.clone();
+    let k = k.unwrap_or(10).clamp(1, 100);
+    tokio::task::spawn_blocking(move || {
+        let qv = slot.with(|e| e.embed_query(&query))?;
+        gaply_core::ai_engine::retrieval::semantic_search(&db, &query, &qv, document_id, k)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("ai_semantic_search task panicked: {e}")))?
+}
+
 /// Note Creator (Set 3): thin IPC wrappers over the Set 2 notes store
 /// (`gaply_core::notes`). All fully local/offline sqlite — no network, no LLM,
 /// no sign-in, no entitlement (Note Creator is free). No logic lives here.

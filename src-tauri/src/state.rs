@@ -40,6 +40,17 @@ pub struct AppState {
     /// So the bytes are held for the session and never written. Bounded to
     /// [`MAX_CACHED_PDFS`] so a long session cannot grow without limit.
     pub report_pdfs: Arc<Mutex<VecDeque<(String, Vec<u8>)>>>,
+    /// The app data directory — where the AI model lives. Held so commands can
+    /// find it without a Tauri handle.
+    pub app_data_dir: std::path::PathBuf,
+    /// The resident embedding engine (Citation Intelligence, Phase 2). Loaded
+    /// at startup IF installed and verified; otherwise NotInstalled and the app
+    /// boots normally with every deterministic feature intact.
+    pub ai_embed: Arc<crate::ai::EmbeddingSlot>,
+    /// Cancel token for the model install (AI Check's precedent).
+    pub ai_install_cancel: Arc<AtomicBool>,
+    /// Cancel token for an embedding pass.
+    pub ai_embed_cancel: Arc<AtomicBool>,
 }
 
 /// How many rendered reports to keep in memory. A user exports the run they
@@ -53,7 +64,10 @@ impl AppState {
         db: Arc<Database>,
         store: Arc<dyn ProjectStore>,
         embedder: Arc<dyn Embedder>,
+        app_data_dir: std::path::PathBuf,
     ) -> Self {
+        let ai_embed = Arc::new(crate::ai::EmbeddingSlot::load_at_startup(&app_data_dir));
+        tracing::info!(state = ?ai_embed.state(), "embedding engine");
         Self {
             config,
             db,
@@ -61,6 +75,10 @@ impl AppState {
             embedder,
             aicheck_cancel: Arc::new(AtomicBool::new(false)),
             report_pdfs: Arc::new(Mutex::new(VecDeque::new())),
+            app_data_dir,
+            ai_embed,
+            ai_install_cancel: Arc::new(AtomicBool::new(false)),
+            ai_embed_cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 }

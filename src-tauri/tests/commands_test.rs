@@ -78,6 +78,10 @@ fn test_app() -> (tauri::App<tauri::test::MockRuntime>, Arc<MockStore>, Arc<Data
         db.clone(),
         store.clone(),
         Arc::new(gaply_core::embed::HashEmbedder),
+        // Phase 2: the app data dir. A temp path with no model installed —
+        // AppState must build with the embedding engine NotInstalled, which is
+        // itself the boot-without-a-model assertion.
+        std::env::temp_dir().join("gaply-commands-test-appdata"),
     );
     let app = mock_builder()
         .manage(state)

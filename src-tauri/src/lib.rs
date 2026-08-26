@@ -1,4 +1,5 @@
-pub mod aicheck;
+pub mod ai;
+mod aicheck;
 pub mod citation_resolver;
 pub mod commands;
 pub mod escalation;
@@ -80,7 +81,7 @@ pub fn run() {
 
             let db = Arc::new(Database::open(&config.db_path)?);
             let embedder = Arc::new(gaply_core::embed::HashEmbedder);
-            app.manage(AppState::new(config, db.clone(), db, embedder));
+            app.manage(AppState::new(config, db.clone(), db, embedder, data_dir.clone()));
 
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "gaply desktop started");
             crate::models::log_model_resolution(); // proof the bundled model is reachable
@@ -128,6 +129,12 @@ pub fn run() {
             commands::citation_lib_set_tags,
             commands::citation_lib_delete,
             commands::citation_lib_set_sync_status,
+            commands::ai_model_install,
+            commands::ai_model_install_cancel,
+            commands::ai_model_status,
+            commands::ai_embed_document,
+            commands::ai_embed_cancel,
+            commands::ai_semantic_search,
             commands::ai_index_document,
             commands::ai_index_status,
             commands::note_create,

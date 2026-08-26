@@ -39,5 +39,6 @@
 //! tables, rather than landing now as untested speculative code.
 
 pub mod embeddings;
+pub mod registry;
 pub mod retrieval;
 pub mod store;

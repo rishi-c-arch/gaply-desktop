@@ -196,6 +196,33 @@ pub fn index_status(db: &Database, document_id: i64) -> Result<IndexStatus, Gapl
     })
 }
 
+/// Create (or adopt) a `documents` row for a local file.
+///
+/// Phase 1 recorded that nothing created a document row for a local paper
+/// (plan §11 D5); this is that missing piece. `checksum` is UNIQUE in the
+/// schema, so re-ingesting the same content adopts the existing row instead of
+/// failing — the same dedupe-by-provenance rule `rag::ingest_document` uses.
+pub fn create_document(
+    db: &Database,
+    title: &str,
+    source_path: &str,
+    checksum: &str,
+) -> Result<i64, GaplyError> {
+    let conn = db.conn()?;
+    conn.execute(
+        "INSERT INTO documents
+             (source_type, title, source_url, fetched_at, checksum, status, created_at)
+         VALUES ('paper', ?1, ?2, ?3, ?4, 'ingested', ?3)
+         ON CONFLICT (checksum) DO NOTHING",
+        params![title, source_path, now_epoch(), checksum],
+    )?;
+    Ok(conn.query_row(
+        "SELECT id FROM documents WHERE checksum = ?1",
+        params![checksum],
+        |r| r.get(0),
+    )?)
+}
+
 /// The recorded source of a document — its `source_url`, which for a locally
 /// ingested paper is its path.
 ///
