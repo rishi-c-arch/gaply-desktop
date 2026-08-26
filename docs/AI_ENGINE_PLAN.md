@@ -31,6 +31,13 @@ No `reqwest`, no `hf-hub`, no sockets, no `localhost`. Models load from local pa
 module and stays where it is; the AI engine must not call it or depend on it.
 *Enforcement:* §8's grep-based test, mirroring how `gaply-core` already keeps itself network-free.
 
+**R4 — Nothing leaves the machine.**
+"No telemetry, usage statistics, document content, queries, embeddings, or error payloads are sent
+to any remote service by the AI layer. The pinned model download in ai_model_install is the sole
+permitted network operation."
+*Consequence:* R2 is narrowed, not weakened — `ai_model_install` is the single, explicitly
+user-invoked exception, it lives in the app crate, and it never runs at startup (see §9.4).
+
 **R3 — The SLM never generates citation strings, DOIs, years, or metadata values.**
 The generative model may only *select*, *classify*, *rank*, *summarise* and *point at* text that
 already exists in a stored chunk. Every generative output must be anchored to a `chunk_id` that the
@@ -435,16 +442,25 @@ an additional argument for the split in §3.
    confidence, validation state, and their own deletion/reprocessing lifecycle. AI cards reference
    `documents`/`ai_chunks` and must never replace canonical citation metadata.
 
+4. **Embedding model = bge-small-en-v1.5, 384-dim, served by candle. RESOLVED (2026-08-27).**
+   BERT-family via `candle-transformers` plus the `tokenizers` crate already in the app crate — no
+   second ML stack (no fastembed, no ONNX runtime), which is the same constraint that resolved §9.1.
+   384 dims match the dimension already assumed throughout.
+5. **The HashEmbedder corpus is NOT re-embedded. RESOLVED (2026-08-27).**
+   The `embeddings` vec0 table and the plagiarism lane are untouched. The AI layer reads and writes
+   ONLY `ai_chunk_embeddings`, keyed by `model_id` — two embedding spaces are never mixed, and the
+   existing RAG path keeps working exactly as it does today.
+
 ### Still open
 
-4. **Which embedding model?** `embed.rs` names all-MiniLM-L6-v2 (384-dim, matching both vec0 tables)
-   and says ONNX. candle can serve BERT-family models and would avoid a second ML stack. Confirm the
-   model and the runtime.
-5. **Re-embedding existing rows.** The live `embeddings` table holds `HashEmbedder` vectors from the
-   current RAG pipeline. Once a real embedder exists, those are not comparable. Leave them (they
-   serve the existing RAG path) or re-embed? This plan leaves them untouched and puts AI vectors in
-   `chunk_embeddings`.
-6. **`docs/AI_ENGINE_SPEC.md`** — does it exist elsewhere? This plan is unvalidated against it.
+6. **Promote retrieval to an FTS ∪ vector union** — parallel gateways into one candidate pool,
+   rather than today's FTS-prefilter-then-rerank pipeline. Revisit once the reranker phase lands,
+   with eval data. The current shape is a strict prefilter, so a chunk FTS misses cannot be recovered
+   by vector similarity; the union removes that ceiling at the cost of a larger candidate pool.
+7. **`docs/AI_ENGINE_SPEC.md` still does not exist.** Searched the working tree, every branch's
+   history, the stash and the wider filesystem on 2026-08-26 and again on 2026-08-27; the only
+   `docs/AI_ENGINE*` file ever added to this repo is this plan. Phases 1 and 2 are therefore
+   grounded in the codebase plus the task instructions, and remain unvalidated against any spec.
 
 ---
 
