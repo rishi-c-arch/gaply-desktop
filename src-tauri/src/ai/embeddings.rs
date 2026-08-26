@@ -20,7 +20,7 @@
 //! The app boots normally in every state — a missing model degrades semantic
 //! search, and nothing else.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
@@ -77,7 +77,7 @@ impl EmbeddingEngine {
     }
 
     /// Load from a directory whose hashes have ALREADY been verified.
-    pub fn load_verified(dir: &PathBuf) -> Result<Self, GaplyError> {
+    pub fn load_verified(dir: &Path) -> Result<Self, GaplyError> {
         let device = Device::Cpu; // CPU-native, matching the rest of the app
         let config: Config = serde_json::from_slice(&std::fs::read(dir.join("config.json"))?)
             .map_err(|e| GaplyError::Internal(format!("model config unreadable: {e}")))?;
