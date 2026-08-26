@@ -530,3 +530,17 @@ document containing non-ASCII — which, for a citation tool, is most of them.
 
 Recorded rather than renamed because the column names are already specified and a rename buys
 nothing; the semantics are documented on `PagedChunk` at the point of use.
+
+### D5 — `ai_index_document` takes an optional `path` alongside `document_id`
+
+Specified as `ai_index_document(document_id)`. Implemented as
+`ai_index_document(document_id, path: Option<String>)`.
+
+The `documents` table (v6) records `source_type`, `title`, `source_url` and `checksum` — it has no
+local file path column, and `rag::ingest_document` takes content already in hand rather than parsing
+a file. Nothing in Phase 1 creates a `documents` row for a local paper, so a `document_id` alone
+does not tell the indexer what to read.
+
+`path` is therefore accepted explicitly and falls back to the row's `source_url` when omitted. When
+neither yields a readable file the command fails with an honest error rather than indexing nothing
+and reporting success. The parameter disappears once an AI ingestion command owns document creation.
