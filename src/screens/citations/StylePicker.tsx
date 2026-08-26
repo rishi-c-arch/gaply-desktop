@@ -70,6 +70,10 @@ export const StylePicker: React.FC<StylePickerProps> = ({ value, onSelect, testi
           <input
             className="gds-cite-input"
             autoFocus
+            // The placeholder carries the catalog count and is not a label;
+            // this gives the input a stable accessible name that survives the
+            // count changing. Additive — no behaviour or prop change.
+            aria-label="Search citation styles"
             placeholder="Search 2,856 citation styles…"
             value={query}
             data-testid={`${testid}-search`}

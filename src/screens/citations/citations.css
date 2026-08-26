@@ -1,148 +1,380 @@
-/* Gaply — Citation Manager (F8). Scoped under .gds-root. */
+/* Gaply — Citation Manager (F8) redesigned theme tokens and helper styles.
+   Colors are defined as CSS variables so the Tailwind config can reference them
+   and the component can switch between light/dark by applying the .light or
+   .dark class on .citation-manager-root. */
 
-.gds-root .gds-cite-collections { display: grid; gap: 2px; }
-.gds-root .gds-cite-collection {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 8px 10px; border-radius: var(--g-radius-button);
-  background: none; border: none; color: var(--g-text-2);
-  font: 500 var(--g-text-size-sm)/1.2 var(--g-font-ui); cursor: pointer; text-align: left; width: 100%;
-}
-.gds-root .gds-cite-collection[aria-current='true'] { background: var(--g-bg-layer2); color: var(--g-text); }
-.gds-root .gds-cite-collection[data-retracted='true'] { color: var(--g-flagged); }
+.citation-manager-root {
+  /* Light palette — role-for-role from the Stitch export, EXCEPT the accent.
+     ACCENT DECISION (ratified 2026-08-26 — do NOT re-derive the gray):
+     the HTML export and the written spec both give primary-container as the
+     gray #e2e1d9, but BOTH ARE SUPERSEDED by the approved light screenshot,
+     which shows the same yellow as the dark theme on the "New Citation" CTA
+     and the active nav item. #e2e1d9 sitting on the #f6f3f2 sidebar is very
+     nearly invisible and stops reading as an accent at all. So
+     primary-container keeps the yellow (#fbe363, the dark export's value).
+     Values are RGB channel triplets so Tailwind can compose alpha variants
+     (config maps them through rgb(var(--cm-*) / <alpha-value>)). */
+  --cm-on-secondary-fixed: 28 27 27;
+  --cm-on-primary-fixed-variant: 71 71 66;
+  --cm-tertiary: 94 94 94;
+  --cm-outline-variant: 205 198 176;
+  --cm-inverse-on-surface: 243 240 239;
+  --cm-surface-container-high: 234 231 231;
+  --cm-primary-fixed: 228 226 219;
+  --cm-on-background: 28 27 27;
+  --cm-on-secondary: 255 255 255;
+  --cm-on-primary: 255 255 255;
+  --cm-surface-variant: 229 226 225;
+  --cm-tertiary-container: 224 224 224;
+  --cm-on-primary-fixed: 27 28 23;
+  --cm-on-tertiary-fixed: 27 27 27;
+  --cm-surface-container: 240 237 237;
+  --cm-on-primary-container: 100 99 93;
+  --cm-tertiary-fixed: 226 226 226;
+  --cm-primary-fixed-dim: 200 199 191;
+  --cm-on-tertiary-fixed-variant: 71 71 71;
+  --cm-on-secondary-fixed-variant: 71 70 70;
+  --cm-inverse-surface: 49 48 48;
+  --cm-secondary-fixed: 229 226 225;
+  --cm-secondary-fixed-dim: 201 198 197;
+  --cm-surface-container-low: 246 243 242;
+  --cm-surface-container-lowest: 255 255 255;
+  --cm-surface-dim: 220 217 217;
+  --cm-on-tertiary-container: 99 99 99;
+  --cm-on-surface-variant: 75 71 54;
+  --cm-primary-container: 251 227 99;
+  --cm-primary: 95 95 89;
+  --cm-on-error-container: 147 0 10;
+  --cm-error-container: 255 218 214;
+  --cm-surface: 252 249 248;
+  --cm-secondary: 95 94 94;
+  --cm-surface-container-highest: 229 226 225;
+  --cm-error: 186 26 26;
+  --cm-surface-bright: 252 249 248;
+  --cm-secondary-container: 229 226 225;
+  --cm-on-error: 255 255 255;
+  --cm-background: 252 249 248;
+  --cm-on-surface: 28 27 27;
+  --cm-outline: 124 119 99;
+  --cm-on-tertiary: 255 255 255;
+  --cm-inverse-primary: 200 199 191;
+  --cm-tertiary-fixed-dim: 198 198 198;
+  --cm-surface-tint: 95 95 89;
+  --cm-on-secondary-container: 101 100 100;
+  /* Text/icons on the yellow accent fill. */
+  --cm-on-accent: 28 27 27;
+  /* Typefaces (Stitch export): light body = Source Serif 4, label = Hanken Grotesk. */
+  --cm-font-body: 'Source Serif 4', Georgia, serif;
+  --cm-font-label: 'Hanken Grotesk', 'Inter', sans-serif;
 
-.gds-root .gds-cite-add { display: grid; gap: 8px; margin-bottom: var(--g-space-2); }
-.gds-root .gds-cite-add__row { display: flex; gap: 8px; flex-wrap: wrap; }
-.gds-root .gds-cite-input {
-  flex: 1; min-width: 160px;
-  background: var(--g-bg-layer2); border: 1px solid var(--g-border-strong);
-  border-radius: var(--g-radius-button); color: var(--g-text);
-  font: 400 var(--g-text-size-sm)/1.4 var(--g-font-ui); padding: 8px 10px;
+  background: rgb(var(--cm-background));
+  color: rgb(var(--cm-on-background));
+  font-family: var(--cm-font-body);
+  -webkit-font-smoothing: antialiased;
 }
-.gds-root .gds-cite-input:focus { border-color: var(--g-accent); outline: none; }
 
-.gds-root .gds-cite-list { display: grid; gap: 4px; }
-.gds-root .gds-cite-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 10px; border: 1px solid var(--g-border); border-radius: var(--g-radius-button);
-  background: var(--g-bg-layer2); cursor: pointer; text-align: left; width: 100%;
+.citation-manager-root.dark {
+  /* Dark palette — verbatim from the Stitch dark export; the accent stays the
+     bright #fbe363 with dark text (#211b00) on it. Dark sets EVERY text role
+     in Libre Caslon Text. Values are RGB channel triplets (see light block). */
+  --cm-on-secondary-fixed: 32 28 0;
+  --cm-on-primary-fixed-variant: 82 71 0;
+  --cm-tertiary: 197 197 185;
+  --cm-outline-variant: 68 68 68;
+  --cm-inverse-on-surface: 49 48 48;
+  --cm-surface-container-high: 42 42 42;
+  --cm-primary-fixed: 251 227 99;
+  --cm-on-background: 229 229 229;
+  --cm-on-secondary: 28 27 27;
+  --cm-on-primary: 28 27 27;
+  --cm-surface-variant: 42 42 42;
+  --cm-tertiary-container: 74 73 65;
+  --cm-on-primary-fixed: 33 27 0;
+  --cm-on-tertiary-fixed: 27 28 22;
+  --cm-surface-container: 31 31 31;
+  --cm-on-primary-container: 33 27 0;
+  --cm-tertiary-fixed: 228 227 216;
+  --cm-primary-fixed-dim: 222 199 74;
+  --cm-on-tertiary-fixed-variant: 71 71 64;
+  --cm-on-secondary-fixed-variant: 80 71 14;
+  --cm-inverse-surface: 243 240 239;
+  --cm-secondary-fixed: 241 227 155;
+  --cm-secondary-fixed-dim: 212 199 130;
+  --cm-surface-container-low: 23 23 23;
+  --cm-surface-container-lowest: 18 18 18;
+  --cm-surface-dim: 15 15 15;
+  --cm-on-tertiary-container: 226 225 214;
+  --cm-on-surface-variant: 163 163 163;
+  --cm-primary-container: 251 227 99;
+  --cm-primary: 251 227 99;
+  --cm-on-error-container: 255 218 214;
+  --cm-error-container: 147 0 10;
+  --cm-surface: 10 10 10;
+  --cm-secondary: 212 199 130;
+  --cm-surface-container-highest: 51 51 51;
+  --cm-error: 255 180 171;
+  --cm-surface-bright: 38 38 38;
+  --cm-secondary-container: 77 71 29;
+  --cm-on-error: 105 0 5;
+  --cm-background: 10 10 10;
+  --cm-on-surface: 229 229 229;
+  --cm-outline: 136 136 136;
+  --cm-on-tertiary: 28 27 27;
+  --cm-inverse-primary: 108 94 0;
+  --cm-tertiary-fixed-dim: 200 199 189;
+  --cm-surface-tint: 251 227 99;
+  --cm-on-secondary-container: 238 225 153;
+  --cm-on-accent: 33 27 0;
+  --cm-font-body: 'Libre Caslon Text', Georgia, serif;
+  --cm-font-label: 'Libre Caslon Text', Georgia, serif;
 }
-.gds-root .gds-cite-item[aria-current='true'] { border-color: var(--g-accent); }
-.gds-root .gds-cite-item[data-retracted='true'] { border-color: color-mix(in srgb, var(--g-flagged) 55%, var(--g-border)); }
-.gds-root .gds-cite-item__icon { flex: none; width: 18px; text-align: center; }
-.gds-root .gds-cite-item__meta { min-width: 0; }
-.gds-root .gds-cite-item__title { margin: 0; font-size: var(--g-text-size-sm); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gds-root .gds-cite-item__sub { color: var(--g-text-3); font-size: var(--g-text-size-xs); }
 
-.gds-root .gds-cite-preview {
-  background: var(--g-bg-layer2); border: 1px solid var(--g-border);
-  border-radius: var(--g-radius-panel); padding: var(--g-space-2);
-  line-height: 1.7; color: var(--g-text); font-size: var(--g-text-size-sm);
+/* Material Symbols sizing helpers used inside the page. */
+.citation-manager-root .cm-icon {
+  font-family: 'Material Symbols Outlined', sans-serif;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  line-height: 1;
 }
-.gds-root .gds-cite-retract-banner {
-  display: flex; align-items: center; gap: 8px;
-  background: color-mix(in srgb, var(--g-flagged) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--g-flagged) 50%, transparent);
-  border-radius: var(--g-radius-button); padding: 8px 10px;
-  color: var(--g-flagged); font-size: var(--g-text-size-sm);
-}
-.gds-root .gds-cite-detail-field { display: grid; gap: 2px; margin-bottom: 8px; }
-.gds-root .gds-cite-detail-field label { font-size: var(--g-text-size-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--g-text-3); }
 
-/* Import report (Set 2b-i) — tally + inspectable skip/failed lists. */
-.gds-cite-import-report {
+/* Import report (Set 2b-i). */
+.cm-import-report {
   margin: 10px 0;
-  padding: 10px 12px;
-  border: 1px solid var(--g-border);
-  border-left: 3px solid var(--g-accent);
+  padding: 12px 14px;
+  border: 1px solid rgb(var(--cm-outline-variant));
+  border-left: 3px solid rgb(var(--cm-primary));
   border-radius: 8px;
   font-size: 13px;
+  background: rgb(var(--cm-surface-container-lowest));
 }
-.gds-cite-import-tally { margin: 0 0 6px; font-weight: 600; color: var(--g-text); }
-.gds-cite-import-report details { margin: 4px 0; }
-.gds-cite-import-report summary { cursor: pointer; color: var(--g-text-2); }
-.gds-cite-import-skip,
-.gds-cite-import-fail {
+.cm-import-tally { margin: 0 0 8px; font-weight: 600; color: rgb(var(--cm-on-surface)); }
+.cm-import-report details { margin: 6px 0; }
+.cm-import-report summary { cursor: pointer; color: rgb(var(--cm-on-surface-variant)); }
+.cm-import-skip,
+.cm-import-fail {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 0;
-  color: var(--g-text-2);
-  border-top: 1px solid color-mix(in srgb, var(--g-border) 55%, transparent);
+  padding: 6px 0;
+  color: rgb(var(--cm-on-surface-variant));
+  border-top: 1px solid rgb(var(--cm-outline-variant));
 }
-.gds-cite-import-fail code { font-size: 11px; color: var(--g-text-3); }
+.cm-import-fail code { font-size: 11px; color: rgb(var(--cm-outline)); }
 
-/* Fuzzy review panel (Set 2b-ii) — side-by-side existing vs imported. */
-.gds-cite-review {
+/* Fuzzy review / enrichment panels (Set 2b-ii / 2b-iv). */
+.cm-review-panel {
   margin: 10px 0;
-  border: 1px solid var(--g-border);
-  border-left: 3px solid var(--g-assessed);
+  border: 1px solid rgb(var(--cm-outline-variant));
+  border-left: 3px solid rgb(var(--cm-secondary));
   border-radius: 8px;
   overflow: hidden;
+  background: rgb(var(--cm-surface-container-lowest));
 }
-.gds-cite-review__head {
+.cm-review-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 8px 12px;
-  background: color-mix(in srgb, var(--g-assessed) 8%, var(--g-bg-layer1));
+  padding: 10px 14px;
+  background: rgb(var(--cm-secondary-container));
   font-size: 13px;
   font-weight: 600;
-  color: var(--g-text);
+  color: rgb(var(--cm-on-surface));
 }
-.gds-cite-review__bulk { display: flex; gap: 4px; }
-.gds-cite-review__list { max-height: 340px; overflow-y: auto; }
-.gds-cite-review__item {
-  padding: 8px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--g-border) 55%, transparent);
+.cm-review-list { max-height: 340px; overflow-y: auto; }
+.cm-review-item {
+  padding: 10px 14px;
+  border-top: 1px solid rgb(var(--cm-outline-variant));
 }
-.gds-cite-review__cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-@media (max-width: 640px) { .gds-cite-review__cols { grid-template-columns: 1fr; } }
-.gds-cite-review__tag {
+.cm-review-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .cm-review-cols { grid-template-columns: 1fr; } }
+.cm-review-tag {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--g-text-3);
+  color: rgb(var(--cm-on-surface-variant));
 }
-.gds-cite-review__title { margin: 2px 0 0; font-size: 13px; color: var(--g-text); }
-.gds-cite-review__sub { margin: 1px 0 0; font-size: 12px; color: var(--g-text-2); }
-.gds-cite-review__actions { display: flex; gap: 4px; margin-top: 6px; justify-content: flex-end; }
+.cm-review-title { margin: 2px 0 0; font-size: 13px; color: rgb(var(--cm-on-surface)); }
+.cm-review-sub { margin: 1px 0 0; font-size: 12px; color: rgb(var(--cm-on-surface-variant)); }
+.cm-review-actions { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
 
 /* Online verify bar (Set 2b-iii). */
-.gds-cite-verify-bar {
+.cm-verify-bar {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
   margin: 8px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
   font-size: 13px;
-  color: var(--g-text-2);
+  color: rgb(var(--cm-on-surface-variant));
+  background: rgb(var(--cm-surface-container-lowest));
+  border: 1px solid rgb(var(--cm-outline-variant));
 }
-.gds-cite-verify-note { color: var(--g-text-3); font-size: 12px; }
+.cm-verify-note { color: rgb(var(--cm-outline)); font-size: 12px; }
 
-/* Searchable style picker (Set 2c-ii). */
-.gds-style-picker { position: relative; display: inline-block; }
+/* Citation list cards. No resting shadow (per the Stitch export); hover gets
+   shadow-sm, the retracted card hover shadow-md. */
+.cm-cite-card {
+  text-align: left;
+  width: 100%;
+  transition: box-shadow 150ms ease, border-color 150ms ease;
+}
+.cm-cite-card:hover {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.cm-cite-card[data-retracted='true']:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+}
+/* Retracted: error-container border all round + a 4px error bar flush left
+   (per-theme roles straight from the Stitch export; overflow-hidden on the
+   card clips the bar to the radius). */
+.cm-cite-card[data-retracted='true'] {
+  border-color: rgb(var(--cm-error-container));
+}
+.cm-cite-card[data-retracted='true']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  background: rgb(var(--cm-error));
+}
+.cm-cite-card[aria-current='true'] {
+  outline: 2px solid rgb(var(--cm-primary));
+  outline-offset: -2px;
+}
+
+/* Style picker popover tweaks (kept from original, recolored). */
 .gds-style-picker__current {
-  min-width: 160px; text-align: left; cursor: pointer;
-  padding: 6px 10px; font-size: 13px;
-  background: var(--g-bg-layer2); color: var(--g-text);
-  border: 1px solid var(--g-border); border-radius: 6px;
+  min-width: 160px;
+  text-align: left;
+  cursor: pointer;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: rgb(var(--cm-surface-container-lowest));
+  color: rgb(var(--cm-on-surface));
+  border: 1px solid rgb(var(--cm-outline-variant));
+  border-radius: 6px;
 }
 .gds-style-picker__pop {
-  position: absolute; z-index: 20; margin-top: 4px; width: 320px; max-width: 80vw;
-  background: var(--g-bg-layer1); border: 1px solid var(--g-border-strong);
-  border-radius: 8px; box-shadow: var(--g-shadow-2); padding: 8px;
+  position: absolute;
+  z-index: 20;
+  margin-top: 4px;
+  width: 320px;
+  max-width: 80vw;
+  background: rgb(var(--cm-surface-container-lowest));
+  border: 1px solid rgb(var(--cm-outline-variant));
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  padding: 8px;
 }
-.gds-style-picker__pop input { width: 100%; box-sizing: border-box; }
 .gds-style-picker__list { list-style: none; margin: 6px 0 0; padding: 0; max-height: 300px; overflow-y: auto; }
 .gds-style-picker__list button {
-  width: 100%; text-align: left; background: none; border: none; cursor: pointer;
-  padding: 5px 8px; font-size: 13px; color: var(--g-text-2); border-radius: 4px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 5px 8px;
+  font-size: 13px;
+  color: rgb(var(--cm-on-surface-variant));
+  border-radius: 4px;
 }
-.gds-style-picker__list button:hover { background: var(--g-bg-layer2); color: var(--g-text); }
-.gds-style-picker__list button[aria-current='true'] { color: var(--g-accent); font-weight: 600; }
-.gds-style-picker__note { margin: 6px 0 0; padding: 5px 8px; font-size: 12px; color: var(--g-text-3); }
-.gds-style-picker__error { margin: 0; font-size: 13px; color: var(--g-flagged); }
+.gds-style-picker__list button:hover { background: rgb(var(--cm-surface-container)); color: rgb(var(--cm-on-surface)); }
+.gds-style-picker__list button[aria-current='true'] { color: rgb(var(--cm-primary)); font-weight: 600; }
+.gds-style-picker__note { margin: 6px 0 0; padding: 5px 8px; font-size: 12px; color: rgb(var(--cm-outline)); }
+.gds-style-picker__error { margin: 0; font-size: 13px; color: rgb(var(--cm-error)); }
+
+/* Per-card overflow action: hidden until the card is hovered or focused
+   (focus-within keeps it reachable for keyboard users). Styling per the
+   Stitch export: 8px padding, 12px radius, surface-variant hover. */
+.cm-card-more {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: none;
+  border-radius: 0.75rem;
+  background: transparent;
+  color: rgb(var(--cm-on-surface-variant));
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms ease, background-color 150ms ease;
+}
+.cm-cite-wrap:hover .cm-card-more,
+.cm-cite-wrap:focus-within .cm-card-more,
+.cm-card-more[aria-expanded='true'] {
+  opacity: 1;
+}
+.cm-card-more:hover { background: rgb(var(--cm-surface-variant)); }
+
+.cm-card-menu {
+  position: absolute;
+  top: 44px;
+  right: 12px;
+  z-index: 20;
+  min-width: 190px;
+  padding: 4px;
+  background: rgb(var(--cm-surface-container-lowest));
+  /* Was a hard-coded rgba(205,198,176,.3) — the LIGHT outline-variant, which
+     left the menu wearing a tan border on the dark theme. Token'd so it
+     follows --cm-outline-variant per theme. */
+  border: 1px solid rgb(var(--cm-outline-variant) / 0.3);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.cm-card-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  /* The label face — Hanken Grotesk in light. Routed through the token rather
+     than hard-coded so dark stays all-Libre-Caslon (ratified 2026-08-26). */
+  font-family: var(--cm-font-label);
+  font-size: 12px;
+  line-height: 16px;
+  color: rgb(var(--cm-on-surface-variant));
+  cursor: pointer;
+  text-align: left;
+}
+.cm-card-menu button:hover { background: rgb(var(--cm-surface-container)); color: rgb(var(--cm-on-surface)); }
+
+/* Screen-reader-only label for inputs the design shows no visible label for. */
+.cm-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Visible keyboard focus on every interactive element in the screen. */
+.citation-manager-root button:focus-visible,
+.citation-manager-root input:focus-visible,
+.citation-manager-root summary:focus-visible {
+  outline: 2px solid rgb(var(--cm-primary));
+  outline-offset: 1px;
+}
+
+/* Sticky center header: the mock's translucent surface under the backdrop
+   blur. Plain CSS because the bare 'surface' Tailwind key belongs to the
+   app's older palette (#FFFFFF) — this screen's surface is --cm-surface. */
+.cm-sticky-header {
+  background: rgb(var(--cm-surface) / 0.9);
+}

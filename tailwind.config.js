@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: 'class',
   content: [
     "./src/**/*.{js,jsx,ts,tsx}",
     "./public/index.html"
@@ -7,6 +8,57 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        'on-secondary-fixed': 'rgb(var(--cm-on-secondary-fixed) / <alpha-value>)',
+        'on-primary-fixed-variant': 'rgb(var(--cm-on-primary-fixed-variant) / <alpha-value>)',
+        'tertiary': 'rgb(var(--cm-tertiary) / <alpha-value>)',
+        'outline-variant': 'rgb(var(--cm-outline-variant) / <alpha-value>)',
+        'inverse-on-surface': 'rgb(var(--cm-inverse-on-surface) / <alpha-value>)',
+        'surface-container-high': 'rgb(var(--cm-surface-container-high) / <alpha-value>)',
+        'primary-fixed': 'rgb(var(--cm-primary-fixed) / <alpha-value>)',
+        'on-background': 'rgb(var(--cm-on-background) / <alpha-value>)',
+        'on-secondary': 'rgb(var(--cm-on-secondary) / <alpha-value>)',
+        'on-primary': 'rgb(var(--cm-on-primary) / <alpha-value>)',
+        'surface-variant': 'rgb(var(--cm-surface-variant) / <alpha-value>)',
+        'tertiary-container': 'rgb(var(--cm-tertiary-container) / <alpha-value>)',
+        'on-primary-fixed': 'rgb(var(--cm-on-primary-fixed) / <alpha-value>)',
+        'on-tertiary-fixed': 'rgb(var(--cm-on-tertiary-fixed) / <alpha-value>)',
+        'surface-container': 'rgb(var(--cm-surface-container) / <alpha-value>)',
+        'on-primary-container': 'rgb(var(--cm-on-primary-container) / <alpha-value>)',
+        'tertiary-fixed': 'rgb(var(--cm-tertiary-fixed) / <alpha-value>)',
+        'primary-fixed-dim': 'rgb(var(--cm-primary-fixed-dim) / <alpha-value>)',
+        'on-tertiary-fixed-variant': 'rgb(var(--cm-on-tertiary-fixed-variant) / <alpha-value>)',
+        'on-secondary-fixed-variant': 'rgb(var(--cm-on-secondary-fixed-variant) / <alpha-value>)',
+        'inverse-surface': 'rgb(var(--cm-inverse-surface) / <alpha-value>)',
+        'secondary-fixed': 'rgb(var(--cm-secondary-fixed) / <alpha-value>)',
+        'secondary-fixed-dim': 'rgb(var(--cm-secondary-fixed-dim) / <alpha-value>)',
+        'surface-container-low': 'rgb(var(--cm-surface-container-low) / <alpha-value>)',
+        'surface-container-lowest': 'rgb(var(--cm-surface-container-lowest) / <alpha-value>)',
+        'surface-dim': 'rgb(var(--cm-surface-dim) / <alpha-value>)',
+        'on-tertiary-container': 'rgb(var(--cm-on-tertiary-container) / <alpha-value>)',
+        'on-surface-variant': 'rgb(var(--cm-on-surface-variant) / <alpha-value>)',
+        'primary-container': 'rgb(var(--cm-primary-container) / <alpha-value>)',
+        'on-error-container': 'rgb(var(--cm-on-error-container) / <alpha-value>)',
+        'error-container': 'rgb(var(--cm-error-container) / <alpha-value>)',
+        'secondary': 'rgb(var(--cm-secondary) / <alpha-value>)',
+        'surface-container-highest': 'rgb(var(--cm-surface-container-highest) / <alpha-value>)',
+        'error': 'rgb(var(--cm-error) / <alpha-value>)',
+        'surface-bright': 'rgb(var(--cm-surface-bright) / <alpha-value>)',
+        'secondary-container': 'rgb(var(--cm-secondary-container) / <alpha-value>)',
+        'on-error': 'rgb(var(--cm-on-error) / <alpha-value>)',
+        'background': 'rgb(var(--cm-background) / <alpha-value>)',
+        'on-surface': 'rgb(var(--cm-on-surface) / <alpha-value>)',
+        'on-accent': 'rgb(var(--cm-on-accent) / <alpha-value>)',
+        'outline': 'rgb(var(--cm-outline) / <alpha-value>)',
+        'on-tertiary': 'rgb(var(--cm-on-tertiary) / <alpha-value>)',
+        'inverse-primary': 'rgb(var(--cm-inverse-primary) / <alpha-value>)',
+        'tertiary-fixed-dim': 'rgb(var(--cm-tertiary-fixed-dim) / <alpha-value>)',
+        'surface-tint': 'rgb(var(--cm-surface-tint) / <alpha-value>)',
+        'on-secondary-container': 'rgb(var(--cm-on-secondary-container) / <alpha-value>)',
+        /* Non-colliding aliases: the project's own palette claims the bare
+           'surface' (#FFFFFF) and 'primary' (blue scale) keys, so the Archive
+           screen uses these instead. */
+        'paper': 'rgb(var(--cm-surface) / <alpha-value>)',
+        'brand': 'rgb(var(--cm-primary) / <alpha-value>)',
         dashboard: {
           bg: '#0D1117',
           card: '#161B22',
@@ -48,7 +100,11 @@ module.exports = {
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
-        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', 'monospace']
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', 'monospace'],
+        headline: ['"Libre Caslon Text"', 'Georgia', 'serif'],
+        display: ['"Libre Caslon Text"', 'Georgia', 'serif'],
+        body: ['var(--cm-font-body)', 'Georgia', 'serif'],
+        label: ['var(--cm-font-label)', 'sans-serif']
       },
       fontSize: {
         'xs': ['0.75rem', { lineHeight: '1rem' }],
@@ -72,10 +128,13 @@ module.exports = {
         '30': '7.5rem'
       },
       borderRadius: {
+        'DEFAULT': '0.125rem',
         'sm': '6px',
         'md': '12px',
-        'lg': '20px',
-        'xl': '24px'
+        'lg': '0.25rem',
+        'xl': '0.5rem',
+        '2xl': '0.75rem',
+        'full': '9999px'
       },
       boxShadow: {
         'soft': '0 6px 18px rgba(9,30,66,0.08)',
