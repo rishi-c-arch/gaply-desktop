@@ -527,6 +527,89 @@ pub const MIGRATIONS: &[Migration] = &[
             DROP TABLE ai_chunks;
         ",
     },
+    Migration {
+        version: 15,
+        name: "ai_engine_phase2",
+        // Citation Intelligence, Phase 2: real embeddings + lexical retrieval.
+        //
+        // (a) preprocessing_version on ai_chunk_embeddings. A vector is only
+        //     comparable to another produced by the SAME model AND the same
+        //     preprocessing (prefix, pooling, normalization). model_id alone is
+        //     not enough: flipping pooling from mean to CLS changes the vector
+        //     space without changing the model. Retrieval requires exactly one
+        //     (model_id, preprocessing_version) pair and errors on a mix, so
+        //     this column is what makes that rule enforceable rather than
+        //     aspirational. NOT NULL with no default — a vector that cannot say
+        //     how it was produced must not be storable.
+        //
+        //     ai_chunk_embeddings is EMPTY at this point (Phase 1 wrote no
+        //     vectors), so the table is recreated rather than ALTERed: SQLite
+        //     cannot add a NOT NULL column without a default, and inventing a
+        //     default would be exactly the silent-provenance failure the column
+        //     exists to prevent.
+        //
+        // (b) FTS5 over ai_chunks(content) as the lexical prefilter, kept in
+        //     sync by triggers. `content=` makes it an EXTERNAL-CONTENT index:
+        //     the text lives once, in ai_chunks, and fts holds only the index.
+        up: "
+            DROP TABLE ai_chunk_embeddings;
+            CREATE TABLE ai_chunk_embeddings (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                chunk_id              INTEGER NOT NULL REFERENCES ai_chunks(id) ON DELETE CASCADE,
+                model_id              TEXT NOT NULL REFERENCES ai_model_registry(id),
+                preprocessing_version TEXT NOT NULL,
+                dim                   INTEGER NOT NULL,
+                vector                BLOB NOT NULL,
+                created_at            INTEGER NOT NULL,
+                UNIQUE (chunk_id, model_id)
+            );
+            CREATE INDEX idx_ai_chunk_embeddings_chunk ON ai_chunk_embeddings(chunk_id);
+            CREATE INDEX idx_ai_chunk_embeddings_space
+                ON ai_chunk_embeddings(model_id, preprocessing_version);
+
+            CREATE VIRTUAL TABLE ai_chunks_fts USING fts5(
+                content,
+                content='ai_chunks',
+                content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2'
+            );
+            -- Triggers keep the external-content index in step with the table.
+            -- The delete/update forms use the 'delete' command with the OLD
+            -- text, which is how fts5 external-content indexes are unwound;
+            -- omitting it corrupts the index rather than merely staling it.
+            CREATE TRIGGER ai_chunks_fts_ai AFTER INSERT ON ai_chunks BEGIN
+                INSERT INTO ai_chunks_fts(rowid, content) VALUES (new.id, new.content);
+            END;
+            CREATE TRIGGER ai_chunks_fts_ad AFTER DELETE ON ai_chunks BEGIN
+                INSERT INTO ai_chunks_fts(ai_chunks_fts, rowid, content)
+                VALUES ('delete', old.id, old.content);
+            END;
+            CREATE TRIGGER ai_chunks_fts_au AFTER UPDATE ON ai_chunks BEGIN
+                INSERT INTO ai_chunks_fts(ai_chunks_fts, rowid, content)
+                VALUES ('delete', old.id, old.content);
+                INSERT INTO ai_chunks_fts(rowid, content) VALUES (new.id, new.content);
+            END;
+            -- Adopt any rows Phase 1 already indexed.
+            INSERT INTO ai_chunks_fts(rowid, content) SELECT id, content FROM ai_chunks;
+        ",
+        down: "
+            DROP TRIGGER ai_chunks_fts_au;
+            DROP TRIGGER ai_chunks_fts_ad;
+            DROP TRIGGER ai_chunks_fts_ai;
+            DROP TABLE ai_chunks_fts;
+            DROP TABLE ai_chunk_embeddings;
+            CREATE TABLE ai_chunk_embeddings (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                chunk_id   INTEGER NOT NULL REFERENCES ai_chunks(id) ON DELETE CASCADE,
+                model_id   TEXT NOT NULL REFERENCES ai_model_registry(id),
+                dim        INTEGER NOT NULL,
+                vector     BLOB NOT NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE (chunk_id, model_id)
+            );
+            CREATE INDEX idx_ai_chunk_embeddings_chunk ON ai_chunk_embeddings(chunk_id);
+        ",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -670,6 +753,7 @@ mod tests {
         assert_eq!(
             reverted,
             vec![
+                "ai_engine_phase2",
                 "ai_engine_phase1",
                 "evidence_claim_kind",
                 "evidence_store",
@@ -751,10 +835,11 @@ mod tests {
                 "citation_library_verification_persist",
                 "evidence_store",
                 "evidence_claim_kind",
-                "ai_engine_phase1"
+                "ai_engine_phase1",
+                "ai_engine_phase2"
             ]
         );
-        assert_eq!(current_version(&conn).unwrap(), 14);
+        assert_eq!(current_version(&conn).unwrap(), 15);
 
         // the column + index now exist; the pre-existing row is intact, NULL id
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -795,7 +880,8 @@ mod tests {
                 "citation_library_verification_persist",
                 "evidence_store",
                 "evidence_claim_kind",
-                "ai_engine_phase1"
+                "ai_engine_phase1",
+                "ai_engine_phase2"
             ]
         );
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -822,8 +908,8 @@ mod tests {
 
         // apply v11 (+ v12 rides along; it does not touch citation_library)
         let applied = migrate_up(&mut conn).unwrap();
-        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1"]);
-        assert_eq!(current_version(&conn).unwrap(), 14);
+        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2"]);
+        assert_eq!(current_version(&conn).unwrap(), 15);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(column_names(&conn, "citation_library").iter().any(|n| n == c), "missing column {c}");
         }
@@ -852,7 +938,7 @@ mod tests {
 
         // down to v10 peels v12 (evidence_store) then v11 (the subject here).
         let reverted = migrate_down(&mut conn, 10).unwrap();
-        assert_eq!(reverted, vec!["ai_engine_phase1", "evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
+        assert_eq!(reverted, vec!["ai_engine_phase2", "ai_engine_phase1", "evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(!column_names(&conn, "citation_library").iter().any(|n| n == c), "{c} should be dropped");
         }
@@ -860,7 +946,7 @@ mod tests {
 
         // re-applies cleanly (idempotent up after a partial down): v11 + v12
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1"]);
+        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2"]);
     }
 
     /* ------------------------- v14: AI engine, Phase 1 --------------------- */
@@ -879,7 +965,7 @@ mod tests {
     fn v14_round_trips_and_touches_no_existing_table() {
         let mut conn = test_connection();
         migrate_up(&mut conn).unwrap();
-        assert_eq!(current_version(&conn).unwrap(), 14);
+        assert_eq!(current_version(&conn).unwrap(), 15);
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "missing {t}");
         }
@@ -893,7 +979,7 @@ mod tests {
 
         // down → every ai_ table is gone, everything else survives
         let reverted = migrate_down(&mut conn, 13).unwrap();
-        assert_eq!(reverted, vec!["ai_engine_phase1"]);
+        assert_eq!(reverted, vec!["ai_engine_phase2", "ai_engine_phase1"]);
         assert_eq!(current_version(&conn).unwrap(), 13);
         for t in AI_TABLES {
             assert!(!table_names(&conn).iter().any(|n| n == t), "{t} survived the down migration");
@@ -903,7 +989,7 @@ mod tests {
 
         // and re-applies cleanly
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["ai_engine_phase1"]);
+        assert_eq!(reapplied, vec!["ai_engine_phase1", "ai_engine_phase2"]);
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "{t} missing after re-apply");
         }
@@ -985,6 +1071,116 @@ mod tests {
             [],
         );
         assert!(err.is_err(), "an orphan card_id was accepted");
+    }
+
+    /* -------------------- v15: embeddings space + FTS5 --------------------- */
+
+    #[test]
+    fn v15_adds_fts_and_the_preprocessing_column_and_round_trips() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        assert!(column_names(&conn, "ai_chunk_embeddings").iter().any(|c| c == "preprocessing_version"));
+        assert!(table_names(&conn).iter().any(|t| t == "ai_chunks_fts"));
+
+        let reverted = migrate_down(&mut conn, 14).unwrap();
+        assert_eq!(reverted, vec!["ai_engine_phase2"]);
+        assert!(!table_names(&conn).iter().any(|t| t == "ai_chunks_fts"), "fts survived the down");
+        assert!(!column_names(&conn, "ai_chunk_embeddings").iter().any(|c| c == "preprocessing_version"));
+        // v14's tables are all still there — the down is scoped to v15.
+        for t in AI_TABLES {
+            assert!(table_names(&conn).iter().any(|n| n == t), "{t} lost by the v15 down");
+        }
+        assert_eq!(migrate_up(&mut conn).unwrap(), vec!["ai_engine_phase2"]);
+    }
+
+    #[test]
+    fn a_vector_cannot_be_stored_without_saying_how_it_was_produced() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        let (_doc, chunk, _card) = seed_card(&conn);
+        conn.execute(
+            "INSERT INTO ai_model_registry (id, kind, display_name, file_path, dim, registered_at)
+             VALUES ('emb', 'embedding', 'E', '/tmp/e', 384, 1)",
+            [],
+        )
+        .unwrap();
+        // NOT NULL, no default: preprocessing_version must be stated.
+        assert!(
+            conn.execute(
+                "INSERT INTO ai_chunk_embeddings (chunk_id, model_id, dim, vector, created_at)
+                 VALUES (?1, 'emb', 384, X'00', 1)",
+                params![chunk],
+            )
+            .is_err(),
+            "a vector with no preprocessing_version was accepted"
+        );
+        conn.execute(
+            "INSERT INTO ai_chunk_embeddings (chunk_id, model_id, preprocessing_version, dim, vector, created_at)
+             VALUES (?1, 'emb', 'bge-v1.5-p1', 384, X'00', 1)",
+            params![chunk],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn fts_index_follows_inserts_updates_and_deletes() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        let (doc, _chunk, _card) = seed_card(&conn);
+
+        let hits = |c: &Connection, q: &str| -> i64 {
+            c.query_row(
+                "SELECT COUNT(*) FROM ai_chunks_fts WHERE ai_chunks_fts MATCH ?1",
+                params![q],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+
+        // INSERT → indexed
+        conn.execute(
+            "INSERT INTO ai_chunks (document_id, page, char_start, char_end, content, token_estimate, content_hash, created_at)
+             VALUES (?1, 1, 0, 10, 'phytoplankton assemblages shifted', 3, 'h-fts', 1)",
+            params![doc],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+        assert_eq!(hits(&conn, "phytoplankton"), 1, "insert not indexed");
+
+        // UPDATE → old term gone, new term present
+        conn.execute("UPDATE ai_chunks SET content = 'zooplankton grazing' WHERE id = ?1", params![id]).unwrap();
+        assert_eq!(hits(&conn, "phytoplankton"), 0, "stale term still indexed after update");
+        assert_eq!(hits(&conn, "zooplankton"), 1, "update not indexed");
+
+        // DELETE → gone
+        conn.execute("DELETE FROM ai_chunks WHERE id = ?1", params![id]).unwrap();
+        assert_eq!(hits(&conn, "zooplankton"), 0, "delete not removed from index");
+    }
+
+    #[test]
+    fn v15_adopts_rows_that_phase_1_already_indexed() {
+        // A database that stood at v14 with chunks already stored must come out
+        // of v15 with those chunks searchable — otherwise the index silently
+        // covers only what was written after the upgrade.
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        migrate_down(&mut conn, 14).unwrap();
+        let (doc, _c, _card) = seed_card(&conn);
+        conn.execute(
+            "INSERT INTO ai_chunks (document_id, page, char_start, char_end, content, token_estimate, content_hash, created_at)
+             VALUES (?1, 2, 0, 10, 'preexisting eutrophication text', 3, 'h-pre', 1)",
+            params![doc],
+        )
+        .unwrap();
+        migrate_up(&mut conn).unwrap();
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM ai_chunks_fts WHERE ai_chunks_fts MATCH 'eutrophication'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "v15 did not adopt pre-existing ai_chunks rows");
     }
 
     #[test]
