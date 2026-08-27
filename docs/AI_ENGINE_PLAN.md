@@ -810,3 +810,50 @@ Timing caveat, recorded: the timed span covers the whole decode step, not only t
 earlier version timed the forward alone and reported model time 4.7x below wall time, because
 extracting a 152k-vocab logits row and scanning it for the argmax is real per-token cost. With the
 full step timed, model time and wall time reconcile — 13.9 s vs 14.1 s for v1.
+
+### D13 — Phase 4c outcome: two-tier validation, measured
+
+§9.11 implemented. Same 8 seed cases, `citation_need-v2`, Qwen2.5-0.5B-Instruct-Q4_K_M, n_ctx 4096.
+
+| | before (4b) | **after (4c)** |
+|---|---|---|
+| valid outputs | 0 / 8 | **6 / 8** |
+| validation failure rate | 100% | **25%** |
+| retry rate | 100% | **25%** |
+| advisory rate | — | **75%** |
+| mean latency | 21,776 ms | **14,728 ms** |
+| mean prompt tokens | 926 | 519 |
+| prefill share | 79% | 77% |
+
+Latency fell 32% for exactly the reason D12 predicted: the retry re-sends the whole prompt, so
+removing 6 of 8 retries removed most of the prompt tokens.
+
+**Every advisory, on the 6 accepted cases:** five are `search_query` outside 6–12 words (2, 4, 5, 5,
+14) and two are `reason` over 25 words (27, 31). Nothing else. That is the entire population of
+deviations that was previously discarding whole answers.
+
+**The 2 remaining failures are correctly fatal** and both look like this:
+
+```json
+{"needs_citation": true, "sentence_type": "empirical_claim", "severity": "high",
+ "reason": "The next section turns to the methods ...", "search_query": null}
+```
+
+`needs_citation: true` with `search_query: null` is a contradiction — the model asserts a citation is
+needed and simultaneously offers no way to find one — so there is no safe reading and a retry is
+right. **Keep-better-attempt fired on both**, and the report names the first attempt as primary:
+the retry reproduced the identical object minus its opening brace, so it was strictly worse. Before
+this change, that unparseable retry would have been the only artifact reported.
+
+**The always-true collapse REMAINS, as expected, and is now unmistakable.** All 6 accepted outputs
+answered `needs_citation: true` / `empirical_claim` / `high` — including the transition sentence, the
+author's own result, and the common-knowledge case.
+
+Note how the headline accuracy MOVED THE WRONG WAY while the engine got better: 67% (4b) → 33% (4c).
+That is a denominator artifact, not a regression. 4b scored 3 cases, two of which happened to carry
+`true` labels; 4c scores 6, of which two do. A model that always answers `true` scores whatever
+fraction of the scored set is labelled `true`. **This is precisely why the answer distribution is a
+reported column** — accuracy alone would have read as a regression caused by accepting more outputs,
+which is the opposite of what happened.
+
+Capacity, not prompting, and it belongs to §9.9. The engine is no longer the limiting factor.

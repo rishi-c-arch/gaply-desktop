@@ -1,0 +1,252 @@
+{
+  "task": "citation_need",
+  "modelId": "qwen2.5-0.5b-instruct-q4km",
+  "promptVersion": "citation_need-v2",
+  "nCtx": 4096,
+  "date": "4c-v2",
+  "casesFile": "evals/citation_need.jsonl",
+  "totalCases": 8,
+  "needsCitationAccuracy": 0.3333333333333333,
+  "sentenceTypeAgreement": 0.16666666666666666,
+  "severityAgreement": 0.3333333333333333,
+  "validationFailureRate": 0.25,
+  "retryRate": 0.25,
+  "advisoryRate": 0.75,
+  "meanLatencyMs": 14727.5,
+  "tokensPerSecond": 5.805465965031404,
+  "meanPromptTokens": 519.125,
+  "meanPrefillMs": 11264.125,
+  "meanDecodeMs": 3280.375,
+  "prefillShare": 0.7744594176492833,
+  "meanDecodeTokensPerSec": 27.15313187256858,
+  "answerDistribution": {
+    "needsCitationTrue": 6,
+    "sentenceType": {
+      "empirical_claim": 6
+    },
+    "severity": {
+      "high": 6
+    },
+    "validOutputs": 6
+  },
+  "results": [
+    {
+      "id": "cn-seed-01",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence claims that organic farming increases soil microbial biomass by roughly a third compared with conventional systems, which is a statistical claim based on empirical evidence.\",\"search_query\":\"organic farming increases soil microbial biomass by roughly a third compared with conventional systems\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence claims that organic farming increases soil microbial biomass by roughly a third compared with conventional systems, which is a statistical claim based on empirical evidence.",
+          "search_query": "organic farming increases soil microbial biomass by roughly a third compared with conventional systems",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 27 words; the limit is 25",
+        "search_query: is 14 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 11581,
+      "tokens": 82,
+      "promptTokens": 391,
+      "prefillMs": 7929,
+      "decodeMs": 2528,
+      "decodeTokensPerSec": 32.436708860759495
+    },
+    {
+      "id": "cn-seed-02",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence claims that approximately 33% of global arable land has been degraded since 1960, which is a high severity claim.\",\"search_query\":\"global arable land degradation\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence claims that approximately 33% of global arable land has been degraded since 1960, which is a high severity claim.",
+          "search_query": "global arable land degradation",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 4 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 15370,
+      "tokens": 75,
+      "promptTokens": 392,
+      "prefillMs": 10116,
+      "decodeMs": 5216,
+      "decodeTokensPerSec": 14.37883435582822
+    },
+    {
+      "id": "cn-seed-03",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence compares the treatment plots to the control, which is a common practice in empirical claims.\",\"search_query\":\"richness comparison treatment plots control\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence compares the treatment plots to the control, which is a common practice in empirical claims.",
+          "search_query": "richness comparison treatment plots control",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 10570,
+      "tokens": 64,
+      "promptTokens": 396,
+      "prefillMs": 7983,
+      "decodeMs": 2549,
+      "decodeTokensPerSec": 25.107885445272657
+    },
+    {
+      "id": "cn-seed-04",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"The next section turns to the methods used to collect these data, which is a logical continuation of the previous sentence.\",\n  \"search_query\": null\n}\n--- retry ---\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"The next section turns to the methods used to collect these data, which is a logical continuation of the previous sentence.\",\n  \"search_query\": null\n}.\n--- primary: First ---",
+      "retried": true,
+      "elapsedMs": 25323,
+      "tokens": 123,
+      "promptTokens": 900,
+      "prefillMs": 21016,
+      "decodeMs": 4239,
+      "decodeTokensPerSec": 29.016277423920737
+    },
+    {
+      "id": "cn-seed-05",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"The sentence defines ecosystem services as the benefits people obtain from ecosystems, which is a common definition in the field.\",\n  \"search_query\": null\n}\n--- retry ---\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"The sentence defines ecosystem services as the benefits people obtain from ecosystems, which is a common definition in the field.\",\n  \"search_query\": null\n}.\n--- primary: First ---",
+      "retried": true,
+      "elapsedMs": 22266,
+      "tokens": 121,
+      "promptTokens": 903,
+      "prefillMs": 18121,
+      "decodeMs": 4074,
+      "decodeTokensPerSec": 29.70054000981836
+    },
+    {
+      "id": "cn-seed-06",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence discusses a meta-analysis finding that the effect weakened at higher latitudes, which is a common pattern in literature.\",\"search_query\":\"temperature limitation\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "prior_work",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence discusses a meta-analysis finding that the effect weakened at higher latitudes, which is a common pattern in literature.",
+          "search_query": "temperature limitation",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 2 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 10156,
+      "tokens": 65,
+      "promptTokens": 398,
+      "prefillMs": 7971,
+      "decodeMs": 2145,
+      "decodeTokensPerSec": 30.303030303030305
+    },
+    {
+      "id": "cn-seed-07",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The experimental design controlled for shading, and light levels were logged every ten minutes, which implies that plants require light to photosynthesise.\",\"search_query\":\"light levels\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The experimental design controlled for shading, and light levels were logged every ten minutes, which implies that plants require light to photosynthesise.",
+          "search_query": "light levels",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 2 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 10779,
+      "tokens": 69,
+      "promptTokens": 380,
+      "prefillMs": 8354,
+      "decodeMs": 2387,
+      "decodeTokensPerSec": 28.90657729367407
+    },
+    {
+      "id": "cn-seed-08",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence discusses the mechanism behind the observed increase, which is a potential cause of the response, and mentions that future work should test this directly, indicating a potential empirical claim.\",\"search_query\":\"mycorrhizal networks mediate this response\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "hedged_speculation",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence discusses the mechanism behind the observed increase, which is a potential cause of the response, and mentions that future work should test this directly, indicating a potential empirical claim.",
+          "search_query": "mycorrhizal networks mediate this response",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 31 words; the limit is 25",
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 11775,
+      "tokens": 85,
+      "promptTokens": 393,
+      "prefillMs": 8623,
+      "decodeMs": 3105,
+      "decodeTokensPerSec": 27.375201288244767
+    }
+  ]
+}
