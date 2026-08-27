@@ -692,52 +692,50 @@ So this phase persists nothing: `ai_citation_need` returns its result to the cal
 job needs durable classification results, that gets its own table with its own provenance columns,
 not a widened evidence table.
 
-### D10 — OPEN, found by the Phase 4 eval: the corrective retry makes a small model worse
+### D10 — UPDATED with Phase 4b data: the retry destroys recoverable near-misses
 
-The first eval run of citation_need against the bundled 0.5B produced a clear and unexpected
-failure pattern, recorded here because it is a defect in the Phase 3 harness design rather than in
-citation_need, and because the fix should be chosen with eval data rather than guessed.
+**Phase 4 finding (kept for the record).** The corrective suffix appended only error lines and
+ENDED on them, so a 0.5B continued the bullet pattern instead of returning to JSON. 5 of 8 seed
+cases produced no JSON at all on retry.
 
-**Observed, 8 seed cases, `citation_need-v1`, Qwen2.5-0.5B-Instruct-Q4_K_M, n_ctx 4096:**
+**Phase 4b, item 1 — retry format fixed.** The suffix now quotes the rejected attempt back, numbers
+the errors as prose rather than bullets, and ENDS on the output contract ("output ONLY the corrected
+JSON object ... beginning with `{`"). The bullet-continuation is gone. **The validation failure rate
+did not move: 62% before, 62% after (v1).** The failure mode changed rather than disappearing — the
+retry now emits a fragment such as `"..."` followed by a stray brace, or resumes from *inside* the
+object, omitting the opening brace it was explicitly told to start with.
 
-| metric | value |
-|---|---|
-| valid outputs | 3 / 8 |
-| needs_citation accuracy (of valid) | 67% |
-| sentence_type agreement | 33% |
-| severity agreement | 33% |
-| **validation failure rate** | **62%** |
-| retry rate | 62% |
-| mean latency | 17,118 ms |
-| tokens/sec | 1.4 |
+**The measurement that matters, and it reframes the whole problem.** Parsing attempt 1 separately
+from the end-to-end result:
 
-**The failure is in the RETRY, not the first attempt.** Attempt 1 is almost always well-formed JSON
-that violates one narrow rule — usually `search_query` under the 6-word minimum
-(`"land degradation, distribution"`). The retry then returns *no JSON at all*: the model echoes the
-corrective error list back as bullets —
+| | attempt-1 parseable | `reason` describes the TARGET sentence | end-to-end valid |
+|---|---|---|---|
+| **v1** | **8 / 8** | 2 / 8 | 3 / 8 |
+| **v2** | **8 / 8** | **8 / 8** | **0 / 8** |
 
-```
-- reason: 25 words or less
-- severity: high|medium|low
-- needs_citation: true|false
-```
+Every first attempt, under both variants, is well-formed JSON. Every failure is a *rule* violation —
+almost always `search_query` outside 6-12 words — on an otherwise valid object. **The retry then
+converts a recoverable near-miss into a total loss.** v2's 0/8 is not v2 being worse; it is v2
+producing slightly longer text that trips the length rule more often, and the retry destroying all
+of it.
 
-`run_task` appends errors as `- field: problem` lines, and a 0.5B continues that pattern instead of
-switching back to JSON. So a retry designed to rescue a near-miss converts it into a total loss.
-**Every one of the 5 failures followed this shape.** A larger model would likely not do this, which
-is exactly why it must be measured rather than assumed.
+**So D10's third candidate is now the supported one:** when the retry parses *worse* than the first
+attempt, keep the first attempt and report the run as still-invalid with its original errors. That
+is not a silent repair — nothing is patched, and the caller still receives a failure — but it stops
+the engine throwing away the better of two bad answers. NOT IMPLEMENTED: it changes `run_task`'s
+contract and deserves its own decision.
 
-Candidate fixes, none applied yet: restate the required JSON skeleton in the retry rather than only
-the errors; phrase errors as prose rather than a bulleted list; or keep the first attempt when the
-retry parses worse than it did. The last is attractive but must not become a silent repair — it
-would need to be reported as such.
+**v2 resolves the wrong-sentence half.** Under v1, 6 of 8 `reason` fields described *"the preceding
+sentence"*; under v2, 0 of 8 do — every one describes the target. Moving the target last, under an
+explicit `SENTENCE TO CLASSIFY` heading with the neighbours marked "do NOT classify these", fixed it
+completely on this model. **v2 is the default.**
 
-**Two other signals from the same run, for the prompt phase:** the model classified almost
-everything as `empirical_claim` / `high` / `needs_citation: true` regardless of input, and its
-`reason` repeatedly describes *"the preceding sentence"* rather than the target — suggesting the
-INPUT block order (preceding first) draws a small model's attention to the wrong sentence. Both are
-prompt-level, not engine-level, and belong to the phase that tunes citation_need against the real
-50-case set.
+**The always-true collapse is NOT resolved and is not a prompt-order problem.** Under both variants
+every parseable attempt answered `needs_citation: true`, `sentence_type: empirical_claim`,
+`severity: high` — 8/8 under v2, including the transition sentence and the author's own result. The
+0.5B is not discriminating; it is emitting the modal answer. That is a model-capacity question for
+§9.9, not a prompt question, and it is why the answer distribution is now a reported column: v1's
+67% accuracy came from an unbalanced set plus a constant answer, which accuracy alone hid.
 
 ### D11 — `AiTask::prompt_version` becomes an instance method
 
@@ -751,3 +749,30 @@ edited. One task, one validator, a variant field.
 
 Signature changes to `fn prompt_version(&self) -> &'static str`; `run_task` calls
 `task.prompt_version()`. Behaviour is unchanged for every existing caller.
+
+### D12 — latency is PREFILL-dominated (Phase 4b, item 3)
+
+| | v1 | v2 |
+|---|---|---|
+| mean prompt tokens | 682 | 926 |
+| mean prefill | 11,709 ms | 17,089 ms |
+| mean decode | 2,234 ms | 4,475 ms |
+| **prefill share of model time** | **84%** | **79%** |
+| decode tokens/sec | 34.8 | 31.3 |
+| overall tokens/sec | 5.4 | 6.4 |
+
+Phase 4's headline of "1.4 tok/s" was an artifact of dividing generated tokens by *total* wall time.
+Decode alone runs at **~32-35 tok/s**, which is usable. Roughly **80% of model time is the single
+prefill forward over a 700-900 token prompt.**
+
+Two consequences for §9.9. **Metal acceleration is the high-value lever, not a smaller model** — a
+prefill is one large matmul, exactly the shape a GPU helps, whereas decode is already fast enough
+that halving the parameter count would buy little. And **prompt length is expensive**: v2 costs 244
+more prompt tokens than v1 and 5.4 s more prefill per case, so the retry — which re-sends the whole
+prompt plus the rejected attempt — roughly doubles the cost of any case that fails. Fixing the retry
+is a latency win as well as a correctness one.
+
+Timing caveat, recorded: the timed span covers the whole decode step, not only the forward. An
+earlier version timed the forward alone and reported model time 4.7x below wall time, because
+extracting a 152k-vocab logits row and scanning it for the argmax is real per-token cost. With the
+full step timed, model time and wall time reconcile — 13.9 s vs 14.1 s for v1.
