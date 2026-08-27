@@ -17,6 +17,7 @@
 //! line.
 
 pub mod embeddings;
+pub mod generative;
 pub mod model_install;
 
 #[cfg(test)]

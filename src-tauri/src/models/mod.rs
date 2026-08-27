@@ -126,7 +126,10 @@ fn slm1_mini_paths() -> Option<(PathBuf, PathBuf)> {
 /// Stage-1 perplexity SIGNAL — deliberately named generically so the model can
 /// be upgraded without renaming. `GAPLY_STAGE1_LM_GGUF` wins; otherwise the
 /// conventional `~/gaply-models/stage1-lm/*.gguf`. Shared Qwen2.5 tokenizer.
-fn stage1_lm_paths() -> Option<(PathBuf, PathBuf)> {
+/// Widened to `pub(crate)` for the AI engine, which must resolve the bundled
+/// generative model through THIS resolver rather than hard-coding its path
+/// (plan §9.9). Behaviour unchanged.
+pub(crate) fn stage1_lm_paths() -> Option<(PathBuf, PathBuf)> {
     // BUNDLED in Set 1: env → ~/gaply-models/stage1-lm → the packaged 0.5B.
     let gguf = resolve_gguf("GAPLY_STAGE1_LM_GGUF", "stage1-lm")?;
     Some((gguf, slm1_tokenizer_path()?))
