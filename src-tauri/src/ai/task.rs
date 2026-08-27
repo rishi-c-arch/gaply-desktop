@@ -850,11 +850,10 @@ mod tests {
 
     /* ---------------- two-tier validation (plan §9.11) -------------------- */
 
-    /// A task whose validator emits whichever tiers the test asks for.
-    struct TieredTask {
-        fatal: bool,
-        advisory: bool,
-    }
+    /// A task whose validator emits whichever tiers the test asks for. The
+    /// flags live in TIER_FLAGS rather than on the struct because `validate` is
+    /// an associated function with no `self` to read them from.
+    struct TieredTask;
 
     #[derive(Debug, serde::Deserialize, Serialize)]
     struct TieredOut {
@@ -900,7 +899,7 @@ mod tests {
 
     fn tiered(fatal: bool, advisory: bool) -> TieredTask {
         TIER_FLAGS.with(|f| *f.borrow_mut() = (fatal, advisory));
-        TieredTask { fatal, advisory }
+        TieredTask
     }
 
     #[tokio::test]
