@@ -457,10 +457,14 @@ an additional argument for the split in §3.
    rather than today's FTS-prefilter-then-rerank pipeline. Revisit once the reranker phase lands,
    with eval data. The current shape is a strict prefilter, so a chunk FTS misses cannot be recovered
    by vector similarity; the union removes that ceiling at the cost of a larger candidate pool.
-7. **`docs/AI_ENGINE_SPEC.md` still does not exist.** Searched the working tree, every branch's
-   history, the stash and the wider filesystem on 2026-08-26 and again on 2026-08-27; the only
-   `docs/AI_ENGINE*` file ever added to this repo is this plan. Phases 1 and 2 are therefore
-   grounded in the codebase plus the task instructions, and remain unvalidated against any spec.
+7. **`docs/AI_ENGINE_SPEC.md`. RESOLVED (2026-08-27).** The specification is now committed in-repo
+   and is authoritative for the task layer. The resolved architecture decisions in §9 take
+   precedence over any obsolete runtime/decoding wording in the specification — an ARCHITECTURE
+   OVERRIDE note at the head of the spec states this in the spec itself, so a reader who opens only
+   that file cannot be misled. Concretely: the spec's "llama.cpp / GGUF" runtime line and its GBNF
+   grammar-constrained decoding requirement are superseded by §9.1 (Candle; no llama.cpp;
+   deterministic validation plus one retry). Everything else in it — the eight task prompts, their
+   schemas, the evidence rules, the abstention behaviour and the provenance requirements — stands.
 
 ---
 
