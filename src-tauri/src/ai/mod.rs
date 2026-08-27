@@ -17,6 +17,7 @@
 //! line.
 
 pub mod embeddings;
+pub mod evidence;
 pub mod generative;
 pub mod model_manager;
 pub mod task;
