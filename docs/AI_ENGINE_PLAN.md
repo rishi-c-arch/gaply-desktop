@@ -691,3 +691,50 @@ would put rows there with a NULL chunk_id and an empty quote, which is exactly t
 So this phase persists nothing: `ai_citation_need` returns its result to the caller. When a batch
 job needs durable classification results, that gets its own table with its own provenance columns,
 not a widened evidence table.
+
+### D10 — OPEN, found by the Phase 4 eval: the corrective retry makes a small model worse
+
+The first eval run of citation_need against the bundled 0.5B produced a clear and unexpected
+failure pattern, recorded here because it is a defect in the Phase 3 harness design rather than in
+citation_need, and because the fix should be chosen with eval data rather than guessed.
+
+**Observed, 8 seed cases, `citation_need-v1`, Qwen2.5-0.5B-Instruct-Q4_K_M, n_ctx 4096:**
+
+| metric | value |
+|---|---|
+| valid outputs | 3 / 8 |
+| needs_citation accuracy (of valid) | 67% |
+| sentence_type agreement | 33% |
+| severity agreement | 33% |
+| **validation failure rate** | **62%** |
+| retry rate | 62% |
+| mean latency | 17,118 ms |
+| tokens/sec | 1.4 |
+
+**The failure is in the RETRY, not the first attempt.** Attempt 1 is almost always well-formed JSON
+that violates one narrow rule — usually `search_query` under the 6-word minimum
+(`"land degradation, distribution"`). The retry then returns *no JSON at all*: the model echoes the
+corrective error list back as bullets —
+
+```
+- reason: 25 words or less
+- severity: high|medium|low
+- needs_citation: true|false
+```
+
+`run_task` appends errors as `- field: problem` lines, and a 0.5B continues that pattern instead of
+switching back to JSON. So a retry designed to rescue a near-miss converts it into a total loss.
+**Every one of the 5 failures followed this shape.** A larger model would likely not do this, which
+is exactly why it must be measured rather than assumed.
+
+Candidate fixes, none applied yet: restate the required JSON skeleton in the retry rather than only
+the errors; phrase errors as prose rather than a bulleted list; or keep the first attempt when the
+retry parses worse than it did. The last is attractive but must not become a silent repair — it
+would need to be reported as such.
+
+**Two other signals from the same run, for the prompt phase:** the model classified almost
+everything as `empirical_claim` / `high` / `needs_citation: true` regardless of input, and its
+`reason` repeatedly describes *"the preceding sentence"* rather than the target — suggesting the
+INPUT block order (preceding first) draws a small model's attention to the wrong sentence. Both are
+prompt-level, not engine-level, and belong to the phase that tunes citation_need against the real
+50-case set.
