@@ -1208,6 +1208,154 @@ pub async fn ai_citation_need(
     }))
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AiSupportEvent {
+    Retrieving,
+    /// How much evidence survived the budget — emitted before generation so a
+    /// UI can say "judging 6 of 11 passages" rather than showing a bare spinner.
+    Retrieved { chunks_sent: usize, chunks_dropped: usize },
+    Generating,
+    Validating,
+}
+
+/// Spec Prompt 2 — does the cited paper actually say this?
+///
+/// Retrieval (Phase 2) -> evidence budget -> run_task (Phase 3/4c) -> persist.
+/// A VALID result is written to ai_evidence_cards with its join rows; a fatal
+/// failure and a NoEvidence outcome persist NOTHING.
+#[tauri::command]
+#[tracing::instrument(skip(state, on_event))]
+pub async fn ai_citation_support(
+    state: State<'_, AppState>,
+    claim: String,
+    document_id: i64,
+    cited_source: Option<String>,
+    on_event: tauri::ipc::Channel<AiSupportEvent>,
+) -> Result<serde_json::Value, GaplyError> {
+    use crate::ai::evidence::{assemble, Assembled, EVIDENCE_BUDGET_TOKENS};
+    use crate::ai::task::run_task;
+    use crate::ai::tasks::citation_support::{CitationSupportTask, Verdict};
+    use gaply_core::ai_engine::cards;
+
+    if let Some(loader) = crate::ai::generative::BundledGenerativeLoader::resolve() {
+        crate::ai::generative::register_generative(&state.db, &loader)?;
+    }
+    let cancel = state.ai_gen_cancel.clone();
+    cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    let db = state.db.clone();
+    let slot = state.ai_embed.clone();
+    let manager = state.ai_gen.clone();
+
+    let _ = on_event.send(AiSupportEvent::Retrieving);
+    let claim_for_query = claim.clone();
+    let bundle = {
+        let db = db.clone();
+        tokio::task::spawn_blocking(move || {
+            let qv = slot.with(|e| e.embed_query(&claim_for_query))?;
+            assemble(&db, document_id, &claim_for_query, &qv, EVIDENCE_BUDGET_TOKENS)
+        })
+        .await
+        .map_err(|e| GaplyError::Internal(format!("evidence task panicked: {e}")))??
+    };
+
+    let bundle = match bundle {
+        // D15: no evidence means no generation and no persistence. This is NOT
+        // the spec's insufficient_evidence, which is a judgement about evidence
+        // that was shown.
+        Assembled::NoEvidence { reason } => {
+            return Ok(serde_json::json!({
+                "outcome": "noEvidence",
+                "reason": reason,
+                "documentId": document_id,
+                "persisted": false,
+            }))
+        }
+        Assembled::Ready(b) => b,
+    };
+    let _ = on_event.send(AiSupportEvent::Retrieved {
+        chunks_sent: bundle.chunks_sent,
+        chunks_dropped: bundle.chunks_dropped,
+    });
+
+    let task = CitationSupportTask {
+        claim: claim.clone(),
+        cited_source: cited_source.unwrap_or_else(|| format!("document {document_id}")),
+        evidence: bundle.rendered.clone(),
+    };
+    let _ = on_event.send(AiSupportEvent::Generating);
+    let run = run_task(&*manager, &task, &bundle.ctx, cancel, None)
+        .await
+        .map_err(GaplyError::from)?;
+    let _ = on_event.send(AiSupportEvent::Validating);
+
+    // Persist. The validator has already proved every chunk_id was sent and
+    // every page matches the store, so the join rows below cannot point at
+    // anything the model invented.
+    let advisories: Vec<String> = run.advisories.iter().map(|a| a.to_string()).collect();
+    let provenance = serde_json::json!({
+        "advisories": advisories,
+        "chunksSent": bundle.chunks_sent,
+        "chunksDropped": bundle.chunks_dropped,
+        "evidenceTokens": bundle.tokens_estimated,
+        "retrievalPath": bundle.retrieval_path,
+        "supportingChunks": run.output.supporting_chunks,
+    });
+    let primary = run
+        .output
+        .supporting_chunks
+        .first()
+        .and_then(|c| c.chunk_id.trim_start_matches('c').parse::<i64>().ok());
+    let refs: Vec<(i64, cards::ChunkRole)> = run
+        .output
+        .supporting_chunks
+        .iter()
+        .filter_map(|c| c.chunk_id.trim_start_matches('c').parse::<i64>().ok())
+        .map(|id| (id, cards::ChunkRole::Supporting))
+        .collect();
+
+    let card = cards::NewEvidenceCard {
+        document_id,
+        chunk_id: primary,
+        page: run.output.supporting_chunks.first().and_then(|c| c.page),
+        claim: claim.clone(),
+        evidence_text: run.output.explanation.clone(),
+        evidence_type: match run.output.verdict {
+            Verdict::Contradicts => "contradict".to_string(),
+            Verdict::InsufficientEvidence => "context".to_string(),
+            _ => "support".to_string(),
+        },
+        // Serialize the enum rather than hand-writing the five strings twice —
+        // a second mapping is a second thing to drift from the spec.
+        verdict: serde_json::to_value(run.output.verdict)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string)),
+        confidence: Some(run.output.confidence),
+        model_id: run.model_id.clone(),
+        model_version: crate::ai::generative::BUNDLED_GEN_MODEL_QUANT.to_string(),
+        prompt_version: run.prompt_version.to_string(),
+        provenance_json: provenance.to_string(),
+    };
+    let card_id = tokio::task::spawn_blocking(move || cards::insert_card(&db, &card, &refs))
+        .await
+        .map_err(|e| GaplyError::Internal(format!("persist task panicked: {e}")))??;
+
+    Ok(serde_json::json!({
+        "outcome": "ok",
+        "cardId": card_id,
+        "persisted": true,
+        "output": run.output,
+        "advisories": advisories,
+        "retried": run.retried,
+        "promptVersion": run.prompt_version,
+        "modelId": run.model_id,
+        "chunksSent": bundle.chunks_sent,
+        "chunksDropped": bundle.chunks_dropped,
+        "elapsedMs": run.elapsed_ms,
+    }))
+}
+
 // --- Citation Intelligence, Phase 2: embeddings + semantic search ----------
 //
 // R4: the ONLY network operation in the AI layer is ai_model_install, and it

@@ -371,6 +371,9 @@ impl GenerationBackend for QwenGenerativeBackend {
 
 /// Registry id for the bundled development/test generative model (§9.8).
 pub const BUNDLED_GEN_MODEL_ID: &str = "qwen2.5-0.5b-instruct-q4km";
+/// Recorded as `model_version` on every persisted card: two builds of the same
+/// model id at different quantisations are not the same judge.
+pub const BUNDLED_GEN_MODEL_QUANT: &str = "Q4_K_M";
 
 /// Loads whichever GGUF the resolver produces. `GAPLY_TEST_GEN_MODEL` overrides
 /// it for tests without touching the resolution order used in production.

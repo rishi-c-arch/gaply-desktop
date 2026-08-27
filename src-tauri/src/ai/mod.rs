@@ -24,6 +24,9 @@ pub mod task;
 pub mod tasks;
 
 #[cfg(test)]
+mod support_flow_tests;
+
+#[cfg(test)]
 mod gen_startup_tests;
 pub mod model_install;
 
