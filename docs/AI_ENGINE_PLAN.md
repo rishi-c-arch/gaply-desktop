@@ -565,53 +565,48 @@ does not tell the indexer what to read.
 neither yields a readable file the command fails with an honest error rather than indexing nothing
 and reporting success. The parameter disappears once an AI ingestion command owns document creation.
 
-### D6 — FLAGGED, NOT CHANGED: `EMBED_POOLING = mean` contradicts the model card
+### D6 — RESOLVED: pooling is CLS, preprocessing version `bge-v1.5-p2`
 
-The pinned preprocessing constants specify `EMBED_POOLING = mean, then L2-normalize`. The published
-configuration for `bge-small-en-v1.5` specifies **CLS pooling**:
+The constants originally pinned `EMBED_POOLING = mean`. `bge-small-en-v1.5` publishes **CLS**
+pooling — `1_Pooling/config.json` sets `pooling_mode_cls_token: true` /
+`pooling_mode_mean_tokens: false`, and the card's reference snippet is `model_output[0][:, 0]`.
+The divergence was flagged rather than silently changed, measured, and is now resolved to CLS.
 
-- `1_Pooling/config.json` — `"pooling_mode_cls_token": true`, `"pooling_mode_mean_tokens": false`
-- model card — *"select the last hidden state of the first token (i.e., \[CLS\]) as the sentence
-  embedding"*, with the reference snippet `sentence_embeddings = model_output[0][:, 0]`
+**Rationale.** CLS is the configuration the model was trained and benchmarked in. One synthetic
+query favouring mean by 0.03 of margin is not grounds to run off-distribution. The switch is free
+now, while only test vectors exist, and would mean re-embedding user libraries later.
 
-BGE was trained with a CLS-pooled objective, so mean pooling reads a representation the model was
-not optimised to produce. It is not catastrophic — the vectors remain usable and exact-match
-retrieval is unaffected — but paraphrase retrieval is where the difference would show.
+**Measured, release build, real model, 500-chunk corpus.** Rank 1 was the acceptance criterion,
+not any particular score:
 
-**The constant is implemented as specified (`mean`) and has NOT been silently changed.** Pooling is a
-pinned enum (`EMBED_POOLING`) so switching is a one-line edit, and `PREPROCESSING_VERSION` exists
-precisely to make that switch safe: changing the pooling requires bumping to `bge-v1.5-p2`, after
-which the single-`(model_id, preprocessing_version)` rule refuses the old vectors rather than mixing
-two representations. Measured comparison of both poolings on the paraphrase needle test is reported
-with this phase.
+| | mean / p1 | **CLS / p2 (shipped)** |
+|---|---|---|
+| Needle A — exact, needle score | 0.8863 | **0.8821** |
+| Needle A — best distractor | 0.5252 | **0.5893** |
+| Needle A — **rank** | 1 | **1 ✓** |
+| Needle B — paraphrase, needle score | 0.7258 | **0.7669** |
+| Needle B — best distractor | 0.5445 | **0.6210** |
+| Needle B — **rank** | 1 | **1 ✓** |
 
-**MEASURED (2026-08-27, release build, real model, 500-chunk corpus).** Both poolings were run on
-the paraphrase needle test. The relevant number is not the needle's absolute score but its SEPARATION
-from the best distractor, since that is what ranking depends on:
+Both needles rank 1 under CLS, which is the criterion. CLS raises the whole score distribution,
+needle and distractors alike, so its margins are narrower on this corpus while its absolute
+similarity is higher — a difference in score calibration, not in ranking. The paraphrase query
+shares no content word with the planted sentence, a premise the test asserts before searching, so
+neither result can be lexical.
 
-| Pooling | needle score | best distractor | **margin** | needle rank |
-|---|---|---|---|---|
-| `Mean` (pinned) | 0.7258 | 0.5445 | **0.1813** | 1 |
-| `Cls` (model card) | 0.7669 | 0.6210 | **0.1459** | 1 |
+**Migration: nothing to purge.** `ai_chunk_embeddings` was verified to contain **0 rows** before
+the switch — checked read-only against the live database at
+`~/Library/Application Support/ai.gaply.app/gaply.db` (schema v15), both immediately after the
+decision and again immediately before the re-run. No persistent `bge-v1.5-p1` vector ever existed:
+every needle-test vector lived in an in-memory database and was discarded with it. Nothing was
+deleted because there was nothing to delete, and nothing went unaccounted for.
 
-CLS scores everything higher, including the distractors, so on this test the pinned `Mean` gives the
-*wider* margin — the opposite of what the model card alone would predict. Both rank the needle first.
+The legacy `embeddings` vec0 table and the plagiarism corpus were not touched (§9.5).
 
-**This does not settle the question and must not be read as doing so.** One query against one
-synthetic corpus is not an evaluation; the card's guidance reflects broad benchmark training, which a
-single needle cannot contradict. The honest reading is: `Mean` is not costing us anything detectable
-yet, so there is no urgency to change it, and the choice should be made on real eval data alongside
-§9.6. The measurement is recorded here so that decision starts from evidence rather than from the
-default assumption either way.
-
-The two other constants were verified and MATCH:
-- `EMBED_QUERY_PREFIX` — the card lists exactly
-  `Represent this sentence for searching relevant passages: ` for this model.
-- `EMBED_DOC_PREFIX = ""` — the card states *"In all cases, no instruction needs to be added to
-  passages."*
-
-Model identity is pinned to revision `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`, not `main`, so
-"pinned" means a fixed tree rather than a moving branch.
+**Pooling and `PREPROCESSING_VERSION` must always move in the same edit.** They did here: p1 → p2.
+The two poolings are different vector spaces, and the stored `preprocessing_version` is the only
+thing preventing one from being compared against the other — `resolve_single_space` refuses a
+mixture rather than returning confident nonsense.
 
 ### D7 — retrieval is a strict FTS prefilter at this scale
 

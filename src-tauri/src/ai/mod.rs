@@ -54,23 +54,27 @@ pub enum Pooling {
     Cls,
 }
 
-/// PINNED POOLING — and a KNOWN DIVERGENCE FROM THE MODEL CARD.
+/// PINNED POOLING — matches the model's published configuration.
 ///
-/// `bge-small-en-v1.5` publishes CLS pooling: `1_Pooling/config.json` sets
+/// `bge-small-en-v1.5` is a CLS-pooled model: `1_Pooling/config.json` sets
 /// `pooling_mode_cls_token: true` / `pooling_mode_mean_tokens: false`, and the
-/// card's reference snippet is `model_output[0][:, 0]`. This constant is `Mean`
-/// because that is what the specification pinned, and a pinned constant is not
-/// changed silently — the divergence is recorded in plan §11 D6 with a measured
-/// comparison instead.
+/// card's reference snippet is `model_output[0][:, 0]`. This constant follows
+/// that (plan §11 D6, RESOLVED): CLS is the configuration the model was trained
+/// and benchmarked in, and running mean-pooled would be running off-distribution
+/// on the strength of one synthetic query's 0.03 of extra margin.
 ///
-/// Switching to [`Pooling::Cls`] is a one-line edit here, and it MUST be
-/// accompanied by bumping [`PREPROCESSING_VERSION`]: the two poolings produce
-/// different vector spaces, and the stored `preprocessing_version` is what stops
-/// them being compared to each other.
-pub const EMBED_POOLING: Pooling = Pooling::Mean;
+/// CHANGING THIS REQUIRES BUMPING [`PREPROCESSING_VERSION`] IN THE SAME EDIT.
+/// The two poolings produce different vector spaces; the stored
+/// `preprocessing_version` is the only thing stopping vectors from one being
+/// compared against the other, and gaply-core refuses a mixture rather than
+/// returning confident nonsense.
+pub const EMBED_POOLING: Pooling = Pooling::Cls;
 
 /// Version of the whole preprocessing recipe above. Stored on every vector.
-pub const PREPROCESSING_VERSION: &str = "bge-v1.5-p1";
+///
+/// p1 → p2 when pooling moved from mean to CLS (§11 D6). No persistent p1
+/// vectors ever existed, so nothing needed re-embedding.
+pub const PREPROCESSING_VERSION: &str = "bge-v1.5-p2";
 
 /// Fixed, conservative batch. No hardware profiling in this phase.
 pub const EMBED_BATCH_SIZE: usize = 16;
