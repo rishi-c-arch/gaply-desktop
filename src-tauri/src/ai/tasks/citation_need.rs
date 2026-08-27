@@ -27,7 +27,39 @@ use serde::{Deserialize, Serialize};
 
 use crate::ai::task::{AiTask, TaskContext, ValidationError};
 
-pub const PROMPT_VERSION: &str = "citation_need-v1";
+/// v1 — the spec's INPUT block order, kept for comparison (plan §11 D10/D12).
+pub const PROMPT_VERSION_V1: &str = "citation_need-v1";
+/// v2 — same rules, target sentence last and explicitly labelled.
+pub const PROMPT_VERSION_V2: &str = "citation_need-v2";
+/// What a caller gets if it does not choose.
+pub const PROMPT_VERSION: &str = PROMPT_VERSION_V2;
+
+/// Which INPUT layout to use. The SPEC RULES are byte-identical across both;
+/// only the arrangement of the input differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptVariant {
+    /// Spec order: preceding, target, following, section.
+    V1,
+    /// Context first and subordinate, then the target sentence LAST, labelled,
+    /// immediately before the output instruction.
+    V2,
+}
+
+impl PromptVariant {
+    pub fn version(self) -> &'static str {
+        match self {
+            PromptVariant::V1 => PROMPT_VERSION_V1,
+            PromptVariant::V2 => PROMPT_VERSION_V2,
+        }
+    }
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "v1" | PROMPT_VERSION_V1 => Some(PromptVariant::V1),
+            "v2" | PROMPT_VERSION_V2 => Some(PromptVariant::V2),
+            _ => None,
+        }
+    }
+}
 
 /// Spec: `max_tokens: 200`.
 const MAX_TOKENS: usize = 200;
@@ -120,27 +152,21 @@ const RULES: &str = r#"- needs_citation = true for: empirical claims about the w
 
 pub struct CitationNeedTask {
     pub input: CitationNeedInput,
+    pub variant: PromptVariant,
 }
 
 impl CitationNeedTask {
+    /// Default to v2 — the variant measured to be less prone to classifying the
+    /// wrong sentence.
     pub fn new(input: CitationNeedInput) -> Self {
-        Self { input }
+        Self { input, variant: PromptVariant::V2 }
     }
-}
-
-impl AiTask for CitationNeedTask {
-    type Output = CitationNeedOutput;
-
-    fn prompt_version() -> &'static str {
-        PROMPT_VERSION
+    pub fn with_variant(input: CitationNeedInput, variant: PromptVariant) -> Self {
+        Self { input, variant }
     }
 
-    fn max_tokens() -> usize {
-        MAX_TOKENS
-    }
-
-    fn build_prompt(&self) -> String {
-        // Qwen2.5-Instruct chat template around the spec's blocks.
+    /// v1: the spec's INPUT block, in the spec's order.
+    fn build_v1(&self) -> String {
         format!(
             "<|im_start|>system\n{SYSTEM}\n<|im_end|>\n\
              <|im_start|>user\n\
@@ -158,6 +184,60 @@ impl AiTask for CitationNeedTask {
             next = self.input.following_sentence,
             section = self.input.section,
         )
+    }
+
+    /// v2: same SYSTEM, same OUTPUT SCHEMA, same RULES — byte-identical consts.
+    ///
+    /// Only the INPUT arrangement changes, to fix a measured failure: under v1
+    /// the model's `reason` repeatedly described "the preceding sentence"
+    /// rather than the target, i.e. it classified the wrong sentence. v1 opens
+    /// with the preceding sentence, so that is what a small model's attention
+    /// lands on first and, apparently, keeps.
+    ///
+    /// v2 demotes the neighbours to explicitly-labelled CONTEXT that is stated
+    /// NOT to be classified, then puts the target LAST under its own heading,
+    /// immediately before the output instruction — the position a decoder
+    /// weights most heavily.
+    fn build_v2(&self) -> String {
+        format!(
+            "<|im_start|>system\n{SYSTEM}\n<|im_end|>\n\
+             <|im_start|>user\n\
+             OUTPUT SCHEMA\n{OUTPUT_SCHEMA}\n\n\
+             RULES\n{RULES}\n\n\
+             CONTEXT (background only — do NOT classify these)\n\
+             section: {section}\n\
+             previous sentence: {prev}\n\
+             next sentence: {next}\n\n\
+             SENTENCE TO CLASSIFY\n\
+             {target}\n\n\
+             Classify ONLY the sentence above, under SENTENCE TO CLASSIFY. \
+             Output the JSON object now, beginning with {{\n\
+             <|im_end|>\n\
+             <|im_start|>assistant\n",
+            prev = self.input.preceding_sentence,
+            target = self.input.sentence,
+            next = self.input.following_sentence,
+            section = self.input.section,
+        )
+    }
+}
+
+impl AiTask for CitationNeedTask {
+    type Output = CitationNeedOutput;
+
+    fn prompt_version(&self) -> &'static str {
+        self.variant.version()
+    }
+
+    fn max_tokens() -> usize {
+        MAX_TOKENS
+    }
+
+    fn build_prompt(&self) -> String {
+        match self.variant {
+            PromptVariant::V1 => self.build_v1(),
+            PromptVariant::V2 => self.build_v2(),
+        }
     }
 
     fn validate(out: &Self::Output, _ctx: &TaskContext) -> Result<(), Vec<ValidationError>> {
@@ -440,32 +520,79 @@ mod tests {
         assert!(CitationNeedTask::validate(&out, &ctx()).is_ok(), "a non-year parenthesis was rejected");
     }
 
-    #[test]
-    fn the_prompt_reproduces_the_spec_blocks_verbatim() {
-        let t = CitationNeedTask::new(CitationNeedInput {
+    fn sample() -> CitationNeedInput {
+        CitationNeedInput {
             sentence: "Organic farming increases soil biodiversity.".into(),
             preceding_sentence: "Soil health is a growing concern.".into(),
             following_sentence: "This has implications for policy.".into(),
             section: "Introduction".into(),
-        });
+        }
+    }
+
+    #[test]
+    fn v1_reproduces_the_spec_blocks_verbatim() {
+        let t = CitationNeedTask::with_variant(sample(), PromptVariant::V1);
         let p = t.build_prompt();
-        // spec SYSTEM
         assert!(p.contains("You decide whether an academic sentence requires a citation."));
         assert!(p.contains("You do not suggest sources. You only classify the sentence."));
-        // shared rule 4 (the only addition — see plan §11 D8)
         assert!(p.contains("Output raw JSON only."));
-        // spec INPUT block, all four fields
         assert!(p.contains("<preceding_sentence>Soil health is a growing concern.</preceding_sentence>"));
         assert!(p.contains("<sentence>Organic farming increases soil biodiversity.</sentence>"));
         assert!(p.contains("<following_sentence>This has implications for policy.</following_sentence>"));
         assert!(p.contains("<section>Introduction</section>"));
-        // spec RULES, load-bearing lines
         assert!(p.contains("covered by preceding citation"));
         assert!(p.contains("6-12 keyword query for the library search, only when needs_citation=true"));
         assert!(p.contains("reason <= 25 words"));
-        // NO evidence block — this task has none (plan §11 D8)
         assert!(!p.contains("<evidence>"), "citation_need must not claim to have evidence");
+        assert_eq!(t.prompt_version(), "citation_need-v1");
         assert_eq!(CitationNeedTask::max_tokens(), 200, "spec pins max_tokens: 200");
-        assert_eq!(CitationNeedTask::prompt_version(), "citation_need-v1");
+    }
+
+    #[test]
+    fn v2_keeps_the_spec_rules_byte_identical_and_only_moves_the_input() {
+        let v1 = CitationNeedTask::with_variant(sample(), PromptVariant::V1).build_prompt();
+        let v2 = CitationNeedTask::with_variant(sample(), PromptVariant::V2).build_prompt();
+
+        // The parts the spec owns are the SAME STRING in both.
+        for spec_text in [SYSTEM, OUTPUT_SCHEMA, RULES] {
+            assert!(v1.contains(spec_text), "v1 lost a spec block");
+            assert!(v2.contains(spec_text), "v2 altered a spec block — only the INPUT may move");
+        }
+        assert_eq!(
+            CitationNeedTask::with_variant(sample(), PromptVariant::V2).prompt_version(),
+            "citation_need-v2"
+        );
+    }
+
+    #[test]
+    fn v2_puts_the_target_sentence_last_and_labels_it() {
+        let t = CitationNeedTask::with_variant(sample(), PromptVariant::V2);
+        let p = t.build_prompt();
+        let target = "Organic farming increases soil biodiversity.";
+        let prev = "Soil health is a growing concern.";
+
+        assert!(p.contains("SENTENCE TO CLASSIFY"), "the target must be labelled: {p}");
+        assert!(p.contains("do NOT classify these"), "context must be marked subordinate");
+
+        // The target appears AFTER both neighbours — the position a decoder
+        // weights most heavily, and the fix for v1 classifying the wrong one.
+        let t_at = p.rfind(target).expect("target present");
+        let p_at = p.rfind(prev).expect("preceding present");
+        let n_at = p.rfind("This has implications for policy.").expect("following present");
+        assert!(t_at > p_at && t_at > n_at, "the target must come last in v2");
+
+        // and the output instruction is the very last thing before the turn ends
+        let tail = &p[t_at..];
+        assert!(tail.contains("Classify ONLY the sentence above"));
+        assert!(tail.contains("beginning with {"));
+    }
+
+    #[test]
+    fn variant_parsing_accepts_short_and_full_names() {
+        assert_eq!(PromptVariant::parse("v1"), Some(PromptVariant::V1));
+        assert_eq!(PromptVariant::parse("citation_need-v2"), Some(PromptVariant::V2));
+        assert_eq!(PromptVariant::parse("v3"), None);
+        // the default must be a real variant, not a third string
+        assert_eq!(PROMPT_VERSION, PROMPT_VERSION_V2);
     }
 }

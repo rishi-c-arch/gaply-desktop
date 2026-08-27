@@ -38,7 +38,7 @@ use std::sync::Arc;
 use app_lib::ai::generative::{BundledGenerativeLoader, TASK_N_CTX};
 use app_lib::ai::model_manager::ModelManager;
 use app_lib::ai::task::{run_task, TaskContext, TaskError};
-use app_lib::ai::tasks::citation_need::{CitationNeedInput, CitationNeedTask, PROMPT_VERSION};
+use app_lib::ai::tasks::citation_need::{CitationNeedInput, CitationNeedTask, PromptVariant};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -70,6 +70,15 @@ struct CaseResult {
     retried: bool,
     elapsed_ms: u64,
     tokens: usize,
+    /// Latency breakdown (item 3): prefill is the single forward over the whole
+    /// prompt, decode is every subsequent single-token forward. Kept apart
+    /// because they scale with different things and are fixed by different
+    /// means — a prefill-dominated profile argues for Metal, a decode-dominated
+    /// one argues for a smaller model.
+    prompt_tokens: usize,
+    prefill_ms: u64,
+    decode_ms: u64,
+    decode_tokens_per_sec: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -105,6 +114,18 @@ struct Report {
     retry_rate: f64,
     mean_latency_ms: f64,
     tokens_per_second: f64,
+    /// Aggregate latency split across every case.
+    mean_prompt_tokens: f64,
+    mean_prefill_ms: f64,
+    mean_decode_ms: f64,
+    /// Share of total model time spent in prefill. THE number item 3 exists to
+    /// produce: it decides whether acceleration or a smaller model is the lever.
+    prefill_share: f64,
+    mean_decode_tokens_per_sec: f64,
+    /// How often each answer was given, regardless of the label. A model that
+    /// answers the same thing every time can post respectable accuracy on an
+    /// unbalanced set while having learned nothing — accuracy alone hides that.
+    answer_distribution: serde_json::Value,
     results: Vec<CaseResult>,
 }
 
@@ -147,6 +168,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("evals/citation_need.jsonl"));
     let date = arg("--date").unwrap_or_else(|| "unknown".to_string());
+    let variant = arg("--prompt")
+        .map(|v| {
+            PromptVariant::parse(&v).unwrap_or_else(|| {
+                eprintln!("unknown --prompt {v:?}; expected v1 or v2");
+                std::process::exit(2)
+            })
+        })
+        .unwrap_or(PromptVariant::V2);
     let out_dir = arg("--out").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("evals/reports"));
 
     if task_name != "citation_need" {
@@ -172,7 +201,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("task    : {task_name}");
     println!("model   : {model_id}");
-    println!("prompt  : {PROMPT_VERSION}");
+    println!("prompt  : {}", variant.version());
     println!("n_ctx   : {TASK_N_CTX}");
     println!("cases   : {} from {}", cases.len(), cases_path.display());
     println!();
@@ -190,7 +219,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let input: CitationNeedInput = serde_json::from_value(case.input.clone())
             .map_err(|e| format!("case {}: bad input: {e}", case.id))?;
-        let task = CitationNeedTask::new(input);
+        let task = CitationNeedTask::with_variant(input, variant);
         let ctx = TaskContext::default();
         let started = std::time::Instant::now();
         let outcome = run_task(&manager, &task, &ctx, Arc::new(AtomicBool::new(false)), None).await;
@@ -215,9 +244,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     retried: run.retried,
                     elapsed_ms,
                     tokens: run.tokens,
+                    prompt_tokens: run.timings.prompt_tokens,
+                    prefill_ms: run.timings.prefill_ms,
+                    decode_ms: run.timings.decode_ms,
+                    decode_tokens_per_sec: if run.timings.decode_ms == 0 {
+                        0.0
+                    } else {
+                        run.timings.tokens as f64 / (run.timings.decode_ms as f64 / 1000.0)
+                    },
                 }
             }
-            Err(TaskError::ValidationFailed { errors, first_raw, retry_raw }) => {
+            Err(TaskError::ValidationFailed { errors, first_raw, retry_raw, timings }) => {
                 println!("  FAIL {}  {:>5}ms  validation: {}", case.id, elapsed_ms,
                     errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; "));
                 CaseResult {
@@ -229,7 +266,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     scored: None,
                     retried: true,
                     elapsed_ms,
-                    tokens: 0,
+                    // A failed run costs real model time — and the failures are
+                    // the SLOWEST cases, so zeroing them would flatter every
+                    // latency average in exactly the wrong direction.
+                    tokens: timings.tokens,
+                    prompt_tokens: timings.prompt_tokens,
+                    prefill_ms: timings.prefill_ms,
+                    decode_ms: timings.decode_ms,
+                    decode_tokens_per_sec: if timings.decode_ms == 0 {
+                        0.0
+                    } else {
+                        timings.tokens as f64 / (timings.decode_ms as f64 / 1000.0)
+                    },
                 }
             }
             Err(e) => {
@@ -242,6 +290,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     retried: false,
                     elapsed_ms,
                     tokens: 0,
+                    prompt_tokens: 0,
+                    prefill_ms: 0,
+                    decode_ms: 0,
+                    decode_tokens_per_sec: 0.0,
                 }
             }
         };
@@ -268,11 +320,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let validation_failure_rate =
         results.iter().filter(|r| r.outcome == Outcome::ValidationFailed).count() as f64 / total;
     let retry_rate = results.iter().filter(|r| r.retried).count() as f64 / total;
+    let sum = |f: fn(&CaseResult) -> f64| results.iter().map(f).sum::<f64>();
+    let total_prefill = sum(|r| r.prefill_ms as f64);
+    let total_decode = sum(|r| r.decode_ms as f64);
+    let model_ms = total_prefill + total_decode;
+    let mean_prompt_tokens = sum(|r| r.prompt_tokens as f64) / total;
+    let mean_prefill_ms = total_prefill / total;
+    let mean_decode_ms = total_decode / total;
+    let prefill_share = if model_ms == 0.0 { 0.0 } else { total_prefill / model_ms };
+    let dtps: Vec<f64> = results
+        .iter()
+        .filter(|r| r.decode_tokens_per_sec > 0.0)
+        .map(|r| r.decode_tokens_per_sec)
+        .collect();
+    let mean_decode_tokens_per_sec = mean(&dtps).unwrap_or(0.0);
+
+    // Answer distribution over the cases that produced output.
+    let mut needs_true = 0usize;
+    let mut types: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut sevs: std::collections::BTreeMap<String, usize> = Default::default();
+    for r in results.iter().filter(|r| r.outcome == Outcome::Ok) {
+        if let Some(got) = r.scored.as_ref().and_then(|s| s.get("got")) {
+            if got.get("needs_citation").and_then(|v| v.as_bool()) == Some(true) {
+                needs_true += 1;
+            }
+            if let Some(t) = got.get("sentence_type").and_then(|v| v.as_str()) {
+                *types.entry(t.to_string()).or_default() += 1;
+            }
+            if let Some(v) = got.get("severity").and_then(|v| v.as_str()) {
+                *sevs.entry(v.to_string()).or_default() += 1;
+            }
+        }
+    }
+    let answer_distribution = serde_json::json!({
+        "needsCitationTrue": needs_true,
+        "validOutputs": valid_count,
+        "sentenceType": types,
+        "severity": sevs,
+    });
 
     let report = Report {
         task: task_name.clone(),
         model_id,
-        prompt_version: PROMPT_VERSION.to_string(),
+        prompt_version: variant.version().to_string(),
         n_ctx: TASK_N_CTX,
         date,
         cases_file: cases_path.display().to_string(),
@@ -283,6 +373,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         validation_failure_rate,
         retry_rate,
         mean_latency_ms: total_ms as f64 / total,
+        mean_prompt_tokens,
+        mean_prefill_ms,
+        mean_decode_ms,
+        prefill_share,
+        mean_decode_tokens_per_sec,
+        answer_distribution: answer_distribution.clone(),
         tokens_per_second: if total_ms == 0 {
             0.0
         } else {
@@ -300,7 +396,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("validation failure rate : {:.0}%", report.validation_failure_rate * 100.0);
     println!("retry rate              : {:.0}%", report.retry_rate * 100.0);
     println!("mean latency            : {:.0} ms", report.mean_latency_ms);
-    println!("tokens/sec              : {:.1}", report.tokens_per_second);
+    println!("tokens/sec (overall)    : {:.1}", report.tokens_per_second);
+    println!();
+    println!("mean prompt tokens      : {:.0}", report.mean_prompt_tokens);
+    println!("mean prefill            : {:.0} ms", report.mean_prefill_ms);
+    println!("mean decode             : {:.0} ms", report.mean_decode_ms);
+    println!("prefill share of model  : {:.0}%", report.prefill_share * 100.0);
+    println!("decode tokens/sec       : {:.1}", report.mean_decode_tokens_per_sec);
+    println!();
+    println!("answer distribution     : {}", serde_json::to_string(&answer_distribution)?);
 
     std::fs::create_dir_all(&out_dir)?;
     let name = format!("{task_name}-{}-{}.json", report.prompt_version, report.date);
