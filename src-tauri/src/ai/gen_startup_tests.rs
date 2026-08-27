@@ -3,7 +3,7 @@
 
 #![cfg(test)]
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use crate::ai::generative::{estimate_ram, BundledGenerativeLoader, BUNDLED_GEN_MODEL_ID};

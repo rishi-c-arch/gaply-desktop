@@ -40,7 +40,7 @@ use gaply_core::GaplyError;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::ai::model_manager::ModelManager;
+use crate::ai::model_manager::{ModelManager, TokenSink};
 
 /// One evidence chunk as it was handed to the model.
 ///
@@ -264,7 +264,7 @@ pub async fn run_task<T: AiTask>(
     task: &T,
     ctx: &TaskContext,
     cancel: Arc<AtomicBool>,
-    on_token: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    on_token: Option<TokenSink>,
 ) -> Result<TaskRun<T::Output>, TaskError> {
     let prompt = task.build_prompt();
 
@@ -599,7 +599,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bad_json_twice_is_a_typed_failure_carrying_BOTH_raw_outputs() {
+    async fn bad_json_twice_is_a_typed_failure_carrying_both_raw_outputs() {
         let (m, _p, calls) = scripted(&["garbage one", "garbage two"]);
         let (t, c) = echo_task();
         let err = run_task(&m, &t, &c, Arc::new(AtomicBool::new(false)), None).await.unwrap_err();

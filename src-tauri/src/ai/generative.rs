@@ -286,63 +286,6 @@ impl GenerationBackend for QwenGenerativeBackend {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ram_estimate_is_arithmetic_not_rss() {
-        // Hand-computed against Qwen2.5-0.5B's published shape:
-        // 24 layers, 32768 ctx, 2 kv heads, 896 embedding / 14 heads = 64 head_dim.
-        // 2 * 24 * 32768 * 2 * 64 * 4 = 805,306,368 bytes.
-        let layers = 24u64;
-        let ctx = 32_768u64;
-        let kv_heads = 2u64;
-        let head_dim = 64u64;
-        let expected = 2 * layers * ctx * kv_heads * head_dim * KV_DTYPE_BYTES;
-        assert_eq!(expected, 805_306_368);
-    }
-
-    /// Reports the real figure for whichever GGUF resolves. `#[ignore]` because
-    /// it needs the bundled resource; run with `--ignored --nocapture`.
-    #[test]
-    #[ignore = "needs the bundled GGUF"]
-    fn ram_estimate_for_the_bundled_model() {
-        let Some((gguf, _tok)) = crate::models::stage1_lm_paths() else {
-            eprintln!("SKIP: no stage-1 GGUF resolves");
-            return;
-        };
-        if !gguf.exists() {
-            eprintln!("SKIP: {} absent", gguf.display());
-            return;
-        }
-        let e = estimate_ram(&gguf).expect("bundled gguf must parse");
-        let mb = |b: u64| b as f64 / 1024.0 / 1024.0;
-        println!("\n=== RAM ESTIMATE (computed from GGUF metadata, never RSS) ===");
-        println!("file        : {}", gguf.display());
-        println!("weights     : {:>10} bytes ({:.0} MB)", e.weights_bytes, mb(e.weights_bytes));
-        println!("kv cache    : {:>10} bytes ({:.0} MB)  [full {} ctx]", e.kv_cache_bytes, mb(e.kv_cache_bytes), e.context_length);
-        println!("TOTAL       : {:>10} bytes ({:.0} MB)", e.total_bytes, mb(e.total_bytes));
-        println!("shape       : {} layers, {} kv heads, head_dim {}", e.layers, e.kv_heads, e.head_dim);
-        assert_eq!(e.total_bytes, e.weights_bytes + e.kv_cache_bytes);
-        assert!(e.layers > 0 && e.kv_heads > 0 && e.head_dim > 0);
-    }
-
-    #[test]
-    fn estimate_ram_rejects_a_file_that_is_not_a_gguf() {
-        let p = std::env::temp_dir().join(format!("gaply-notgguf-{}.gguf", std::process::id()));
-        std::fs::write(&p, b"definitely not a gguf").unwrap();
-        let err = estimate_ram(&p).unwrap_err();
-        assert_eq!(err.code(), "validation", "expected an honest validation error, got {err}");
-        let _ = std::fs::remove_file(&p);
-    }
-
-    #[test]
-    fn estimate_ram_reports_a_missing_file_rather_than_guessing() {
-        assert!(estimate_ram(Path::new("/nonexistent/model.gguf")).is_err());
-    }
-}
-
 /* =============== the bundled-model loader (plan §9.8 / §9.9) ============== *
  * The 0.5B is resolved through models::stage1_lm_paths() — the EXISTING
  * resolver — and recorded as an ai_model_registry row. Nothing here hard-codes
@@ -411,3 +354,61 @@ pub fn register_generative(
         },
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ram_estimate_is_arithmetic_not_rss() {
+        // Hand-computed against Qwen2.5-0.5B's published shape:
+        // 24 layers, 32768 ctx, 2 kv heads, 896 embedding / 14 heads = 64 head_dim.
+        // 2 * 24 * 32768 * 2 * 64 * 4 = 805,306,368 bytes.
+        let layers = 24u64;
+        let ctx = 32_768u64;
+        let kv_heads = 2u64;
+        let head_dim = 64u64;
+        let expected = 2 * layers * ctx * kv_heads * head_dim * KV_DTYPE_BYTES;
+        assert_eq!(expected, 805_306_368);
+    }
+
+    /// Reports the real figure for whichever GGUF resolves. `#[ignore]` because
+    /// it needs the bundled resource; run with `--ignored --nocapture`.
+    #[test]
+    #[ignore = "needs the bundled GGUF"]
+    fn ram_estimate_for_the_bundled_model() {
+        let Some((gguf, _tok)) = crate::models::stage1_lm_paths() else {
+            eprintln!("SKIP: no stage-1 GGUF resolves");
+            return;
+        };
+        if !gguf.exists() {
+            eprintln!("SKIP: {} absent", gguf.display());
+            return;
+        }
+        let e = estimate_ram(&gguf).expect("bundled gguf must parse");
+        let mb = |b: u64| b as f64 / 1024.0 / 1024.0;
+        println!("\n=== RAM ESTIMATE (computed from GGUF metadata, never RSS) ===");
+        println!("file        : {}", gguf.display());
+        println!("weights     : {:>10} bytes ({:.0} MB)", e.weights_bytes, mb(e.weights_bytes));
+        println!("kv cache    : {:>10} bytes ({:.0} MB)  [full {} ctx]", e.kv_cache_bytes, mb(e.kv_cache_bytes), e.context_length);
+        println!("TOTAL       : {:>10} bytes ({:.0} MB)", e.total_bytes, mb(e.total_bytes));
+        println!("shape       : {} layers, {} kv heads, head_dim {}", e.layers, e.kv_heads, e.head_dim);
+        assert_eq!(e.total_bytes, e.weights_bytes + e.kv_cache_bytes);
+        assert!(e.layers > 0 && e.kv_heads > 0 && e.head_dim > 0);
+    }
+
+    #[test]
+    fn estimate_ram_rejects_a_file_that_is_not_a_gguf() {
+        let p = std::env::temp_dir().join(format!("gaply-notgguf-{}.gguf", std::process::id()));
+        std::fs::write(&p, b"definitely not a gguf").unwrap();
+        let err = estimate_ram(&p).unwrap_err();
+        assert_eq!(err.code(), "validation", "expected an honest validation error, got {err}");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn estimate_ram_reports_a_missing_file_rather_than_guessing() {
+        assert!(estimate_ram(Path::new("/nonexistent/model.gguf")).is_err());
+    }
+}
+

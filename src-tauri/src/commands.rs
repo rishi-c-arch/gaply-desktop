@@ -1134,7 +1134,7 @@ pub async fn ai_generate_test(
     }]);
     let task = EchoTask { phrase, evidence: ctx.render_evidence() };
 
-    let sink: std::sync::Arc<dyn Fn(&str) + Send + Sync> =
+    let sink: crate::ai::model_manager::TokenSink =
         std::sync::Arc::new(move |t: &str| {
             // Closed channel ignored: the user may have navigated away.
             let _ = on_event.send(AiGenerateEvent::Token { text: t.to_string() });

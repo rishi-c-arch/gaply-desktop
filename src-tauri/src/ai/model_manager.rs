@@ -49,6 +49,13 @@ use serde::Serialize;
 
 use crate::ai::generative::{GenOutput, GenRequest, GenerationBackend, RamEstimate};
 
+/// A per-token sink for streaming. Named because it appears in three
+/// signatures; an inline `Option<Arc<dyn Fn(&str) + Send + Sync>>` in each is
+/// what clippy's type_complexity is pointing at.
+pub type TokenSink = Arc<dyn Fn(&str) + Send + Sync>;
+/// The owned form the blocking backend call takes.
+type BoxedTokenSink = Box<dyn Fn(&str) + Send + Sync>;
+
 /// Idle before the generative model is dropped. Constant for now.
 pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(8 * 60);
 
@@ -328,7 +335,7 @@ impl ModelManager {
         prompt: String,
         max_tokens: usize,
         cancel: Arc<AtomicBool>,
-        on_token: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+        on_token: Option<TokenSink>,
     ) -> Result<GenOutput, GaplyError> {
         let lease = self.acquire().await?;
 
@@ -350,8 +357,8 @@ impl ModelManager {
         let backend = lease.backend().clone();
         let result = tokio::task::spawn_blocking(move || {
             let sink = on_token.clone();
-            let cb: Option<Box<dyn Fn(&str) + Send + Sync>> =
-                sink.map(|s| Box::new(move |t: &str| s(t)) as Box<dyn Fn(&str) + Send + Sync>);
+            let cb: Option<BoxedTokenSink> =
+                sink.map(|s| Box::new(move |t: &str| s(t)) as BoxedTokenSink);
             backend.generate(GenRequest {
                 prompt,
                 max_tokens,
