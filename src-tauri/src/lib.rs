@@ -130,6 +130,7 @@ pub fn run() {
             commands::citation_lib_delete,
             commands::citation_lib_set_sync_status,
             commands::ai_generate_test,
+            commands::ai_citation_need,
             commands::ai_generate_cancel,
             commands::ai_model_install,
             commands::ai_model_install_cancel,

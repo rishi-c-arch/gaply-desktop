@@ -1159,6 +1159,55 @@ pub fn ai_generate_cancel(state: State<'_, AppState>) {
     state.ai_gen_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// Spec Prompt 3 — does this sentence need a citation?
+///
+/// Thin wrapper over run_task: the task owns its prompt and validator, the
+/// engine owns the lifecycle and the retry. NO PERSISTENCE (plan §11 D9) —
+/// citation_need carries no evidence, cites no chunk and quotes nothing, so
+/// writing it to ai_evidence_cards would create rows with a NULL chunk_id and
+/// an empty quote, which is the shape the grounding check exists to prevent.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn ai_citation_need(
+    state: State<'_, AppState>,
+    sentence: String,
+    preceding_sentence: Option<String>,
+    following_sentence: Option<String>,
+    section: String,
+) -> Result<serde_json::Value, GaplyError> {
+    use crate::ai::task::{run_task, TaskContext};
+    use crate::ai::tasks::citation_need::{CitationNeedInput, CitationNeedTask};
+
+    if let Some(loader) = crate::ai::generative::BundledGenerativeLoader::resolve() {
+        crate::ai::generative::register_generative(&state.db, &loader)?;
+    }
+    let cancel = state.ai_gen_cancel.clone();
+    cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    let task = CitationNeedTask::new(CitationNeedInput {
+        sentence,
+        preceding_sentence: preceding_sentence.unwrap_or_default(),
+        following_sentence: following_sentence.unwrap_or_default(),
+        section,
+    });
+    // No evidence for this task; the empty context still runs the generic
+    // chunk-id check, which simply has nothing to check.
+    let ctx = TaskContext::default();
+
+    let run = run_task(&*state.ai_gen, &task, &ctx, cancel, None)
+        .await
+        .map_err(GaplyError::from)?;
+
+    Ok(serde_json::json!({
+        "output": run.output,
+        "retried": run.retried,
+        "promptVersion": run.prompt_version,
+        "modelId": run.model_id,
+        "tokens": run.tokens,
+        "elapsedMs": run.elapsed_ms,
+    }))
+}
+
 // --- Citation Intelligence, Phase 2: embeddings + semantic search ----------
 //
 // R4: the ONLY network operation in the AI layer is ai_model_install, and it
