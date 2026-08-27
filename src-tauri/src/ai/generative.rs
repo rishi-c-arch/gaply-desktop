@@ -342,3 +342,72 @@ mod tests {
         assert!(estimate_ram(Path::new("/nonexistent/model.gguf")).is_err());
     }
 }
+
+/* =============== the bundled-model loader (plan §9.8 / §9.9) ============== *
+ * The 0.5B is resolved through models::stage1_lm_paths() — the EXISTING
+ * resolver — and recorded as an ai_model_registry row. Nothing here hard-codes
+ * a path, so swapping in the production model (§9.9) is a registry change plus
+ * a download, not a code change in the engine. */
+
+/// Registry id for the bundled development/test generative model (§9.8).
+pub const BUNDLED_GEN_MODEL_ID: &str = "qwen2.5-0.5b-instruct-q4km";
+
+/// Loads whichever GGUF the resolver produces. `GAPLY_TEST_GEN_MODEL` overrides
+/// it for tests without touching the resolution order used in production.
+pub struct BundledGenerativeLoader {
+    gguf: std::path::PathBuf,
+    tokenizer: std::path::PathBuf,
+}
+
+impl BundledGenerativeLoader {
+    /// `None` when no generative model resolves — the caller reports
+    /// NotInstalled rather than failing obscurely later.
+    pub fn resolve() -> Option<Self> {
+        if let Some(p) = std::env::var_os("GAPLY_TEST_GEN_MODEL") {
+            let gguf = std::path::PathBuf::from(p);
+            let tokenizer = gguf.parent()?.join("tokenizer.json");
+            if gguf.exists() && tokenizer.exists() {
+                return Some(Self { gguf, tokenizer });
+            }
+        }
+        let (gguf, tokenizer) = crate::models::stage1_lm_paths()?;
+        (gguf.exists() && tokenizer.exists()).then_some(Self { gguf, tokenizer })
+    }
+
+    pub fn gguf_path(&self) -> &std::path::Path {
+        &self.gguf
+    }
+}
+
+impl crate::ai::model_manager::BackendLoader for BundledGenerativeLoader {
+    fn model_id(&self) -> String {
+        BUNDLED_GEN_MODEL_ID.to_string()
+    }
+    fn ram_estimate(&self) -> Result<RamEstimate, GaplyError> {
+        estimate_ram(&self.gguf)
+    }
+    fn load(&self) -> Result<std::sync::Arc<dyn GenerationBackend>, GaplyError> {
+        Ok(std::sync::Arc::new(QwenGenerativeBackend::load(&self.gguf, &self.tokenizer)?))
+    }
+}
+
+/// Record the generative model in `ai_model_registry`. Idempotent — the DAO
+/// upserts, so calling this on every use is safe and keeps the row's path
+/// honest if the resolver ever picks a different file.
+pub fn register_generative(
+    db: &gaply_core::Database,
+    loader: &BundledGenerativeLoader,
+) -> Result<(), GaplyError> {
+    gaply_core::ai_engine::registry::register_model(
+        db,
+        gaply_core::ai_engine::registry::ModelRow {
+            id: BUNDLED_GEN_MODEL_ID.to_string(),
+            kind: "generative".to_string(),
+            display_name: "Qwen2.5 0.5B Instruct (Q4_K_M, bundled)".to_string(),
+            file_path: loader.gguf.display().to_string(),
+            sha256: None,
+            dim: None,
+            quant: Some("Q4_K_M".to_string()),
+        },
+    )
+}

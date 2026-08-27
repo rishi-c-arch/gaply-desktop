@@ -51,6 +51,11 @@ pub struct AppState {
     pub ai_install_cancel: Arc<AtomicBool>,
     /// Cancel token for an embedding pass.
     pub ai_embed_cancel: Arc<AtomicBool>,
+    /// GENERATIVE model lifecycle (Phase 3). Constructed at startup but NOT
+    /// loaded — the weights are pulled in lazily by the first generation.
+    pub ai_gen: Arc<crate::ai::model_manager::ModelManager>,
+    /// Cancel token for a generation.
+    pub ai_gen_cancel: Arc<AtomicBool>,
 }
 
 /// How many rendered reports to keep in memory. A user exports the run they
@@ -68,6 +73,22 @@ impl AppState {
     ) -> Self {
         let ai_embed = Arc::new(crate::ai::EmbeddingSlot::load_at_startup(&app_data_dir));
         tracing::info!(state = ?ai_embed.state(), "embedding engine");
+        // The generative manager is CONSTRUCTED here, never loaded: resolving a
+        // path and reading nothing is not a load. The first generation request
+        // is the only thing that maps weights.
+        let gen_manager = match crate::ai::generative::BundledGenerativeLoader::resolve() {
+            Some(loader) => crate::ai::model_manager::ModelManager::new(Arc::new(loader)),
+            None => {
+                // No generative model resolves. Report it honestly; every
+                // deterministic feature still works.
+                let m = crate::ai::model_manager::ModelManager::new(Arc::new(
+                    crate::ai::model_manager::NullLoader,
+                ));
+                m.set_not_installed();
+                m
+            }
+        };
+        tracing::info!(state = ?gen_manager.state(), "generative model manager");
         Self {
             config,
             db,
@@ -79,6 +100,8 @@ impl AppState {
             ai_embed,
             ai_install_cancel: Arc::new(AtomicBool::new(false)),
             ai_embed_cancel: Arc::new(AtomicBool::new(false)),
+            ai_gen: Arc::new(gen_manager),
+            ai_gen_cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 }

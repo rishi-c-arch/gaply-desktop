@@ -1062,6 +1062,103 @@ pub fn ai_index_status(
     gaply_core::ai_engine::store::index_status(&state.db, document_id)
 }
 
+// --- Citation Intelligence, Phase 3: the generic inference engine ----------
+//
+// Generic infrastructure only. NONE of the spec's eight task prompts live here;
+// they are a later phase and consume this engine.
+
+/// Everything the UI can honestly say about the models.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiModelStatus {
+    /// Embedding engine (resident once loaded).
+    pub embedding: crate::ai::embeddings::EngineState,
+    /// Generative model lifecycle state.
+    pub generative: crate::ai::model_manager::GenState,
+    pub generative_model_id: String,
+    /// In-flight generations.
+    pub in_flight: usize,
+    /// Computed from GGUF metadata — NEVER process RSS. `None` when no
+    /// generative model resolves.
+    pub generative_ram: Option<crate::ai::generative::RamEstimate>,
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub fn ai_model_status(state: State<'_, AppState>) -> AiModelStatus {
+    AiModelStatus {
+        embedding: state.ai_embed.state(),
+        generative: state.ai_gen.state(),
+        generative_model_id: state.ai_gen.model_id(),
+        in_flight: state.ai_gen.in_flight(),
+        // Reading GGUF metadata does NOT load the model.
+        generative_ram: state.ai_gen.ram_estimate().ok(),
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AiGenerateEvent {
+    /// One incremental piece of decoded text.
+    Token { text: String },
+}
+
+/// Dev-only end-to-end proof of the generation path: prompt -> generate ->
+/// extract -> parse -> validate -> (one retry) -> typed result.
+///
+/// Registers the bundled generative model on first use (idempotent). Streams
+/// tokens over the existing Channel pattern; cancellable via ai_generate_cancel.
+#[tauri::command]
+#[tracing::instrument(skip(state, on_event))]
+pub async fn ai_generate_test(
+    state: State<'_, AppState>,
+    phrase: String,
+    on_event: tauri::ipc::Channel<AiGenerateEvent>,
+) -> Result<serde_json::Value, GaplyError> {
+    use crate::ai::task::{run_task, EchoTask, EvidenceChunk, TaskContext};
+
+    // Register on first use. Idempotent upsert, and it keeps the recorded path
+    // honest if the resolver ever picks a different file.
+    if let Some(loader) = crate::ai::generative::BundledGenerativeLoader::resolve() {
+        crate::ai::generative::register_generative(&state.db, &loader)?;
+    }
+
+    let cancel = state.ai_gen_cancel.clone();
+    cancel.store(false, std::sync::atomic::Ordering::SeqCst); // never poison the next run
+
+    let ctx = TaskContext::new(vec![EvidenceChunk {
+        chunk_id: "c1".into(),
+        page: Some(1),
+        section: Some("Results".into()),
+        text: "This is a development evidence chunk.".into(),
+    }]);
+    let task = EchoTask { phrase, evidence: ctx.render_evidence() };
+
+    let sink: std::sync::Arc<dyn Fn(&str) + Send + Sync> =
+        std::sync::Arc::new(move |t: &str| {
+            // Closed channel ignored: the user may have navigated away.
+            let _ = on_event.send(AiGenerateEvent::Token { text: t.to_string() });
+        });
+
+    let run = run_task(&*state.ai_gen, &task, &ctx, cancel, Some(sink))
+        .await
+        .map_err(GaplyError::from)?;
+
+    Ok(serde_json::json!({
+        "output": run.output,
+        "retried": run.retried,
+        "promptVersion": run.prompt_version,
+        "modelId": run.model_id,
+        "tokens": run.tokens,
+        "elapsedMs": run.elapsed_ms,
+    }))
+}
+
+#[tauri::command]
+pub fn ai_generate_cancel(state: State<'_, AppState>) {
+    state.ai_gen_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
 // --- Citation Intelligence, Phase 2: embeddings + semantic search ----------
 //
 // R4: the ONLY network operation in the AI layer is ai_model_install, and it
@@ -1100,12 +1197,6 @@ pub async fn ai_model_install(
 #[tauri::command]
 pub fn ai_model_install_cancel(state: State<'_, AppState>) {
     state.ai_install_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
-}
-
-/// What the embedding engine can honestly say about itself.
-#[tauri::command]
-pub fn ai_model_status(state: State<'_, AppState>) -> crate::ai::embeddings::EngineState {
-    state.ai_embed.state()
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

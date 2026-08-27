@@ -66,6 +66,23 @@ pub trait BackendLoader: Send + Sync {
     fn load(&self) -> Result<Arc<dyn GenerationBackend>, GaplyError>;
 }
 
+/// Stands in when no generative model resolves. Its `load` is unreachable —
+/// the manager is put in `NotInstalled`, which short-circuits before any load —
+/// but it returns an honest error rather than panicking if that ever changes.
+pub struct NullLoader;
+
+impl BackendLoader for NullLoader {
+    fn model_id(&self) -> String {
+        "none".to_string()
+    }
+    fn ram_estimate(&self) -> Result<RamEstimate, GaplyError> {
+        Err(GaplyError::NotFound { entity: "generative model", id: "none installed".into() })
+    }
+    fn load(&self) -> Result<Arc<dyn GenerationBackend>, GaplyError> {
+        Err(GaplyError::Validation("no generative model is installed".into()))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum GenState {
