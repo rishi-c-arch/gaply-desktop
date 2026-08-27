@@ -630,3 +630,39 @@ described in the task: FTS5 → top 200 candidates → cosine → top k, with a 
 when FTS returns fewer than k. Full-library brute-force cosine is acceptable at current scale and is
 recorded here as a known ceiling, not an oversight: a chunk that FTS misses cannot be recovered by
 vector similarity until §9.6 lands.
+
+### D8 — citation_need has no `<evidence>` block, so three of the four shared rules do not apply
+
+Spec §0 states four rules "apply to all 8" prompts:
+
+1. only use text inside `<evidence>`; 2. every field traceable to a `chunk_id`;
+3. abstain when the evidence is insufficient; 4. raw JSON only.
+
+**Prompt 3 has no `<evidence>` block.** Its INPUT is `preceding_sentence` / `sentence` /
+`following_sentence` / `section` — the sentence under test and its neighbours, not retrieved
+passages. Rules 1–3 are therefore inapplicable to it and are NOT injected: telling the model it may
+only use text inside a block that does not exist would be incoherent, and instructing it to echo a
+`chunk_id` it was never given is precisely the invention the rule exists to prevent.
+
+Rule 4 IS injected, and matters more here than anywhere else: §9.1 removed grammar-constrained
+decoding, so "raw JSON only" is the only instruction standing between the model and a fenced or
+prose-wrapped reply. The harness strips fences anyway, but the instruction reduces how often it has
+to.
+
+`TaskContext` is still constructed (empty) and `run_task` still runs the generic chunk-id check —
+it simply has nothing to check, and `require_known_chunk` on an empty context reports
+"given: none". The plumbing is uniform across tasks even where one task carries no evidence.
+
+The SYSTEM / INPUT / OUTPUT SCHEMA / RULES text is otherwise **verbatim from spec Prompt 3**. The
+ARCHITECTURE OVERRIDE covers runtime and decoding only; prompt text is authoritative.
+
+### D9 — evidence-bearing tasks persist, classification tasks do not
+
+`ai_evidence_cards` exists for outputs that point AT a source. citation_need produces no evidence,
+cites no chunk, and quotes nothing — it classifies one sentence. Writing it to an evidence table
+would put rows there with a NULL chunk_id and an empty quote, which is exactly the shape the
+`quote_start`/`quote_end` grounding check was built to make impossible.
+
+So this phase persists nothing: `ai_citation_need` returns its result to the caller. When a batch
+job needs durable classification results, that gets its own table with its own provenance columns,
+not a widened evidence table.
