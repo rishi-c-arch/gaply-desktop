@@ -857,3 +857,51 @@ reported column** — accuracy alone would have read as a regression caused by a
 which is the opposite of what happened.
 
 Capacity, not prompting, and it belongs to §9.9. The engine is no longer the limiting factor.
+
+### D14 — `EVIDENCE_BUDGET_TOKENS = 1200` on the dev model, not the spec's implied budget
+
+The spec's Prompt 2 sends "top_k reranked chunks from that source only" without naming a token
+figure; the working assumption elsewhere has been ~2500.
+
+**Measured reason for the smaller budget.** D12 established that this build is prefill-dominated:
+~80% of model time is one forward over the prompt, and Phase 4b measured roughly **22 ms per prompt
+token** on CPU. A 2500-token evidence block is therefore ~55 s of prefill **before a single output
+token**, on top of the prompt's own scaffolding. At 1200 the same block costs ~26 s.
+
+This is a DEV-MODEL constraint, not a judgement about how much evidence the task needs. It is the
+first place the engine has traded answer quality for latency, so it is recorded rather than
+absorbed: fewer chunks means a real chance the supporting passage is the one that got dropped, and
+`chunks_dropped` is returned in the result so that possibility is visible rather than inferred.
+
+**Raise this when Metal lands (Phase 6).** Prefill is one large matmul — exactly what GPU
+acceleration helps — so the budget should be revisited against measured prefill on the accelerated
+path, not left at a number chosen for a CPU.
+
+### D15 — empty retrieval short-circuits; it is NOT `insufficient_evidence`
+
+The spec defines `insufficient_evidence` as "retrieved chunks do not cover the claim's topic at
+all" — a judgement the model makes ABOUT evidence it was shown.
+
+When retrieval returns nothing for a document, there is no evidence to show. Sending an empty
+`<evidence>` block and asking a model to judge a claim against it invites exactly the invention this
+whole layer exists to prevent: the four shared rules tell it to use only what is inside that block,
+and there is nothing inside it.
+
+So zero chunks returns a typed `NoEvidence` outcome WITHOUT running the model. Nothing is generated,
+nothing is persisted, and the caller is told the document had no indexed evidence — which is a
+different fact from "the model read the evidence and found it off-topic", and a different fix
+(index the document vs. re-examine the claim).
+
+### D16 — page is validated against the STORE, not against what the model echoed
+
+`TaskContext::require_known_chunk` already rejects a `chunk_id` that was never sent. Prompt 2 also
+asks the model to echo a `page` per supporting chunk, which is a second thing it can get wrong while
+looking right.
+
+The page is therefore checked against the page recorded on the chunk that was actually sent, not
+merely for internal consistency. A card claiming page 8 for a chunk stored on page 12 would send a
+reader to the wrong page of a real PDF — the precise failure the `chunk_id`-echo rule exists to
+prevent, one field over. Fatal.
+
+Where the stored page is `None` — a source with no pagination — any page the model supplies is
+unverifiable, so a non-null page is rejected rather than trusted.
