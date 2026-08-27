@@ -38,6 +38,7 @@
 //! The jobs and evidence-card DAOs ship with the phases that write those
 //! tables, rather than landing now as untested speculative code.
 
+pub mod cards;
 pub mod embeddings;
 pub mod registry;
 pub mod retrieval;

@@ -166,6 +166,28 @@ pub fn chunks_on_page(
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
+/// Full chunks for specific ids, returned in the ORDER THE CALLER ASKED FOR.
+///
+/// Retrieval hands back ids ranked by relevance, and that order is what decides
+/// which chunks survive an evidence budget. Returning them in id order instead
+/// would silently drop the wrong ones.
+pub fn chunks_by_ids(db: &Database, ids: &[i64]) -> Result<Vec<StoredChunk>, GaplyError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let conn = db.conn()?;
+    let sql = format!("SELECT {COLS} FROM ai_chunks WHERE id IN ({placeholders})");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), row_to_chunk)?;
+    let mut by_id = std::collections::HashMap::new();
+    for r in rows {
+        let c = r?;
+        by_id.insert(c.id, c);
+    }
+    Ok(ids.iter().filter_map(|id| by_id.remove(id)).collect())
+}
+
 /// Summarise what is indexed for a document.
 pub fn index_status(db: &Database, document_id: i64) -> Result<IndexStatus, GaplyError> {
     let conn = db.conn()?;
