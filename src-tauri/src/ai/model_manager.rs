@@ -418,6 +418,10 @@ mod tests {
                 tokens: self.tokens,
                 stop_reason: stop,
                 elapsed_ms: 0,
+                prompt_tokens: 0,
+                prefill_ms: 0,
+                decode_ms: 0,
+                decode_tokens_per_sec: 0.0,
             })
         }
     }

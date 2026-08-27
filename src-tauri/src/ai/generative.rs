@@ -64,11 +64,24 @@ pub enum StopReason {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GenOutput {
     pub text: String,
     pub tokens: usize,
     pub stop_reason: StopReason,
     pub elapsed_ms: u64,
+    /// Tokens in the prompt after tokenization — what prefill had to chew.
+    pub prompt_tokens: usize,
+    /// PREFILL: the single forward over the whole prompt. Measured as the first
+    /// forward call, which is exactly what it is in this loop.
+    pub prefill_ms: u64,
+    /// DECODE: every subsequent single-token forward, summed.
+    pub decode_ms: u64,
+    /// Decode throughput ALONE — generated tokens / decode seconds. Reported
+    /// separately from an overall figure because the two answer different
+    /// questions: an overall rate that folds in a one-off prefill says nothing
+    /// about how fast a long reply streams.
+    pub decode_tokens_per_sec: f64,
 }
 
 /// The seam the ModelManager drives. Mockable, so the state machine,
@@ -244,6 +257,8 @@ impl GenerationBackend for QwenGenerativeBackend {
         model.clear_kv_cache();
 
         let prompt_len = ids.len();
+        let mut prefill_ms = 0u64;
+        let mut decode_ms = 0u64;
         let mut generated: Vec<u32> = Vec::with_capacity(req.max_tokens);
         let mut emitted_text = String::new();
         let mut stop_reason = StopReason::MaxTokens;
@@ -263,6 +278,15 @@ impl GenerationBackend for QwenGenerativeBackend {
             let input = Tensor::new(next_input.as_slice(), &self.device)
                 .and_then(|t| t.unsqueeze(0))
                 .map_err(|e| GaplyError::Internal(format!("input tensor: {e}")))?;
+            // step 0 IS the prefill: next_input is the whole prompt on the first
+            // pass and a single token thereafter, so timing the first forward
+            // splits the two exactly rather than approximating it.
+            // Timed span covers the WHOLE step, not just the forward: pulling a
+            // 152k-vocab logits row out of the tensor and scanning it for the
+            // argmax is real per-token cost, and excluding it made model time
+            // look 4.7x smaller than wall time. A "decode ms" that omits most of
+            // decode is worse than no number at all.
+            let step_start = std::time::Instant::now();
             let logits = model
                 .forward(&input, index_pos)
                 .map_err(|e| GaplyError::Internal(format!("forward at {step}: {e}")))?;
@@ -282,6 +306,14 @@ impl GenerationBackend for QwenGenerativeBackend {
                 .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(i, _)| i as u32)
                 .ok_or_else(|| GaplyError::Internal("empty logits row".into()))?;
+
+            // Close the step timer here: everything above is per-token work.
+            let step_ms = step_start.elapsed().as_millis() as u64;
+            if step == 0 {
+                prefill_ms = step_ms;
+            } else {
+                decode_ms += step_ms;
+            }
 
             if self.eot_ids.contains(&next) {
                 stop_reason = StopReason::EndOfTurn;
@@ -314,12 +346,19 @@ impl GenerationBackend for QwenGenerativeBackend {
             .tokenizer
             .decode(&generated, true)
             .map_err(|e| GaplyError::Internal(format!("decode: {e}")))?;
-        let _ = prompt_len;
         Ok(GenOutput {
             tokens: generated.len(),
             text,
             stop_reason,
             elapsed_ms: started.elapsed().as_millis() as u64,
+            prompt_tokens: prompt_len,
+            prefill_ms,
+            decode_ms,
+            decode_tokens_per_sec: if decode_ms == 0 {
+                0.0
+            } else {
+                generated.len() as f64 / (decode_ms as f64 / 1000.0)
+            },
         })
     }
 }

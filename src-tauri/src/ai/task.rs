@@ -148,6 +148,11 @@ pub enum TaskError {
         errors: Vec<ValidationError>,
         first_raw: String,
         retry_raw: String,
+        /// Timings for BOTH attempts. A failed run costs real time, and
+        /// excluding it from a latency average understates what the user waits
+        /// — the failures are the SLOWEST cases, so dropping them flatters the
+        /// number in exactly the wrong direction.
+        timings: RunTimings,
     },
     Generation { message: String },
     Cancelled,
@@ -181,7 +186,7 @@ pub trait AiTask {
     type Output: DeserializeOwned + Serialize;
 
     /// Versioned so every stored row can say which prompt produced it.
-    fn prompt_version() -> &'static str;
+    fn prompt_version(&self) -> &'static str;
     fn build_prompt(&self) -> String;
     fn max_tokens() -> usize;
     /// Every reason the output is unacceptable, not just the first — the retry
@@ -217,15 +222,46 @@ pub fn extract_json(raw: &str) -> Option<&str> {
     Some(&s[start..=end])
 }
 
-const RETRY_PREFIX: &str =
-    "\n\nYour previous reply was rejected. Fix EXACTLY these problems and output \
-     raw JSON only — no prose, no code fences:\n";
-
-/// Build the corrective retry prompt: the original, plus the concrete errors.
-fn retry_prompt(original: &str, errors: &[ValidationError]) -> String {
-    let listed =
-        errors.iter().map(|e| format!("- {e}")).collect::<Vec<_>>().join("\n");
-    format!("{original}{RETRY_PREFIX}{listed}\n")
+/// Build the corrective retry prompt.
+///
+/// SHAPE MATTERS, measured (plan §11 D10). The first version appended only the
+/// error lines, and ENDED on them:
+///
+/// ```text
+/// - reason: 25 words or less
+/// - severity: high|medium|low
+/// ```
+///
+/// A 0.5B continued that bullet pattern instead of returning to JSON, so a
+/// retry meant to rescue a near-miss produced no JSON at all in 5 of 8 seed
+/// cases. Three changes, all aimed at the same thing — the LAST thing the model
+/// reads must be the output contract, not a list:
+///
+/// 1. the rejected attempt is quoted back, so the task is CORRECT THIS, not
+///    "produce an answer again";
+/// 2. the errors are numbered prose, not bullets that invite continuation;
+/// 3. the suffix ends with an explicit instruction to emit only the corrected
+///    JSON object, beginning with `{`.
+///
+/// `original_attempt` is passed verbatim, including whatever malformed text the
+/// model produced — showing it its own output is the point, and sanitising it
+/// would hide the very thing being corrected.
+fn retry_prompt(original: &str, original_attempt: &str, errors: &[ValidationError]) -> String {
+    let listed = errors
+        .iter()
+        .enumerate()
+        .map(|(i, e)| format!("{}. {e}", i + 1))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "{original}\n\nYour previous reply was rejected.\n\n\
+         Your previous reply was:\n{original_attempt}\n\n\
+         It was rejected for these reasons:\n{listed}\n\n\
+         Correct the reply above so that every reason is resolved. Keep every field \
+         that was already correct.\n\
+         Output ONLY the corrected JSON object and nothing else. \
+         Begin your reply with {{\n"
+    )
 }
 
 /// Parse + validate one raw reply.
@@ -243,9 +279,20 @@ fn check<T: AiTask>(raw: &str, ctx: &TaskContext) -> Result<T::Output, Vec<Valid
     Ok(parsed)
 }
 
+/// Prompt size and the prefill/decode split, summed across attempts.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunTimings {
+    pub prompt_tokens: usize,
+    pub prefill_ms: u64,
+    pub decode_ms: u64,
+    pub tokens: usize,
+}
+
 #[derive(Debug, Serialize)]
 pub struct TaskRun<T> {
     pub output: T,
+    pub timings: RunTimings,
     /// True when the first attempt failed and the retry succeeded. Surfaced
     /// rather than hidden — a task that usually needs a retry is a prompt that
     /// needs fixing, and that is only visible if it is reported.
@@ -281,10 +328,16 @@ pub async fn run_task<T: AiTask>(
             return Ok(TaskRun {
                 output,
                 retried: false,
-                prompt_version: T::prompt_version(),
+                prompt_version: task.prompt_version(),
                 model_id: manager.model_id(),
                 tokens: first.tokens,
                 elapsed_ms: first.elapsed_ms,
+                timings: RunTimings {
+                    prompt_tokens: first.prompt_tokens,
+                    prefill_ms: first.prefill_ms,
+                    decode_ms: first.decode_ms,
+                    tokens: first.tokens,
+                },
             })
         }
         Err(errors) => errors,
@@ -294,7 +347,7 @@ pub async fn run_task<T: AiTask>(
 
     let second = manager
         .generate(
-            retry_prompt(&prompt, &first_errors),
+            retry_prompt(&prompt, &first.text, &first_errors),
             T::max_tokens(),
             cancel,
             on_token,
@@ -305,19 +358,27 @@ pub async fn run_task<T: AiTask>(
             other => TaskError::Generation { message: other.to_string() },
         })?;
 
+    let combined = RunTimings {
+        prompt_tokens: first.prompt_tokens + second.prompt_tokens,
+        prefill_ms: first.prefill_ms + second.prefill_ms,
+        decode_ms: first.decode_ms + second.decode_ms,
+        tokens: first.tokens + second.tokens,
+    };
     match check::<T>(&second.text, ctx) {
         Ok(output) => Ok(TaskRun {
             output,
             retried: true,
-            prompt_version: T::prompt_version(),
+            prompt_version: task.prompt_version(),
             model_id: manager.model_id(),
             tokens: first.tokens + second.tokens,
             elapsed_ms: first.elapsed_ms + second.elapsed_ms,
+            timings: combined,
         }),
         Err(errors) => Err(TaskError::ValidationFailed {
             errors,
             first_raw: first.text,
             retry_raw: second.text,
+            timings: combined,
         }),
     }
 }
@@ -342,7 +403,7 @@ pub struct EchoTask {
 impl AiTask for EchoTask {
     type Output = EchoOutput;
 
-    fn prompt_version() -> &'static str {
+    fn prompt_version(&self) -> &'static str {
         "echo-v1"
     }
 
@@ -485,11 +546,20 @@ mod tests {
             ValidationError { field: "echo".into(), problem: "must not be empty".into() },
             ValidationError { field: "chunk_id".into(), problem: "references chunk_id \"c9\"".into() },
         ];
-        let p = retry_prompt("ORIGINAL", &errors);
+        let p = retry_prompt("ORIGINAL", "{\"echo\":\"\"}", &errors);
         assert!(p.starts_with("ORIGINAL"), "the retry must keep the original prompt");
-        assert!(p.contains("- echo: must not be empty"), "{p}");
-        assert!(p.contains("- chunk_id: references chunk_id \"c9\""), "{p}");
-        assert!(p.contains("raw JSON only"), "{p}");
+        // the rejected attempt is quoted back, so the task is CORRECT THIS
+        assert!(p.contains("{\"echo\":\"\"}"), "the retry must show the model its own output: {p}");
+        // numbered prose, not bullets that invite continuation (§11 D10)
+        assert!(p.contains("1. echo: must not be empty"), "{p}");
+        assert!(p.contains("2. chunk_id: references chunk_id \"c9\""), "{p}");
+        assert!(!p.contains("\n- "), "bullets invite the model to continue the list: {p}");
+        // and the LAST thing it reads is the output contract
+        let tail = p.trim_end();
+        assert!(
+            tail.ends_with("Begin your reply with {"),
+            "the retry must END on the output contract, not on the error list: {tail:?}"
+        );
     }
 
     /* ---- the retry path, end to end, against a scripted mock backend ---- */
@@ -517,7 +587,16 @@ mod tests {
                 .unwrap()
                 .pop_front()
                 .unwrap_or_else(|| "SCRIPT EXHAUSTED".to_string());
-            Ok(GenOutput { tokens: 1, text, stop_reason: StopReason::EndOfTurn, elapsed_ms: 1 })
+            Ok(GenOutput {
+                tokens: 1,
+                text,
+                stop_reason: StopReason::EndOfTurn,
+                elapsed_ms: 1,
+                prompt_tokens: 0,
+                prefill_ms: 0,
+                decode_ms: 0,
+                decode_tokens_per_sec: 0.0,
+            })
         }
     }
 
@@ -606,7 +685,7 @@ mod tests {
         let err = run_task(&m, &t, &c, Arc::new(AtomicBool::new(false)), None).await.unwrap_err();
         assert_eq!(calls.load(Ordering::SeqCst), 2, "exactly ONE retry, no more");
         match err {
-            TaskError::ValidationFailed { errors, first_raw, retry_raw } => {
+            TaskError::ValidationFailed { errors, first_raw, retry_raw, .. } => {
                 assert_eq!(first_raw, "garbage one", "the first raw output was lost");
                 assert_eq!(retry_raw, "garbage two", "the retry raw output was lost");
                 assert!(!errors.is_empty());
@@ -665,6 +744,6 @@ mod tests {
         assert!(p.contains("traceable to a chunk_id"));
         assert!(p.contains("raw JSON only"));
         assert!(p.contains("[c1 | p.8 | Results]"), "evidence not in the spec's format");
-        assert_eq!(EchoTask::prompt_version(), "echo-v1");
+        assert_eq!(t.prompt_version(), "echo-v1");
     }
 }
