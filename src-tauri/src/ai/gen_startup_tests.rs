@@ -141,3 +141,76 @@ async fn echo_task_end_to_end_with_the_real_model() {
     println!("2nd call : {} ms (no reload)", second.elapsed().as_millis());
     assert!(!run2.output.echo.trim().is_empty());
 }
+
+
+/// citation_need against the REAL model on three seed cases.
+///
+/// Asserts only that each case COMPLETES — either a validated output or a clean
+/// TaskError::ValidationFailed. It does NOT assert answer correctness: the
+/// bundled 0.5B is expected to be weak, and a test that failed on a wrong answer
+/// would be measuring the model, not the engine. Measuring the model is the eval
+/// harness's job (`cargo run --bin ai-eval`).
+#[tokio::test]
+#[ignore = "needs the bundled GGUF; run with --ignored"]
+async fn citation_need_smoke_with_the_real_model() {
+    use crate::ai::task::TaskError;
+    use crate::ai::tasks::citation_need::{CitationNeedInput, CitationNeedTask};
+
+    if !gen_enabled() {
+        eprintln!("SKIP: no generative model resolves");
+        return;
+    }
+    let Some(loader) = BundledGenerativeLoader::resolve() else { return };
+    let m = ModelManager::new(Arc::new(loader));
+
+    let cases = [
+        (
+            "cn-seed-01 empirical claim / Introduction",
+            CitationNeedInput {
+                sentence: "Organic farming increases soil microbial biomass by roughly a third compared with conventional systems.".into(),
+                preceding_sentence: "Soil health has become central to debates about agricultural sustainability.".into(),
+                following_sentence: "These differences have consequences for long-term fertility.".into(),
+                section: "Introduction".into(),
+            },
+        ),
+        (
+            "cn-seed-03 author's own result / Results",
+            CitationNeedInput {
+                sentence: "We observed a 12% increase in species richness in the treatment plots (p = 0.03).".into(),
+                preceding_sentence: "Richness was compared across the three treatments.".into(),
+                following_sentence: "No comparable effect appeared in the control.".into(),
+                section: "Results".into(),
+            },
+        ),
+        (
+            "cn-seed-04 transition / Introduction",
+            CitationNeedInput {
+                sentence: "The next section turns to the methods used to collect these data.".into(),
+                preceding_sentence: "These gaps motivate the present study.".into(),
+                following_sentence: "Sampling took place over two growing seasons.".into(),
+                section: "Introduction".into(),
+            },
+        ),
+    ];
+
+    println!("\n=== citation_need SMOKE (real model, correctness NOT asserted) ===");
+    for (label, input) in cases {
+        let task = CitationNeedTask::new(input);
+        let started = std::time::Instant::now();
+        let r = run_task(&m, &task, &TaskContext::default(), Arc::new(AtomicBool::new(false)), None).await;
+        let ms = started.elapsed().as_millis();
+        match r {
+            Ok(run) => println!(
+                "  {label}\n    OK ({ms} ms, retried {}) {}",
+                run.retried,
+                serde_json::to_string(&run.output).unwrap()
+            ),
+            Err(TaskError::ValidationFailed { errors, .. }) => println!(
+                "  {label}\n    VALIDATION FAILED ({ms} ms): {}",
+                errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; ")
+            ),
+            Err(other) => panic!("{label}: the ENGINE failed, not the model: {other}"),
+        }
+    }
+    assert_eq!(m.in_flight(), 0, "a smoke case leaked its lease");
+}
