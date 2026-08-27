@@ -738,3 +738,16 @@ everything as `empirical_claim` / `high` / `needs_citation: true` regardless of 
 INPUT block order (preceding first) draws a small model's attention to the wrong sentence. Both are
 prompt-level, not engine-level, and belong to the phase that tunes citation_need against the real
 50-case set.
+
+### D11 — `AiTask::prompt_version` becomes an instance method
+
+Phase 3 declared `fn prompt_version() -> &'static str` as an associated function with no `self`,
+which assumed one prompt per task type. Comparing `citation_need-v1` against `-v2` on the same eval
+set breaks that assumption: the version is a property of the INSTANCE, not the type.
+
+The alternative — a second task struct per variant — would duplicate the schema, the validator and
+the rules text purely to carry a different string, and the two copies would drift the moment one is
+edited. One task, one validator, a variant field.
+
+Signature changes to `fn prompt_version(&self) -> &'static str`; `run_task` calls
+`task.prompt_version()`. Behaviour is unchanged for every existing caller.
