@@ -89,10 +89,16 @@ pub trait GenerationBackend: Send + Sync {
 pub struct RamEstimate {
     /// Size of the weights file on disk — what mapping it costs.
     pub weights_bytes: u64,
-    /// Worst case KV cache: the full context window.
+    /// KV cache at the CONFIGURED context, not the model's maximum.
     pub kv_cache_bytes: u64,
     pub total_bytes: u64,
+    /// The context this build actually runs at ([`TASK_N_CTX`], capped by the
+    /// model's own maximum).
     pub context_length: usize,
+    /// What the GGUF says the model could do. Reported alongside so the two are
+    /// never confused: sizing at 32768 when we run at 4096 over-reports RAM by
+    /// 8x, and sizing at 4096 while ALLOWING 32768 would under-report it.
+    pub model_max_context: usize,
     pub layers: usize,
     pub kv_heads: usize,
     pub head_dim: usize,
@@ -100,6 +106,18 @@ pub struct RamEstimate {
 
 /// KV cache entries are f32 in this runtime.
 const KV_DTYPE_BYTES: u64 = 4;
+
+/// Context window this build runs the task workload at.
+///
+/// The bundled Qwen2.5 advertises 32768, but the task prompts are a sentence
+/// plus its neighbours (citation_need) or a handful of retrieved chunks — a few
+/// hundred tokens, with max_tokens in the 120–400 range. Sizing the KV cache for
+/// 32768 reserves 768 MB to serve workloads that use a fraction of it.
+///
+/// This is a CONFIGURED CEILING, not a guess: prompts are checked against it
+/// (see `fits_context`), so the reported figure is what the engine will actually
+/// use rather than an optimistic average.
+pub const TASK_N_CTX: usize = 4096;
 
 /// Read GGUF metadata and compute the RAM estimate WITHOUT loading weights.
 ///
@@ -132,9 +150,14 @@ pub fn estimate_ram(model_gguf: &Path) -> Result<RamEstimate, GaplyError> {
     }
     let head_dim = embedding_length / heads;
 
-    // K and V, per layer, for the whole context window.
+    // Size for the context we RUN at, never the model's maximum. Capped by the
+    // model's own limit so a larger TASK_N_CTX than the model supports cannot
+    // silently over-report.
+    let effective_ctx = TASK_N_CTX.min(context_length);
+
+    // K and V, per layer, across the configured window.
     let kv_cache_bytes = 2 * layers as u64
-        * context_length as u64
+        * effective_ctx as u64
         * kv_heads as u64
         * head_dim as u64
         * KV_DTYPE_BYTES;
@@ -143,7 +166,8 @@ pub fn estimate_ram(model_gguf: &Path) -> Result<RamEstimate, GaplyError> {
         weights_bytes,
         kv_cache_bytes,
         total_bytes: weights_bytes + kv_cache_bytes,
-        context_length,
+        context_length: effective_ctx,
+        model_max_context: context_length,
         layers,
         kv_heads,
         head_dim,
@@ -200,6 +224,20 @@ impl GenerationBackend for QwenGenerativeBackend {
         let mut ids: Vec<u32> = encoding.get_ids().to_vec();
         if ids.is_empty() {
             return Err(GaplyError::Validation("empty prompt".into()));
+        }
+        // The configured ceiling is ENFORCED, not merely reported. Without this
+        // the KV figure in ai_model_status would be a floor a long prompt could
+        // silently exceed, which is the kind of number that reads as a
+        // measurement and behaves as a wish.
+        let budget = TASK_N_CTX.saturating_sub(req.max_tokens);
+        if ids.len() > budget {
+            return Err(GaplyError::Validation(format!(
+                "prompt is {} tokens; the configured context is {TASK_N_CTX} and {} are \
+                 reserved for the reply, leaving {budget}. Shorten the prompt or lower \
+                 max_tokens.",
+                ids.len(),
+                req.max_tokens
+            )));
         }
 
         // Fresh sequence: never inherit KV state from a previous generation.

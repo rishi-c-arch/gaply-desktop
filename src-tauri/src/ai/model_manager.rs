@@ -440,6 +440,7 @@ mod tests {
                 kv_cache_bytes: 500,
                 total_bytes: 1500,
                 context_length: 8,
+                model_max_context: 8,
                 layers: 2,
                 kv_heads: 1,
                 head_dim: 4,

@@ -466,6 +466,31 @@ an additional argument for the split in §3.
    Swapping the production model must be a registry change plus a download, never a code change in
    the engine.
 
+10. **Task context is `TASK_N_CTX = 4096`, not the GGUF maximum. RESOLVED (2026-08-27).**
+   The bundled Qwen2.5 advertises 32768, and Phase 3 sized the KV cache from that figure. The task
+   workload does not need it: citation_need is a sentence plus its two neighbours and a section
+   name, with `max_tokens: 200`; the retrieval-fed tasks are a handful of chunks. Sizing for 32768
+   reserved 768 MB to serve workloads using a fraction of it.
+
+   **Measured, bundled Qwen2.5-0.5B-Instruct-Q4_K_M:**
+
+   | | n_ctx 32768 (before) | **n_ctx 4096 (after)** |
+   |---|---|---|
+   | weights | 379 MB | 379 MB |
+   | KV cache | 768 MB | **96 MB** |
+   | **total** | **1147 MB** | **475 MB** |
+
+   672 MB back, and the figure now describes what the engine actually does. It is a CONFIGURED
+   CEILING, not an average: `generate` rejects a prompt that would not fit alongside `max_tokens`,
+   with an error naming the budget. Without that enforcement the reported number would be a floor a
+   long prompt could silently exceed — a number that reads as a measurement and behaves as a wish.
+   `RamEstimate` reports `model_max_context` alongside `context_length` so the configured and
+   maximum values can never be mistaken for one another, and the configured value is capped by the
+   model's own limit so a larger `TASK_N_CTX` cannot over-report.
+
+   Revisit if a task genuinely needs a longer window — it is one constant, and the reported RAM
+   follows it automatically.
+
 ### Still open
 
 6. **Promote retrieval to an FTS ∪ vector union** — parallel gateways into one candidate pool,

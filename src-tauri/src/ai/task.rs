@@ -537,6 +537,7 @@ mod tests {
                 kv_cache_bytes: 1,
                 total_bytes: 2,
                 context_length: 1,
+                model_max_context: 1,
                 layers: 1,
                 kv_heads: 1,
                 head_dim: 1,
