@@ -19,6 +19,7 @@
 pub mod embeddings;
 pub mod generative;
 pub mod model_manager;
+pub mod task;
 pub mod model_install;
 
 #[cfg(test)]
