@@ -1,0 +1,180 @@
+{
+  "task": "citation_need",
+  "modelId": "qwen2.5-0.5b-instruct-q4km",
+  "promptVersion": "citation_need-v1",
+  "nCtx": 4096,
+  "date": "final-v1",
+  "casesFile": "evals/citation_need.jsonl",
+  "totalCases": 8,
+  "needsCitationAccuracy": 0.6666666666666666,
+  "sentenceTypeAgreement": 0.3333333333333333,
+  "severityAgreement": 0.3333333333333333,
+  "validationFailureRate": 0.625,
+  "retryRate": 0.625,
+  "meanLatencyMs": 14126.375,
+  "tokensPerSecond": 5.433099432798578,
+  "meanPromptTokens": 682.125,
+  "meanPrefillMs": 11709.25,
+  "meanDecodeMs": 2234.25,
+  "prefillShare": 0.8397640477641912,
+  "meanDecodeTokensPerSec": 34.76561537929219,
+  "answerDistribution": {
+    "needsCitationTrue": 3,
+    "sentenceType": {
+      "empirical_claim": 3
+    },
+    "severity": {
+      "high": 3
+    },
+    "validOutputs": 3
+  },
+  "results": [
+    {
+      "id": "cn-seed-01",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The preceding sentence is an empirical claim about soil health and its relevance to agricultural sustainability.\",\"search_query\":\"soil health, agricultural sustainability, empirical claim\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The preceding sentence is an empirical claim about soil health and its relevance to agricultural sustainability.",
+          "search_query": "soil health, agricultural sustainability, empirical claim",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 11870,
+      "tokens": 65,
+      "promptTokens": 372,
+      "prefillMs": 8371,
+      "decodeMs": 2331,
+      "decodeTokensPerSec": 27.885027885027885
+    },
+    {
+      "id": "cn-seed-02",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"The preceding sentence is an empirical claim about land degradation and its distribution.\",\n  \"search_query\": \"land degradation, distribution\"\n}\n--- retry ---\n  \"...\"\n}.",
+      "retried": true,
+      "elapsedMs": 19497,
+      "tokens": 61,
+      "promptTokens": 877,
+      "prefillMs": 17139,
+      "decodeMs": 2323,
+      "decodeTokensPerSec": 26.259147653895823
+    },
+    {
+      "id": "cn-seed-03",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"Richness is compared across the three treatments, and the results are presented.\",\n  \"search_query\": \"Richness comparison across treatments\"\n}\n--- retry ---\n  \"...\"\n}.",
+      "retried": true,
+      "elapsedMs": 15020,
+      "tokens": 63,
+      "promptTokens": 879,
+      "prefillMs": 13352,
+      "decodeMs": 1631,
+      "decodeTokensPerSec": 38.62660944206009
+    },
+    {
+      "id": "cn-seed-04",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"The preceding sentence is an empirical claim about the world, and the following sentence is a continuation of the same claim.\",\n  \"search_query\": \"empirical claim\"\n}\n--- retry ---\n  \"...\"\n}.",
+      "retried": true,
+      "elapsedMs": 15076,
+      "tokens": 69,
+      "promptTokens": 861,
+      "prefillMs": 13303,
+      "decodeMs": 1738,
+      "decodeTokensPerSec": 39.70080552359033
+    },
+    {
+      "id": "cn-seed-05",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The preceding sentence is an empirical claim about the field's terminology.\",\"search_query\":\"Terminology in this field remains contested\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "definition",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The preceding sentence is an empirical claim about the field's terminology.",
+          "search_query": "Terminology in this field remains contested",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 7436,
+      "tokens": 60,
+      "promptTokens": 365,
+      "prefillMs": 5818,
+      "decodeMs": 1585,
+      "decodeTokensPerSec": 37.85488958990536
+    },
+    {
+      "id": "cn-seed-06",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"The preceding sentence is an empirical claim about the world, and the following sentence is a continuation of the same idea.\",\n  \"search_query\": \"literature review\"\n}\n--- retry ---\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"The preceding sentence is an empirical claim about the world, and the following sentence is a continuation of the same idea.\",\n  \"search_query\": \"literature review\"\n}.",
+      "retried": true,
+      "elapsedMs": 18536,
+      "tokens": 129,
+      "promptTokens": 891,
+      "prefillMs": 14841,
+      "decodeMs": 3628,
+      "decodeTokensPerSec": 35.55678059536935
+    },
+    {
+      "id": "cn-seed-07",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"The experimental design controlled for shading.\",\n  \"search_query\": \"shading controlled for\"\n}\n--- retry ---\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"The experimental design controlled for shading.\",\n  \"search_query\": \"shading controlled for\"\n}, followed by nothing else.",
+      "retried": true,
+      "elapsedMs": 17422,
+      "tokens": 104,
+      "promptTokens": 840,
+      "prefillMs": 14453,
+      "decodeMs": 2915,
+      "decodeTokensPerSec": 35.677530017152655
+    },
+    {
+      "id": "cn-seed-08",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The preceding sentence is an empirical claim about the mechanism behind the observed increase.\",\"search_query\":\"mechanism behind the observed increase remains unclear\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "hedged_speculation",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The preceding sentence is an empirical claim about the mechanism behind the observed increase.",
+          "search_query": "mechanism behind the observed increase remains unclear",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 8154,
+      "tokens": 63,
+      "promptTokens": 372,
+      "prefillMs": 6397,
+      "decodeMs": 1723,
+      "decodeTokensPerSec": 36.56413232733604
+    }
+  ]
+}
