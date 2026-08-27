@@ -4,11 +4,11 @@
 **Grounded in:** the repo at `bcae851`, read directly — `src-tauri/src/`, `src-tauri/gaply-core/src/`,
 `gaply-core/src/migrations.rs`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`.
 
-> **`docs/AI_ENGINE_SPEC.md` does not exist in this repository.** No file of that name is present
-> anywhere in the tree. This plan is therefore grounded in the codebase plus the requirements given
-> in the task itself. Wherever the task's requirements contradict what the code actually does, the
-> code wins and the contradiction is called out in §9 as an open decision. If the spec exists
-> elsewhere, this plan must be re-checked against it before any code is written.
+> **`docs/AI_ENGINE_SPEC.md` is in-repo and authoritative for the task layer** (§9.7). Where the
+> spec's wording predates a resolved architecture decision — its llama.cpp/GGUF runtime line and its
+> GBNF grammar requirement — §9 supersedes it, and an ARCHITECTURE OVERRIDE note at the head of the
+> spec says so in the spec itself. Everything else in the spec stands: the eight task prompts, their
+> schemas, the evidence rules, the abstention behaviour and the provenance requirements.
 
 ---
 
@@ -450,6 +450,21 @@ an additional argument for the split in §3.
    The `embeddings` vec0 table and the plagiarism lane are untouched. The AI layer reads and writes
    ONLY `ai_chunk_embeddings`, keyed by `model_id` — two embedding spaces are never mixed, and the
    existing RAG path keeps working exactly as it does today.
+
+8. **Phase 3's development/test generative model = the ALREADY-BUNDLED
+   Qwen2.5-0.5B-Instruct-Q4_K_M. RESOLVED (2026-08-27).** It ships in `tauri.conf.json`
+   `bundle.resources` (`bundled-models/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf` →
+   `models/stage1-lm/…`, 397,808,192 bytes) with the shared Qwen2.5 tokenizer at
+   `models/slm1-adapter/tokenizer.json`. Registering it in `ai_model_registry` as
+   `kind='generative'` therefore requires **no network and no download** — it is already on disk,
+   which is what makes it the right choice for building and testing the engine.
+9. **The PRODUCTION generative model for the task layer is OPEN.** A larger Qwen-class model,
+   downloaded on demand exactly like the embedding model, decided with eval data in the task phase.
+   **The engine built in Phase 3 must therefore be model-file-agnostic: nothing may hard-code the
+   0.5B path outside the registry.** The 0.5B is resolved through the existing
+   `models::stage1_lm_paths()` and recorded as a registry row; every consumer reads the registry.
+   Swapping the production model must be a registry change plus a download, never a code change in
+   the engine.
 
 ### Still open
 
