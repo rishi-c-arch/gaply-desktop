@@ -68,6 +68,10 @@ struct CaseResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     scored: Option<serde_json::Value>,
     retried: bool,
+    /// Style/length deviations the output was accepted WITH. Reported, never
+    /// dropped — that is what separates this from a silent repair.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    advisories: Vec<String>,
     elapsed_ms: u64,
     tokens: usize,
     /// Latency breakdown (item 3): prefill is the single forward over the whole
@@ -112,6 +116,8 @@ struct Report {
     /// Of ALL cases. This is the headline number for a weak model.
     validation_failure_rate: f64,
     retry_rate: f64,
+    /// Share of ALL cases accepted with at least one advisory.
+    advisory_rate: f64,
     mean_latency_ms: f64,
     tokens_per_second: f64,
     /// Aggregate latency split across every case.
@@ -242,6 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     raw: Some(serde_json::to_string(&run.output)?),
                     scored: Some(scored),
                     retried: run.retried,
+                    advisories: run.advisories.iter().map(|a| a.to_string()).collect(),
                     elapsed_ms,
                     tokens: run.tokens,
                     prompt_tokens: run.timings.prompt_tokens,
@@ -254,17 +261,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                 }
             }
-            Err(TaskError::ValidationFailed { errors, first_raw, retry_raw, timings }) => {
-                println!("  FAIL {}  {:>5}ms  validation: {}", case.id, elapsed_ms,
+            Err(TaskError::ValidationFailed { errors, primary, first_raw, retry_raw, timings }) => {
+                println!("  FAIL {}  {:>5}ms  fatal ({primary:?} attempt kept): {}", case.id, elapsed_ms,
                     errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; "));
                 CaseResult {
                     id: case.id.clone(),
                     outcome: Outcome::ValidationFailed,
                     // BOTH raw outputs — the report must show what the model
                     // actually said, not a summary of why it was rejected.
-                    raw: Some(format!("--- attempt 1 ---\n{first_raw}\n--- retry ---\n{retry_raw}")),
+                    raw: Some(format!(
+                        "--- attempt 1 ---\n{first_raw}\n--- retry ---\n{retry_raw}\n--- primary: {primary:?} ---"
+                    )),
                     scored: None,
                     retried: true,
+                    advisories: Vec::new(),
                     elapsed_ms,
                     // A failed run costs real model time — and the failures are
                     // the SLOWEST cases, so zeroing them would flatter every
@@ -288,6 +298,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     raw: Some(e.to_string()),
                     scored: None,
                     retried: false,
+                    advisories: Vec::new(),
                     elapsed_ms,
                     tokens: 0,
                     prompt_tokens: 0,
@@ -320,6 +331,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let validation_failure_rate =
         results.iter().filter(|r| r.outcome == Outcome::ValidationFailed).count() as f64 / total;
     let retry_rate = results.iter().filter(|r| r.retried).count() as f64 / total;
+    let advisory_rate =
+        results.iter().filter(|r| !r.advisories.is_empty()).count() as f64 / total;
     let sum = |f: fn(&CaseResult) -> f64| results.iter().map(f).sum::<f64>();
     let total_prefill = sum(|r| r.prefill_ms as f64);
     let total_decode = sum(|r| r.decode_ms as f64);
@@ -372,6 +385,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         severity_agreement,
         validation_failure_rate,
         retry_rate,
+        advisory_rate,
         mean_latency_ms: total_ms as f64 / total,
         mean_prompt_tokens,
         mean_prefill_ms,
@@ -395,6 +409,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("severity agreement      : {}", pct(report.severity_agreement));
     println!("validation failure rate : {:.0}%", report.validation_failure_rate * 100.0);
     println!("retry rate              : {:.0}%", report.retry_rate * 100.0);
+    println!("advisory rate           : {:.0}%", report.advisory_rate * 100.0);
     println!("mean latency            : {:.0} ms", report.mean_latency_ms);
     println!("tokens/sec (overall)    : {:.1}", report.tokens_per_second);
     println!();

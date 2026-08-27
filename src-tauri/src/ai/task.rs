@@ -101,9 +101,9 @@ impl TaskContext {
         if self.chunks.contains_key(chunk_id) {
             return Ok(());
         }
-        Err(ValidationError {
-            field: field.to_string(),
-            problem: format!(
+        Err(ValidationError::fatal(
+            field.to_string(),
+            format!(
                 "references chunk_id {chunk_id:?}, which was not in the evidence provided \
                  (given: {})",
                 if self.chunks.is_empty() {
@@ -112,7 +112,7 @@ impl TaskContext {
                     self.chunk_ids().join(", ")
                 }
             ),
-        })
+        ))
     }
 
     /// The `<evidence>` block, in the spec's format.
@@ -123,19 +123,66 @@ impl TaskContext {
     }
 }
 
-/// A concrete, quotable reason an output was rejected. Concrete because the
-/// retry prompt names these back to the model — "invalid output" teaches it
-/// nothing.
+/// How much a deviation costs (plan §9.11).
+///
+/// The distinction is NOT how confident the validator is — it is what a wrong
+/// answer does to the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Tier {
+    /// Grounding and safety: an invented chunk id, a page that does not match,
+    /// a reference-shaped query, a schema violation, two fields that contradict
+    /// each other. These make an output actively MISLEADING, so they earn a
+    /// retry and then a hard failure.
+    Fatal,
+    /// Style and length. These make an output UNTIDY. The output is accepted
+    /// and the deviation travels with it — discarding a correct classification
+    /// because its rationale ran to 27 words was the engine preferring nothing
+    /// over something slightly long.
+    Advisory,
+}
+
+/// A concrete, quotable reason an output was rejected or flagged. Concrete
+/// because the retry prompt names these back to the model — "invalid output"
+/// teaches it nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ValidationError {
     pub field: String,
     pub problem: String,
+    pub tier: Tier,
+}
+
+impl ValidationError {
+    /// Grounding/safety: retry, then fail.
+    pub fn fatal(field: impl Into<String>, problem: impl Into<String>) -> Self {
+        Self { field: field.into(), problem: problem.into(), tier: Tier::Fatal }
+    }
+    /// Style/length: accepted, reported, never silently dropped.
+    pub fn advisory(field: impl Into<String>, problem: impl Into<String>) -> Self {
+        Self { field: field.into(), problem: problem.into(), tier: Tier::Advisory }
+    }
+    pub fn is_fatal(&self) -> bool {
+        self.tier == Tier::Fatal
+    }
+}
+
+/// Split a validator's output into the two tiers.
+fn partition(errors: Vec<ValidationError>) -> (Vec<ValidationError>, Vec<ValidationError>) {
+    errors.into_iter().partition(|e| e.is_fatal())
 }
 
 impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.field, self.problem)
     }
+}
+
+/// Which generation an error refers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Attempt {
+    First,
+    Retry,
 }
 
 /// Why a task failed, with everything needed to diagnose it.
@@ -145,7 +192,13 @@ pub enum TaskError {
     /// Both attempts failed. Carries BOTH raw outputs — never a summary,
     /// because the raw text is the only evidence of what actually happened.
     ValidationFailed {
+        /// The PRIMARY attempt's fatal errors — see `primary`.
         errors: Vec<ValidationError>,
+        /// Which attempt these errors describe. When the retry came back worse
+        /// (unparseable where the first parsed, or more fatal errors), the
+        /// FIRST attempt is primary: the engine stops throwing away the better
+        /// of two bad answers. It is still a failure; the caller decides.
+        primary: Attempt,
         first_raw: String,
         retry_raw: String,
         /// Timings for BOTH attempts. A failed run costs real time, and
@@ -264,21 +317,6 @@ fn retry_prompt(original: &str, original_attempt: &str, errors: &[ValidationErro
     )
 }
 
-/// Parse + validate one raw reply.
-fn check<T: AiTask>(raw: &str, ctx: &TaskContext) -> Result<T::Output, Vec<ValidationError>> {
-    let Some(json) = extract_json(raw) else {
-        return Err(vec![ValidationError {
-            field: "<output>".into(),
-            problem: "no JSON object or array found in the reply".into(),
-        }]);
-    };
-    let parsed: T::Output = serde_json::from_str(json).map_err(|e| {
-        vec![ValidationError { field: "<output>".into(), problem: format!("not valid JSON: {e}") }]
-    })?;
-    T::validate(&parsed, ctx)?;
-    Ok(parsed)
-}
-
 /// Prompt size and the prefill/decode split, summed across attempts.
 #[derive(Debug, Clone, Copy, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -289,9 +327,69 @@ pub struct RunTimings {
     pub tokens: usize,
 }
 
+/// What one attempt produced.
+struct Attempted<O> {
+    /// `None` when the reply could not be parsed at all.
+    output: Option<O>,
+    fatal: Vec<ValidationError>,
+    advisory: Vec<ValidationError>,
+}
+
+impl<O> Attempted<O> {
+    /// Is this attempt strictly worse than `other`?
+    ///
+    /// Two orderings, in priority: an unparseable reply is worse than a
+    /// parseable one, and among parseable replies more fatal errors is worse.
+    /// Advisories deliberately do not enter the comparison — they never block
+    /// acceptance, so they cannot make one attempt preferable to another.
+    fn is_worse_than(&self, other: &Self) -> bool {
+        match (self.output.is_some(), other.output.is_some()) {
+            (false, true) => true,
+            (true, false) => false,
+            _ => self.fatal.len() > other.fatal.len(),
+        }
+    }
+}
+
+/// Parse + validate one raw reply, keeping the tiers apart.
+fn check<T: AiTask>(raw: &str, ctx: &TaskContext) -> Attempted<T::Output> {
+    let Some(json) = extract_json(raw) else {
+        return Attempted {
+            output: None,
+            fatal: vec![ValidationError::fatal(
+                "<output>",
+                "no JSON object or array found in the reply",
+            )],
+            advisory: Vec::new(),
+        };
+    };
+    let parsed: T::Output = match serde_json::from_str(json) {
+        Ok(p) => p,
+        Err(e) => {
+            return Attempted {
+                output: None,
+                fatal: vec![ValidationError::fatal(
+                    "<output>",
+                    format!("not valid JSON: {e}"),
+                )],
+                advisory: Vec::new(),
+            }
+        }
+    };
+    let (fatal, advisory) = match T::validate(&parsed, ctx) {
+        Ok(()) => (Vec::new(), Vec::new()),
+        Err(errors) => partition(errors),
+    };
+    Attempted { output: Some(parsed), fatal, advisory }
+}
+
 #[derive(Debug, Serialize)]
 pub struct TaskRun<T> {
     pub output: T,
+    /// Style/length deviations the output was ACCEPTED with. Never dropped:
+    /// these are returned to the caller and belong in `provenance_json` on
+    /// persistence, so a stored row can always say how it deviated.
+    pub advisories: Vec<ValidationError>,
     pub timings: RunTimings,
     /// True when the first attempt failed and the retry succeeded. Surfaced
     /// rather than hidden — a task that usually needs a retry is a prompt that
@@ -323,31 +421,43 @@ pub async fn run_task<T: AiTask>(
             other => TaskError::Generation { message: other.to_string() },
         })?;
 
-    let first_errors = match check::<T>(&first.text, ctx) {
-        Ok(output) => {
+    let a1 = check::<T>(&first.text, ctx);
+    let t1 = RunTimings {
+        prompt_tokens: first.prompt_tokens,
+        prefill_ms: first.prefill_ms,
+        decode_ms: first.decode_ms,
+        tokens: first.tokens,
+    };
+
+    // ADVISORY-ONLY IS ACCEPTED. No retry: a rationale two words long or a
+    // four-word query is untidy, not misleading, and the retry has been
+    // measured to destroy otherwise-good answers (plan §9.11, D10).
+    if a1.fatal.is_empty() {
+        if let Some(output) = a1.output {
+            if !a1.advisory.is_empty() {
+                tracing::debug!(advisories = ?a1.advisory, "accepted with advisories");
+            }
             return Ok(TaskRun {
                 output,
+                advisories: a1.advisory,
                 retried: false,
                 prompt_version: task.prompt_version(),
                 model_id: manager.model_id(),
                 tokens: first.tokens,
                 elapsed_ms: first.elapsed_ms,
-                timings: RunTimings {
-                    prompt_tokens: first.prompt_tokens,
-                    prefill_ms: first.prefill_ms,
-                    decode_ms: first.decode_ms,
-                    tokens: first.tokens,
-                },
-            })
+                timings: t1,
+            });
         }
-        Err(errors) => errors,
-    };
+    }
 
-    tracing::debug!(errors = ?first_errors, "task output rejected; retrying once");
+    tracing::debug!(errors = ?a1.fatal, "fatal validation errors; retrying once");
 
+    // Only the FATAL errors go into the corrective prompt. Asking the model to
+    // fix advisories it was already forgiven would spend a whole generation on
+    // tidiness and risk losing the answer.
     let second = manager
         .generate(
-            retry_prompt(&prompt, &first.text, &first_errors),
+            retry_prompt(&prompt, &first.text, &a1.fatal),
             T::max_tokens(),
             cancel,
             on_token,
@@ -358,29 +468,45 @@ pub async fn run_task<T: AiTask>(
             other => TaskError::Generation { message: other.to_string() },
         })?;
 
+    let a2 = check::<T>(&second.text, ctx);
     let combined = RunTimings {
-        prompt_tokens: first.prompt_tokens + second.prompt_tokens,
-        prefill_ms: first.prefill_ms + second.prefill_ms,
-        decode_ms: first.decode_ms + second.decode_ms,
-        tokens: first.tokens + second.tokens,
+        prompt_tokens: t1.prompt_tokens + second.prompt_tokens,
+        prefill_ms: t1.prefill_ms + second.prefill_ms,
+        decode_ms: t1.decode_ms + second.decode_ms,
+        tokens: t1.tokens + second.tokens,
     };
-    match check::<T>(&second.text, ctx) {
-        Ok(output) => Ok(TaskRun {
-            output,
-            retried: true,
-            prompt_version: task.prompt_version(),
-            model_id: manager.model_id(),
-            tokens: first.tokens + second.tokens,
-            elapsed_ms: first.elapsed_ms + second.elapsed_ms,
-            timings: combined,
-        }),
-        Err(errors) => Err(TaskError::ValidationFailed {
-            errors,
-            first_raw: first.text,
-            retry_raw: second.text,
-            timings: combined,
-        }),
+
+    if a2.fatal.is_empty() {
+        if let Some(output) = a2.output {
+            return Ok(TaskRun {
+                output,
+                advisories: a2.advisory,
+                retried: true,
+                prompt_version: task.prompt_version(),
+                model_id: manager.model_id(),
+                tokens: combined.tokens,
+                elapsed_ms: first.elapsed_ms + second.elapsed_ms,
+                timings: combined,
+            });
+        }
     }
+
+    // KEEP-BETTER-ATTEMPT. Both failed; report whichever is less bad as the
+    // primary artifact, with ITS errors. Nothing is repaired and this is still
+    // an error — the engine just stops discarding the better of two bad answers.
+    let retry_is_worse = a2.is_worse_than(&a1);
+    let (primary, errors) = if retry_is_worse {
+        (Attempt::First, a1.fatal)
+    } else {
+        (Attempt::Retry, a2.fatal)
+    };
+    Err(TaskError::ValidationFailed {
+        errors,
+        primary,
+        first_raw: first.text,
+        retry_raw: second.text,
+        timings: combined,
+    })
 }
 
 /* ------------------------------- EchoTask -------------------------------- *
@@ -437,10 +563,7 @@ impl AiTask for EchoTask {
     fn validate(out: &EchoOutput, ctx: &TaskContext) -> Result<(), Vec<ValidationError>> {
         let mut errors = Vec::new();
         if out.echo.trim().is_empty() {
-            errors.push(ValidationError {
-                field: "echo".into(),
-                problem: "must not be empty".into(),
-            });
+            errors.push(ValidationError::fatal("echo", "must not be empty"));
         }
         // The generic rule: a referenced chunk must have been provided.
         if let Some(id) = &out.chunk_id {
@@ -543,8 +666,8 @@ mod tests {
     #[test]
     fn the_retry_prompt_names_the_concrete_errors() {
         let errors = vec![
-            ValidationError { field: "echo".into(), problem: "must not be empty".into() },
-            ValidationError { field: "chunk_id".into(), problem: "references chunk_id \"c9\"".into() },
+            ValidationError::fatal("echo", "must not be empty"),
+            ValidationError::fatal("chunk_id", "references chunk_id \"c9\""),
         ];
         let p = retry_prompt("ORIGINAL", "{\"echo\":\"\"}", &errors);
         assert!(p.starts_with("ORIGINAL"), "the retry must keep the original prompt");
@@ -723,6 +846,166 @@ mod tests {
         assert!(!run.retried, "a code fence should be stripped, not retried");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(run.output.chunk_id, None);
+    }
+
+    /* ---------------- two-tier validation (plan §9.11) -------------------- */
+
+    /// A task whose validator emits whichever tiers the test asks for.
+    struct TieredTask {
+        fatal: bool,
+        advisory: bool,
+    }
+
+    #[derive(Debug, serde::Deserialize, Serialize)]
+    struct TieredOut {
+        ok: bool,
+    }
+
+    impl AiTask for TieredTask {
+        type Output = TieredOut;
+        fn prompt_version(&self) -> &'static str {
+            "tiered-v1"
+        }
+        fn max_tokens() -> usize {
+            32
+        }
+        fn build_prompt(&self) -> String {
+            "P".into()
+        }
+        fn validate(_out: &TieredOut, _ctx: &TaskContext) -> Result<(), Vec<ValidationError>> {
+            // Reads the flags off a thread-local set by each test, so one task
+            // type can exercise every tier combination.
+            TIER_FLAGS.with(|f| {
+                let (fatal, advisory) = *f.borrow();
+                let mut errs = Vec::new();
+                if fatal {
+                    errs.push(ValidationError::fatal("f", "a grounding problem"));
+                }
+                if advisory {
+                    errs.push(ValidationError::advisory("a", "is 27 words; the limit is 25"));
+                }
+                if errs.is_empty() {
+                    Ok(())
+                } else {
+                    Err(errs)
+                }
+            })
+        }
+    }
+
+    thread_local! {
+        static TIER_FLAGS: std::cell::RefCell<(bool, bool)> =
+            const { std::cell::RefCell::new((false, false)) };
+    }
+
+    fn tiered(fatal: bool, advisory: bool) -> TieredTask {
+        TIER_FLAGS.with(|f| *f.borrow_mut() = (fatal, advisory));
+        TieredTask { fatal, advisory }
+    }
+
+    #[tokio::test]
+    async fn advisory_only_output_is_accepted_with_the_advisories_attached() {
+        let (m, _p, calls) = scripted(&[r#"{"ok":true}"#]);
+        let t = tiered(false, true);
+        let run = run_task(&m, &t, &TaskContext::default(), Arc::new(AtomicBool::new(false)), None)
+            .await
+            .expect("advisory-only must be ACCEPTED, not retried");
+        assert!(!run.retried, "an advisory triggered a retry");
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "an advisory cost a second generation");
+        assert_eq!(run.advisories.len(), 1, "the advisory was dropped: {:?}", run.advisories);
+        assert_eq!(run.advisories[0].tier, Tier::Advisory);
+        assert!(run.advisories[0].problem.contains("27 words"));
+        // NOT a silent repair: the output is passed through untouched.
+        assert!(run.output.ok);
+    }
+
+    #[tokio::test]
+    async fn a_clean_output_carries_no_advisories() {
+        let (m, _p, _c) = scripted(&[r#"{"ok":true}"#]);
+        let t = tiered(false, false);
+        let run = run_task(&m, &t, &TaskContext::default(), Arc::new(AtomicBool::new(false)), None)
+            .await
+            .unwrap();
+        assert!(run.advisories.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_fatal_error_still_retries_then_fails() {
+        let (m, _p, calls) = scripted(&[r#"{"ok":true}"#, r#"{"ok":true}"#]);
+        let t = tiered(true, false);
+        let err = run_task(&m, &t, &TaskContext::default(), Arc::new(AtomicBool::new(false)), None)
+            .await
+            .unwrap_err();
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "a fatal error must still earn exactly one retry");
+        assert!(matches!(err, TaskError::ValidationFailed { .. }), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn a_mixed_output_treats_the_fatal_as_fatal() {
+        // An advisory must never soften a grounding failure.
+        let (m, _p, calls) = scripted(&[r#"{"ok":true}"#, r#"{"ok":true}"#]);
+        let t = tiered(true, true);
+        let err = run_task(&m, &t, &TaskContext::default(), Arc::new(AtomicBool::new(false)), None)
+            .await
+            .unwrap_err();
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "the fatal half did not trigger the retry");
+        match err {
+            TaskError::ValidationFailed { errors, .. } => {
+                assert!(errors.iter().all(|e| e.is_fatal()), "advisories leaked into the failure");
+                assert_eq!(errors.len(), 1);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn keep_better_attempt_reports_attempt_one_when_the_retry_is_unparseable() {
+        // Attempt 1 parses but has a fatal error; the retry is garbage. The
+        // FIRST attempt is the better artifact and must be the one reported.
+        let (m, _p, _c) = scripted(&[r#"{"ok":true}"#, "not json at all"]);
+        let t = tiered(true, false);
+        let err = run_task(&m, &t, &TaskContext::default(), Arc::new(AtomicBool::new(false)), None)
+            .await
+            .unwrap_err();
+        match err {
+            TaskError::ValidationFailed { primary, errors, first_raw, retry_raw, .. } => {
+                assert_eq!(primary, Attempt::First, "the worse retry was reported as primary");
+                // ITS errors, not the retry's parse error.
+                assert_eq!(errors.len(), 1);
+                assert_eq!(errors[0].field, "f");
+                assert!(!errors.iter().any(|e| e.problem.contains("no JSON")));
+                // both raws are still carried
+                assert_eq!(first_raw, r#"{"ok":true}"#);
+                assert_eq!(retry_raw, "not json at all");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn keep_better_attempt_prefers_the_retry_when_it_is_not_worse() {
+        // Both attempts fail identically; there is no reason to prefer the
+        // stale one, so the retry stays primary.
+        let (m, _p, _c) = scripted(&["not json", "also not json"]);
+        let t = tiered(true, false);
+        let err = run_task(&m, &t, &TaskContext::default(), Arc::new(AtomicBool::new(false)), None)
+            .await
+            .unwrap_err();
+        match err {
+            TaskError::ValidationFailed { primary, .. } => assert_eq!(primary, Attempt::Retry),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_retry_that_fixes_the_fatal_error_succeeds_and_reports_retried() {
+        let (m, _p, calls) = scripted(&["not json", r#"{"ok":true}"#]);
+        let t = tiered(false, false);
+        let run = run_task(&m, &t, &TaskContext::default(), Arc::new(AtomicBool::new(false)), None)
+            .await
+            .unwrap();
+        assert!(run.retried);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]

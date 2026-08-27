@@ -222,6 +222,31 @@ impl CitationNeedTask {
     }
 }
 
+/* ------------------- how this task maps spec rules to tiers ---------------- *
+ * Enumerated here, beside the validator, so the mapping is reviewable rather
+ * than buried in control flow (plan §9.11). THE SPEC'S PROMPT TEXT IS UNCHANGED
+ * — the model is still asked for every rule with equal force. What these decide
+ * is only what the ENGINE does when the model misses.
+ *
+ * The test `every_rule_has_a_declared_tier` keeps these lists honest against
+ * the validator's actual behaviour. */
+
+/// Violations that make an output actively MISLEADING. One retry, then failure.
+pub const FATAL_RULES: &[&str] = &[
+    "sentence_type outside the ten spec values (rejected by serde at parse time)",
+    "severity outside high|medium|low (rejected by serde at parse time)",
+    "reason empty — a required field with no content",
+    "search_query present when needs_citation is false (fields contradict)",
+    "search_query absent when needs_citation is true (fields contradict)",
+    "search_query shaped like a reference: parenthesised year, 'et al', DOI, or URL",
+];
+
+/// Violations that make an output UNTIDY. Accepted; reported as advisories.
+pub const ADVISORY_RULES: &[&str] = &[
+    "reason longer than 25 words",
+    "search_query outside the 6-12 word range",
+];
+
 impl AiTask for CitationNeedTask {
     type Output = CitationNeedOutput;
 
@@ -249,40 +274,46 @@ impl AiTask for CitationNeedTask {
 
         let reason_words = out.reason.split_whitespace().count();
         if reason_words > MAX_REASON_WORDS {
-            errors.push(ValidationError {
-                field: "reason".into(),
-                problem: format!("is {reason_words} words; the limit is {MAX_REASON_WORDS}"),
-            });
+            // ADVISORY: a rationale two words over the limit is untidy, not
+            // misleading. The classification it explains is unaffected.
+            errors.push(ValidationError::advisory(
+                "reason",
+                format!("is {reason_words} words; the limit is {MAX_REASON_WORDS}"),
+            ));
         }
         if out.reason.trim().is_empty() {
-            errors.push(ValidationError {
-                field: "reason".into(),
-                problem: "must not be empty".into(),
-            });
+            // FATAL: a required field with no content is a schema violation,
+            // not a style one.
+            errors.push(ValidationError::fatal("reason", "must not be empty"));
         }
 
         match (out.needs_citation, out.search_query.as_deref()) {
             // Spec: a query ONLY when a citation is needed.
-            (false, Some(q)) if !q.trim().is_empty() => errors.push(ValidationError {
-                field: "search_query".into(),
-                problem: "must be null when needs_citation is false".into(),
-            }),
-            (true, None) | (true, Some("")) => errors.push(ValidationError {
-                field: "search_query".into(),
-                problem: format!(
+            // FATAL: the two fields contradict each other, so at least one is
+            // wrong and there is no way to tell which.
+            (false, Some(q)) if !q.trim().is_empty() => errors.push(ValidationError::fatal(
+                "search_query",
+                "must be null when needs_citation is false",
+            )),
+            // FATAL: same contradiction, the other way round.
+            (true, None) | (true, Some("")) => errors.push(ValidationError::fatal(
+                "search_query",
+                format!(
                     "is required when needs_citation is true \
                      ({MIN_QUERY_WORDS}-{MAX_QUERY_WORDS} keywords)"
                 ),
-            }),
+            )),
             (true, Some(q)) => {
                 let words = q.split_whitespace().count();
                 if !(MIN_QUERY_WORDS..=MAX_QUERY_WORDS).contains(&words) {
-                    errors.push(ValidationError {
-                        field: "search_query".into(),
-                        problem: format!(
+                    // ADVISORY: a 4-word or 14-word query still searches. This
+                    // single rule caused every end-to-end failure in Phase 4b.
+                    errors.push(ValidationError::advisory(
+                        "search_query",
+                        format!(
                             "is {words} words; the spec requires {MIN_QUERY_WORDS}-{MAX_QUERY_WORDS} keywords"
                         ),
-                    });
+                    ));
                 }
                 errors.extend(reject_citation_shaped(q));
             }
@@ -306,13 +337,15 @@ impl AiTask for CitationNeedTask {
 fn reject_citation_shaped(q: &str) -> Vec<ValidationError> {
     let mut errors = Vec::new();
     let lower = q.to_lowercase();
-    let flag = |problem: &str| ValidationError {
-        field: "search_query".into(),
-        problem: format!(
+    // FATAL, always: a fabricated reference is the most damaging thing this
+    // product can emit, and no amount of tidiness makes it acceptable.
+    let flag = |problem: &str| ValidationError::fatal(
+        "search_query",
+        format!(
             "{problem} — this task never produces citation metadata; search_query is \
              keywords for the local library only"
         ),
-    };
+    );
 
     // A 4-digit year in parentheses: "(2021)", "(2021a)".
     if has_parenthesised_year(q) {
@@ -358,6 +391,7 @@ fn has_parenthesised_year(q: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::task::Tier;
 
     fn ok_output() -> CitationNeedOutput {
         CitationNeedOutput {
@@ -585,6 +619,80 @@ mod tests {
         let tail = &p[t_at..];
         assert!(tail.contains("Classify ONLY the sentence above"));
         assert!(tail.contains("beginning with {"));
+    }
+
+    /// Keeps FATAL_RULES / ADVISORY_RULES honest against what the validator
+    /// actually does. A doc comment that drifts from the code is worse than no
+    /// doc comment, and this mapping is the reviewable record of a decision.
+    #[test]
+    fn every_rule_has_a_declared_tier_and_the_validator_agrees() {
+        let tier_of = |out: CitationNeedOutput, field: &str| -> Option<Tier> {
+            CitationNeedTask::validate(&out, &ctx())
+                .err()?
+                .into_iter()
+                .find(|e| e.field == field)
+                .map(|e| e.tier)
+        };
+
+        // --- FATAL ---
+        let mut o = ok_output();
+        o.reason = "   ".into();
+        assert_eq!(tier_of(o, "reason"), Some(Tier::Fatal), "an empty reason must be fatal");
+
+        let mut o = ok_output();
+        o.needs_citation = false;
+        assert_eq!(
+            tier_of(o, "search_query"),
+            Some(Tier::Fatal),
+            "contradicting fields must be fatal"
+        );
+
+        let mut o = ok_output();
+        o.search_query = None;
+        assert_eq!(tier_of(o, "search_query"), Some(Tier::Fatal));
+
+        let mut o = ok_output();
+        o.search_query = Some("organic farming soil biodiversity Smith et al review".into());
+        assert_eq!(
+            tier_of(o, "search_query"),
+            Some(Tier::Fatal),
+            "a reference-shaped query must ALWAYS be fatal — a fabricated citation is the \
+             worst thing this product can emit"
+        );
+
+        // --- ADVISORY ---
+        let mut o = ok_output();
+        o.reason = (0..30).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ");
+        assert_eq!(tier_of(o, "reason"), Some(Tier::Advisory), "a long reason is untidy, not wrong");
+
+        let mut o = ok_output();
+        o.search_query = Some("too short".into());
+        assert_eq!(
+            tier_of(o, "search_query"),
+            Some(Tier::Advisory),
+            "THIS rule caused every end-to-end failure in Phase 4b"
+        );
+
+        let mut o = ok_output();
+        o.search_query = Some((0..14).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" "));
+        assert_eq!(tier_of(o, "search_query"), Some(Tier::Advisory));
+
+        // the declared lists are non-empty and documented
+        assert_eq!(FATAL_RULES.len(), 6);
+        assert_eq!(ADVISORY_RULES.len(), 2);
+    }
+
+    #[test]
+    fn a_short_query_no_longer_blocks_an_otherwise_good_answer() {
+        // The exact shape that failed 8/8 in Phase 4b: valid JSON, right
+        // classification, query 4 words instead of 6.
+        let mut o = ok_output();
+        o.search_query = Some("land degradation distribution survey".into());
+        let errors = CitationNeedTask::validate(&o, &ctx()).unwrap_err();
+        assert!(
+            errors.iter().all(|e| e.tier == Tier::Advisory),
+            "this output must be acceptable with advisories: {errors:?}"
+        );
     }
 
     #[test]
