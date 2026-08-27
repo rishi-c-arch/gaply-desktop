@@ -491,6 +491,40 @@ an additional argument for the split in §3.
    Revisit if a task genuinely needs a longer window — it is one constant, and the reported RAM
    follows it automatically.
 
+11. **Validation is two-tier, and a worse retry never replaces a better first attempt.
+   RESOLVED (2026-08-28). This changes `run_task`'s contract.** Phase 4b measured that every first
+   attempt was well-formed JSON and every failure was a *rule* violation on an otherwise valid
+   object, after which the retry destroyed it (D10). Two changes follow from that:
+
+   **(a) `ValidationError` carries a tier.** `Fatal` keeps the existing behaviour — one retry, then
+   `ValidationFailed`. `Advisory` is new: the output is **ACCEPTED**, no retry, and the deviations
+   travel with it in `TaskRun::advisories`, to be written into `provenance_json` on persistence.
+
+   The line between the tiers is *what a wrong answer costs*. Fatal covers grounding and safety —
+   an invented or unsent `chunk_id`, a page mismatch, a reference-shaped or URL-bearing
+   `search_query`, a schema or enum violation, a logical inconsistency between fields. Those make an
+   output actively misleading, and a misleading citation is the worst thing this product can emit.
+   Advisory covers style and length — a `reason` over the word limit, a `search_query` outside 6–12
+   words. Those make an output untidy. Discarding a correct classification because its rationale ran
+   to 27 words instead of 25 was the engine preferring nothing over something slightly long.
+
+   **THIS IS NOT SILENT REPAIR.** Nothing is modified, truncated or rewritten. The output is passed
+   through exactly as the model produced it, and every advisory is reported to the caller and
+   persisted. The difference between this and a silent repair is that a reader can still see what
+   the model actually said and how it deviated.
+
+   **(b) Keep-better-attempt.** When a Fatal failure triggers the retry and the retry is WORSE —
+   unparseable when the first parsed, or carrying more fatal errors — `ValidationFailed` names the
+   FIRST attempt as primary and reports its errors. Both raw outputs are still carried. It remains
+   an error; the caller decides. The engine simply stops throwing away the better of two bad
+   answers.
+
+   **Tiering lives in the validator, never in the prompt.** The spec's prompt text is unchanged and
+   still states every rule with equal force — the model is asked for the same thing. What changed is
+   only what the engine does when the model misses. A validator maps spec rules to tiers, and each
+   task enumerates that mapping as consts beside its validator so the choice is reviewable rather
+   than buried in control flow.
+
 ### Still open
 
 6. **Promote retrieval to an FTS ∪ vector union** — parallel gateways into one candidate pool,
