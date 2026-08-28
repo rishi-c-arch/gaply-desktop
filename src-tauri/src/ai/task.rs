@@ -44,8 +44,8 @@ use crate::ai::model_manager::{ModelManager, TokenSink};
 
 /// One evidence chunk as it was handed to the model.
 ///
-/// The header format is the spec's, identical everywhere:
-/// `[c1 | p.8 | Results] text…`
+/// The header format is identical everywhere:
+/// `[CHUNK_ID=c1 PAGE=8 SECTION=Results] text…`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EvidenceChunk {
     /// The id the model must echo back. Never invented.
@@ -57,15 +57,27 @@ pub struct EvidenceChunk {
 }
 
 impl EvidenceChunk {
-    /// Render one line exactly as the spec specifies.
+    /// Render one line. SPEC OVERRIDE — §11 D26.
     ///
-    /// `[c1 | p.8 | Results] text` — a missing page renders `p.?` and a missing
-    /// section renders `-`, so the three-field shape never varies and the model
-    /// never has to parse two different layouts.
+    /// `[CHUNK_ID=c1 PAGE=8 SECTION=Results] text` — a missing page renders
+    /// `PAGE=?` and a missing section `SECTION=-`, so the three-field shape
+    /// never varies and the model never has to parse two different layouts.
+    ///
+    /// THE KEYS ARE LOAD-BEARING. The spec's `[c1 | p.8 | Results]` marked the
+    /// id by POSITION alone, and a 3B model was measured echoing the entire
+    /// bracket back as its `chunk_id` — `"c13 | p.5 | -"` — on four of six
+    /// seeds under both prompt variants. Reading a composite display string as
+    /// one opaque identifier is a defensible reading of that format; being
+    /// first is not a label. `CHUNK_ID=` gives the id a name to be copied by.
+    ///
+    /// This is presentation only. The validator still requires the BARE id and
+    /// a composite remains fatal (`require_known_chunk`) — accepting the
+    /// display form as an alias would destroy the D18 grounding guarantee,
+    /// which is the one thing the identifier check actually buys.
     pub fn render(&self) -> String {
-        let page = self.page.map(|p| format!("p.{p}")).unwrap_or_else(|| "p.?".to_string());
+        let page = self.page.map(|p| p.to_string()).unwrap_or_else(|| "?".to_string());
         let section = self.section.clone().unwrap_or_else(|| "-".to_string());
-        format!("[{} | {} | {}] {}", self.chunk_id, page, section, self.text)
+        format!("[CHUNK_ID={} PAGE={} SECTION={}] {}", self.chunk_id, page, section, self.text)
     }
 }
 
@@ -601,18 +613,55 @@ mod tests {
     }
 
     #[test]
-    fn evidence_renders_in_the_spec_format() {
+    fn evidence_renders_in_the_labelled_format() {
         let c = ctx();
         let rendered = c.render_evidence();
         assert!(rendered.starts_with("<evidence>\n"), "{rendered}");
         assert!(rendered.ends_with("\n</evidence>"), "{rendered}");
-        // exactly the spec's `[c1 | p.8 | Results] text`
+        // §11 D26's labelled header, replacing the spec's `[c1 | p.8 | Results]`
         assert!(
-            rendered.contains("[c1 | p.8 | Results] Organic management"),
+            rendered.contains("[CHUNK_ID=c1 PAGE=8 SECTION=Results] Organic management"),
             "header format drifted: {rendered}"
         );
         // an unpaginated chunk keeps the three-field shape rather than dropping a field
-        assert!(rendered.contains("[c2 | p.? | -] No significant"), "{rendered}");
+        assert!(rendered.contains("[CHUNK_ID=c2 PAGE=? SECTION=-] No significant"), "{rendered}");
+    }
+
+    /// GOLDEN — §11 D26. The whole point of the rendering change: a reader
+    /// scanning for the id finds `CHUNK_ID=c1` and nothing else that looks like
+    /// an identifier. The old format made `c1 | p.8 | Results` look like one
+    /// composite id, and a 3B model copied exactly that back.
+    #[test]
+    fn the_rendered_header_makes_the_bare_chunk_id_unambiguous() {
+        let c = ctx();
+        let rendered = c.render_evidence();
+
+        // 1. the id appears exactly once per chunk, immediately after its key
+        assert!(rendered.contains("CHUNK_ID=c1 "), "{rendered}");
+        assert!(rendered.contains("CHUNK_ID=c2 "), "{rendered}");
+
+        // 2. the composite string the 3B actually emitted cannot be read off
+        //    the rendering any more — the pipe-separated display form is gone
+        assert!(!rendered.contains(" | "), "the composite display form is back: {rendered}");
+        assert!(!rendered.contains("p.8"), "the bare `p.N` form is back: {rendered}");
+
+        // 3. every id in the rendering is exactly the id the context knows, so
+        //    copying what follows `CHUNK_ID=` up to whitespace always yields a
+        //    valid bare id
+        for id in c.chunk_ids() {
+            let key = format!("CHUNK_ID={id} ");
+            assert!(rendered.contains(&key), "{id} not rendered with its key: {rendered}");
+        }
+
+        // 4. and the value between the key and the next field is the id ALONE
+        for line in rendered.lines().filter(|l| l.starts_with("[CHUNK_ID=")) {
+            let after = &line["[CHUNK_ID=".len()..];
+            let id: String = after.chars().take_while(|c| !c.is_whitespace()).collect();
+            assert!(
+                c.get(&id).is_some(),
+                "scraping CHUNK_ID= up to whitespace yielded {id:?}, which is not a known chunk"
+            );
+        }
     }
 
     #[test]
@@ -1025,7 +1074,7 @@ mod tests {
         assert!(p.contains("only use text inside <evidence>"));
         assert!(p.contains("traceable to a chunk_id"));
         assert!(p.contains("raw JSON only"));
-        assert!(p.contains("[c1 | p.8 | Results]"), "evidence not in the spec's format");
+        assert!(p.contains("[CHUNK_ID=c1 PAGE=8 SECTION=Results]"), "evidence rendering drifted");
         assert_eq!(t.prompt_version(), "echo-v1");
     }
 }

@@ -388,7 +388,7 @@ fn measure_words_per_model_token_for_evidence_text() {
         .filter(|p| p.split_whitespace().count() >= 8)
         .enumerate()
     {
-        rendered.push_str(&format!("[c{} | p.{} | Results] {}\n", i + 1, (i / 3) + 1, para.replace('\n', " ")));
+        rendered.push_str(&format!("[CHUNK_ID=c{} PAGE={} SECTION=Results] {}\n", i + 1, (i / 3) + 1, para.replace('\n', " ")));
     }
     rendered.push_str("</evidence>");
 

@@ -237,7 +237,7 @@ mod tests {
         assert_eq!(b.chunks_dropped, 0);
         assert!(b.rendered.starts_with("<evidence>\n") && b.rendered.ends_with("\n</evidence>"));
         // spec chunk header, and ids that map back to real rows
-        assert!(b.rendered.contains(" | p.1 | Results] richness0"), "{}", b.rendered);
+        assert!(b.rendered.contains("PAGE=1 SECTION=Results] richness0"), "{}", b.rendered);
         for id in b.ctx.chunk_ids() {
             assert!(id.starts_with('c'), "chunk ids must be echo-able: {id}");
         }

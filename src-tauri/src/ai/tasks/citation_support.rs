@@ -26,7 +26,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::ai::task::{AiTask, TaskContext, ValidationError};
 
-pub const PROMPT_VERSION: &str = "citation_support-v1";
+/// Bumped v1 -> v1.1 by §11 D26: the evidence header rendering changed, so a
+/// report from either side of that change describes a different prompt.
+pub const PROMPT_VERSION: &str = "citation_support-v1.1";
 
 /// Spec: `max_tokens: 400`.
 const MAX_TOKENS: usize = 400;
@@ -109,7 +111,10 @@ You judge ONE thing: does the evidence from the cited source support the author'
 You are deliberately conservative. Partial topical overlap is NOT support.
 A source that discusses the same topic but does not report the claimed finding is \"weak\".
 You may only use text inside <evidence>. You have no other knowledge.
-Every chunk_id you output must be one that appears in <evidence>. Never invent one.
+Each evidence line begins with a header: [CHUNK_ID=<id> PAGE=<n> SECTION=<name>].
+Every chunk_id you output must be the CHUNK_ID VALUE ALONE - write \"c1\", never
+\"c1 | p.8 | Results\" and never the whole bracket. It must be an id that appears
+in <evidence>. Never invent one.
 If the evidence does not cover the claim, say so — abstaining is correct, not failure.
 Output raw JSON only. No markdown, no code fences, no commentary.";
 
@@ -430,7 +435,7 @@ fn validate_support(
 
 /// v2's prompt version. v1's string is untouched, so reports from the two
 /// variants can never be conflated.
-pub const PROMPT_VERSION_V2: &str = "citation_support-v2";
+pub const PROMPT_VERSION_V2: &str = "citation_support-v2.1";
 
 const OUTPUT_SCHEMA_V2: &str = r#"{
   "verdict": "strong|partial|weak|contradicts|insufficient_evidence",
@@ -584,6 +589,34 @@ mod tests {
         let e = errors.iter().find(|e| e.field.contains("chunk_id")).expect("flagged");
         assert!(e.is_fatal());
         assert!(e.problem.contains("c99") && e.problem.contains("c1, c2"), "{e}");
+    }
+
+    /// §11 D26. The 3B's actual Phase 6 failure, pinned so the rendering fix
+    /// can never be "helped along" by loosening the validator instead. Both
+    /// the old display form and the new labelled form are composites, and both
+    /// must stay fatal — the fix belongs in what the model is SHOWN, never in
+    /// what it is allowed to say.
+    #[test]
+    fn a_composite_display_chunk_id_is_still_fatal() {
+        for composite in [
+            "c1 | p.8 | Results",       // the old header, verbatim — what the 3B sent
+            "CHUNK_ID=c1 PAGE=8 SECTION=Results", // the new header, verbatim
+            "[CHUNK_ID=c1 PAGE=8 SECTION=Results]",
+            "CHUNK_ID=c1",              // the key kept, which is still not the id
+            "c1 ",                      // trailing whitespace is not the same id
+        ] {
+            let mut o = strong();
+            o.supporting_chunks[0].chunk_id = composite.into();
+            let errors = match CitationSupportTask::validate(&o, &ctx()) {
+                Ok(()) => panic!("{composite:?} was ACCEPTED as a chunk_id"),
+                Err(e) => e,
+            };
+            let e = errors
+                .iter()
+                .find(|e| e.field.contains("chunk_id"))
+                .unwrap_or_else(|| panic!("{composite:?} did not flag the chunk_id field"));
+            assert!(e.is_fatal(), "{composite:?} must be fatal, got {e}");
+        }
     }
 
     #[test]
@@ -851,13 +884,13 @@ mod tests {
         let t = CitationSupportV2Task {
             claim: "C".into(),
             cited_source: "S".into(),
-            evidence: "<evidence>\n[c1 | p.8 | Results] x\n</evidence>".into(),
+            evidence: "<evidence>\n[CHUNK_ID=c1 PAGE=8 SECTION=Results] x\n</evidence>".into(),
         };
         let p = t.build_prompt();
         assert!(p.contains("\"quote\": string"), "the schema must show the quote field");
         assert!(p.contains("WORD FOR WORD"));
         assert!(p.contains("verdict mapping:"), "v1's rules must still be present");
-        assert_eq!(t.prompt_version(), "citation_support-v2");
+        assert_eq!(t.prompt_version(), "citation_support-v2.1");
         assert_ne!(PROMPT_VERSION, PROMPT_VERSION_V2, "the two variants must be distinguishable");
         // the claim still comes last (the Phase 4b finding)
         let claim_at = p.rfind("CLAIM UNDER TEST").unwrap();
@@ -879,13 +912,13 @@ mod tests {
         assert!(p.contains("Never say a claim is supported because it is plausible"));
         assert!(p.contains("<cited_source>"));
         // the spec's chunk format survives into the prompt
-        assert!(p.contains("[c1 | p.8 | Results]"), "evidence not in the spec format: {p}");
+        assert!(p.contains("[CHUNK_ID=c1 PAGE=8 SECTION=Results]"), "evidence rendering drifted: {p}");
         // the claim is LAST (Phase 4b finding)
         let claim_at = p.rfind("Organic farming increases soil biodiversity").unwrap();
-        let ev_at = p.rfind("[c1 | p.8 | Results]").unwrap();
+        let ev_at = p.rfind("[CHUNK_ID=c1 PAGE=8 SECTION=Results]").unwrap();
         assert!(claim_at > ev_at, "the claim must come after the evidence");
         assert!(p[claim_at..].contains("beginning with {"));
         assert_eq!(CitationSupportTask::max_tokens(), 400, "spec pins max_tokens: 400");
-        assert_eq!(t.prompt_version(), "citation_support-v1");
+        assert_eq!(t.prompt_version(), "citation_support-v1.1");
     }
 }
