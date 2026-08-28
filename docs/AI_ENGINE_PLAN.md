@@ -1405,3 +1405,67 @@ different prompt and its reports are a different generation.
 **This is a SPEC ADDITION, not an override.** The spec places no ceiling on `supporting_chunks`; it
 does not state one this contradicts. Recorded here because a reader comparing the spec's schema to
 the implementation would otherwise find a rule with no provenance.
+
+### Phase 6b confirmation rerun — the cap did NOT confirm clean on the 3B
+
+Two cells, one binary (`af09a9697f2375b9bafb891b8d217358db843b5a70f3baee8e555cf2ad565dce`), real
+embedder, `-capped` suffix.
+
+| metric | v1.1 | **v1.2** | v2.1 | **v2.2** |
+|---|---|---|---|---|
+| valid | 6/6 | **6/6** | 3/6 | **2/6** |
+| fatal rate | 0% | 0% | 50% | 67% |
+| retry rate | 0% | 0% | 50% | 67% |
+| advisory rate | 50% | 67% | 0% | 0% |
+| truncation | 0 | 0 | 0 | 0 |
+| chunk_id fmt | 0 | 0 | 0 | 0 |
+| verdict agreement | 40% | 40% | 100% | 100% |
+| **planted cited** | **75%** | **25%** | 100% | — |
+| accepted faithfulness | 1/2 | 0/2 | 1/1 | 0/0 |
+| decode tok/s | 2.74 | 6.85 | 3.77 | 5.67 |
+
+**THE CAP NEVER FIRED.** The 3B's cited-chunk counts under v1.1 were 2, 4, 2, 3, 0 — never above
+four. Under v2.1: 2, 1, 1, 1, 0. The bound is therefore **untested on the model being selected**,
+and validated only against the 0.5B pathology it was designed for, which this phase did not rerun.
+
+**Every observed change came from the PROMPT LINE, not the bound.** Decoding is greedy argmax
+(temperature 0, top_p 1), so the same prompt yields the same output deterministically. Adding
+`supporting_chunks: AT MOST 4 entries. Cite only the chunks that actually carry the point. Listing
+every chunk you were given is not evidence.` changed the 3B's behaviour, and on this fixture it
+changed it for the worse:
+
+- **v1.2 — grounding regression.** Planted-chunk citation fell **75% → 25%** (3 of 4 → 1 of 4).
+  Validity is unchanged at 6/6 and verdict agreement unchanged at 40%, so this is invisible in
+  every metric except the one item 8 named primary. cs-seed-03 and cs-seed-04 both stopped citing
+  the planted passage; cs-seed-04's cited count fell 3 → 2. The accepted faithfulness violation
+  also disappeared — not because the model got more faithful, but because it stopped citing the
+  absent-finding chunk it was previously misdescribing.
+- **v2.2 — validity regression.** 3/6 → 2/6. cs-seed-03 flipped from accepted to failed: it cited
+  two chunks instead of one, and the second's quote was not verbatim.
+
+**Recommendation, not applied:** keep the bound and narrow the prompt to state ONLY the bound,
+dropping the second sentence. The bound is correct by construction for the 0.5B and costs the 3B
+nothing (it never binds); the editorialising guidance is what moved the 3B off the planted chunk.
+That is a one-line change and a two-cell rerun, and it is a decision to take with this data rather
+than silently.
+
+### A latency measurement correction that affects D30
+
+**The Phase 6a 3B latency figures are contaminated and must not be used.** Prefill cost per prompt
+token, on near-identical prompts:
+
+| | Phase 6a | Phase 6b |
+|---|---|---|
+| v1 lineage | 95.3 ms/tok | **34.4 ms/tok** |
+| v2 lineage | 88.7 ms/tok | **44.9 ms/tok** |
+
+A chunk cap cannot make prefill *per token* 2–2.8× faster. The Phase 6a 3B cells were measured
+while `cargo clippy --workspace --all-targets` and the test suite were running on the same machine,
+on a box that had by then been doing continuous CPU inference for over an hour. The Phase 6b cells
+ran with nothing else scheduled.
+
+**Consequence for D30:** its Metal condition was reasoned from 174 s / 212 s. The cleaner numbers
+are **63 s (v1.2)** and **154 s (v2.2)**. Metal is still the right lever and the conditional stands
+— 63 s is not a shippable interaction either — but the gap it must close is roughly a third of what
+D30 records, and **neither figure is a controlled measurement.** Latency deserves a dedicated
+isolated run before it decides anything.
