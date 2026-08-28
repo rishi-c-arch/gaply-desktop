@@ -1119,3 +1119,27 @@ it at 400 would truncate the JSON and score a formatting failure as a model fail
 
 **Unknown at the time of writing:** whether the extra field helps, costs latency, or simply produces
 a new failure mode. Both variants run in the bake-off; the data decides.
+
+
+### D25 — the faithfulness check FLAGS for human review; it never scores
+
+The harness gains a D18 check for the seeds whose planted passage reports an ABSENCE ("No
+significant effect of management was observed for earthworm abundance"; "Nitrogen leaching was not
+measured"). It fires when an output cites that chunk AND its `explanation` uses language asserting
+the finding exists ("increased", "supports the claim", "confirms", …).
+
+**It is a string heuristic and is treated as one.** The count is reported, the case ids are listed,
+and the verbatim output is printed — but it is deliberately excluded from every accuracy figure and
+never presented as a faithfulness *rate*. A heuristic folded into a score becomes a target, and the
+cheapest way to satisfy this one is to change wording rather than reasoning. Its job is to put a
+human in front of the raw text.
+
+*Known limits, stated rather than discovered later:* it cannot see a faithfulness failure that
+avoids these words, it cannot judge subtle misattribution, and it does not read `why` or
+`suggested_rewrite` — only `explanation`. It is a smoke alarm, not an audit.
+
+**Seed id correction.** The Phase 6 instruction named cs-seed-03 as "the null-result seed". The
+null-result passage is on **cs-seed-04** (the `contradicts` seed); cs-seed-03 is the
+not-measured/`weak` seed. Rather than pick one, the check is data-driven from a `faithfulness` block
+in the seed file and is enabled on BOTH — they are the two seeds whose evidence reports an absence,
+which is the property the check needs.

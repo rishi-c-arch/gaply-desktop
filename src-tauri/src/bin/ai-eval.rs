@@ -35,12 +35,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use app_lib::ai::generative::{BundledGenerativeLoader, TASK_N_CTX};
-use app_lib::ai::model_manager::ModelManager;
+use app_lib::ai::generative::{BundledGenerativeLoader, InstalledGenerativeLoader, TASK_N_CTX};
+use app_lib::ai::model_manager::{BackendLoader, ModelManager};
 use app_lib::ai::task::{run_task, TaskContext, TaskError};
 use app_lib::ai::evidence::{assemble, Assembled, EVIDENCE_BUDGET_TOKENS};
 use app_lib::ai::tasks::citation_need::{CitationNeedInput, CitationNeedTask, PromptVariant};
-use app_lib::ai::tasks::citation_support::CitationSupportTask;
+use app_lib::ai::tasks::citation_support::{CitationSupportTask, CitationSupportV2Task};
 use gaply_core::ai_engine::{embeddings as core_emb, registry, store};
 use gaply_core::chunk::PagedChunk;
 use gaply_core::Database;
@@ -212,16 +212,74 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(serde_json::from_str)
         .collect::<Result<_, _>>()?;
 
-    let loader = BundledGenerativeLoader::resolve()
-        .ok_or("no generative model resolves — set GAPLY_TEST_GEN_MODEL")?;
-    let model_id = {
-        use app_lib::ai::model_manager::BackendLoader;
-        loader.model_id()
+    // --model selects a generative model by REGISTRY ID (§9.9: swapping the
+    // model is a registry change plus a download, never a code change). Absent,
+    // it stays on the bundled 0.5B so every existing invocation behaves as it
+    // did.
+    let (loader, model_id): (Arc<dyn BackendLoader>, String) = match arg("--model") {
+        None => {
+            let l = BundledGenerativeLoader::resolve()
+                .ok_or("no generative model resolves — set GAPLY_TEST_GEN_MODEL")?;
+            let id = l.model_id();
+            (Arc::new(l), id)
+        }
+        Some(id) => {
+            // An unknown id must fail HERE, naming what exists. Falling back to
+            // the bundled model would silently report 0.5B numbers under
+            // another model's name — the worst possible outcome for a bake-off.
+            if app_lib::ai::gen_install::candidate(&id).is_none() {
+                return Err(format!(
+                    "unknown --model {id:?}. Pinned candidates: {}",
+                    app_lib::ai::gen_install::CANDIDATES
+                        .iter()
+                        .map(|c| c.registry_id)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+                .into());
+            }
+            // --model-dir points at a directory holding the GGUF + tokenizer,
+            // for running candidates that are downloaded but not installed into
+            // the app data dir.
+            let dir = arg("--model-dir")
+                .map(PathBuf::from)
+                .ok_or("--model requires --model-dir <dir containing the gguf and tokenizer.json>")?;
+            let c = app_lib::ai::gen_install::candidate(&id).expect("checked above");
+            let l = InstalledGenerativeLoader::from_paths(
+                &id,
+                dir.join(c.gguf.local_name()),
+                dir.join(c.tokenizer.local_name()),
+            )?;
+            (Arc::new(l), id)
+        }
     };
-    let manager = ModelManager::new(Arc::new(loader));
+
+    let manager = ModelManager::new(loader);
+    let ram = manager.ram_estimate().ok();
+
+    // Load time is a real cost of switching models and belongs in the report:
+    // a model that scores well but takes 40 s to become usable is a different
+    // product decision from one that loads in 4 s.
+    //
+    // The manager loads LAZILY, so this forces and times a real load. Timing
+    // `ModelManager::new` instead would report ~0 ms for every model — a number
+    // that reads as a measurement and is actually nothing.
+    let load_started = std::time::Instant::now();
+    let load_ms = match manager.acquire().await {
+        Ok(lease) => {
+            let ms = load_started.elapsed().as_millis() as u64;
+            drop(lease);
+            ms
+        }
+        Err(e) => return Err(format!("loading {model_id}: {e}").into()),
+    };
 
     println!("task    : {task_name}");
     println!("model   : {model_id}");
+    if let Some(r) = &ram {
+        println!("ram     : {} MB estimated", r.total_bytes / (1024 * 1024));
+    }
+    println!("load    : {load_ms} ms");
     if task_name == "citation_need" {
         println!("prompt  : {}", variant.version());
     }
@@ -230,7 +288,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     if task_name == "citation_support" {
-        return run_citation_support(cases, cases_path, date, out_dir, model_id, manager).await;
+        let sv = match arg("--support-variant").as_deref() {
+            None | Some("v1") => SupportVariant::V1,
+            Some("v2") => SupportVariant::V2,
+            Some(o) => return Err(format!("unknown --support-variant {o:?}; use v1 or v2").into()),
+        };
+        return run_citation_support(
+            cases, cases_path, date, out_dir, model_id, manager, sv, load_ms,
+        )
+        .await;
     }
 
     let mut results = Vec::new();
@@ -537,6 +603,53 @@ fn embed_fixture(db: &Database) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Which citation_support prompt variant to run. v2 adds the mandatory quote
+/// (§11 D24); everything else is identical, which is what makes the comparison
+/// meaningful.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SupportVariant {
+    V1,
+    V2,
+}
+
+impl SupportVariant {
+    fn version(self) -> &'static str {
+        match self {
+            SupportVariant::V1 => "citation_support-v1",
+            SupportVariant::V2 => "citation_support-v2",
+        }
+    }
+}
+
+/// Does this output assert a finding that the planted passage says is absent?
+///
+/// String-level and deliberately crude (§11 D25): it flags for HUMAN REVIEW, it
+/// does not score. The condition is narrow on purpose — the planted chunk must
+/// actually be cited, and the explanation must use language asserting the
+/// finding exists. A model that correctly says "no effect was found" uses none
+/// of these words.
+fn faithfulness_violation(
+    out: &app_lib::ai::tasks::citation_support::CitationSupportOutput,
+    ctx: &TaskContext,
+    spec: &serde_json::Value,
+) -> Option<String> {
+    let needle = spec.get("planted_chunk_contains")?.as_str()?;
+    let cited_planted = out.supporting_chunks.iter().any(|sc| {
+        ctx.get(&sc.chunk_id).map(|c| c.text.contains(needle)).unwrap_or(false)
+    });
+    if !cited_planted {
+        return None;
+    }
+    let expl = out.explanation.to_lowercase();
+    let hit = spec
+        .get("forbidden_language")?
+        .as_array()?
+        .iter()
+        .filter_map(|v| v.as_str())
+        .find(|w| expl.contains(&w.to_lowercase()))?;
+    Some(hit.to_string())
+}
+
 async fn run_citation_support(
     cases: Vec<EvalCase>,
     cases_path: PathBuf,
@@ -544,10 +657,12 @@ async fn run_citation_support(
     out_dir: PathBuf,
     model_id: String,
     manager: ModelManager,
+    variant: SupportVariant,
+    load_ms: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let fixtures_dir = cases_path.parent().unwrap_or(Path::new(".")).join("fixtures");
     let db = Database::in_memory()?;
-    println!("prompt  : citation_support-v1");
+    println!("prompt  : {}", variant.version());
     println!("evidence: budget {EVIDENCE_BUDGET_TOKENS} tokens, MOCKED lexical embedder");
     println!();
 
@@ -606,12 +721,25 @@ async fn run_citation_support(
             Assembled::Ready(b) => b,
         };
 
-        let task = CitationSupportTask {
-            claim: claim.clone(),
-            cited_source: source,
-            evidence: bundle.rendered.clone(),
+        let cancel = Arc::new(AtomicBool::new(false));
+        let r = match variant {
+            SupportVariant::V1 => {
+                let task = CitationSupportTask {
+                    claim: claim.clone(),
+                    cited_source: source,
+                    evidence: bundle.rendered.clone(),
+                };
+                run_task(&manager, &task, &bundle.ctx, cancel, None).await
+            }
+            SupportVariant::V2 => {
+                let task = CitationSupportV2Task {
+                    claim: claim.clone(),
+                    cited_source: source,
+                    evidence: bundle.rendered.clone(),
+                };
+                run_task(&manager, &task, &bundle.ctx, cancel, None).await
+            }
         };
-        let r = run_task(&manager, &task, &bundle.ctx, Arc::new(AtomicBool::new(false)), None).await;
         let elapsed_ms = started.elapsed().as_millis() as u64;
 
         results.push(match r {
@@ -631,6 +759,17 @@ async fn run_citation_support(
                             .unwrap_or(false)
                     })
                 });
+                let faithfulness = case
+                    .expected
+                    .get("faithfulness")
+                    .and_then(|spec| faithfulness_violation(&run.output, &bundle.ctx, spec));
+                if let Some(word) = &faithfulness {
+                    println!(
+                        "  !! FAITHFULNESS_VIOLATION {} — cites the planted absent-finding chunk \
+                         and asserts it with {word:?}\n     explanation: {}",
+                        case.id, run.output.explanation
+                    );
+                }
                 println!(
                     "  {} {}  {:>5}ms  verdict={} sent={} dropped={}{}",
                     if verdict_ok == Some(true) { "PASS" } else { "MISS" },
@@ -648,6 +787,10 @@ async fn run_citation_support(
                     scored: Some(serde_json::json!({
                         "verdict": verdict_ok,
                         "citedPlantedChunk": cited_planted,
+                        // D18/D25: flagged for human review, never auto-scored.
+                        "faithfulnessViolation": faithfulness,
+                        "quotesPresent": run.output.supporting_chunks.iter()
+                            .filter(|sc| sc.quote.is_some()).count(),
                         "got": got,
                         "expected": case.expected,
                     })),
@@ -727,10 +870,27 @@ async fn run_citation_support(
         mean(&xs)
     };
     let pct = |v: Option<f64>| v.map(|x| format!("{:.0}%", x * 100.0)).unwrap_or("n/a".into());
-    let report = serde_json::json!({
+        let faithfulness_hits: Vec<String> = results
+        .iter()
+        .filter(|r| {
+            r.scored
+                .as_ref()
+                .and_then(|s| s.get("faithfulnessViolation"))
+                .map(|v| !v.is_null())
+                .unwrap_or(false)
+        })
+        .map(|r| r.id.clone())
+        .collect();
+    let faithfulness_checked = cases
+        .iter()
+        .filter(|c| c.expected.get("faithfulness").is_some())
+        .count();
+
+let report = serde_json::json!({
         "task": "citation_support",
         "modelId": model_id,
-        "promptVersion": "citation_support-v1",
+        "promptVersion": variant.version(),
+        "modelLoadMs": load_ms,
         "nCtx": app_lib::ai::generative::TASK_N_CTX,
         "evidenceBudgetTokens": EVIDENCE_BUDGET_TOKENS,
         "embedder": "mock-lexical-v1",
@@ -747,6 +907,12 @@ async fn run_citation_support(
         "meanPromptTokens": results.iter().map(|r| r.prompt_tokens as f64).sum::<f64>() / total,
         "meanPrefillMs": results.iter().map(|r| r.prefill_ms as f64).sum::<f64>() / total,
         "meanDecodeMs": results.iter().map(|r| r.decode_ms as f64).sum::<f64>() / total,
+        // D18/D25. Counted, listed by case id, and NEVER folded into a score:
+        // a faithfulness flag is a prompt for a human to read the verbatim
+        // output, not a metric to optimise.
+        "faithfulnessViolations": faithfulness_hits.len(),
+        "faithfulnessViolationCases": faithfulness_hits,
+        "faithfulnessCheckedCases": faithfulness_checked,
         "results": results,
     });
 
@@ -760,9 +926,15 @@ async fn run_citation_support(
     println!("mean latency            : {:.0} ms", report["meanLatencyMs"].as_f64().unwrap_or(0.0));
     println!("mean prompt tokens      : {:.0}", report["meanPromptTokens"].as_f64().unwrap_or(0.0));
     println!("mean prefill            : {:.0} ms", report["meanPrefillMs"].as_f64().unwrap_or(0.0));
+    println!("model load              : {load_ms} ms");
+    println!(
+        "FAITHFULNESS violations : {} of {} checked",
+        report["faithfulnessViolations"].as_u64().unwrap_or(0),
+        faithfulness_checked
+    );
 
     std::fs::create_dir_all(&out_dir)?;
-    let path = out_dir.join(format!("citation_support-v1-{date}.json"));
+    let path = out_dir.join(format!("{}-{date}.json", variant.version()));
     std::fs::write(&path, serde_json::to_string_pretty(&report)?)?;
     println!("\nreport written to {}", path.display());
     Ok(())
