@@ -28,7 +28,7 @@ use crate::ai::task::{AiTask, TaskContext, ValidationError};
 
 /// Bumped v1 -> v1.1 by §11 D26: the evidence header rendering changed, so a
 /// report from either side of that change describes a different prompt.
-pub const PROMPT_VERSION: &str = "citation_support-v1.1";
+pub const PROMPT_VERSION: &str = "citation_support-v1.2";
 
 /// SPEC OVERRIDE — §11 D27. The spec pins `max_tokens: 400`; measurement
 /// retired it.
@@ -48,6 +48,20 @@ const MAX_TOKENS: usize = 768;
 
 /// Spec: `"why" <= 20 words`.
 const MAX_WHY_WORDS: usize = 20;
+
+/// SPEC ADDITION — §11 D32. The spec puts no ceiling on `supporting_chunks`.
+///
+/// Measured consequence: the 0.5B truncated 4 of 6 seeds at a 1024-token
+/// ceiling by citing five, eight, twelve chunks with a full `why` on each. That
+/// is not a length problem — raising the ceiling twice did not fix it — it is
+/// unbounded enumeration, and the cap is the fix that bounds output size BY
+/// CONSTRUCTION rather than by giving the pathology more room.
+///
+/// FATAL above this, not advisory: a citation card listing a dozen chunks is
+/// not untidy, it is a claim that twelve passages support the sentence, and a
+/// reader cannot check that. Four is enough to carry a real multi-passage
+/// justification and few enough to read.
+const MAX_SUPPORTING_CHUNKS: usize = 4;
 /// v2's quote ceiling. Long enough to carry a finding, short enough that
 /// "quote the whole chunk" is not a way to pass the check without reading.
 const MAX_QUOTE_WORDS: usize = 25;
@@ -134,7 +148,7 @@ Output raw JSON only. No markdown, no code fences, no commentary.";
 const OUTPUT_SCHEMA: &str = r#"{
   "verdict": "strong|partial|weak|contradicts|insufficient_evidence",
   "confidence": 0.0-1.0,
-  "supporting_chunks": [{"chunk_id": string, "page": integer, "why": string}],
+  "supporting_chunks": [{"chunk_id": string, "page": integer, "why": string}],   // at most 4
   "claim_elements": [
     {"element": string, "status": "found|absent|different"}
   ],
@@ -150,6 +164,8 @@ const RULES: &str = r#"- Decompose the claim into its checkable elements first (
     weak      = topic present, claimed finding absent
     contradicts = evidence states the opposite direction or a null result
     insufficient_evidence = retrieved chunks do not cover the claim's topic at all
+- supporting_chunks: AT MOST 4 entries. Cite only the chunks that actually carry the
+  point. Listing every chunk you were given is not evidence.
 - "why" <= 20 words, must paraphrase the chunk, never quote more than 10 words.
 - suggested_rewrite: only for "partial" - rewrite the author's sentence so it becomes
   accurate for this source. null for every other verdict.
@@ -177,6 +193,7 @@ pub const FATAL_RULES: &[&str] = &[
     "confidence outside 0.0-1.0",
     "verdict or element status outside the spec's enums (rejected by serde at parse)",
     "a verdict other than insufficient_evidence with no supporting_chunks",
+    "more than 4 supporting_chunks",
 ];
 
 /// Violations that make an output untidy. Accepted; reported as advisories.
@@ -239,6 +256,18 @@ fn validate_support(
             errors.push(ValidationError::fatal(
                 "confidence",
                 format!("is {}; the spec requires 0.0-1.0", out.confidence),
+            ));
+        }
+
+        // --- §11 D32: the citation list is bounded ---
+        if out.supporting_chunks.len() > MAX_SUPPORTING_CHUNKS {
+            errors.push(ValidationError::fatal(
+                "supporting_chunks".to_string(),
+                format!(
+                    "has {} entries; at most {MAX_SUPPORTING_CHUNKS} may be cited. Cite the chunks \
+                     that carry the point, not every chunk that was sent",
+                    out.supporting_chunks.len()
+                ),
             ));
         }
 
@@ -448,12 +477,12 @@ fn validate_support(
 
 /// v2's prompt version. v1's string is untouched, so reports from the two
 /// variants can never be conflated.
-pub const PROMPT_VERSION_V2: &str = "citation_support-v2.1";
+pub const PROMPT_VERSION_V2: &str = "citation_support-v2.2";
 
 const OUTPUT_SCHEMA_V2: &str = r#"{
   "verdict": "strong|partial|weak|contradicts|insufficient_evidence",
   "confidence": 0.0-1.0,
-  "supporting_chunks": [{"chunk_id": string, "page": integer, "quote": string, "why": string}],
+  "supporting_chunks": [{"chunk_id": string, "page": integer, "quote": string, "why": string}],   // at most 4
   "claim_elements": [
     {"element": string, "status": "found|absent|different"}
   ],
@@ -639,6 +668,57 @@ mod tests {
         }
     }
 
+    /// §11 D32. Four is the cap, and four must PASS — a bound that also
+    /// rejects the legal maximum would quietly become a bound of three.
+    #[test]
+    fn four_supporting_chunks_pass() {
+        let mut o = strong();
+        // c1 four times: the cap is about COUNT, and repeating a known-good
+        // chunk isolates that from every other rule in the validator.
+        let one = o.supporting_chunks[0].clone();
+        o.supporting_chunks = vec![one.clone(), one.clone(), one.clone(), one];
+        assert_eq!(o.supporting_chunks.len(), 4);
+        assert!(
+            CitationSupportTask::validate(&o, &ctx()).is_ok(),
+            "four cited chunks must be accepted"
+        );
+    }
+
+    /// The 0.5B's actual pathology: cite everything it was handed. Fatal, not
+    /// advisory — a card listing a dozen chunks claims a dozen passages support
+    /// the sentence, and a reader cannot check that.
+    #[test]
+    fn five_supporting_chunks_are_fatal() {
+        let mut o = strong();
+        let one = o.supporting_chunks[0].clone();
+        o.supporting_chunks = vec![one.clone(), one.clone(), one.clone(), one.clone(), one];
+        let errors = CitationSupportTask::validate(&o, &ctx())
+            .expect_err("five cited chunks must be rejected");
+        let e = errors
+            .iter()
+            .find(|e| e.field == "supporting_chunks")
+            .expect("the cap was not the reported reason");
+        assert!(e.is_fatal(), "the cap must be FATAL, not advisory: {e}");
+        assert!(e.problem.contains('5') && e.problem.contains('4'), "{e}");
+    }
+
+    /// The cap is in `validate_support`, so v2 inherits it rather than needing
+    /// its own copy.
+    #[test]
+    fn the_cap_applies_to_v2_as_well() {
+        let mut o = strong();
+        let one = SupportingChunk {
+            quote: Some("Species richness rose 31%".into()),
+            ..o.supporting_chunks[0].clone()
+        };
+        o.supporting_chunks = vec![one.clone(), one.clone(), one.clone(), one.clone(), one];
+        let errors = CitationSupportV2Task::validate(&o, &ctx())
+            .expect_err("v2 must inherit the cap");
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "supporting_chunks" && e.is_fatal()));
+    }
+
     #[test]
     fn a_page_that_disagrees_with_the_store_is_fatal() {
         // D16: c1 is stored on page 8; claiming 12 would send a reader to the
@@ -774,7 +854,14 @@ mod tests {
             .collect();
         assert_eq!(tier_of(&o, "claim_elements"), Some(Tier::Advisory));
 
-        assert_eq!(FATAL_RULES.len(), 10);
+        // §11 D32 — the cap is FATAL, and the tier test proves it rather than
+        // trusting the table.
+        let mut o = strong();
+        let one = o.supporting_chunks[0].clone();
+        o.supporting_chunks = vec![one.clone(), one.clone(), one.clone(), one.clone(), one];
+        assert_eq!(tier_of(&o, "supporting_chunks"), Some(Tier::Fatal));
+
+        assert_eq!(FATAL_RULES.len(), 11);
         assert_eq!(ADVISORY_RULES.len(), 3);
     }
 
@@ -910,7 +997,7 @@ mod tests {
         assert!(p.contains("\"quote\": string"), "the schema must show the quote field");
         assert!(p.contains("WORD FOR WORD"));
         assert!(p.contains("verdict mapping:"), "v1's rules must still be present");
-        assert_eq!(t.prompt_version(), "citation_support-v2.1");
+        assert_eq!(t.prompt_version(), "citation_support-v2.2");
         assert_ne!(PROMPT_VERSION, PROMPT_VERSION_V2, "the two variants must be distinguishable");
         // the claim still comes last (the Phase 4b finding)
         let claim_at = p.rfind("CLAIM UNDER TEST").unwrap();
@@ -939,6 +1026,6 @@ mod tests {
         assert!(claim_at > ev_at, "the claim must come after the evidence");
         assert!(p[claim_at..].contains("beginning with {"));
         assert_eq!(CitationSupportTask::max_tokens(), 768, "§11 D27 pins max_tokens: 768");
-        assert_eq!(t.prompt_version(), "citation_support-v1.1");
+        assert_eq!(t.prompt_version(), "citation_support-v1.2");
     }
 }

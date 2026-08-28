@@ -1378,3 +1378,30 @@ computed from them by hand. The fix makes that arithmetic the harness's job.
 Both arms now call one `decode_tps(tokens, decode_ms)` helper. The duplicated inline expression is
 what allowed the two arms to drift apart in the first place, so it is gone rather than copied a
 third time.
+
+### D32 — `supporting_chunks` is capped at 4, and the cap is FATAL
+
+D27 recorded that `supporting_chunks` is uncapped and named it the mechanism behind the 0.5B's
+truncation. Phase 6a confirmed it: raising the ceiling 400 → 768 → 1024 did not help the 0.5B,
+which still truncated **4 of 6 seeds at 1024** by citing five, eight, twelve chunks with a full
+`why` on each. Length was never the problem. Unbounded enumeration was.
+
+**Four entries, Fatal above.** The cap bounds output size *by construction* rather than by giving
+the pathology more room, which is what two ceiling raises amounted to.
+
+**Fatal rather than advisory, deliberately.** A card listing a dozen chunks is not untidy — it is a
+claim that twelve passages support one sentence, and a reader cannot check that. That is exactly
+the class the tier split calls Fatal: it can make an unsound citation look sound. Four is enough to
+carry a genuine multi-passage justification and few enough that a human can verify each one.
+
+Stated in the prompt (`supporting_chunks: AT MOST 4 entries`), in both output schemas, and enforced
+in `validate_support`, so **v2 inherits it** rather than carrying a copy. Pinned by
+`four_supporting_chunks_pass` — a bound that rejected its own legal maximum would quietly be a
+bound of three — `five_supporting_chunks_are_fatal`, and `the_cap_applies_to_v2_as_well`.
+
+**PROMPT_VERSION bumps v1.1 → v1.2, v2.1 → v2.2.** The cap is stated in the prompt, so this is a
+different prompt and its reports are a different generation.
+
+**This is a SPEC ADDITION, not an override.** The spec places no ceiling on `supporting_chunks`; it
+does not state one this contradicts. Recorded here because a reader comparing the spec's schema to
+the implementation would otherwise find a rule with no provenance.
