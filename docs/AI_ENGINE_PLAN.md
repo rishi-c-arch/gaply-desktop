@@ -1326,3 +1326,38 @@ next harness commit rather than done mid-matrix.
 block (D8) and its prompt never calls `EvidenceChunk::render`, asserted by
 `a_prompt_never_claims_evidence_it_does_not_have`. The D26 change cannot reach it, so its Phase 6
 cells remain valid and the two arms are not mixed generations.
+
+
+## Phase 6b — closing the three recorded defects
+
+### D30 — MODEL DECISION: Qwen2.5-3B-Instruct-Q4_K_M, conditionally
+
+**The production candidate is `qwen2.5-3b-instruct-q4km`.** It is the only one of the three
+loadable sizes that can do citation_support at all: 6/6 valid with no retries and no truncation
+under v1.1, 75–100% planted-chunk citation, against 1–2/6 for both smaller models under either
+variant.
+
+**The decision is CONDITIONAL on two things that do not yet exist, and is not final until both do:**
+
+1. **Metal acceleration bringing citation_support latency into usable range.** Measured now at
+   174 s mean under v1.1 with prefill at 55%, and 212 s at 80% prefill under v2.1. That is not a
+   shippable interaction, and the lever is prefill (§9.8, D12) — one large matmul, exactly what a
+   GPU path is for. If Metal does not move it, this decision is reopened, not worked around.
+2. **Validation on the 50-case labeled set.** Six seeds on one fixture chose this candidate. Six
+   seeds cannot confirm it. Everything below is provisional on that data.
+
+**Operating point: the v1 lineage — no mandatory quote.** Stated as v1.1 when the decision was
+taken; the chunk cap (D32) moves it to **v1.2**, which is the same prompt lineage plus a bound. The
+v2 quote requirement (D24) is **not rejected, it is deferred**: it halves the 3B's acceptance
+(6/6 → 3/6) for ~40 s more, and both rejections it causes are verbatim-quote failures — D24's check
+working, not a model regression. It is re-evaluated after the chunk cap and after Metal, when the
+latency budget it spends is a different number.
+
+**The 1.5B remains the registry's fallback for constrained machines** (`needs_16gb: false` applies
+to both, but the 3B's 2295 MB estimate against the 1.5B's is the real constraint). Pending the same
+labeled-set data — its 1–2/6 here is a measurement on six seeds, not an established ceiling.
+
+**What this decision explicitly does NOT claim** (D21, restated because it is the easiest thing to
+lose): "the best model" here means the best of three Qwen2.5 sizes, because the loader is
+qwen2-specific. Llama-3.x, Phi-3.5, Gemma-2 and Mistral were never candidates. A claim that the 3B
+is the best model *available* needs a second loader first.
