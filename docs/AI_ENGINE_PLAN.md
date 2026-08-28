@@ -1046,3 +1046,48 @@ scaffolding is roughly 1550 tokens — about 70% of every prompt**, paid on ever
 how much evidence is sent. Cutting `EVIDENCE_BUDGET_TOKENS` further cannot meaningfully reduce
 prefill; the scaffolding would have to shrink, or prefill has to get faster (Metal, §9.8). D14's
 budget reasoning should be read with this in mind.
+
+
+---
+
+## Phase 6 — generative installer + model bake-off
+
+### D21 — the bake-off is Qwen2.5-Instruct ONLY, because the loader is qwen2-specific
+
+`src/models/quantized_qwen2_lowmem.rs` is a vendored qwen2 loader: it reads `token_embd.weight`,
+`output_norm.weight`, `blk.N.attn_*` and the qwen2 GGUF metadata keys by name. It is not an
+architecture-dispatching loader, and this phase does not add one.
+
+*Consequence, stated so it is not rediscovered later:* **non-Qwen candidates are deferred until a
+loader exists.** Llama-3.x-Instruct, Phi-3.5, Gemma-2 and Mistral are all plausible candidates at
+these sizes and none of them can be evaluated here. A bake-off result of "Qwen2.5-3B is the best
+model" therefore means "the best of the three Qwen2.5 sizes we can currently load", and any future
+claim that it is the best model *available* would need a second loader first.
+
+*Verified rather than assumed:* the loader already handles both tied and untied output embeddings
+(`output.weight`, falling back to `token_embd.weight`), so 1.5B, 3B and 7B are all loadable within
+the qwen2 family — the constraint is architecture, not size.
+
+### D22 — the official 7B GGUF is SPLIT into two files; the optional 7B entry cannot use it as-is
+
+`Qwen/Qwen2.5-7B-Instruct-GGUF` publishes Q4_K_M as
+`qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf` + `-00002-of-00002.gguf`. The loader takes ONE
+GGUF path, and multi-part GGUF assembly is not something this phase adds.
+
+*Consequence:* the optional 7B entry is **not pinned in this phase**. Mandatory candidates (1.5B,
+3B) are single-file and unaffected. If 7B is wanted after the 3B numbers, it needs either a
+single-file Q4_K_M mirror pinned by revision and hash, or split-GGUF support in the loader — a
+decision to take with the data, not now. Recorded because "7B optional" would otherwise look like a
+switch to flip.
+
+### D23 — the GGUF repos ship no tokenizer; it is pinned from each model's BASE repo
+
+`Qwen/Qwen2.5-*-Instruct-GGUF` contains only GGUF files. The engine needs a `tokenizer.json`, so
+each candidate pins one from its own base repo (`Qwen/Qwen2.5-1.5B-Instruct`, etc.) at a fixed
+revision with its own sha256.
+
+Pinning per-model rather than reusing the bundled 0.5B tokenizer is deliberate. The Qwen2.5 family
+is *believed* to share a tokenizer, but "believed" is not a property to build a token-id mapping on:
+a silent vocabulary difference would not crash, it would produce subtly wrong text. Each model
+therefore carries its own verified tokenizer. If the hashes turn out identical across sizes, that is
+a measured fact recorded after the fact, not an assumption relied on beforehand.
