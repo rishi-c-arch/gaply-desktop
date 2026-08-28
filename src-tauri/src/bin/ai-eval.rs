@@ -37,7 +37,7 @@ use std::sync::Arc;
 
 use app_lib::ai::generative::{BundledGenerativeLoader, InstalledGenerativeLoader, TASK_N_CTX};
 use app_lib::ai::model_manager::{BackendLoader, ModelManager};
-use app_lib::ai::task::{run_task, TaskContext, TaskError};
+use app_lib::ai::task::{run_task, Attempt, TaskContext, TaskError};
 use app_lib::ai::evidence::{assemble, Assembled, EVIDENCE_BUDGET_TOKENS};
 use app_lib::ai::tasks::citation_need::{CitationNeedInput, CitationNeedTask, PromptVariant};
 use app_lib::ai::tasks::citation_support::{CitationSupportTask, CitationSupportV2Task};
@@ -102,6 +102,14 @@ struct CaseResult {
     /// is countable from the report without re-reading stdout.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     fatal_errors: Vec<String>,
+    /// §11 D28. Substantive evidence/claim mismatches found by running the
+    /// faithfulness checker on a REJECTED but schema-shaped output.
+    ///
+    /// Reported separately from accepted faithfulness and folded into no score.
+    /// Its presence here NEVER changes `outcome` — this field exists precisely
+    /// because the information was previously lost behind a format error.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    diagnostic_faithfulness: Vec<String>,
     /// Derived from `stop_reasons`, so truncation is countable without
     /// re-deriving it in every consumer. NEVER used to accept an output.
     truncated: bool,
@@ -515,6 +523,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let (stop_reasons, truncated) = stops(&run.stop_reasons);
                 CaseResult {
                     id: case.id.clone(),
+                    diagnostic_faithfulness: Vec::new(),
                     fatal_errors: Vec::new(),
                     stop_reasons,
                     truncated,
@@ -545,6 +554,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let (stop_reasons, truncated) = stops(&stop_reasons);
                 CaseResult {
                     id: case.id.clone(),
+                    diagnostic_faithfulness: Vec::new(),
                     fatal_errors: errors.iter().map(|e| e.to_string()).collect(),
                     stop_reasons,
                     truncated,
@@ -581,6 +591,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let (stop_reasons, truncated) = (Vec::new(), false);
                 CaseResult {
                     id: case.id.clone(),
+                    diagnostic_faithfulness: Vec::new(),
                     fatal_errors: Vec::new(),
                     stop_reasons,
                     truncated,
@@ -863,6 +874,138 @@ fn faithfulness_violation(
     Some(hit.to_string())
 }
 
+/* ------------------- DIAGNOSTIC faithfulness (§11 D28) -------------------- *
+ * D25's checker only ever ran on ACCEPTED outputs, and on the whole Phase 6
+ * matrix the only accepted outputs were `insufficient_evidence` and
+ * `NoEvidence` — both of which cite nothing. "0 violations of 2 checked" in all
+ * nine cells therefore meant the check had never examined a citation.
+ *
+ * Everything below runs on REJECTED outputs and is reported SEPARATELY. None of
+ * it can accept anything: it takes a parsed clone, returns strings, and is
+ * called after the outcome is already ValidationFailed. */
+
+/// Recover the bare id a composite `chunk_id` was trying to name.
+///
+/// DIAGNOSTIC ONLY. The validator must keep rejecting `"c13 | p.5 | -"` (§11
+/// D26) — that rejection is the D18 grounding guarantee. But once an output is
+/// already rejected, refusing to read its intent throws away the evidence of
+/// what the model actually meant, which is the information cs-seed-01 lost.
+fn recover_chunk_id(raw: &str) -> &str {
+    let t = raw.trim();
+    let t = t.strip_prefix('[').unwrap_or(t);
+    let t = t.strip_prefix("CHUNK_ID=").unwrap_or(t);
+    t.split(|c: char| c.is_whitespace() || c == '|' || c == ']').next().unwrap_or(t)
+}
+
+/// Numbers that appear in a claim element, as bare digit runs.
+fn numbers_in(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    for ch in text.chars() {
+        if ch.is_ascii_digit() {
+            cur.push(ch);
+        } else if !cur.is_empty() {
+            out.push(std::mem::take(&mut cur));
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// Substantive evidence/claim mismatches, as human-readable strings.
+///
+/// Two narrow, string-level checks, both in D25's spirit — they FLAG, they
+/// never score:
+///
+/// 1. D25's forbidden-language check, when the seed carries a `faithfulness`
+///    block (cs-seed-03 / cs-seed-04).
+/// 2. A claim element marked `found` that carries a NUMBER which appears
+///    nowhere in the evidence the output actually cited. This is the check that
+///    exposes the 3B's cs-seed-01 failure: it marked `by about 31 percent` as
+///    `found` while quoting a sentence containing no number at all. A number is
+///    the one thing that cannot be paraphrased into existence, which is why it
+///    is safe to check by string.
+fn diagnostic_mismatches(
+    out: &app_lib::ai::tasks::citation_support::CitationSupportOutput,
+    ctx: &TaskContext,
+    spec: Option<&serde_json::Value>,
+) -> Vec<String> {
+    use app_lib::ai::tasks::citation_support::ElementStatus;
+    let mut hits = Vec::new();
+
+    if let Some(spec) = spec {
+        if let Some(word) = faithfulness_violation_recovered(out, ctx, spec) {
+            hits.push(format!(
+                "explanation asserts a finding the planted passage reports as ABSENT (matched {word:?})"
+            ));
+        }
+    }
+
+    // The text the output actually pointed at: cited chunks plus any quotes.
+    let mut cited = String::new();
+    for sc in &out.supporting_chunks {
+        if let Some(c) = ctx.get(recover_chunk_id(&sc.chunk_id)) {
+            cited.push_str(&c.text);
+            cited.push(' ');
+        }
+        if let Some(q) = &sc.quote {
+            cited.push_str(q);
+            cited.push(' ');
+        }
+    }
+
+    for el in &out.claim_elements {
+        if el.status != ElementStatus::Found {
+            continue;
+        }
+        for n in numbers_in(&el.element) {
+            if !cited.contains(&n) {
+                hits.push(format!(
+                    "claim_element {:?} is marked found, but {:?} appears in none of the cited evidence",
+                    el.element, n
+                ));
+            }
+        }
+    }
+    hits
+}
+
+/// D25's check, with DIAGNOSTIC id recovery so a composite chunk_id no longer
+/// hides the faithfulness question behind a format error.
+fn faithfulness_violation_recovered(
+    out: &app_lib::ai::tasks::citation_support::CitationSupportOutput,
+    ctx: &TaskContext,
+    spec: &serde_json::Value,
+) -> Option<String> {
+    let needle = spec.get("planted_chunk_contains")?.as_str()?;
+    let cited_planted = out.supporting_chunks.iter().any(|sc| {
+        ctx.get(recover_chunk_id(&sc.chunk_id)).map(|c| c.text.contains(needle)).unwrap_or(false)
+    });
+    if !cited_planted {
+        return None;
+    }
+    let expl = out.explanation.to_lowercase();
+    let hit = spec
+        .get("forbidden_language")?
+        .as_array()?
+        .iter()
+        .filter_map(|v| v.as_str())
+        .find(|w| expl.contains(&w.to_lowercase()))?;
+    Some(hit.to_string())
+}
+
+/// Parse a rejected raw attempt far enough to inspect it. Returns `None` when
+/// the output never became schema-shaped — a truncated reply has nothing to
+/// diagnose, and saying so is more honest than reporting zero findings.
+fn parse_for_diagnosis(
+    raw: &str,
+) -> Option<app_lib::ai::tasks::citation_support::CitationSupportOutput> {
+    let json = app_lib::ai::task::extract_json(raw)?;
+    serde_json::from_str(json).ok()
+}
+
 async fn run_citation_support(
     cases: Vec<EvalCase>,
     cases_path: PathBuf,
@@ -918,6 +1061,7 @@ async fn run_citation_support(
                 let (stop_reasons, truncated) = (Vec::new(), false);
                 results.push(CaseResult {
                     id: case.id.clone(),
+                    diagnostic_faithfulness: Vec::new(),
                     fatal_errors: Vec::new(),
                     stop_reasons,
                     truncated,
@@ -1003,6 +1147,7 @@ async fn run_citation_support(
                 let (stop_reasons, truncated) = stops(&run.stop_reasons);
                 CaseResult {
                     id: case.id.clone(),
+                    diagnostic_faithfulness: Vec::new(),
                     fatal_errors: Vec::new(),
                     stop_reasons,
                     truncated,
@@ -1041,8 +1186,27 @@ async fn run_citation_support(
                     errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; ")
                 );
                 let (stop_reasons, truncated) = stops(&stop_reasons);
+                // §11 D28 — DIAGNOSTIC ONLY. Runs after the outcome is already
+                // ValidationFailed, on a parsed clone, and can neither clear a fatal
+                // error nor reach persistence. It exists so a rejected output stops
+                // taking its faithfulness evidence down with it.
+                let primary_raw = match primary {
+                    Attempt::First => first_raw.as_str(),
+                    Attempt::Retry => retry_raw.as_str(),
+                };
+                let diagnostic_faithfulness = parse_for_diagnosis(primary_raw)
+                    .map(|parsed| {
+                        diagnostic_mismatches(&parsed, &bundle.ctx, case.expected.get("faithfulness"))
+                    })
+                    .unwrap_or_default();
+                if !diagnostic_faithfulness.is_empty() {
+                    for m in &diagnostic_faithfulness {
+                        println!("       DIAGNOSTIC (rejected output): {m}");
+                    }
+                }
                 CaseResult {
                     id: case.id.clone(),
+                    diagnostic_faithfulness,
                     fatal_errors: errors.iter().map(|e| e.to_string()).collect(),
                     stop_reasons,
                     truncated,
@@ -1069,6 +1233,7 @@ async fn run_citation_support(
                 let (stop_reasons, truncated) = (Vec::new(), false);
                 CaseResult {
                     id: case.id.clone(),
+                    diagnostic_faithfulness: Vec::new(),
                     fatal_errors: Vec::new(),
                     stop_reasons,
                     truncated,
@@ -1113,10 +1278,24 @@ async fn run_citation_support(
         })
         .map(|r| r.id.clone())
         .collect();
+    // §11 D28 — ACCEPTED faithfulness. The honest denominator is accepted
+    // outputs that CARRIED a faithfulness spec, not seeds that had one: Phase 6
+    // counted the latter and so reported "2 checked" in cells where the checker
+    // had inspected nothing at all.
+    let accepted_ids: std::collections::HashSet<&str> =
+        results.iter().filter(|r| r.outcome == Outcome::Ok).map(|r| r.id.as_str()).collect();
     let faithfulness_checked = cases
         .iter()
-        .filter(|c| c.expected.get("faithfulness").is_some())
+        .filter(|c| c.expected.get("faithfulness").is_some() && accepted_ids.contains(c.id.as_str()))
         .count();
+
+    // §11 D28 — DIAGNOSTIC faithfulness, on REJECTED outputs. Kept in its own
+    // fields and out of every rate: it describes outputs the engine threw away.
+    let diagnostic_cases: Vec<serde_json::Value> = results
+        .iter()
+        .filter(|r| !r.diagnostic_faithfulness.is_empty())
+        .map(|r| serde_json::json!({ "id": r.id, "outcome": r.outcome, "findings": r.diagnostic_faithfulness }))
+        .collect();
 
 let report = serde_json::json!({
         "task": "citation_support",
@@ -1155,6 +1334,10 @@ let report = serde_json::json!({
         "faithfulnessViolations": faithfulness_hits.len(),
         "faithfulnessViolationCases": faithfulness_hits,
         "faithfulnessCheckedCases": faithfulness_checked,
+        // §11 D28. Reported SEPARATELY from the accepted figures above and
+        // deliberately not a rate — these describe rejected outputs.
+        "diagnosticFaithfulnessFailures": diagnostic_cases.len(),
+        "diagnosticFaithfulnessCases": diagnostic_cases,
         "results": results,
     });
 
@@ -1175,9 +1358,13 @@ let report = serde_json::json!({
     println!("mean prefill            : {:.0} ms", report["meanPrefillMs"].as_f64().unwrap_or(0.0));
     println!("model load              : {load_ms} ms");
     println!(
-        "FAITHFULNESS violations : {} of {} checked",
+        "FAITHFULNESS (accepted) : {} violations of {} accepted outputs checked",
         report["faithfulnessViolations"].as_u64().unwrap_or(0),
         faithfulness_checked
+    );
+    println!(
+        "FAITHFULNESS (rejected) : {} diagnostic finding(s) on rejected outputs",
+        report["diagnosticFaithfulnessFailures"].as_u64().unwrap_or(0)
     );
 
     std::fs::create_dir_all(&out_dir)?;
@@ -1185,4 +1372,108 @@ let report = serde_json::json!({
     std::fs::write(&path, serde_json::to_string_pretty(&report)?)?;
     println!("\nreport written to {}", path.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    use app_lib::ai::task::{AiTask, EvidenceChunk};
+    use app_lib::ai::tasks::citation_support::CitationSupportTask;
+
+    fn ctx() -> TaskContext {
+        TaskContext::new(vec![
+            EvidenceChunk {
+                chunk_id: "c13".into(),
+                page: Some(5),
+                section: None,
+                text: "Organic management was associated with higher soil invertebrate species \
+                       richness in this paired comparison."
+                    .into(),
+            },
+            EvidenceChunk {
+                chunk_id: "c1".into(),
+                page: Some(1),
+                section: Some("Results".into()),
+                text: "Species richness rose 31 percent under organic management.".into(),
+            },
+        ])
+    }
+
+    /// DIAGNOSTIC id recovery reads intent; it never becomes an acceptance rule.
+    #[test]
+    fn recover_chunk_id_reads_the_intent_of_every_composite_form() {
+        assert_eq!(recover_chunk_id("c13"), "c13");
+        assert_eq!(recover_chunk_id("c13 | p.5 | -"), "c13");
+        assert_eq!(recover_chunk_id("[CHUNK_ID=c13 PAGE=5 SECTION=-]"), "c13");
+        assert_eq!(recover_chunk_id("CHUNK_ID=c13"), "c13");
+        assert_eq!(recover_chunk_id("  c13  "), "c13");
+    }
+
+    #[test]
+    fn numbers_are_pulled_out_of_a_claim_element() {
+        assert_eq!(numbers_in("by about 31 percent"), vec!["31".to_string()]);
+        assert_eq!(numbers_in("no digits here"), Vec::<String>::new());
+    }
+
+    /// §11 D28, the case that motivated it. This is the 3B's real cs-seed-01
+    /// first attempt under v2: a composite chunk_id (so the engine rejects it),
+    /// `by about 31 percent` marked `found`, and a quote carrying no number.
+    /// Phase 6 lost this entirely behind the chunk_id error.
+    #[test]
+    fn the_3b_cs_seed_01_shape_is_exposed_as_a_diagnostic_mismatch() {
+        let raw = r#"{
+          "verdict": "strong",
+          "confidence": 1.0,
+          "supporting_chunks": [{
+            "chunk_id": "c13 | p.5 | -", "page": 5,
+            "quote": "Organic management was associated with higher soil invertebrate species richness in this paired comparison.",
+            "why": "Reports the richness increase."
+          }],
+          "claim_elements": [
+            {"element": "Organic management", "status": "found"},
+            {"element": "by about 31 percent", "status": "found"}
+          ],
+          "explanation": "The study found a 31 percent increase, which matches the claim exactly.",
+          "suggested_rewrite": null
+        }"#;
+        let parsed = parse_for_diagnosis(raw).expect("schema-shaped enough to diagnose");
+        let hits = diagnostic_mismatches(&parsed, &ctx(), None);
+        assert!(
+            hits.iter().any(|h| h.contains("31") && h.contains("marked found")),
+            "the 31 percent mismatch was not surfaced: {hits:?}"
+        );
+    }
+
+    /// THE boundary (§11 D28). A diagnostic finding is evidence for a human; it
+    /// is not a second opinion the validator has to respect. The same output
+    /// that produced findings above is STILL fatally invalid, and the two
+    /// judgements are computed independently.
+    #[test]
+    fn a_diagnostic_finding_cannot_turn_a_rejected_output_into_an_accepted_one() {
+        let raw = r#"{
+          "verdict": "strong", "confidence": 1.0,
+          "supporting_chunks": [{"chunk_id": "c13 | p.5 | -", "page": 5, "why": "x"}],
+          "claim_elements": [{"element": "by about 31 percent", "status": "found"}],
+          "explanation": "e", "suggested_rewrite": null
+        }"#;
+        let parsed = parse_for_diagnosis(raw).unwrap();
+
+        // the diagnostic has something to say...
+        assert!(!diagnostic_mismatches(&parsed, &ctx(), None).is_empty());
+
+        // ...and the validator is entirely unmoved by it.
+        let errors = CitationSupportTask::validate(&parsed, &ctx())
+            .expect_err("a composite chunk_id must stay fatal");
+        assert!(
+            errors.iter().any(|e| e.field.contains("chunk_id") && e.is_fatal()),
+            "the composite id stopped being fatal: {errors:?}"
+        );
+    }
+
+    /// A truncated reply never became schema-shaped, so there is nothing to
+    /// diagnose. Saying so beats reporting zero findings as if it were clean.
+    #[test]
+    fn a_truncated_reply_has_nothing_to_diagnose() {
+        assert!(parse_for_diagnosis(r#"{"verdict":"strong","supporting_chunks":[{"chunk_i"#).is_none());
+    }
 }
