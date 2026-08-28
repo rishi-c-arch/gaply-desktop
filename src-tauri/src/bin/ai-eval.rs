@@ -484,8 +484,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some("v2") => SupportVariant::V2,
             Some(o) => return Err(format!("unknown --support-variant {o:?}; use v1 or v2").into()),
         };
+        // §11 D29. `--embedder-dir` selects the REAL embedder. Absent, the
+        // mock runs and the report is stamped `embedderIsReal: false` — a
+        // number produced that way is a pipeline smoke test, not a bake-off.
+        let embedder = match arg("--embedder-dir") {
+            Some(dir) => {
+                let dir = PathBuf::from(dir);
+                let engine = app_lib::ai::embeddings::EmbeddingEngine::load_verified(&dir)
+                    .map_err(|e| format!("loading the embedder from {}: {e}", dir.display()))?;
+                EvalEmbedder::Real(Box::new(engine))
+            }
+            None => EvalEmbedder::Mock,
+        };
         return run_citation_support(
-            cases, cases_path, date, out_dir, model_id, manager, sv, load_ms, ram_mb,
+            cases, cases_path, date, out_dir, model_id, manager, sv, load_ms, ram_mb, embedder,
         )
         .await;
     }
@@ -739,23 +751,79 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
  * the one that matters: a right verdict citing the wrong passage is a right
  * answer for the wrong reason, and would look identical in an accuracy score. */
 
-/// Index one fixture file and embed it in a mocked 3-dim space.
+/// Which embedder assembles the evidence (§11 D29).
 ///
-/// CI-safe by default: the mocked embedder scores lexical overlap with the
-/// claim, which is enough to exercise the pipeline shape. With
-/// GAPLY_TEST_EMBED_MODEL the real embedding engine is used instead.
-fn build_fixture(db: &Database, name: &str, dir: &Path) -> Result<i64, Box<dyn std::error::Error>> {
+/// The Phase 6 support cells all ran `Mock`, and retrieval feeds the prompt, so
+/// the whole arm measured the models against evidence a real install would
+/// never have selected. `Real` is now mandatory for a bake-off; `Mock` stays
+/// for CI, which must not need a 134 MB download.
+enum EvalEmbedder {
+    Mock,
+    Real(Box<app_lib::ai::embeddings::EmbeddingEngine>),
+}
+
+impl EvalEmbedder {
+    fn model_id(&self) -> &'static str {
+        match self {
+            EvalEmbedder::Mock => "mock-lexical-v1",
+            EvalEmbedder::Real(_) => app_lib::ai::EMBED_MODEL_ID,
+        }
+    }
+    fn preprocessing_version(&self) -> &'static str {
+        match self {
+            EvalEmbedder::Mock => "mock-v1",
+            EvalEmbedder::Real(_) => app_lib::ai::PREPROCESSING_VERSION,
+        }
+    }
+    fn dim(&self) -> usize {
+        match self {
+            EvalEmbedder::Mock => EVAL_DIM,
+            EvalEmbedder::Real(_) => app_lib::ai::EMBED_DIM,
+        }
+    }
+    fn space(&self) -> core_emb::EmbeddingSpace {
+        core_emb::EmbeddingSpace::new(self.model_id(), self.preprocessing_version())
+    }
+    fn is_real(&self) -> bool {
+        matches!(self, EvalEmbedder::Real(_))
+    }
+    /// Passage side — no prefix, per the model card.
+    fn embed_documents(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, Box<dyn std::error::Error>> {
+        Ok(match self {
+            EvalEmbedder::Mock => texts.iter().map(|t| mock_vector(t)).collect(),
+            EvalEmbedder::Real(e) => e.embed_documents(texts)?,
+        })
+    }
+    /// Query side — the real engine applies EMBED_QUERY_PREFIX. Using the
+    /// document path for a query would be off-distribution for a model trained
+    /// with an asymmetric prefix, which is exactly the kind of silent mismatch
+    /// PREPROCESSING_VERSION exists to make visible.
+    fn embed_query(&self, text: &str) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+        Ok(match self {
+            EvalEmbedder::Mock => mock_vector(text),
+            EvalEmbedder::Real(e) => e.embed_query(text)?,
+        })
+    }
+}
+
+/// Index one fixture file and register the embedding model actually in use.
+fn build_fixture(
+    db: &Database,
+    name: &str,
+    dir: &Path,
+    emb: &EvalEmbedder,
+) -> Result<i64, Box<dyn std::error::Error>> {
     let text = std::fs::read_to_string(dir.join(name))?;
     let doc = store::create_document(db, name, &dir.join(name).display().to_string(), name)?;
     registry::register_model(
         db,
         registry::ModelRow {
-            id: "eval-emb".into(),
+            id: emb.model_id().into(),
             kind: "embedding".into(),
-            display_name: "eval".into(),
+            display_name: emb.model_id().into(),
             file_path: "/x".into(),
             sha256: None,
-            dim: Some(EVAL_DIM as i64),
+            dim: Some(emb.dim() as i64),
             quant: None,
         },
     )?;
@@ -800,11 +868,13 @@ fn mock_vector(text: &str) -> Vec<f32> {
     v
 }
 
-fn embed_fixture(db: &Database) -> Result<(), Box<dyn std::error::Error>> {
-    let space = core_emb::EmbeddingSpace::new("eval-emb", "mock-v1");
-    let pending = core_emb::chunks_missing_embeddings(db, None, "eval-emb")?;
+fn embed_fixture(db: &Database, emb: &EvalEmbedder) -> Result<(), Box<dyn std::error::Error>> {
+    let space = emb.space();
+    let pending = core_emb::chunks_missing_embeddings(db, None, emb.model_id())?;
+    let texts: Vec<String> = pending.iter().map(|p| p.content.clone()).collect();
+    let vectors = emb.embed_documents(&texts)?;
     let rows: Vec<(i64, Vec<f32>)> =
-        pending.iter().map(|p| (p.chunk_id, mock_vector(&p.content))).collect();
+        pending.iter().map(|p| p.chunk_id).zip(vectors).collect();
     core_emb::put_embeddings(db, &space, &rows)?;
     Ok(())
 }
@@ -1016,13 +1086,19 @@ async fn run_citation_support(
     variant: SupportVariant,
     load_ms: u64,
     ram_mb: Option<u64>,
+    embedder: EvalEmbedder,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let fixtures_dir = cases_path.parent().unwrap_or(Path::new(".")).join("fixtures");
     let db = Database::in_memory()?;
     let ceiling = variant.ceiling();
     println!("prompt  : {}", variant.version());
     println!("ceiling : {ceiling} max_tokens (§11 D27)");
-    println!("evidence: budget {EVIDENCE_BUDGET_TOKENS} tokens, MOCKED lexical embedder");
+    println!(
+        "evidence: budget {EVIDENCE_BUDGET_TOKENS} tokens, embedder {} ({}){}",
+        embedder.model_id(),
+        embedder.preprocessing_version(),
+        if embedder.is_real() { "" } else { "  *** MOCKED - not a valid bake-off (§11 D29) ***" }
+    );
     println!();
 
     let mut docs: std::collections::HashMap<String, i64> = Default::default();
@@ -1041,14 +1117,15 @@ async fn run_citation_support(
         } else if let Some(d) = docs.get(&fixture) {
             *d
         } else {
-            let d = build_fixture(&db, &fixture, &fixtures_dir)?;
-            embed_fixture(&db)?;
+            let d = build_fixture(&db, &fixture, &fixtures_dir, &embedder)?;
+            embed_fixture(&db, &embedder)?;
             docs.insert(fixture.clone(), d);
             d
         };
 
         let started = std::time::Instant::now();
-        let assembled = assemble(&db, doc, &claim, &mock_vector(&claim), EVIDENCE_BUDGET_TOKENS)?;
+        let query_vector = embedder.embed_query(&claim)?;
+        let assembled = assemble(&db, doc, &claim, &query_vector, EVIDENCE_BUDGET_TOKENS)?;
         let bundle = match assembled {
             Assembled::NoEvidence { reason } => {
                 let expected_none =
@@ -1305,7 +1382,11 @@ let report = serde_json::json!({
         "ramTotalMb": ram_mb,
         "nCtx": app_lib::ai::generative::TASK_N_CTX,
         "evidenceBudgetTokens": EVIDENCE_BUDGET_TOKENS,
-        "embedder": "mock-lexical-v1",
+        // §11 D29. A report can never again be read without knowing which
+        // retrieval produced the evidence it scores.
+        "embedder": embedder.model_id(),
+        "preprocessingVersion": embedder.preprocessing_version(),
+        "embedderIsReal": embedder.is_real(),
         "date": date,
         "casesFile": cases_path.display().to_string(),
         "totalCases": results.len(),
