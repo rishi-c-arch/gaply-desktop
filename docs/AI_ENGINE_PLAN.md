@@ -1339,10 +1339,22 @@ variant.
 
 **The decision is CONDITIONAL on two things that do not yet exist, and is not final until both do:**
 
-1. **Metal acceleration bringing citation_support latency into usable range.** Measured now at
-   174 s mean under v1.1 with prefill at 55%, and 212 s at 80% prefill under v2.1. That is not a
-   shippable interaction, and the lever is prefill (§9.8, D12) — one large matmul, exactly what a
-   GPU path is for. If Metal does not move it, this decision is reopened, not worked around.
+1. **Metal acceleration bringing citation_support latency into usable range.**
+
+   **AMENDED (Phase 6c).** This condition originally cited 174 s (v1.1) and 212 s (v2.1). **Those
+   figures are CONTAMINATED and are withdrawn** — both cells were measured while
+   `cargo clippy --workspace` and the test suite ran on the same machine, after it had been doing
+   continuous CPU inference for over an hour. Prefill cost 95.3 ms per prompt token there against
+   34–47 ms in every later run on near-identical prompts, and nothing in the engine can cause that.
+
+   **Provisional baselines, isolated:** **~63–74 s** for the v1 lineage and **~154–160 s** for the
+   v2 lineage (Phase 6b/6c, three of the four cells declared isolated). Still not a shippable
+   interaction, so the conditional STANDS and prefill is still the lever (§9.8, D12) — but the gap
+   Metal must close is roughly a third of what this decision first recorded.
+
+   **Neither figure is a controlled measurement.** Pre-Metal latency gets ONE dedicated isolated
+   measurement — a quiet machine, repeated runs, load context recorded (D33) — before it decides
+   anything. If Metal does not move it, this decision is reopened, not worked around.
 2. **Validation on the 50-case labeled set.** Six seeds on one fixture chose this candidate. Six
    seeds cannot confirm it. Everything below is provisional on that data.
 
@@ -1469,3 +1481,55 @@ are **63 s (v1.2)** and **154 s (v2.2)**. Metal is still the right lever and the
 — 63 s is not a shippable interaction either — but the gap it must close is roughly a third of what
 D30 records, and **neither figure is a controlled measurement.** Latency deserves a dedicated
 isolated run before it decides anything.
+
+
+## Phase 6c — the prompt line, and a guard against measuring noise
+
+### D33 — the prompt states the bound and nothing else; load context is recorded in every report
+
+**The prompt half of D32 is reverted to a bare statement of the bound.** The validator and schema
+are unchanged — four entries, Fatal above. What is gone is the second sentence, *"Cite only the
+chunks that actually carry the point. Listing every chunk you were given is not evidence."*
+
+Decoding is greedy argmax, so prompt text is causally testable, and this sentence was measured
+moving the 3B off the planted passage. The bound belongs in the validator; the prompt's job is to
+state it, not to argue for it. `PROMPT_VERSION` v1.2 → **v1.3**, v2.2 → **v2.3**.
+
+**It recovered half the loss, and half is the finding.** Planted-chunk citation on the 3B:
+
+| | v1.1 (no bound stated) | v1.2 (bound + guidance) | v1.3 (bound only) |
+|---|---|---|---|
+| planted cited | **75%** (3/4) | 25% (1/4) | **50%** (2/4) |
+
+cs-seed-03 recovered; **cs-seed-04 did not.** The residual gap is not the wording — v1.3's line is
+purely factual — it is *the presence of the statement at all*. On a 3B under greedy decoding, adding
+any line to the rules block reorders what the model cites. v1.3 also changed cs-seed-05, which now
+cites four chunks while returning `insufficient_evidence` (legal under the current rules, and odd).
+
+**v2 did not recover at all**: 3/6 → 2/6 → **2/6**. Every v2.3 failure is the same one, the D24
+verbatim-quote check, on chunk c13 — the model paraphrases the quote it claims to be copying. That
+is orthogonal to the cap and to its wording, and it is the thing to look at if the v2 lineage is
+ever revived.
+
+**Honest scope of all of this: the planted metric has a denominator of 4.** 75% / 50% / 25% are
+3, 2 and 1 seeds. These are single-seed differences on one fixture, and they are reported because
+they are the primary metric, not because four seeds settle anything. The 50-case labeled set (D30)
+is what would.
+
+### The load-context rule
+
+Every citation_support report now carries `loadContext`: the 1-minute load average at cell start
+and end, and a `ranIsolated` flag set by `--isolated`.
+
+**TIMING FIGURES FROM CELLS WITH DIFFERENT LOAD CONTEXT ARE NOT COMPARABLE.** That is a rule, not a
+caveat, and D30's withdrawn figures are why it exists.
+
+Two limits, stated so the guard is not trusted further than it earns:
+
+1. **`ranIsolated` is a DECLARATION, not a measurement.** It records that the operator scheduled
+   nothing else. The load averages are the evidence for or against it.
+2. **The end-of-cell load average is dominated by the cell itself.** Inference *is* the load: the
+   v1.3 cell ran 1.82 → 3.66 while genuinely isolated. The START value is the useful signal —
+   "was the machine quiet when this began" — and even that is weak for back-to-back cells: v2.3
+   started at 3.66 because v1.3 had just finished. **By this rule's own terms, v1.3 and v2.3 are
+   not strictly comparable to each other on timing.**

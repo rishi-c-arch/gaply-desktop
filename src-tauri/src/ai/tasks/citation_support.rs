@@ -28,7 +28,7 @@ use crate::ai::task::{AiTask, TaskContext, ValidationError};
 
 /// Bumped v1 -> v1.1 by §11 D26: the evidence header rendering changed, so a
 /// report from either side of that change describes a different prompt.
-pub const PROMPT_VERSION: &str = "citation_support-v1.2";
+pub const PROMPT_VERSION: &str = "citation_support-v1.3";
 
 /// SPEC OVERRIDE — §11 D27. The spec pins `max_tokens: 400`; measurement
 /// retired it.
@@ -61,6 +61,14 @@ const MAX_WHY_WORDS: usize = 20;
 /// not untidy, it is a claim that twelve passages support the sentence, and a
 /// reader cannot check that. Four is enough to carry a real multi-passage
 /// justification and few enough to read.
+///
+/// THE PROMPT STATES THE BOUND AND NOTHING ELSE (§11 D33). It briefly also said
+/// "Cite only the chunks that actually carry the point. Listing every chunk you
+/// were given is not evidence." Decoding is greedy, so that sentence was
+/// measured — it moved the 3B off the planted chunk on two of four seeds
+/// (planted-chunk citation 75% -> 25%) while every other metric held still. Do
+/// not reintroduce guidance here: the bound belongs in the validator, and the
+/// prompt's job is to state it, not to argue for it.
 const MAX_SUPPORTING_CHUNKS: usize = 4;
 /// v2's quote ceiling. Long enough to carry a finding, short enough that
 /// "quote the whole chunk" is not a way to pass the check without reading.
@@ -164,8 +172,7 @@ const RULES: &str = r#"- Decompose the claim into its checkable elements first (
     weak      = topic present, claimed finding absent
     contradicts = evidence states the opposite direction or a null result
     insufficient_evidence = retrieved chunks do not cover the claim's topic at all
-- supporting_chunks: AT MOST 4 entries. Cite only the chunks that actually carry the
-  point. Listing every chunk you were given is not evidence.
+- supporting_chunks: AT MOST 4 entries.
 - "why" <= 20 words, must paraphrase the chunk, never quote more than 10 words.
 - suggested_rewrite: only for "partial" - rewrite the author's sentence so it becomes
   accurate for this source. null for every other verdict.
@@ -477,7 +484,7 @@ fn validate_support(
 
 /// v2's prompt version. v1's string is untouched, so reports from the two
 /// variants can never be conflated.
-pub const PROMPT_VERSION_V2: &str = "citation_support-v2.2";
+pub const PROMPT_VERSION_V2: &str = "citation_support-v2.3";
 
 const OUTPUT_SCHEMA_V2: &str = r#"{
   "verdict": "strong|partial|weak|contradicts|insufficient_evidence",
@@ -997,7 +1004,7 @@ mod tests {
         assert!(p.contains("\"quote\": string"), "the schema must show the quote field");
         assert!(p.contains("WORD FOR WORD"));
         assert!(p.contains("verdict mapping:"), "v1's rules must still be present");
-        assert_eq!(t.prompt_version(), "citation_support-v2.2");
+        assert_eq!(t.prompt_version(), "citation_support-v2.3");
         assert_ne!(PROMPT_VERSION, PROMPT_VERSION_V2, "the two variants must be distinguishable");
         // the claim still comes last (the Phase 4b finding)
         let claim_at = p.rfind("CLAIM UNDER TEST").unwrap();
@@ -1026,6 +1033,6 @@ mod tests {
         assert!(claim_at > ev_at, "the claim must come after the evidence");
         assert!(p[claim_at..].contains("beginning with {"));
         assert_eq!(CitationSupportTask::max_tokens(), 768, "§11 D27 pins max_tokens: 768");
-        assert_eq!(t.prompt_version(), "citation_support-v1.2");
+        assert_eq!(t.prompt_version(), "citation_support-v1.3");
     }
 }

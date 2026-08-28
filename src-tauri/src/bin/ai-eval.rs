@@ -224,6 +224,34 @@ fn decode_tps(tokens: usize, decode_ms: u64) -> f64 {
     }
 }
 
+/// 1-minute load average, or `None` where the platform will not say.
+///
+/// §11 D33. Phase 6a's 3B cells were measured while clippy and the test suite
+/// ran on the same machine: prefill cost 95.3 ms per prompt token there and
+/// 34.4 ms in Phase 6b on near-identical prompts. Nothing in the engine can
+/// cause that. The numbers fed a model decision before anyone noticed.
+///
+/// Recording load makes the contamination visible IN the report instead of
+/// reconstructable from what else was running an hour ago.
+#[cfg(target_os = "macos")]
+fn load_avg_1m() -> Option<f64> {
+    let mut avg = [0.0f64; 3];
+    // SAFETY: getloadavg writes at most `nelem` doubles into the buffer, and
+    // the buffer holds 3.
+    let n = unsafe { libc::getloadavg(avg.as_mut_ptr(), 3) };
+    if n >= 1 {
+        Some(avg[0])
+    } else {
+        None
+    }
+}
+
+/// Non-macOS: say nothing rather than report a zero that reads as "idle".
+#[cfg(not(target_os = "macos"))]
+fn load_avg_1m() -> Option<f64> {
+    None
+}
+
 fn arg(name: &str) -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
@@ -1116,9 +1144,16 @@ async fn run_citation_support(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let fixtures_dir = cases_path.parent().unwrap_or(Path::new(".")).join("fixtures");
     let db = Database::in_memory()?;
+    let load_start = load_avg_1m();
+    let ran_isolated = std::env::args().any(|a| a == "--isolated");
     let ceiling = variant.ceiling();
     println!("prompt  : {}", variant.version());
     println!("ceiling : {ceiling} max_tokens (§11 D27)");
+    println!(
+        "load    : 1m avg {} at start{}",
+        load_start.map(|l| format!("{l:.2}")).unwrap_or_else(|| "unknown".into()),
+        if ran_isolated { ", declared ISOLATED" } else { ", NOT declared isolated" }
+    );
     println!(
         "evidence: budget {EVIDENCE_BUDGET_TOKENS} tokens, embedder {} ({}){}",
         embedder.model_id(),
@@ -1405,6 +1440,7 @@ async fn run_citation_support(
         .map(|r| serde_json::json!({ "id": r.id, "outcome": r.outcome, "findings": r.diagnostic_faithfulness }))
         .collect();
 
+    let load_end = load_avg_1m();
     let binary_hash = self_hash();
     // Collapse check: a model that answers everything the same way can score
     // respectably on agreement while having learned nothing.
@@ -1484,6 +1520,15 @@ async fn run_citation_support(
         // Which binary produced this cell. Never compare two cells whose
         // hashes differ.
         "binaryHash": binary_hash,
+        // §11 D33. Timing figures from cells with DIFFERENT load context are
+        // not comparable — that is a rule, not a caveat. `ranIsolated` is a
+        // DECLARATION by the operator, not a measurement: it says nothing else
+        // was scheduled, and the load averages are the evidence for or against.
+        "loadContext": {
+            "loadAvg1mStart": load_start,
+            "loadAvg1mEnd": load_end,
+            "ranIsolated": ran_isolated,
+        },
         "verdictDistribution": verdict_distribution,
         "meanDecodeTokensPerSec": mean_decode_tps,
         "prefillShare": prefill_share,
@@ -1500,6 +1545,12 @@ async fn run_citation_support(
         report["truncationCount"], results.len()
     );
     println!("chunk_id format failures: {}", report["chunkIdFormatFailures"]);
+    println!(
+        "load 1m avg             : {} -> {}{}",
+        load_start.map(|l| format!("{l:.2}")).unwrap_or_else(|| "?".into()),
+        load_end.map(|l| format!("{l:.2}")).unwrap_or_else(|| "?".into()),
+        if ran_isolated { "  (declared isolated)" } else { "  (NOT isolated — timings not comparable)" }
+    );
     println!("retry rate              : {:.0}%", report["retryRate"].as_f64().unwrap_or(0.0) * 100.0);
     println!("advisory rate           : {:.0}%", report["advisoryRate"].as_f64().unwrap_or(0.0) * 100.0);
     println!("mean latency            : {:.0} ms", report["meanLatencyMs"].as_f64().unwrap_or(0.0));
