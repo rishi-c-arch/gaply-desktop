@@ -182,8 +182,158 @@ fn mean(xs: &[f64]) -> Option<f64> {
     }
 }
 
+
+/// Build the bake-off comparison document from report JSONs already on disk.
+///
+/// Separate from the runs on purpose: the matrix takes hours, and a formatting
+/// mistake in the summary must never be a reason to run it again. Every number
+/// here is READ from a report — nothing is recomputed, so the document cannot
+/// disagree with the reports it cites.
+fn write_bakeoff(prefix: &str, out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut reports: Vec<(String, serde_json::Value)> = Vec::new();
+    for e in std::fs::read_dir(out_dir)? {
+        let path = e?.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        if !name.ends_with(".json") || !name.contains(prefix) {
+            continue;
+        }
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+        reports.push((name, v));
+    }
+    if reports.is_empty() {
+        return Err(format!("no reports matching {prefix:?} in {}", out_dir.display()).into());
+    }
+    reports.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let g = |v: &serde_json::Value, k: &str| -> String {
+        match v.get(k) {
+            Some(serde_json::Value::Number(n)) => {
+                let f = n.as_f64().unwrap_or(0.0);
+                if f.fract() == 0.0 { format!("{f:.0}") } else { format!("{f:.2}") }
+            }
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(serde_json::Value::Null) | None => "—".into(),
+            Some(other) => other.to_string(),
+        }
+    };
+    let pctf = |v: &serde_json::Value, k: &str| -> String {
+        v.get(k)
+            .and_then(|x| x.as_f64())
+            .map(|f| format!("{:.0}%", f * 100.0))
+            .unwrap_or_else(|| "—".into())
+    };
+
+    let mut md = String::new();
+    md.push_str("# Generative model bake-off\n\n");
+    md.push_str(
+        "Every figure is read from the report JSONs in this directory; nothing is recomputed here.\n\
+         Runs were SEQUENTIAL on one machine — concurrent runs would contend for CPU and make every\n\
+         latency column meaningless.\n\n\
+         Scope limit (§11 D21): these are the Qwen2.5 sizes the vendored qwen2 loader can load. A\n\
+         winner here is the best of THESE, not the best model available.\n\n",
+    );
+
+    md.push_str("## All cells\n\n");
+    md.push_str(
+        "| model | task / prompt | valid | fatal | retry | advisory | mean latency | prefill | prompt tok | load | RAM |\n\
+         |---|---|---|---|---|---|---|---|---|---|---|\n",
+    );
+    for (_, r) in &reports {
+        md.push_str(&format!(
+            "| {} | {} | {}/{} | {} | {} | {} | {} ms | {} ms | {} | {} ms | {} |\n",
+            g(r, "modelId"),
+            g(r, "promptVersion"),
+            g(r, "validOutputs"),
+            g(r, "totalCases"),
+            pctf(r, "validationFailureRate"),
+            pctf(r, "retryRate"),
+            pctf(r, "advisoryRate"),
+            g(r, "meanLatencyMs"),
+            g(r, "meanPrefillMs"),
+            g(r, "meanPromptTokens"),
+            g(r, "modelLoadMs"),
+            g(r, "ramTotalMb"),
+        ));
+    }
+
+    md.push_str("\n## citation_need — accuracy against the labels\n\n");
+    md.push_str("| model | needs_citation acc | sentence_type | severity | answer distribution (collapse check) |\n|---|---|---|---|---|\n");
+    for (_, r) in reports.iter().filter(|(_, r)| g(r, "task") == "citation_need") {
+        md.push_str(&format!(
+            "| {} | {} | {} | {} | `{}` |\n",
+            g(r, "modelId"),
+            pctf(r, "needsCitationAccuracy"),
+            pctf(r, "sentenceTypeAgreement"),
+            pctf(r, "severityAgreement"),
+            r.get("answerDistribution").map(|v| v.to_string()).unwrap_or_default(),
+        ));
+    }
+
+    md.push_str("\n## citation_support — grounding and faithfulness\n\n");
+    md.push_str("| model | prompt | verdict agree | cited planted chunk | FAITHFULNESS violations | cases |\n|---|---|---|---|---|---|\n");
+    for (_, r) in reports.iter().filter(|(_, r)| g(r, "task") == "citation_support") {
+        md.push_str(&format!(
+            "| {} | {} | {} | {} | {} of {} | {} |\n",
+            g(r, "modelId"),
+            g(r, "promptVersion"),
+            pctf(r, "verdictAgreement"),
+            pctf(r, "citedPlantedChunk"),
+            g(r, "faithfulnessViolations"),
+            g(r, "faithfulnessCheckedCases"),
+            r.get("faithfulnessViolationCases").map(|v| v.to_string()).unwrap_or_default(),
+        ));
+    }
+
+    md.push_str("\n## Retry-collapse check\n\n");
+    md.push_str(
+        "Phase 5 measured every 0.5B retry collapsing to `{\"answer\": \"Corrected.\"}`. \
+         Whether that survives at larger sizes is a property of the retry PROMPT, not of the task.\n\n",
+    );
+    md.push_str("| model | prompt | retries that produced `answer: Corrected.` | retries total |\n|---|---|---|---|\n");
+    for (_, r) in &reports {
+        let mut collapsed = 0usize;
+        let mut retried = 0usize;
+        if let Some(rs) = r.get("results").and_then(|v| v.as_array()) {
+            for c in rs {
+                if c.get("retried").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    retried += 1;
+                }
+                let raw = c.get("raw").and_then(|v| v.as_str()).unwrap_or("");
+                // Only the RETRY half of the recorded raw text.
+                if let Some(after) = raw.split("--- retry ---").nth(1) {
+                    if after.contains("\"answer\"") {
+                        collapsed += 1;
+                    }
+                }
+            }
+        }
+        md.push_str(&format!(
+            "| {} | {} | {collapsed} | {retried} |\n",
+            g(r, "modelId"),
+            g(r, "promptVersion")
+        ));
+    }
+
+    md.push_str("\n## Sources\n\n");
+    for (n, _) in &reports {
+        md.push_str(&format!("- `{n}`\n"));
+    }
+
+    let path = out_dir.join(format!("bakeoff-{prefix}.md"));
+    std::fs::write(&path, md)?;
+    println!("bake-off comparison written to {}", path.display());
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Summarise-only mode: builds the comparison document from reports already
+    // on disk, without running a model.
+    if let Some(prefix) = arg("--bakeoff") {
+        let out = arg("--out").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("evals/reports"));
+        return write_bakeoff(&prefix, &out);
+    }
+
     let task_name = arg("--task").unwrap_or_else(|| "citation_need".to_string());
     // Default the seed file to the TASK. A fixed default meant
     // `--task citation_support` silently scored the citation_need seeds and
@@ -256,6 +406,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let manager = ModelManager::new(loader);
     let ram = manager.ram_estimate().ok();
+    let ram_mb = ram.as_ref().map(|r| r.total_bytes / (1024 * 1024));
 
     // Load time is a real cost of switching models and belongs in the report:
     // a model that scores well but takes 40 s to become usable is a different
@@ -294,7 +445,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(o) => return Err(format!("unknown --support-variant {o:?}; use v1 or v2").into()),
         };
         return run_citation_support(
-            cases, cases_path, date, out_dir, model_id, manager, sv, load_ms,
+            cases, cases_path, date, out_dir, model_id, manager, sv, load_ms, ram_mb,
         )
         .await;
     }
@@ -659,6 +810,7 @@ async fn run_citation_support(
     manager: ModelManager,
     variant: SupportVariant,
     load_ms: u64,
+    ram_mb: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let fixtures_dir = cases_path.parent().unwrap_or(Path::new(".")).join("fixtures");
     let db = Database::in_memory()?;
@@ -891,6 +1043,7 @@ let report = serde_json::json!({
         "modelId": model_id,
         "promptVersion": variant.version(),
         "modelLoadMs": load_ms,
+        "ramTotalMb": ram_mb,
         "nCtx": app_lib::ai::generative::TASK_N_CTX,
         "evidenceBudgetTokens": EVIDENCE_BUDGET_TOKENS,
         "embedder": "mock-lexical-v1",
