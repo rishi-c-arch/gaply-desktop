@@ -1361,3 +1361,20 @@ labeled-set data — its 1–2/6 here is a measurement on six seeds, not an esta
 lose): "the best model" here means the best of three Qwen2.5 sizes, because the loader is
 qwen2-specific. Llama-3.x, Phi-3.5, Gemma-2 and Mistral were never candidates. A claim that the 3B
 is the best model *available* needs a second loader first.
+
+### D31 — RESOLVED: `decodeTokensPerSec` was hardcoded `0.0` in the citation_support arm
+
+Logged as a defect while producing the Phase 6a report and fixed here.
+
+All four `CaseResult` sites in the support arm wrote a literal `0.0` while citation_need computed
+the rate inline, so **every citation_support cell ever produced reported a decode rate of zero** —
+including the six repaired cells. Two of the four sites (NoEvidence, generation error) are
+zero-generation paths where `0.0` happened to be correct; the accepted and validation-failed sites
+were discarding real measurements.
+
+No data was lost: `tokens` and `decodeMs` are recorded per case, and the Phase 6a figures were
+computed from them by hand. The fix makes that arithmetic the harness's job.
+
+Both arms now call one `decode_tps(tokens, decode_ms)` helper. The duplicated inline expression is
+what allowed the two arms to drift apart in the first place, so it is gone rather than copied a
+third time.

@@ -205,6 +205,25 @@ fn self_hash() -> Option<String> {
     Some(format!("{:x}", h.finalize()))
 }
 
+/// Decode rate for one case: generated tokens over decode time.
+///
+/// §11 D31. This was hardcoded `0.0` at all four citation_support sites while
+/// citation_need computed it inline, so the support arm reported a decode rate
+/// of zero in every cell ever produced. Two of those sites are genuinely
+/// zero-generation paths (NoEvidence, generation error) where 0.0 was right by
+/// accident; the accepted and validation-failed sites were discarding real
+/// measurements.
+///
+/// One function, one guard, used by BOTH arms — the duplicated inline
+/// expression is what let the two arms drift apart in the first place.
+fn decode_tps(tokens: usize, decode_ms: u64) -> f64 {
+    if decode_ms == 0 {
+        0.0
+    } else {
+        tokens as f64 / (decode_ms as f64 / 1000.0)
+    }
+}
+
 fn arg(name: &str) -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
@@ -564,11 +583,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     prompt_tokens: run.timings.prompt_tokens,
                     prefill_ms: run.timings.prefill_ms,
                     decode_ms: run.timings.decode_ms,
-                    decode_tokens_per_sec: if run.timings.decode_ms == 0 {
-                        0.0
-                    } else {
-                        run.timings.tokens as f64 / (run.timings.decode_ms as f64 / 1000.0)
-                    },
+                    decode_tokens_per_sec: decode_tps(run.timings.tokens, run.timings.decode_ms),
                     // citation_need sends no evidence block.
                     chunks_sent: None,
                     chunks_dropped: None,
@@ -602,11 +617,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     prompt_tokens: timings.prompt_tokens,
                     prefill_ms: timings.prefill_ms,
                     decode_ms: timings.decode_ms,
-                    decode_tokens_per_sec: if timings.decode_ms == 0 {
-                        0.0
-                    } else {
-                        timings.tokens as f64 / (timings.decode_ms as f64 / 1000.0)
-                    },
+                    decode_tokens_per_sec: decode_tps(timings.tokens, timings.decode_ms),
                     // citation_need sends no evidence block.
                     chunks_sent: None,
                     chunks_dropped: None,
@@ -632,7 +643,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     prompt_tokens: 0,
                     prefill_ms: 0,
                     decode_ms: 0,
-                    decode_tokens_per_sec: 0.0,
+                    decode_tokens_per_sec: decode_tps(0, 0),
                     chunks_sent: None,
                     chunks_dropped: None,
                     evidence_words: None,
@@ -1167,7 +1178,7 @@ async fn run_citation_support(
                     prompt_tokens: 0,
                     prefill_ms: 0,
                     decode_ms: 0,
-                    decode_tokens_per_sec: 0.0,
+                    decode_tokens_per_sec: decode_tps(0, 0),
                     chunks_sent: Some(0),
                     chunks_dropped: Some(0),
                     evidence_words: Some(0),
@@ -1267,7 +1278,7 @@ async fn run_citation_support(
                     prompt_tokens: run.timings.prompt_tokens,
                     prefill_ms: run.timings.prefill_ms,
                     decode_ms: run.timings.decode_ms,
-                    decode_tokens_per_sec: 0.0,
+                    decode_tokens_per_sec: decode_tps(run.timings.tokens, run.timings.decode_ms),
                     chunks_sent: Some(bundle.chunks_sent),
                     chunks_dropped: Some(bundle.chunks_dropped),
                     evidence_words: Some(bundle.words_estimated),
@@ -1319,7 +1330,7 @@ async fn run_citation_support(
                     prompt_tokens: timings.prompt_tokens,
                     prefill_ms: timings.prefill_ms,
                     decode_ms: timings.decode_ms,
-                    decode_tokens_per_sec: 0.0,
+                    decode_tokens_per_sec: decode_tps(timings.tokens, timings.decode_ms),
                     chunks_sent: Some(bundle.chunks_sent),
                     chunks_dropped: Some(bundle.chunks_dropped),
                     evidence_words: Some(bundle.words_estimated),
@@ -1344,7 +1355,7 @@ async fn run_citation_support(
                     prompt_tokens: 0,
                     prefill_ms: 0,
                     decode_ms: 0,
-                    decode_tokens_per_sec: 0.0,
+                    decode_tokens_per_sec: decode_tps(0, 0),
                     chunks_sent: Some(bundle.chunks_sent),
                     chunks_dropped: Some(bundle.chunks_dropped),
                     evidence_words: Some(bundle.words_estimated),
