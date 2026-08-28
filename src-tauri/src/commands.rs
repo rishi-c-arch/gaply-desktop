@@ -1298,7 +1298,8 @@ pub async fn ai_citation_support(
         "advisories": advisories,
         "chunksSent": bundle.chunks_sent,
         "chunksDropped": bundle.chunks_dropped,
-        "evidenceTokens": bundle.tokens_estimated,
+        "evidenceWords": bundle.words_estimated,
+        "evidenceTokensImplied": bundle.tokens_implied,
         "retrievalPath": bundle.retrieval_path,
         "supportingChunks": run.output.supporting_chunks,
     });

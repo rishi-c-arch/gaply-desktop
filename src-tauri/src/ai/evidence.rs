@@ -11,20 +11,43 @@ use serde::Serialize;
 
 use crate::ai::task::{EvidenceChunk, TaskContext};
 
-/// Token budget for the `<evidence>` block on the DEV model (plan §11 D14).
+/// MODEL-TOKEN budget for the `<evidence>` block on the dev model (§11 D14/D17).
 ///
 /// Not the spec's implied ~2500. D12 measured ~22 ms per prompt token on CPU, so
-/// 2500 tokens of evidence is ~55 s of prefill before a single output token;
-/// 1200 costs ~26 s. This is a dev-model constraint, not a judgement about how
-/// much evidence the task needs, and it should be raised against measured
-/// prefill once Metal lands.
+/// 2500 tokens of evidence is ~55 s of prefill before a single output token.
+/// A dev-model constraint, not a judgement about how much evidence the task
+/// needs; raise it against measured prefill once Metal lands.
 pub const EVIDENCE_BUDGET_TOKENS: usize = 1200;
+
+/// Words per model token for EVIDENCE PROSE, measured with the real tokenizer
+/// (§11 D17).
+///
+/// Assembly runs before the model is acquired, so it counts whitespace words
+/// rather than tokenizing. This converts the token budget into a word budget.
+///
+/// MEASURED: 491 words of the fixture paper's prose encode to 640 Qwen2.5
+/// tokens — 0.767 words per token. The ratio must be measured on EVIDENCE TEXT
+/// specifically: a first attempt derived it from a whole prompt's token count
+/// and got 0.46, because the JSON schema block tokenizes far more densely than
+/// prose and dragged the average down. Budgeting on that number would have
+/// under-filled the evidence block by ~40% — the opposite error to the one it
+/// was introduced to fix, and just as invisible.
+///
+/// Re-measure with `measure_words_per_model_token_for_evidence_text` if the
+/// tokenizer ever changes.
+const WORDS_PER_MODEL_TOKEN: f64 = 0.767;
+
+/// The word budget the trimmer actually applies.
+pub fn evidence_budget_words(budget_tokens: usize) -> usize {
+    ((budget_tokens as f64) * WORDS_PER_MODEL_TOKEN) as usize
+}
 
 /// How many chunks retrieval is asked for before the budget trims them.
 pub const RETRIEVAL_K: usize = 12;
 
-/// Whitespace-token estimate, matching how the chunker counts.
-fn estimate_tokens(s: &str) -> usize {
+/// Whitespace WORD count. Named for what it measures — see D17 for why the
+/// distinction cost 22 seconds a case before it was noticed.
+fn estimate_words(s: &str) -> usize {
     s.split_whitespace().count()
 }
 
@@ -41,7 +64,9 @@ pub struct EvidenceBundle {
     /// passage may be one of them, and a caller should be able to tell that
     /// from the result rather than inferring it.
     pub chunks_dropped: usize,
-    pub tokens_estimated: usize,
+    /// WORDS in the rendered block, and the model-token figure they imply.
+    pub words_estimated: usize,
+    pub tokens_implied: usize,
     pub retrieval_path: String,
 }
 
@@ -69,6 +94,7 @@ pub fn assemble(
     query_vector: &[f32],
     budget_tokens: usize,
 ) -> Result<Assembled, GaplyError> {
+    let budget_words = evidence_budget_words(budget_tokens);
     let found = match retrieval::semantic_search(db, claim, query_vector, Some(document_id), RETRIEVAL_K)
     {
         Ok(r) => r,
@@ -96,7 +122,7 @@ pub fn assemble(
     let full = store::chunks_by_ids(db, &ranked_ids)?;
 
     let mut sent: Vec<EvidenceChunk> = Vec::new();
-    let mut tokens = 0usize;
+    let mut words = 0usize;
     let mut dropped = 0usize;
     for c in &full {
         let chunk = EvidenceChunk {
@@ -107,15 +133,15 @@ pub fn assemble(
             section: c.section.clone(),
             text: c.content.clone(),
         };
-        let cost = estimate_tokens(&chunk.render());
-        if !sent.is_empty() && tokens + cost > budget_tokens {
+        let cost = estimate_words(&chunk.render());
+        if !sent.is_empty() && words + cost > budget_words {
             // Everything after the first over-budget chunk is dropped too:
             // they are lower-ranked, so keeping a later, smaller one would
             // silently reorder relevance to fit a byte count.
             dropped = full.len() - sent.len();
             break;
         }
-        tokens += cost;
+        words += cost;
         sent.push(chunk);
     }
 
@@ -130,7 +156,8 @@ pub fn assemble(
         rendered: ctx.render_evidence(),
         chunks_sent: sent.len(),
         chunks_dropped: dropped,
-        tokens_estimated: tokens,
+        words_estimated: words,
+        tokens_implied: (words as f64 / WORDS_PER_MODEL_TOKEN) as usize,
         retrieval_path: format!("{:?}", found.path),
         ctx,
     })))
@@ -231,7 +258,7 @@ mod tests {
             10,
             "every retrieved chunk must be either sent or counted as dropped"
         );
-        assert!(b.tokens_estimated <= 40, "budget exceeded: {}", b.tokens_estimated);
+        assert!(b.words_estimated <= evidence_budget_words(40), "budget exceeded: {}", b.words_estimated);
         // What survived is the TOP of the ranking, not an arbitrary subset.
         assert!(b.ctx.chunk_ids().len() == b.chunks_sent);
     }
