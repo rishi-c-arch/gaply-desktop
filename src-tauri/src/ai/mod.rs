@@ -28,6 +28,7 @@ mod support_flow_tests;
 
 #[cfg(test)]
 mod gen_startup_tests;
+pub mod gen_install;
 pub mod model_install;
 
 #[cfg(test)]

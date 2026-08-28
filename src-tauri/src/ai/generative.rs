@@ -414,6 +414,73 @@ impl crate::ai::model_manager::BackendLoader for BundledGenerativeLoader {
     }
 }
 
+/// Loads a model that the generative INSTALLER put on disk, resolved by
+/// registry id (§9.9 — swapping the production model is a registry change plus
+/// a download, never a code change in the engine).
+///
+/// Deliberately does not consult `ai_model_registry` itself: the registry row
+/// records where a model was installed, but this loader is also what the eval
+/// harness uses against a scratch directory with no database at all. It resolves
+/// the same layout the installer writes, and re-verifies nothing — verification
+/// belongs to the installer, and re-hashing 2 GB on every load would make model
+/// switching unusable.
+pub struct InstalledGenerativeLoader {
+    id: String,
+    gguf: std::path::PathBuf,
+    tokenizer: std::path::PathBuf,
+}
+
+impl InstalledGenerativeLoader {
+    /// Resolve `<app data>/models/<registry id>/`. `None` when the directory
+    /// does not hold both files — the caller reports NotInstalled rather than
+    /// failing obscurely at first use.
+    pub fn resolve(app_data: &Path, registry_id: &str) -> Option<Self> {
+        let c = crate::ai::gen_install::candidate(registry_id)?;
+        let dir = crate::ai::gen_install::model_dir(app_data, c);
+        let gguf = dir.join(c.gguf.local_name());
+        let tokenizer = dir.join(c.tokenizer.local_name());
+        (gguf.exists() && tokenizer.exists()).then(|| Self {
+            id: registry_id.to_string(),
+            gguf,
+            tokenizer,
+        })
+    }
+
+    /// Point at an explicit pair of files. Used by the bake-off harness, which
+    /// runs against downloaded models before they are installed anywhere.
+    pub fn from_paths(
+        registry_id: &str,
+        gguf: std::path::PathBuf,
+        tokenizer: std::path::PathBuf,
+    ) -> Result<Self, GaplyError> {
+        for p in [&gguf, &tokenizer] {
+            if !p.exists() {
+                return Err(GaplyError::NotFound {
+                    entity: "generative model file",
+                    id: p.display().to_string(),
+                });
+            }
+        }
+        Ok(Self { id: registry_id.to_string(), gguf, tokenizer })
+    }
+
+    pub fn gguf_path(&self) -> &std::path::Path {
+        &self.gguf
+    }
+}
+
+impl crate::ai::model_manager::BackendLoader for InstalledGenerativeLoader {
+    fn model_id(&self) -> String {
+        self.id.clone()
+    }
+    fn ram_estimate(&self) -> Result<RamEstimate, GaplyError> {
+        estimate_ram(&self.gguf)
+    }
+    fn load(&self) -> Result<std::sync::Arc<dyn GenerationBackend>, GaplyError> {
+        Ok(std::sync::Arc::new(QwenGenerativeBackend::load(&self.gguf, &self.tokenizer)?))
+    }
+}
+
 /// Record the generative model in `ai_model_registry`. Idempotent — the DAO
 /// upserts, so calling this on every use is safe and keeps the row's path
 /// honest if the resolver ever picks a different file.

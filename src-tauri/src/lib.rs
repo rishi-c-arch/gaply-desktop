@@ -134,6 +134,8 @@ pub fn run() {
             commands::ai_citation_support,
             commands::ai_generate_cancel,
             commands::ai_model_install,
+            commands::ai_model_install_generative,
+            commands::ai_generative_candidates,
             commands::ai_model_install_cancel,
             commands::ai_model_status,
             commands::ai_embed_document,

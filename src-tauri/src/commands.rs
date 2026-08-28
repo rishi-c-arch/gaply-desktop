@@ -1392,6 +1392,75 @@ pub async fn ai_model_install(
     Ok(report)
 }
 
+/// Install a PINNED generative candidate, by registry id.
+///
+/// Same contract as `ai_model_install`: explicit user action only, never at
+/// startup, cancellable, and an offline install (files already present with
+/// matching hashes) registers with no network call at all.
+///
+/// Unlike the embedding install this can be a multi-GB download, so it is
+/// RESUMABLE — cancelling and re-running continues from where it stopped.
+#[tauri::command]
+#[tracing::instrument(skip(state, on_event))]
+pub async fn ai_model_install_generative(
+    state: State<'_, AppState>,
+    model_id: String,
+    on_event: tauri::ipc::Channel<crate::ai::gen_install::GenInstallEvent>,
+) -> Result<crate::ai::gen_install::GenInstallReport, GaplyError> {
+    // Resolve BEFORE spawning: an unknown id is a caller error and should come
+    // back immediately, naming what is actually on offer, rather than failing
+    // inside a background task.
+    let candidate = crate::ai::gen_install::candidate(&model_id).ok_or_else(|| {
+        GaplyError::Validation(format!(
+            "unknown generative model {model_id:?}. Available: {}",
+            crate::ai::gen_install::CANDIDATES
+                .iter()
+                .map(|c| c.registry_id)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+    })?;
+
+    let db = state.db.clone();
+    let dir = state.app_data_dir.clone();
+    let cancel = state.ai_install_cancel.clone();
+    cancel.store(false, std::sync::atomic::Ordering::SeqCst); // never poison the next run
+    let report = tokio::task::spawn_blocking(move || {
+        let emit = move |ev| {
+            let _ = on_event.send(ev); // the user may have navigated away
+        };
+        crate::ai::gen_install::install(&db, &dir, candidate, &cancel, &emit)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("ai_model_install_generative task panicked: {e}")))??;
+    Ok(report)
+}
+
+/// What generative candidates exist, and which are already installed.
+///
+/// Read-only and network-free: it answers from the pinned table and the
+/// filesystem, so a UI can offer a choice without touching the network.
+#[tauri::command]
+pub fn ai_generative_candidates(
+    state: State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, GaplyError> {
+    Ok(crate::ai::gen_install::CANDIDATES
+        .iter()
+        .map(|c| {
+            let dir = crate::ai::gen_install::model_dir(&state.app_data_dir, c);
+            serde_json::json!({
+                "modelId": c.registry_id,
+                "displayName": c.display_name,
+                "quant": c.quant,
+                "paramsB": c.params_b,
+                "needs16gb": c.needs_16gb,
+                "totalBytes": c.total_bytes(),
+                "installed": crate::ai::gen_install::all_files_verified(&dir, c),
+            })
+        })
+        .collect())
+}
+
 #[tauri::command]
 pub fn ai_model_install_cancel(state: State<'_, AppState>) {
     state.ai_install_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
