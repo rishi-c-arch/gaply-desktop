@@ -38,7 +38,12 @@ use std::sync::Arc;
 use app_lib::ai::generative::{BundledGenerativeLoader, TASK_N_CTX};
 use app_lib::ai::model_manager::ModelManager;
 use app_lib::ai::task::{run_task, TaskContext, TaskError};
+use app_lib::ai::evidence::{assemble, Assembled, EVIDENCE_BUDGET_TOKENS};
 use app_lib::ai::tasks::citation_need::{CitationNeedInput, CitationNeedTask, PromptVariant};
+use app_lib::ai::tasks::citation_support::CitationSupportTask;
+use gaply_core::ai_engine::{embeddings as core_emb, registry, store};
+use gaply_core::chunk::PagedChunk;
+use gaply_core::Database;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -83,6 +88,16 @@ struct CaseResult {
     prefill_ms: u64,
     decode_ms: u64,
     decode_tokens_per_sec: f64,
+    /// Evidence assembly, for the evidence-grounded tasks. `dropped` is what the
+    /// budget removed: scope item 1 requires it to be RECORDED, not merely
+    /// printed, because a case that scored badly with chunks dropped and one
+    /// that scored badly with everything sent are different findings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chunks_sent: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chunks_dropped: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    evidence_words: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -170,9 +185,13 @@ fn mean(xs: &[f64]) -> Option<f64> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let task_name = arg("--task").unwrap_or_else(|| "citation_need".to_string());
+    // Default the seed file to the TASK. A fixed default meant
+    // `--task citation_support` silently scored the citation_need seeds and
+    // printed a full, plausible, entirely meaningless report — the failure mode
+    // that looks like a result.
     let cases_path = arg("--cases")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("evals/citation_need.jsonl"));
+        .unwrap_or_else(|| PathBuf::from(format!("evals/{task_name}.jsonl")));
     let date = arg("--date").unwrap_or_else(|| "unknown".to_string());
     let variant = arg("--prompt")
         .map(|v| {
@@ -184,10 +203,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(PromptVariant::V2);
     let out_dir = arg("--out").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("evals/reports"));
 
-    if task_name != "citation_need" {
-        eprintln!("only citation_need is implemented; the other seven arrive with their phases");
-        std::process::exit(2);
-    }
 
     let text = std::fs::read_to_string(&cases_path)
         .map_err(|e| format!("reading {}: {e}", cases_path.display()))?;
@@ -207,10 +222,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("task    : {task_name}");
     println!("model   : {model_id}");
-    println!("prompt  : {}", variant.version());
+    if task_name == "citation_need" {
+        println!("prompt  : {}", variant.version());
+    }
     println!("n_ctx   : {TASK_N_CTX}");
     println!("cases   : {} from {}", cases.len(), cases_path.display());
     println!();
+
+    if task_name == "citation_support" {
+        return run_citation_support(cases, cases_path, date, out_dir, model_id, manager).await;
+    }
 
     let mut results = Vec::new();
     for case in &cases {
@@ -259,6 +280,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         run.timings.tokens as f64 / (run.timings.decode_ms as f64 / 1000.0)
                     },
+                    // citation_need sends no evidence block.
+                    chunks_sent: None,
+                    chunks_dropped: None,
+                    evidence_words: None,
                 }
             }
             Err(TaskError::ValidationFailed { errors, primary, first_raw, retry_raw, timings }) => {
@@ -288,6 +313,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         timings.tokens as f64 / (timings.decode_ms as f64 / 1000.0)
                     },
+                    // citation_need sends no evidence block.
+                    chunks_sent: None,
+                    chunks_dropped: None,
+                    evidence_words: None,
                 }
             }
             Err(e) => {
@@ -305,6 +334,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     prefill_ms: 0,
                     decode_ms: 0,
                     decode_tokens_per_sec: 0.0,
+                    chunks_sent: None,
+                    chunks_dropped: None,
+                    evidence_words: None,
                 }
             }
         };
@@ -424,6 +456,313 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&out_dir)?;
     let name = format!("{task_name}-{}-{}.json", report.prompt_version, report.date);
     let path = Path::new(&out_dir).join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(&report)?)?;
+    println!("\nreport written to {}", path.display());
+    Ok(())
+}
+
+/* ===================== citation_support ================================== *
+ * Builds a fixture corpus, retrieves per claim, and scores verdict agreement
+ * plus whether the PLANTED passage was actually cited. That second column is
+ * the one that matters: a right verdict citing the wrong passage is a right
+ * answer for the wrong reason, and would look identical in an accuracy score. */
+
+/// Index one fixture file and embed it in a mocked 3-dim space.
+///
+/// CI-safe by default: the mocked embedder scores lexical overlap with the
+/// claim, which is enough to exercise the pipeline shape. With
+/// GAPLY_TEST_EMBED_MODEL the real embedding engine is used instead.
+fn build_fixture(db: &Database, name: &str, dir: &Path) -> Result<i64, Box<dyn std::error::Error>> {
+    let text = std::fs::read_to_string(dir.join(name))?;
+    let doc = store::create_document(db, name, &dir.join(name).display().to_string(), name)?;
+    registry::register_model(
+        db,
+        registry::ModelRow {
+            id: "eval-emb".into(),
+            kind: "embedding".into(),
+            display_name: "eval".into(),
+            file_path: "/x".into(),
+            sha256: None,
+            dim: Some(EVAL_DIM as i64),
+            quant: None,
+        },
+    )?;
+    // Paragraph-per-chunk keeps the planted passages intact and separable.
+    let chunks: Vec<PagedChunk> = text
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|p| p.split_whitespace().count() >= 8)
+        .enumerate()
+        .map(|(i, p)| PagedChunk {
+            seq: i as i64,
+            content: p.replace('\n', " "),
+            token_estimate: p.split_whitespace().count(),
+            page: Some((i as u32 / 3) + 1),
+            section: None,
+            char_start: 0,
+            char_end: p.len(),
+        })
+        .collect();
+    store::index_chunks(db, doc, &chunks)?;
+    Ok(doc)
+}
+
+const EVAL_DIM: usize = 64;
+
+/// Deterministic bag-of-words vector — lexical overlap stands in for semantic
+/// similarity so CI needs no model. Reported as such in the eval output.
+fn mock_vector(text: &str) -> Vec<f32> {
+    let mut v = vec![0.0f32; EVAL_DIM];
+    for w in text.to_lowercase().split(|c: char| !c.is_alphanumeric()) {
+        if w.len() < 4 {
+            continue;
+        }
+        let mut h: u64 = 1469598103934665603;
+        for b in w.bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(1099511628211);
+        }
+        v[(h as usize) % EVAL_DIM] += 1.0;
+    }
+    core_emb::l2_normalize(&mut v);
+    v
+}
+
+fn embed_fixture(db: &Database) -> Result<(), Box<dyn std::error::Error>> {
+    let space = core_emb::EmbeddingSpace::new("eval-emb", "mock-v1");
+    let pending = core_emb::chunks_missing_embeddings(db, None, "eval-emb")?;
+    let rows: Vec<(i64, Vec<f32>)> =
+        pending.iter().map(|p| (p.chunk_id, mock_vector(&p.content))).collect();
+    core_emb::put_embeddings(db, &space, &rows)?;
+    Ok(())
+}
+
+async fn run_citation_support(
+    cases: Vec<EvalCase>,
+    cases_path: PathBuf,
+    date: String,
+    out_dir: PathBuf,
+    model_id: String,
+    manager: ModelManager,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let fixtures_dir = cases_path.parent().unwrap_or(Path::new(".")).join("fixtures");
+    let db = Database::in_memory()?;
+    println!("prompt  : citation_support-v1");
+    println!("evidence: budget {EVIDENCE_BUDGET_TOKENS} tokens, MOCKED lexical embedder");
+    println!();
+
+    let mut docs: std::collections::HashMap<String, i64> = Default::default();
+    let mut results = Vec::new();
+
+    for case in &cases {
+        let fixture = case.input["fixture"].as_str().unwrap_or("__empty__").to_string();
+        let claim = case.input["claim"].as_str().unwrap_or_default().to_string();
+        let source = case.input["cited_source"].as_str().unwrap_or_default().to_string();
+
+        let doc = if fixture == "__empty__" {
+            // An indexed-but-empty document: the NoEvidence path.
+            *docs.entry(fixture.clone()).or_insert_with(|| {
+                store::create_document(&db, "empty", "/tmp/empty", "empty-doc").unwrap()
+            })
+        } else if let Some(d) = docs.get(&fixture) {
+            *d
+        } else {
+            let d = build_fixture(&db, &fixture, &fixtures_dir)?;
+            embed_fixture(&db)?;
+            docs.insert(fixture.clone(), d);
+            d
+        };
+
+        let started = std::time::Instant::now();
+        let assembled = assemble(&db, doc, &claim, &mock_vector(&claim), EVIDENCE_BUDGET_TOKENS)?;
+        let bundle = match assembled {
+            Assembled::NoEvidence { reason } => {
+                let expected_none =
+                    case.expected.get("outcome").and_then(|v| v.as_str()) == Some("noEvidence");
+                println!(
+                    "  {} {}  NoEvidence (no model run): {reason}",
+                    if expected_none { "PASS" } else { "MISS" },
+                    case.id
+                );
+                results.push(CaseResult {
+                    id: case.id.clone(),
+                    outcome: if expected_none { Outcome::Ok } else { Outcome::Error },
+                    raw: Some(format!("NoEvidence: {reason}")),
+                    scored: Some(serde_json::json!({ "noEvidence": true, "expectedNoEvidence": expected_none })),
+                    retried: false,
+                    advisories: Vec::new(),
+                    elapsed_ms: started.elapsed().as_millis() as u64,
+                    tokens: 0,
+                    prompt_tokens: 0,
+                    prefill_ms: 0,
+                    decode_ms: 0,
+                    decode_tokens_per_sec: 0.0,
+                    chunks_sent: Some(0),
+                    chunks_dropped: Some(0),
+                    evidence_words: Some(0),
+                });
+                continue;
+            }
+            Assembled::Ready(b) => b,
+        };
+
+        let task = CitationSupportTask {
+            claim: claim.clone(),
+            cited_source: source,
+            evidence: bundle.rendered.clone(),
+        };
+        let r = run_task(&manager, &task, &bundle.ctx, Arc::new(AtomicBool::new(false)), None).await;
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+
+        results.push(match r {
+            Ok(run) => {
+                let got = serde_json::to_value(&run.output)?;
+                let want = case.expected.get("verdict").and_then(|v| v.as_str());
+                let verdict_ok = want.map(|w| got["verdict"] == w);
+                // Did it cite the PLANTED passage? A right verdict citing the
+                // wrong passage is a right answer for the wrong reason.
+                let planted = case.expected.get("planted_chunk_contains").and_then(|v| v.as_str());
+                let cited_planted = planted.map(|needle| {
+                    run.output.supporting_chunks.iter().any(|sc| {
+                        bundle
+                            .ctx
+                            .get(&sc.chunk_id)
+                            .map(|c| c.text.contains(needle))
+                            .unwrap_or(false)
+                    })
+                });
+                println!(
+                    "  {} {}  {:>5}ms  verdict={} sent={} dropped={}{}",
+                    if verdict_ok == Some(true) { "PASS" } else { "MISS" },
+                    case.id,
+                    elapsed_ms,
+                    got["verdict"],
+                    bundle.chunks_sent,
+                    bundle.chunks_dropped,
+                    if run.retried { " (retried)" } else { "" }
+                );
+                CaseResult {
+                    id: case.id.clone(),
+                    outcome: Outcome::Ok,
+                    raw: Some(serde_json::to_string(&run.output)?),
+                    scored: Some(serde_json::json!({
+                        "verdict": verdict_ok,
+                        "citedPlantedChunk": cited_planted,
+                        "got": got,
+                        "expected": case.expected,
+                    })),
+                    retried: run.retried,
+                    advisories: run.advisories.iter().map(|a| a.to_string()).collect(),
+                    elapsed_ms,
+                    tokens: run.timings.tokens,
+                    prompt_tokens: run.timings.prompt_tokens,
+                    prefill_ms: run.timings.prefill_ms,
+                    decode_ms: run.timings.decode_ms,
+                    decode_tokens_per_sec: 0.0,
+                    chunks_sent: Some(bundle.chunks_sent),
+                    chunks_dropped: Some(bundle.chunks_dropped),
+                    evidence_words: Some(bundle.words_estimated),
+                }
+            }
+            Err(TaskError::ValidationFailed { errors, primary, first_raw, retry_raw, timings }) => {
+                println!(
+                    "  FAIL {}  {:>5}ms  sent={} dropped={} fatal ({primary:?} kept): {}",
+                    case.id,
+                    elapsed_ms,
+                    bundle.chunks_sent,
+                    bundle.chunks_dropped,
+                    errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; ")
+                );
+                CaseResult {
+                    id: case.id.clone(),
+                    outcome: Outcome::ValidationFailed,
+                    raw: Some(format!(
+                        "--- attempt 1 ---\n{first_raw}\n--- retry ---\n{retry_raw}\n--- primary: {primary:?} ---"
+                    )),
+                    scored: None,
+                    retried: true,
+                    advisories: Vec::new(),
+                    elapsed_ms,
+                    tokens: timings.tokens,
+                    prompt_tokens: timings.prompt_tokens,
+                    prefill_ms: timings.prefill_ms,
+                    decode_ms: timings.decode_ms,
+                    decode_tokens_per_sec: 0.0,
+                    chunks_sent: Some(bundle.chunks_sent),
+                    chunks_dropped: Some(bundle.chunks_dropped),
+                    evidence_words: Some(bundle.words_estimated),
+                }
+            }
+            Err(e) => {
+                println!("  ERR  {}  {e}", case.id);
+                CaseResult {
+                    id: case.id.clone(),
+                    outcome: Outcome::Error,
+                    raw: Some(e.to_string()),
+                    scored: None,
+                    retried: false,
+                    advisories: Vec::new(),
+                    elapsed_ms,
+                    tokens: 0,
+                    prompt_tokens: 0,
+                    prefill_ms: 0,
+                    decode_ms: 0,
+                    decode_tokens_per_sec: 0.0,
+                    chunks_sent: Some(bundle.chunks_sent),
+                    chunks_dropped: Some(bundle.chunks_dropped),
+                    evidence_words: Some(bundle.words_estimated),
+                }
+            }
+        });
+    }
+
+    let total = results.len().max(1) as f64;
+    let ok = results.iter().filter(|r| r.outcome == Outcome::Ok).count();
+    let agree = |field: &str| -> Option<f64> {
+        let xs: Vec<f64> = results
+            .iter()
+            .filter_map(|r| r.scored.as_ref()?.get(field)?.as_bool())
+            .map(|b| if b { 1.0 } else { 0.0 })
+            .collect();
+        mean(&xs)
+    };
+    let pct = |v: Option<f64>| v.map(|x| format!("{:.0}%", x * 100.0)).unwrap_or("n/a".into());
+    let report = serde_json::json!({
+        "task": "citation_support",
+        "modelId": model_id,
+        "promptVersion": "citation_support-v1",
+        "nCtx": app_lib::ai::generative::TASK_N_CTX,
+        "evidenceBudgetTokens": EVIDENCE_BUDGET_TOKENS,
+        "embedder": "mock-lexical-v1",
+        "date": date,
+        "casesFile": cases_path.display().to_string(),
+        "totalCases": results.len(),
+        "validOutputs": ok,
+        "verdictAgreement": agree("verdict"),
+        "citedPlantedChunk": agree("citedPlantedChunk"),
+        "validationFailureRate": results.iter().filter(|r| r.outcome == Outcome::ValidationFailed).count() as f64 / total,
+        "retryRate": results.iter().filter(|r| r.retried).count() as f64 / total,
+        "advisoryRate": results.iter().filter(|r| !r.advisories.is_empty()).count() as f64 / total,
+        "meanLatencyMs": results.iter().map(|r| r.elapsed_ms as f64).sum::<f64>() / total,
+        "meanPromptTokens": results.iter().map(|r| r.prompt_tokens as f64).sum::<f64>() / total,
+        "meanPrefillMs": results.iter().map(|r| r.prefill_ms as f64).sum::<f64>() / total,
+        "meanDecodeMs": results.iter().map(|r| r.decode_ms as f64).sum::<f64>() / total,
+        "results": results,
+    });
+
+    println!();
+    println!("valid outputs           : {ok}/{}", results.len());
+    println!("verdict agreement       : {}", pct(agree("verdict")));
+    println!("cited the PLANTED chunk : {}", pct(agree("citedPlantedChunk")));
+    println!("validation failure rate : {:.0}%", report["validationFailureRate"].as_f64().unwrap_or(0.0) * 100.0);
+    println!("retry rate              : {:.0}%", report["retryRate"].as_f64().unwrap_or(0.0) * 100.0);
+    println!("advisory rate           : {:.0}%", report["advisoryRate"].as_f64().unwrap_or(0.0) * 100.0);
+    println!("mean latency            : {:.0} ms", report["meanLatencyMs"].as_f64().unwrap_or(0.0));
+    println!("mean prompt tokens      : {:.0}", report["meanPromptTokens"].as_f64().unwrap_or(0.0));
+    println!("mean prefill            : {:.0} ms", report["meanPrefillMs"].as_f64().unwrap_or(0.0));
+
+    std::fs::create_dir_all(&out_dir)?;
+    let path = out_dir.join(format!("citation_support-v1-{date}.json"));
     std::fs::write(&path, serde_json::to_string_pretty(&report)?)?;
     println!("\nreport written to {}", path.display());
     Ok(())
