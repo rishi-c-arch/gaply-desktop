@@ -30,8 +30,21 @@ use crate::ai::task::{AiTask, TaskContext, ValidationError};
 /// report from either side of that change describes a different prompt.
 pub const PROMPT_VERSION: &str = "citation_support-v1.1";
 
-/// Spec: `max_tokens: 400`.
-const MAX_TOKENS: usize = 400;
+/// SPEC OVERRIDE — §11 D27. The spec pins `max_tokens: 400`; measurement
+/// retired it.
+///
+/// Across the Phase 6 support cells, 13 of 28 first attempts stopped EXACTLY at
+/// their ceiling — every 0.5B v2 attempt, and 4 of 5 1.5B v1 attempts. A reply
+/// cut off mid-JSON is unparseable, and unparseable scored identically to
+/// wrong, so the arm was measuring the ceiling rather than the models.
+///
+/// 768 is derived, not guessed: the largest COMPLETE v1 first attempt observed
+/// was 309 tokens and the schema's own limits put a realistic three-chunk reply
+/// near 420. It is NOT provisioned for the schema-legal maximum — with
+/// `supporting_chunks` uncapped, twelve chunks would need ~1400 tokens, and
+/// `TASK_N_CTX - max_tokens` would then leave less prompt budget than the
+/// prompts actually measure.
+const MAX_TOKENS: usize = 768;
 
 /// Spec: `"why" <= 20 words`.
 const MAX_WHY_WORDS: usize = 20;
@@ -470,10 +483,17 @@ impl AiTask for CitationSupportV2Task {
     }
 
     fn max_tokens() -> usize {
-        // Larger than v1's 400: every cited chunk now carries up to 25 more
-        // words. Keeping 400 would truncate the JSON and score a formatting
-        // failure as a model failure.
-        600
+        // Larger than v1's: every cited chunk now carries up to 25 more words.
+        //
+        // §11 D27 raises this 600 -> 1024. D24's 600 was itself a raise, and it
+        // was still short: every 0.5B v2 first attempt and one 1.5B v2 attempt
+        // stopped exactly at 600, while the largest COMPLETE v2 reply measured
+        // 558. 1024 is 1.8x that.
+        //
+        // The cost is paid in prompt room — `generative.rs` enforces
+        // `budget = TASK_N_CTX - max_tokens`, so this leaves 3072 for a prompt
+        // that measures 2035-2775 plus ~50 for D26's labelled header.
+        1024
     }
 
     fn build_prompt(&self) -> String {
@@ -918,7 +938,7 @@ mod tests {
         let ev_at = p.rfind("[CHUNK_ID=c1 PAGE=8 SECTION=Results]").unwrap();
         assert!(claim_at > ev_at, "the claim must come after the evidence");
         assert!(p[claim_at..].contains("beginning with {"));
-        assert_eq!(CitationSupportTask::max_tokens(), 400, "spec pins max_tokens: 400");
+        assert_eq!(CitationSupportTask::max_tokens(), 768, "§11 D27 pins max_tokens: 768");
         assert_eq!(t.prompt_version(), "citation_support-v1.1");
     }
 }

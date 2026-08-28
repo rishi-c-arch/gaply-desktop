@@ -92,6 +92,19 @@ struct CaseResult {
     /// budget removed: scope item 1 requires it to be RECORDED, not merely
     /// printed, because a case that scored badly with chunks dropped and one
     /// that scored badly with everything sent are different findings.
+    /// Why each attempt stopped, in attempt order (§11 D27). `maxTokens` here
+    /// means the reply was CUT OFF — the case failed because the model ran out
+    /// of room, which is a different finding from a model that said something
+    /// wrong, and the two were indistinguishable in every Phase 6 report.
+    stop_reasons: Vec<String>,
+    /// The primary attempt's fatal errors, verbatim. Stored rather than only
+    /// printed so a failure CATEGORY (chunk_id format, page mismatch, truncation)
+    /// is countable from the report without re-reading stdout.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    fatal_errors: Vec<String>,
+    /// Derived from `stop_reasons`, so truncation is countable without
+    /// re-deriving it in every consumer. NEVER used to accept an output.
+    truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     chunks_sent: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -148,6 +161,25 @@ struct Report {
     /// unbalanced set while having learned nothing — accuracy alone hides that.
     answer_distribution: serde_json::Value,
     results: Vec<CaseResult>,
+}
+
+/// `StopReason` -> the string that lands in the report, and whether ANY attempt
+/// was cut off at the ceiling (§11 D27).
+///
+/// A truncated reply is unparseable and therefore already a failure; this
+/// records WHY it failed. It never makes an output valid.
+fn stops(reasons: &[app_lib::ai::generative::StopReason]) -> (Vec<String>, bool) {
+    use app_lib::ai::generative::StopReason;
+    let names: Vec<String> = reasons
+        .iter()
+        .map(|r| match r {
+            StopReason::EndOfTurn => "endOfTurn".to_string(),
+            StopReason::MaxTokens => "maxTokens".to_string(),
+            StopReason::Cancelled => "cancelled".to_string(),
+        })
+        .collect();
+    let truncated = reasons.iter().any(|r| matches!(r, StopReason::MaxTokens));
+    (names, truncated)
 }
 
 fn arg(name: &str) -> Option<String> {
@@ -480,8 +512,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     elapsed_ms,
                     if run.retried { "(retried)" } else { "" }
                 );
+                let (stop_reasons, truncated) = stops(&run.stop_reasons);
                 CaseResult {
                     id: case.id.clone(),
+                    fatal_errors: Vec::new(),
+                    stop_reasons,
+                    truncated,
                     outcome: Outcome::Ok,
                     raw: Some(serde_json::to_string(&run.output)?),
                     scored: Some(scored),
@@ -503,11 +539,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     evidence_words: None,
                 }
             }
-            Err(TaskError::ValidationFailed { errors, primary, first_raw, retry_raw, timings }) => {
+            Err(TaskError::ValidationFailed { errors, primary, first_raw, retry_raw, timings, stop_reasons }) => {
                 println!("  FAIL {}  {:>5}ms  fatal ({primary:?} attempt kept): {}", case.id, elapsed_ms,
                     errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; "));
+                let (stop_reasons, truncated) = stops(&stop_reasons);
                 CaseResult {
                     id: case.id.clone(),
+                    fatal_errors: errors.iter().map(|e| e.to_string()).collect(),
+                    stop_reasons,
+                    truncated,
                     outcome: Outcome::ValidationFailed,
                     // BOTH raw outputs — the report must show what the model
                     // actually said, not a summary of why it was rejected.
@@ -538,8 +578,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(e) => {
                 println!("  ERR  {}  {e}", case.id);
+                let (stop_reasons, truncated) = (Vec::new(), false);
                 CaseResult {
                     id: case.id.clone(),
+                    fatal_errors: Vec::new(),
+                    stop_reasons,
+                    truncated,
                     outcome: Outcome::Error,
                     raw: Some(e.to_string()),
                     scored: None,
@@ -764,10 +808,28 @@ enum SupportVariant {
 }
 
 impl SupportVariant {
+    /// DELEGATED, never duplicated. These strings name the report file and fill
+    /// `promptVersion`; when they were literals here, the §11 D26 bump to
+    /// v1.1/v2.1 would have left every repaired report labelled with the old
+    /// generation — the exact conflation the bump exists to prevent.
     fn version(self) -> &'static str {
         match self {
-            SupportVariant::V1 => "citation_support-v1",
-            SupportVariant::V2 => "citation_support-v2",
+            SupportVariant::V1 => app_lib::ai::tasks::citation_support::PROMPT_VERSION,
+            SupportVariant::V2 => app_lib::ai::tasks::citation_support::PROMPT_VERSION_V2,
+        }
+    }
+
+    /// The generation ceiling this variant runs at (§11 D27), read from the
+    /// task rather than restated.
+    fn ceiling(self) -> usize {
+        use app_lib::ai::task::AiTask;
+        match self {
+            SupportVariant::V1 => {
+                <app_lib::ai::tasks::citation_support::CitationSupportTask as AiTask>::max_tokens()
+            }
+            SupportVariant::V2 => {
+                <app_lib::ai::tasks::citation_support::CitationSupportV2Task as AiTask>::max_tokens()
+            }
         }
     }
 }
@@ -814,7 +876,9 @@ async fn run_citation_support(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let fixtures_dir = cases_path.parent().unwrap_or(Path::new(".")).join("fixtures");
     let db = Database::in_memory()?;
+    let ceiling = variant.ceiling();
     println!("prompt  : {}", variant.version());
+    println!("ceiling : {ceiling} max_tokens (§11 D27)");
     println!("evidence: budget {EVIDENCE_BUDGET_TOKENS} tokens, MOCKED lexical embedder");
     println!();
 
@@ -851,8 +915,12 @@ async fn run_citation_support(
                     if expected_none { "PASS" } else { "MISS" },
                     case.id
                 );
+                let (stop_reasons, truncated) = (Vec::new(), false);
                 results.push(CaseResult {
                     id: case.id.clone(),
+                    fatal_errors: Vec::new(),
+                    stop_reasons,
+                    truncated,
                     outcome: if expected_none { Outcome::Ok } else { Outcome::Error },
                     raw: Some(format!("NoEvidence: {reason}")),
                     scored: Some(serde_json::json!({ "noEvidence": true, "expectedNoEvidence": expected_none })),
@@ -932,8 +1000,12 @@ async fn run_citation_support(
                     bundle.chunks_dropped,
                     if run.retried { " (retried)" } else { "" }
                 );
+                let (stop_reasons, truncated) = stops(&run.stop_reasons);
                 CaseResult {
                     id: case.id.clone(),
+                    fatal_errors: Vec::new(),
+                    stop_reasons,
+                    truncated,
                     outcome: Outcome::Ok,
                     raw: Some(serde_json::to_string(&run.output)?),
                     scored: Some(serde_json::json!({
@@ -959,7 +1031,7 @@ async fn run_citation_support(
                     evidence_words: Some(bundle.words_estimated),
                 }
             }
-            Err(TaskError::ValidationFailed { errors, primary, first_raw, retry_raw, timings }) => {
+            Err(TaskError::ValidationFailed { errors, primary, first_raw, retry_raw, timings, stop_reasons }) => {
                 println!(
                     "  FAIL {}  {:>5}ms  sent={} dropped={} fatal ({primary:?} kept): {}",
                     case.id,
@@ -968,8 +1040,12 @@ async fn run_citation_support(
                     bundle.chunks_dropped,
                     errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; ")
                 );
+                let (stop_reasons, truncated) = stops(&stop_reasons);
                 CaseResult {
                     id: case.id.clone(),
+                    fatal_errors: errors.iter().map(|e| e.to_string()).collect(),
+                    stop_reasons,
+                    truncated,
                     outcome: Outcome::ValidationFailed,
                     raw: Some(format!(
                         "--- attempt 1 ---\n{first_raw}\n--- retry ---\n{retry_raw}\n--- primary: {primary:?} ---"
@@ -990,8 +1066,12 @@ async fn run_citation_support(
             }
             Err(e) => {
                 println!("  ERR  {}  {e}", case.id);
+                let (stop_reasons, truncated) = (Vec::new(), false);
                 CaseResult {
                     id: case.id.clone(),
+                    fatal_errors: Vec::new(),
+                    stop_reasons,
+                    truncated,
                     outcome: Outcome::Error,
                     raw: Some(e.to_string()),
                     scored: None,
@@ -1055,6 +1135,15 @@ let report = serde_json::json!({
         "citedPlantedChunk": agree("citedPlantedChunk"),
         "validationFailureRate": results.iter().filter(|r| r.outcome == Outcome::ValidationFailed).count() as f64 / total,
         "retryRate": results.iter().filter(|r| r.retried).count() as f64 / total,
+        // §11 D27. The ceiling this cell ran at, and how often it was hit.
+        // COUNTED, never corrected for: a truncated reply is still a failure.
+        "maxTokensCeiling": ceiling,
+        "truncationCount": results.iter().filter(|r| r.truncated).count(),
+        "truncationCases": results.iter().filter(|r| r.truncated).map(|r| r.id.clone()).collect::<Vec<_>>(),
+        // §11 D26. The defect the labelled header exists to remove. If this is
+        // not zero on the repaired series, the rendering change did not work.
+        "chunkIdFormatFailures": results.iter().filter(|r| r.fatal_errors.iter().any(|e| e.contains("chunk_id"))).count(),
+        "chunkIdFormatCases": results.iter().filter(|r| r.fatal_errors.iter().any(|e| e.contains("chunk_id"))).map(|r| r.id.clone()).collect::<Vec<_>>(),
         "advisoryRate": results.iter().filter(|r| !r.advisories.is_empty()).count() as f64 / total,
         "meanLatencyMs": results.iter().map(|r| r.elapsed_ms as f64).sum::<f64>() / total,
         "meanPromptTokens": results.iter().map(|r| r.prompt_tokens as f64).sum::<f64>() / total,
@@ -1074,6 +1163,11 @@ let report = serde_json::json!({
     println!("verdict agreement       : {}", pct(agree("verdict")));
     println!("cited the PLANTED chunk : {}", pct(agree("citedPlantedChunk")));
     println!("validation failure rate : {:.0}%", report["validationFailureRate"].as_f64().unwrap_or(0.0) * 100.0);
+    println!(
+        "truncated at ceiling    : {} of {} (ceiling {ceiling})",
+        report["truncationCount"], results.len()
+    );
+    println!("chunk_id format failures: {}", report["chunkIdFormatFailures"]);
     println!("retry rate              : {:.0}%", report["retryRate"].as_f64().unwrap_or(0.0) * 100.0);
     println!("advisory rate           : {:.0}%", report["advisoryRate"].as_f64().unwrap_or(0.0) * 100.0);
     println!("mean latency            : {:.0} ms", report["meanLatencyMs"].as_f64().unwrap_or(0.0));

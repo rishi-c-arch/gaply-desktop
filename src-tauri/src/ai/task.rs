@@ -40,6 +40,7 @@ use gaply_core::GaplyError;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
+use crate::ai::generative::StopReason;
 use crate::ai::model_manager::{ModelManager, TokenSink};
 
 /// One evidence chunk as it was handed to the model.
@@ -218,6 +219,10 @@ pub enum TaskError {
         /// — the failures are the SLOWEST cases, so dropping them flatters the
         /// number in exactly the wrong direction.
         timings: RunTimings,
+        /// Why each attempt stopped, in attempt order (§11 D27). On THIS path
+        /// it is the answer to the question a failed run always raises: did
+        /// the model say something wrong, or did it simply run out of room?
+        stop_reasons: Vec<StopReason>,
     },
     Generation { message: String },
     Cancelled,
@@ -411,6 +416,16 @@ pub struct TaskRun<T> {
     pub model_id: String,
     pub tokens: usize,
     pub elapsed_ms: u64,
+    /// Why each generation stopped, in attempt order — one entry for a
+    /// first-attempt success, two when the retry ran (§11 D27).
+    ///
+    /// `StopReason` has always existed on `GenOutput` and has always been
+    /// discarded here. A reply cut off at `max_tokens` is unparseable, and
+    /// unparseable scored identically to wrong, so the single most common
+    /// failure on the small models was invisible in every report. Carrying it
+    /// makes truncation a COUNTED category rather than something rediscovered
+    /// by reading raw text.
+    pub stop_reasons: Vec<StopReason>,
 }
 
 /// Generate, parse, validate; on ANY failure retry ONCE with the concrete
@@ -458,6 +473,7 @@ pub async fn run_task<T: AiTask>(
                 tokens: first.tokens,
                 elapsed_ms: first.elapsed_ms,
                 timings: t1,
+                stop_reasons: vec![first.stop_reason],
             });
         }
     }
@@ -499,6 +515,7 @@ pub async fn run_task<T: AiTask>(
                 tokens: combined.tokens,
                 elapsed_ms: first.elapsed_ms + second.elapsed_ms,
                 timings: combined,
+                stop_reasons: vec![first.stop_reason, second.stop_reason],
             });
         }
     }
@@ -518,6 +535,7 @@ pub async fn run_task<T: AiTask>(
         first_raw: first.text,
         retry_raw: second.text,
         timings: combined,
+        stop_reasons: vec![first.stop_reason, second.stop_reason],
     })
 }
 
@@ -747,6 +765,7 @@ mod tests {
         replies: StdMutex<std::collections::VecDeque<String>>,
         prompts: Arc<StdMutex<Vec<String>>>,
         calls: Arc<AtomicUsize>,
+        stop: StopReason,
     }
 
     impl GenerationBackend for ScriptedBackend {
@@ -762,7 +781,7 @@ mod tests {
             Ok(GenOutput {
                 tokens: 1,
                 text,
-                stop_reason: StopReason::EndOfTurn,
+                stop_reason: self.stop,
                 elapsed_ms: 1,
                 prompt_tokens: 0,
                 prefill_ms: 0,
@@ -776,6 +795,7 @@ mod tests {
         replies: Vec<String>,
         prompts: Arc<StdMutex<Vec<String>>>,
         calls: Arc<AtomicUsize>,
+        stop: StopReason,
     }
 
     impl BackendLoader for ScriptedLoader {
@@ -799,6 +819,7 @@ mod tests {
                 replies: StdMutex::new(self.replies.clone().into()),
                 prompts: self.prompts.clone(),
                 calls: self.calls.clone(),
+                stop: self.stop,
             }))
         }
     }
@@ -806,12 +827,22 @@ mod tests {
     fn scripted(
         replies: &[&str],
     ) -> (ModelManager, Arc<StdMutex<Vec<String>>>, Arc<AtomicUsize>) {
+        scripted_stopping(replies, StopReason::EndOfTurn)
+    }
+
+    /// Same, with the stop reason the backend reports — the only way to
+    /// exercise the truncation path without a real model (§11 D27).
+    fn scripted_stopping(
+        replies: &[&str],
+        stop: StopReason,
+    ) -> (ModelManager, Arc<StdMutex<Vec<String>>>, Arc<AtomicUsize>) {
         let prompts = Arc::new(StdMutex::new(Vec::new()));
         let calls = Arc::new(AtomicUsize::new(0));
         let m = ModelManager::new(Arc::new(ScriptedLoader {
             replies: replies.iter().map(|s| s.to_string()).collect(),
             prompts: prompts.clone(),
             calls: calls.clone(),
+            stop,
         }));
         (m, prompts, calls)
     }
@@ -848,6 +879,38 @@ mod tests {
         assert_eq!(ps.len(), 2);
         assert!(ps[1].starts_with(&ps[0]), "the retry dropped the original prompt");
         assert!(ps[1].contains("no JSON object or array found"), "retry prompt: {}", ps[1]);
+    }
+
+    /// §11 D27. Truncation must stay a FAILURE and must say so. Raising the
+    /// ceiling is not a repair: a reply cut off at `max_tokens` is unparseable,
+    /// and the report has to be able to distinguish "ran out of room" from
+    /// "said something wrong" — those have different fixes.
+    #[tokio::test]
+    async fn a_truncated_generation_is_still_a_failure_and_reports_the_ceiling_as_the_cause() {
+        let cut = r#"{"echo":"hello","chunk_id":"c"#; // cut off mid-string
+        let (m, _p, calls) = scripted_stopping(&[cut, cut], StopReason::MaxTokens);
+        let (t, c) = echo_task();
+        let err = run_task(&m, &t, &c, Arc::new(AtomicBool::new(false)), None).await.unwrap_err();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        match err {
+            TaskError::ValidationFailed { stop_reasons, .. } => assert_eq!(
+                stop_reasons,
+                vec![StopReason::MaxTokens, StopReason::MaxTokens],
+                "the ceiling was hit twice and the report could not say so"
+            ),
+            other => panic!("a truncated reply must FAIL, got {other:?}"),
+        }
+    }
+
+    /// The other half of D27: a run that happened to finish inside the ceiling
+    /// still carries its stop reason, so "was this cell ceiling-bound?" is
+    /// answerable from the report rather than by re-running.
+    #[tokio::test]
+    async fn an_accepted_run_still_carries_why_generation_stopped() {
+        let (m, _p, _c) = scripted(&[r#"{"echo":"hello","chunk_id":"c1"}"#]);
+        let (t, c) = echo_task();
+        let run = run_task(&m, &t, &c, Arc::new(AtomicBool::new(false)), None).await.unwrap();
+        assert_eq!(run.stop_reasons, vec![StopReason::EndOfTurn]);
     }
 
     #[tokio::test]
