@@ -1615,3 +1615,72 @@ paraphrase-for-quote substitution, which is precisely the failure it was built t
 This is the number Metal has to move, and it supersedes every earlier figure for the operating
 configuration. It remains a single isolated run on one fixture — D30's requirement of one dedicated
 latency measurement still stands.
+
+
+## Phase 7 — Metal feasibility: BLOCKED on this machine's OS, not on candle
+
+### D35 — candle 0.11 implements everything this workload needs on Metal, and cannot run it on macOS 14
+
+**Investigated in the registry sources at the pinned versions, not from documentation.**
+
+**The capability is there.** Every operation the citation_support path needs has a real Metal
+kernel in `candle-core 0.11.0`:
+
+| op | our use | Metal path |
+|---|---|---|
+| quantized matmul | every attention/FFN projection | `call_quantized_matmul_mm_t` / `_mv_t` |
+| quantized get_rows | `QMatMul::embedding` — the low-mem token table | `call_quantized_get_rows` |
+| `softmax_last_dim` | attention | `call_last_softmax` |
+| `rms_norm` | every block | `call_rms_norm` |
+| `silu` | FFN | `usilu` |
+| `gelu_erf` | the BGE embedder (`hidden_act: gelu`) | `ugelu_erf`, contiguous + strided |
+
+The 3B GGUF was inspected directly rather than assumed: **435 tensors, exactly three dtypes — Q4K
+(217), F32 (181), Q6K (37)** — and all three are dispatched in `quantized/metal.rs`.
+
+**The no-C-toolchain constraint holds.** Enabling `metal` adds 21 crates. Only `pulp` has a build
+script, and it is pure-Rust codegen emitting `core::arch::global_asm!` with `version_check` as its
+sole build-dependency. `candle-metal-kernels` declares `build = false` and compiles its `.metal`
+shaders AT RUNTIME from `include_str!`d source via `new_library_with_source`. No `cc`, no bindgen,
+no offline shader compiler. The build was run and it succeeds.
+
+### The blocker: `MTLResidencySet` is macOS 15+, and the binding PANICS
+
+`MetalDevice::new` constructs a residency set unconditionally
+(`metal_backend/mod.rs:2031`), and every buffer allocation calls `residency_set.insert`.
+`MTLResidencySet` / `MTLResidencySetDescriptor` are **macOS 15.0+** API. **This machine runs macOS
+14.5** (Darwin 23.5.0, Apple M1, Metal 3).
+
+candle *intended* this to degrade: `ResidencySet` holds `raw: Option<...>`, `insert` is guarded by
+`if let Some(set)`, and `newResidencySetWithDescriptor_error(...).ok()` tolerates failure. **The
+guard is one line too late.** `ResidencySet::new` first calls `MTLResidencySetDescriptor::new()`,
+and objc2's generated binding *panics* on a missing class:
+
+```
+panicked at objc2-metal-0.3.2/src/generated/MTLResidencySet.rs:10:1:
+class MTLResidencySetDescriptor could not be found
+```
+
+Two consequences worth stating separately:
+
+1. It is a **panic, not an `Err`**, so a `Result`-based CPU fallback cannot catch it. Any shipped
+   Metal path would need `catch_unwind` or an OS-version gate *before* probing.
+2. It fires at **device creation**, before any tensor work — so nothing about the rest of the
+   integration was ever exercised on this machine.
+
+### Routes, with what each actually costs
+
+| route | viable? | cost |
+|---|---|---|
+| **macOS 15+** | yes — the code path is complete | an OS upgrade; not a code decision |
+| **newer candle** | **no such thing** — 0.11.0 IS the latest published | — |
+| **older candle (0.10.2)** | no residency sets, Q4K matmul present — **but `QTensor::embedding` does not exist at all in 0.10.2** | it is a 0.11 addition, and the low-mem loader is built on it. Reverting means `dequantize()` at load time, which is exactly what OOM-killed the 8 GB perplexity probe and the reason the vendored loader exists |
+| **patch candle-metal-kernels** | yes, technically | a one-line class-availability check — and a fork to carry and re-apply on every upgrade |
+| **ship Metal gated to macOS 15+** | yes | correct for other users; **zero speedup on this machine**, so it cannot be measured here |
+
+**No Phase 7 code was landed.** The device abstraction and the Cargo change were written, compiled,
+and then reverted: shipping an unmeasurable acceleration path would be worse than not having one.
+
+**D30's Metal conditional is unaffected in principle and unresolvable in practice on this hardware.**
+The pre-Metal baseline stands at **65.4 s** mean (v1.4, isolated, §11 D34), prefill 55%. Whether
+Metal closes that gap remains untested — not disproven.
