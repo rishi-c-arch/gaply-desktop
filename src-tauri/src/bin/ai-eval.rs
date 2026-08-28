@@ -190,6 +190,21 @@ fn stops(reasons: &[app_lib::ai::generative::StopReason]) -> (Vec<String>, bool)
     (names, truncated)
 }
 
+/// sha256 of the running binary (§11 D27/D29 reporting).
+///
+/// A bake-off cell is only comparable to another cell run by the SAME binary.
+/// Phase 6 learned this the hard way: `ai-eval.rs` was edited mid-matrix and
+/// only the mtime showed it. Recording the hash IN the report makes a mixed
+/// series self-evident instead of a thing to reconstruct from timestamps.
+fn self_hash() -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let exe = std::env::current_exe().ok()?;
+    let bytes = std::fs::read(exe).ok()?;
+    let mut h = Sha256::new();
+    h.update(&bytes);
+    Some(format!("{:x}", h.finalize()))
+}
+
 fn arg(name: &str) -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
@@ -1232,6 +1247,11 @@ async fn run_citation_support(
                     raw: Some(serde_json::to_string(&run.output)?),
                     scored: Some(serde_json::json!({
                         "verdict": verdict_ok,
+                        // The verdict GIVEN, not just whether it matched — a
+                        // distribution over these is how a collapse (every case
+                        // answered the same way) becomes visible at all.
+                        "verdictGiven": got["verdict"],
+                        // Item 8: reported explicitly for EVERY accepted result.
                         "citedPlantedChunk": cited_planted,
                         // D18/D25: flagged for human review, never auto-scored.
                         "faithfulnessViolation": faithfulness,
@@ -1374,7 +1394,38 @@ async fn run_citation_support(
         .map(|r| serde_json::json!({ "id": r.id, "outcome": r.outcome, "findings": r.diagnostic_faithfulness }))
         .collect();
 
-let report = serde_json::json!({
+    let binary_hash = self_hash();
+    // Collapse check: a model that answers everything the same way can score
+    // respectably on agreement while having learned nothing.
+    let verdict_distribution: std::collections::BTreeMap<String, usize> = {
+        let mut d: std::collections::BTreeMap<String, usize> = Default::default();
+        for r in results.iter().filter(|r| r.outcome == Outcome::Ok) {
+            if let Some(v) =
+                r.scored.as_ref().and_then(|s| s.get("verdictGiven")).and_then(|v| v.as_str())
+            {
+                *d.entry(v.to_string()).or_default() += 1;
+            }
+        }
+        d
+    };
+    let mean_decode_tps = {
+        let n = results.iter().filter(|r| r.decode_tokens_per_sec > 0.0).count();
+        if n == 0 {
+            0.0
+        } else {
+            results.iter().map(|r| r.decode_tokens_per_sec).sum::<f64>() / n as f64
+        }
+    };
+    let prefill_share = {
+        let lat: f64 = results.iter().map(|r| r.elapsed_ms as f64).sum();
+        if lat == 0.0 {
+            0.0
+        } else {
+            results.iter().map(|r| r.prefill_ms as f64).sum::<f64>() / lat
+        }
+    };
+
+    let report = serde_json::json!({
         "task": "citation_support",
         "modelId": model_id,
         "promptVersion": variant.version(),
@@ -1419,6 +1470,12 @@ let report = serde_json::json!({
         // deliberately not a rate — these describe rejected outputs.
         "diagnosticFaithfulnessFailures": diagnostic_cases.len(),
         "diagnosticFaithfulnessCases": diagnostic_cases,
+        // Which binary produced this cell. Never compare two cells whose
+        // hashes differ.
+        "binaryHash": binary_hash,
+        "verdictDistribution": verdict_distribution,
+        "meanDecodeTokensPerSec": mean_decode_tps,
+        "prefillShare": prefill_share,
         "results": results,
     });
 
