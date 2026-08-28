@@ -905,3 +905,144 @@ prevent, one field over. Fatal.
 
 Where the stored page is `None` — a source with no pagination — any page the model supplies is
 unverifiable, so a non-null page is rejected rather than trusted.
+
+
+### D17 — the evidence budget was in WORDS while named for tokens; corrected, with a correction to the correction
+
+`EVIDENCE_BUDGET_TOKENS` is a model-token figure, but `assemble` trims using
+`split_whitespace().count()` — words. The two are not the same, and the constant's name asserted
+they were.
+
+**First attempt at the ratio was wrong.** It was derived from the eval's `mean prompt tokens` (2198)
+against the word budget (1200), giving ~0.46 words per token. That number folds the JSON schema and
+rules blocks into the denominator, and punctuation-dense schema text tokenizes far more heavily than
+prose. Budgeting on 0.46 would have under-filled the evidence block by roughly 40% — the opposite
+error to the one the fix was introduced to remove, and equally invisible.
+
+**Measured properly**, with the real Qwen2.5 tokenizer over the fixture paper's prose rendered as an
+evidence block: **491 words → 640 tokens = 0.767 words per token.** That is the constant, and
+`measure_words_per_model_token_for_evidence_text` is the `#[ignore]`d test that produces it, so the
+figure can be re-derived rather than trusted if the tokenizer changes.
+
+**This changed no eval number.** The Phase 5 fixture is 491 words in total, so a 1200-token budget
+(≈920 words) never binds on it — nothing was ever dropped, `chunks_dropped` was 0 throughout, and
+prompt tokens were identical before and after. The bug was real and would have bitten on a real
+paper; it simply had no effect on this measurement. Recorded rather than quietly corrected, because
+"the fix changed nothing" is exactly the claim that deserves the evidence attached.
+
+
+## Phase 5 findings — citation_support on the 0.5B dev model
+
+### Grounding: zero ungrounded acceptances, and what that is worth
+
+No accepted output contained a chunk_id that was not sent, or a page that disagrees with the store.
+Two things carry that claim, and they are worth different amounts:
+
+- **By construction (strong).** The validator resolves every returned `chunk_id` against the set
+  actually rendered into `<evidence>`, and every returned page against the STORE row for that chunk
+  (D16) — not against the model's own header echo, which would let a fabricated pair agree with
+  itself. Both are `Tier::Fatal`, so a violating output cannot be returned, and persistence is
+  downstream of validation, so it cannot be written either. Pinned by two negative tests that
+  construct the violation deliberately: `an_invented_chunk_id_never_reaches_the_table` and
+  `a_page_that_disagrees_with_the_store_never_reaches_the_table`.
+- **By observation (weak, and I will not dress it up).** The real-model smoke run accepted
+  **0 of 3** outputs, so its "zero ungrounded acceptances" is vacuously true — an empty set has no
+  bad members. It is not independent evidence. The eval run is slightly better: cs-seed-04 was
+  killed by the page rule with *"says page 2, but chunk c2 is stored on page 1"* — the fabrication
+  the rule exists for, caught on real output.
+
+### The model is the bottleneck, not the harness
+
+Eval, 6 seeds, `citation_support-v1`, qwen2.5-0.5b-instruct-q4km:
+
+```
+FAIL cs-seed-01  102794ms  fatal (Retry kept): <output>: not valid JSON: EOF while parsing a list
+FAIL cs-seed-02   68735ms  fatal (First kept): suggested_rewrite: must be null when the verdict is 'weak'
+FAIL cs-seed-03   88223ms  fatal (Retry kept): <output>: not valid JSON: invalid length 0
+FAIL cs-seed-04   76938ms  fatal (First kept): supporting_chunks[1].page: says page 2, but chunk c2 is
+                                              stored on page 1
+FAIL cs-seed-05   92291ms  fatal (Retry kept): <output>: no JSON object or array found
+PASS cs-seed-06            NoEvidence (no model run)
+valid outputs 1/6 · validation failure 83% · retry 83% · advisory 0%
+mean latency 71497 ms · mean prompt tokens 2198 · mean prefill 50200 ms
+```
+
+Real-model smoke (3 cases, verdict deliberately not asserted) failed all three on the **same** rule:
+`suggested_rewrite: must be null when the verdict is 'weak'`. I checked the validator against the
+spec before blaming the model — SPEC line 137: *"suggested_rewrite: only for 'partial' … null for
+every other verdict."* The rule is correct and the model is violating it, consistently. Combined
+with the always-`weak` verdict, this is the same capacity collapse as §9.9's always-true finding,
+in a different output field: the 0.5B has a fixed response shape and the evidence barely moves it.
+
+**citation_support is materially harder than citation_need** — 83% fatal vs 62%, and 71s vs 14s per
+case — because the prompt carries an evidence block and the output is a nested structure with two
+arrays and a cross-field conditional. This is a size problem. It is the strongest evidence yet for
+resolving §9.8 (production model) upward, and it should not be read as a prompt-tuning task first.
+
+### What did work
+
+- **D15 short-circuit**: cs-seed-06 returned NoEvidence with the model never loaded — no invented
+  judgement over an empty evidence block, and no 70s spent to produce one.
+- **D16 page-vs-store**: caught real fabrication (cs-seed-04), not a synthetic one.
+- **D12 keep-better-attempt**: "First kept" on seeds 02 and 04 — the retry was worse and did not
+  overwrite the near-miss. The mechanism is doing its job even when the final verdict is failure.
+
+
+### D18 — the grounding guarantee covers IDENTIFIERS, not PROSE
+
+The verbatim smoke outputs make a boundary explicit that the summarised failures hid, and it must be
+written down before anyone reads "zero ungrounded acceptances" as "the output is grounded".
+
+**What is validated:** `chunk_id` (must be in the set actually sent) and `page` (must equal the
+store's row). Both `Tier::Fatal`.
+
+**What is NOT validated:** `why`, `explanation`, `suggested_rewrite` — free prose, checked only for
+length (Advisory). Nothing ties them to the evidence text.
+
+Smoke seed 3 shows why this matters. The evidence said *"No significant effect of management was
+observed for earthworm abundance."* The model's `explanation` said:
+
+> "The study shows a significant increase in earthworm abundance under organic management, which
+> supports the claim that organic management significantly increased earthworm abundance."
+
+That is the evidence's exact opposite, asserted as support. It was rejected — but **only
+incidentally**, by the `suggested_rewrite`-non-null-on-`weak` rule. Had the model returned
+`suggested_rewrite: null`, this output would have been ACCEPTED and PERSISTED: every chunk_id real,
+every page correct, and a fabricated finding in the prose the user actually reads.
+
+So the guarantee is exactly: *a stored card cannot cite a passage that was not retrieved, or
+mislocate one that was.* It is not: *a stored card's prose is faithful to its evidence.* The second
+needs entailment checking against the chunk text, which is Phase 6 work and a larger model. Until
+then the prose fields are model assertions carrying provenance, not verified claims, and any UI must
+present them that way.
+
+### D19 — the asymmetric verdict rule lets `weak` through unearned
+
+By design (§11 D13) only `strong` must be earned against `claim_elements`; a false `strong` is the
+dangerous output, a false `weak` is merely unhelpful. All three smoke seeds returned `weak` with
+every element marked `found` — including seed 1, where the claim genuinely was supported. The rule
+is working as specified, and the model is exploiting the loose side of it. Noted, not changed:
+tightening it now would convert a capacity problem into a validator problem and hide the former.
+
+### D20 — two harness defects found while producing the Phase 5 report
+
+1. **`--task` did not select the seed file.** `--cases` defaulted to a hardcoded
+   `evals/citation_need.jsonl` regardless of `--task`, so `--task citation_support` scored the
+   citation_need seeds and printed a complete, plausible, entirely meaningless report (8 cases, all
+   NoEvidence, 0/8). Now defaults to `evals/{task}.jsonl`. This is the failure mode that looks like
+   a result, and it would have silently invalidated any future task's first eval.
+2. **`chunks_dropped` was printed but never recorded.** Scope item 1 requires the dropped count in
+   the RESULT; it only reached stdout on the success path. `chunksSent` / `chunksDropped` /
+   `evidenceWords` are now columns in the report JSON.
+
+With that recorded: every citation_support case ran **sent=12, dropped=0** — 12 being `RETRIEVAL_K`,
+so retrieval returned its cap and the budget dropped nothing. This is the measured confirmation of
+D17's claim that the budget fix could not have moved the latency numbers on this fixture.
+
+### The evidence budget is not the lever on prompt size
+
+Measured: mean prompt 2198 tokens, of which the evidence block is ~640. **The schema and rules
+scaffolding is roughly 1550 tokens — about 70% of every prompt**, paid on every case regardless of
+how much evidence is sent. Cutting `EVIDENCE_BUDGET_TOKENS` further cannot meaningfully reduce
+prefill; the scaffolding would have to shrink, or prefill has to get faster (Metal, §9.8). D14's
+budget reasoning should be read with this in mind.
