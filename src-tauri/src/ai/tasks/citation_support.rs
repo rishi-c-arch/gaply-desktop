@@ -28,7 +28,7 @@ use crate::ai::task::{AiTask, TaskContext, ValidationError};
 
 /// Bumped v1 -> v1.1 by §11 D26: the evidence header rendering changed, so a
 /// report from either side of that change describes a different prompt.
-pub const PROMPT_VERSION: &str = "citation_support-v1.3";
+pub const PROMPT_VERSION: &str = "citation_support-v1.4";
 
 /// SPEC OVERRIDE — §11 D27. The spec pins `max_tokens: 400`; measurement
 /// retired it.
@@ -62,13 +62,23 @@ const MAX_WHY_WORDS: usize = 20;
 /// reader cannot check that. Four is enough to carry a real multi-passage
 /// justification and few enough to read.
 ///
-/// THE PROMPT STATES THE BOUND AND NOTHING ELSE (§11 D33). It briefly also said
-/// "Cite only the chunks that actually carry the point. Listing every chunk you
-/// were given is not evidence." Decoding is greedy, so that sentence was
-/// measured — it moved the 3B off the planted chunk on two of four seeds
-/// (planted-chunk citation 75% -> 25%) while every other metric held still. Do
-/// not reintroduce guidance here: the bound belongs in the validator, and the
-/// prompt's job is to state it, not to argue for it.
+/// THE PROMPT SAYS NOTHING ABOUT THIS BOUND AT ALL (§11 D34).
+///
+/// Three configurations were measured on the 3B under greedy decoding, so the
+/// differences are causal rather than sampling:
+///
+/// | prompt | planted-chunk citation |
+/// |---|---|
+/// | bound + guidance (v1.2) | 25% |
+/// | bound stated plainly (v1.3) | 50% |
+/// | bound not mentioned (v1.1/v1.4) | 75% |
+///
+/// Stating the bound at all cost grounding; arguing for it cost more. The
+/// validator does not need the model's cooperation to enforce a maximum — it
+/// simply rejects — so the prompt buys nothing here and demonstrably charges
+/// for it. **Do not add a line about this to the prompt.** If a future model
+/// hits the cap often enough that the retry cost matters, measure that first
+/// on the 50-case labeled set.
 const MAX_SUPPORTING_CHUNKS: usize = 4;
 /// v2's quote ceiling. Long enough to carry a finding, short enough that
 /// "quote the whole chunk" is not a way to pass the check without reading.
@@ -156,7 +166,7 @@ Output raw JSON only. No markdown, no code fences, no commentary.";
 const OUTPUT_SCHEMA: &str = r#"{
   "verdict": "strong|partial|weak|contradicts|insufficient_evidence",
   "confidence": 0.0-1.0,
-  "supporting_chunks": [{"chunk_id": string, "page": integer, "why": string}],   // at most 4
+  "supporting_chunks": [{"chunk_id": string, "page": integer, "why": string}],
   "claim_elements": [
     {"element": string, "status": "found|absent|different"}
   ],
@@ -172,7 +182,6 @@ const RULES: &str = r#"- Decompose the claim into its checkable elements first (
     weak      = topic present, claimed finding absent
     contradicts = evidence states the opposite direction or a null result
     insufficient_evidence = retrieved chunks do not cover the claim's topic at all
-- supporting_chunks: AT MOST 4 entries.
 - "why" <= 20 words, must paraphrase the chunk, never quote more than 10 words.
 - suggested_rewrite: only for "partial" - rewrite the author's sentence so it becomes
   accurate for this source. null for every other verdict.
@@ -484,12 +493,12 @@ fn validate_support(
 
 /// v2's prompt version. v1's string is untouched, so reports from the two
 /// variants can never be conflated.
-pub const PROMPT_VERSION_V2: &str = "citation_support-v2.3";
+pub const PROMPT_VERSION_V2: &str = "citation_support-v2.4";
 
 const OUTPUT_SCHEMA_V2: &str = r#"{
   "verdict": "strong|partial|weak|contradicts|insufficient_evidence",
   "confidence": 0.0-1.0,
-  "supporting_chunks": [{"chunk_id": string, "page": integer, "quote": string, "why": string}],   // at most 4
+  "supporting_chunks": [{"chunk_id": string, "page": integer, "quote": string, "why": string}],
   "claim_elements": [
     {"element": string, "status": "found|absent|different"}
   ],
@@ -677,6 +686,40 @@ mod tests {
 
     /// §11 D32. Four is the cap, and four must PASS — a bound that also
     /// rejects the legal maximum would quietly become a bound of three.
+    /// §11 D34. The prompt must say NOTHING about the chunk bound.
+    ///
+    /// Measured on the 3B under greedy decoding: mentioning it cost grounding
+    /// (planted-chunk citation 75% with no mention, 50% stated plainly, 25%
+    /// stated with guidance). The validator enforces the maximum without the
+    /// model's cooperation, so a prompt line buys nothing and charges for it.
+    /// This test exists to stop a well-meaning future edit reintroducing one.
+    #[test]
+    fn the_prompt_never_mentions_the_chunk_bound() {
+        let v1 = CitationSupportTask {
+            claim: "C".into(),
+            cited_source: "S".into(),
+            evidence: ctx().render_evidence(),
+        }
+        .build_prompt();
+        let v2 = CitationSupportV2Task {
+            claim: "C".into(),
+            cited_source: "S".into(),
+            evidence: ctx().render_evidence(),
+        }
+        .build_prompt();
+        for (label, p) in [("v1", &v1), ("v2", &v2)] {
+            let lower = p.to_lowercase();
+            for banned in ["at most 4", "at most four", "no more than 4", "maximum of 4"] {
+                assert!(
+                    !lower.contains(banned),
+                    "{label} prompt reintroduced the bound ({banned:?}) — see §11 D34"
+                );
+            }
+            // the cap's own error text must not leak into the prompt either
+            assert!(!lower.contains("may be cited"), "{label} prompt leaked the validator message");
+        }
+    }
+
     #[test]
     fn four_supporting_chunks_pass() {
         let mut o = strong();
@@ -1004,7 +1047,7 @@ mod tests {
         assert!(p.contains("\"quote\": string"), "the schema must show the quote field");
         assert!(p.contains("WORD FOR WORD"));
         assert!(p.contains("verdict mapping:"), "v1's rules must still be present");
-        assert_eq!(t.prompt_version(), "citation_support-v2.3");
+        assert_eq!(t.prompt_version(), "citation_support-v2.4");
         assert_ne!(PROMPT_VERSION, PROMPT_VERSION_V2, "the two variants must be distinguishable");
         // the claim still comes last (the Phase 4b finding)
         let claim_at = p.rfind("CLAIM UNDER TEST").unwrap();
@@ -1033,6 +1076,6 @@ mod tests {
         assert!(claim_at > ev_at, "the claim must come after the evidence");
         assert!(p[claim_at..].contains("beginning with {"));
         assert_eq!(CitationSupportTask::max_tokens(), 768, "§11 D27 pins max_tokens: 768");
-        assert_eq!(t.prompt_version(), "citation_support-v1.3");
+        assert_eq!(t.prompt_version(), "citation_support-v1.4");
     }
 }

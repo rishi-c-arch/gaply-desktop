@@ -1533,3 +1533,85 @@ Two limits, stated so the guard is not trusted further than it earns:
    "was the machine quiet when this began" — and even that is weak for back-to-back cells: v2.3
    started at 3.66 because v1.3 had just finished. **By this rule's own terms, v1.3 and v2.3 are
    not strictly comparable to each other on timing.**
+
+
+## Phase 6d — the untested configuration, and the end of prompt iteration
+
+### D34 — v1.4 is the operating configuration: v1.1's prompt with the Fatal bound
+
+**The prompt says nothing about the chunk bound. The validator still rejects a fifth chunk.**
+That configuration had never been measured: D32 introduced the bound in the prompt and the
+validator together, so "bound enforced but unmentioned" existed only as v1.1, which predates the
+validator.
+
+**The v1.4 prompt is byte-identical to v1.1's, verified rather than asserted.** All five
+prompt-contributing constants (`SYSTEM`, `OUTPUT_SCHEMA`, `RULES`, `QUOTE_RULE`,
+`OUTPUT_SCHEMA_V2`) and both `build_prompt` bodies were diffed against the tree at `69b232f`, the
+last commit where v1.1 was current: identical, all seven.
+
+Removing the statement touched **both** variants — `RULES` is shared by v1 and v2, and the
+`// at most 4` annotation sat in both schemas — so v2 bumps to **v2.4** even though it is deferred
+and was not run. A deferred variant carrying a stale version label is exactly the conflation the
+version discipline exists to prevent.
+
+**The prediction was exact.** Greedy decoding plus an identical prompt should reproduce v1.1's
+outputs byte for byte. It did — all six seeds, `raw` identical, across two binaries built from
+different source trees on different days under different load:
+
+| seed | outcome | verdict | planted cited | raw bytes |
+|---|---|---|---|---|
+| cs-seed-01 | ok | weak | true | identical |
+| cs-seed-02 | ok | weak | false | identical |
+| cs-seed-03 | ok | weak | true | identical |
+| cs-seed-04 | ok | weak | true | identical |
+| cs-seed-05 | ok | insufficient_evidence | — | identical |
+| cs-seed-06 | ok | (NoEvidence) | — | identical |
+
+6/6 valid, verdict agreement 40%, **planted-chunk citation 75%**, one accepted faithfulness
+violation (cs-seed-04), advisory rate 50% — every cell-level figure matching v1.1.
+
+This closes the causal chain from 6b and 6c: **the entire v1.2/v1.3 grounding regression was the
+prompt text and nothing else.** No binary difference, no retrieval difference, no nondeterminism.
+
+**The full measured picture, one model, one fixture, greedy:**
+
+| prompt configuration | planted-chunk citation |
+|---|---|
+| bound + guidance (v1.2) | 25% |
+| bound stated plainly (v1.3) | 50% |
+| **bound not mentioned (v1.1 / v1.4)** | **75%** |
+
+Stating the bound cost grounding; arguing for it cost more. The validator does not need the model's
+cooperation to enforce a maximum — it simply rejects — so the prompt line bought nothing and
+demonstrably charged for it. Pinned by `the_prompt_never_mentions_the_chunk_bound`.
+
+### PROMPT ITERATION ON THE 6-SEED FIXTURE IS CLOSED
+
+The primary metric has a denominator of **four**. Every difference this phase turned on was one or
+two seeds. That was tolerable for finding a defect as large as D26; it is not a basis for choosing
+between configurations, and continuing would be fitting a prompt to four data points.
+
+**No further prompt or config change to citation_support until the 50-case labeled set exists**
+(D30's second condition). At that denominator a primary metric can carry a decision. Until then the
+operating configuration is frozen at v1.4.
+
+### The v2 lineage is DEFERRED, with its failure mode recorded
+
+v2 is not rejected and not iterated on. Its measured failure is specific and unchanged across
+v2.1 → v2.4: **the 3B paraphrases the quote it claims to be copying.** Every v2.3 failure was
+D24's verbatim-quote check on chunk c13 — the model produces a fluent, accurate-sounding sentence
+that is not a substring of the evidence.
+
+That is not a prompt-surgery problem. It is either a capability limit at 3B or a task that wants a
+stronger model, and the honest next tests are the labeled set or a larger candidate — **not more
+wording changes.** D24's check is working exactly as designed; it is catching a real
+paraphrase-for-quote substitution, which is precisely the failure it was built to catch.
+
+### Pre-Metal latency baseline
+
+**v1.4, isolated, start load 1.89: mean 65.4 s per case, prefill 35.8 s (55%), 998 prompt tokens,
+0 truncations, 0 retries.** Binary `9fafab7582d484ca13aa0a0a0135094eca04be472358b5b8dbbc6eb7d12d763e`.
+
+This is the number Metal has to move, and it supersedes every earlier figure for the operating
+configuration. It remains a single isolated run on one fixture — D30's requirement of one dedicated
+latency measurement still stands.
