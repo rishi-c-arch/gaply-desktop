@@ -1091,3 +1091,31 @@ is *believed* to share a tokenizer, but "believed" is not a property to build a 
 a silent vocabulary difference would not crash, it would produce subtly wrong text. Each model
 therefore carries its own verified tokenizer. If the hashes turn out identical across sizes, that is
 a measured fact recorded after the fact, not an assumption relied on beforehand.
+
+
+### D24 — citation_support-v2 requires a verbatim quote: the first check that ties PROSE to evidence
+
+D18 recorded that the grounding guarantee covers identifiers only. v2 is the experiment against
+that: every `supporting_chunks` entry must carry a `quote` of 5–25 words copied word-for-word from
+that chunk, and the validator Fatals if it is not a substring of the text actually sent
+(whitespace-normalised, nothing else).
+
+**Why a quote and not an entailment check.** A quote is verifiable by string comparison — no second
+model, no extra pass, no new failure mode of its own. It does not make `explanation` faithful and is
+not claimed to. It forces the model to have located the supporting words, and it hands a reader the
+exact text a verdict rests on.
+
+**Normalisation is whitespace only, deliberately.** Folding case or punctuation would start
+accepting near-misses, and a near-miss is exactly a paraphrase — the thing the check exists to
+reject. Pinned by `a_paraphrased_quote_is_fatal`, which also asserts that v1 still ACCEPTS the same
+output: that contrast is what the bake-off is measuring.
+
+**The empty-string trap.** `""` is a substring of every string, so a missing-or-blank quote is
+treated as missing rather than as a trivially valid one. Without that check the entire mitigation
+would silently be a no-op — pinned by `an_empty_quote_is_treated_as_missing_not_as_a_valid_substring`.
+
+`max_tokens` rises 400 → 600 for v2 only. Every cited chunk now carries up to 25 more words; leaving
+it at 400 would truncate the JSON and score a formatting failure as a model failure.
+
+**Unknown at the time of writing:** whether the extra field helps, costs latency, or simply produces
+a new failure mode. Both variants run in the bake-off; the data decides.

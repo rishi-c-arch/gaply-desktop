@@ -33,6 +33,9 @@ const MAX_TOKENS: usize = 400;
 
 /// Spec: `"why" <= 20 words`.
 const MAX_WHY_WORDS: usize = 20;
+/// v2's quote ceiling. Long enough to carry a finding, short enough that
+/// "quote the whole chunk" is not a way to pass the check without reading.
+const MAX_QUOTE_WORDS: usize = 25;
 /// Not in the spec as a number; a rationale far past this is untidy, not wrong.
 const MAX_EXPLANATION_WORDS: usize = 120;
 /// The spec names five checkable element kinds (subject, direction, magnitude,
@@ -64,6 +67,13 @@ pub struct SupportingChunk {
     /// Echoed back by the model and checked against the STORE (plan §11 D16).
     pub page: Option<u32>,
     pub why: String,
+    /// v2 ONLY: a verbatim substring of the cited chunk (§11 D24).
+    ///
+    /// `Option` because v1 does not ask for it and must keep parsing. v2's
+    /// validator requires it to be present AND to actually occur in the chunk
+    /// text that was sent — that check is the whole point of the variant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -191,6 +201,20 @@ impl AiTask for CitationSupportTask {
     }
 
     fn validate(out: &Self::Output, ctx: &TaskContext) -> Result<(), Vec<ValidationError>> {
+        validate_support(out, ctx, false)
+    }
+}
+
+/// Shared validator. `require_quote` is the ONLY difference between v1 and v2 —
+/// keeping one body means the two variants cannot drift apart on the rules they
+/// are supposed to share, which is what makes the bake-off comparison mean
+/// anything.
+fn validate_support(
+    out: &CitationSupportOutput,
+    ctx: &TaskContext,
+    require_quote: bool,
+) -> Result<(), Vec<ValidationError>> {
+    {
         let mut errors = Vec::new();
 
         if !(0.0..=1.0).contains(&out.confidence) {
@@ -244,6 +268,48 @@ impl AiTask for CitationSupportTask {
                     format!("supporting_chunks[{i}].why"),
                     format!("is {why_words} words; the limit is {MAX_WHY_WORDS}"),
                 ));
+            }
+
+            // --- v2: the quote must actually be IN the chunk (§11 D24) ---
+            //
+            // This is the first check in the engine that ties PROSE to the
+            // evidence rather than an identifier. D18 recorded that a model can
+            // cite a real chunk, get its page right, and still describe it as
+            // saying the opposite of what it says. A quote cannot do that and
+            // survive: either the words are in the chunk or they are not.
+            if require_quote {
+                let field = format!("supporting_chunks[{i}].quote");
+                match sc.quote.as_deref().map(str::trim) {
+                    None | Some("") => errors.push(ValidationError::fatal(
+                        &field,
+                        "is missing — v2 requires a verbatim quote from the chunk, because a \
+                         chunk_id alone does not show that the model read the text",
+                    )),
+                    Some(q) => {
+                        let words = q.split_whitespace().count();
+                        if words > MAX_QUOTE_WORDS {
+                            errors.push(ValidationError::advisory(
+                                &field,
+                                format!("is {words} words; the limit is {MAX_QUOTE_WORDS}"),
+                            ));
+                        }
+                        // Only checkable against a chunk we actually sent. An
+                        // unknown chunk_id is already Fatal above; adding a
+                        // second error for it would just be noise.
+                        if let Some(sent) = ctx.get(&sc.chunk_id) {
+                            if !normalize_ws(&sent.text).contains(&normalize_ws(q)) {
+                                errors.push(ValidationError::fatal(
+                                    &field,
+                                    format!(
+                                        "is not a verbatim substring of chunk {}. The quote must \
+                                         be copied from the evidence, not recalled or paraphrased",
+                                        sc.chunk_id
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -347,6 +413,105 @@ impl AiTask for CitationSupportTask {
     }
 }
 
+/* ======================= v2 — the D18 mitigation ========================== *
+ * Phase 5 measured that the grounding guarantee covers IDENTIFIERS only: a
+ * model can cite a real chunk, report its page correctly, and still describe it
+ * as saying the opposite of what it says (D18). Nothing in v1 can catch that,
+ * because nothing in v1 ties the model's PROSE to the evidence text.
+ *
+ * v2 asks for one more field per cited chunk: a verbatim quote. A quote is
+ * checkable by string comparison — no entailment model, no second pass. It does
+ * not make the explanation faithful, and it is not claimed to; it forces the
+ * model to have located the supporting words, and it gives a reader the exact
+ * text a verdict rests on.
+ *
+ * Both variants run in the bake-off. Whether the extra field helps, costs
+ * latency, or simply produces a new failure mode is a question for the data. */
+
+/// v2's prompt version. v1's string is untouched, so reports from the two
+/// variants can never be conflated.
+pub const PROMPT_VERSION_V2: &str = "citation_support-v2";
+
+const OUTPUT_SCHEMA_V2: &str = r#"{
+  "verdict": "strong|partial|weak|contradicts|insufficient_evidence",
+  "confidence": 0.0-1.0,
+  "supporting_chunks": [{"chunk_id": string, "page": integer, "quote": string, "why": string}],
+  "claim_elements": [
+    {"element": string, "status": "found|absent|different"}
+  ],
+  "explanation": string,
+  "suggested_rewrite": string|null
+}"#;
+
+const QUOTE_RULE: &str = r#"- "quote" is MANDATORY for every supporting_chunk: copy 5-25 words WORD FOR WORD from
+  that chunk's text in <evidence>. Copy, do not summarise, do not correct, do not
+  rephrase. It must appear character for character in the chunk. If you cannot find
+  words in the chunk that carry the point, that chunk does not support the claim -
+  leave it out.
+- "why" then explains, in your own words, what the quote shows."#;
+
+/// Same task, same output type, one extra required field.
+pub struct CitationSupportV2Task {
+    pub claim: String,
+    pub cited_source: String,
+    pub evidence: String,
+}
+
+impl AiTask for CitationSupportV2Task {
+    type Output = CitationSupportOutput;
+
+    fn prompt_version(&self) -> &'static str {
+        PROMPT_VERSION_V2
+    }
+
+    fn max_tokens() -> usize {
+        // Larger than v1's 400: every cited chunk now carries up to 25 more
+        // words. Keeping 400 would truncate the JSON and score a formatting
+        // failure as a model failure.
+        600
+    }
+
+    fn build_prompt(&self) -> String {
+        format!(
+            "<|im_start|>system\n{SYSTEM}\n<|im_end|>\n\
+             <|im_start|>user\n\
+             OUTPUT SCHEMA\n{OUTPUT_SCHEMA_V2}\n\n\
+             RULES\n{RULES}\n{QUOTE_RULE}\n\n\
+             <cited_source>\n{source}\n</cited_source>\n\n\
+             {evidence}\n\n\
+             CLAIM UNDER TEST\n<claim>\n{claim}\n</claim>\n\n\
+             Judge ONLY the claim above against the evidence above. \
+             Output the JSON object now, beginning with {{\n\
+             <|im_end|>\n\
+             <|im_start|>assistant\n",
+            source = self.cited_source,
+            evidence = self.evidence,
+            claim = self.claim,
+        )
+    }
+
+    fn validate(out: &Self::Output, ctx: &TaskContext) -> Result<(), Vec<ValidationError>> {
+        validate_support(out, ctx, true)
+    }
+}
+
+/// v2 adds exactly two rules; everything in [`FATAL_RULES`] still applies.
+pub const FATAL_RULES_V2: &[&str] = &[
+    "a supporting_chunk with no quote",
+    "a quote that is not a verbatim substring of that chunk's text (whitespace-normalised)",
+];
+
+pub const ADVISORY_RULES_V2: &[&str] = &["a quote longer than 25 words"];
+
+/// Collapse all runs of whitespace to single spaces and trim.
+///
+/// Whitespace ONLY. A quote check that also normalised case or punctuation
+/// would start accepting paraphrases, which is precisely what it exists to
+/// reject — the model must have copied the text, not recalled its gist.
+fn normalize_ws(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn verdict_name(v: Verdict) -> &'static str {
     match v {
         Verdict::Strong => "strong",
@@ -384,6 +549,7 @@ mod tests {
             verdict: Verdict::Strong,
             confidence: 0.9,
             supporting_chunks: vec![SupportingChunk {
+                quote: None,
                 chunk_id: "c1".into(),
                 page: Some(8),
                 why: "Reports the richness increase the claim describes.".into(),
@@ -439,6 +605,7 @@ mod tests {
     fn a_page_asserted_for_a_chunk_with_no_recorded_page_is_fatal() {
         let mut o = strong();
         o.supporting_chunks[0] = SupportingChunk {
+            quote: None,
             chunk_id: "c2".into(),
             page: Some(3),
             why: "Reports a null effect.".into(),
@@ -456,7 +623,7 @@ mod tests {
     fn a_null_page_for_an_unpaginated_chunk_is_fine() {
         let mut o = strong();
         o.supporting_chunks[0] =
-            SupportingChunk { chunk_id: "c2".into(), page: None, why: "Null effect.".into() };
+            SupportingChunk { chunk_id: "c2".into(), page: None, why: "Null effect.".into(), quote: None };
         assert!(CitationSupportTask::validate(&o, &ctx()).is_ok());
     }
 
@@ -580,6 +747,121 @@ mod tests {
                 serde_json::from_str(&json).unwrap_or_else(|e| panic!("{v}: {e}"));
             assert_eq!(serde_json::to_value(p.verdict).unwrap(), v);
         }
+    }
+
+
+    /* ------------------------- v2: the quote check ------------------------ */
+
+    fn v2_out(quote: Option<&str>) -> CitationSupportOutput {
+        let mut o = strong();
+        o.supporting_chunks[0].quote = quote.map(str::to_string);
+        o
+    }
+
+    #[test]
+    fn a_verbatim_quote_passes() {
+        let o = v2_out(Some("Species richness rose 31% under organic management"));
+        validate_support(&o, &ctx(), true).expect("a copied quote must pass");
+    }
+
+    #[test]
+    fn a_quote_differing_only_in_whitespace_is_accepted() {
+        // Line wrapping and double spaces are formatting, not paraphrase. The
+        // normalisation exists so a correctly copied quote is not failed for
+        // having been re-wrapped.
+        let o = v2_out(Some("Species   richness\n  rose 31%\tunder organic management"));
+        validate_support(&o, &ctx(), true).expect("whitespace must be normalised");
+    }
+
+    #[test]
+    fn a_paraphrased_quote_is_fatal() {
+        // The D18 failure in miniature: plausible, faithful in gist, and NOT in
+        // the chunk. v1 has nothing that catches this.
+        let o = v2_out(Some("Species richness increased by about a third under organic farming"));
+        let errs = validate_support(&o, &ctx(), true).unwrap_err();
+        let e = errs
+            .iter()
+            .find(|e| e.field.contains("quote"))
+            .expect("the paraphrase must be caught");
+        assert_eq!(e.tier, Tier::Fatal);
+        assert!(e.problem.contains("verbatim substring"), "{}", e.problem);
+        // and v1 must still accept it — that contrast is the point of running
+        // both variants in the bake-off.
+        validate_support(&o, &ctx(), false).expect("v1 does not check quotes");
+    }
+
+    #[test]
+    fn an_invented_quote_is_fatal() {
+        let o = v2_out(Some("Earthworm biomass doubled in every plot"));
+        let errs = validate_support(&o, &ctx(), true).unwrap_err();
+        assert!(errs.iter().any(|e| e.field.contains("quote") && e.tier == Tier::Fatal));
+    }
+
+    #[test]
+    fn a_missing_quote_is_fatal_in_v2_and_fine_in_v1() {
+        let o = v2_out(None);
+        let errs = validate_support(&o, &ctx(), true).unwrap_err();
+        assert!(errs.iter().any(|e| e.field.contains("quote") && e.tier == Tier::Fatal));
+        validate_support(&o, &ctx(), false).expect("v1 never required a quote");
+    }
+
+    #[test]
+    fn an_empty_quote_is_treated_as_missing_not_as_a_valid_substring() {
+        // "" is a substring of everything. Without the explicit empty check
+        // this would silently pass and the whole mitigation would be a no-op.
+        let o = v2_out(Some("   "));
+        let errs = validate_support(&o, &ctx(), true).unwrap_err();
+        assert!(errs.iter().any(|e| e.field.contains("quote") && e.tier == Tier::Fatal));
+    }
+
+    #[test]
+    fn a_quote_from_the_wrong_chunk_is_fatal() {
+        // Real text, real chunk_id, wrong pairing — the model quoting c2's
+        // sentence while citing c1.
+        let o = v2_out(Some("No significant effect was observed for soil fauna"));
+        let errs = validate_support(&o, &ctx(), true).unwrap_err();
+        assert!(errs.iter().any(|e| e.field.contains("quote") && e.tier == Tier::Fatal));
+    }
+
+    #[test]
+    fn an_over_long_quote_is_advisory_not_fatal() {
+        // It is copied text; it is merely too much of it.
+        let long = "Species richness rose 31% under organic management (p<0.01).";
+        let mut o = v2_out(Some(long));
+        o.supporting_chunks[0].quote = Some(long.to_string());
+        // 9 words — under the limit, so construct the over-limit case from a
+        // chunk long enough to exceed it.
+        let ctx2 = TaskContext::new(vec![EvidenceChunk {
+            chunk_id: "c1".into(),
+            page: Some(8),
+            section: None,
+            text: (0..40).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" "),
+        }]);
+        o.supporting_chunks[0].quote =
+            Some((0..30).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" "));
+        o.supporting_chunks.truncate(1);
+        o.supporting_chunks[0].page = Some(8);
+        let errs = validate_support(&o, &ctx2, true).unwrap_err();
+        let q = errs.iter().find(|e| e.field.contains("quote")).expect("length advisory");
+        assert_eq!(q.tier, Tier::Advisory, "an over-long but REAL quote is untidy, not misleading");
+    }
+
+    #[test]
+    fn the_v2_prompt_demands_the_quote_and_keeps_v1s_rules() {
+        let t = CitationSupportV2Task {
+            claim: "C".into(),
+            cited_source: "S".into(),
+            evidence: "<evidence>\n[c1 | p.8 | Results] x\n</evidence>".into(),
+        };
+        let p = t.build_prompt();
+        assert!(p.contains("\"quote\": string"), "the schema must show the quote field");
+        assert!(p.contains("WORD FOR WORD"));
+        assert!(p.contains("verdict mapping:"), "v1's rules must still be present");
+        assert_eq!(t.prompt_version(), "citation_support-v2");
+        assert_ne!(PROMPT_VERSION, PROMPT_VERSION_V2, "the two variants must be distinguishable");
+        // the claim still comes last (the Phase 4b finding)
+        let claim_at = p.rfind("CLAIM UNDER TEST").unwrap();
+        assert!(claim_at > p.find("</evidence>").unwrap());
     }
 
     #[test]
