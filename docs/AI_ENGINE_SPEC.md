@@ -1,5 +1,7 @@
 > ARCHITECTURE OVERRIDE — RESOLVED: Where this specification refers to llama.cpp/GGUF or GBNF grammar-constrained decoding, docs/AI_ENGINE_PLAN.md §9 supersedes those statements: runtime is Candle, llama.cpp is not used, and structured output uses deterministic validation plus one retry. The task prompts, schemas, evidence rules, abstention behavior, and provenance requirements in this specification remain authoritative.
 
+> EVIDENCE RENDERING OVERRIDE — RESOLVED: Where this specification renders an evidence chunk header as `[c{id} | p.{page} | {section}]`, docs/AI_ENGINE_PLAN.md §11 D26 supersedes it for ALL EIGHT TASKS: the header is `[CHUNK_ID=c1 PAGE=8 SECTION=Results]`, with `PAGE=?` for a missing page and `SECTION=-` for a missing section. A model was measured echoing the whole composite bracket as `chunk_id`; the id now carries an explicit key. The `chunk_id` VALUE contract is unchanged and the validator is not weakened — a composite or display-form id remains fatal, and every other evidence rule in this specification remains authoritative.
+
 # Gaply Citation Intelligence — 8 Local SLM Prompts
 
 Target runtime: llama.cpp / GGUF, Qwen2.5-7B-LoRA (or Phi-4-mini Q4 on 8 GB).

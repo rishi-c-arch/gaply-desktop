@@ -1143,3 +1143,131 @@ null-result passage is on **cs-seed-04** (the `contradicts` seed); cs-seed-03 is
 not-measured/`weak` seed. Rather than pick one, the check is data-driven from a `faithfulness` block
 in the seed file and is enabled on BOTH — they are the two seeds whose evidence reports an absence,
 which is the property the check needs.
+
+
+## Phase 6a — repairing the citation_support bake-off harness
+
+The 9-cell Phase 6 bake-off is **not** a valid support-model comparison. Four confounds were found
+in its own output, all of them harness or design defects rather than model-quality findings, and
+all four are fixed here before any model is chosen. The Phase 6 support cells stay on disk as the
+record of the defects; they are never averaged or compared against the repaired series.
+
+### D26 — the evidence header is LABELLED; the spec's `[c{id} | p.{page} | {section}]` is superseded
+
+**SPEC OVERRIDE, engine-wide.** The spec pins `[c1 | p.8 | Results] text` as the evidence contract
+for all eight tasks. It is superseded by an explicitly labelled form:
+
+```
+[CHUNK_ID=c1 PAGE=8 SECTION=Results] text
+```
+
+A missing page renders `PAGE=?`, a missing section `SECTION=-`, so the three-field shape still never
+varies.
+
+**Why, measured.** On the 3B, four of six seeds under BOTH prompt variants failed with
+`chunk_id: "c13 | p.5 | -"` — the model echoed the whole bracket because the id's only marker was
+*being first*. Position is not a label, and a bigger model reading the header as one composite
+display string is a reasonable reading of the old format. The 0.5B and 1.5B never hit this because
+they never got far enough; this defect was **hidden behind truncation** (D27) until a model large
+enough to finish the JSON ran.
+
+**The validator is NOT weakened.** A composite or display-form id remains fatal. The fix is on the
+presentation side only: the model is shown a key it can copy, and is told in the rules that
+`chunk_id` is the `CHUNK_ID=` value alone. Accepting `"c13 | p.5 | -"` as an alias for `c13` would
+have destroyed the one guarantee the grounding check provides (D18).
+
+**Applied in `task.rs::EvidenceChunk::render`**, so all eight tasks inherit it rather than each
+task carrying its own header. `citation_need` is unaffected in fact as well as in principle: it has
+no `<evidence>` block at all (D8), asserted by `a_prompt_never_claims_evidence_it_does_not_have`, so
+its prompt is byte-identical across this change and its Phase 6 cells remain comparable and are
+**not** rerun.
+
+**Prompt versions bump: `citation_support-v1` → `v1.1`, `v2` → `v2.1`.** The rendering is part of
+the prompt, so a report from either side of this change describes a different thing. The bumped
+strings are what makes the two generations impossible to conflate in a report directory.
+
+### D27 — the generation ceiling is raised from MEASURED output sizes, and truncation becomes a counted category
+
+**Old ceilings: 400 (v1), 600 (v2, already raised once by D24).**
+
+Measured across all 28 first attempts in the Phase 6 support cells, tokenised with the candidate's
+own tokenizer:
+
+| | at ceiling | largest COMPLETE first attempt |
+|---|---|---|
+| 0.5B | 10 of 10 | 286 (v1) — every v2 attempt truncated |
+| 1.5B | 5 of 10 | 558 (v2) |
+| 3B | 0 of 8 | 274 (v1), 209 (v2) |
+
+**13 of 28 first attempts stopped exactly at the ceiling.** The support arm was measuring the
+ceiling, not the models: a truncated reply is unparseable, and unparseable scores identically to
+wrong.
+
+**New ceilings: v1.1 = 768, v2.1 = 1024.** Derived, not guessed:
+
+- The largest legitimately complete response observed is 558 tokens; 1024 is 1.8× that, and 768 is
+  2.5× the largest complete v1 (309).
+- A realistic correct response — three cited chunks, eight claim elements, a 120-word explanation —
+  costs roughly 660 tokens in v2 and 420 in v1 by the schema's own limits.
+- The absolute schema-legal maximum is **not** reachable and is deliberately not provisioned for:
+  `supporting_chunks` is uncapped, so twelve retrieved chunks with 25-word quotes and 20-word
+  rationales would need ~1400 tokens, and `TASK_N_CTX - max_tokens` would then leave less prompt
+  budget than the prompts actually measure. Recorded so the gap is a known limit rather than a
+  future surprise.
+
+**Cost, stated because raising a ceiling is not free.** `generative.rs` enforces
+`budget = TASK_N_CTX - max_tokens`, so every token given to the reply is taken from the prompt.
+At v2.1 the prompt ceiling falls 4096−600=3496 → 4096−1024=3072; measured v2 prompts run
+2035–2775 and the labelled header of D26 adds roughly 50 tokens, leaving ~250 tokens of headroom.
+KV cache is sized by `TASK_N_CTX` and is unchanged. Latency rises only for replies that actually
+use the room — decode is ~30 tok/s on the 0.5B and ~9 on the 3B, so a reply that grows from 400 to
+768 tokens costs ~12 s more on the 0.5B and ~40 s on the 3B. That is the price of measuring the
+model instead of the cap.
+
+**Truncation stops being a one-time investigation.** `StopReason` already exists on `GenOutput`
+(`EndOfTurn` / `MaxTokens` / `Cancelled`) but died inside `run_task`. It is now carried on `TaskRun`
+and on the error path, per attempt, and recorded per case in every report. A model that hits the
+ceiling still FAILS — the ceiling is not a repair, and nothing is accepted because it was
+truncated — but the failure is now labelled with its cause forever.
+
+### D28 — diagnostic faithfulness runs on REJECTED outputs, and can never accept one
+
+D25 made the faithfulness check a flag for human review. Phase 6 then reported **0 violations of 2
+checked in all nine cells**, and the number was worthless: `faithfulnessCheckedCases` only ever
+counted accepted outputs, and the only two accepted outputs on the whole matrix were
+`insufficient_evidence` and `NoEvidence` — both of which cite nothing. **The check never once
+examined a citation.**
+
+It hid a real failure. The 3B's first attempt on `cs-seed-01` under v2 returned `"verdict":
+"strong"`, `"confidence": 1.0`, marked the claim element `by about 31 percent` as `found`, and
+supported it with a quote containing no number at all. That output was rejected on the D26 chunk_id
+defect, so the faithfulness checker never saw it.
+
+**Two separate measures from here, never mixed:**
+
+1. **Accepted faithfulness** — unchanged in meaning, still the D25 flag, still reported over
+   accepted outputs only. This is the one that describes what the engine would have persisted.
+2. **Diagnostic faithfulness** — the same checker run over outputs that PARSED and are
+   schema-shaped but were REJECTED, when enough structured fields survive to check. Reported
+   separately and never folded into any accuracy figure.
+
+**A diagnostic result can never become an acceptance.** It runs after the verdict is already
+`rejected`, reads a clone, writes nothing, and cannot clear a fatal error or reach persistence.
+Pinned by a test that a rejected output carrying a clean faithfulness result is still rejected and
+still not persisted.
+
+### D29 — bake-off evidence is assembled with the REAL embedder; the mock is CI-only
+
+Every Phase 6 support cell assembled its evidence with `mock-lexical-v1`, a hashed-bag-of-words
+stand-in living in the harness. Retrieval feeds the prompt, so the whole support arm was measuring
+the models against evidence a real install would never have selected.
+
+The repaired series embeds the fixture corpus with the production embedder —
+`bge-small-en-v1.5`, CLS pooling, `bge-v1.5-p2` (§11 D6) — and records `model_id` and
+`preprocessing_version` in every report, so a report can never again be read without knowing which
+retrieval produced it. The mock remains, unchanged, for CI: those tests must not need a 134 MB
+download.
+
+**If the real embedder selects different chunks than the mock did, that is recorded as a finding.**
+It changes what the models were asked about, which is precisely why the Phase 6 support cells and
+the repaired series can never be compared.
