@@ -1271,3 +1271,58 @@ download.
 **If the real embedder selects different chunks than the mock did, that is recorded as a finding.**
 It changes what the models were asked about, which is precisely why the Phase 6 support cells and
 the repaired series can never be compared.
+
+### Phase 6a results — the repaired citation_support series
+
+Six cells, one binary (`d4629fd4dbafa9ea410feb7ca50a915d3081f2f4bae42823ee2c39c62ba5943e`), real
+embedder throughout (`bge-small-en-v1.5` / `bge-v1.5-p2`). Reports carry the `-repaired` suffix.
+**The Phase 6 support cells are not comparable to these and must never be averaged with them** —
+different prompt generation (v1.1/v2.1), different ceilings, different retrieval.
+
+| model | prompt | valid | fatal | retry | trunc | chunk_id fmt | planted cited | accepted faith. | diagnostic faith. |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.5B | v1.1 | 1/6 | 83% | 83% | 2 | 0 | — | 0/0 | 0 |
+| 1.5B | v1.1 | 2/6 | 67% | 67% | 1 | 0 | — | 0/0 | 3 |
+| 3B | v1.1 | **6/6** | **0%** | **0%** | **0** | 0 | **75%** | **1 of 2** | 0 |
+| 0.5B | v2.1 | 2/6 | 67% | 67% | 4 | 0 | 100% | 0/1 | 0 |
+| 1.5B | v2.1 | 1/6 | 83% | 83% | 1 | 0 | — | 0/0 | 1 |
+| 3B | v2.1 | 3/6 | 50% | 50% | 0 | 0 | **100%** | **1 of 1** | 0 |
+
+**D26 is confirmed, and it was the dominant defect.** `chunkIdFormatFailures` is **0 in all six
+cells**. The 3B went from 2/6 valid with four chunk_id failures to **6/6 valid with none** under
+v1.1 — the same model, the same seeds, a labelled header. Phase 6's "the 3B is worse at
+citation_support than the 1.5B" was an artefact of the display format.
+
+**D27 is confirmed and partially insufficient.** The 3B never approaches either ceiling. The 0.5B
+still truncates 2/6 at 768 and **4/6 at 1024** — raising the ceiling did not fix the 0.5B because
+the 0.5B's failure is not length, it is runaway enumeration: it cites five, eight, twelve chunks
+with a full `why` on each. `supporting_chunks` being uncapped (D27) is the actual mechanism.
+Raising the ceiling further would spend context on a pathology; a chunk-count cap would be the
+honest fix, and it is a schema change this phase deliberately did not make.
+
+**D28 is confirmed, and it earned its keep twice over.**
+1. *Accepted* faithfulness inspected a real citation for the first time in the project's history —
+   and found a violation immediately, on the 3B, in **both** variants (cs-seed-04 under v1.1,
+   cs-seed-03 under v2.1). The 3B cites the chunk that reports an ABSENCE and then writes an
+   explanation asserting the finding with "higher". Nine Phase 6 cells reported "0 violations" and
+   the check had examined nothing.
+2. *Diagnostic* faithfulness recovered four findings from REJECTED outputs (three on 1.5B v1.1, one
+   on 1.5B v2.1) that the old harness discarded entirely — including the 1.5B marking
+   `by about 31 percent` as `found` while citing five chunks, none containing "31".
+
+**D29 recorded, with no retrieval surprise.** Every cell reports `sent=12 dropped=0` under the real
+embedder, as under the mock. The bake-off's retrieval was not what was broken — but it is now
+recorded in every report, so this is a measurement rather than an assumption.
+
+**A harness defect found while producing this report, in the D20 tradition.**
+`decodeTokensPerSec` is hardcoded `0.0` at all four `CaseResult` sites in the citation_support arm
+(the citation_need arm computes it correctly). Pre-existing, not introduced here. `tokens` and
+`decodeMs` are both recorded, so decode rate is fully recoverable by arithmetic and no data was
+lost — the figures in the Phase 6a report are computed that way. Fixing the field requires an
+ai-eval change and therefore a new binary, which would have split this series; it is left for the
+next harness commit rather than done mid-matrix.
+
+**citation_need was NOT rerun, by verification rather than assumption.** It has no `<evidence>`
+block (D8) and its prompt never calls `EvidenceChunk::render`, asserted by
+`a_prompt_never_claims_evidence_it_does_not_have`. The D26 change cannot reach it, so its Phase 6
+cells remain valid and the two arms are not mixed generations.

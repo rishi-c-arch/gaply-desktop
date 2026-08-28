@@ -1,0 +1,258 @@
+{
+  "advisoryRate": 0.0,
+  "binaryHash": "d4629fd4dbafa9ea410feb7ca50a915d3081f2f4bae42823ee2c39c62ba5943e",
+  "casesFile": "evals/citation_support.jsonl",
+  "chunkIdFormatCases": [],
+  "chunkIdFormatFailures": 0,
+  "citedPlantedChunk": 1.0,
+  "date": "bo-3b-repaired",
+  "diagnosticFaithfulnessCases": [],
+  "diagnosticFaithfulnessFailures": 0,
+  "embedder": "bge-small-en-v1.5",
+  "embedderIsReal": true,
+  "evidenceBudgetTokens": 1200,
+  "faithfulnessCheckedCases": 1,
+  "faithfulnessViolationCases": [
+    "cs-seed-03"
+  ],
+  "faithfulnessViolations": 1,
+  "maxTokensCeiling": 1024,
+  "meanDecodeMs": 42886.666666666664,
+  "meanDecodeTokensPerSec": 0.0,
+  "meanLatencyMs": 211785.66666666666,
+  "meanPrefillMs": 168679.83333333334,
+  "meanPromptTokens": 1900.8333333333333,
+  "modelId": "qwen2.5-3b-instruct-q4km",
+  "modelLoadMs": 1994,
+  "nCtx": 4096,
+  "prefillShare": 0.7964648221393642,
+  "preprocessingVersion": "bge-v1.5-p2",
+  "promptVersion": "citation_support-v2.1",
+  "ramTotalMb": 2295,
+  "results": [
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 85814,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 390521,
+      "evidenceWords": 439,
+      "fatalErrors": [
+        "supporting_chunks[0].quote: is not a verbatim substring of chunk c13. The quote must be copied from the evidence, not recalled or paraphrased"
+      ],
+      "id": "cs-seed-01",
+      "outcome": "validationFailed",
+      "prefillMs": 304498,
+      "promptTokens": 3021,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.3,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c13\",\n      \"page\": 5,\n      \"quote\": \"Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent.\",\n      \"why\": \"The study found organic management associated with higher invertebrate species richness, but did not provide a specific percentage increase.\"\n    },\n    {\n      \"chunk_id\": \"c7\",\n      \"page\": 3,\n      \"quote\": \"Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01).\",\n      \"why\": \"The study found a 31 percent increase in invertebrate species richness under organic management, but this is a specific finding and not a general claim.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\"element\": \"Organic management increased soil invertebrate species richness\", \"status\": \"found\"},\n    {\"element\": \"by about 31 percent\", \"status\": \"absent\"}\n  ],\n  \"explanation\": \"The study found a 31 percent increase in invertebrate species richness under organic management, but the claim specifies 'about 31 percent' which is not supported by the evidence.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 304,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 42600,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 291303,
+      "evidenceWords": 440,
+      "fatalErrors": [
+        "supporting_chunks[0].quote: is not a verbatim substring of chunk c13. The quote must be copied from the evidence, not recalled or paraphrased"
+      ],
+      "id": "cs-seed-02",
+      "outcome": "validationFailed",
+      "prefillMs": 248317,
+      "promptTokens": 2899,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.3,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c13\",\n      \"page\": 5,\n      \"quote\": \"Organic management was associated with higher invertebrate species richness in this paired comparison.\",\n      \"why\": \"The study found organic management associated with higher invertebrate species richness, but did not provide a specific magnitude.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\"element\": \"Organic management\", \"status\": \"found\"},\n    {\"element\": \"doubled soil invertebrate species richness\", \"status\": \"absent\"}\n  ],\n  \"explanation\": \"The study found organic management associated with higher invertebrate species richness, but did not provide a specific magnitude or direction for the effect.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 184,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 39776,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 135327,
+      "evidenceWords": 429,
+      "id": "cs-seed-03",
+      "outcome": "ok",
+      "prefillMs": 95334,
+      "promptTokens": 1298,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.3,\"supporting_chunks\":[{\"chunk_id\":\"c10\",\"page\":4,\"why\":\"The study did not measure nitrogen leaching, so it cannot support the claim of reduced nitrogen leaching.\",\"quote\":\"Nitrogen leaching was not measured in this study and no inference about water quality can be drawn from these data.\"}],\"claim_elements\":[{\"element\":\"Organic management reduced nitrogen leaching into groundwater\",\"status\":\"absent\"}],\"explanation\":\"The study did not measure nitrogen leaching, so it cannot support the claim of reduced nitrogen leaching.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": true,
+        "expected": {
+          "faithfulness": {
+            "forbidden_language": [
+              "supports the claim",
+              "support the claim",
+              "supports this claim",
+              "increase",
+              "increased",
+              "increases",
+              "rose",
+              "higher",
+              "reduced",
+              "reduction",
+              "decreased",
+              "confirms",
+              "demonstrates",
+              "shows a significant",
+              "significant increase",
+              "significant reduction"
+            ],
+            "note": "planted passage reports no finding; asserting one is a faithfulness violation",
+            "planted_chunk_contains": "Nitrogen leaching was not measured"
+          },
+          "planted_chunk_contains": "Nitrogen leaching was not measured",
+          "verdict": "weak"
+        },
+        "faithfulnessViolation": "support the claim",
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Organic management reduced nitrogen leaching into groundwater",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.3,
+          "explanation": "The study did not measure nitrogen leaching, so it cannot support the claim of reduced nitrogen leaching.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c10",
+              "page": 4,
+              "quote": "Nitrogen leaching was not measured in this study and no inference about water quality can be drawn from these data.",
+              "why": "The study did not measure nitrogen leaching, so it cannot support the claim of reduced nitrogen leaching."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 1,
+        "verdict": true,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 173,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 52228,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 312771,
+      "evidenceWords": 440,
+      "fatalErrors": [
+        "supporting_chunks[0].quote: is not a verbatim substring of chunk c13. The quote must be copied from the evidence, not recalled or paraphrased"
+      ],
+      "id": "cs-seed-04",
+      "outcome": "validationFailed",
+      "prefillMs": 260350,
+      "promptTokens": 2869,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.3,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c13\",\n      \"page\": 5,\n      \"quote\": \"Effects on microbial biomass and on soil fauna abundance were less consistent.\",\n      \"why\": \"The chunk states that effects on soil fauna abundance were not detectable, contradicting the claim.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"Organic management significantly increased earthworm abundance\",\n      \"status\": \"absent\"\n    }\n  ],\n  \"explanation\": \"The evidence shows that effects on soil fauna abundance were not detectable, contradicting the claim.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 158,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 36902,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 140707,
+      "evidenceWords": 440,
+      "id": "cs-seed-05",
+      "outcome": "ok",
+      "prefillMs": 103580,
+      "promptTokens": 1318,
+      "raw": "{\"verdict\":\"insufficient_evidence\",\"confidence\":0.0,\"supporting_chunks\":[],\"claim_elements\":[{\"element\":\"Hedgerow planting\",\"status\":\"absent\"},{\"element\":\"increased wild bee visitation rates\",\"status\":\"absent\"},{\"element\":\"adjacent orchards\",\"status\":\"absent\"}],\"explanation\":\"The evidence does not mention hedgerow planting, wild bee visitation rates, or adjacent orchards. The evidence discusses soil biodiversity under organic management in temperate cropland, but does not cover the claim's elements.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": null,
+        "expected": {
+          "verdict": "insufficient_evidence"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Hedgerow planting",
+              "status": "absent"
+            },
+            {
+              "element": "increased wild bee visitation rates",
+              "status": "absent"
+            },
+            {
+              "element": "adjacent orchards",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.0,
+          "explanation": "The evidence does not mention hedgerow planting, wild bee visitation rates, or adjacent orchards. The evidence discusses soil biodiversity under organic management in temperate cropland, but does not cover the claim's elements.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [],
+          "verdict": "insufficient_evidence"
+        },
+        "quotesPresent": 0,
+        "verdict": true,
+        "verdictGiven": "insufficient_evidence"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 151,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 0,
+      "decodeMs": 0,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 85,
+      "evidenceWords": 0,
+      "id": "cs-seed-06",
+      "outcome": "ok",
+      "prefillMs": 0,
+      "promptTokens": 0,
+      "raw": "NoEvidence: no chunks retrieved for document 2",
+      "retried": false,
+      "scored": {
+        "expectedNoEvidence": true,
+        "noEvidence": true
+      },
+      "stopReasons": [],
+      "tokens": 0,
+      "truncated": false
+    }
+  ],
+  "retryRate": 0.5,
+  "task": "citation_support",
+  "totalCases": 6,
+  "truncationCases": [],
+  "truncationCount": 0,
+  "validOutputs": 3,
+  "validationFailureRate": 0.5,
+  "verdictAgreement": 1.0,
+  "verdictDistribution": {
+    "insufficient_evidence": 1,
+    "weak": 1
+  }
+}

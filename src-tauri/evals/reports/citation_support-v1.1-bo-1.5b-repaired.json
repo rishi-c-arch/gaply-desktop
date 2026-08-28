@@ -1,0 +1,270 @@
+{
+  "advisoryRate": 0.16666666666666666,
+  "binaryHash": "d4629fd4dbafa9ea410feb7ca50a915d3081f2f4bae42823ee2c39c62ba5943e",
+  "casesFile": "evals/citation_support.jsonl",
+  "chunkIdFormatCases": [],
+  "chunkIdFormatFailures": 0,
+  "citedPlantedChunk": null,
+  "date": "bo-1.5b-repaired",
+  "diagnosticFaithfulnessCases": [
+    {
+      "findings": [
+        "claim_element \"by about 31 percent\" is marked found, but \"31\" appears in none of the cited evidence"
+      ],
+      "id": "cs-seed-01",
+      "outcome": "validationFailed"
+    },
+    {
+      "findings": [
+        "explanation asserts a finding the planted passage reports as ABSENT (matched \"higher\")"
+      ],
+      "id": "cs-seed-03",
+      "outcome": "validationFailed"
+    },
+    {
+      "findings": [
+        "explanation asserts a finding the planted passage reports as ABSENT (matched \"increase\")"
+      ],
+      "id": "cs-seed-04",
+      "outcome": "validationFailed"
+    }
+  ],
+  "diagnosticFaithfulnessFailures": 3,
+  "embedder": "bge-small-en-v1.5",
+  "embedderIsReal": true,
+  "evidenceBudgetTokens": 1200,
+  "faithfulnessCheckedCases": 0,
+  "faithfulnessViolationCases": [],
+  "faithfulnessViolations": 0,
+  "maxTokensCeiling": 768,
+  "meanDecodeMs": 38176.0,
+  "meanDecodeTokensPerSec": 0.0,
+  "meanLatencyMs": 98943.33333333333,
+  "meanPrefillMs": 60528.666666666664,
+  "meanPromptTokens": 2110.6666666666665,
+  "modelId": "qwen2.5-1.5b-instruct-q4km",
+  "modelLoadMs": 1414,
+  "nCtx": 4096,
+  "prefillShare": 0.6117508338105987,
+  "preprocessingVersion": "bge-v1.5-p2",
+  "promptVersion": "citation_support-v1.1",
+  "ramTotalMb": 1289,
+  "results": [
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 44938,
+      "decodeTokensPerSec": 0.0,
+      "diagnosticFaithfulness": [
+        "claim_element \"by about 31 percent\" is marked found, but \"31\" appears in none of the cited evidence"
+      ],
+      "elapsedMs": 130913,
+      "evidenceWords": 439,
+      "fatalErrors": [
+        "suggested_rewrite: must be null when the verdict is 'strong'"
+      ],
+      "id": "cs-seed-01",
+      "outcome": "validationFailed",
+      "prefillMs": 85723,
+      "promptTokens": 2877,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"strong\",\n  \"confidence\": 1.0,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"why\": \"Organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 1,\n      \"why\": \"We compared soil biological indicators across paired organic and conventional fields over three growing seasons.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 1,\n      \"why\": \"Soil biodiversity underpins nutrient cycling, decomposition and crop resilience. Agricultural intensification has been linked to declines in soil invertebrate communities across temperate Europe.\"\n    },\n    {\n      \"chunk_id\": \"c4\",\n      \"page\": 2,\n      \"why\": \"Several reviews have examined organic versus conventional systems. These reviews generally report positive but heterogeneous effects, with substantial variation between crops, climates and the duration of organic management.\"\n    },\n    {\n      \"chunk_id\": \"c5\",\n      \"page\": 2,\n      \"why\": \"Twelve paired fields were sampled in each of three seasons. Pairs were matched on soil texture, drainage class and elevation.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"Organic management\",\n      \"status\": \"found\"\n    },\n    {\n      \"element\": \"increased soil invertebrate species richness\",\n      \"status\": \"found\"\n    },\n    {\n      \"element\": \"by about 31 percent\",\n      \"status\": \"found\"\n    }\n  ],\n  \"explanation\": \"The evidence supports the claim that organic management increased soil invertebrate species richness by about 31 percent.\",\n  \"suggested_rewrite\": \"Organic management was associated with higher soil invertebrate species richness, consistent with earlier reviews and studies.\"\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 408,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 100522,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 207217,
+      "evidenceWords": 440,
+      "fatalErrors": [
+        "<output>: no JSON object or array found in the reply"
+      ],
+      "id": "cs-seed-02",
+      "outcome": "validationFailed",
+      "prefillMs": 106233,
+      "promptTokens": 3244,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"contradicts\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"why\": \"The richness result is consistent with the direction reported in earlier reviews, though our magnitude is at the upper end of published estimates. The absence of a microbial biomass effect contrasts with some prior work and may reflect the relatively short duration of organic management in our pairs.\"\n    },\n    {\n      \"chunk_id\": \"c12\",\n      \"page\": 4,\n      \"why\": \"Organic management was associated with higher soil invertebrate species richness in this paired comparison. Effects on microbial biomass and earthworm abundance were not detectable at the sample sizes available.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 1,\n      \"why\": \"We compared soil biological indicators across paired organic and conventional fields over three growing seasons. Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 1,\n      \"why\": \"Organic management was associated with higher soil invertebrate species richness in this paired comparison. Effects on microbial biomass and earthworm abundance were not detectable at the sample sizes available.\"\n    },\n    {\n      \"chunk_id\": \"c4\",\n      \"page\": 2,\n      \"why\": \"Several reviews have examined organic versus conventional systems. These reviews generally report positive but heterogeneous effects, with substantial variation between crops, climates and the duration of organic management.\"\n    },\n    {\n      \"chunk_id\": \"c5\",\n      \"page\": 2,\n      \"why\": \"Twelve paired fields were sampled in each of three seasons. Pairs were matched on soil texture, drainage class and elevation. Invertebrate richness was estimated from pitfall trapping and hand sorting of soil cores. Microbial biomass carbon was measured by chloroform fumigation extraction. Earthworm abundance was counted from mustard extraction on a fixed quadrat.\"\n    },\n    {\n      \"chunk_id\": \"c6\",\n      \"page\": 2,\n      \"why\": \"Statistical comparisons used paired t-tests on field means. Significance was assessed at alpha equal to 0.05 without correction for multiple comparisons.\"\n    },\n    {\n      \"chunk_id\": \"c7\",\n      \"page\": 3,\n      \"why\": \"Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01). The effect was consistent across all three seasons.\"\n    },\n    {\n      \"chunk_id\": \"c8\",\n      \"page\": 3,\n      \"why\": \"Microbial biomass carbon did not differ significantly between systems in this dataset. The point estimate favoured organic fields but the confidence interval included zero, so we do not interpret this as an effect.\"\n    },\n    {\n      \"chunk_id\": \"c9\",\n      \"page\": 3,\n      \"why\": \"No significant effect of management was observed for earthworm abundance. Counts were highly variable between fields, and the null result should not be read as evidence of equivalence given the limited statistical power.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"Organic management doubled soil invertebrate species richness\",\n      \"status\": \"absent\"\n    }\n  ],\n  \"explanation\": \"The evidence shows that organic management was associated with higher soil invertebrate species richness, but the claim states that organic management doubled this richness, which is not supported by\n--- retry ---\n\n--- primary: Retry ---",
+      "retried": true,
+      "stopReasons": [
+        "maxTokens",
+        "endOfTurn"
+      ],
+      "tokens": 768,
+      "truncated": true
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 22536,
+      "decodeTokensPerSec": 0.0,
+      "diagnosticFaithfulness": [
+        "explanation asserts a finding the planted passage reports as ABSENT (matched \"higher\")"
+      ],
+      "elapsedMs": 93970,
+      "evidenceWords": 429,
+      "fatalErrors": [
+        "verdict: is 'contradicts' but no claim element is marked 'different' — a contradiction must be visible in the decomposition"
+      ],
+      "id": "cs-seed-03",
+      "outcome": "validationFailed",
+      "prefillMs": 71224,
+      "promptTokens": 2699,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"contradicts\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c10\",\n      \"page\": 4,\n      \"why\": \"Nitrogen leaching was not measured in this study and no inference about water quality can be drawn from these data.\"\n    },\n    {\n      \"chunk_id\": \"c11\",\n      \"page\": 4,\n      \"why\": \"The richness result is consistent with the direction reported in earlier reviews, though our magnitude is at the upper end of published estimates. The absence of a microbial biomass effect contrasts with some prior work and may reflect the relatively short duration of organic management in our pairs.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"Organic management\",\n      \"status\": \"found\"\n    },\n    {\n      \"element\": \"reduced nitrogen leaching\",\n      \"status\": \"absent\"\n    }\n  ],\n  \"explanation\": \"The evidence shows that organic management was associated with higher soil invertebrate species richness, but not with reduced nitrogen leaching into groundwater.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 248,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 13754,
+      "decodeTokensPerSec": 0.0,
+      "diagnosticFaithfulness": [
+        "explanation asserts a finding the planted passage reports as ABSENT (matched \"increase\")"
+      ],
+      "elapsedMs": 82890,
+      "evidenceWords": 440,
+      "fatalErrors": [
+        "verdict: is 'contradicts' but no claim element is marked 'different' — a contradiction must be visible in the decomposition"
+      ],
+      "id": "cs-seed-04",
+      "outcome": "validationFailed",
+      "prefillMs": 68978,
+      "promptTokens": 2639,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"contradicts\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c9\",\n      \"page\": 3,\n      \"why\": \"No significant effect of management was observed for earthworm abundance. Counts were highly variable between fields, and the null result should not be read as evidence of equivalence given the limited statistical power.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"Organic management significantly increased earthworm abundance\",\n      \"status\": \"absent\"\n    }\n  ],\n  \"explanation\": \"The evidence shows that earthworm abundance was not significantly increased under organic management, which directly contradicts the claim.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 162,
+      "truncated": false
+    },
+    {
+      "advisories": [
+        "supporting_chunks[2].why: is 21 words; the limit is 20",
+        "supporting_chunks[3].why: is 23 words; the limit is 20",
+        "supporting_chunks[4].why: is 23 words; the limit is 20"
+      ],
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 47306,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 78607,
+      "evidenceWords": 440,
+      "id": "cs-seed-05",
+      "outcome": "ok",
+      "prefillMs": 31014,
+      "promptTokens": 1205,
+      "raw": "{\"verdict\":\"contradicts\",\"confidence\":0.0,\"supporting_chunks\":[{\"chunk_id\":\"c1\",\"page\":1,\"why\":\"The study found that organic management was associated with higher soil invertebrate species richness, not increased wild bee visitation rates.\"},{\"chunk_id\":\"c2\",\"page\":1,\"why\":\"The study compared soil biological indicators across paired organic and conventional fields over three growing seasons, not hedgerow planting.\"},{\"chunk_id\":\"c3\",\"page\":1,\"why\":\"The study did not find an effect of management on wild bee visitation rates, but rather on soil invertebrate species richness.\"},{\"chunk_id\":\"c4\",\"page\":2,\"why\":\"The study did not examine wild bee visitation rates, but rather soil biodiversity and its effects on nutrient cycling, decomposition, and crop resilience.\"},{\"chunk_id\":\"c5\",\"page\":2,\"why\":\"The study did not examine wild bee visitation rates, but rather soil biodiversity and its effects on nutrient cycling, decomposition, and crop resilience.\"}],\"claim_elements\":[{\"element\":\"wild bee visitation rates\",\"status\":\"absent\"},{\"element\":\"organic management\",\"status\":\"found\"},{\"element\":\"wild bee visitation rates\",\"status\":\"different\"}],\"explanation\":\"The evidence from the cited source does not support the claim that hedgerow planting increased wild bee visitation rates in adjacent orchards. Instead, the study found that organic management was associated with higher soil invertebrate species richness, which is not the same as increased wild bee visitation rates.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": null,
+        "expected": {
+          "verdict": "insufficient_evidence"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "wild bee visitation rates",
+              "status": "absent"
+            },
+            {
+              "element": "organic management",
+              "status": "found"
+            },
+            {
+              "element": "wild bee visitation rates",
+              "status": "different"
+            }
+          ],
+          "confidence": 0.0,
+          "explanation": "The evidence from the cited source does not support the claim that hedgerow planting increased wild bee visitation rates in adjacent orchards. Instead, the study found that organic management was associated with higher soil invertebrate species richness, which is not the same as increased wild bee visitation rates.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c1",
+              "page": 1,
+              "why": "The study found that organic management was associated with higher soil invertebrate species richness, not increased wild bee visitation rates."
+            },
+            {
+              "chunk_id": "c2",
+              "page": 1,
+              "why": "The study compared soil biological indicators across paired organic and conventional fields over three growing seasons, not hedgerow planting."
+            },
+            {
+              "chunk_id": "c3",
+              "page": 1,
+              "why": "The study did not find an effect of management on wild bee visitation rates, but rather on soil invertebrate species richness."
+            },
+            {
+              "chunk_id": "c4",
+              "page": 2,
+              "why": "The study did not examine wild bee visitation rates, but rather soil biodiversity and its effects on nutrient cycling, decomposition, and crop resilience."
+            },
+            {
+              "chunk_id": "c5",
+              "page": 2,
+              "why": "The study did not examine wild bee visitation rates, but rather soil biodiversity and its effects on nutrient cycling, decomposition, and crop resilience."
+            }
+          ],
+          "verdict": "contradicts"
+        },
+        "quotesPresent": 0,
+        "verdict": false,
+        "verdictGiven": "contradicts"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 430,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 0,
+      "decodeMs": 0,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 63,
+      "evidenceWords": 0,
+      "id": "cs-seed-06",
+      "outcome": "ok",
+      "prefillMs": 0,
+      "promptTokens": 0,
+      "raw": "NoEvidence: no chunks retrieved for document 2",
+      "retried": false,
+      "scored": {
+        "expectedNoEvidence": true,
+        "noEvidence": true
+      },
+      "stopReasons": [],
+      "tokens": 0,
+      "truncated": false
+    }
+  ],
+  "retryRate": 0.6666666666666666,
+  "task": "citation_support",
+  "totalCases": 6,
+  "truncationCases": [
+    "cs-seed-02"
+  ],
+  "truncationCount": 1,
+  "validOutputs": 2,
+  "validationFailureRate": 0.6666666666666666,
+  "verdictAgreement": 0.0,
+  "verdictDistribution": {
+    "contradicts": 1
+  }
+}

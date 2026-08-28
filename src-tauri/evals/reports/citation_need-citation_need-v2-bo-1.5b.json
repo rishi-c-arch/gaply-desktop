@@ -1,0 +1,249 @@
+{
+  "task": "citation_need",
+  "modelId": "qwen2.5-1.5b-instruct-q4km",
+  "promptVersion": "citation_need-v2",
+  "nCtx": 4096,
+  "date": "bo-1.5b",
+  "casesFile": "evals/citation_need.jsonl",
+  "totalCases": 8,
+  "needsCitationAccuracy": 0.5,
+  "sentenceTypeAgreement": 0.3333333333333333,
+  "severityAgreement": 0.5,
+  "validationFailureRate": 0.25,
+  "retryRate": 0.25,
+  "advisoryRate": 0.625,
+  "meanLatencyMs": 13684.75,
+  "tokensPerSecond": 4.850289555892508,
+  "meanPromptTokens": 518.25,
+  "meanPrefillMs": 10821.375,
+  "meanDecodeMs": 2829.0,
+  "prefillShare": 0.7927529463476278,
+  "meanDecodeTokensPerSec": 23.526527968262172,
+  "answerDistribution": {
+    "needsCitationTrue": 6,
+    "sentenceType": {
+      "definition": 1,
+      "empirical_claim": 5
+    },
+    "severity": {
+      "high": 4,
+      "medium": 2
+    },
+    "validOutputs": 6
+  },
+  "results": [
+    {
+      "id": "cn-seed-01",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"compares organic farming with conventional systems and provides a specific numerical difference\",\"search_query\":\"organic farming soil microbial biomass\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "compares organic farming with conventional systems and provides a specific numerical difference",
+          "search_query": "organic farming soil microbial biomass",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 9178,
+      "tokens": 58,
+      "promptTokens": 391,
+      "prefillMs": 6848,
+      "decodeMs": 2297,
+      "decodeTokensPerSec": 25.250326512842836
+    },
+    {
+      "id": "cn-seed-02",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Empirical claim about the world\",\"search_query\":\"global arable land degradation 1960\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Empirical claim about the world",
+          "search_query": "global arable land degradation 1960",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 10902,
+      "tokens": 85,
+      "promptTokens": 392,
+      "prefillMs": 7460,
+      "decodeMs": 3398,
+      "decodeTokensPerSec": 25.014714537963506
+    },
+    {
+      "id": "cn-seed-03",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"We observed a 12% increase in species richness in the treatment plots (p = 0.03).\",\"search_query\":\"12% increase in species richness treatment plots\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "We observed a 12% increase in species richness in the treatment plots (p = 0.03).",
+          "search_query": "12% increase in species richness treatment plots",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 11179,
+      "tokens": 73,
+      "promptTokens": 396,
+      "prefillMs": 8179,
+      "decodeMs": 2968,
+      "decodeTokensPerSec": 24.59568733153639
+    },
+    {
+      "id": "cn-seed-04",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"sentence_to_classify\": \"The next section turns to the methods used to collect these data.\",\n  \"needs_citation\": false,\n  \"reason\": \"The sentence is a transition and does not require a citation.\",\n  \"search_query\": null\n}\n--- retry ---\n\n--- primary: Retry ---",
+      "retried": true,
+      "elapsedMs": 20885,
+      "tokens": 55,
+      "promptTokens": 896,
+      "prefillMs": 18544,
+      "decodeMs": 2309,
+      "decodeTokensPerSec": 23.819835426591595
+    },
+    {
+      "id": "cn-seed-05",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"definition\",\"severity\":\"medium\",\"reason\":\"A definition is a source-attested concept.\",\"search_query\":\"ecosystem services definition\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "definition",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A definition is a source-attested concept.",
+          "search_query": "ecosystem services definition",
+          "sentence_type": "definition",
+          "severity": "medium"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 3 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 10971,
+      "tokens": 73,
+      "promptTokens": 385,
+      "prefillMs": 7787,
+      "decodeMs": 3149,
+      "decodeTokensPerSec": 23.1819625277866
+    },
+    {
+      "id": "cn-seed-06",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"medium\",\"reason\":\"Empirical claim about the effect of temperature on the strength of an effect.\",\"search_query\":\"temperature effect meta-analysis\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "prior_work",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Empirical claim about the effect of temperature on the strength of an effect.",
+          "search_query": "temperature effect meta-analysis",
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 3 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 11094,
+      "tokens": 58,
+      "promptTokens": 398,
+      "prefillMs": 8531,
+      "decodeMs": 2531,
+      "decodeTokensPerSec": 22.915843540102724
+    },
+    {
+      "id": "cn-seed-07",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"sentence_to_classify\": \"Plants require light to photosynthesise.\",\n  \"needs_citation\": false,\n  \"reason\": \"The sentence is a common knowledge statement about the basic biological fact that plants require light for photosynthesis.\",\n  \"search_query\": null\n}\n--- retry ---\n\n--- primary: Retry ---",
+      "retried": true,
+      "elapsedMs": 22350,
+      "tokens": 60,
+      "promptTokens": 895,
+      "prefillMs": 19698,
+      "decodeMs": 2621,
+      "decodeTokensPerSec": 22.89202594429607
+    },
+    {
+      "id": "cn-seed-08",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence claims an empirical finding about the existence of mycorrhizal networks, which is not a common knowledge.\",\"search_query\":\"mycorrhizal networks\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "hedged_speculation",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence claims an empirical finding about the existence of mycorrhizal networks, which is not a common knowledge.",
+          "search_query": "mycorrhizal networks",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 2 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 12919,
+      "tokens": 69,
+      "promptTokens": 393,
+      "prefillMs": 9524,
+      "decodeMs": 3359,
+      "decodeTokensPerSec": 20.54182792497767
+    }
+  ]
+}

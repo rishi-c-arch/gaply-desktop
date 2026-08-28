@@ -1,0 +1,315 @@
+{
+  "advisoryRate": 0.16666666666666666,
+  "binaryHash": "d4629fd4dbafa9ea410feb7ca50a915d3081f2f4bae42823ee2c39c62ba5943e",
+  "casesFile": "evals/citation_support.jsonl",
+  "chunkIdFormatCases": [],
+  "chunkIdFormatFailures": 0,
+  "citedPlantedChunk": 1.0,
+  "date": "bo-0.5b-repaired",
+  "diagnosticFaithfulnessCases": [],
+  "diagnosticFaithfulnessFailures": 0,
+  "embedder": "bge-small-en-v1.5",
+  "embedderIsReal": true,
+  "evidenceBudgetTokens": 1200,
+  "faithfulnessCheckedCases": 1,
+  "faithfulnessViolationCases": [],
+  "faithfulnessViolations": 0,
+  "maxTokensCeiling": 1024,
+  "meanDecodeMs": 157641.83333333334,
+  "meanDecodeTokensPerSec": 0.0,
+  "meanLatencyMs": 296289.8333333333,
+  "meanPrefillMs": 137867.66666666666,
+  "meanPromptTokens": 2701.6666666666665,
+  "modelId": "qwen2.5-0.5b-instruct-q4km",
+  "modelLoadMs": 1466,
+  "nCtx": 4096,
+  "prefillShare": 0.46531352465125647,
+  "preprocessingVersion": "bge-v1.5-p2",
+  "promptVersion": "citation_support-v2.1",
+  "ramTotalMb": 475,
+  "results": [
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 140739,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 354067,
+      "evidenceWords": 439,
+      "fatalErrors": [
+        "<output>: no JSON object or array found in the reply"
+      ],
+      "id": "cs-seed-01",
+      "outcome": "validationFailed",
+      "prefillMs": 212657,
+      "promptTokens": 3730,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.9,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"quote\": \"Organic Management and Soil Biodiversity in Temperate Cropland\",\n      \"why\": \"The study discusses organic management and soil biodiversity in temperate cropland, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c10\",\n      \"page\": 4,\n      \"quote\": \"Nitrogen leaching was not measured in this study and no inference about water quality can be drawn from these data.\",\n      \"why\": \"The study does not discuss nitrogen leaching or water quality, which are the topics of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c11\",\n      \"page\": 4,\n      \"quote\": \"The richness result is consistent with the direction reported in earlier reviews, though our magnitude is at the upper end of published estimates.\",\n      \"why\": \"The study does not discuss the magnitude of the richness result, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c12\",\n      \"page\": 4,\n      \"quote\": \"The absence of a microbial biomass effect contrasts with some prior work and may reflect the relatively short duration of organic management in our pairs.\",\n      \"why\": \"The study does not discuss the absence of a microbial biomass effect, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c13\",\n      \"page\": 5,\n      \"quote\": \"Organic management was associated with higher soil invertebrate species richness in this paired comparison.\",\n      \"why\": \"The study discusses organic management and soil invertebrate species richness, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 1,\n      \"quote\": \"We compared soil biological indicators across paired organic and conventional fields over three growing seasons.\",\n      \"why\": \"The study discusses soil biological indicators, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 1,\n      \"quote\": \"Soil biodiversity underpins nutrient cycling, decomposition and crop resilience.\",\n      \"why\": \"The study discusses soil biodiversity, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c4\",\n      \"page\": 2,\n      \"quote\": \"Several reviews have examined organic versus conventional systems.\",\n      \"why\": \"The study discusses several reviews, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c5\",\n      \"page\": 2,\n      \"quote\": \"Twelve paired fields were sampled in each of three seasons.\",\n      \"why\": \"The study discusses twelve paired fields, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c6\",\n      \"page\": 3,\n      \"quote\": \"Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01).\",\n      \"why\": \"The study discusses species richness, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c7\",\n      \"page\": 3,\n      \"quote\": \"Microbial biomass carbon did not differ significantly between systems in this dataset.\",\n      \"why\": \"The study discusses microbial biomass carbon, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c8\",\n      \"page\": 3,\n      \"quote\": \"No significant effect of management was observed for earthworm abundance.\",\n      \"why\": \"The study discusses earthworm abundance, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c9\",\n      \"page\": 3,\n      \"quote\": \"Counts were highly variable between fields, and the null result should not be read as evidence of equivalence given the limited statistical power.\",\n      \"why\": \"The study discusses counts, which is the topic of the claim.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\"element\": \"Organic management increased soil invertebrate species richness by about 31 percent.\", \"status\": \"found\"},\n    {\"element\": \"Organic management was associated with higher soil invertebrate species richness in this paired comparison.\", \"status\": \"found\"},\n    {\"element\": \"No significant effect of management was observed for earthworm abundance.\", \"status\": \"absent\"},\n    {\"element\": \"Counts were highly variable between fields, and the null result should not be read as evidence of equivalence given the limited statistical power.\", \"status\": \"absent\"}\n  ],\n  \"explanation\": \"The study discusses organic management and soil biodiversity, which\n--- retry ---\n  \"output\": \"\".\n--- primary: Retry ---",
+      "retried": true,
+      "stopReasons": [
+        "maxTokens",
+        "endOfTurn"
+      ],
+      "tokens": 1030,
+      "truncated": true
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 155871,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 373360,
+      "evidenceWords": 440,
+      "fatalErrors": [
+        "<output>: no JSON object or array found in the reply"
+      ],
+      "id": "cs-seed-02",
+      "outcome": "validationFailed",
+      "prefillMs": 216725,
+      "promptTokens": 3725,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.9,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"quote\": \"Organic Management and Soil Biodiversity in Temperate Cropland\",\n      \"why\": \"The study discusses organic management and soil biodiversity in temperate cropland, which is the same topic as the claim.\"\n    },\n    {\n      \"chunk_id\": \"c11\",\n      \"page\": 4,\n      \"quote\": \"The richness result is consistent with the direction reported in earlier reviews, though our magnitude is at the upper end of published estimates.\",\n      \"why\": \"The study discusses the richness result and magnitude of organic management, which is the same topic as the claim.\"\n    },\n    {\n      \"chunk_id\": \"c12\",\n      \"page\": 4,\n      \"quote\": \"The absence of a microbial biomass effect contrasts with some prior work and may reflect the relatively short duration of organic management in our pairs.\",\n      \"why\": \"The study discusses the absence of a microbial biomass effect and the duration of organic management, which is the same topic as the claim.\"\n    },\n    {\n      \"chunk_id\": \"c13\",\n      \"page\": 5,\n      \"quote\": \"Organic management was associated with higher soil invertebrate species richness in this paired comparison.\",\n      \"why\": \"The study discusses the association between organic management and soil invertebrate species richness, which is the same topic as the claim.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 1,\n      \"quote\": \"We compared soil biological indicators across paired organic and conventional fields over three growing seasons.\",\n      \"why\": \"The study discusses the comparison between organic and conventional fields, which is the same topic as the claim.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 1,\n      \"quote\": \"Soil biodiversity underpins nutrient cycling, decomposition and crop resilience.\",\n      \"why\": \"The study discusses soil biodiversity and its importance, which is the same topic as the claim.\"\n    },\n    {\n      \"chunk_id\": \"c4\",\n      \"page\": 2,\n      \"quote\": \"Several reviews have examined organic versus conventional systems.\",\n      \"why\": \"The study discusses several reviews, which is the same topic as the claim.\"\n    },\n    {\n      \"chunk_id\": \"c5\",\n      \"page\": 2,\n      \"quote\": \"Twelve paired fields were sampled in each of three seasons.\",\n      \"why\": \"The study discusses the sampling method, which is the same topic as the claim.\"\n    },\n    {\n      \"chunk_id\": \"c6\",\n      \"page\": 2,\n      \"quote\": \"Statistical comparisons used paired t-tests on field means.\",\n      \"why\": \"The study discusses statistical comparisons, which is the same topic as the claim.\"\n    },\n    {\n      \"chunk_id\": \"c7\",\n      \"page\": 3,\n      \"quote\": \"Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01).\",\n      \"why\": \"The study discusses the statistical significance of the difference in species richness, which is the same topic as the claim.\"\n    },\n    {\n      \"chunk_id\": \"c8\",\n      \"page\": 3,\n      \"quote\": \"Microbial biomass carbon did not differ significantly between systems in this dataset.\",\n      \"why\": \"The study discusses the difference in microbial biomass carbon between systems, which is the same topic as the claim.\"\n    },\n    {\n      \"chunk_id\": \"c9\",\n      \"page\": 3,\n      \"quote\": \"No significant effect of management was observed for earthworm abundance.\",\n      \"why\": \"The study discusses the absence of a management effect on earthworm abundance, which is the same topic as the claim.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\"element\": \"Organic Management and Soil Biodiversity in Temperate Cropland\", \"status\": \"found\", \"status_reason\": \"The study discusses organic management and soil biodiversity in temperate cropland, which is the same topic as the claim.\"},\n    {\"element\": \"Organic Management and Soil Biodiversity in Temperate Cropland\", \"status\": \"found\", \"status_reason\": \"The study discusses organic management and soil biodiversity in temperate cropland, which is the same topic as the claim.\"},\n    {\"element\": \"Soil Biodiversity\", \"status\": \"found\", \"status_reason\": \"The study discusses soil biodiversity and its importance, which is the same topic as the claim.\"},\n    {\"element\": \"Soil Biodiversity\", \"status\": \"found\", \"status_reason\": \"The study discusses\n--- retry ---\n  \"output\": \"Cleared\",\n}\n--- primary: Retry ---",
+      "retried": true,
+      "stopReasons": [
+        "maxTokens",
+        "endOfTurn"
+      ],
+      "tokens": 1033,
+      "truncated": true
+    },
+    {
+      "advisories": [
+        "supporting_chunks[3].why: is 22 words; the limit is 20",
+        "supporting_chunks[4].why: is 21 words; the limit is 20",
+        "supporting_chunks[6].why: is 21 words; the limit is 20",
+        "supporting_chunks[9].why: is 22 words; the limit is 20",
+        "supporting_chunks[10].why: is 22 words; the limit is 20",
+        "supporting_chunks[11].why: is 21 words; the limit is 20"
+      ],
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 134670,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 211177,
+      "evidenceWords": 429,
+      "id": "cs-seed-03",
+      "outcome": "ok",
+      "prefillMs": 75832,
+      "promptTokens": 1298,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.9,\"supporting_chunks\":[{\"chunk_id\":\"c1\",\"page\":1,\"why\":\"The study discusses organic management and soil biodiversity in temperate cropland, which is the topic of the claim.\",\"quote\":\"Organic Management and Soil Biodiversity in Temperate Cropland\"},{\"chunk_id\":\"c10\",\"page\":4,\"why\":\"The study does not discuss nitrogen leaching or water quality, so the claim is not supported by the evidence.\",\"quote\":\"Nitrogen leaching was not measured in this study and no inference about water quality can be drawn from these data.\"},{\"chunk_id\":\"c11\",\"page\":4,\"why\":\"The study does not discuss the magnitude of the richness result, so the claim is not supported by the evidence.\",\"quote\":\"The richness result is consistent with the direction reported in earlier reviews, though our magnitude is at the upper end of published estimates.\"},{\"chunk_id\":\"c13\",\"page\":5,\"why\":\"The study does not discuss the magnitude of the soil invertebrate species richness, so the claim is not supported by the evidence.\",\"quote\":\"Organic management was associated with higher soil invertebrate species richness in this paired comparison.\"},{\"chunk_id\":\"c2\",\"page\":1,\"why\":\"The study does not discuss the comparison between organic and conventional fields, so the claim is not supported by the evidence.\",\"quote\":\"We compared soil biological indicators across paired organic and conventional fields over three growing seasons.\"},{\"chunk_id\":\"c3\",\"page\":1,\"why\":\"The study does not discuss the biodiversity of soil, so the claim is not supported by the evidence.\",\"quote\":\"Soil biodiversity underpins nutrient cycling, decomposition and crop resilience.\"},{\"chunk_id\":\"c4\",\"page\":2,\"why\":\"The study does not discuss the comparison between organic and conventional systems, so the claim is not supported by the evidence.\",\"quote\":\"Several reviews have examined organic versus conventional systems.\"},{\"chunk_id\":\"c5\",\"page\":2,\"why\":\"The study does not discuss the number of paired fields, so the claim is not supported by the evidence.\",\"quote\":\"Twelve paired fields were sampled in each of three seasons.\"},{\"chunk_id\":\"c6\",\"page\":2,\"why\":\"The study does not discuss the statistical methods used, so the claim is not supported by the evidence.\",\"quote\":\"Statistical comparisons used paired t-tests on field means.\"},{\"chunk_id\":\"c7\",\"page\":3,\"why\":\"The study does not discuss the statistical significance of the species richness difference, so the claim is not supported by the evidence.\",\"quote\":\"Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01).\"},{\"chunk_id\":\"c8\",\"page\":3,\"why\":\"The study does not discuss the difference between microbial biomass carbon between systems, so the claim is not supported by the evidence.\",\"quote\":\"Microbial biomass carbon did not differ significantly between systems in this dataset.\"},{\"chunk_id\":\"c9\",\"page\":3,\"why\":\"The study does not discuss the effect of management on earthworm abundance, so the claim is not supported by the evidence.\",\"quote\":\"No significant effect of management was observed for earthworm abundance.\"}],\"claim_elements\":[{\"element\":\"Organic management reduced nitrogen leaching into groundwater.\",\"status\":\"found\"},{\"element\":\"Organic management was associated with higher soil invertebrate species richness.\",\"status\":\"found\"},{\"element\":\"No significant effect of management was observed for earthworm abundance.\",\"status\":\"absent\"}],\"explanation\":\"The study discusses organic management and soil biodiversity in temperate cropland, which is the topic of the claim. The study does not discuss nitrogen leaching or water quality, so the claim is not supported by the evidence.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": true,
+        "expected": {
+          "faithfulness": {
+            "forbidden_language": [
+              "supports the claim",
+              "support the claim",
+              "supports this claim",
+              "increase",
+              "increased",
+              "increases",
+              "rose",
+              "higher",
+              "reduced",
+              "reduction",
+              "decreased",
+              "confirms",
+              "demonstrates",
+              "shows a significant",
+              "significant increase",
+              "significant reduction"
+            ],
+            "note": "planted passage reports no finding; asserting one is a faithfulness violation",
+            "planted_chunk_contains": "Nitrogen leaching was not measured"
+          },
+          "planted_chunk_contains": "Nitrogen leaching was not measured",
+          "verdict": "weak"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Organic management reduced nitrogen leaching into groundwater.",
+              "status": "found"
+            },
+            {
+              "element": "Organic management was associated with higher soil invertebrate species richness.",
+              "status": "found"
+            },
+            {
+              "element": "No significant effect of management was observed for earthworm abundance.",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.9,
+          "explanation": "The study discusses organic management and soil biodiversity in temperate cropland, which is the topic of the claim. The study does not discuss nitrogen leaching or water quality, so the claim is not supported by the evidence.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c1",
+              "page": 1,
+              "quote": "Organic Management and Soil Biodiversity in Temperate Cropland",
+              "why": "The study discusses organic management and soil biodiversity in temperate cropland, which is the topic of the claim."
+            },
+            {
+              "chunk_id": "c10",
+              "page": 4,
+              "quote": "Nitrogen leaching was not measured in this study and no inference about water quality can be drawn from these data.",
+              "why": "The study does not discuss nitrogen leaching or water quality, so the claim is not supported by the evidence."
+            },
+            {
+              "chunk_id": "c11",
+              "page": 4,
+              "quote": "The richness result is consistent with the direction reported in earlier reviews, though our magnitude is at the upper end of published estimates.",
+              "why": "The study does not discuss the magnitude of the richness result, so the claim is not supported by the evidence."
+            },
+            {
+              "chunk_id": "c13",
+              "page": 5,
+              "quote": "Organic management was associated with higher soil invertebrate species richness in this paired comparison.",
+              "why": "The study does not discuss the magnitude of the soil invertebrate species richness, so the claim is not supported by the evidence."
+            },
+            {
+              "chunk_id": "c2",
+              "page": 1,
+              "quote": "We compared soil biological indicators across paired organic and conventional fields over three growing seasons.",
+              "why": "The study does not discuss the comparison between organic and conventional fields, so the claim is not supported by the evidence."
+            },
+            {
+              "chunk_id": "c3",
+              "page": 1,
+              "quote": "Soil biodiversity underpins nutrient cycling, decomposition and crop resilience.",
+              "why": "The study does not discuss the biodiversity of soil, so the claim is not supported by the evidence."
+            },
+            {
+              "chunk_id": "c4",
+              "page": 2,
+              "quote": "Several reviews have examined organic versus conventional systems.",
+              "why": "The study does not discuss the comparison between organic and conventional systems, so the claim is not supported by the evidence."
+            },
+            {
+              "chunk_id": "c5",
+              "page": 2,
+              "quote": "Twelve paired fields were sampled in each of three seasons.",
+              "why": "The study does not discuss the number of paired fields, so the claim is not supported by the evidence."
+            },
+            {
+              "chunk_id": "c6",
+              "page": 2,
+              "quote": "Statistical comparisons used paired t-tests on field means.",
+              "why": "The study does not discuss the statistical methods used, so the claim is not supported by the evidence."
+            },
+            {
+              "chunk_id": "c7",
+              "page": 3,
+              "quote": "Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01).",
+              "why": "The study does not discuss the statistical significance of the species richness difference, so the claim is not supported by the evidence."
+            },
+            {
+              "chunk_id": "c8",
+              "page": 3,
+              "quote": "Microbial biomass carbon did not differ significantly between systems in this dataset.",
+              "why": "The study does not discuss the difference between microbial biomass carbon between systems, so the claim is not supported by the evidence."
+            },
+            {
+              "chunk_id": "c9",
+              "page": 3,
+              "quote": "No significant effect of management was observed for earthworm abundance.",
+              "why": "The study does not discuss the effect of management on earthworm abundance, so the claim is not supported by the evidence."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 12,
+        "verdict": true,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 993,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 265685,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 432536,
+      "evidenceWords": 440,
+      "fatalErrors": [
+        "<output>: not valid JSON: EOF while parsing a list at line 28 column 7"
+      ],
+      "id": "cs-seed-04",
+      "outcome": "validationFailed",
+      "prefillMs": 165577,
+      "promptTokens": 3722,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.9,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"quote\": \"Organic Management and Soil Biodiversity in Temperate Cropland\",\n      \"why\": \"The study examines the effects of organic management on soil biodiversity and invertebrate species richness, which is consistent with the claim.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 2,\n      \"quote\": \"Several reviews have examined organic versus conventional systems. These reviews generally report positive but heterogeneous effects, with substantial variation between crops, climates and the duration of organic management.\",\n      \"why\": \"The study does not directly compare organic and conventional fields, but it does provide a general overview of the effects of organic management.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 3,\n      \"quote\": \"Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01). The effect was consistent across all three seasons.\",\n      \"why\": \"The study shows a significant increase in soil invertebrate species richness under organic management, which is consistent with the claim.\"\n    },\n    {\n      \"chunk_id\": \"c4\",\n      \"page\": 3,\n      \"quote\": \"No significant effect of management was observed for earthworm abundance. Counts were highly variable between fields, and the null result should not be read as evidence of equivalence given the limited statistical power.\",\n      \"why\": \"The study does not directly compare earthworm abundance, but it does provide a general overview of the effects of organic management.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\"element\": \"organic management\", \"status\": \"found\", \"confidence\": 0.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999\n--- retry ---\n  \"output\": {\n    \"verdict\": \"strong\",\n    \"confidence\": 1.0,\n    \"supporting_chunks\": [\n      {\n        \"chunk_id\": \"c1\",\n        \"page\": 1,\n        \"quote\": \"Organic Management and Soil Biodiversity in Temperate Cropland\",\n        \"why\": \"The study examines the effects of organic management on soil biodiversity and invertebrate species richness, which is consistent with the claim.\"\n      },\n      {\n        \"chunk_id\": \"c2\",\n        \"page\": 2,\n        \"quote\": \"Several reviews have examined organic versus conventional systems. These reviews generally report positive but heterogeneous effects, with substantial variation between crops, climates and the duration of organic management.\",\n        \"why\": \"The study does not directly compare organic and conventional fields, but it does provide a general overview of the effects of organic management.\"\n      },\n      {\n        \"chunk_id\": \"c3\",\n        \"page\": 3,\n        \"quote\": \"Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01). The effect was consistent across all three seasons.\",\n        \"why\": \"The study shows a significant increase in soil invertebrate species richness under organic management, which is consistent with the claim.\"\n      },\n      {\n        \"chunk_id\": \"c4\",\n        \"page\": 3,\n        \"quote\": \"No significant effect of management was observed for earthworm abundance. Counts were highly variable between fields, and the null result should not be read as evidence of equivalence given the limited statistical power.\",\n        \"why\": \"The study does not directly compare earthworm abundance, but it does provide a general overview of the effects of organic management.\"\n      }\n    ],\n    \"claim_elements\": [\n      {\"element\": \"organic management\", \"status\": \"found\", \"confidence\": 0.999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999\n--- primary: Retry ---",
+      "retried": true,
+      "stopReasons": [
+        "maxTokens",
+        "maxTokens"
+      ],
+      "tokens": 2048,
+      "truncated": true
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 248886,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 406544,
+      "evidenceWords": 440,
+      "fatalErrors": [
+        "<output>: not valid JSON: control character (\\u0000-\\u001F) found while parsing a string at line 2 column 14"
+      ],
+      "id": "cs-seed-05",
+      "outcome": "validationFailed",
+      "prefillMs": 156415,
+      "promptTokens": 3735,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.9,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"quote\": \"Organic Management and Soil Biodiversity in Temperate Cropland\",\n      \"why\": \"The study discusses organic management and soil biodiversity in temperate cropland, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c11\",\n      \"page\": 4,\n      \"quote\": \"The richness result is consistent with the direction reported in earlier reviews, though our magnitude is at the upper end of published estimates.\",\n      \"why\": \"The study discusses the richness result and its consistency with earlier reviews, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c12\",\n      \"page\": 4,\n      \"quote\": \"The absence of a microbial biomass effect contrasts with some prior work and may reflect the relatively short duration of organic management in our pairs.\",\n      \"why\": \"The study discusses the absence of a microbial biomass effect and its contrast with some prior work, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c13\",\n      \"page\": 5,\n      \"quote\": \"Organic management was associated with higher soil invertebrate species richness in this paired comparison.\",\n      \"why\": \"The study discusses the soil invertebrate species richness and its association with organic management, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 1,\n      \"quote\": \"We compared soil biological indicators across paired organic and conventional fields over three growing seasons.\",\n      \"why\": \"The study discusses the comparison of soil biological indicators across paired organic and conventional fields, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 1,\n      \"quote\": \"Soil biodiversity underpins nutrient cycling, decomposition and crop resilience.\",\n      \"why\": \"The study discusses soil biodiversity and its importance, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c4\",\n      \"page\": 2,\n      \"quote\": \"Several reviews have examined organic versus conventional systems.\",\n      \"why\": \"The study discusses several reviews of organic versus conventional systems, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c5\",\n      \"page\": 2,\n      \"quote\": \"Twelve paired fields were sampled in each of three seasons.\",\n      \"why\": \"The study discusses the sampling of paired fields, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c6\",\n      \"page\": 2,\n      \"quote\": \"Statistical comparisons used paired t-tests on field means.\",\n      \"why\": \"The study discusses statistical comparisons and their use, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c7\",\n      \"page\": 3,\n      \"quote\": \"Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01).\",\n      \"why\": \"The study discusses the statistical significance of the species richness increase and its comparison with the conventional field, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c8\",\n      \"page\": 3,\n      \"quote\": \"Microbial biomass carbon did not differ significantly between systems in this dataset.\",\n      \"why\": \"The study discusses the microbial biomass carbon and its comparison with the conventional field, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c9\",\n      \"page\": 3,\n      \"quote\": \"No significant effect of management was observed for earthworm abundance.\",\n      \"why\": \"The study discusses the earthworm abundance and its comparison with the conventional field, which is the topic of the claim.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"organic management\",\n      \"status\": \"found\",\n      \"status_reason\": \"The study discusses organic management and its association with soil biodiversity, which is the topic of the claim.\"\n    },\n    {\n      \"element\": \"soil biodiversity\",\n      \"status\": \"found\",\n      \"status_reason\": \"The study discusses soil biodiversity and its importance, which is the topic of the claim.\"\n    },\n    {\n      \"element\": \"soil invertebrate species richness\",\n      \"status\": \"found\",\n      \"status_reason\": \"The study discusses soil invertebrate species richness and its association with organic management, which is the topic of the claim.\"\n    },\n    {\n      \"element\": \"soil invertebrate species richness\",\n      \"status\": \"\n--- retry ---\n  \"output\": \"...\"\n}.\n{\n  \"output\": \"{\n  \"verdict\": \"strong\",\n  \"confidence\": 1.0,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"quote\": \"Organic Management and Soil Biodiversity in Temperate Cropland\",\n      \"why\": \"The study discusses organic management and soil biodiversity in temperate cropland, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c11\",\n      \"page\": 4,\n      \"quote\": \"The richness result is consistent with the direction reported in earlier reviews, though our magnitude is at the upper end of published estimates.\",\n      \"why\": \"The study discusses the richness result and its consistency with earlier reviews, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c12\",\n      \"page\": 4,\n      \"quote\": \"The absence of a microbial biomass effect contrasts with some prior work and may reflect the relatively short duration of organic management in our pairs.\",\n      \"why\": \"The study discusses the absence of a microbial biomass effect and its contrast with some prior work, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c13\",\n      \"page\": 5,\n      \"quote\": \"Organic management was associated with higher soil invertebrate species richness in this paired comparison.\",\n      \"why\": \"The study discusses the soil invertebrate species richness and its association with organic management, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 1,\n      \"quote\": \"We compared soil biological indicators across paired organic and conventional fields over three growing seasons.\",\n      \"why\": \"The study discusses the comparison of soil biological indicators across paired organic and conventional fields, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 1,\n      \"quote\": \"Soil biodiversity underpins nutrient cycling, decomposition and crop resilience.\",\n      \"why\": \"The study discusses soil biodiversity and its importance, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c4\",\n      \"page\": 2,\n      \"quote\": \"Several reviews have examined organic versus conventional systems.\",\n      \"why\": \"The study discusses several reviews of organic versus conventional systems, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c5\",\n      \"page\": 2,\n      \"quote\": \"Twelve paired fields were sampled in each of three seasons.\",\n      \"why\": \"The study discusses the sampling of paired fields, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c6\",\n      \"page\": 2,\n      \"quote\": \"Statistical comparisons used paired t-tests on field means.\",\n      \"why\": \"The study discusses statistical comparisons and their use, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c7\",\n      \"page\": 3,\n      \"quote\": \"Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01).\",\n      \"why\": \"The study discusses the statistical significance of the species richness increase and its comparison with the conventional field, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c8\",\n      \"page\": 3,\n      \"quote\": \"Microbial biomass carbon did not differ significantly between systems in this dataset.\",\n      \"why\": \"The study discusses the microbial biomass carbon and its comparison with the conventional field, which is the topic of the claim.\"\n    },\n    {\n      \"chunk_id\": \"c9\",\n      \"page\": 3,\n      \"quote\": \"No significant effect of management was observed for earthworm abundance.\",\n      \"why\": \"The study discusses the earthworm abundance and its comparison with the conventional field, which is the topic of the claim.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"organic management\",\n      \"status\": \"found\",\n      \"status_reason\": \"The study discusses organic management and its association with soil biodiversity, which is the topic of the claim.\"\n    },\n    {\n      \"element\": \"soil biodiversity\",\n      \"status\": \"found\",\n      \"status_reason\": \"The study discusses soil biodiversity and its importance, which is the topic of the claim.\"\n    },\n    {\n      \"element\": \"soil invertebrate species richness\",\n      \"status\": \"found\",\n      \"status_reason\": \"The study discusses soil invertebrate species richness and its association with organic management, which is the topic of the claim.\"\n    },\n    {\n      \"element\":\n--- primary: Retry ---",
+      "retried": true,
+      "stopReasons": [
+        "maxTokens",
+        "maxTokens"
+      ],
+      "tokens": 2048,
+      "truncated": true
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 0,
+      "decodeMs": 0,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 55,
+      "evidenceWords": 0,
+      "id": "cs-seed-06",
+      "outcome": "ok",
+      "prefillMs": 0,
+      "promptTokens": 0,
+      "raw": "NoEvidence: no chunks retrieved for document 2",
+      "retried": false,
+      "scored": {
+        "expectedNoEvidence": true,
+        "noEvidence": true
+      },
+      "stopReasons": [],
+      "tokens": 0,
+      "truncated": false
+    }
+  ],
+  "retryRate": 0.6666666666666666,
+  "task": "citation_support",
+  "totalCases": 6,
+  "truncationCases": [
+    "cs-seed-01",
+    "cs-seed-02",
+    "cs-seed-04",
+    "cs-seed-05"
+  ],
+  "truncationCount": 4,
+  "validOutputs": 2,
+  "validationFailureRate": 0.6666666666666666,
+  "verdictAgreement": 1.0,
+  "verdictDistribution": {
+    "weak": 1
+  }
+}

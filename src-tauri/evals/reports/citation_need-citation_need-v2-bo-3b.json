@@ -1,0 +1,270 @@
+{
+  "task": "citation_need",
+  "modelId": "qwen2.5-3b-instruct-q4km",
+  "promptVersion": "citation_need-v2",
+  "nCtx": 4096,
+  "date": "bo-3b",
+  "casesFile": "evals/citation_need.jsonl",
+  "totalCases": 8,
+  "needsCitationAccuracy": 0.42857142857142855,
+  "sentenceTypeAgreement": 0.5714285714285714,
+  "severityAgreement": 0.2857142857142857,
+  "validationFailureRate": 0.125,
+  "retryRate": 0.125,
+  "advisoryRate": 0.75,
+  "meanLatencyMs": 33960.5,
+  "tokensPerSecond": 2.0833026604437506,
+  "meanPromptTokens": 461.25,
+  "meanPrefillMs": 26357.375,
+  "meanDecodeMs": 7561.0,
+  "prefillShare": 0.7770824811035316,
+  "meanDecodeTokensPerSec": 9.442580289372517,
+  "answerDistribution": {
+    "needsCitationTrue": 7,
+    "sentenceType": {
+      "common_knowledge": 1,
+      "definition": 1,
+      "empirical_claim": 4,
+      "transition": 1
+    },
+    "severity": {
+      "high": 7
+    },
+    "validOutputs": 7
+  },
+  "results": [
+    {
+      "id": "cn-seed-01",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about a specific measurement (increase in soil microbial biomass) which requires citation.\",\"search_query\":\"organic farming soil microbial biomass increase conventional systems\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about a specific measurement (increase in soil microbial biomass) which requires citation.",
+          "search_query": "organic farming soil microbial biomass increase conventional systems",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 25707,
+      "tokens": 67,
+      "promptTokens": 391,
+      "prefillMs": 18680,
+      "decodeMs": 6993,
+      "decodeTokensPerSec": 9.58100958100958
+    },
+    {
+      "id": "cn-seed-02",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about a global statistic which requires citation.\",\"search_query\":\"global arable land degraded 1960\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about a global statistic which requires citation.",
+          "search_query": "global arable land degraded 1960",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 25908,
+      "tokens": 62,
+      "promptTokens": 392,
+      "prefillMs": 19499,
+      "decodeMs": 6372,
+      "decodeTokensPerSec": 9.73006905210295
+    },
+    {
+      "id": "cn-seed-03",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about observed data (species richness increase) and includes a statistical result (p = 0.03). It is in the Results section, which is high severity.\",\"search_query\":\"12% increase species richness treatment plots p 0.03\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about observed data (species richness increase) and includes a statistical result (p = 0.03). It is in the Results section, which is high severity.",
+          "search_query": "12% increase species richness treatment plots p 0.03",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 29 words; the limit is 25"
+      ],
+      "elapsedMs": 32469,
+      "tokens": 92,
+      "promptTokens": 396,
+      "prefillMs": 22254,
+      "decodeMs": 10168,
+      "decodeTokensPerSec": 9.04799370574351
+    },
+    {
+      "id": "cn-seed-04",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"transition\",\"severity\":\"high\",\"reason\":\"The sentence is a transition and does not introduce new empirical claims or data.\",\"search_query\":\"methods data collection growing seasons\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence is a transition and does not introduce new empirical claims or data.",
+          "search_query": "methods data collection growing seasons",
+          "sentence_type": "transition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 28502,
+      "tokens": 57,
+      "promptTokens": 383,
+      "prefillMs": 22503,
+      "decodeMs": 5968,
+      "decodeTokensPerSec": 9.55093833780161
+    },
+    {
+      "id": "cn-seed-05",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"definition\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about a specific definition in a field (ecosystem services) which requires citation.\",\"search_query\":\"ecosystem services definition\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "definition",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about a specific definition in a field (ecosystem services) which requires citation.",
+          "search_query": "ecosystem services definition",
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 3 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 30746,
+      "tokens": 64,
+      "promptTokens": 385,
+      "prefillMs": 24268,
+      "decodeMs": 6441,
+      "decodeTokensPerSec": 9.936345287998758
+    },
+    {
+      "id": "cn-seed-06",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"The sentence is an empirical claim about the effect weakening at higher latitudes, which requires citation as it builds on the previous sentence's reference to Sharma et al. (2021).\",\n  \"search_query\": \"Their analysis effect weakening higher latitudes Sharma et al. 2021\"\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "elapsedMs": 72080,
+      "tokens": 94,
+      "promptTokens": 970,
+      "prefillMs": 61016,
+      "decodeMs": 10995,
+      "decodeTokensPerSec": 8.549340609367896
+    },
+    {
+      "id": "cn-seed-07",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"common_knowledge\",\"severity\":\"high\",\"reason\":\"This is a general scientific fact that does not require citation.\",\"search_query\":\"plants require light photosynthesis\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is a general scientific fact that does not require citation.",
+          "search_query": "plants require light photosynthesis",
+          "sentence_type": "common_knowledge",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 4 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 26903,
+      "tokens": 56,
+      "promptTokens": 380,
+      "prefillMs": 20905,
+      "decodeMs": 5958,
+      "decodeTokensPerSec": 9.399127223900637
+    },
+    {
+      "id": "cn-seed-08",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about a mechanism behind an observed increase, which is high severity as it appears in the Discussion section.\",\"search_query\":\"mymorrhizal networks mediate observed increase\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "hedged_speculation",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about a mechanism behind an observed increase, which is high severity as it appears in the Discussion section.",
+          "search_query": "mymorrhizal networks mediate observed increase",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 29369,
+      "tokens": 74,
+      "promptTokens": 393,
+      "prefillMs": 21734,
+      "decodeMs": 7593,
+      "decodeTokensPerSec": 9.745818517055183
+    }
+  ]
+}
