@@ -1,0 +1,99 @@
+{
+  "advisoryRate": 0.0,
+  "casesFile": "evals/citation_support.jsonl",
+  "citedPlantedChunk": null,
+  "date": "phase5-fixed",
+  "embedder": "mock-lexical-v1",
+  "evidenceBudgetTokens": 1200,
+  "meanDecodeMs": 20902.333333333332,
+  "meanLatencyMs": 71496.83333333333,
+  "meanPrefillMs": 50200.0,
+  "meanPromptTokens": 2197.8333333333335,
+  "modelId": "qwen2.5-0.5b-instruct-q4km",
+  "nCtx": 4096,
+  "promptVersion": "citation_support-v1",
+  "results": [
+    {
+      "decodeMs": 43631,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 102794,
+      "id": "cs-seed-01",
+      "outcome": "validationFailed",
+      "prefillMs": 57689,
+      "promptTokens": 2689,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.9,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 1,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 2,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c4\",\n      \"page\": 2,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c5\",\n      \"page\": 3,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c6\",\n      \"page\": 3,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c7\",\n      \"page\": 3,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c8\",\n      \"page\": 3,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\":\n--- retry ---\n.\n} (or the JSON format).\n{\n  \"verdict\": \"strong\",\n  \"confidence\": 1.0,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 1,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 2,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c4\",\n      \"page\": 2,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c5\",\n      \"page\": 3,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c6\",\n      \"page\": 3,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c7\",\n      \"page\": 3,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c8\",\n      \"page\": 3,\n      \"why\": \"The study mentions that organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n   \n--- primary: Retry ---",
+      "retried": true,
+      "tokens": 800
+    },
+    {
+      "decodeMs": 13969,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 68735,
+      "id": "cs-seed-02",
+      "outcome": "validationFailed",
+      "prefillMs": 54605,
+      "promptTokens": 2521,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.9,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"why\": \"The study mentions organic management and soil biodiversity in temperate cropland, but does not report the claimed finding of doubling soil invertebrate species richness.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\"element\": \"doubled soil invertebrate species richness\", \"status\": \"found\"},\n    {\"element\": \"2024\", \"status\": \"found\"},\n    {\"element\": \"2024\", \"status\": \"found\"},\n    {\"element\": \"2024\", \"status\": \"found\"},\n    {\"element\": \"2024\", \"status\": \"found\"}\n  ],\n  \"explanation\": \"The study mentions organic management and soil biodiversity in temperate cropland, but does not report the claimed finding of doubling soil invertebrate species richness.\",\n  \"suggested_rewrite\": \"The study mentions organic management and soil biodiversity in temperate cropland, but does not report the claimed finding of doubling soil invertebrate species richness.\"\n}\n--- retry ---\n  \"answer\": \"REJECTED\".\n}\n\n{\n  \"answer\": \"REJECTED\".\n}\n--- primary: First ---",
+      "retried": true,
+      "tokens": 271
+    },
+    {
+      "decodeMs": 29158,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 88223,
+      "id": "cs-seed-03",
+      "outcome": "validationFailed",
+      "prefillMs": 58753,
+      "promptTokens": 2675,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.9,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"why\": \"Nitrogen leaching was not measured in this study and no inference about water quality can be drawn from these data.\"\n    },\n    {\n      \"chunk_id\": \"c10\",\n      \"page\": 4,\n      \"why\": \"The richness result is consistent with the direction reported in earlier reviews, though our magnitude is at the upper end of published estimates. The absence of a microbial biomass effect contrasts with some prior work and may reflect the relatively short duration of organic management in our pairs.\"\n    },\n    {\n      \"chunk_id\": \"c11\",\n      \"page\": 4,\n      \"why\": \"The absence of a microbial biomass effect contrasts with some prior work and may reflect the relatively short duration of organic management in our pairs.\"\n    },\n    {\n      \"chunk_id\": \"c12\",\n      \"page\": 4,\n      \"why\": \"Readers should note that these fields are all in a single temperate region on similar soils, so extrapolation to other climates or to horticultural systems is not supported by this dataset.\"\n    },\n    {\n      \"chunk_id\": \"c13\",\n      \"page\": 5,\n      \"why\": \"Organic management was associated with higher soil invertebrate species richness in this paired comparison. Effects on microbial biomass and on soil fauna abundance were not detectable at the sample sizes available.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 1,\n      \"why\": \"We compared soil biological indicators across paired organic and conventional fields over three growing seasons. Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent.\"\n    },\n    {\n      \"\n--- retry ---\n  \"reason\": \"\",\n  \"confidence\": \"\",\n  \"supporting_chunks\": [],\n  \"claim_elements\": [],\n  \"explanation\": \"\",\n  \"suggested_rewrite\": \"\"\n} as the first line.\n{\n  \"reason\": \"The claim is not supported by the evidence.\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [],\n  \"claim_elements\": [\n    {\n      \"element\": \"Organic management reduced nitrogen leaching into groundwater.\",\n      \"status\": \"found|absent|different\"\n    }\n  ],\n  \"explanation\": \"The evidence does not support the claim that organic management reduced nitrogen leaching into groundwater.\",\n  \"suggested_rewrite\": \"\"\n}\n--- primary: Retry ---",
+      "retried": true,
+      "tokens": 543
+    },
+    {
+      "decodeMs": 15167,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 76938,
+      "id": "cs-seed-04",
+      "outcome": "validationFailed",
+      "prefillMs": 61589,
+      "promptTokens": 2585,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.8,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"why\": \"The study reports an increase in soil fauna richness under organic management, which is consistent with the claim.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 2,\n      \"why\": \"The study reports an increase in soil invertebrate richness under organic management, which is consistent with the claim.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 3,\n      \"why\": \"The study reports no significant effect of management on earthworm abundance, which is consistent with the claim.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\"element\": \"increase in soil fauna richness\", \"status\": \"found\"},\n    {\"element\": \"increase in soil invertebrate richness\", \"status\": \"found\"},\n    {\"element\": \"no significant effect of management on earthworm abundance\", \"status\": \"absent\"}\n  ],\n  \"explanation\": \"The study reports an increase in soil fauna richness under organic management, which is consistent with the claim.\",\n  \"suggested_rewrite\": \"The study reports an increase in soil invertebrate richness under organic management, which is consistent with the claim.\"\n}\n--- retry ---\n  \"answer\": \"REJECTED\"\n}.\n--- primary: First ---",
+      "retried": true,
+      "tokens": 295
+    },
+    {
+      "decodeMs": 23489,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 92291,
+      "id": "cs-seed-05",
+      "outcome": "validationFailed",
+      "prefillMs": 68564,
+      "promptTokens": 2717,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.8,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c10\",\n      \"page\": 4,\n      \"why\": \"Nitrogen leaching was not measured in this study and no inference about water quality can be drawn from these data.\"\n    },\n    {\n      \"chunk_id\": \"c11\",\n      \"page\": 4,\n      \"why\": \"The richness result is consistent with the direction reported in earlier reviews, though our magnitude is at the upper end of published estimates. The absence of a microbial biomass effect contrasts with some prior work and may reflect the relatively short duration of organic management in our pairs.\"\n    },\n    {\n      \"chunk_id\": \"c12\",\n      \"page\": 4,\n      \"why\": \"Readers should note that these fields are all in a single temperate region on similar soils, so extrapolation to other climates or to horticultural systems is not supported by this dataset.\"\n    },\n    {\n      \"chunk_id\": \"c13\",\n      \"page\": 5,\n      \"why\": \"Organic management was associated with higher soil invertebrate species richness in this paired comparison. Effects on microbial biomass and on soil fauna abundance were not detectable at the sample sizes available.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 1,\n      \"why\": \"We compared soil biological indicators across paired organic and conventional fields over three growing seasons. Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 1,\n      \"why\": \"Soil biodiversity underpins nutrient cycling, decomposition and crop resilience. Agricultural intensification has been linked to declines in soil invertebrate communities across temperate Europe.\n--- retry ---\n  \"output\": \" \".\n  }\n</output>\n--- primary: Retry ---",
+      "retried": true,
+      "tokens": 411
+    },
+    {
+      "decodeMs": 0,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 0,
+      "id": "cs-seed-06",
+      "outcome": "ok",
+      "prefillMs": 0,
+      "promptTokens": 0,
+      "raw": "NoEvidence: no chunks retrieved for document 2",
+      "retried": false,
+      "scored": {
+        "expectedNoEvidence": true,
+        "noEvidence": true
+      },
+      "tokens": 0
+    }
+  ],
+  "retryRate": 0.8333333333333334,
+  "task": "citation_support",
+  "totalCases": 6,
+  "validOutputs": 1,
+  "validationFailureRate": 0.8333333333333334,
+  "verdictAgreement": null
+}
