@@ -214,3 +214,190 @@ async fn citation_need_smoke_with_the_real_model() {
     }
     assert_eq!(m.in_flight(), 0, "a smoke case leaked its lease");
 }
+
+
+/// citation_support against the REAL model on 3 seed shapes.
+///
+/// Asserts COMPLETION only — a validated card or a clean ValidationFailed. It
+/// does NOT assert verdict correctness: the bundled 0.5B is expected to be weak
+/// at a six-field nested schema, and a test that failed on a wrong verdict would
+/// be measuring the model rather than the engine. What it DOES assert is the
+/// guarantee that matters: nothing ungrounded was accepted.
+#[tokio::test]
+#[ignore = "needs the bundled GGUF; run with --ignored"]
+async fn citation_support_smoke_with_the_real_model() {
+    use crate::ai::evidence::{assemble, Assembled, EVIDENCE_BUDGET_TOKENS};
+    use crate::ai::task::TaskError;
+    use crate::ai::tasks::citation_support::CitationSupportTask;
+    use gaply_core::ai_engine::{embeddings as core_emb, registry, store};
+    use gaply_core::chunk::PagedChunk;
+    use gaply_core::Database;
+
+    if !gen_enabled() {
+        eprintln!("SKIP: no generative model resolves");
+        return;
+    }
+    let Some(loader) = BundledGenerativeLoader::resolve() else { return };
+    let m = ModelManager::new(Arc::new(loader));
+
+    let db = Database::in_memory().unwrap();
+    let doc = store::create_document(&db, "Fixture", "/tmp/f.txt", "smoke-cs").unwrap();
+    registry::register_model(
+        &db,
+        registry::ModelRow {
+            id: "smoke-emb".into(),
+            kind: "embedding".into(),
+            display_name: "s".into(),
+            file_path: "/x".into(),
+            sha256: None,
+            dim: Some(3),
+            quant: None,
+        },
+    )
+    .unwrap();
+    let passages = [
+        "Species richness rose 31 percent under organic management (p less than 0.01).",
+        "Organic systems are widely discussed in the agronomic literature.",
+        "No significant effect of management was observed for earthworm abundance.",
+    ];
+    let chunks: Vec<PagedChunk> = passages
+        .iter()
+        .enumerate()
+        .map(|(i, t)| PagedChunk {
+            seq: i as i64,
+            content: (*t).to_string(),
+            token_estimate: t.split_whitespace().count(),
+            page: Some(i as u32 + 1),
+            section: Some("Results".into()),
+            char_start: 0,
+            char_end: t.len(),
+        })
+        .collect();
+    store::index_chunks(&db, doc, &chunks).unwrap();
+    let space = core_emb::EmbeddingSpace::new("smoke-emb", "p1");
+    let pending = core_emb::chunks_missing_embeddings(&db, None, "smoke-emb").unwrap();
+    let rows: Vec<(i64, Vec<f32>)> =
+        pending.iter().map(|p| (p.chunk_id, vec![1.0, 0.0, 0.0])).collect();
+    core_emb::put_embeddings(&db, &space, &rows).unwrap();
+
+    let claims = [
+        ("supported", "Organic management increased species richness by about 31 percent."),
+        ("wrong magnitude", "Organic management doubled species richness."),
+        ("null result", "Organic management significantly increased earthworm abundance."),
+    ];
+
+    println!("\n=== citation_support SMOKE (real model; verdict NOT asserted) ===");
+    let mut accepted = 0usize;
+    for (label, claim) in claims {
+        let Assembled::Ready(b) =
+            assemble(&db, doc, claim, &[1.0, 0.0, 0.0], EVIDENCE_BUDGET_TOKENS).unwrap()
+        else {
+            panic!("{label}: expected evidence")
+        };
+        let task = CitationSupportTask {
+            claim: claim.to_string(),
+            cited_source: "Paired-fields study (2024) — Organic Management".into(),
+            evidence: b.rendered.clone(),
+        };
+        let started = std::time::Instant::now();
+        let r = run_task(&m, &task, &b.ctx, Arc::new(AtomicBool::new(false)), None).await;
+        let ms = started.elapsed().as_millis();
+        match r {
+            Ok(run) => {
+                accepted += 1;
+                println!(
+                    "  {label}\n    OK ({ms} ms, sent {} dropped {}, retried {}) {}",
+                    b.chunks_sent,
+                    b.chunks_dropped,
+                    run.retried,
+                    serde_json::to_string(&run.output).unwrap()
+                );
+                // THE guarantee: every cited chunk was sent, and every page
+                // matches. The validator already enforced this; asserting it
+                // here proves an ACCEPTED output cannot violate it.
+                for sc in &run.output.supporting_chunks {
+                    let sent = b
+                        .ctx
+                        .get(&sc.chunk_id)
+                        .unwrap_or_else(|| panic!("{label}: ACCEPTED an unsent chunk {}", sc.chunk_id));
+                    if let Some(p) = sc.page {
+                        assert_eq!(
+                            Some(p),
+                            sent.page,
+                            "{label}: ACCEPTED a page disagreeing with the store"
+                        );
+                    }
+                }
+            }
+            Err(TaskError::ValidationFailed {
+                errors,
+                primary,
+                first_raw,
+                retry_raw,
+                ..
+            }) => {
+                // VERBATIM, both attempts, undecorated. A summarised failure is
+                // not evidence of what the model said — and the raw text is the
+                // only place the failure mode is legible.
+                println!(
+                    "  {label}  (sent {} dropped {})\n    VALIDATION FAILED ({ms} ms, {primary:?} kept): {}",
+                    b.chunks_sent,
+                    b.chunks_dropped,
+                    errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; ")
+                );
+                println!("    --- first attempt, verbatim ---\n{first_raw}");
+                println!("    --- retry, verbatim ---\n{retry_raw}");
+                println!("    --- end ---");
+            }
+            Err(other) => panic!("{label}: the ENGINE failed, not the model: {other}"),
+        }
+    }
+    println!("  accepted {accepted}/3 — ungrounded acceptances: 0 (asserted above)");
+    assert_eq!(m.in_flight(), 0);
+}
+
+
+/// Measure the words-per-model-token ratio for EVIDENCE TEXT specifically,
+/// using the real tokenizer. The first Phase 5 attempt derived this from a whole
+/// prompt's token count, which folds in the schema and rules scaffolding and is
+/// therefore not the ratio the evidence budget needs.
+#[test]
+#[ignore = "needs the bundled tokenizer; run with --ignored"]
+fn measure_words_per_model_token_for_evidence_text() {
+    let Some((_gguf, tok_path)) = crate::models::stage1_lm_paths() else {
+        eprintln!("SKIP: no tokenizer resolves");
+        return;
+    };
+    if !tok_path.exists() {
+        eprintln!("SKIP: {} absent", tok_path.display());
+        return;
+    }
+    let tok = tokenizers::Tokenizer::from_file(&tok_path).expect("tokenizer loads");
+
+    let fixture = std::path::Path::new("evals/fixtures/organic_soil_biodiversity.txt");
+    let Ok(text) = std::fs::read_to_string(fixture) else {
+        eprintln!("SKIP: fixture absent");
+        return;
+    };
+    // Render as the evidence block actually is: one chunk per paragraph, with
+    // the spec header, since the header is part of what the budget pays for.
+    let mut rendered = String::from("<evidence>\n");
+    for (i, para) in text
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|p| p.split_whitespace().count() >= 8)
+        .enumerate()
+    {
+        rendered.push_str(&format!("[c{} | p.{} | Results] {}\n", i + 1, (i / 3) + 1, para.replace('\n', " ")));
+    }
+    rendered.push_str("</evidence>");
+
+    let words = rendered.split_whitespace().count();
+    let tokens = tok.encode(rendered.as_str(), false).expect("encode").get_ids().len();
+    println!("\n=== EVIDENCE TEXT: words per model token ===");
+    println!("words           : {words}");
+    println!("model tokens    : {tokens}");
+    println!("words per token : {:.3}", words as f64 / tokens as f64);
+    println!("tokens per word : {:.3}", tokens as f64 / words as f64);
+    assert!(words > 100 && tokens > 100);
+}
