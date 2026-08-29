@@ -1813,3 +1813,62 @@ retry something that cannot succeed. It costs zero model calls.
 The significance filter (skip headings, the references section, sentences under 6 words) exists to
 keep the item count honest. At 65 s per item the difference between filtering and not is measured
 in hours.
+
+
+## Phase 9a — the in-app PDF viewer that D18's affordance requires
+
+### D41 — D18's "verify against the source" needs a viewer that did not exist
+
+D18 fixed the boundary: the grounding guarantee covers **identifiers**, not prose. A stored card
+cannot cite a passage that was not retrieved, but nothing ties `explanation` to the evidence text —
+so the UI rule that follows is that AI prose is never rendered without its evidence beside it, with
+an affordance to check the source.
+
+**Phase 9 exploration found there is no viewer to check it in.** Verified rather than assumed:
+
+| checked | finding |
+|---|---|
+| `react-pdf` | used only in `src/components/seo-guides/` — marketing pages, not the app |
+| `pdfjs-dist` | used only in `analysis/validateFile.ts`, to count pages during validation |
+| Plagiarism / AI Check / Statistical viewers | render excerpts inline; none opens a source file |
+| `@tauri-apps/plugin-opener` | one use, `openUrl` for OAuth. `openPath` hands a file to the OS default app and **takes no page argument** |
+| `export_publishready_pdf` | writes to temp and hands off to the OS — the existing "show a PDF" pattern, and not an in-app viewer |
+| grep `pageNumber` / `scrollToPage` / `gotoPage` | zero hits in app code |
+
+**Premise corrected:** Phase 9 was scoped as "open the existing PDF viewer at that page". There is
+no existing viewer, and the one file-opening primitive cannot target a page. Building the evidence
+component on a stubbed affordance would have shipped D18's central requirement as decoration across
+every AI surface at once, so the viewer becomes its own phase and the rest of Phase 9 follows it.
+
+### D42 — the PDF is read in RUST, not by the frontend
+
+The obvious frontend implementation is `plugin-fs` + `readFile(path)`, or Tauri's asset protocol.
+Both were rejected on inspection of what they would cost:
+
+- The fs capability grants `fs:allow-write-file`, `-exists`, `-mkdir`, `-remove` scoped to
+  **`$APPDATA` only**, and does not grant `fs:allow-read-file` at all. A thesis lives in
+  `~/Documents`, so reading it from the webview would need a new permission AND a scope widened to
+  the user's filesystem — a large, permanent grant bought for one screen.
+- The asset protocol needs the same scope widening plus a CSP change.
+
+The backend already has filesystem access, so it reads the bytes and hands them over IPC. **No new
+frontend permission, no CSP change, no asset protocol.** The narrow grant stays narrow.
+
+*Cost, stated:* a large PDF crosses IPC once per open. That is a real cost and the reason the
+viewer streams pages lazily rather than holding rendered output for a 400-page document.
+
+### D43 — the pdf.js worker is BUNDLED, never the CDN the marketing pages use
+
+`seo-guides/EthicalAiPdfDeck.tsx` sets
+`pdfjs.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@.../pdf.worker.min.mjs"`.
+
+That is fine for a marketing page on the web and **wrong twice** for the desktop app: the CSP is
+`script-src 'self'` / `worker-src 'self' blob:`, so it would be blocked; and R4 says the AI layer
+makes no network calls but a viewer fetching its worker from a CDN would make the app require the
+network to read a local file. The worker is bundled from the installed `pdfjs-dist` instead.
+
+### D44 — `ai_model_status` reports the active device
+
+Phase 7 built `ai::device::select()` and wired it to nothing, so the UI had no honest way to say
+whether inference was running on CPU or Metal. Added as one additive field. On any machine below
+macOS 15 it reads `cpu`, correctly, because the D36 gate closes there.
