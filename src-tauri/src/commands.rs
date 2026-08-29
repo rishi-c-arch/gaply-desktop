@@ -1081,11 +1081,19 @@ pub struct AiModelStatus {
     /// Computed from GGUF metadata — NEVER process RSS. `None` when no
     /// generative model resolves.
     pub generative_ram: Option<crate::ai::generative::RamEstimate>,
+    /// §11 D44. Which device inference actually runs on, and why it is not the
+    /// fast one when it is not. Phase 7 built the selector and wired it to
+    /// nothing, so the UI had no honest way to say CPU or Metal.
+    pub active_device: &'static str,
+    pub device_fallback_reason: Option<String>,
 }
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
 pub fn ai_model_status(state: State<'_, AppState>) -> AiModelStatus {
+    // Cheap: the gate is a class lookup and Metal device creation is not
+    // attempted unless it passes (§11 D36).
+    let device = crate::ai::device::select();
     AiModelStatus {
         embedding: state.ai_embed.state(),
         generative: state.ai_gen.state(),
@@ -1093,6 +1101,8 @@ pub fn ai_model_status(state: State<'_, AppState>) -> AiModelStatus {
         in_flight: state.ai_gen.in_flight(),
         // Reading GGUF metadata does NOT load the model.
         generative_ram: state.ai_gen.ram_estimate().ok(),
+        active_device: device.kind.as_str(),
+        device_fallback_reason: device.fallback_reason,
     }
 }
 
@@ -2573,4 +2583,79 @@ pub async fn ai_link_citations(
             .await
             .map_err(|e| GaplyError::Internal(format!("link task panicked: {e}")))??;
     Ok(serde_json::to_value(&report).unwrap_or(serde_json::Value::Null))
+}
+
+
+/* ============== Phase 9a: serving a source document to the viewer ========= *
+ * §11 D42 — the backend reads the file. The webview's fs capability is
+ * $APPDATA-scoped and grants no read at all, so doing this in the frontend
+ * would mean a new permission plus a scope widened to the user's whole
+ * filesystem, bought for one screen. */
+
+/// Where a document's file is, and whether it is still there.
+///
+/// Cheap enough to call per evidence row: an evidence row whose file has moved
+/// must render as "file not found" rather than as a dead click.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSource {
+    pub document_id: i64,
+    pub path: String,
+    pub exists: bool,
+    /// Lowercased extension, so the UI knows whether the viewer can render it
+    /// at all before it asks for bytes.
+    pub extension: String,
+}
+
+#[tauri::command]
+pub async fn ai_document_source(
+    state: State<'_, AppState>,
+    document_id: i64,
+) -> Result<DocumentSource, GaplyError> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let path = gaply_core::ai_engine::store::document_source(&db, document_id)?;
+        let p = std::path::Path::new(&path);
+        Ok(DocumentSource {
+            document_id,
+            exists: p.is_file(),
+            extension: p
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase())
+                .unwrap_or_default(),
+            path,
+        })
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("document source task panicked: {e}")))?
+}
+
+/// The document's bytes, for the in-app viewer.
+///
+/// Returned as a raw IPC response rather than a JSON array: a 400-page thesis
+/// is tens of megabytes, and base64-in-JSON would inflate it by a third and
+/// cost a parse on both sides.
+#[tauri::command]
+pub async fn ai_document_bytes(
+    state: State<'_, AppState>,
+    document_id: i64,
+) -> Result<tauri::ipc::Response, GaplyError> {
+    let db = state.db.clone();
+    let bytes = tokio::task::spawn_blocking(move || {
+        let path = gaply_core::ai_engine::store::document_source(&db, document_id)?;
+        let p = std::path::Path::new(&path);
+        if !p.is_file() {
+            // NAMED, not a generic io error: "the file moved" is something the
+            // user can act on, and the row already told them it was missing.
+            return Err(GaplyError::Validation(format!(
+                "the source file for this document is no longer at {path} — it was moved, \
+                 renamed or deleted since it was indexed"
+            )));
+        }
+        std::fs::read(p).map_err(GaplyError::from)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("document read task panicked: {e}")))??;
+    Ok(tauri::ipc::Response::new(bytes))
 }

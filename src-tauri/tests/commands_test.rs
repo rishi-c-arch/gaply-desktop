@@ -318,3 +318,42 @@ fn rag_search_returns_provenance_through_ipc() {
     assert_eq!(first["checksum"].as_str().unwrap().len(), 64);
     assert!(first["content"].as_str().unwrap().contains("Vancouver"));
 }
+
+/* ---------------- Phase 9a: source-document resolution (§11 D42) ---------- */
+
+/// The resolution chain the evidence component depends on:
+/// `document_id → documents.source_url → a local path`. Phase 9 flagged this as
+/// a possible ingest-schema gap; it is not one — `create_document` writes the
+/// source path and `document_source` reads it back.
+#[test]
+fn a_document_resolves_to_its_local_source_path() {
+    use gaply_core::ai_engine::store;
+
+    let db = gaply_core::Database::in_memory().unwrap();
+    let dir = std::env::temp_dir().join(format!("gaply-src-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("thesis.pdf");
+    std::fs::write(&file, b"%PDF-1.7\n").unwrap();
+
+    let doc =
+        store::create_document(&db, "Thesis", &file.display().to_string(), "ck-src").unwrap();
+    let path = store::document_source(&db, doc).unwrap();
+    assert_eq!(path, file.display().to_string());
+    assert!(std::path::Path::new(&path).is_file());
+
+    // A moved file must be detectable WITHOUT reading it, so an evidence row
+    // can render "file not found" instead of offering a dead click.
+    std::fs::remove_file(&file).unwrap();
+    assert!(!std::path::Path::new(&path).is_file());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An unknown document is an honest error rather than an empty path that would
+/// later surface as a confusing "file not found".
+#[test]
+fn an_unknown_document_id_is_an_error_not_an_empty_path() {
+    let db = gaply_core::Database::in_memory().unwrap();
+    assert!(gaply_core::ai_engine::store::document_source(&db, 4242).is_err());
+}
