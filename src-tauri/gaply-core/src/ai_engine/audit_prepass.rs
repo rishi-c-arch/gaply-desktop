@@ -248,6 +248,92 @@ impl Resolution {
     }
 }
 
+/// Normalise a title for matching: lowercase, collapse whitespace, drop
+/// punctuation. Deliberately crude — see [`resolve_marker`].
+fn normalise_title(t: &str) -> String {
+    t.chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect::<String>()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Can this marker's source actually be checked against evidence?
+///
+/// # The join is by TITLE, and that is a real limitation
+///
+/// There is no `citation_library` → `documents` foreign key in the schema. The
+/// only link that exists is `plagiarism_library.citation_id`, which points at
+/// stored full text rather than at an AI-indexed document. Rather than invent a
+/// link table in this phase, this matches the library entry's title against
+/// `documents.title`.
+///
+/// **Consequence, stated so it is not rediscovered as a bug:** a source whose
+/// indexed document is titled differently from its library record resolves as
+/// `Unverifiable` even though the text is present. That is the SAFE direction —
+/// it under-claims rather than checking a claim against the wrong document —
+/// but it will under-report, and a real link table is the fix when one is
+/// wanted.
+pub fn resolve_marker(
+    db: &crate::db::Database,
+    marker: &Marker,
+) -> Result<Resolution, crate::GaplyError> {
+    use rusqlite::params;
+
+    let Some(lead) = marker.lead_author.as_deref() else {
+        // A bare [3] names nobody without a numbered bibliography, which this
+        // phase does not parse. Honest rather than guessed.
+        return Ok(Resolution::Unverifiable {
+            reason: "numeric citation style: no numbered bibliography was parsed".to_string(),
+        });
+    };
+
+    let conn = db.conn()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, title FROM citation_library
+         WHERE LOWER(authors) LIKE ?1 AND (?2 IS NULL OR year = ?2)
+         LIMIT 2",
+    )?;
+    let like = format!("%{lead}%");
+    let hits: Vec<(String, String)> = stmt
+        .query_map(params![like, marker.year], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let Some((library_id, title)) = hits.first().cloned() else {
+        return Ok(Resolution::Unverifiable {
+            reason: format!("cited work not in library: {}", marker.raw),
+        });
+    };
+
+    // Indexed AND embedded. Chunks alone are not enough — retrieval needs
+    // vectors, and a document with none would produce NoEvidence for every
+    // claim, which reads like a model failure rather than a missing index.
+    let doc: Option<i64> = conn
+        .query_row(
+            "SELECT d.id FROM documents d
+             WHERE LOWER(d.title) = ?1
+               AND EXISTS (SELECT 1 FROM ai_chunks c WHERE c.document_id = d.id)
+               AND EXISTS (
+                   SELECT 1 FROM ai_chunks c
+                   JOIN ai_chunk_embeddings e ON e.chunk_id = c.id
+                   WHERE c.document_id = d.id
+               )
+             LIMIT 1",
+            params![normalise_title(&title)],
+            |r| r.get(0),
+        )
+        .ok();
+
+    match doc {
+        Some(document_id) => Ok(Resolution::Checkable { library_id, document_id }),
+        None => Ok(Resolution::Unverifiable {
+            reason: format!("source not indexed or not embedded: {title}"),
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,6 +470,137 @@ mod tests {
         );
         assert!(report.cited >= 20 - 1, "cited count disagrees with markers: {}", report.cited);
         assert!(report.uncited > 0, "the chapter has uncited claims and they were not counted");
+    }
+
+    /// Run setup SQL and RELEASE the connection. The pool is small, and
+    /// `resolve_marker` needs one of its own — holding one across the call
+    /// deadlocks rather than failing loudly.
+    fn exec(db: &crate::db::Database, sql: &str, p: &[&dyn rusqlite::ToSql]) -> i64 {
+        let conn = db.conn().unwrap();
+        conn.execute(sql, p).unwrap();
+        conn.last_insert_rowid()
+    }
+
+    fn marker(lead: &str, year: i32) -> Marker {
+        Marker {
+            raw: format!("({lead}, {year})"),
+            style: MarkerStyle::AuthorYear,
+            lead_author: Some(lead.to_lowercase()),
+            year: Some(year),
+            numbers: Vec::new(),
+        }
+    }
+
+    /// §11 D40. The three ways a cited sentence can end up, and the fact that
+    /// only ONE of them is checkable. Each Unverifiable reason is distinct
+    /// because "not in your library" and "in your library but not indexed" are
+    /// different things for the reader to do something about.
+    #[test]
+    fn resolution_distinguishes_missing_unindexed_and_checkable_sources() {
+        let db = crate::db::Database::in_memory().unwrap();
+
+        // (a) nothing in the library at all
+        let r = resolve_marker(&db, &marker("Nobody", 1999)).unwrap();
+        assert!(
+            matches!(&r, Resolution::Unverifiable { reason } if reason.contains("not in library")),
+            "{r:?}"
+        );
+        assert_eq!(r.kind(), ItemKind::Unverifiable);
+
+        // (b) in the library, but its source was never indexed
+        exec(
+            &db,
+            "INSERT INTO citation_library (id, csl_json, title, authors, year, created_at, updated_at)
+             VALUES ('lib-1', '{}', 'Organic Management and Soil Life', 'Smith, J.', 2019, 1, 1)",
+            &[],
+        );
+        let r = resolve_marker(&db, &marker("Smith", 2019)).unwrap();
+        assert!(
+            matches!(&r, Resolution::Unverifiable { reason } if reason.contains("not indexed")),
+            "{r:?}"
+        );
+
+        // (c) indexed AND embedded → checkable
+        let doc = exec(
+            &db,
+            "INSERT INTO documents (source_type, title, fetched_at, checksum, status, created_at)
+             VALUES ('pdf', 'organic management and soil life', 1, 'ck1', 'ready', 1)",
+            &[],
+        );
+        let chunk = exec(
+            &db,
+            "INSERT INTO ai_chunks (document_id, page, char_start, char_end, content,
+                                    token_estimate, content_hash, created_at)
+             VALUES (?1, 1, 0, 10, 'richness rose', 3, 'h1', 1)",
+            &[&doc],
+        );
+        exec(
+            &db,
+            "INSERT INTO ai_model_registry (id, kind, display_name, file_path, registered_at)
+             VALUES ('bge-small-en-v1.5', 'embedding', 'bge', '/x', 1)",
+            &[],
+        );
+        exec(
+            &db,
+            "INSERT INTO ai_chunk_embeddings (chunk_id, model_id, preprocessing_version, dim, vector, created_at)
+             VALUES (?1, 'bge-small-en-v1.5', 'bge-v1.5-p2', 1, X'00', 1)",
+            &[&chunk],
+        );
+
+        let r = resolve_marker(&db, &marker("Smith", 2019)).unwrap();
+        assert!(matches!(&r, Resolution::Checkable { document_id, .. } if *document_id == doc), "{r:?}");
+        assert_eq!(r.kind(), ItemKind::CitationSupport);
+    }
+
+    /// Chunks without vectors are NOT checkable: retrieval needs the vectors,
+    /// and a document with none returns NoEvidence for every claim — which
+    /// would read as a model failure rather than a missing index.
+    #[test]
+    fn an_indexed_but_unembedded_source_is_unverifiable_not_checkable() {
+        let db = crate::db::Database::in_memory().unwrap();
+        exec(
+            &db,
+            "INSERT INTO citation_library (id, csl_json, title, authors, year, created_at, updated_at)
+             VALUES ('lib-2', '{}', 'Paired Fields', 'Jones, A.', 2020, 1, 1)",
+            &[],
+        );
+        let doc = exec(
+            &db,
+            "INSERT INTO documents (source_type, title, fetched_at, checksum, status, created_at)
+             VALUES ('pdf', 'paired fields', 1, 'ck2', 'ready', 1)",
+            &[],
+        );
+        exec(
+            &db,
+            "INSERT INTO ai_chunks (document_id, page, char_start, char_end, content,
+                                    token_estimate, content_hash, created_at)
+             VALUES (?1, 1, 0, 5, 'text', 1, 'h2', 1)",
+            &[&doc],
+        );
+        let r = resolve_marker(&db, &marker("Jones", 2020)).unwrap();
+        assert!(
+            matches!(&r, Resolution::Unverifiable { reason } if reason.contains("not embedded") || reason.contains("not indexed")),
+            "chunks without vectors must not be called checkable: {r:?}"
+        );
+    }
+
+    /// A numeric marker names nobody without a numbered bibliography, and this
+    /// phase does not parse one. Said plainly rather than guessed at.
+    #[test]
+    fn a_numeric_marker_is_unverifiable_by_construction() {
+        let db = crate::db::Database::in_memory().unwrap();
+        let m = Marker {
+            raw: "[3]".into(),
+            style: MarkerStyle::Numeric,
+            lead_author: None,
+            year: None,
+            numbers: vec![3],
+        };
+        let r = resolve_marker(&db, &m).unwrap();
+        assert!(
+            matches!(&r, Resolution::Unverifiable { reason } if reason.contains("numeric")),
+            "{r:?}"
+        );
     }
 
     #[test]
