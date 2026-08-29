@@ -42,6 +42,7 @@ pub mod cards;
 pub mod audit_prepass;
 pub mod embeddings;
 pub mod jobs;
+pub mod thesis_audit;
 pub mod registry;
 pub mod retrieval;
 pub mod store;
