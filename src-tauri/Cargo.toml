@@ -76,6 +76,26 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
+# Phase 7 gate (§11 D36). macOS only, and cargo unifies these with the base
+# candle dependencies so a Linux/Windows build is byte-for-byte unchanged.
+#
+# NO C TOOLCHAIN IS ADDED — re-verified, not assumed: of the crates this pulls
+# in only `pulp` has a build script, and it is pure-Rust codegen emitting
+# `core::arch::global_asm!` with `version_check` as its sole build-dependency.
+# candle-metal-kernels declares `build = false` and compiles its `.metal`
+# shaders AT RUNTIME from `include_str!`d source.
+#
+# Enabling the feature does NOT mean Metal runs: `ai::device` gates the probe
+# behind a class-availability check first (D35/D36).
+candle-core = { version = "0.11", features = ["metal"] }
+candle-nn = { version = "0.11", features = ["metal"] }
+candle-transformers = { version = "0.11", features = ["metal"] }
+
+# For the gate itself: `AnyClass::get` returns Option and cannot panic, which is
+# the whole point — it is the one way to ask "does this class exist?" without
+# constructing it.
+objc2 = "0.6"
+
 [dev-dependencies]
 # Reads the rendered report back OUT of the PDF bytes for the render-path
 # end-to-end test (ONTOLOGY §4.20). Already a gaply-core dependency; declared

@@ -1684,3 +1684,50 @@ and then reverted: shipping an unmeasurable acceleration path would be worse tha
 **D30's Metal conditional is unaffected in principle and unresolvable in practice on this hardware.**
 The pre-Metal baseline stands at **65.4 s** mean (v1.4, isolated, §11 D34), prefill 55%. Whether
 Metal closes that gap remains untested — not disproven.
+
+### D36 — Metal is a macOS 15+ feature; CPU is the floor everywhere else
+
+The gate D35 said was missing. **No other Phase 7 work has landed** — the device abstraction is
+wired to nothing yet, by decision: STEP 2 stays parked until Metal can actually be measured.
+
+**Metal is probed ONLY behind an availability check evaluated first:**
+
+```text
+force-CPU env? ──yes──> CPU
+      │no
+gate: is MTLResidencySetDescriptor registered? ──no──> CPU   (the macOS 14 path)
+      │yes
+probe inside catch_unwind ──panic/Err──> CPU
+      │Ok
+     Metal
+```
+
+**Why a class lookup rather than a version parse.** `AnyClass::get` returns `Option` and cannot
+panic, and it tests the *precise* thing that fails rather than a proxy for it. If Apple ships the
+class in a different release than expected, or a future candle stops needing it, the gate keeps
+testing the right thing without an edit. A control lookup (`MTLCaptureDescriptor`, 10.15+) runs
+first so "Metal isn't loaded in this process" cannot be misreported as "your OS is too old".
+
+**Why `catch_unwind` as well.** The gate is the correctness mechanism; the belt is for the failure
+nobody has been taught yet. D35's panic came from one line *inside* candle's own
+graceful-degradation path — `raw: Option<...>` was guarded, the descriptor construction above it
+was not. That is a good reminder that a defence which only handles anticipated failures is not a
+defence. `catch_unwind` is not used as control flow: on the expected paths it never fires.
+
+**CPU IS THE FLOOR.** Metal is an acceleration, never a requirement. An engine that refuses to
+start because the GPU is one release behind is worse than a slow engine — and on this machine
+(macOS 14.5) the gate closes and everything works, slowly, exactly as it did before Phase 7.
+
+**Tested against the real failure, not a mock of it.** `a_forced_open_gate_cannot_panic_the_caller`
+forces the gate open on this macOS 14.5 machine, which makes the probe genuinely panic, and asserts
+the caller receives a working CPU device. That test *proves* the belt rather than describing it.
+It is written to pass on both sides of the boundary: on macOS 15+ the probe simply succeeds.
+
+`the_real_gate_agrees_with_the_runtime` asserts the gate matches what the ObjC runtime actually
+reports, rather than hardcoding today's answer — a test that starts failing the day the machine is
+upgraded would be a landmine, and the property worth pinning is agreement with reality.
+
+**The C-toolchain constraint re-verified after re-adding the dependencies:** 22 crates added, only
+`pulp` carries a build script (pure-Rust `global_asm!` codegen, `version_check` its sole
+build-dependency), and no crate in the set pulls `cc`, `bindgen` or `cmake`. `gaply-core` is
+untouched.

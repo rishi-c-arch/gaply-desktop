@@ -16,6 +16,7 @@
 //! nothing more. `startup_performs_no_network_call` in [`embeddings`] holds that
 //! line.
 
+pub mod device;
 pub mod embeddings;
 pub mod evidence;
 pub mod generative;
