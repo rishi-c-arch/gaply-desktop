@@ -1,0 +1,39 @@
+2. Literature Review
+
+Soil biodiversity underpins nutrient cycling and crop resilience across temperate systems.
+Agricultural intensification has been linked to sustained declines in soil invertebrate communities (Smith, 2019).
+Organic management is frequently proposed as a mitigation, though the evidence is uneven (Jones & Patel, 2020).
+Earlier syntheses reported positive but heterogeneous effects across crops and climates (Okonkwo et al., 2018).
+In 2019, the present trial was established on twelve paired fields.
+Pairs were matched on soil texture, drainage class and elevation (six organic, six conventional).
+Species richness rose by roughly 31 percent relative to paired conventional fields (García, 2021).
+Microbial biomass carbon showed no consistent response across the three sampling seasons.
+The pH of the sampled plots was low (4.5) in every replicate block.
+Earthworm abundance was highly variable between fields and seasons (Lindqvist, 2017).
+See Figure 3 and Table 2 for the full distribution of counts.
+Nitrogen leaching was not measured in this study and no inference about water quality is drawn.
+Comparable null results have been reported in long-term European trials (Mbeki & Duarte, 2022).
+Soil temperatures ranged from 3-5 degrees during the winter sampling window.
+Functional diversity metrics respond more slowly than richness to management change (Tanaka et al., 2016).
+The duration of organic management is a recognised moderator of effect size (Novak, 2019b).
+Tillage intensity confounds many published comparisons of management systems (Rossi, 2015).
+Recent meta-analytic work has attempted to separate these effects (Haddad & Chen, 2023).
+Sampling depth conventions differ substantially between the major national surveys (Weber, 2014).
+Two independent groups report convergent findings for temperate cropland (Ferreira et al., 2020; Silva, 2021).
+
+2.1 Numeric-style sources
+
+Comparable increases in invertebrate richness are documented for temperate systems [1].
+Microbial responses are considerably more variable across published trials [2].
+Two syntheses disagree about the magnitude of the richness effect [3, 4].
+Long-term trials show attenuation of the effect after the first decade [5].
+Several regional studies report no significant change in earthworm counts [6-8].
+Methodological differences explain part of the between-study heterogeneity [9].
+Sampling season is a substantial and frequently uncontrolled source of variance [10].
+Two recent reviews call for standardised depth and season protocols [11, 12].
+
+References
+
+Smith, J. (2019). Soil invertebrates under intensification. Journal of Soil Biology, 4, 1-10.
+Jones, A. and Patel, R. (2020). Organic management and soil fauna. Agroecology Letters, 7, 22-31.
+Okonkwo, B., Adeyemi, T., and Balogun, F. (2018). A synthesis of paired-field studies. Soil Reviews, 2, 5-19.

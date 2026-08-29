@@ -39,6 +39,7 @@
 //! tables, rather than landing now as untested speculative code.
 
 pub mod cards;
+pub mod audit_prepass;
 pub mod embeddings;
 pub mod jobs;
 pub mod registry;
