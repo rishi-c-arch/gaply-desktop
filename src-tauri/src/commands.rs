@@ -2659,3 +2659,24 @@ pub async fn ai_document_bytes(
     .map_err(|e| GaplyError::Internal(format!("document read task panicked: {e}")))??;
     Ok(tauri::ipc::Response::new(bytes))
 }
+
+/// Which indexed document backs this citation, if any (§11 D45).
+///
+/// `None` is a real answer, not a failure: it is what tells the citation panel
+/// to say the source is not linked, rather than offering a check that cannot
+/// run.
+#[tauri::command]
+pub async fn ai_citation_document(
+    state: State<'_, AppState>,
+    citation_id: String,
+) -> Result<Option<serde_json::Value>, GaplyError> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let found = gaply_core::citation_links::checkable_document_for_citation(&db, &citation_id)?;
+        Ok(found.map(|(document_id, matched_by)| {
+            serde_json::json!({ "documentId": document_id, "matchedBy": matched_by })
+        }))
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("citation document task panicked: {e}")))?
+}

@@ -150,6 +150,13 @@ class AiBridge {
     return this.invoke<Record<string, unknown>>('ai_job_results', { jobId, offset, limit });
   }
 
+  /** Which indexed document backs a citation (§11 D45). null is a real answer. */
+  async citationDocument(citationId: string): Promise<{ documentId: number; matchedBy: string } | null> {
+    return this.invoke<{ documentId: number; matchedBy: string } | null>('ai_citation_document', {
+      citationId,
+    });
+  }
+
   /** Where a document's file is, and whether it is still there. */
   async documentSource(documentId: number): Promise<DocumentSource> {
     return this.invoke<DocumentSource>('ai_document_source', { documentId });

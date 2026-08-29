@@ -27,6 +27,7 @@ import { prepareStyle, isStyleReady } from './cslEngine';
 import { StylePicker } from './StylePicker';
 import { CitationEditor } from './CitationEditor';
 import { CitationAiPanel } from '../ai/CitationAiPanel';
+import { aiBridge } from '../ai/aiReady';
 import {
   applyVerification,
   RefVerifyBridge,
@@ -167,6 +168,27 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   // Which citation the metadata editor is open on (null = closed). D1.
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Which indexed document backs the SELECTED citation (§11 D45). null means
+  // "not linked", which the panel says out loud rather than offering a check
+  // that cannot run.
+  const [aiDocumentId, setAiDocumentId] = useState<number | null>(null);
+  // Gated on aiInstalled so it cannot fire in the page's existing tests, which
+  // render with AI off. A late state update from an ungated probe is exactly
+  // what raced the style-picker tests once already.
+  useEffect(() => {
+    if (!aiInstalled || !selectedId) {
+      setAiDocumentId(null);
+      return;
+    }
+    let alive = true;
+    aiBridge
+      .citationDocument(selectedId)
+      .then((r) => alive && setAiDocumentId(r?.documentId ?? null))
+      .catch(() => alive && setAiDocumentId(null));
+    return () => {
+      alive = false;
+    };
+  }, [aiInstalled, selectedId]);
 
   const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
   const [tagInput, setTagInput] = useState('');
@@ -1560,7 +1582,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
               <div className="gds-root mt-4">
                 <CitationAiPanel
                   sentence={selected.csl.title ?? ''}
-                  documentId={null}
+                  documentId={aiDocumentId}
                   // A PLAIN label, not formatCitation: that throws while a
                   // chosen style is still being prepared, and every other call
                   // site guards it behind canFormatStyle. The evidence rows

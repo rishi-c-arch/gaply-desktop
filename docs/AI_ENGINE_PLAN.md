@@ -1872,3 +1872,16 @@ network to read a local file. The worker is bundled from the installed `pdfjs-di
 Phase 7 built `ai::device::select()` and wired it to nothing, so the UI had no honest way to say
 whether inference was running on CPU or Metal. Added as one additive field. On any machine below
 macOS 15 it reads `cpu`, correctly, because the D36 gate closes there.
+
+### D45 — `ai_citation_document`: the link table needs a read path for the UI
+
+Phase 8b built `citation_documents` and `checkable_document_for_citation`, but
+exposed neither to the frontend. The citation panel therefore had no way to
+answer "which indexed document backs this citation?", so its support check was
+mounted with `documentId = null` and could never run — the feature was reachable
+in code and unreachable in the product.
+
+One additive command, returning the linked document that is actually checkable
+(indexed AND embedded) or `null`. `null` is a first-class answer: it is what
+drives the panel's "this citation's source is not linked to an indexed document"
+state, which is a true and actionable thing to tell someone.
