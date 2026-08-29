@@ -335,6 +335,15 @@ async fn run_citation_support(
             let out = serde_json::to_value(&run.output).unwrap_or(serde_json::Value::Null);
             let verdict =
                 out.get("verdict").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+
+            // PERSISTENCE DISCIPLINE, unchanged from the interactive path: a
+            // card is written ONLY for a run that passed validation. Reaching
+            // here means the validator already proved every chunk_id was sent
+            // and every page matches the store, so the join rows below cannot
+            // point at anything the model invented. A rejected run returns via
+            // the Err arm and never reaches this code at all.
+            let card_id = persist_card(db, document_id, &item.sentence, &run, &bundle);
+
             ItemOutcome {
                 status: "done",
                 result_json: serde_json::json!({
@@ -345,6 +354,8 @@ async fn run_citation_support(
                     "page": item.page,
                     "retried": run.retried,
                     "stopReasons": run.stop_reasons,
+                    "cardId": card_id,
+                    "persisted": card_id.is_some(),
                 })
                 .to_string(),
                 error: None,
@@ -352,6 +363,75 @@ async fn run_citation_support(
             }
         }
         Err(e) => failed_outcome("citation_support", e),
+    }
+}
+
+/// Write the evidence card for an ACCEPTED support result.
+///
+/// Mirrors `ai_citation_support` exactly — same card shape, same chunk-role
+/// join, same verdict mapping — because two persistence paths that drift are
+/// two sets of provenance rules. Only reachable after validation passed.
+///
+/// A failure to persist is logged and reported as `persisted: false` rather
+/// than failing the item: the judgement itself is still a real result, and
+/// losing three hours of audit to one bad insert would be the wrong trade.
+fn persist_card(
+    db: &Database,
+    document_id: i64,
+    claim: &str,
+    run: &crate::ai::task::TaskRun<crate::ai::tasks::citation_support::CitationSupportOutput>,
+    bundle: &crate::ai::evidence::EvidenceBundle,
+) -> Option<i64> {
+    use crate::ai::tasks::citation_support::Verdict;
+    use gaply_core::ai_engine::cards;
+
+    let advisories: Vec<String> = run.advisories.iter().map(|a| a.to_string()).collect();
+    let provenance = serde_json::json!({
+        "advisories": advisories,
+        "chunksSent": bundle.chunks_sent,
+        "chunksDropped": bundle.chunks_dropped,
+        "evidenceWords": bundle.words_estimated,
+        "retrievalPath": bundle.retrieval_path,
+        "supportingChunks": run.output.supporting_chunks,
+        "source": "thesis_audit",
+    });
+    let parse_id = |c: &crate::ai::tasks::citation_support::SupportingChunk| {
+        c.chunk_id.trim_start_matches('c').parse::<i64>().ok()
+    };
+    let refs: Vec<(i64, cards::ChunkRole)> = run
+        .output
+        .supporting_chunks
+        .iter()
+        .filter_map(parse_id)
+        .map(|id| (id, cards::ChunkRole::Supporting))
+        .collect();
+
+    let card = cards::NewEvidenceCard {
+        document_id,
+        chunk_id: run.output.supporting_chunks.first().and_then(parse_id),
+        page: run.output.supporting_chunks.first().and_then(|c| c.page),
+        claim: claim.to_string(),
+        evidence_text: run.output.explanation.clone(),
+        evidence_type: match run.output.verdict {
+            Verdict::Contradicts => "contradict".to_string(),
+            Verdict::InsufficientEvidence => "context".to_string(),
+            _ => "support".to_string(),
+        },
+        verdict: serde_json::to_value(run.output.verdict)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string)),
+        confidence: Some(run.output.confidence),
+        model_id: run.model_id.clone(),
+        model_version: crate::ai::generative::BUNDLED_GEN_MODEL_QUANT.to_string(),
+        prompt_version: run.prompt_version.to_string(),
+        provenance_json: provenance.to_string(),
+    };
+    match cards::insert_card(db, &card, &refs) {
+        Ok(id) => Some(id),
+        Err(e) => {
+            tracing::warn!(%e, "audit result accepted but its evidence card could not be written");
+            None
+        }
     }
 }
 
@@ -718,6 +798,170 @@ mod tests {
         let it = &job_results(&db, job, 0, 10).unwrap()[0];
         assert_eq!(it.status, "skipped");
         assert!(it.result_json.as_deref().unwrap().contains("noEmbedder"));
+    }
+
+    /// Seed a document that retrieval can actually find: chunks plus vectors in
+    /// one registered embedding space.
+    fn seed_indexed_document(db: &Database) -> i64 {
+        use gaply_core::ai_engine::{embeddings as core_emb, registry, store};
+
+        let doc = store::create_document(db, "Smith 2019", "/tmp/smith.pdf", "ck-smith").unwrap();
+        store::index_chunks(
+            db,
+            doc,
+            &[gaply_core::chunk::PagedChunk {
+                seq: 0,
+                content: "Species richness rose 31 percent under organic management.".into(),
+                token_estimate: 9,
+                page: Some(5),
+                section: Some("Results".into()),
+                char_start: 0,
+                char_end: 57,
+            }],
+        )
+        .unwrap();
+        registry::register_model(
+            db,
+            registry::ModelRow {
+                id: "test-emb".into(),
+                kind: "embedding".into(),
+                display_name: "test".into(),
+                file_path: "/x".into(),
+                sha256: None,
+                dim: Some(3),
+                quant: None,
+            },
+        )
+        .unwrap();
+        // The generative model must be registered too: ai_evidence_cards.model_id
+        // is a foreign key into the registry, which is how a card is prevented
+        // from claiming provenance it cannot substantiate.
+        registry::register_model(
+            db,
+            registry::ModelRow {
+                id: "mock".into(),
+                kind: "generative".into(),
+                display_name: "mock".into(),
+                file_path: "/x".into(),
+                sha256: None,
+                dim: None,
+                quant: Some("Q4_K_M".into()),
+            },
+        )
+        .unwrap();
+        let space = core_emb::EmbeddingSpace::new("test-emb", "test-p1");
+        let pending = core_emb::chunks_missing_embeddings(db, None, "test-emb").unwrap();
+        let rows: Vec<(i64, Vec<f32>)> =
+            pending.iter().map(|p| (p.chunk_id, vec![1.0, 0.0, 0.0])).collect();
+        core_emb::put_embeddings(db, &space, &rows).unwrap();
+        doc
+    }
+
+    fn support_job(db: &Database, doc: i64) -> i64 {
+        create_job(
+            db,
+            "thesis_audit",
+            None,
+            "citation_support-v1.4",
+            &[NewItem {
+                seq: 0,
+                kind: ItemKind::CitationSupport,
+                chunk_id: None,
+                page: Some(5),
+                sentence: "Organic management increased species richness by about 31 percent."
+                    .into(),
+                payload_json: serde_json::json!({
+                    "documentId": doc,
+                    "citedSource": "Smith (2019) — Soil life",
+                })
+                .to_string(),
+            }],
+        )
+        .unwrap()
+    }
+
+    /// Counted through gaply-core's API, not SQL: the app crate cannot execute
+    /// SQL at all (plan §3), and that constraint is the point rather than an
+    /// inconvenience to work around in a test.
+    fn cards_for(db: &Database, doc: i64) -> usize {
+        gaply_core::ai_engine::cards::list_cards(db, doc).unwrap().len()
+    }
+
+    fn manager_replying(stats: Arc<Stats>, reply: &str) -> ModelManager {
+        ModelManager::new(Arc::new(MockLoader {
+            stats,
+            reply: reply.to_string(),
+            stall_ms: 0,
+        }))
+    }
+
+    /// PERSISTENCE DISCIPLINE, unchanged (plan §9.9 / D9). A support result that
+    /// passes validation writes exactly one evidence card; one that fails
+    /// writes none. The audit path must obey the same rule as the interactive
+    /// path, or provenance depends on which door the result came through.
+    #[tokio::test]
+    async fn only_a_valid_support_result_writes_an_evidence_card() {
+        // ---- accepted ----
+        let db = Database::in_memory().unwrap();
+        let doc = seed_indexed_document(&db);
+        let job = support_job(&db, doc);
+        let valid = r#"{"verdict":"strong","confidence":0.9,
+            "supporting_chunks":[{"chunk_id":"c1","page":5,"why":"Reports the richness increase the claim describes."}],
+            "claim_elements":[{"element":"organic management","status":"found"},
+                              {"element":"31 percent","status":"found"}],
+            "explanation":"The chunk reports the increase the claim describes.",
+            "suggested_rewrite":null}"#;
+        let stats = Arc::new(Stats::default());
+        let m = manager_replying(stats.clone(), valid);
+        run_job(
+            &db,
+            &m,
+            &JobControl::new(job),
+            &InteractivePriority::new(),
+            &|_| Ok(vec![1.0, 0.0, 0.0]),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+
+        let it = &job_results(&db, job, 0, 10).unwrap()[0];
+        assert_eq!(it.status, "done");
+        assert!(
+            it.result_json.as_deref().unwrap().contains("\"persisted\":true"),
+            "an accepted result did not persist: {:?}",
+            it.result_json
+        );
+        assert_eq!(cards_for(&db, doc), 1, "an accepted support result wrote no card");
+
+        // ---- rejected: an invented chunk_id, fatal in both attempts ----
+        let db2 = Database::in_memory().unwrap();
+        let doc2 = seed_indexed_document(&db2);
+        let job2 = support_job(&db2, doc2);
+        let invented = r#"{"verdict":"strong","confidence":0.9,
+            "supporting_chunks":[{"chunk_id":"c999","page":5,"why":"Reports the increase."}],
+            "claim_elements":[{"element":"organic management","status":"found"}],
+            "explanation":"x","suggested_rewrite":null}"#;
+        let stats2 = Arc::new(Stats::default());
+        let m2 = manager_replying(stats2.clone(), invented);
+        run_job(
+            &db2,
+            &m2,
+            &JobControl::new(job2),
+            &InteractivePriority::new(),
+            &|_| Ok(vec![1.0, 0.0, 0.0]),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+
+        let it2 = &job_results(&db2, job2, 0, 10).unwrap()[0];
+        assert_eq!(it2.status, "failed", "an invented chunk_id must not be accepted");
+        assert_eq!(
+            cards_for(&db2, doc2),
+            0,
+            "a REJECTED support result wrote an evidence card — the grounding guarantee is broken"
+        );
+        assert_eq!(stats2.calls.load(Ordering::SeqCst), 2, "expected one retry, then failure");
     }
 
     /// Pause is not a finished state: the job stays `running` so the next
