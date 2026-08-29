@@ -189,6 +189,9 @@ pub struct ThesisHealth {
     /// citation_support verdicts, and citation_need needs_citation outcomes.
     pub verdict_breakdown: BTreeMap<String, i64>,
     pub unverifiable_reasons: BTreeMap<String, i64>,
+    /// Items that were never judged — a missing precondition rather than a
+    /// finding. Kept out of `flagged` and out of every verdict tally.
+    pub skipped_reasons: BTreeMap<String, i64>,
     pub flagged: Vec<FlaggedItem>,
 }
 
@@ -207,6 +210,7 @@ pub fn thesis_health(db: &Database, job_id: i64) -> Result<ThesisHealth, GaplyEr
 
     let mut verdicts: BTreeMap<String, i64> = BTreeMap::new();
     let mut reasons: BTreeMap<String, i64> = BTreeMap::new();
+    let mut skipped_reasons: BTreeMap<String, i64> = BTreeMap::new();
     let mut flagged = Vec::new();
 
     // Page through rather than loading 250 results at once.
@@ -219,11 +223,33 @@ pub fn thesis_health(db: &Database, job_id: i64) -> Result<ThesisHealth, GaplyEr
         offset += page.len() as i64;
         for item in page {
             let Some(raw) = item.result_json.as_deref() else { continue };
+            // A SKIPPED item was never judged — a missing precondition, not a
+            // finding. Counting it would put "the embedder wasn't installed"
+            // in the same list as "this claim is unsupported", which is the
+            // kind of blending the three-category split exists to prevent.
+            if item.status == "skipped" {
+                *skipped_reasons
+                    .entry(
+                        serde_json::from_str::<serde_json::Value>(raw)
+                            .ok()
+                            .and_then(|v| {
+                                v.get("reason")
+                                    .or_else(|| v.get("outcome"))
+                                    .and_then(|r| r.as_str())
+                                    .map(str::to_string)
+                            })
+                            .unwrap_or_else(|| "unspecified".to_string()),
+                    )
+                    .or_insert(0) += 1;
+                continue;
+            }
             let parsed: serde_json::Value =
                 serde_json::from_str(raw).unwrap_or(serde_json::Value::Null);
 
-            let mut flag = false;
-            match item.kind {
+            // The match is exhaustive and every arm decides, so `flag` is the
+            // match's value rather than a mutable that clippy can see is never
+            // read before assignment.
+            let flag = match item.kind {
                 ItemKind::CitationSupport => {
                     let verdict = parsed
                         .get("output")
@@ -234,7 +260,7 @@ pub fn thesis_health(db: &Database, job_id: i64) -> Result<ThesisHealth, GaplyEr
                         });
                     *verdicts.entry(format!("support:{verdict}")).or_insert(0) += 1;
                     // Anything but clean support is worth a human's eye.
-                    flag = !matches!(verdict, "strong");
+                    !matches!(verdict, "strong")
                 }
                 ItemKind::CitationNeed => {
                     let needs = parsed
@@ -247,7 +273,7 @@ pub fn thesis_health(db: &Database, job_id: i64) -> Result<ThesisHealth, GaplyEr
                         None => "need:unknown",
                     };
                     *verdicts.entry(key.to_string()).or_insert(0) += 1;
-                    flag = needs == Some(true);
+                    needs == Some(true)
                 }
                 ItemKind::Unverifiable => {
                     let reason = parsed
@@ -256,9 +282,9 @@ pub fn thesis_health(db: &Database, job_id: i64) -> Result<ThesisHealth, GaplyEr
                         .unwrap_or("unspecified")
                         .to_string();
                     *reasons.entry(reason).or_insert(0) += 1;
-                    flag = true;
+                    true
                 }
-            }
+            };
 
             if flag {
                 let evidence_chunk_ids = parsed
@@ -291,6 +317,7 @@ pub fn thesis_health(db: &Database, job_id: i64) -> Result<ThesisHealth, GaplyEr
         counts_per_category: counts,
         verdict_breakdown: verdicts,
         unverifiable_reasons: reasons,
+        skipped_reasons,
         flagged,
     })
 }
@@ -450,6 +477,38 @@ mod tests {
         assert_eq!(support.page, Some(2));
         assert_eq!(support.evidence_chunk_ids, vec![7, 9], "evidence refs were lost");
         assert!(support.result.is_some(), "the raw judgement must survive into the report");
+    }
+
+    /// Found by the real-model smoke: capped/skipped items were appearing as
+    /// unverifiable FINDINGS. An item that was never judged is a missing
+    /// precondition, and listing it beside "this claim is unsupported" is
+    /// exactly the blending the three-category split exists to prevent.
+    #[test]
+    fn a_skipped_item_is_not_a_finding() {
+        let db = Database::in_memory().unwrap();
+        let job = jobs::create_job(
+            &db,
+            "thesis_audit",
+            None,
+            "citation_support-v1.4",
+            &[NewItem {
+                seq: 0,
+                kind: ItemKind::Unverifiable,
+                chunk_id: None,
+                page: Some(1),
+                sentence: "Leaching fell (Jones, 2020).".into(),
+                payload_json: "{}".into(),
+            }],
+        )
+        .unwrap();
+        let it = jobs::claim_next_item(&db, job).unwrap().unwrap();
+        jobs::complete_item(&db, it.id, "skipped", Some(r#"{"reason":"capped by the operator"}"#), None)
+            .unwrap();
+
+        let h = thesis_health(&db, job).unwrap();
+        assert!(h.flagged.is_empty(), "a skipped item was reported as a finding: {:?}", h.flagged);
+        assert!(h.unverifiable_reasons.is_empty(), "a skipped item polluted the verdict tallies");
+        assert_eq!(h.skipped_reasons["capped by the operator"], 1, "the skip was not recorded");
     }
 
     /// A clean `strong` verdict is NOT flagged — otherwise the report is just

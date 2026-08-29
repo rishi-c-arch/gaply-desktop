@@ -985,3 +985,90 @@ mod tests {
         assert_eq!(jobs::remaining_items(&db, job).unwrap(), 4);
     }
 }
+
+/// Env-gated end-to-end smoke over the REAL bundled 0.5B.
+///
+/// Tests the JOB MACHINERY — plan, run, stream, resume-safety, report — not
+/// judgement quality. The 0.5B's answers are expected to be poor (§11 D34);
+/// what is being checked is that hours-long batch work completes, retires every
+/// item exactly once, and produces a readable report.
+///
+/// Off by default because it loads a real model and takes minutes:
+/// `GAPLY_SMOKE_AUDIT=1 cargo test -p app smoke_audit -- --nocapture --ignored`
+#[cfg(test)]
+mod smoke {
+    use super::*;
+    use gaply_core::ai_engine::{jobs, thesis_audit};
+
+    // multi_thread: the runner uses spawn_blocking for generation, and
+    // block_in_place below needs more than the single-threaded test runtime.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "loads the real 0.5B; run with GAPLY_SMOKE_AUDIT=1"]
+    async fn smoke_audit_runs_ten_items_end_to_end_on_the_bundled_model() {
+        if std::env::var("GAPLY_SMOKE_AUDIT").ok().as_deref() != Some("1") {
+            eprintln!("skipped: set GAPLY_SMOKE_AUDIT=1 to run");
+            return;
+        }
+        let Some(loader) = crate::ai::generative::BundledGenerativeLoader::resolve() else {
+            panic!("no bundled generative model resolved — the smoke needs the 0.5B");
+        };
+
+        let dir = std::env::temp_dir().join(format!("gaply-smoke-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("chapter.txt");
+        std::fs::write(
+            &path,
+            include_str!("../../gaply-core/src/ai_engine/testdata/thesis_chapter.txt"),
+        )
+        .unwrap();
+
+        let db = Database::in_memory().unwrap();
+        let plan = tokio::task::block_in_place(|| {
+            thesis_audit::plan_thesis_audit(&db, &path, "citation_need-v2")
+        })
+        .unwrap();
+        println!("\n=== PLAN ===\n{}", serde_json::to_string_pretty(&plan).unwrap());
+
+        // Cap the run: this is a machinery test, not an audit.
+        let capped = {
+            let all = jobs::job_results(&db, plan.job_id, 0, 1000).unwrap();
+            let keep: Vec<_> = all.iter().take(10).map(|i| i.seq).collect();
+            for item in all.iter().filter(|i| !keep.contains(&i.seq)) {
+                jobs::complete_item(&db, item.id, "skipped", Some(r#"{"capped":true}"#), None)
+                    .unwrap();
+            }
+            keep.len()
+        };
+
+        let manager = ModelManager::new(Arc::new(loader));
+        let control = JobControl::new(plan.job_id);
+        let started = std::time::Instant::now();
+        let outcome = run_job(
+            &db,
+            &manager,
+            &control,
+            &InteractivePriority::new(),
+            &|_| Err(gaply_core::GaplyError::Validation("no embedder in the smoke".into())),
+            &|p| println!("  progress {}/{} — {}", p.completed, p.total, p.latest_item_summary),
+        )
+        .await
+        .unwrap();
+        let elapsed = started.elapsed();
+
+        assert_eq!(outcome, RunOutcome::Completed);
+        assert_eq!(jobs::remaining_items(&db, plan.job_id).unwrap(), 0);
+
+        let health = thesis_audit::thesis_health(&db, plan.job_id).unwrap();
+        println!("\n=== WALL TIME ===\n{capped} items in {elapsed:?} ({:.1} s/item)",
+            elapsed.as_secs_f64() / capped.max(1) as f64);
+        println!("\n=== THESIS HEALTH ===\n{}", serde_json::to_string_pretty(&health).unwrap());
+
+        // Every item retired exactly once — the machinery guarantee.
+        let all = jobs::job_results(&db, plan.job_id, 0, 1000).unwrap();
+        assert!(all.iter().all(|i| matches!(i.status.as_str(), "done" | "failed" | "skipped")));
+        assert!(all.iter().all(|i| i.result_json.is_some()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
