@@ -25,6 +25,7 @@ import {
 import { formatBibliography, formatCitation, canFormatStyle } from './formatCitation';
 import { prepareStyle, isStyleReady } from './cslEngine';
 import { StylePicker } from './StylePicker';
+import { CitationEditor } from './CitationEditor';
 import {
   applyVerification,
   RefVerifyBridge,
@@ -156,6 +157,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const [query, setQuery] = useState('');
   // Which card's overflow menu is open (null = none). Pure UI state.
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  // Which citation the metadata editor is open on (null = closed). D1.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
   const [tagInput, setTagInput] = useState('');
   // Import (Set 2b-i)
@@ -361,7 +364,14 @@ const Inner: React.FC<CitationManagerPageProps> = ({
         csl: {
           id: doi,
           type: 'article-journal',
-          title: v.exists.title?.safe_text ?? doi,
+          // A missing title was substituted with the DOI STRING, so the card
+          // showed a paper titled "10.1234/foo" — a fabricated value dressed as
+          // metadata, and one computeStatus reads as a present title. It stays
+          // EMPTY now, which reports honestly as malformed AND is fixable: this
+          // ships in the same commit as the editor, because removing the
+          // substitution any earlier would leave a blank card nobody could
+          // repair, and leaving it any later ships the lie a commit longer.
+          title: v.exists.title?.safe_text ?? '',
           author: [],
           DOI: doi,
         },
@@ -657,17 +667,38 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     );
   };
 
+  /* ------------------------- metadata editor (D1) ------------------------ */
+  // ONE write on Save, not a per-keystroke stream — the dialog owns the draft
+  // and persistUpdate only sees the committed result.
+  const saveEdits = async (next: Citation) => {
+    setEditingId(null);
+    await persistUpdate(next);
+    setSelectedId(next.id);
+  };
+
   /* -------------------------- add way #3: manual ------------------------- */
   const addManual = async () => {
+    // csl.id was the literal string 'manual' for EVERY manual entry. That is a
+    // real correctness bug — a shared CSL id confuses citeproc's bibliography
+    // and RIS takes its ID field straight from it — so it gets a unique id
+    // here. It was NOT, however, the cause of the duplicate BibTeX keys; see
+    // decollideBibtexKeys in exporters.ts for what actually produces those.
+    const id = newId('manual');
     const c: Citation = {
-      id: newId('manual'),
-      csl: { id: 'manual', type: 'article-journal', title: 'Untitled — edit details', author: [] },
+      id,
+      csl: { id, type: 'article-journal', title: 'Untitled — edit details', author: [] },
       doi: null,
       retracted: false,
       source: 'manual',
     };
     const r = await persistAndAdd(c);
-    if (r === 'added') toast('Manual entry added — fill in the details', 'neutral');
+    if (r === 'added') {
+      // Open the editor on the entry we just made. The placeholder title says
+      // "edit details", which until now was an instruction with nowhere to
+      // carry it out; this is that place.
+      setEditingId(c.id);
+      toast('Manual entry added — fill in the details', 'neutral');
+    }
   };
 
   /* ----------------------------- bulk actions --------------------------- */
@@ -1380,6 +1411,19 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                           <button
                             type="button"
                             role="menuitem"
+                            data-testid={`cite-edit-${c.id}`}
+                            onClick={() => {
+                              setOpenMenuId(null);
+                              setSelectedId(c.id);
+                              setEditingId(c.id);
+                            }}
+                          >
+                            <span className="material-symbols-outlined text-base" aria-hidden="true">edit</span>
+                            Edit details
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
                             onClick={() => {
                               setOpenMenuId(null);
                               void removeCitations([c.id]);
@@ -1439,6 +1483,15 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                   <Formatted text={formatCitation(selected.csl, style)} />
                 )}
               </div>
+              <button
+                type="button"
+                data-testid="detail-edit"
+                onClick={() => setEditingId(selected.id)}
+                className="mb-4 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-label text-sm hover:bg-surface-container-high transition-colors"
+              >
+                <span className="material-symbols-outlined text-base" aria-hidden="true">edit</span>
+                Edit details
+              </button>
               <div className="mb-4" data-testid="cm-tags">
                 <div className="flex flex-wrap items-center gap-2">
                   {(selected.tags ?? []).map((t) => (
@@ -1495,6 +1548,14 @@ const Inner: React.FC<CitationManagerPageProps> = ({
           )}
         </aside>
       </main>
+
+      <CitationEditor
+        open={editingId !== null}
+        citation={citations.find((c) => c.id === editingId) ?? null}
+        style={style}
+        onCancel={() => setEditingId(null)}
+        onSave={(next) => void saveEdits(next)}
+      />
     </div>
   );
 };

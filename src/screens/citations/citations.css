@@ -378,3 +378,38 @@
 .cm-sticky-header {
   background: rgb(var(--cm-surface) / 0.9);
 }
+
+/* Citation editor (D1) — LAYOUT ONLY. This sits inside the design-system Modal
+   and deliberately inherits that chrome's colours instead of restating the
+   Archive palette: the styling seam is chosen, not inherited (see the header of
+   CitationEditor.tsx). Do NOT add --cm-* colour tokens here — two components
+   sharing the DS language is consistency; one with bespoke overrides is drift. */
+.cm-editor { display: flex; flex-direction: column; gap: 12px; min-width: min(560px, 78vw); }
+.cm-editor__field { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.cm-editor__label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
+.cm-editor__input {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  border-color: color-mix(in srgb, currentColor 25%, transparent);
+}
+.cm-editor__input:focus { outline: none; border-color: color-mix(in srgb, currentColor 55%, transparent); }
+.cm-editor__row { display: flex; gap: 10px; flex-wrap: wrap; }
+.cm-editor__author { display: flex; gap: 6px; align-items: center; }
+.cm-editor__author .cm-editor__input { flex: 1; min-width: 0; }
+.cm-editor__addauthor { align-self: flex-start; font-size: 12px; padding: 3px 8px; }
+.cm-editor__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+.cm-editor__preview p { margin: 0; font-size: 13px; line-height: 1.5; }
+.cm-editor__hint { opacity: 0.6; font-style: italic; }
+.cm-editor__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
