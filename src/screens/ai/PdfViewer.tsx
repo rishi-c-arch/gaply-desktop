@@ -10,6 +10,7 @@
 // every page would allocate hundreds of canvases at once and hang the webview.
 // Only a WINDOW around the current page is mounted; the rest are spacer divs of
 // the same height, so the scrollbar still describes the whole document.
+import './ai.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Document, Page } from 'react-pdf';
 import { Modal } from '../../design-system/Modal';

@@ -12,6 +12,7 @@
 // shown alone.** It is not a convention here, it is the type — see
 // `EvidenceCardProps`, where `explanation` and `evidence` arrive together in one
 // required object and there is no way to pass one without the other.
+import './ai.css';
 import React, { useState } from 'react';
 import { Badge, BadgeStatus } from '../../design-system/primitives';
 import { PdfViewer } from './PdfViewer';

@@ -1,0 +1,231 @@
+/* Gaply — Citation Intelligence surfaces. Namespaced gds-* under .gds-root,
+   following primitives.css: nothing here can leak into or restyle the app. */
+
+/* ------------------------------ PDF viewer ------------------------------- */
+
+.gds-root .gds-pdf__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px 12px;
+  border-bottom: 1px solid var(--g-border);
+  color: var(--g-text-2);
+  font-size: var(--g-text-size-sm);
+  position: sticky;
+  top: 0;
+  background: var(--g-bg-layer1);
+  z-index: 1;
+}
+
+.gds-root .gds-pdf__scroll {
+  /* The viewer is the modal's tall content: a fixed height with its own scroll
+     keeps the page window stable while the document scrolls beneath it. */
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--g-bg-layer2);
+  padding: 8px;
+}
+
+.gds-root .gds-pdf__scroll canvas {
+  display: block;
+  margin: 0 auto 12px;
+  max-width: 100%;
+  height: auto;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+}
+
+.gds-root .gds-pdf__error {
+  color: var(--g-flagged);
+  font-size: var(--g-text-size-sm);
+  padding: 12px 4px;
+}
+
+/* ---------------------------- Evidence (D18) ----------------------------- */
+
+.gds-root .gds-evidence {
+  border: 1px solid var(--g-border);
+  border-radius: 8px;
+  background: var(--g-bg-layer2);
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+
+/* The ungrounded refusal is deliberately plain: it is not a finding, and it
+   must not look like one. */
+.gds-root .gds-evidence--ungrounded {
+  border-style: dashed;
+  color: var(--g-text-3);
+}
+
+.gds-root .gds-evidence__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.gds-root .gds-evidence__confidence {
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.gds-root .gds-evidence__explanation {
+  margin: 0 0 10px;
+  color: var(--g-text);
+  line-height: 1.5;
+}
+
+.gds-root .gds-evidence__advisories {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  color: var(--g-assessed);
+  font-size: var(--g-text-size-sm);
+}
+
+.gds-root .gds-evidence__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--g-border);
+  padding-top: 10px;
+}
+
+.gds-root .gds-evidence__row + .gds-evidence__row {
+  margin-top: 12px;
+  border-top: 1px dashed var(--g-border);
+  padding-top: 12px;
+}
+
+.gds-root .gds-evidence__ref {
+  padding: 2px 0;
+  font-size: var(--g-text-size-sm);
+  text-align: left;
+}
+
+.gds-root .gds-evidence__ref:not(:disabled) {
+  color: var(--g-accent);
+  text-decoration: underline;
+}
+
+.gds-root .gds-evidence__missing {
+  display: block;
+  color: var(--g-flagged);
+  font-size: var(--g-text-size-sm);
+  margin: 2px 0 4px;
+}
+
+/* The quote carries the weight: it is the thing the prose is checked against,
+   so it is set apart rather than tucked under. */
+.gds-root .gds-evidence blockquote {
+  margin: 6px 0 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--g-border-strong);
+  background: var(--g-bg-layer1);
+  color: var(--g-text-2);
+  font-size: var(--g-text-size-sm);
+  line-height: 1.5;
+}
+
+/* ------------------------------ AI status -------------------------------- */
+
+.gds-root .gds-ai__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--g-border);
+}
+
+.gds-root .gds-ai__row:last-child { border-bottom: none; }
+
+.gds-root .gds-ai__label { color: var(--g-text-2); }
+.gds-root .gds-ai__value {
+  color: var(--g-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.gds-root .gds-ai__hint {
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-sm);
+  margin: 6px 0 0;
+}
+
+.gds-root .gds-ai__progress {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--g-bg-layer1);
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.gds-root .gds-ai__progress > div {
+  height: 100%;
+  background: var(--g-accent);
+  transition: width 120ms linear;
+}
+
+/* --------------------------- Audit / job screens -------------------------- */
+
+.gds-root .gds-audit__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.gds-root .gds-audit__stat {
+  border: 1px solid var(--g-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--g-bg-layer2);
+}
+
+.gds-root .gds-audit__stat b {
+  display: block;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  color: var(--g-text);
+}
+
+.gds-root .gds-audit__stat span {
+  color: var(--g-text-3);
+  font-size: var(--g-text-size-sm);
+}
+
+.gds-root .gds-audit__group {
+  margin: 16px 0;
+}
+
+.gds-root .gds-audit__group > h4 {
+  margin: 0 0 8px;
+  color: var(--g-text-2);
+  font-size: var(--g-text-size-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gds-root .gds-audit__item {
+  border: 1px solid var(--g-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--g-bg-layer2);
+}
+
+.gds-root .gds-audit__sentence {
+  color: var(--g-text);
+  line-height: 1.5;
+  margin: 4px 0 8px;
+}
+
+.gds-root .gds-audit__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
