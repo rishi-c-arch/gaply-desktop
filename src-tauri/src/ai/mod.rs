@@ -18,6 +18,7 @@
 
 pub mod device;
 pub mod embeddings;
+pub mod job_runner;
 pub mod evidence;
 pub mod generative;
 pub mod model_manager;
