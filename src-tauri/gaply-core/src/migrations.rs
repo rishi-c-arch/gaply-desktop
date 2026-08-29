@@ -682,6 +682,37 @@ pub const MIGRATIONS: &[Migration] = &[
             ALTER TABLE ai_jobs DROP COLUMN summary_json;
         ",
     },
+    Migration {
+        version: 17,
+        name: "citation_document_links",
+        // Phase 8b: the FK that Phase 8 recorded as missing.
+        //
+        // The audit had to join citation_library to documents by normalised
+        // TITLE, recomputed on every run, so a source indexed under a different
+        // title reported "unverifiable" even though its text was present.
+        //
+        // ADDITIVE: one new table, nothing existing is touched. The link is
+        // many-to-many on purpose — one work can have several indexed copies
+        // (a preprint and the published version), and one file can back several
+        // library entries (a chapter cited separately from its book).
+        //
+        // `matched_by` records HOW the link was made, because the three are not
+        // equally trustworthy: a DOI is an identifier, a title is a heuristic,
+        // and a human is neither. Storing it lets a reader weigh a link rather
+        // than having to trust all links equally.
+        up: "
+            CREATE TABLE citation_documents (
+                citation_id TEXT NOT NULL REFERENCES citation_library(id) ON DELETE CASCADE,
+                document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                matched_by  TEXT NOT NULL CHECK (matched_by IN ('title','doi','manual')),
+                created_at  INTEGER NOT NULL,
+                UNIQUE (citation_id, document_id)
+            );
+            CREATE INDEX idx_citation_documents_citation ON citation_documents(citation_id);
+            CREATE INDEX idx_citation_documents_document ON citation_documents(document_id);
+        ",
+        down: "DROP TABLE citation_documents;",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -825,6 +856,7 @@ mod tests {
         assert_eq!(
             reverted,
             vec![
+                "citation_document_links",
                 "ai_engine_phase8_jobs",
                 "ai_engine_phase2",
                 "ai_engine_phase1",
@@ -910,10 +942,11 @@ mod tests {
                 "evidence_claim_kind",
                 "ai_engine_phase1",
                 "ai_engine_phase2",
-                "ai_engine_phase8_jobs"
+                "ai_engine_phase8_jobs",
+                "citation_document_links"
             ]
         );
-        assert_eq!(current_version(&conn).unwrap(), 16);
+        assert_eq!(current_version(&conn).unwrap(), 17);
 
         // the column + index now exist; the pre-existing row is intact, NULL id
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -956,7 +989,8 @@ mod tests {
                 "evidence_claim_kind",
                 "ai_engine_phase1",
                 "ai_engine_phase2",
-                "ai_engine_phase8_jobs"
+                "ai_engine_phase8_jobs",
+                "citation_document_links"
             ]
         );
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -983,8 +1017,8 @@ mod tests {
 
         // apply v11 (+ v12 rides along; it does not touch citation_library)
         let applied = migrate_up(&mut conn).unwrap();
-        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs"]);
-        assert_eq!(current_version(&conn).unwrap(), 16);
+        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links"]);
+        assert_eq!(current_version(&conn).unwrap(), 17);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(column_names(&conn, "citation_library").iter().any(|n| n == c), "missing column {c}");
         }
@@ -1013,7 +1047,7 @@ mod tests {
 
         // down to v10 peels v12 (evidence_store) then v11 (the subject here).
         let reverted = migrate_down(&mut conn, 10).unwrap();
-        assert_eq!(reverted, vec!["ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1", "evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
+        assert_eq!(reverted, vec!["citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1", "evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(!column_names(&conn, "citation_library").iter().any(|n| n == c), "{c} should be dropped");
         }
@@ -1021,7 +1055,7 @@ mod tests {
 
         // re-applies cleanly (idempotent up after a partial down): v11 + v12
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs"]);
+        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links"]);
     }
 
     /* ------------------------- v14: AI engine, Phase 1 --------------------- */
@@ -1040,7 +1074,7 @@ mod tests {
     fn v14_round_trips_and_touches_no_existing_table() {
         let mut conn = test_connection();
         migrate_up(&mut conn).unwrap();
-        assert_eq!(current_version(&conn).unwrap(), 16);
+        assert_eq!(current_version(&conn).unwrap(), 17);
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "missing {t}");
         }
@@ -1054,7 +1088,7 @@ mod tests {
 
         // down → every ai_ table is gone, everything else survives
         let reverted = migrate_down(&mut conn, 13).unwrap();
-        assert_eq!(reverted, vec!["ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1"]);
+        assert_eq!(reverted, vec!["citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1"]);
         assert_eq!(current_version(&conn).unwrap(), 13);
         for t in AI_TABLES {
             assert!(!table_names(&conn).iter().any(|n| n == t), "{t} survived the down migration");
@@ -1064,7 +1098,7 @@ mod tests {
 
         // and re-applies cleanly
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs"]);
+        assert_eq!(reapplied, vec!["ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links"]);
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "{t} missing after re-apply");
         }
@@ -1158,14 +1192,14 @@ mod tests {
         assert!(table_names(&conn).iter().any(|t| t == "ai_chunks_fts"));
 
         let reverted = migrate_down(&mut conn, 14).unwrap();
-        assert_eq!(reverted, vec!["ai_engine_phase8_jobs", "ai_engine_phase2"]);
+        assert_eq!(reverted, vec!["citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2"]);
         assert!(!table_names(&conn).iter().any(|t| t == "ai_chunks_fts"), "fts survived the down");
         assert!(!column_names(&conn, "ai_chunk_embeddings").iter().any(|c| c == "preprocessing_version"));
         // v14's tables are all still there — the down is scoped to v15.
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "{t} lost by the v15 down");
         }
-        assert_eq!(migrate_up(&mut conn).unwrap(), vec!["ai_engine_phase2", "ai_engine_phase8_jobs"]);
+        assert_eq!(migrate_up(&mut conn).unwrap(), vec!["ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links"]);
     }
 
     #[test]
