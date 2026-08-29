@@ -371,6 +371,89 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Phase 8b, and the number the findings report. Same chapter, same
+    /// planner, one linked source — a sentence that was `unverifiable` becomes
+    /// a real `citation_support` item the audit can actually check.
+    #[test]
+    fn linking_one_source_turns_an_unverifiable_sentence_into_a_support_item() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("link");
+        let path = write_fixture(&dir);
+
+        // ---- BEFORE: nothing in the library ----
+        let before = plan_thesis_audit(&db, &path, "citation_need-v2").unwrap();
+        assert_eq!(before.queued_citation_support, 0);
+        let unverifiable_before = before.queued_unverifiable;
+        assert!(unverifiable_before >= 19, "{before:?}");
+
+        // ---- link ONE source, deliberately under a DIFFERENT title so the
+        // old title-only join could not have found it ----
+        {
+            let conn = db.conn().unwrap();
+            conn.execute(
+                "INSERT INTO citation_library (id, csl_json, doi, title, authors, year, created_at, updated_at)
+                 VALUES ('lib-smith', '{}', '10.1234/soil', 'Soil invertebrates under intensification',
+                         'Smith, J.', 2019, 1, 1)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO documents (source_type, title, source_url, fetched_at, checksum, status, created_at)
+                 VALUES ('pdf', 'smith_2019_scan_FINAL_v2', 'https://doi.org/10.1234/soil', 1, 'ck-s', 'ready', 1)",
+                [],
+            )
+            .unwrap();
+            let doc = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO ai_model_registry (id, kind, display_name, file_path, registered_at)
+                 VALUES ('emb', 'embedding', 'emb', '/x', 1)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO ai_chunks (document_id, page, char_start, char_end, content,
+                                        token_estimate, content_hash, created_at)
+                 VALUES (?1, 1, 0, 20, 'richness rose 31 percent', 4, 'h-s', 1)",
+                rusqlite::params![doc],
+            )
+            .unwrap();
+            let chunk = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO ai_chunk_embeddings (chunk_id, model_id, preprocessing_version, dim, vector, created_at)
+                 VALUES (?1, 'emb', 'p1', 1, X'00', 1)",
+                rusqlite::params![chunk],
+            )
+            .unwrap();
+        }
+        let report = crate::citation_links::link_citations(&db).unwrap();
+        assert_eq!(report.linked_by_doi, 1, "the DOI link did not form");
+        assert_eq!(report.linked_by_title, 0, "the titles differ; a title match would be wrong");
+
+        // ---- AFTER: replan ----
+        let after = plan_thesis_audit(&db, &path, "citation_need-v2").unwrap();
+        assert_eq!(
+            after.queued_citation_support, 1,
+            "the linked source did not become a checkable item"
+        );
+        assert_eq!(
+            after.queued_unverifiable,
+            unverifiable_before - 1,
+            "exactly one sentence should have moved from unverifiable to support"
+        );
+        assert_eq!(
+            after.queued_citation_need, before.queued_citation_need,
+            "linking must not disturb uncited sentences"
+        );
+
+        // and the item carries the document the audit will retrieve from
+        let items = jobs::job_results(&db, after.job_id, 0, 500).unwrap();
+        let support = items.iter().find(|i| i.kind == ItemKind::CitationSupport).unwrap();
+        assert!(support.payload_json.contains("documentId"));
+        assert!(support.sentence.contains("(Smith, 2019)"), "{}", support.sentence);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn an_unsupported_format_is_refused_before_any_work() {
         let db = Database::in_memory().unwrap();

@@ -248,34 +248,19 @@ impl Resolution {
     }
 }
 
-/// Normalise a title for matching: lowercase, collapse whitespace, drop
-/// punctuation. Deliberately crude — see [`resolve_marker`].
-fn normalise_title(t: &str) -> String {
-    t.chars()
-        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
-        .collect::<String>()
-        .to_lowercase()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 /// Can this marker's source actually be checked against evidence?
 ///
-/// # The join is by TITLE, and that is a real limitation
+/// # Reads the LINK TABLE (Phase 8b, migration v17)
 ///
-/// There is no `citation_library` → `documents` foreign key in the schema. The
-/// only link that exists is `plagiarism_library.citation_id`, which points at
-/// stored full text rather than at an AI-indexed document. Rather than invent a
-/// link table in this phase, this matches the library entry's title against
-/// `documents.title`.
+/// Phase 8 joined `citation_library` to `documents` by normalised title, inline
+/// and recomputed on every audit, and recorded the consequence: a source
+/// indexed under a different title reported `Unverifiable` even though its text
+/// was present.
 ///
-/// **Consequence, stated so it is not rediscovered as a bug:** a source whose
-/// indexed document is titled differently from its library record resolves as
-/// `Unverifiable` even though the text is present. That is the SAFE direction —
-/// it under-claims rather than checking a claim against the wrong document —
-/// but it will under-report, and a real link table is the fix when one is
-/// wanted.
+/// Linking now happens once, in [`crate::citation_links`], with DOI matches
+/// preferred over title matches and the method recorded per link. This function
+/// asks that table rather than re-deriving a heuristic, so an audit's verdict
+/// about availability is the same one the user can see and correct.
 pub fn resolve_marker(
     db: &crate::db::Database,
     marker: &Marker,
@@ -290,16 +275,23 @@ pub fn resolve_marker(
         });
     };
 
-    let conn = db.conn()?;
-    let mut stmt = conn.prepare(
-        "SELECT id, title FROM citation_library
-         WHERE LOWER(authors) LIKE ?1 AND (?2 IS NULL OR year = ?2)
-         LIMIT 2",
-    )?;
-    let like = format!("%{lead}%");
-    let hits: Vec<(String, String)> = stmt
-        .query_map(params![like, marker.year], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<Result<Vec<_>, _>>()?;
+    // Scoped so the pooled connection is released before the link lookup below
+    // asks for one of its own — the pool is small, and holding one across the
+    // call deadlocks rather than failing loudly.
+    let hits: Vec<(String, String)> = {
+        let conn = db.conn()?;
+        let like = format!("%{lead}%");
+        let mut stmt = conn.prepare(
+            "SELECT id, title FROM citation_library
+             WHERE LOWER(authors) LIKE ?1 AND (?2 IS NULL OR year = ?2)
+             LIMIT 2",
+        )?;
+        let rows = stmt
+            .query_map(params![like, marker.year], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        rows
+    };
 
     let Some((library_id, title)) = hits.first().cloned() else {
         return Ok(Resolution::Unverifiable {
@@ -307,29 +299,18 @@ pub fn resolve_marker(
         });
     };
 
-    // Indexed AND embedded. Chunks alone are not enough — retrieval needs
-    // vectors, and a document with none would produce NoEvidence for every
-    // claim, which reads like a model failure rather than a missing index.
-    let doc: Option<i64> = conn
-        .query_row(
-            "SELECT d.id FROM documents d
-             WHERE LOWER(d.title) = ?1
-               AND EXISTS (SELECT 1 FROM ai_chunks c WHERE c.document_id = d.id)
-               AND EXISTS (
-                   SELECT 1 FROM ai_chunks c
-                   JOIN ai_chunk_embeddings e ON e.chunk_id = c.id
-                   WHERE c.document_id = d.id
-               )
-             LIMIT 1",
-            params![normalise_title(&title)],
-            |r| r.get(0),
-        )
-        .ok();
-
-    match doc {
-        Some(document_id) => Ok(Resolution::Checkable { library_id, document_id }),
+    match crate::citation_links::checkable_document_for_citation(db, &library_id)? {
+        Some((document_id, _matched_by)) => {
+            Ok(Resolution::Checkable { library_id, document_id })
+        }
         None => Ok(Resolution::Unverifiable {
-            reason: format!("source not indexed or not embedded: {title}"),
+            // Two different states, named differently, because they need
+            // different things from the user: link the file, or index it.
+            reason: if crate::citation_links::documents_for_citation(db, &library_id)?.is_empty() {
+                format!("no indexed document is linked to this work: {title}")
+            } else {
+                format!("the linked document is not indexed or not embedded: {title}")
+            },
         }),
     }
 }
@@ -514,9 +495,10 @@ mod tests {
              VALUES ('lib-1', '{}', 'Organic Management and Soil Life', 'Smith, J.', 2019, 1, 1)",
             &[],
         );
+        // In the library, but nothing is linked to it yet.
         let r = resolve_marker(&db, &marker("Smith", 2019)).unwrap();
         assert!(
-            matches!(&r, Resolution::Unverifiable { reason } if reason.contains("not indexed")),
+            matches!(&r, Resolution::Unverifiable { reason } if reason.contains("no indexed document is linked")),
             "{r:?}"
         );
 
@@ -546,6 +528,10 @@ mod tests {
              VALUES (?1, 'bge-small-en-v1.5', 'bge-v1.5-p2', 1, X'00', 1)",
             &[&chunk],
         );
+
+        // Phase 8b: availability is a LINK, established once, not a title
+        // join recomputed inside every audit.
+        crate::citation_links::link_citations(&db).unwrap();
 
         let r = resolve_marker(&db, &marker("Smith", 2019)).unwrap();
         assert!(matches!(&r, Resolution::Checkable { document_id, .. } if *document_id == doc), "{r:?}");
@@ -577,9 +563,10 @@ mod tests {
              VALUES (?1, 1, 0, 5, 'text', 1, 'h2', 1)",
             &[&doc],
         );
+        crate::citation_links::link_citations(&db).unwrap();
         let r = resolve_marker(&db, &marker("Jones", 2020)).unwrap();
         assert!(
-            matches!(&r, Resolution::Unverifiable { reason } if reason.contains("not embedded") || reason.contains("not indexed")),
+            matches!(&r, Resolution::Unverifiable { reason } if reason.contains("not indexed or not embedded")),
             "chunks without vectors must not be called checkable: {r:?}"
         );
     }

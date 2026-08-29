@@ -2557,3 +2557,20 @@ pub async fn ai_job_results(
     .await
     .map_err(|e| GaplyError::Internal(format!("results task panicked: {e}")))?
 }
+
+/// Build or refresh `citation_library` → `documents` links (Phase 8b).
+///
+/// Deterministic and model-free. Run after importing citations or indexing
+/// documents: it decides which cited works an audit can actually check, so the
+/// report is returned rather than left silent.
+#[tauri::command]
+pub async fn ai_link_citations(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, GaplyError> {
+    let db = state.db.clone();
+    let report =
+        tokio::task::spawn_blocking(move || gaply_core::citation_links::link_citations(&db))
+            .await
+            .map_err(|e| GaplyError::Internal(format!("link task panicked: {e}")))??;
+    Ok(serde_json::to_value(&report).unwrap_or(serde_json::Value::Null))
+}
