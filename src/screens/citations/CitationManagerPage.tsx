@@ -26,6 +26,7 @@ import { formatBibliography, formatCitation, canFormatStyle } from './formatCita
 import { prepareStyle, isStyleReady } from './cslEngine';
 import { StylePicker } from './StylePicker';
 import { CitationEditor } from './CitationEditor';
+import { CitationAiPanel } from '../ai/CitationAiPanel';
 import {
   applyVerification,
   RefVerifyBridge,
@@ -53,6 +54,9 @@ export interface CitationManagerPageProps {
   extractedCitations?: Citation[];
   /** Pre-seed the library (tests / demo). */
   initialCitations?: Citation[];
+  /** Is the local AI usable? Decided by the route; false shows the install
+   *  affordance rather than buttons that cannot work. */
+  aiInstalled?: boolean;
 }
 
 type CollectionId = 'all' | 'retracted' | 'orphans' | 'manuscript';
@@ -125,6 +129,10 @@ function newId(seed: string): string {
 }
 
 const Inner: React.FC<CitationManagerPageProps> = ({
+  // AI readiness is decided by the ROUTE, not here: probing inside this page
+  // fired a late state update that raced the style-picker tests' fetch mock,
+  // and the citation manager has no business owning that question anyway.
+  aiInstalled = false,
   refverify,
   citationService,
   localLibrary,
@@ -159,6 +167,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   // Which citation the metadata editor is open on (null = closed). D1.
   const [editingId, setEditingId] = useState<string | null>(null);
+
   const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
   const [tagInput, setTagInput] = useState('');
   // Import (Set 2b-i)
@@ -1543,6 +1552,26 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                     {selected.provenance.slice(0, 3).join('  ·  ')}
                   </div>
                 )}
+              </div>
+
+              {/* AI assistance sits BELOW everything deterministic above, which
+                  is instant and untouched. Order is the contract: the certain
+                  half never waits on the uncertain one. */}
+              <div className="gds-root mt-4">
+                <CitationAiPanel
+                  sentence={selected.csl.title ?? ''}
+                  documentId={null}
+                  // A PLAIN label, not formatCitation: that throws while a
+                  // chosen style is still being prepared, and every other call
+                  // site guards it behind canFormatStyle. The evidence rows
+                  // need a name for the source, not a formatted reference.
+                  citedSource={
+                    selected.csl.title ||
+                    selected.doi ||
+                    'Cited source'
+                  }
+                  aiInstalled={aiInstalled}
+                />
               </div>
             </div>
           )}

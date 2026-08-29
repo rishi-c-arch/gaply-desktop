@@ -54,6 +54,7 @@ const GaplyReportRoute = React.lazy(() => import('./screens/GaplyScreens').then(
 const GaplyPlagiarismRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.PlagiarismCheckRoute })));
 const GaplyAiCheckRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.AiCheckRoute })));
 const GaplyStatsCheckRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.StatsCheckRoute })));
+const GaplyThesisAuditRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.ThesisAuditRoute })));
 const GaplyCitationRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.CitationManagerRoute })));
 const GaplyNotesRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.NoteCreatorRoute })));
 const GaplyJournalRoute = React.lazy(() => import('./screens/GaplyScreens').then((m) => ({ default: m.JournalCheckRoute })));
@@ -651,6 +652,9 @@ const AppContent: React.FC = () => {
           {isFeatureEnabled('statsCheck') && (
             <Route path="/app/check/stats" element={<Suspense fallback={null}><GaplyStatsCheckRoute /></Suspense>} />
           )}
+          {/* Citation Intelligence — its own route, deliberately NOT behind the
+              statsCheck flag, which gates an unrelated feature. */}
+          <Route path="/app/check/citations" element={<Suspense fallback={null}><GaplyThesisAuditRoute /></Suspense>} />
           <Route path="/app/citations" element={<Suspense fallback={null}><GaplyCitationRoute /></Suspense>} />
           <Route path="/app/notes" element={<Suspense fallback={null}><GaplyNotesRoute /></Suspense>} />
           <Route path="/app/journal" element={<Suspense fallback={null}><GaplyJournalRoute /></Suspense>} />

@@ -34,6 +34,7 @@ import {
   writeAppearance,
 } from './settingsStore';
 import { ConnectivityIndicator } from './connectivity';
+import { AiStatusPanel } from '../ai/AiStatusPanel';
 import './settings.css';
 
 /** Bundled offline packs (shipped inside the app, usable with zero network). */
@@ -48,6 +49,7 @@ const SECTIONS = [
   { id: 'offline', label: 'Offline Data' },
   { id: 'subscription', label: 'Subscription' },
   { id: 'appearance', label: 'Appearance' },
+  { id: 'ai', label: 'Local AI' },
   { id: 'about', label: 'About' },
 ];
 
@@ -373,6 +375,11 @@ const Inner: React.FC<SettingsPageProps> = ({ profileService }) => {
               </section>
 
               {/* ------------------------------ About ----------------------------- */}
+              {/* ---------------------------- Local AI ---------------------------- */}
+              <section id="set-ai">
+                <AiStatusPanel />
+              </section>
+
               <section id="set-about">
                 <Card title="About">
                   <p className="gds-set__muted">

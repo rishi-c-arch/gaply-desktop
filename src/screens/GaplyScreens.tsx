@@ -23,6 +23,8 @@ import LiveReportPage from './report/LiveReportPage';
 import PlagiarismCheckPage from './checks/PlagiarismCheckPage';
 import AiCheckPage from './checks/AiCheckPage';
 import StatsCheckPage from './checks/StatsCheckPage';
+import ThesisAuditPage from './ai/ThesisAuditPage';
+import { aiBridge, isAiReady } from './ai/aiReady';
 import CitationManagerPage from './citations/CitationManagerPage';
 import NoteCreatorPage from './notes/NoteCreatorPage';
 import JournalCheckPage from './journal/JournalCheckPage';
@@ -109,16 +111,35 @@ export const StatsCheckRoute: React.FC = () => (
     </RequireAuth>
   </GaplySessionProvider>
 );
-
-/** /app/citations — Citation Manager (F8). Free-offline; metadata syncs to
- *  Supabase when signed in, the manuscript never does. */
-export const CitationManagerRoute: React.FC = () => (
+export const ThesisAuditRoute: React.FC = () => (
   <GaplySessionProvider>
     <RequireAuth>
-      <CitationManagerPage />
+      <ThesisAuditPage />
     </RequireAuth>
   </GaplySessionProvider>
 );
+
+/** /app/citations — Citation Manager (F8). Free-offline; metadata syncs to
+ *  Supabase when signed in, the manuscript never does. */
+export const CitationManagerRoute: React.FC = () => {
+  // The route probes, not the page: a late state update inside the page raced
+  // its own tests, and readiness is a route-level concern anyway.
+  const [aiInstalled, setAiInstalled] = React.useState(false);
+  React.useEffect(() => {
+    let alive = true;
+    isAiReady(aiBridge).then((r) => alive && setAiInstalled(r)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return (
+    <GaplySessionProvider>
+      <RequireAuth>
+        <CitationManagerPage aiInstalled={aiInstalled} />
+      </RequireAuth>
+    </GaplySessionProvider>
+  );
+};
 
 /** /app/notes — Note Creator. FREE-OFFLINE: local-first note-taking (per-paper
  *  structured template + project notes), no model, no proxy, no entitlement. */

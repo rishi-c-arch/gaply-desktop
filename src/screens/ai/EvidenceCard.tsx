@@ -15,7 +15,14 @@
 import './ai.css';
 import React, { useState } from 'react';
 import { Badge, BadgeStatus } from '../../design-system/primitives';
-import { PdfViewer } from './PdfViewer';
+
+/**
+ * LAZY on purpose. react-pdf pulls in pdfjs and a worker, which is heavy and
+ * has side effects at import time — enough that merely having it in a module
+ * graph disturbed an unrelated screen's tests. Nothing should pay for the
+ * viewer until someone opens one.
+ */
+const PdfViewer = React.lazy(() => import('./PdfViewer'));
 
 /** The five spec verdicts, plus the engine's no-generation outcome. */
 export type Verdict =
@@ -183,6 +190,7 @@ export const EvidenceCard: React.FC<EvidenceCardProps> = ({ finding, loadBytes }
       </ol>
 
       {viewing && (
+        <React.Suspense fallback={null}>
         <PdfViewer
           open
           documentId={viewing.documentId}
@@ -191,6 +199,7 @@ export const EvidenceCard: React.FC<EvidenceCardProps> = ({ finding, loadBytes }
           onClose={() => setViewing(null)}
           loadBytes={loadBytes}
         />
+        </React.Suspense>
       )}
     </section>
   );
