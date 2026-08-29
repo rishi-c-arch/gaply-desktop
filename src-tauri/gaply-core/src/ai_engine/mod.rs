@@ -40,6 +40,7 @@
 
 pub mod cards;
 pub mod embeddings;
+pub mod jobs;
 pub mod registry;
 pub mod retrieval;
 pub mod store;
