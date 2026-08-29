@@ -1178,6 +1178,10 @@ pub async fn ai_citation_need(
     use crate::ai::task::{run_task, TaskContext};
     use crate::ai::tasks::citation_need::{CitationNeedInput, CitationNeedTask};
 
+    // §11 D39 — take priority over any running batch job. Acquired BEFORE the
+    // inference gate is touched, so the window is never narrower than the
+    // request; released on drop, including on an early `?`.
+    let _priority = state.ai_interactive.acquire();
     if let Some(loader) = crate::ai::generative::BundledGenerativeLoader::resolve() {
         crate::ai::generative::register_generative(&state.db, &loader)?;
     }
@@ -1238,6 +1242,10 @@ pub async fn ai_citation_support(
     use crate::ai::tasks::citation_support::{CitationSupportTask, Verdict};
     use gaply_core::ai_engine::cards;
 
+    // §11 D39 — take priority over any running batch job. Acquired BEFORE the
+    // inference gate is touched, so the window is never narrower than the
+    // request; released on drop, including on an early `?`.
+    let _priority = state.ai_interactive.acquire();
     if let Some(loader) = crate::ai::generative::BundledGenerativeLoader::resolve() {
         crate::ai::generative::register_generative(&state.db, &loader)?;
     }
@@ -2340,4 +2348,212 @@ pub async fn run_stats_chat(
     })
     .await
     .map_err(|e| GaplyError::Internal(format!("stats chat task panicked: {e}")))?
+}
+
+/* ===================== Phase 8: batch jobs ================================ *
+ * Thin wrappers, per the gaply-core split: planning, persistence and reporting
+ * all live in gaply-core; the runner lives in `ai::job_runner`; nothing here
+ * does work of its own beyond wiring the Channel and the control registry. */
+
+/// Streamed after every completed item — the `ai://job/{id}/progress` payload.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobProgressEvent {
+    pub job_id: i64,
+    pub completed: i64,
+    pub total: i64,
+    pub current_category: String,
+    pub latest_item_summary: String,
+}
+
+/// Plan and start a thesis citation audit.
+///
+/// Returns as soon as the PLAN is durable, not when the audit finishes — it
+/// runs for hours, and a command that blocked for that long would be unusable.
+/// The plan itself is the immediate, useful answer: how many items, of which
+/// kinds, before any time is spent.
+#[tauri::command]
+pub async fn ai_job_start_thesis_audit(
+    state: State<'_, AppState>,
+    path: String,
+    on_event: tauri::ipc::Channel<JobProgressEvent>,
+) -> Result<serde_json::Value, GaplyError> {
+    use gaply_core::ai_engine::thesis_audit;
+
+    if let Some(loader) = crate::ai::generative::BundledGenerativeLoader::resolve() {
+        crate::ai::generative::register_generative(&state.db, &loader)?;
+    }
+
+    let db = state.db.clone();
+    let manuscript = std::path::PathBuf::from(path);
+    let plan = tokio::task::spawn_blocking(move || {
+        thesis_audit::plan_thesis_audit(
+            &db,
+            &manuscript,
+            crate::ai::tasks::citation_support::PROMPT_VERSION,
+        )
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("audit planning panicked: {e}")))??;
+
+    let control = crate::ai::job_runner::JobControl::new(plan.job_id);
+    state.ai_jobs.lock().expect("job registry poisoned").insert(plan.job_id, control.clone());
+
+    // The runner outlives this command by design.
+    let db = state.db.clone();
+    let manager = state.ai_gen.clone();
+    let slot = state.ai_embed.clone();
+    let priority = state.ai_interactive.clone();
+    let registry = state.ai_jobs.clone();
+    let job_id = plan.job_id;
+    tokio::spawn(async move {
+        let embed = move |claim: &str| slot.with(|e| e.embed_query(claim));
+        let emit = move |p: crate::ai::job_runner::JobProgress| {
+            let _ = on_event.send(JobProgressEvent {
+                job_id: p.job_id,
+                completed: p.completed,
+                total: p.total,
+                current_category: p.current_category,
+                latest_item_summary: p.latest_item_summary,
+            });
+        };
+        let outcome =
+            crate::ai::job_runner::run_job(&db, &manager, &control, &priority, &embed, &emit).await;
+        let paused = matches!(outcome, Ok(crate::ai::job_runner::RunOutcome::Paused));
+        match &outcome {
+            Ok(o) => tracing::info!(job_id, ?o, "audit finished"),
+            Err(e) => tracing::error!(job_id, %e, "audit failed"),
+        }
+        // A finished job's control handle is dead weight; a paused one's is not.
+        if !paused {
+            registry.lock().expect("job registry poisoned").remove(&job_id);
+        }
+    });
+
+    Ok(serde_json::to_value(&plan).unwrap_or(serde_json::Value::Null))
+}
+
+/// Status plus the Thesis Health report so far. Readable mid-job.
+#[tauri::command]
+pub async fn ai_job_status(
+    state: State<'_, AppState>,
+    job_id: i64,
+) -> Result<serde_json::Value, GaplyError> {
+    let db = state.db.clone();
+    let running = state.ai_jobs.lock().expect("job registry poisoned").contains_key(&job_id);
+    tokio::task::spawn_blocking(move || {
+        let job = gaply_core::ai_engine::jobs::get_job(&db, job_id)?
+            .ok_or_else(|| GaplyError::NotFound { entity: "job", id: job_id.to_string() })?;
+        let health = gaply_core::ai_engine::thesis_audit::thesis_health(&db, job_id)?;
+        Ok(serde_json::json!({
+            "job": job,
+            "runningInThisProcess": running,
+            "health": health,
+        }))
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("status task panicked: {e}")))?
+}
+
+#[tauri::command]
+pub async fn ai_job_pause(state: State<'_, AppState>, job_id: i64) -> Result<bool, GaplyError> {
+    let found = state
+        .ai_jobs
+        .lock()
+        .expect("job registry poisoned")
+        .get(&job_id)
+        .map(|c| {
+            c.pause();
+            true
+        })
+        .unwrap_or(false);
+    Ok(found)
+}
+
+/// Resume: reset anything a crash or pause left mid-flight, then run again.
+#[tauri::command]
+pub async fn ai_job_resume(
+    state: State<'_, AppState>,
+    job_id: i64,
+    on_event: tauri::ipc::Channel<JobProgressEvent>,
+) -> Result<serde_json::Value, GaplyError> {
+    let db = state.db.clone();
+    // §11 D38 — the item a crash left `running` goes back to the queue. The
+    // count is reported rather than swallowed: at ~65 s an item it is the
+    // honest measure of what the interruption cost.
+    let requeued = {
+        let db = db.clone();
+        tokio::task::spawn_blocking(move || gaply_core::ai_engine::jobs::resume_job(&db, job_id))
+            .await
+            .map_err(|e| GaplyError::Internal(format!("resume task panicked: {e}")))??
+    };
+
+    let control = {
+        let mut reg = state.ai_jobs.lock().expect("job registry poisoned");
+        let c = reg
+            .entry(job_id)
+            .or_insert_with(|| crate::ai::job_runner::JobControl::new(job_id))
+            .clone();
+        c.resume();
+        c
+    };
+
+    let manager = state.ai_gen.clone();
+    let slot = state.ai_embed.clone();
+    let priority = state.ai_interactive.clone();
+    let registry = state.ai_jobs.clone();
+    tokio::spawn(async move {
+        let embed = move |claim: &str| slot.with(|e| e.embed_query(claim));
+        let emit = move |p: crate::ai::job_runner::JobProgress| {
+            let _ = on_event.send(JobProgressEvent {
+                job_id: p.job_id,
+                completed: p.completed,
+                total: p.total,
+                current_category: p.current_category,
+                latest_item_summary: p.latest_item_summary,
+            });
+        };
+        let outcome =
+            crate::ai::job_runner::run_job(&db, &manager, &control, &priority, &embed, &emit).await;
+        if !matches!(outcome, Ok(crate::ai::job_runner::RunOutcome::Paused)) {
+            registry.lock().expect("job registry poisoned").remove(&job_id);
+        }
+    });
+
+    Ok(serde_json::json!({ "jobId": job_id, "requeuedItems": requeued }))
+}
+
+#[tauri::command]
+pub async fn ai_job_cancel(state: State<'_, AppState>, job_id: i64) -> Result<bool, GaplyError> {
+    let found = state
+        .ai_jobs
+        .lock()
+        .expect("job registry poisoned")
+        .get(&job_id)
+        .map(|c| {
+            c.cancel();
+            true
+        })
+        .unwrap_or(false);
+    Ok(found)
+}
+
+/// Results, paginated — readable while the job is still running.
+#[tauri::command]
+pub async fn ai_job_results(
+    state: State<'_, AppState>,
+    job_id: i64,
+    offset: i64,
+    limit: i64,
+) -> Result<serde_json::Value, GaplyError> {
+    let db = state.db.clone();
+    // A caller asking for everything would pull 250 verbatim model outputs into
+    // one IPC message; bounded here rather than trusted.
+    let limit = limit.clamp(1, 200);
+    tokio::task::spawn_blocking(move || {
+        let items = gaply_core::ai_engine::jobs::job_results(&db, job_id, offset, limit)?;
+        Ok(serde_json::json!({ "jobId": job_id, "offset": offset, "items": items }))
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("results task panicked: {e}")))?
 }

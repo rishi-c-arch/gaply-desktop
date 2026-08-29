@@ -56,6 +56,17 @@ pub struct AppState {
     pub ai_gen: Arc<crate::ai::model_manager::ModelManager>,
     /// Cancel token for a generation.
     pub ai_gen_cancel: Arc<AtomicBool>,
+    /// Phase 8 (§11 D39). In-flight INTERACTIVE requests. Batch jobs check this
+    /// between items and wait while it is non-zero, so a human asking one
+    /// question never queues behind a three-hour audit.
+    pub ai_interactive: crate::ai::job_runner::InteractivePriority,
+    /// Controls for jobs currently running in this process, by job id.
+    ///
+    /// In memory ONLY, and deliberately: a control handle is meaningless across
+    /// a restart. What survives a crash is the DB row, which
+    /// `jobs::resume_job` picks up — the handle is how THIS process cancels or
+    /// pauses, not how the job is remembered.
+    pub ai_jobs: Arc<std::sync::Mutex<std::collections::HashMap<i64, crate::ai::job_runner::JobControl>>>,
 }
 
 /// How many rendered reports to keep in memory. A user exports the run they
@@ -102,6 +113,8 @@ impl AppState {
             ai_embed_cancel: Arc::new(AtomicBool::new(false)),
             ai_gen: Arc::new(gen_manager),
             ai_gen_cancel: Arc::new(AtomicBool::new(false)),
+            ai_interactive: crate::ai::job_runner::InteractivePriority::new(),
+            ai_jobs: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 }
