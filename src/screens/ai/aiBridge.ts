@@ -23,6 +23,38 @@ export interface DocumentSource {
   extension: string;
 }
 
+/** Both installers stream these; the generative one adds resume/progress. */
+export type InstallEvent =
+  | { kind: 'started'; files: number; totalBytes: number; modelId?: string }
+  | { kind: 'alreadyPresent'; file: string }
+  | { kind: 'downloading'; file: string; bytes?: number; fromBytes?: number; totalBytes?: number }
+  | { kind: 'progress'; file: string; bytes: number; totalBytes: number }
+  | { kind: 'verifying'; file: string }
+  | { kind: 'verified'; file: string }
+  | { kind: 'cancelled' }
+  | { kind: 'done'; modelId: string; dir: string };
+
+export interface JobProgressEvent {
+  jobId: number;
+  completed: number;
+  total: number;
+  currentCategory: string;
+  latestItemSummary: string;
+}
+
+export interface AuditPlan {
+  jobId: number;
+  documentTypesSupported: string[];
+  totalSentences: number;
+  cited: number;
+  uncited: number;
+  skipped: number;
+  markersFound: number;
+  queuedCitationNeed: number;
+  queuedCitationSupport: number;
+  queuedUnverifiable: number;
+}
+
 class AiBridge {
   private async invoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
     const { invoke } = await import('@tauri-apps/api/core');
@@ -31,6 +63,91 @@ class AiBridge {
 
   async modelStatus(): Promise<AiModelStatus> {
     return this.invoke<AiModelStatus>('ai_model_status', {});
+  }
+
+  private async channelInvoke<T, E>(
+    cmd: string,
+    args: Record<string, unknown>,
+    onEvent?: (ev: E) => void,
+  ): Promise<T> {
+    const { invoke, Channel } = await import('@tauri-apps/api/core');
+    const ch = new Channel<E>();
+    if (onEvent) ch.onmessage = onEvent;
+    return invoke<T>(cmd, { ...args, onEvent: ch });
+  }
+
+  /** The embedding model. Resumable and cancellable. */
+  async installEmbedding(onEvent?: (ev: InstallEvent) => void) {
+    return this.channelInvoke<unknown, InstallEvent>('ai_model_install', {}, onEvent);
+  }
+
+  /** A pinned generative candidate. */
+  async installGenerative(modelId: string, onEvent?: (ev: InstallEvent) => void) {
+    return this.channelInvoke<unknown, InstallEvent>(
+      'ai_model_install_generative',
+      { modelId },
+      onEvent,
+    );
+  }
+
+  async cancelInstall(): Promise<void> {
+    return this.invoke<void>('ai_model_install_cancel', {});
+  }
+
+  async generativeCandidates(): Promise<Array<Record<string, unknown>>> {
+    return this.invoke<Array<Record<string, unknown>>>('ai_generative_candidates', {});
+  }
+
+  /* ------------------------------ tasks --------------------------------- */
+
+  async citationNeed(sentence: string, section?: string) {
+    return this.invoke<Record<string, unknown>>('ai_citation_need', { sentence, section });
+  }
+
+  async citationSupport(claim: string, documentId: number, citedSource?: string) {
+    return this.channelInvoke<Record<string, unknown>, unknown>('ai_citation_support', {
+      claim,
+      documentId,
+      citedSource,
+    });
+  }
+
+  async cancelGeneration(): Promise<void> {
+    return this.invoke<void>('ai_generate_cancel', {});
+  }
+
+  /* ------------------------------- jobs --------------------------------- */
+
+  async startThesisAudit(path: string, onEvent?: (ev: JobProgressEvent) => void) {
+    return this.channelInvoke<AuditPlan, JobProgressEvent>(
+      'ai_job_start_thesis_audit',
+      { path },
+      onEvent,
+    );
+  }
+
+  async jobStatus(jobId: number): Promise<Record<string, unknown>> {
+    return this.invoke<Record<string, unknown>>('ai_job_status', { jobId });
+  }
+
+  async pauseJob(jobId: number): Promise<boolean> {
+    return this.invoke<boolean>('ai_job_pause', { jobId });
+  }
+
+  async resumeJob(jobId: number, onEvent?: (ev: JobProgressEvent) => void) {
+    return this.channelInvoke<Record<string, unknown>, JobProgressEvent>(
+      'ai_job_resume',
+      { jobId },
+      onEvent,
+    );
+  }
+
+  async cancelJob(jobId: number): Promise<boolean> {
+    return this.invoke<boolean>('ai_job_cancel', { jobId });
+  }
+
+  async jobResults(jobId: number, offset: number, limit: number) {
+    return this.invoke<Record<string, unknown>>('ai_job_results', { jobId, offset, limit });
   }
 
   /** Where a document's file is, and whether it is still there. */
