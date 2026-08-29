@@ -610,6 +610,78 @@ pub const MIGRATIONS: &[Migration] = &[
             CREATE INDEX idx_ai_chunk_embeddings_chunk ON ai_chunk_embeddings(chunk_id);
         ",
     },
+    Migration {
+        version: 16,
+        name: "ai_engine_phase8_jobs",
+        // Citation Intelligence, Phase 8: the batch job system (§11 D37).
+        //
+        // ai_job_items is REBUILT, not extended. v14 keyed every item to a
+        // chunk — `chunk_id NOT NULL` plus `UNIQUE (job_id, chunk_id)` — and
+        // the thesis audit's unit of work is a SENTENCE, of which a chunk holds
+        // many. Both constraints block the feature outright: this is a wrong
+        // grain, not a missing column.
+        //
+        // Dropping is safe and follows the precedent v15 set with
+        // ai_chunk_embeddings: the table is EMPTY in every install that exists.
+        // ai_jobs/ai_job_items were created in v14 and no code has ever written
+        // to them — Phase 8 is their first consumer, verified by grep before
+        // this migration was written. Rebuilding an empty table costs nothing;
+        // a nullable-chunk-plus-sentence hybrid would leave the wrong grain
+        // visible forever.
+        up: "
+            ALTER TABLE ai_jobs ADD COLUMN summary_json TEXT;
+
+            DROP TABLE ai_job_items;
+            CREATE TABLE ai_job_items (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id       INTEGER NOT NULL REFERENCES ai_jobs(id) ON DELETE CASCADE,
+                -- Deterministic order AND idempotent creation: re-running the
+                -- planner on resume cannot duplicate rows (§11 D38).
+                seq          INTEGER NOT NULL,
+                -- citation_need | citation_support | unverifiable
+                kind         TEXT NOT NULL,
+                -- NULLABLE by decision: a citation_need sentence has no
+                -- evidence chunk, and NOT NULL would force a lie.
+                chunk_id     INTEGER REFERENCES ai_chunks(id) ON DELETE SET NULL,
+                page         INTEGER,
+                sentence     TEXT NOT NULL,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                status       TEXT NOT NULL CHECK (status IN ('queued','running','done','failed','skipped')),
+                attempts     INTEGER NOT NULL DEFAULT 0,
+                -- Written in the SAME transaction as status='done', so results
+                -- are queryable mid-job and no result can outlive its status.
+                result_json  TEXT,
+                error        TEXT,
+                created_at   INTEGER NOT NULL,
+                finished_at  INTEGER,
+                UNIQUE (job_id, seq)
+            );
+            CREATE INDEX idx_ai_job_items_job ON ai_job_items(job_id, status);
+            CREATE INDEX idx_ai_job_items_order ON ai_job_items(job_id, seq);
+        ",
+        // Genuinely reversible, both halves. Leaving summary_json behind would
+        // make down-then-up fail with "duplicate column name" — caught by
+        // down_then_up_restores_schema, which is exactly what that test is for.
+        // SQLite has supported DROP COLUMN since 3.35 and the bundled build is
+        // well past it.
+        down: "
+            DROP TABLE ai_job_items;
+            CREATE TABLE ai_job_items (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id      INTEGER NOT NULL REFERENCES ai_jobs(id) ON DELETE CASCADE,
+                chunk_id    INTEGER NOT NULL REFERENCES ai_chunks(id) ON DELETE CASCADE,
+                status      TEXT NOT NULL CHECK (status IN ('queued','running','done','failed','skipped')),
+                attempts    INTEGER NOT NULL DEFAULT 0,
+                error       TEXT,
+                created_at  INTEGER NOT NULL,
+                finished_at INTEGER,
+                UNIQUE (job_id, chunk_id)
+            );
+            CREATE INDEX idx_ai_job_items_job ON ai_job_items(job_id, status);
+
+            ALTER TABLE ai_jobs DROP COLUMN summary_json;
+        ",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -753,6 +825,7 @@ mod tests {
         assert_eq!(
             reverted,
             vec![
+                "ai_engine_phase8_jobs",
                 "ai_engine_phase2",
                 "ai_engine_phase1",
                 "evidence_claim_kind",
@@ -836,10 +909,11 @@ mod tests {
                 "evidence_store",
                 "evidence_claim_kind",
                 "ai_engine_phase1",
-                "ai_engine_phase2"
+                "ai_engine_phase2",
+                "ai_engine_phase8_jobs"
             ]
         );
-        assert_eq!(current_version(&conn).unwrap(), 15);
+        assert_eq!(current_version(&conn).unwrap(), 16);
 
         // the column + index now exist; the pre-existing row is intact, NULL id
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -881,7 +955,8 @@ mod tests {
                 "evidence_store",
                 "evidence_claim_kind",
                 "ai_engine_phase1",
-                "ai_engine_phase2"
+                "ai_engine_phase2",
+                "ai_engine_phase8_jobs"
             ]
         );
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -908,8 +983,8 @@ mod tests {
 
         // apply v11 (+ v12 rides along; it does not touch citation_library)
         let applied = migrate_up(&mut conn).unwrap();
-        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2"]);
-        assert_eq!(current_version(&conn).unwrap(), 15);
+        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs"]);
+        assert_eq!(current_version(&conn).unwrap(), 16);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(column_names(&conn, "citation_library").iter().any(|n| n == c), "missing column {c}");
         }
@@ -938,7 +1013,7 @@ mod tests {
 
         // down to v10 peels v12 (evidence_store) then v11 (the subject here).
         let reverted = migrate_down(&mut conn, 10).unwrap();
-        assert_eq!(reverted, vec!["ai_engine_phase2", "ai_engine_phase1", "evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
+        assert_eq!(reverted, vec!["ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1", "evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(!column_names(&conn, "citation_library").iter().any(|n| n == c), "{c} should be dropped");
         }
@@ -946,7 +1021,7 @@ mod tests {
 
         // re-applies cleanly (idempotent up after a partial down): v11 + v12
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2"]);
+        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs"]);
     }
 
     /* ------------------------- v14: AI engine, Phase 1 --------------------- */
@@ -965,7 +1040,7 @@ mod tests {
     fn v14_round_trips_and_touches_no_existing_table() {
         let mut conn = test_connection();
         migrate_up(&mut conn).unwrap();
-        assert_eq!(current_version(&conn).unwrap(), 15);
+        assert_eq!(current_version(&conn).unwrap(), 16);
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "missing {t}");
         }
@@ -979,7 +1054,7 @@ mod tests {
 
         // down → every ai_ table is gone, everything else survives
         let reverted = migrate_down(&mut conn, 13).unwrap();
-        assert_eq!(reverted, vec!["ai_engine_phase2", "ai_engine_phase1"]);
+        assert_eq!(reverted, vec!["ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1"]);
         assert_eq!(current_version(&conn).unwrap(), 13);
         for t in AI_TABLES {
             assert!(!table_names(&conn).iter().any(|n| n == t), "{t} survived the down migration");
@@ -989,7 +1064,7 @@ mod tests {
 
         // and re-applies cleanly
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["ai_engine_phase1", "ai_engine_phase2"]);
+        assert_eq!(reapplied, vec!["ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs"]);
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "{t} missing after re-apply");
         }
@@ -1083,14 +1158,14 @@ mod tests {
         assert!(table_names(&conn).iter().any(|t| t == "ai_chunks_fts"));
 
         let reverted = migrate_down(&mut conn, 14).unwrap();
-        assert_eq!(reverted, vec!["ai_engine_phase2"]);
+        assert_eq!(reverted, vec!["ai_engine_phase8_jobs", "ai_engine_phase2"]);
         assert!(!table_names(&conn).iter().any(|t| t == "ai_chunks_fts"), "fts survived the down");
         assert!(!column_names(&conn, "ai_chunk_embeddings").iter().any(|c| c == "preprocessing_version"));
         // v14's tables are all still there — the down is scoped to v15.
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "{t} lost by the v15 down");
         }
-        assert_eq!(migrate_up(&mut conn).unwrap(), vec!["ai_engine_phase2"]);
+        assert_eq!(migrate_up(&mut conn).unwrap(), vec!["ai_engine_phase2", "ai_engine_phase8_jobs"]);
     }
 
     #[test]
@@ -1181,6 +1256,60 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 1, "v15 did not adopt pre-existing ai_chunks rows");
+    }
+
+    /// §11 D37. The whole reason v16 rebuilds rather than extends: the audit's
+    /// unit of work is a SENTENCE, so many items must share one chunk, and a
+    /// citation_need item has no chunk at all. v14's shape forbade both.
+    #[test]
+    fn v16_allows_many_sentence_items_per_chunk_and_a_null_chunk() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        let (_doc, chunk, _card) = seed_card(&conn);
+        conn.execute(
+            "INSERT INTO ai_jobs (kind, status, prompt_version, created_at)
+             VALUES ('thesis_audit', 'queued', 'citation_support-v1.4', 1)",
+            [],
+        )
+        .unwrap();
+        let job = conn.last_insert_rowid();
+
+        // three sentences from the SAME chunk — v14's UNIQUE (job_id, chunk_id)
+        // permitted exactly one
+        for seq in 0..3 {
+            conn.execute(
+                "INSERT INTO ai_job_items (job_id, seq, kind, chunk_id, sentence, status, created_at)
+                 VALUES (?1, ?2, 'citation_support', ?3, 'a sentence.', 'queued', 1)",
+                params![job, seq, chunk],
+            )
+            .unwrap();
+        }
+        // and one with NO chunk — v14's NOT NULL forced a lie here
+        conn.execute(
+            "INSERT INTO ai_job_items (job_id, seq, kind, chunk_id, sentence, status, created_at)
+             VALUES (?1, 99, 'citation_need', NULL, 'an uncited sentence.', 'queued', 1)",
+            params![job],
+        )
+        .unwrap();
+
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM ai_job_items WHERE job_id = ?1", params![job], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(n, 4);
+
+        // seq is unique per job: the planner re-running on resume cannot
+        // duplicate an item (§11 D38)
+        let dup = conn.execute(
+            "INSERT INTO ai_job_items (job_id, seq, kind, sentence, status, created_at)
+             VALUES (?1, 0, 'citation_need', 'dup.', 'queued', 1)",
+            params![job],
+        );
+        assert!(dup.is_err(), "UNIQUE (job_id, seq) did not hold — resume could duplicate items");
+
+        assert!(column_names(&conn, "ai_jobs").iter().any(|c| c == "summary_json"));
+        assert!(column_names(&conn, "ai_job_items").iter().any(|c| c == "result_json"));
     }
 
     #[test]
