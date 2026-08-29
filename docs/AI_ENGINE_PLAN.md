@@ -1731,3 +1731,85 @@ upgraded would be a landmine, and the property worth pinning is agreement with r
 `pulp` carries a build script (pure-Rust `global_asm!` codegen, `version_check` its sole
 build-dependency), and no crate in the set pulls `cc`, `bindgen` or `cmake`. `gaply-core` is
 untouched.
+
+
+## Phase 8 — the batch job system and the thesis citation audit
+
+An audit is 50–250 sequential model calls at ~65 s each on CPU (§11 D34). That is **hours**, on a
+desktop app the user can quit. Crash-resume, streaming and cancellation are not robustness polish
+here — they are the feature, and everything below is shaped by that.
+
+### D37 — `ai_job_items` is REBUILT in v16, not extended
+
+v14 keyed every item to a chunk: `chunk_id INTEGER NOT NULL`, `UNIQUE (job_id, chunk_id)`. The
+thesis audit's unit of work is a **sentence**, and a chunk holds many of them, so both constraints
+block the feature outright — this is not a missing column, it is a wrong grain.
+
+**Rebuilt rather than ALTERed, following the precedent v15 set** when it recreated
+`ai_chunk_embeddings` rather than contort around SQLite's inability to add a NOT NULL column: the
+table is **empty in every install that exists**. `ai_jobs` and `ai_job_items` were created in v14
+and *no code has ever written to them* — Phase 8 is their first consumer, verified by grep before
+the migration was written. Rebuilding an empty table costs nothing and leaves a clean shape;
+carrying a nullable-chunk-plus-sentence-column hybrid would have left the wrong grain visible
+forever.
+
+What v16 adds, and why each is load-bearing:
+
+| column | why |
+|---|---|
+| `seq` + `UNIQUE (job_id, seq)` | deterministic order AND idempotent item creation — re-running the planner on resume cannot duplicate rows |
+| `kind` | `citation_need` / `citation_support` / `unverifiable`, so the summary is a query rather than a re-derivation |
+| `sentence`, `page` | the unit of work and its provenance, kept with the item so a report needs no re-parse |
+| `result_json` | results are queryable INCREMENTALLY, mid-job, which is the streaming requirement |
+| `chunk_id` nullable | a `citation_need` sentence has no evidence chunk; NOT NULL would have forced a lie |
+
+`ai_jobs` gains `summary_json` additively (ALTER) — the Thesis Health report, written once at
+completion.
+
+### D38 — resume is "reset stale running, select not-done", and it is safe because ONE runner exists
+
+On restart, any item left `running` is reset to `queued` and re-run. That is only correct because
+the single-inference invariant (§7) means there is exactly one runner: a second one would reset an
+item another was actively working.
+
+**Zero duplicate results follows from one transaction, not from care.** An item's result, its
+`status='done'`, and the job's `done_items` increment are written in a SINGLE transaction. There is
+no window where a result exists without the status that retires it:
+
+- crash mid-inference → `running`, `result_json` NULL → reset, re-run, one result
+- crash after commit → `done` → never selected again
+- crash between the two → **cannot happen**; there is no between
+
+The item is claimed with `UPDATE ... SET status='running' WHERE id=? AND status='queued'`, and a
+zero-row update means someone else took it — the claim is the lock.
+
+### D39 — preemption is a counter the runner reads, not semaphore fairness
+
+The obvious implementation is to rely on `tokio::sync::Semaphore` being FIFO: an interactive
+request queues, the runner's next item queues behind it, the human wins. That is *probably* true
+and it is not something to build a user-visible guarantee on — it depends on the fairness of a
+dependency, it is invisible in the code, and it cannot be tested without racing.
+
+Instead: an explicit `AtomicUsize` of in-flight interactive requests. The runner checks it
+**between items** and waits while it is non-zero. Consequences stated plainly:
+
+- A job **never** yields mid-inference. Killing a half-finished generation to start another wastes
+  the 65 s already spent and produces nothing — the human waits at most one item.
+- The counter is incremented before the interactive request touches the gate and decremented after
+  it releases, so the window is never smaller than the actual request.
+- Embedding backfill sits below both by checking the same counter *and* whether a job is running.
+
+### D40 — the pre-pass is deterministic and runs NO model, and `unverifiable` is a RESULT
+
+Sentence segmentation (`extract::sentence`), citation-marker detection, and library matching happen
+before any inference. A 250-item audit that discovers at item 200 that the manuscript was
+unparseable has wasted three hours.
+
+**`unverifiable: source not in library` is a report category, not an error.** A cited work whose
+source is not indexed and embedded cannot be checked against evidence — that is a true and useful
+finding about the manuscript, and recording it as a failure would both misreport the audit and
+retry something that cannot succeed. It costs zero model calls.
+
+The significance filter (skip headings, the references section, sentences under 6 words) exists to
+keep the item count honest. At 65 s per item the difference between filtering and not is measured
+in hours.
