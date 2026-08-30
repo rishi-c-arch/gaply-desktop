@@ -2051,6 +2051,39 @@ fixes, and collapsing them into one sentence throws away the distinction
 Unrelated and CORRECT, for the record: the two
 `Metal unavailable, running on CPU: MTLResidencySetDescriptor is absent` lines
 are the D36 gate doing exactly its job on macOS 14.5, emitted inside the
-`ai_model_status` span (twice because two surfaces asked for status). They are
-logged at WARN, which sits oddly beside D44's "the device is a FACT, not a
-warning" — INFO would match the decision. Left alone.
+`ai_model_status` span (twice because two surfaces asked for status). They were
+logged at WARN, which sat oddly beside D44's "the device is a FACT, not a
+warning" — a log that shouts about the expected state trains people to ignore
+it. Demoted to INFO. The two WARNs beneath it stay warnings: Metal failing or
+panicking PAST the gate is not expected anywhere.
+
+### D50 — installing a candidate other than the pinned 1.5B needed a lane, and now has one
+
+D48 made the choice of judge a DATA question — whichever generative model is
+installed and most recently registered wins. That left an obvious hole: the
+Settings button is hard-wired to `qwen2.5-1.5b-instruct-q4km`, and although
+`ai_generative_candidates` is exposed, no surface renders a picker. So there was
+no way, in the product, to install any other pinned candidate — and therefore no
+way to exercise the preference D48 had just built.
+
+`examples/install_candidate.rs` is that lane, deliberately as a CLI: choosing
+the model the engine judges with is a deployment action, not something a user
+should reach by mis-clicking. It stages files into
+`<app data>/models/<registry id>/` and then hands off to
+`gen_install::install`, whose OFFLINE branch re-reads every byte and checks it
+against the compiled-in sha256 before writing the registry row — copying weights
+into place is not installing them, and the runner never registers anything
+itself. A size mismatch is refused before a two-gigabyte copy rather than after
+the hash. No network: install()'s offline branch constructs no HTTP client at
+all, which `gen_install`'s own test already pins.
+
+Run against the 3B on this machine: both files verified, registered offline,
+0 bytes downloaded. `estimate_ram` reports **2.41 GB** (2.10 weights + 0.30 KV
+at 4096 ctx) versus the 1.5B's 1.3 GB — comfortable on the 8 GB tier, and the
+candidate is flagged `needs_16gb: false`, so this is within its declared
+envelope rather than a hopeful exception to it.
+
+Why the 3B is now the judge: the 1.5B demonstrated its failure mode on the first
+real manual check — `not valid JSON: EOF while parsing a list`, i.e. it ran out
+of room mid-answer, twice. The 3B was 6/6 in the bake-off. The registry now
+reads 3B (newest) → 0.5B bundled → 1.5B, and D48's walk takes the 3B.

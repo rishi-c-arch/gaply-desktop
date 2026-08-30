@@ -137,7 +137,13 @@ pub fn select_with(
 
     // THE GATE. Nothing below this line runs unless the class exists.
     if let Err(reason) = gate() {
-        tracing::warn!("Metal unavailable, running on CPU: {reason}");
+        // INFO, not WARN. On any machine below macOS 15 this is the CORRECT
+        // outcome, not a degradation — D44: the device is a FACT, not a
+        // warning, and a log that shouts about the expected state trains
+        // people to ignore it. The two WARNs below stay warnings because they
+        // describe Metal failing or panicking PAST the gate, which is not
+        // expected anywhere.
+        tracing::info!("Metal unavailable, running on CPU: {reason}");
         return cpu(reason);
     }
 
