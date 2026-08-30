@@ -11,7 +11,7 @@
 import './ai.css';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Badge, Button, Card } from '../../design-system/primitives';
-import { aiBridge, AiModelStatus, InstallEvent } from './aiBridge';
+import { aiBridge, AiModelStatus, errorText, InstallEvent } from './aiBridge';
 
 /** The two states that mean "no usable model on disk". Everything else
  *  (`notLoaded` / `loading` / `ready` / `idle` / `unloading`) means the files
@@ -64,7 +64,7 @@ export const AiStatusPanel: React.FC<AiStatusPanelProps> = ({ bridge = aiBridge 
     bridge
       .modelStatus()
       .then(setStatus)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) => setError(errorText(e)));
   }, [bridge]);
 
   useEffect(refresh, [refresh]);
@@ -111,7 +111,7 @@ export const AiStatusPanel: React.FC<AiStatusPanelProps> = ({ bridge = aiBridge 
       await bridge.installEmbedding(onEvent);
       await bridge.installGenerative('qwen2.5-1.5b-instruct-q4km', onEvent);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       setInstalling(false);
       setProgress(null);

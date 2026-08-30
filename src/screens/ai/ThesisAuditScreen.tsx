@@ -13,7 +13,7 @@
 import './ai.css';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Badge, Button, Card } from '../../design-system/primitives';
-import { aiBridge, AuditPlan, JobProgressEvent } from './aiBridge';
+import { aiBridge, AuditPlan, JobProgressEvent, errorText } from './aiBridge';
 import { EvidenceCard, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
 
@@ -99,7 +99,7 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
       setPlan(planned);
       setStage('planned');
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }, [bridge, pickManuscript, onProgress]);
 
@@ -109,7 +109,7 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
     try {
       await bridge.resumeJob(plan.jobId, onProgress);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }, [bridge, plan, onProgress]);
 
@@ -119,7 +119,7 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
     try {
       await bridge.resumeJob(resumableJob.jobId, onProgress);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }, [bridge, resumableJob, onProgress]);
 

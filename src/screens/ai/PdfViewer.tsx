@@ -14,7 +14,7 @@ import './ai.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Document, Page } from 'react-pdf';
 import { Modal } from '../../design-system/Modal';
-import { aiBridge } from './aiBridge';
+import { aiBridge, errorText } from './aiBridge';
 import { configurePdfWorker } from './pdfWorker';
 
 /** Pages mounted either side of the current one. */
@@ -68,7 +68,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         if (!cancelled) setBytes(b);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setError(errorText(e));
       });
     return () => {
       cancelled = true;

@@ -2016,3 +2016,41 @@ the next thing to do in this area.
 NOT changed, and worth naming: the dev app runs `target/debug/app`. Model work
 in `tauri dev` is measured in minutes per check because of that, not because of
 anything in this decision.
+
+#### D49 addendum — a rejected model answer is an OUTCOME, and errors must render as text
+
+Release-mode verification produced the real failure: the 1.5B ran out of room
+mid-JSON (`not valid JSON: EOF while parsing a list at line 54 column 5`),
+`run_task` retried once, failed again, and the panel painted **`[object Object]`**
+in red.
+
+Two separate defects, both of the same species as the `kind`/`state` bug in D46's
+neighbourhood — a contract asserted on one side and never checked against the
+other.
+
+`GaplyError` serializes as `{ code, message }`. That is a plain object, not an
+`Error`, so `e instanceof Error ? e.message : String(e)` — the idiom in five AI
+screens — evaluated to `String({...})`, i.e. the literal `[object Object]`. It
+is now `errorText()` in `aiBridge`, which walks the shapes an invoke can reject
+with and whose last resort is a sentence admitting the engine gave no reason.
+`errorCode()` alongside it lets a cancellation be recognised by its code rather
+than by matching message text. The test is written as a PROPERTY over nine wire
+shapes, not as one example: nothing may render as `[object Object]`.
+
+And the honest wording existed but could never fire. `CitationAiPanel` has always
+had a `validationFailed` branch; `ai_citation_support` has never sent one,
+because it mapped every `TaskError` through `?` into a transport error. A model
+answer that fails its own grounding checks is not a transport error — nothing was
+persisted, nothing is broken, and it belongs to the same class as the NoEvidence
+outcome the command already returns as `Ok`. Both citation commands now return
+`{ outcome: "validationFailed", reason }`, and the panel shows the reason: "ran
+out of room" and "said something wrong" are different problems with different
+fixes, and collapsing them into one sentence throws away the distinction
+`TaskError::ValidationFailed` went to the trouble of recording.
+
+Unrelated and CORRECT, for the record: the two
+`Metal unavailable, running on CPU: MTLResidencySetDescriptor is absent` lines
+are the D36 gate doing exactly its job on macOS 14.5, emitted inside the
+`ai_model_status` span (twice because two surfaces asked for status). They are
+logged at WARN, which sits oddly beside D44's "the device is a FACT, not a
+warning" — INFO would match the decision. Left alone.

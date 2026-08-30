@@ -5,6 +5,50 @@
 
 export type ActiveDevice = 'cpu' | 'metal';
 
+/* --------------------------- rejected invokes ---------------------------- */
+
+/** What a Tauri command's `Err` arrives as. `GaplyError` serializes to
+ *  `{ code, message }` — a PLAIN OBJECT, never an `Error`. */
+export interface WireError {
+  code?: string;
+  message?: string;
+}
+
+/** A rejected invoke as text a person can read.
+ *
+ *  `String(e)` on the wire shape above yields the literal `"[object Object]"`,
+ *  which is what the citation panel printed in red for every real backend
+ *  failure. Nothing here may return that: the last resort is a sentence that
+ *  admits the engine gave no reason, which is at least true. */
+export function errorText(e: unknown): string {
+  if (typeof e === 'string' && e.trim()) return e;
+  if (e instanceof Error && e.message) return e.message;
+  if (e && typeof e === 'object') {
+    const o = e as Record<string, unknown>;
+    for (const k of ['message', 'error', 'reason'] as const) {
+      const v = o[k];
+      if (typeof v === 'string' && v.trim()) return v;
+    }
+    try {
+      const j = JSON.stringify(e);
+      if (j && j !== '{}' && j !== 'null') return j;
+    } catch {
+      // cyclic — fall through to the honest fallback
+    }
+  }
+  return 'The check failed and the engine gave no reason.';
+}
+
+/** The `code` on a rejected invoke, when there is one. Lets a caller tell a
+ *  cancellation from a fault without matching on message text. */
+export function errorCode(e: unknown): string | null {
+  if (e && typeof e === 'object') {
+    const c = (e as Record<string, unknown>).code;
+    if (typeof c === 'string') return c;
+  }
+  return null;
+}
+
 /** The backend tags both engine-state enums with `state`, not `kind`
  *  (`#[serde(tag = "state")]` on `EngineState` / `GenState`). Reading `kind`
  *  here silently yielded `undefined` for every status, so the install surface

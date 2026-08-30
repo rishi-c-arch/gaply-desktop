@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AiStatusPanel, AiUnavailable } from './AiStatusPanel';
+import { errorCode, errorText } from './aiBridge';
 import { CitationAiPanel } from './CitationAiPanel';
 import { ThesisAuditScreen, projectDuration, SECONDS_PER_ITEM } from './ThesisAuditScreen';
 import type { JobProgressEvent } from './aiBridge';
@@ -144,6 +145,42 @@ describe('AI status + install', () => {
   });
 });
 
+describe('rejected invokes render as text', () => {
+  // Tauri rejects with the command's serialized Err. GaplyError is
+  // `{ code, message }` — a plain object — so the old
+  // `e instanceof Error ? e.message : String(e)` printed "[object Object]" in
+  // red for every real backend failure. This is the property, not the example.
+  const SHAPES: Array<[string, unknown]> = [
+    ['a GaplyError from the wire', { code: 'validation', message: "the model's output failed validation twice: <output>: not valid JSON" }],
+    ['a TaskError surfaced as validation', { code: 'validation', message: 'generation failed: forward at 3: shape mismatch' }],
+    ['a cancellation', { code: 'cancelled', message: 'cancelled' }],
+    ['a real Error', new Error('boom')],
+    ['a bare string', 'something went wrong'],
+    ['an object with no message at all', { code: 'internal', detail: 42 }],
+    ['an empty object', {}],
+    ['null', null],
+    ['undefined', undefined],
+  ];
+
+  it.each(SHAPES)('%s never renders as [object Object]', (_label, shape) => {
+    const text = errorText(shape);
+    expect(text).not.toBe('[object Object]');
+    expect(text).not.toContain('[object Object]');
+    expect(text.trim().length).toBeGreaterThan(0);
+  });
+
+  it('prefers the message the backend actually sent', () => {
+    expect(errorText({ code: 'validation', message: 'failed validation twice' })).toBe(
+      'failed validation twice',
+    );
+  });
+
+  it('reads the code so a cancellation is not mistaken for a fault', () => {
+    expect(errorCode({ code: 'cancelled', message: 'cancelled' })).toBe('cancelled');
+    expect(errorCode(new Error('boom'))).toBeNull();
+  });
+});
+
 describe('Citation AI panel', () => {
   const base = {
     citationNeed: async () => ({ output: { needs_citation: true, severity: 'high', reason: 'empirical claim' } }),
@@ -185,6 +222,59 @@ describe('Citation AI panel', () => {
     await waitFor(() => expect(screen.getByTestId('evidence-card')).toBeTruthy());
     expect(screen.getByTestId('evidence-quote-0').textContent).toContain('31 percent');
     expect(screen.getByTestId('evidence-open-0').textContent).toContain('p.5');
+  });
+
+  it('renders a structured TaskError as its message, never [object Object]', async () => {
+    // The live failure: the 1.5B ran out of room mid-JSON, run_task failed
+    // validation twice, and the command rejected with GaplyError's wire shape.
+    const wire = {
+      code: 'validation',
+      message:
+        "the model's output failed validation twice: <output>: not valid JSON: EOF while parsing a list at line 54 column 5",
+    };
+    const bridge = { ...base, citationSupport: async () => Promise.reject(wire) };
+    render(<CitationAiPanel sentence="A claim." documentId={1} aiInstalled bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('ai-check-support'));
+    await waitFor(() => expect(screen.getByTestId('ai-error')).toBeTruthy());
+    const shown = screen.getByTestId('ai-error').textContent ?? '';
+    expect(shown).not.toContain('[object Object]');
+    expect(shown).toContain('failed validation twice');
+  });
+
+  it('citation_need renders a structured error as text too', async () => {
+    const bridge = { ...base, citationNeed: async () => Promise.reject({ code: 'internal', message: 'model lock poisoned' }) };
+    render(<CitationAiPanel sentence="A claim." aiInstalled bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('ai-check-need'));
+    await waitFor(() => expect(screen.getByTestId('ai-error')).toBeTruthy());
+    expect(screen.getByTestId('ai-error').textContent).toBe('model lock poisoned');
+  });
+
+  it('a cancelled invoke is read from its code, not its message text', async () => {
+    // Cancel from anywhere else (another surface, a job runner) still arrives
+    // here as a rejection; the panel must not paint it red.
+    const bridge = { ...base, citationSupport: async () => Promise.reject({ code: 'cancelled', message: 'cancelled' }) };
+    render(<CitationAiPanel sentence="A claim." documentId={1} aiInstalled bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('ai-check-support'));
+    await waitFor(() => expect(screen.getByTestId('ai-cancelled')).toBeTruthy());
+    expect(screen.queryByTestId('ai-error')).toBeNull();
+  });
+
+  it('a validationFailed OUTCOME carries the reason, so "why" is not lost', async () => {
+    const bridge = {
+      ...base,
+      citationSupport: async () => ({
+        outcome: 'validationFailed',
+        reason: "the model's output failed validation twice: <output>: not valid JSON",
+        persisted: false,
+      }),
+    };
+    render(<CitationAiPanel sentence="A claim." documentId={1} aiInstalled bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('ai-check-support'));
+    await waitFor(() => expect(screen.getByTestId('ai-validation-failed')).toBeTruthy());
+    const t = screen.getByTestId('ai-validation-failed').textContent ?? '';
+    expect(t).toContain('failed verification');
+    expect(t).toContain('not valid JSON');
+    expect(t).not.toContain('[object Object]');
   });
 
   it('says WHY support is unavailable when no document is linked, instead of a dead button', () => {

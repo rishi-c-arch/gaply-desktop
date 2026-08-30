@@ -1212,9 +1212,18 @@ pub async fn ai_citation_need(
     // chunk-id check, which simply has nothing to check.
     let ctx = TaskContext::default();
 
-    let run = run_task(&*state.ai_gen, &task, &ctx, cancel, None)
-        .await
-        .map_err(GaplyError::from)?;
+    let run = match run_task(&*state.ai_gen, &task, &ctx, cancel, None).await {
+        Ok(r) => r,
+        // Same contract as ai_citation_support: a rejected model answer is an
+        // outcome the UI can explain, not an error it has to render raw.
+        Err(e @ crate::ai::task::TaskError::ValidationFailed { .. }) => {
+            return Ok(serde_json::json!({
+                "outcome": "validationFailed",
+                "reason": e.to_string(),
+            }))
+        }
+        Err(other) => return Err(GaplyError::from(other)),
+    };
 
     Ok(serde_json::json!({
         "output": run.output,
@@ -1337,9 +1346,26 @@ pub async fn ai_citation_support(
         }
     });
 
-    let run = run_task(&*manager, &task, &bundle.ctx, cancel, Some(sink))
-        .await
-        .map_err(GaplyError::from)?;
+    let run = match run_task(&*manager, &task, &bundle.ctx, cancel, Some(sink)).await {
+        Ok(r) => r,
+        // The model's answer failed Gaply's grounding checks twice. Nothing was
+        // persisted, nothing is broken, and this is one of the command's three
+        // documented non-success OUTCOMES — the same class as NoEvidence above.
+        // Returning it as a transport error instead meant the UI's honest
+        // wording for it could never fire: the panel has always had a
+        // `validationFailed` branch, and the command has never sent one.
+        Err(e @ crate::ai::task::TaskError::ValidationFailed { .. }) => {
+            return Ok(serde_json::json!({
+                "outcome": "validationFailed",
+                "reason": e.to_string(),
+                "documentId": document_id,
+                "persisted": false,
+            }))
+        }
+        // Cancellation and a genuine generation fault stay errors: one is the
+        // user's own request coming back, the other really is a fault.
+        Err(other) => return Err(GaplyError::from(other)),
+    };
     let _ = on_event.send(AiSupportEvent::Validating);
 
     // Persist. The validator has already proved every chunk_id was sent and

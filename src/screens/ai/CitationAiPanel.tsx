@@ -6,7 +6,7 @@
 import './ai.css';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Card } from '../../design-system/primitives';
-import { aiBridge, SupportEvent } from './aiBridge';
+import { aiBridge, errorCode, errorText, SupportEvent } from './aiBridge';
 import { EvidenceCard, EvidenceRow, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
 
@@ -199,8 +199,12 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
       }
       if (raw.outcome === 'validationFailed' || raw.outcome === 'error') {
         setPhase('rejected');
+        // The reason is the useful half. "not valid JSON: EOF while parsing a
+        // list" says the model ran out of room, which is a different problem
+        // from a wrong answer and points at a different fix.
+        const why = typeof raw.reason === 'string' && raw.reason.trim() ? ` (${raw.reason})` : '';
         setMessage(
-          'AI output failed verification — the model’s answer did not meet Gaply’s grounding checks, so it was discarded rather than shown.',
+          `AI output failed verification — the model’s answer did not meet Gaply’s grounding checks, so it was discarded rather than shown${why}.`,
         );
         return;
       }
@@ -208,12 +212,14 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
       setPhase('done');
     } catch (e) {
       // A run the user stopped is not a failure, and must not be dressed as one.
-      if (cancelling.current) {
+      // Two independent signals: this panel knows it asked, and the engine
+      // labels it `cancelled` — either is enough.
+      if (cancelling.current || errorCode(e) === 'cancelled') {
         setPhase('cancelled');
         return;
       }
       setPhase('failed');
-      setMessage(e instanceof Error ? e.message : String(e));
+      setMessage(errorText(e));
     }
   }, [bridge, sentence, documentId, citedSource, onSupportEvent]);
 
@@ -238,12 +244,12 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
       );
       setPhase('done');
     } catch (e) {
-      if (cancelling.current) {
+      if (cancelling.current || errorCode(e) === 'cancelled') {
         setPhase('cancelled');
         return;
       }
       setPhase('failed');
-      setMessage(e instanceof Error ? e.message : String(e));
+      setMessage(errorText(e));
     }
   }, [bridge, sentence]);
 
