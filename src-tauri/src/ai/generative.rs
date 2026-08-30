@@ -481,6 +481,55 @@ impl crate::ai::model_manager::BackendLoader for InstalledGenerativeLoader {
     }
 }
 
+/* ===================== which generative model actually runs ================ *
+ * The registry is the ANSWER, the bundled 0.5B is the FLOOR. */
+
+/// The newest INSTALLED generative model, or `None` when none is usable.
+///
+/// Walks `ai_model_registry` newest-first and returns the first row that still
+/// resolves to a real file pair under `<app data>/models/`. Rows are skipped —
+/// never fatal — when:
+///
+/// * the id is not one of the pinned [`gen_install::CANDIDATES`] (the bundled
+///   0.5B registers itself under an id with no candidate, so it lands here and
+///   is correctly left to the fallback), or
+/// * the files are gone (a registry row outlives a deleted directory).
+///
+/// A read failure is skipped too: the registry being unreadable must degrade to
+/// the bundled model, not take the whole engine down.
+pub fn installed_generative_loader(
+    db: &gaply_core::Database,
+    app_data: &Path,
+) -> Option<InstalledGenerativeLoader> {
+    let rows = match gaply_core::ai_engine::registry::list_models_recent_first(db, "generative") {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(error = %e, "model registry unreadable; falling back to the bundled model");
+            return None;
+        }
+    };
+    rows.iter().find_map(|row| InstalledGenerativeLoader::resolve(app_data, &row.id))
+}
+
+/// The loader the engine should run: an installed model if there is one, the
+/// bundled 0.5B otherwise, `None` when neither resolves.
+///
+/// The 0.5B exists so the engine is never dead on a fresh machine — it is a
+/// development/test floor, not the judge. It fails validation on most real
+/// `citation_support` calls, so an installed candidate has to win whenever one
+/// is present; before this, the installer could fetch and register 1.1 GB that
+/// nothing ever loaded.
+pub fn resolve_generative_loader(
+    db: &gaply_core::Database,
+    app_data: &Path,
+) -> Option<std::sync::Arc<dyn crate::ai::model_manager::BackendLoader>> {
+    if let Some(l) = installed_generative_loader(db, app_data) {
+        return Some(std::sync::Arc::new(l));
+    }
+    BundledGenerativeLoader::resolve()
+        .map(|l| std::sync::Arc::new(l) as std::sync::Arc<dyn crate::ai::model_manager::BackendLoader>)
+}
+
 /// Record the generative model in `ai_model_registry`. Idempotent — the DAO
 /// upserts, so calling this on every use is safe and keeps the row's path
 /// honest if the resolver ever picks a different file.
@@ -556,6 +605,90 @@ mod tests {
     #[test]
     fn estimate_ram_reports_a_missing_file_rather_than_guessing() {
         assert!(estimate_ram(Path::new("/nonexistent/model.gguf")).is_err());
+    }
+
+    /* -------- which generative model the engine picks (registry vs bundled) --- */
+
+    /// A temp `<app data>` with a candidate's two files laid out exactly as the
+    /// installer writes them. `resolve` only checks that the pair EXISTS —
+    /// verification is the installer's job — so the bytes are irrelevant here.
+    fn install_files(app_data: &Path, registry_id: &str) {
+        let c = crate::ai::gen_install::candidate(registry_id).expect("pinned candidate");
+        let dir = crate::ai::gen_install::model_dir(app_data, c);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(c.gguf.local_name()), b"gguf").unwrap();
+        std::fs::write(dir.join(c.tokenizer.local_name()), b"{}").unwrap();
+    }
+
+    fn register(db: &gaply_core::Database, id: &str) {
+        gaply_core::ai_engine::registry::register_model(
+            db,
+            gaply_core::ai_engine::registry::ModelRow {
+                id: id.to_string(),
+                kind: "generative".into(),
+                display_name: id.to_string(),
+                file_path: "/m".into(),
+                sha256: None,
+                dim: None,
+                quant: Some("Q4_K_M".into()),
+            },
+        )
+        .unwrap();
+    }
+
+    fn tmp_app_data(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir()
+            .join(format!("gaply-genres-{tag}-{}-{:?}", std::process::id(), std::thread::current().id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn an_installed_model_beats_the_bundled_floor() {
+        let db = gaply_core::Database::in_memory().unwrap();
+        let app_data = tmp_app_data("installed");
+        install_files(&app_data, "qwen2.5-1.5b-instruct-q4km");
+        register(&db, "qwen2.5-1.5b-instruct-q4km");
+
+        let l = resolve_generative_loader(&db, &app_data).expect("an installed model resolves");
+        assert_eq!(l.model_id(), "qwen2.5-1.5b-instruct-q4km");
+        assert_ne!(l.model_id(), BUNDLED_GEN_MODEL_ID, "the 0.5B floor must not win here");
+        let _ = std::fs::remove_dir_all(&app_data);
+    }
+
+    #[test]
+    fn an_empty_registry_falls_back_to_the_bundled_floor() {
+        let db = gaply_core::Database::in_memory().unwrap();
+        let app_data = tmp_app_data("empty");
+
+        assert!(
+            installed_generative_loader(&db, &app_data).is_none(),
+            "nothing is registered, so nothing is installed"
+        );
+        // The composed resolver hands back the bundled 0.5B — or None on a
+        // machine/CI runner where the bundled model is not present either.
+        // Asserted as that either/or so the test states a fact rather than a
+        // machine-dependent hope; what it pins is that NO installed candidate
+        // can be chosen from an empty registry.
+        match resolve_generative_loader(&db, &app_data) {
+            Some(l) => assert_eq!(l.model_id(), BUNDLED_GEN_MODEL_ID),
+            None => assert!(BundledGenerativeLoader::resolve().is_none()),
+        }
+        let _ = std::fs::remove_dir_all(&app_data);
+    }
+
+    #[test]
+    fn a_registry_row_whose_files_are_gone_is_skipped_not_fatal() {
+        let db = gaply_core::Database::in_memory().unwrap();
+        let app_data = tmp_app_data("stale");
+        // Registered, never installed here (and the bundled id has no pinned
+        // candidate at all — the other way a row is legitimately skipped).
+        register(&db, "qwen2.5-3b-instruct-q4km");
+        register(&db, BUNDLED_GEN_MODEL_ID);
+
+        assert!(installed_generative_loader(&db, &app_data).is_none());
+        let _ = std::fs::remove_dir_all(&app_data);
     }
 }
 

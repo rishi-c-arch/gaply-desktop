@@ -191,3 +191,57 @@ pub fn run() {
             panic!("error while running tauri application: {e}");
         });
 }
+
+#[cfg(test)]
+mod csp_config_tests {
+    //! The dev CSP is a SEPARATE key, and that separation is the whole safety
+    //! argument — so it gets a test rather than a comment.
+    //!
+    //! Tauri injects `app.security.csp` into the built app and
+    //! `app.security.devCsp` only during `tauri dev` (per the config schema:
+    //! `csp` is also used on dev *if* `devCsp` is absent). Relaxing the dev one
+    //! therefore cannot reach a shipped binary. What could still go wrong is
+    //! someone "fixing HMR" by editing the wrong key, so this pins it.
+
+    fn conf() -> serde_json::Value {
+        let raw = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"));
+        serde_json::from_str(raw).expect("tauri.conf.json must be valid JSON")
+    }
+
+    #[test]
+    fn the_production_csp_allows_no_websocket_or_localhost_origin() {
+        let c = conf();
+        let prod = c["app"]["security"]["csp"].to_string();
+        assert!(!prod.contains("ws://"), "production CSP gained a ws:// origin: {prod}");
+        assert!(!prod.contains("localhost:3000"), "production CSP gained the dev server: {prod}");
+    }
+
+    #[test]
+    fn the_dev_csp_adds_the_hmr_socket_and_nothing_else() {
+        let c = conf();
+        let sec = &c["app"]["security"];
+        let (prod, dev) = (&sec["csp"], &sec["devCsp"]);
+        assert!(dev.is_object(), "devCsp is what gates the relaxation to dev only");
+
+        let prod_o = prod.as_object().unwrap();
+        let dev_o = dev.as_object().unwrap();
+        assert_eq!(
+            prod_o.keys().collect::<Vec<_>>(),
+            dev_o.keys().collect::<Vec<_>>(),
+            "dev and production must cover the same directives"
+        );
+        for (k, v) in prod_o {
+            if k == "connect-src" {
+                continue;
+            }
+            assert_eq!(&dev_o[k], v, "devCsp weakened `{k}`, which is not what it is for");
+        }
+        // WebKit does not read 'self' as covering the ws: scheme, so CRA's
+        // webpack-dev-server HMR socket has to be named explicitly.
+        assert_eq!(
+            dev_o["connect-src"].as_str().unwrap(),
+            format!("{} ws://localhost:3000", prod_o["connect-src"].as_str().unwrap()),
+            "the dev CSP should be the production one plus the HMR socket, nothing more"
+        );
+    }
+}

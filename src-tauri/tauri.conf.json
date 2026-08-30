@@ -36,6 +36,20 @@
         "base-uri": "'self'",
         "form-action": "'self'",
         "frame-src": "'none'"
+      },
+      "devCsp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob:",
+        "font-src": "'self' data:",
+        "media-src": "'self' blob:",
+        "worker-src": "'self' blob:",
+        "connect-src": "ipc: http://ipc.localhost 'self' https://*.supabase.co wss://*.supabase.co ws://localhost:3000",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'self'",
+        "frame-src": "'none'"
       }
     }
   },

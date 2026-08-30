@@ -86,6 +86,37 @@ pub fn list_models(db: &Database, kind: &str) -> Result<Vec<ModelRow>, GaplyErro
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
+/// Every registered model of a kind, MOST RECENTLY REGISTERED FIRST.
+///
+/// Distinct from [`list_models`] on purpose. That one orders by id, which is
+/// stable but arbitrary; this one answers a different question — "which model
+/// did the user most recently choose to install?" — and that is the question a
+/// bake-off asks. Installing a new candidate makes it the preferred one without
+/// any code change, which is the whole point of the registry being data (§9.9).
+///
+/// Ties (two installs inside the same wall-clock second) fall back to id, so
+/// the order is total and the caller never sees a coin flip.
+pub fn list_models_recent_first(db: &Database, kind: &str) -> Result<Vec<ModelRow>, GaplyError> {
+    let conn = db.conn()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, kind, display_name, file_path, sha256, dim, quant
+         FROM ai_model_registry WHERE kind = ?1
+         ORDER BY registered_at DESC, id ASC",
+    )?;
+    let rows = stmt.query_map(params![kind], |r| {
+        Ok(ModelRow {
+            id: r.get(0)?,
+            kind: r.get(1)?,
+            display_name: r.get(2)?,
+            file_path: r.get(3)?,
+            sha256: r.get(4)?,
+            dim: r.get(5)?,
+            quant: r.get(6)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +155,40 @@ mod tests {
     fn an_unregistered_model_is_none_not_an_error() {
         let db = Database::in_memory().unwrap();
         assert!(get_model(&db, "nothing").unwrap().is_none());
+    }
+
+    /// `registered_at` is second-resolution, so the test writes it directly
+    /// rather than racing `now_epoch()` twice inside one second.
+    fn register_at(db: &Database, id: &str, at: i64) {
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO ai_model_registry
+                     (id, kind, display_name, file_path, sha256, dim, quant, registered_at)
+                 VALUES (?1, 'generative', ?1, '/m', NULL, NULL, 'Q4_K_M', ?2)",
+                params![id, at],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn recent_first_prefers_the_latest_install_and_breaks_ties_by_id() {
+        let db = Database::in_memory().unwrap();
+        register_at(&db, "qwen2.5-1.5b-instruct-q4km", 1000);
+        register_at(&db, "qwen2.5-3b-instruct-q4km", 2000);
+        // Registered in the same second as the 3B — the tie-break, not the clock,
+        // has to decide, and it has to decide the same way every run.
+        register_at(&db, "aaa-same-second", 2000);
+
+        let ids: Vec<_> =
+            list_models_recent_first(&db, "generative").unwrap().into_iter().map(|m| m.id).collect();
+        assert_eq!(
+            ids,
+            ["aaa-same-second", "qwen2.5-3b-instruct-q4km", "qwen2.5-1.5b-instruct-q4km"],
+            "newest first, then id"
+        );
+        // list_models keeps its own (id) ordering — this is an addition, not a change.
+        assert_eq!(list_models(&db, "generative").unwrap()[0].id, "aaa-same-second");
+        assert!(list_models_recent_first(&db, "embedding").unwrap().is_empty());
     }
 }

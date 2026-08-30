@@ -1891,3 +1891,60 @@ state, which is a true and actionable thing to tell someone.
 Adding `src/bin/ai-eval.rs` in Phase 4 left `cargo run` with two candidates, so
 `npm run tauri dev` failed with *"could not determine which binary to run"*. The
 app is the default; `ai-eval` stays explicit via `--bin ai-eval`.
+
+### D47 — the HMR socket is a `devCsp` entry, so the shipped CSP cannot inherit it
+
+`tauri dev` serves the frontend from `http://localhost:3000`, but the WKWebView
+never picked up a frontend edit: CRA recompiled and served the new chunk, while
+the window went on executing whatever it loaded at startup. Cause is the CSP —
+`connect-src` named `'self'` and `wss://*.supabase.co` but no `ws://localhost:3000`,
+and WebKit does not read `'self'` as covering the `ws:` scheme, so
+webpack-dev-server's HMR socket was blocked. The only way to see a frontend
+change was to relaunch the app (`touch src-tauri/src/lib.rs`), which turned every
+UI check in a verification pass into a full rebuild.
+
+The relaxation is DEV-ONLY BY CONSTRUCTION, not by convention. Tauri has two
+separate keys: `app.security.csp` is injected into the built app, and
+`app.security.devCsp` is injected during development — `csp` is used on dev only
+when `devCsp` is absent (config schema). So `devCsp` is now the production CSP
+plus exactly `ws://localhost:3000` on `connect-src`, and the production `csp` is
+byte-for-byte unchanged. A shipped binary has no path to the dev entry.
+
+What that leaves is a human failure — someone loosening the wrong key while
+chasing a dev-server problem — so `csp_config_tests` in `lib.rs` pins it: the
+production CSP contains no `ws://` and no `localhost:3000`, the two keys cover
+the same directives, and `devCsp` differs from `csp` in `connect-src` alone and
+by that one origin alone.
+
+### D48 — the registry decides which generative model runs; the bundled 0.5B is the floor
+
+`AppState` built the generative `ModelManager` from `BundledGenerativeLoader`
+unconditionally, so the engine always ran the bundled 0.5B (`stage1-lm`). The
+generative installer meanwhile downloads a pinned candidate into
+`<app data>/models/<registry id>/`, verifies its sha256 and writes an
+`ai_model_registry` row — and nothing ever loaded it. A user could install
+1.1 GB, see it verified and registered, and still have every `citation_support`
+call answered by the 0.5B, which fails validation on most real inputs. The
+status panel was honest throughout (it reports whatever the manager resolved);
+the wiring was the lie.
+
+`generative::resolve_generative_loader` now walks the registry newest-first
+(`registry::list_models_recent_first`, an addition — `list_models` keeps its id
+ordering) and takes the first row that still resolves to a real file pair,
+falling back to the bundled 0.5B and then to `NullLoader`.
+
+Three properties are deliberate:
+
+* **Recency, not size or id, is the preference.** "The model the user most
+  recently chose to install" is the question a bake-off actually asks, and it
+  keeps model choice a DATA change (§9.9) — installing the 3B makes it the
+  judge with no code edit. Ties inside one wall-clock second fall back to id, so
+  the order is total.
+* **A row that no longer resolves is SKIPPED, never fatal.** A registry row
+  outlives a deleted directory, and an id with no pinned candidate is normal —
+  the bundled 0.5B registers itself under exactly such an id, which is why it
+  falls through to the fallback rather than being "found" as installed. An
+  unreadable registry degrades to the bundled model too.
+* **The 0.5B stays.** It is what keeps a fresh machine's engine alive; it is a
+  development/test floor, and D48 is about not letting the floor outrank a
+  model the user deliberately installed.

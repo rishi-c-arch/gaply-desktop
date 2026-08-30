@@ -87,8 +87,12 @@ impl AppState {
         // The generative manager is CONSTRUCTED here, never loaded: resolving a
         // path and reading nothing is not a load. The first generation request
         // is the only thing that maps weights.
-        let gen_manager = match crate::ai::generative::BundledGenerativeLoader::resolve() {
-            Some(loader) => crate::ai::model_manager::ModelManager::new(Arc::new(loader)),
+        // Registry first, bundled 0.5B as the floor: an installed candidate is
+        // what the user asked for, and the 0.5B is only there so a fresh machine
+        // is not dead. See generative::resolve_generative_loader.
+        let gen_manager = match crate::ai::generative::resolve_generative_loader(&db, &app_data_dir)
+        {
+            Some(loader) => crate::ai::model_manager::ModelManager::new(loader),
             None => {
                 // No generative model resolves. Report it honestly; every
                 // deterministic feature still works.
