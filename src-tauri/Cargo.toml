@@ -11,6 +11,10 @@ license = ""
 repository = ""
 edition = "2021"
 rust-version = "1.77.2"
+# `src/bin/ai-eval.rs` made this package multi-binary, which left `cargo run`
+# (and so `tauri dev`) unable to choose. The app is the default; ai-eval is a
+# dev harness run explicitly with `--bin ai-eval`.
+default-run = "app"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

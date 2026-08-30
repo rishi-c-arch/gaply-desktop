@@ -1885,3 +1885,9 @@ One additive command, returning the linked document that is actually checkable
 (indexed AND embedded) or `null`. `null` is a first-class answer: it is what
 drives the panel's "this citation's source is not linked to an indexed document"
 state, which is a true and actionable thing to tell someone.
+
+### D46 — `default-run = "app"`: the eval harness made the package multi-binary
+
+Adding `src/bin/ai-eval.rs` in Phase 4 left `cargo run` with two candidates, so
+`npm run tauri dev` failed with *"could not determine which binary to run"*. The
+app is the default; `ai-eval` stays explicit via `--bin ai-eval`.
