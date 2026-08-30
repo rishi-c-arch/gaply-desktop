@@ -88,6 +88,19 @@ pub struct GenOutput {
 /// serialization and cancellation tests need no real model.
 pub trait GenerationBackend: Send + Sync {
     fn generate(&self, req: GenRequest<'_>) -> Result<GenOutput, GaplyError>;
+
+    /// The weights this backend ACTUALLY opened.
+    ///
+    /// Separate from `ModelManager::model_id()` on purpose: that reports the
+    /// loader the app was CONFIGURED with, and "which model was configured" and
+    /// "which model produced this text" are different questions that looked
+    /// identical the day a 3B was selected and a 0.5B was suspected. Only the
+    /// object holding the weights can answer the second one.
+    ///
+    /// Defaults to `"unknown"` so a test double need not care.
+    fn loaded_model_file(&self) -> String {
+        "unknown".to_string()
+    }
 }
 
 /// RAM this model is expected to occupy, computed from the GGUF's own metadata.
@@ -192,6 +205,9 @@ pub struct QwenGenerativeBackend {
     tokenizer: Tokenizer,
     device: Device,
     eot_ids: Vec<u32>,
+    /// The GGUF this instance opened. Provenance, not configuration — it is
+    /// read back by `loaded_model_file` and stamped onto every result.
+    gguf_path: std::path::PathBuf,
 }
 
 impl QwenGenerativeBackend {
@@ -218,11 +234,24 @@ impl QwenGenerativeBackend {
         if let Some(id) = tokenizer.token_to_id(QWEN2_IM_END) {
             eot_ids.push(id);
         }
-        Ok(Self { model: std::sync::Mutex::new(model), tokenizer, device, eot_ids })
+        Ok(Self {
+            model: std::sync::Mutex::new(model),
+            tokenizer,
+            device,
+            eot_ids,
+            gguf_path: model_gguf.to_path_buf(),
+        })
     }
 }
 
 impl GenerationBackend for QwenGenerativeBackend {
+    fn loaded_model_file(&self) -> String {
+        self.gguf_path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_else(|| self.gguf_path.display().to_string())
+    }
+
     fn generate(&self, req: GenRequest<'_>) -> Result<GenOutput, GaplyError> {
         let started = std::time::Instant::now();
         let mut model = self

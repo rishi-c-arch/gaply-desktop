@@ -55,6 +55,7 @@ function elapsedLabel(seconds: number): string {
 }
 
 export interface CitationAiPanelProps {
+  /** The claim to judge. May be empty — see the panel's claim field. */
   sentence: string;
   /** The cited source's indexed document, when there is one. */
   documentId?: number | null;
@@ -102,6 +103,15 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
   const [message, setMessage] = useState<string | null>(null);
   const [finding, setFinding] = useState<GroundedFinding | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
+  /** Which weights actually answered. Stamped by the backend on results AND
+   *  failures, so "which model was this?" is never inferred again. */
+  const [judgedBy, setJudgedBy] = useState<string | null>(null);
+  // The Citation Manager has no manuscript sentence to offer, so the claim is
+  // typed here. It used to be filled with the citation's own TITLE, which made
+  // the task self-referential — "does this document support 'Chapter 1 —
+  // Literature Review'?" — and a title has none of the elements the prompt
+  // asks the model to decompose. See the note above the field.
+  const [claim, setClaim] = useState(sentence);
   const [seconds, setSeconds] = useState(0);
   // Set the moment Cancel is pressed, so the run that then rejects is reported
   // as the user's decision rather than as a failure. The panel asked for it; it
@@ -135,6 +145,7 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
     setFinding(null);
     setProgress(null);
     setSeconds(0);
+    setJudgedBy(null);
     cancelling.current = false;
     setCancelRequested(false);
   };
@@ -172,18 +183,19 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
   }, []);
 
   const runSupport = useCallback(async () => {
-    if (documentId == null) return;
+    if (documentId == null || !claim.trim()) return;
     reset();
     setPhase('running');
     setProgress({ stage: 'starting' });
     try {
       const src = await bridge.documentSource(documentId);
       const raw = (await bridge.citationSupport(
-        sentence,
+        claim.trim(),
         documentId,
         citedSource,
         onSupportEvent,
       )) as Record<string, any>;
+      if (typeof raw.loadedModelFile === 'string') setJudgedBy(raw.loadedModelFile);
 
       // The engine's three honest non-success outcomes, each said plainly
       // rather than collapsed into "something went wrong".
@@ -221,13 +233,15 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
       setPhase('failed');
       setMessage(errorText(e));
     }
-  }, [bridge, sentence, documentId, citedSource, onSupportEvent]);
+  }, [bridge, claim, documentId, citedSource, onSupportEvent]);
 
   const runNeed = useCallback(async () => {
+    if (!claim.trim()) return;
     reset();
     setPhase('running');
     try {
-      const raw = (await bridge.citationNeed(sentence)) as Record<string, any>;
+      const raw = (await bridge.citationNeed(claim.trim())) as Record<string, any>;
+      if (typeof raw.loadedModelFile === 'string') setJudgedBy(raw.loadedModelFile);
       if (raw.outcome === 'validationFailed') {
         setPhase('rejected');
         setMessage('AI output failed verification — retry, or check this sentence yourself.');
@@ -251,7 +265,7 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
       setPhase('failed');
       setMessage(errorText(e));
     }
-  }, [bridge, sentence]);
+  }, [bridge, claim]);
 
   if (!aiInstalled) {
     return <AiUnavailable feature="Citation checking" onOpenSettings={onOpenSettings} />;
@@ -259,6 +273,33 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
 
   return (
     <Card title="AI assistance" data-testid="citation-ai-panel">
+      {/* THE CLAIM IS AN INPUT, not the citation's title.
+          It used to be prefilled with `selected.csl.title`, which made the
+          request self-referential — "does this document support the string
+          'Chapter 1 — Literature Review'?" — with the same text as the claim
+          AND the cited source. The prompt asks the model to decompose a claim
+          into subject, direction, magnitude, population and condition; a title
+          has none of them, and the model answered with prose. The eval harness
+          runs this identical code path against real sentences ("Organic
+          management increased soil invertebrate species richness by about 31
+          percent") and passes; the difference was never the model. */}
+      <label className="gds-ai__label" htmlFor="ai-claim">
+        Claim to check against this source
+      </label>
+      <textarea
+        id="ai-claim"
+        className="gds-ai__claim"
+        rows={2}
+        value={claim}
+        placeholder="Paste the sentence from your writing that cites this source…"
+        onChange={(e) => setClaim(e.target.value)}
+        data-testid="ai-claim"
+      />
+      <p className="gds-ai__hint">
+        A sentence that asserts something checkable. A reference title is not a
+        claim — there is nothing in it to verify.
+      </p>
+
       <div className="gds-audit__actions">
         {/* A support check reads the CITED DOCUMENT. With nothing indexed behind
             this citation there is no evidence to read, so the check cannot
@@ -274,7 +315,7 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
           <Button
             variant="secondary"
             onClick={runSupport}
-            disabled={phase === 'running'}
+            disabled={phase === 'running' || !claim.trim()}
             data-testid="ai-check-support"
           >
             Check citation support
@@ -283,7 +324,7 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
         <Button
           variant="secondary"
           onClick={runNeed}
-          disabled={phase === 'running'}
+          disabled={phase === 'running' || !claim.trim()}
           data-testid="ai-check-need"
         >
           Check if citation is needed
@@ -349,6 +390,12 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
       )}
 
       {finding && <EvidenceCard finding={finding} />}
+
+      {judgedBy && phase !== 'running' && (
+        <p className="gds-ai__hint" data-testid="ai-judged-by">
+          Judged on this machine by <code>{judgedBy}</code>.
+        </p>
+      )}
     </Card>
   );
 };

@@ -154,6 +154,26 @@
   margin: 6px 0 0;
 }
 
+.gds-root .gds-ai__claim {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 4px 0 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--g-border);
+  background: var(--g-bg-layer1);
+  color: var(--g-text-1);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.gds-root .gds-ai__claim::placeholder { color: var(--g-text-2); }
+.gds-root .gds-ai__claim:focus {
+  outline: none;
+  border-color: var(--g-accent);
+}
+
 .gds-root .gds-ai__progress {
   width: 100%;
   height: 6px;

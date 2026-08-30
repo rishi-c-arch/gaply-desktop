@@ -1159,6 +1159,7 @@ pub async fn ai_generate_test(
         "retried": run.retried,
         "promptVersion": run.prompt_version,
         "modelId": run.model_id,
+        "loadedModelFile": state.ai_gen.loaded_model_file(),
         "tokens": run.tokens,
         "elapsedMs": run.elapsed_ms,
     }))
@@ -1220,6 +1221,8 @@ pub async fn ai_citation_need(
             return Ok(serde_json::json!({
                 "outcome": "validationFailed",
                 "reason": e.to_string(),
+                "modelId": state.ai_gen.model_id(),
+                "loadedModelFile": state.ai_gen.loaded_model_file(),
             }))
         }
         Err(other) => return Err(GaplyError::from(other)),
@@ -1230,6 +1233,7 @@ pub async fn ai_citation_need(
         "retried": run.retried,
         "promptVersion": run.prompt_version,
         "modelId": run.model_id,
+        "loadedModelFile": state.ai_gen.loaded_model_file(),
         "tokens": run.tokens,
         "elapsedMs": run.elapsed_ms,
     }))
@@ -1360,6 +1364,11 @@ pub async fn ai_citation_support(
                 "reason": e.to_string(),
                 "documentId": document_id,
                 "persisted": false,
+                // WHICH MODEL SAID THIS. A failure without it sends the reader
+                // to the registry to infer an answer, and the registry records
+                // what was CONFIGURED, not what ran.
+                "modelId": manager.model_id(),
+                "loadedModelFile": manager.loaded_model_file(),
             }))
         }
         // Cancellation and a genuine generation fault stay errors: one is the
@@ -1432,6 +1441,7 @@ pub async fn ai_citation_support(
         "chunksSent": bundle.chunks_sent,
         "chunksDropped": bundle.chunks_dropped,
         "elapsedMs": run.elapsed_ms,
+        "loadedModelFile": manager.loaded_model_file(),
     }))
 }
 

@@ -1589,7 +1589,12 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                     because the engine runs one generation at a time. */}
                 <CitationAiPanel
                   key={selected.id}
-                  sentence={selected.csl.title ?? ''}
+                  // EMPTY on purpose. This screen has no manuscript sentence,
+                  // and passing the citation's title made the support check
+                  // self-referential — the same string as both the claim and
+                  // the cited source, with none of the elements the prompt asks
+                  // the model to decompose. The panel takes the claim as input.
+                  sentence=""
                   documentId={aiDocumentId}
                   // A PLAIN label, not formatCitation: that throws while a
                   // chosen style is still being prepared, and every other call

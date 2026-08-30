@@ -277,6 +277,79 @@ describe('Citation AI panel', () => {
     expect(t).not.toContain('[object Object]');
   });
 
+  it('takes the claim as INPUT and never prefills it with the reference title', () => {
+    // Regression: the Citation Manager passed selected.csl.title as the claim,
+    // so the request read "does this document support 'Chapter 1 — Literature
+    // Review'?" with the same string as claim AND cited source. A title has
+    // none of the elements the prompt asks the model to decompose, and the
+    // model answered with prose. The eval harness runs this same code path
+    // against real sentences and passes.
+    render(
+      <CitationAiPanel
+        sentence=""
+        documentId={1}
+        citedSource="Chapter 1 — Literature Review"
+        aiInstalled
+        bridge={base as any}
+      />,
+    );
+    const field = screen.getByTestId('ai-claim') as HTMLTextAreaElement;
+    expect(field.value).toBe('');
+    // Nothing runs without one — a check on an empty claim can only waste
+    // minutes of CPU to reject itself.
+    expect((screen.getByTestId('ai-check-support') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('ai-check-need') as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(field, { target: { value: '  Organic management increased richness by 31 percent.  ' } });
+    expect((screen.getByTestId('ai-check-support') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('sends the typed claim, trimmed — not the citation title', async () => {
+    const citationSupport = vi.fn(async (..._args: unknown[]) => ({ outcome: 'noEvidence', reason: 'none' }));
+    render(
+      <CitationAiPanel
+        sentence=""
+        documentId={7}
+        citedSource="Chapter 1 — Literature Review"
+        aiInstalled
+        bridge={{ ...base, citationSupport } as any}
+      />,
+    );
+    fireEvent.change(screen.getByTestId('ai-claim'), { target: { value: '  A checkable claim.  ' } });
+    fireEvent.click(screen.getByTestId('ai-check-support'));
+    await waitFor(() => expect(citationSupport).toHaveBeenCalled());
+    expect(citationSupport.mock.calls[0][0]).toBe('A checkable claim.');
+  });
+
+  it('stamps WHICH weights answered, on results and on failures alike', async () => {
+    // "Which model was this?" cost a whole diagnosis once. The registry records
+    // what was CONFIGURED; only the backend knows what it opened.
+    const withFile = (extra: Record<string, unknown>) => ({
+      ...base,
+      citationSupport: async () => ({ loadedModelFile: 'qwen2.5-3b-instruct-q4_k_m.gguf', ...extra }),
+    });
+
+    const ok = {
+      outcome: 'ok',
+      output: { verdict: 'weak', confidence: 0.4, explanation: 'x', supporting_chunks: [] },
+    };
+    const { unmount } = render(
+      <CitationAiPanel sentence="" documentId={1} aiInstalled bridge={withFile(ok) as any} />,
+    );
+    fireEvent.change(screen.getByTestId('ai-claim'), { target: { value: 'A claim.' } });
+    fireEvent.click(screen.getByTestId('ai-check-support'));
+    await waitFor(() => expect(screen.getByTestId('ai-judged-by')).toBeTruthy());
+    expect(screen.getByTestId('ai-judged-by').textContent).toContain('qwen2.5-3b-instruct-q4_k_m.gguf');
+    unmount();
+
+    const failed = { outcome: 'validationFailed', reason: 'no JSON object or array found in the reply' };
+    render(<CitationAiPanel sentence="" documentId={1} aiInstalled bridge={withFile(failed) as any} />);
+    fireEvent.change(screen.getByTestId('ai-claim'), { target: { value: 'A claim.' } });
+    fireEvent.click(screen.getByTestId('ai-check-support'));
+    await waitFor(() => expect(screen.getByTestId('ai-validation-failed')).toBeTruthy());
+    expect(screen.getByTestId('ai-judged-by').textContent).toContain('qwen2.5-3b-instruct-q4_k_m.gguf');
+  });
+
   it('says WHY support is unavailable when no document is linked, instead of a dead button', () => {
     // Regression: the reason lived in a `title` tooltip on a greyed-out button,
     // so on Wakefield/Naidu (no citation_documents row) the check looked broken.

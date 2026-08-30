@@ -193,6 +193,21 @@ impl ModelManager {
         }
     }
 
+    /// The weights currently held, as the backend itself reports them.
+    ///
+    /// `None` when nothing is loaded. Distinct from [`Self::model_id`], which
+    /// names the CONFIGURED loader: "what was selected" and "what produced this
+    /// answer" are different questions, and a run that has just finished can
+    /// answer the second one exactly.
+    pub fn loaded_model_file(&self) -> Option<String> {
+        let slot = self.slot.lock().expect("slot poisoned");
+        match &*slot {
+            Slot::Ready(b) => Some(b.loaded_model_file()),
+            Slot::Idle { backend, .. } => Some(backend.loaded_model_file()),
+            _ => None,
+        }
+    }
+
     pub fn in_flight(&self) -> usize {
         self.refcount.load(Ordering::SeqCst)
     }

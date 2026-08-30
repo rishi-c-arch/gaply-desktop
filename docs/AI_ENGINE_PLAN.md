@@ -2087,3 +2087,58 @@ Why the 3B is now the judge: the 1.5B demonstrated its failure mode on the first
 real manual check — `not valid JSON: EOF while parsing a list`, i.e. it ran out
 of room mid-answer, twice. The 3B was 6/6 in the bake-off. The registry now
 reads 3B (newest) → 0.5B bundled → 1.5B, and D48's walk takes the 3B.
+
+### D51 — the reported error named the wrong attempt, and the app was asking an unanswerable question
+
+Manual check: `citation_support` on the 3B failed validation twice with **"no
+JSON object or array found in the reply"** — the small models' signature
+failure, which the 3B never produced in the bake-off (6/6, zero retries). The
+obvious reading was that the 3B had failed to load and something had silently
+fallen back. It had not, and there are three separate findings underneath.
+
+**No fallback exists, and the 3B did generate.** `ModelManager::acquire` loads
+the one configured loader or returns `Err`; a failed load leaves `NotLoaded` and
+propagates, so it would surface as an error, not as a validation failure. The
+run reached validation, so the weights loaded. Settings' "2.2 GB" is
+`estimate_ram` over the 3B's own GGUF (2.41 GB = 2.24 GiB), and the log's
+primary-attempt error was `not valid JSON: missing field \`why\``, i.e.
+structured JSON one field short — not prose.
+
+**So why did the panel say "no JSON"? The keep-better-attempt rule reported the
+WORSE attempt.** `check()` returned `output: None` both for "no JSON in the
+reply" and for "JSON found, would not deserialize", so `is_worse_than` — written
+on `output.is_some()` — could not tell them apart, fell through to comparing
+fatal counts, saw one each, and declared the retry not worse. Primary became the
+RETRY, and its message was surfaced. `Reached { NoJson < Unparseable < Parsed }`
+now carries how far a reply got, and the comparison is an ordering over that
+before it counts errors. This is not cosmetic: the message it printed is a
+different model's signature failure, and it sent a live diagnosis at the wrong
+model while a 3B sat loaded and had nearly answered.
+
+**And the app was asking a question with no answer in it.** Diffed line for line,
+the app and the eval harness run the SAME path — same `assemble` at the same
+`EVIDENCE_BUDGET_TOKENS` (1200), same `CitationSupportTask`, same
+`build_prompt` with the same ChatML template, same `MAX_TOKENS` (768, matching
+the bake-off's recorded `maxTokensCeiling`), same `TASK_N_CTX` (4096), same
+`promptVersion` `citation_support-v1.4`. The only difference is the INPUT. The
+harness sends claims like *"Organic management increased soil invertebrate
+species richness by about 31 percent."* The Citation Manager sent
+`selected.csl.title` — **"Chapter 1 — Literature Review"** — as the claim, with
+that same string as `cited_source`, against evidence drawn from that same
+document. The RULES ask the model to decompose the claim into subject,
+direction of effect, magnitude, population and condition; a title has none of
+them. The task was self-referential and undecomposable, and the model wrote
+prose. The bake-off never covered this because no fixture is shaped like it.
+
+The claim is an INPUT now. The Citation Manager has no manuscript sentence to
+offer, so the panel takes one and refuses to run without it — a check on an
+empty or degenerate claim can only spend minutes of CPU to reject itself.
+
+**Provenance is stamped, so "which model was this?" is not a diagnosis again.**
+`GenerationBackend::loaded_model_file` reports the weights the backend actually
+opened — deliberately distinct from `ModelManager::model_id`, which names the
+CONFIGURED loader, because "what was selected" and "what produced this answer"
+are the two questions that looked identical here. It travels on every
+`citation_support` and `citation_need` payload, success AND failure, and the
+panel renders it. The startup log now names the selected model too; that it did
+not is why item 1 was a question at all.

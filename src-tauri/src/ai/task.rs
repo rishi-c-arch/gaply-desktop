@@ -344,10 +344,32 @@ pub struct RunTimings {
     pub tokens: usize,
 }
 
+/// How far a reply got before it stopped being usable. ORDERED: a later
+/// variant is a strictly better artifact than an earlier one.
+///
+/// This distinction is the whole point. Both `NoJson` and `Unparseable` leave
+/// `output: None`, so a comparison written on `output.is_some()` alone cannot
+/// tell "the model wrote prose" from "the model wrote JSON that was one field
+/// short" — it falls through to counting errors, sees one each, and calls them
+/// equal. That is not a tie: it is the difference between a model that ignored
+/// the schema and one that nearly hit it, and reporting the wrong one has
+/// pointed a diagnosis at the wrong model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Reached {
+    /// No JSON in the reply at all.
+    NoJson,
+    /// JSON was found, but it did not fit the output type.
+    Unparseable,
+    /// Deserialized. It may still have failed validation.
+    Parsed,
+}
+
 /// What one attempt produced.
 struct Attempted<O> {
     /// `None` when the reply could not be parsed at all.
     output: Option<O>,
+    /// How far it got — see [`Reached`].
+    reached: Reached,
     fatal: Vec<ValidationError>,
     advisory: Vec<ValidationError>,
 }
@@ -360,10 +382,10 @@ impl<O> Attempted<O> {
     /// Advisories deliberately do not enter the comparison — they never block
     /// acceptance, so they cannot make one attempt preferable to another.
     fn is_worse_than(&self, other: &Self) -> bool {
-        match (self.output.is_some(), other.output.is_some()) {
-            (false, true) => true,
-            (true, false) => false,
-            _ => self.fatal.len() > other.fatal.len(),
+        match self.reached.cmp(&other.reached) {
+            std::cmp::Ordering::Less => true,
+            std::cmp::Ordering::Greater => false,
+            std::cmp::Ordering::Equal => self.fatal.len() > other.fatal.len(),
         }
     }
 }
@@ -373,6 +395,7 @@ fn check<T: AiTask>(raw: &str, ctx: &TaskContext) -> Attempted<T::Output> {
     let Some(json) = extract_json(raw) else {
         return Attempted {
             output: None,
+            reached: Reached::NoJson,
             fatal: vec![ValidationError::fatal(
                 "<output>",
                 "no JSON object or array found in the reply",
@@ -385,6 +408,7 @@ fn check<T: AiTask>(raw: &str, ctx: &TaskContext) -> Attempted<T::Output> {
         Err(e) => {
             return Attempted {
                 output: None,
+                reached: Reached::Unparseable,
                 fatal: vec![ValidationError::fatal(
                     "<output>",
                     format!("not valid JSON: {e}"),
@@ -397,7 +421,7 @@ fn check<T: AiTask>(raw: &str, ctx: &TaskContext) -> Attempted<T::Output> {
         Ok(()) => (Vec::new(), Vec::new()),
         Err(errors) => partition(errors),
     };
-    Attempted { output: Some(parsed), fatal, advisory }
+    Attempted { output: Some(parsed), reached: Reached::Parsed, fatal, advisory }
 }
 
 #[derive(Debug, Serialize)]
@@ -1088,6 +1112,59 @@ mod tests {
                 // both raws are still carried
                 assert_eq!(first_raw, r#"{"ok":true}"#);
                 assert_eq!(retry_raw, "not json at all");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// THE REGRESSION. Attempt 1 returns JSON that is one field short; the
+    /// retry returns no JSON at all. Both leave `output: None`, so a comparison
+    /// written on `output.is_some()` scored them equal on fatal count (1 each)
+    /// and reported the RETRY — surfacing "no JSON object or array found in the
+    /// reply" for a run whose first attempt had produced structured JSON.
+    ///
+    /// That is not cosmetic. "no JSON at all" is the small models' signature
+    /// failure, so the message pointed a live diagnosis at the wrong model
+    /// while a 3B was loaded and had very nearly answered.
+    #[tokio::test]
+    async fn a_reply_that_nearly_parsed_beats_one_with_no_json_at_all() {
+        let (m, _p, _c) = scripted(&[r#"{"not_the_field":true}"#, "I cannot answer that."]);
+        let t = tiered(true, false);
+        let err = run_task(&m, &t, &TaskContext::default(), Arc::new(AtomicBool::new(false)), None)
+            .await
+            .unwrap_err();
+        match err {
+            TaskError::ValidationFailed { primary, errors, .. } => {
+                assert_eq!(primary, Attempt::First, "the reply with no JSON was reported instead");
+                assert_eq!(errors.len(), 1);
+                assert!(
+                    errors[0].problem.contains("not valid JSON"),
+                    "expected the deserialization error, got {:?}",
+                    errors[0].problem
+                );
+                assert!(
+                    !errors[0].problem.contains("no JSON object"),
+                    "the worse attempt's message leaked into the report"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The mirror: no-JSON first, nearly-parsed on the retry. The retry is the
+    /// better artifact and must win, so the rule is an ordering rather than a
+    /// standing preference for attempt one.
+    #[tokio::test]
+    async fn a_retry_that_nearly_parsed_beats_a_first_reply_with_no_json() {
+        let (m, _p, _c) = scripted(&["I cannot answer that.", r#"{"not_the_field":true}"#]);
+        let t = tiered(true, false);
+        let err = run_task(&m, &t, &TaskContext::default(), Arc::new(AtomicBool::new(false)), None)
+            .await
+            .unwrap_err();
+        match err {
+            TaskError::ValidationFailed { primary, errors, .. } => {
+                assert_eq!(primary, Attempt::Retry);
+                assert!(errors[0].problem.contains("not valid JSON"));
             }
             other => panic!("{other:?}"),
         }

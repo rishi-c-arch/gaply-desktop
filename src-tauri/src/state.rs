@@ -104,7 +104,14 @@ impl AppState {
                 m
             }
         };
-        tracing::info!(state = ?gen_manager.state(), "generative model manager");
+        // NAME the model. The state alone ("NotLoaded") left "which model is
+        // this app going to judge with?" unanswerable from the log, which is
+        // exactly the question a surprising result raises first.
+        tracing::info!(
+            model_id = %gen_manager.model_id(),
+            state = ?gen_manager.state(),
+            "generative model manager"
+        );
         Self {
             config,
             db,
