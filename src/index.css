@@ -15,7 +15,12 @@ html {
 .hero-orb,
 .floating-orbs,
 .particle,
-[class*="cursor"],
+/* A wildcard match on the fragment "cursor" used to sit here. It also matched
+   Tailwind's cursor-pointer utility, so it display:none'd every element
+   carrying that class — all eight Citation Manager cards and the "From paper
+   file…" control among them. The decorative cursor-follower is already covered
+   by the exact .cursor / .mouse-follower selectors above.
+   See src/globalHideRules.vitest.ts. */
 [class*="orb"],
 [class*="blob"],
 [class*="float"],

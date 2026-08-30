@@ -13,9 +13,19 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Badge, Button, Card } from '../../design-system/primitives';
 import { aiBridge, AiModelStatus, InstallEvent } from './aiBridge';
 
-/** Is a model actually usable? The engines report a tagged state. */
-export function isReady(state: { kind: string } | undefined | null): boolean {
-  return state?.kind === 'ready' || state?.kind === 'loaded' || state?.kind === 'notLoaded';
+/** The two states that mean "no usable model on disk". Everything else
+ *  (`notLoaded` / `loading` / `ready` / `idle` / `unloading`) means the files
+ *  are installed and verified — the model just is not resident right now.
+ *
+ *  Stated as a DENY-list on purpose: an allow-list has to be extended every
+ *  time the backend gains a lifecycle state, and the failure mode of forgetting
+ *  is this exact bug — an installed model reported as missing. */
+const NOT_INSTALLED_STATES = ['notInstalled', 'corrupt'];
+
+/** Is a model actually usable? The engines report a tagged state — and the tag
+ *  field is `state`, matching `#[serde(tag = "state")]` on the Rust enums. */
+export function isReady(state: { state?: string } | undefined | null): boolean {
+  return !!state?.state && !NOT_INSTALLED_STATES.includes(state.state);
 }
 
 export function isNotInstalled(status: AiModelStatus | null): boolean {
@@ -82,8 +92,12 @@ export const AiStatusPanel: React.FC<AiStatusPanelProps> = ({ bridge = aiBridge 
         break;
       case 'cancelled':
       case 'done':
+        // Only the per-model progress is cleared. `installing` stays true: this
+        // handler is shared by BOTH installers, and the embedding one finishes
+        // first — clearing it here put the "Install Gaply AI" button back while
+        // the 1.1 GB generative download was still running, so the whole
+        // download showed no progress at all. `install()`'s finally owns it.
         setProgress(null);
-        setInstalling(false);
         break;
       default:
         break;

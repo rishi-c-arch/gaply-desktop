@@ -16,9 +16,12 @@ vi.mock('react-pdf', () => ({
 
 afterEach(cleanup);
 
+// The wire shape the Rust side actually sends: `#[serde(tag = "state")]` on
+// EngineState / GenState. These fixtures said `kind`, which is why nothing
+// caught the panel reading a field the backend never emits.
 const READY = {
-  embedding: { kind: 'ready' },
-  generative: { kind: 'notLoaded' },
+  embedding: { state: 'ready' },
+  generative: { state: 'notLoaded' },
   generativeModelId: 'qwen2.5-1.5b-instruct-q4km',
   inFlight: 0,
   generativeRam: { totalBytes: 1024 ** 3 * 2 },
@@ -29,7 +32,7 @@ const READY = {
 describe('AI status + install', () => {
   it('offers ONE install affordance when a model is missing, and no broken buttons', async () => {
     const bridge = {
-      modelStatus: async () => ({ ...READY, embedding: { kind: 'notInstalled' } }),
+      modelStatus: async () => ({ ...READY, embedding: { state: 'notInstalled' } }),
       installEmbedding: async () => {},
       installGenerative: async () => {},
       cancelInstall: async () => {},
@@ -60,7 +63,7 @@ describe('AI status + install', () => {
 
   it('reports a resumed download rather than restarting silently', async () => {
     const bridge = {
-      modelStatus: async () => ({ ...READY, embedding: { kind: 'notInstalled' } }),
+      modelStatus: async () => ({ ...READY, embedding: { state: 'notInstalled' } }),
       installEmbedding: async (cb: any) => {
         cb({ kind: 'downloading', file: 'model.safetensors', fromBytes: 500, totalBytes: 1000 });
         await new Promise((r) => setTimeout(r, 0));
@@ -72,6 +75,66 @@ describe('AI status + install', () => {
     await waitFor(() => expect(screen.getByTestId('ai-install')).toBeTruthy());
     fireEvent.click(screen.getByTestId('ai-install'));
     await waitFor(() => expect(screen.getByText(/Resuming/)).toBeTruthy());
+  });
+
+  it('an INSTALLED model is recognised through the backend\u2019s own `state` tag', async () => {
+    // Regression: isReady() read `.kind`, which is always undefined on the wire,
+    // so a fully installed + registered pair still showed "Install Gaply AI".
+    // Every generative lifecycle state below means the files are on disk.
+    for (const gen of ['notLoaded', 'loading', 'ready', 'idle', 'unloading']) {
+      const bridge = {
+        modelStatus: async () => ({ ...READY, generative: { state: gen } }),
+        installEmbedding: async () => {},
+        installGenerative: async () => {},
+        cancelInstall: async () => {},
+      };
+      render(<AiStatusPanel bridge={bridge as any} />);
+      await waitFor(() => expect(screen.getByTestId('ai-model-id')).toBeTruthy());
+      expect(screen.queryByTestId('ai-install')).toBeNull();
+      cleanup();
+    }
+    // ...and the two that genuinely mean "nothing usable on disk" still offer it.
+    for (const bad of ['notInstalled', 'corrupt']) {
+      const bridge = {
+        modelStatus: async () => ({ ...READY, generative: { state: bad } }),
+        installEmbedding: async () => {},
+        installGenerative: async () => {},
+        cancelInstall: async () => {},
+      };
+      render(<AiStatusPanel bridge={bridge as any} />);
+      await waitFor(() => expect(screen.getByTestId('ai-install')).toBeTruthy());
+      cleanup();
+    }
+  });
+
+  it('keeps showing progress across BOTH installers, not just the first', async () => {
+    // Regression: the embedding installer's `done` cleared `installing`, so the
+    // 1.1 GB generative download that follows ran with the install button back
+    // on screen and no progress at all.
+    let releaseGenerative: () => void = () => {};
+    const generativeStarted = new Promise<void>((resolve) => {
+      releaseGenerative = resolve;
+    });
+    const bridge = {
+      modelStatus: async () => ({ ...READY, embedding: { state: 'notInstalled' } }),
+      installEmbedding: async (cb: any) => {
+        cb({ kind: 'alreadyPresent', file: 'model.safetensors' });
+        cb({ kind: 'done', modelId: 'bge-small-en-v1.5', dir: '/m' });
+      },
+      installGenerative: async (_id: string, cb: any) => {
+        cb({ kind: 'progress', file: 'qwen.gguf', bytes: 300, totalBytes: 1000 });
+        releaseGenerative();
+        await new Promise((r) => setTimeout(r, 50));
+      },
+      cancelInstall: async () => {},
+    };
+    render(<AiStatusPanel bridge={bridge as any} />);
+    await waitFor(() => expect(screen.getByTestId('ai-install')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('ai-install'));
+    await generativeStarted;
+    await waitFor(() => expect(screen.getByText(/qwen\.gguf — 30%/)).toBeTruthy());
+    expect(screen.queryByTestId('ai-install')).toBeNull();
+    expect(screen.getByTestId('ai-install-progress')).toBeTruthy();
   });
 
   it('the NotInstalled affordance explains rather than disabling silently', () => {

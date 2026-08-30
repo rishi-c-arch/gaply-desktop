@@ -5,9 +5,18 @@
 
 export type ActiveDevice = 'cpu' | 'metal';
 
+/** The backend tags both engine-state enums with `state`, not `kind`
+ *  (`#[serde(tag = "state")]` on `EngineState` / `GenState`). Reading `kind`
+ *  here silently yielded `undefined` for every status, so the install surface
+ *  could never leave its NotInstalled branch. */
+export interface EngineStateWire {
+  state: string;
+  [k: string]: unknown;
+}
+
 export interface AiModelStatus {
-  embedding: { kind: string; [k: string]: unknown };
-  generative: { kind: string; [k: string]: unknown };
+  embedding: EngineStateWire;
+  generative: EngineStateWire;
   generativeModelId: string;
   inFlight: number;
   /** Computed by the backend from GGUF metadata — never invented here. */
