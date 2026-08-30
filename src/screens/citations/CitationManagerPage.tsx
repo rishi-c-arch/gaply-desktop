@@ -1580,7 +1580,15 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                   is instant and untouched. Order is the contract: the certain
                   half never waits on the uncertain one. */}
               <div className="gds-root mt-4">
+                {/* Keyed per citation. Without this the panel keeps its state
+                    across a selection change, so a check started on one
+                    citation goes on saying "running" under the next one and
+                    lands its evidence there — evidence attributed to a source
+                    it was never read against. Remounting also cancels the
+                    orphaned run (see the panel's unmount effect), which matters
+                    because the engine runs one generation at a time. */}
                 <CitationAiPanel
+                  key={selected.id}
                   sentence={selected.csl.title ?? ''}
                   documentId={aiDocumentId}
                   // A PLAIN label, not formatCitation: that throws while a

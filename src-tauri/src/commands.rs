@@ -1133,8 +1133,8 @@ pub async fn ai_generate_test(
         crate::ai::generative::register_generative(&state.db, &loader)?;
     }
 
-    let cancel = state.ai_gen_cancel.clone();
-    cancel.store(false, std::sync::atomic::Ordering::SeqCst); // never poison the next run
+    let cancel_token = state.ai_gen_cancel.issue();
+    let cancel = cancel_token.flag();
 
     let ctx = TaskContext::new(vec![EvidenceChunk {
         chunk_id: "c1".into(),
@@ -1166,7 +1166,11 @@ pub async fn ai_generate_test(
 
 #[tauri::command]
 pub fn ai_generate_cancel(state: State<'_, AppState>) {
-    state.ai_gen_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    // Stops exactly the runs alive right now. A request that arrives after this
+    // starts clean — cancellation is per-run, never a shared flag the next
+    // request would have to clear (and, clearing it, revive this one).
+    let stopped = state.ai_gen_cancel.cancel_all();
+    tracing::info!(stopped, "generation cancel requested");
 }
 
 /// Spec Prompt 3 — does this sentence need a citation?
@@ -1195,8 +1199,8 @@ pub async fn ai_citation_need(
     if let Some(loader) = crate::ai::generative::BundledGenerativeLoader::resolve() {
         crate::ai::generative::register_generative(&state.db, &loader)?;
     }
-    let cancel = state.ai_gen_cancel.clone();
-    cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+    let cancel_token = state.ai_gen_cancel.issue();
+    let cancel = cancel_token.flag();
 
     let task = CitationNeedTask::new(CitationNeedInput {
         sentence,
@@ -1229,9 +1233,22 @@ pub enum AiSupportEvent {
     /// How much evidence survived the budget — emitted before generation so a
     /// UI can say "judging 6 of 11 passages" rather than showing a bare spinner.
     Retrieved { chunks_sent: usize, chunks_dropped: usize },
-    Generating,
+    /// `queued_behind` is how many other generations were already alive when
+    /// this one asked for the model. The engine runs ONE at a time, so a
+    /// non-zero value is the difference between "slow" and "waiting", and a UI
+    /// that cannot tell them apart shows a spinner that means nothing.
+    Generating { queued_behind: usize },
+    /// A liveness heartbeat while decoding: `tokens` of `max_tokens` produced.
+    /// Emitted every [`DECODE_HEARTBEAT_TOKENS`] tokens, not per token — the
+    /// point is proof of progress, not a token stream.
+    Decoding { tokens: usize, max_tokens: usize },
     Validating,
 }
+
+/// How often the decode heartbeat fires. Small enough that a stalled run is
+/// obvious within seconds of real progress, large enough not to flood the IPC
+/// channel on a fast machine.
+const DECODE_HEARTBEAT_TOKENS: usize = 8;
 
 /// Spec Prompt 2 — does the cited paper actually say this?
 ///
@@ -1259,8 +1276,8 @@ pub async fn ai_citation_support(
     if let Some(loader) = crate::ai::generative::BundledGenerativeLoader::resolve() {
         crate::ai::generative::register_generative(&state.db, &loader)?;
     }
-    let cancel = state.ai_gen_cancel.clone();
-    cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+    let cancel_token = state.ai_gen_cancel.issue();
+    let cancel = cancel_token.flag();
 
     let db = state.db.clone();
     let slot = state.ai_embed.clone();
@@ -1302,8 +1319,25 @@ pub async fn ai_citation_support(
         cited_source: cited_source.unwrap_or_else(|| format!("document {document_id}")),
         evidence: bundle.rendered.clone(),
     };
-    let _ = on_event.send(AiSupportEvent::Generating);
-    let run = run_task(&*manager, &task, &bundle.ctx, cancel, None)
+    // in_flight() counts leases already taken, i.e. the runs this one must wait
+    // for. Read BEFORE run_task, which is what takes ours.
+    let _ = on_event.send(AiSupportEvent::Generating { queued_behind: manager.in_flight() });
+
+    // A heartbeat, not a token stream: the panel needs to prove the machine is
+    // working, and on an unoptimised build a single check is minutes of silence.
+    let max_tokens = <CitationSupportTask as crate::ai::task::AiTask>::max_tokens();
+    let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let beat = on_event.clone();
+    let beat_seen = seen.clone();
+    let sink: crate::ai::model_manager::TokenSink = std::sync::Arc::new(move |_t: &str| {
+        let n = beat_seen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        if n % DECODE_HEARTBEAT_TOKENS == 0 {
+            // Closed channel ignored: the user may have navigated away.
+            let _ = beat.send(AiSupportEvent::Decoding { tokens: n, max_tokens });
+        }
+    });
+
+    let run = run_task(&*manager, &task, &bundle.ctx, cancel, Some(sink))
         .await
         .map_err(GaplyError::from)?;
     let _ = on_event.send(AiSupportEvent::Validating);

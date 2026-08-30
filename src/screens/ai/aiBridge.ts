@@ -43,6 +43,15 @@ export type InstallEvent =
   | { kind: 'cancelled' }
   | { kind: 'done'; modelId: string; dir: string };
 
+/** Stages `ai_citation_support` streams over its Channel. Tagged `kind` —
+ *  `#[serde(tag = "kind", rename_all = "camelCase")]` on `AiSupportEvent`. */
+export type SupportEvent =
+  | { kind: 'retrieving' }
+  | { kind: 'retrieved'; chunksSent: number; chunksDropped: number }
+  | { kind: 'generating'; queuedBehind: number }
+  | { kind: 'decoding'; tokens: number; maxTokens: number }
+  | { kind: 'validating' };
+
 export interface JobProgressEvent {
   jobId: number;
   completed: number;
@@ -113,12 +122,20 @@ class AiBridge {
     return this.invoke<Record<string, unknown>>('ai_citation_need', { sentence, section });
   }
 
-  async citationSupport(claim: string, documentId: number, citedSource?: string) {
-    return this.channelInvoke<Record<string, unknown>, unknown>('ai_citation_support', {
-      claim,
-      documentId,
-      citedSource,
-    });
+  /** `onEvent` is not optional decoration: the command streams retrieval and
+   *  decode progress, and dropping it is what left the panel showing one static
+   *  line for the whole run. */
+  async citationSupport(
+    claim: string,
+    documentId: number,
+    citedSource?: string,
+    onEvent?: (ev: SupportEvent) => void,
+  ) {
+    return this.channelInvoke<Record<string, unknown>, SupportEvent>(
+      'ai_citation_support',
+      { claim, documentId, citedSource },
+      onEvent,
+    );
   }
 
   async cancelGeneration(): Promise<void> {

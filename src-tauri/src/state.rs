@@ -55,7 +55,8 @@ pub struct AppState {
     /// loaded — the weights are pulled in lazily by the first generation.
     pub ai_gen: Arc<crate::ai::model_manager::ModelManager>,
     /// Cancel token for a generation.
-    pub ai_gen_cancel: Arc<AtomicBool>,
+    /// Per-RUN cancellation. Not one shared flag: see ai::cancel.
+    pub ai_gen_cancel: Arc<crate::ai::cancel::CancelRegistry>,
     /// Phase 8 (§11 D39). In-flight INTERACTIVE requests. Batch jobs check this
     /// between items and wait while it is non-zero, so a human asking one
     /// question never queues behind a three-hour audit.
@@ -116,7 +117,7 @@ impl AppState {
             ai_install_cancel: Arc::new(AtomicBool::new(false)),
             ai_embed_cancel: Arc::new(AtomicBool::new(false)),
             ai_gen: Arc::new(gen_manager),
-            ai_gen_cancel: Arc::new(AtomicBool::new(false)),
+            ai_gen_cancel: Arc::new(crate::ai::cancel::CancelRegistry::default()),
             ai_interactive: crate::ai::job_runner::InteractivePriority::new(),
             ai_jobs: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }

@@ -1,6 +1,6 @@
 // Gaply — Phase 9b screens: status/install, citation panel, thesis audit.
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AiStatusPanel, AiUnavailable } from './AiStatusPanel';
@@ -185,6 +185,106 @@ describe('Citation AI panel', () => {
     await waitFor(() => expect(screen.getByTestId('evidence-card')).toBeTruthy());
     expect(screen.getByTestId('evidence-quote-0').textContent).toContain('31 percent');
     expect(screen.getByTestId('evidence-open-0').textContent).toContain('p.5');
+  });
+
+  it('says WHY support is unavailable when no document is linked, instead of a dead button', () => {
+    // Regression: the reason lived in a `title` tooltip on a greyed-out button,
+    // so on Wakefield/Naidu (no citation_documents row) the check looked broken.
+    render(<CitationAiPanel sentence="A claim." documentId={null} aiInstalled bridge={base as any} />);
+    expect(screen.queryByTestId('ai-check-support')).toBeNull();
+    const why = screen.getByTestId('ai-support-unavailable').textContent ?? '';
+    expect(why).toMatch(/isn’t linked to an indexed document/);
+    // "Needs a citation?" judges a sentence, not a source — it stays available.
+    expect(screen.getByTestId('ai-check-need')).toBeTruthy();
+  });
+
+  it('reports the live stage and elapsed time, never a predicted duration', async () => {
+    // Regression: the panel showed one static "this takes about a minute" for
+    // the whole run, so a working multi-minute check and a wedged one looked
+    // identical. The command streams these stages; the bridge used to drop them.
+    let emit: (ev: any) => void = () => {};
+    const bridge = {
+      ...base,
+      citationSupport: (_c: string, _d: number, _s: string | undefined, onEvent: any) => {
+        emit = onEvent;
+        return new Promise(() => {}); // never settles: we are inspecting mid-run
+      },
+    };
+    render(<CitationAiPanel sentence="A claim." documentId={1} aiInstalled bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('ai-check-support'));
+    await waitFor(() => expect(screen.getByTestId('ai-running')).toBeTruthy());
+    expect(screen.getByTestId('ai-running').textContent).toMatch(/0:00 elapsed/);
+    expect(screen.getByTestId('ai-running').textContent).not.toMatch(/about a minute/);
+
+    await act(async () => emit({ kind: 'retrieved', chunksSent: 6, chunksDropped: 5 }));
+    expect(screen.getByTestId('ai-progress').textContent).toMatch(/Judging 6 passages \(5 dropped/);
+
+    // The queue is the difference between "slow" and "waiting" — say which.
+    await act(async () => emit({ kind: 'generating', queuedBehind: 2 }));
+    expect(screen.getByTestId('ai-progress').textContent).toMatch(/2 other checks ahead/);
+
+    await act(async () => emit({ kind: 'generating', queuedBehind: 0 }));
+    expect(screen.getByTestId('ai-progress').textContent).not.toMatch(/ahead/);
+
+    await act(async () => emit({ kind: 'decoding', tokens: 64, maxTokens: 1024 }));
+    expect(screen.getByTestId('ai-progress').textContent).toMatch(/64 of up to 1024 tokens/);
+  });
+
+  it('reports a user cancellation as a decision, not a failure — and says why it is not instant', async () => {
+    // Regression: Cancel called through to the backend and changed nothing on
+    // screen, so a press that WAS working looked like a dead button. It cannot
+    // be instant — cancellation is checked between model steps and the first
+    // step reads the whole prompt — so the panel says that rather than nothing.
+    let reject: (e: Error) => void = () => {};
+    const bridge = {
+      ...base,
+      cancelGeneration: vi.fn(async () => {}),
+      citationSupport: () => new Promise((_res, rej) => { reject = rej; }),
+    };
+    render(<CitationAiPanel sentence="A claim." documentId={1} aiInstalled bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('ai-check-support'));
+    await waitFor(() => expect(screen.getByTestId('ai-cancel')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('ai-cancel'));
+    expect(bridge.cancelGeneration).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('ai-cancel').textContent).toContain('Stopping');
+    expect((screen.getByTestId('ai-cancel') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('ai-progress').textContent).toMatch(/has to finish first/);
+
+    // The backend then rejects the cancelled run. That is the user's own
+    // request coming back — it must not be styled as an error.
+    await act(async () => reject(new Error('cancelled')));
+    await waitFor(() => expect(screen.getByTestId('ai-cancelled')).toBeTruthy());
+    expect(screen.queryByTestId('ai-error')).toBeNull();
+    expect(screen.getByTestId('ai-cancelled').textContent).toMatch(/Nothing was saved/);
+  });
+
+  it('cancels the run it started when the panel goes away mid-check', async () => {
+    // The engine runs ONE generation at a time, so an orphaned run holds the
+    // model. Selecting another citation remounts this panel (it is keyed by
+    // citation id), which must not leave that run holding the permit.
+    const cancelGeneration = vi.fn(async () => {});
+    const bridge = {
+      ...base,
+      cancelGeneration,
+      citationSupport: () => new Promise(() => {}),
+    };
+    const { unmount } = render(
+      <CitationAiPanel sentence="A claim." documentId={1} aiInstalled bridge={bridge as any} />,
+    );
+    fireEvent.click(screen.getByTestId('ai-check-support'));
+    await waitFor(() => expect(screen.getByTestId('ai-running')).toBeTruthy());
+    unmount();
+    expect(cancelGeneration).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cancel anything when the panel goes away with no run in flight', () => {
+    const cancelGeneration = vi.fn(async () => {});
+    const { unmount } = render(
+      <CitationAiPanel sentence="A claim." documentId={1} aiInstalled bridge={{ ...base, cancelGeneration } as any} />,
+    );
+    unmount();
+    expect(cancelGeneration).not.toHaveBeenCalled();
   });
 
   it('citation_need renders as text, NOT through the evidence unit (D8: no evidence block)', async () => {

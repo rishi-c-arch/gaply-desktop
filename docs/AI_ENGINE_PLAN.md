@@ -1948,3 +1948,71 @@ Three properties are deliberate:
 * **The 0.5B stays.** It is what keeps a fresh machine's engine alive; it is a
   development/test floor, and D48 is about not letting the floor outrank a
   model the user deliberately installed.
+
+### D49 — cancellation is per-RUN, and a long check must prove it is alive
+
+Manual verification: "Check citation support" on a linked citation sat on
+"Checking on this machine — this takes about a minute" for over six minutes,
+Cancel visible, no result and no failure. Measured while it was happening:
+`in_flight` was **1**, the process held ~390% CPU with candle's threads live,
+and `sample` showed the unoptimised CPU kernels (`StridedIndex::next`,
+`precondition_check`, non-inlined iterator adapters). Nothing was wedged. One
+generation was genuinely running: up to 1024 decode steps (`MAX_TOKENS`) over a
+~1200-token evidence prompt, on a 1.5B Q4 in a `cargo run` DEBUG build, plus a
+possible second generation if the first fails validation. Minutes is the
+correct number for that build; a minute was never going to be.
+
+Three defects sat behind that one symptom.
+
+**Cancellation was one shared flag that any new request cleared.** Every
+generative command opened with `state.ai_gen_cancel.store(false)` — "never
+poison the next run". Under the single-inference invariant that is backwards: a
+request arriving while another is queued does not merely prepare itself, it
+un-cancels everything else. Cancel then retry, and the retry's own
+`store(false)` revives the run just stopped, which holds the one inference
+permit while the retry waits behind it. `ai::cancel::CancelRegistry` replaces
+it: a request takes a `CancelToken` that owns its flag and deregisters on drop,
+`cancel_all()` stops exactly the runs alive at that moment, and a later request
+can neither inherit nor clear someone else's cancellation.
+
+**The backend already streamed progress and the frontend threw it away.**
+`ai_citation_support` emits Retrieving → Retrieved → Generating → Validating,
+and `aiBridge.citationSupport` called `channelInvoke` with no `onEvent`. So the
+panel had exactly one static line for the whole run, which is why a working
+check and a hung one looked identical. The channel is wired through now, the
+stages are rendered, `Generating` carries `queued_behind` (the engine runs ONE
+generation at a time, so "waiting" and "slow" are different facts and the UI
+must not conflate them), and a `Decoding` heartbeat every 8 tokens gives
+liveness during the long silent stretch. The panel counts elapsed time and NO
+LONGER PREDICTS A DURATION: this runs on the user's CPU, where the honest
+figure varies by more than an order of magnitude between builds and machines.
+
+**Panel state outlived the citation it belonged to.** `CitationAiPanel` was
+mounted unkeyed, so selecting another citation kept `phase`, and an in-flight
+check went on saying "running" under the next citation and landed its evidence
+there — evidence attributed to a source it was never read against, which in a
+research-integrity tool is the worst failure in this list. It is keyed by
+citation id now, and unmounting mid-run cancels the run it started, since an
+orphaned generation still holds the model.
+
+Also: a support check with no `citation_documents` row cannot produce evidence,
+and the reason was hidden in a `title` tooltip on a greyed-out button. The panel
+states it instead. "Check if citation is needed" stays available there — it
+judges a sentence and needs no source.
+
+**Cancel cannot be instant, and the panel now says so.** `QwenGenerativeBackend`
+checks `cancel` at the top of each step, and step 0 is the WHOLE prompt in a
+single `forward`. The loop's comment — "EVERY token, so cancel lands within one
+decode step" — is true of decode and false of prefill: measured here, a Cancel
+pressed at 3:26 into a run had still not landed 45 s later, because prefill was
+in progress. Reporting "cancelling…" with no explanation would be a second
+control that appears not to work, so the panel states the reason. The engine fix
+is a CHUNKED PREFILL (feed the prompt in ~128-token slices, advancing
+`index_pos`, checking cancel between slices, which also yields real prefill
+progress); it is NOT taken here on purpose — it edits the inference loop, and
+that is not a change to make in the middle of a manual verification pass. It is
+the next thing to do in this area.
+
+NOT changed, and worth naming: the dev app runs `target/debug/app`. Model work
+in `tauri dev` is measured in minutes per check because of that, not because of
+anything in this decision.
