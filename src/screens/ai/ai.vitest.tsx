@@ -22,7 +22,13 @@ vi.mock('react-pdf', () => ({
     }, [onLoadSuccess]);
     return <div data-testid="mock-document">{children}</div>;
   },
-  Page: ({ pageNumber }: any) => <div data-testid={`mock-page-${pageNumber}`} />,
+  Page: ({ pageNumber, renderTextLayer, renderAnnotationLayer }: any) => (
+    <div
+      data-testid={`mock-page-${pageNumber}`}
+      data-text-layer={String(!!renderTextLayer)}
+      data-annotation-layer={String(!!renderAnnotationLayer)}
+    />
+  ),
 }));
 
 afterEach(cleanup);
@@ -207,6 +213,19 @@ describe('evidence rows', () => {
 });
 
 describe('PdfViewer', () => {
+  it('renders a SELECTABLE text layer, so a sentence can be copied out', async () => {
+    // The workflow this viewer serves: find the sentence in the source, copy
+    // it, paste it into the claim box. A canvas alone cannot be selected.
+    // Annotations stay off — links and widgets are not text.
+    render(
+      <PdfViewer open documentId={1} initialPage={200} onClose={() => {}} loadBytes={bytes} />,
+    );
+    await waitFor(() => expect(screen.getByTestId('mock-page-200')).toBeTruthy());
+    const page = screen.getByTestId('mock-page-200');
+    expect(page.getAttribute('data-text-layer')).toBe('true');
+    expect(page.getAttribute('data-annotation-layer')).toBe('false');
+  });
+
   it('mounts only a window of pages for a 400-page document', async () => {
     render(
       <PdfViewer open documentId={1} initialPage={200} onClose={() => {}} loadBytes={bytes} />,

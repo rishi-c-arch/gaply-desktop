@@ -11,6 +11,11 @@
 // Only a WINDOW around the current page is mounted; the rest are spacer divs of
 // the same height, so the scrollbar still describes the whole document.
 import './ai.css';
+// react-pdf's own text-layer stylesheet. It absolutely-positions the invisible
+// text spans over the canvas; without it the layer renders but selection lands
+// in the wrong place. Bundled by webpack from node_modules — no CDN, no CSP
+// change (§11 D43 applies to the worker and to this).
+import 'react-pdf/dist/esm/Page/TextLayer.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Document, Page } from 'react-pdf';
 import { Modal } from '../../design-system/Modal';
@@ -152,7 +157,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                 return (
                   <div key={n} data-page-anchor={n} data-testid={`pdf-page-slot-${n}`}>
                     {mounted ? (
-                      <Page pageNumber={n} renderTextLayer={false} renderAnnotationLayer={false} />
+                      // TEXT LAYER ON: the workflow this viewer exists for is
+                      // "find the sentence in the source, copy it, paste it into
+                      // the claim box", and a canvas alone cannot be selected.
+                      // Annotations stay off — they are links and widgets, not
+                      // text, and they are not needed to read or quote a page.
+                      <Page pageNumber={n} renderTextLayer renderAnnotationLayer={false} />
                     ) : (
                       // A spacer, not a page: the scrollbar keeps describing the
                       // whole document without allocating a canvas per page.

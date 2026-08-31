@@ -27,6 +27,7 @@ import { prepareStyle, isStyleReady } from './cslEngine';
 import { StylePicker } from './StylePicker';
 import { CitationEditor } from './CitationEditor';
 import { CitationAiPanel } from '../ai/CitationAiPanel';
+import { DocumentRow } from '../ai/DocumentRow';
 import { aiBridge } from '../ai/aiReady';
 import {
   applyVerification,
@@ -1574,6 +1575,17 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                     {selected.provenance.slice(0, 3).join('  ·  ')}
                   </div>
                 )}
+              </div>
+
+              {/* The source document, above the AI card and independent of it:
+                  a reference IS a document, and looking at it should not
+                  require asking a model something first. */}
+              <div className="gds-root mt-4">
+                <DocumentRow
+                  key={`doc-${selected.id}`}
+                  citationId={selected.id}
+                  citedSource={selected.csl.title || selected.doi || undefined}
+                />
               </div>
 
               {/* AI assistance sits BELOW everything deterministic above, which
