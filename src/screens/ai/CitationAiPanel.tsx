@@ -24,7 +24,7 @@ type Progress =
   | { stage: 'retrieved'; sent: number; dropped: number }
   | { stage: 'waiting'; ahead: number }
   | { stage: 'generating' }
-  | { stage: 'decoding'; tokens: number; maxTokens: number }
+  | { stage: 'decoding'; tokens: number; maxTokens: number; tokensPerSec: number | null }
   | { stage: 'validating' };
 
 function describe(p: Progress): string {
@@ -40,11 +40,53 @@ function describe(p: Progress): string {
       return `Waiting for the model — ${p.ahead} other check${p.ahead === 1 ? '' : 's'} ahead of this one.`;
     case 'generating':
       return 'Reading the passages…';
-    case 'decoding':
-      return `Writing the answer — ${p.tokens} of up to ${p.maxTokens} tokens.`;
+    case 'decoding': {
+      // `maxTokens` was `undefined` here for a while: the backend enum renamed
+      // its VARIANTS to camelCase but not its struct-variant FIELDS, so the
+      // panel read a key that was never sent and printed "up to undefined
+      // tokens". Pinned now by the Rust event_wire tests; this guard stays,
+      // because a missing field does not throw in JavaScript — it renders.
+      const of = Number.isFinite(p.maxTokens) ? ` of up to ${p.maxTokens}` : '';
+      if (!p.tokensPerSec) return `Writing the answer — ${p.tokens}${of} tokens.`;
+      const rate = p.tokensPerSec.toFixed(1);
+      // MEASURED, not assumed: the remaining estimate comes from THIS run's
+      // observed rate. On a squeezed machine that is several times off any
+      // constant anyone could have baked in.
+      const left = Number.isFinite(p.maxTokens) ? p.maxTokens - p.tokens : 0;
+      const tail =
+        left > 0
+          ? ` · ~${elapsedLabel(Math.ceil(left / p.tokensPerSec))} left at ${rate} tok/s`
+          : ` · ${rate} tok/s`;
+      return `Writing the answer — ${p.tokens}${of} tokens${tail}.`;
+    }
     case 'validating':
       return 'Checking the answer against the passages it was given…';
   }
+}
+
+const GB = 1024 ** 3;
+
+/**
+ * What the run cost, in the terms that explain a slow one.
+ *
+ * A wall-clock number alone cannot separate "this model is slow" from "this
+ * machine had nothing left" — and on 8 GB with a 2.4 GB model those look
+ * identical from the outside, which is how a decode at a fifth of the measured
+ * rate turned into a hunt for a mis-selected model. Rate and headroom together
+ * say which it was. Every figure is measured and reported by the backend;
+ * nothing here is estimated.
+ */
+export function describeRun(raw: Record<string, any>): string | null {
+  const parts: string[] = [];
+  if (typeof raw.decodeTokensPerSec === 'number' && raw.decodeTokensPerSec > 0) {
+    parts.push(`${raw.decodeTokensPerSec.toFixed(1)} tok/s decode`);
+  }
+  const free = raw.freeMemoryBytes;
+  const total = raw.totalMemoryBytes;
+  if (typeof free === 'number' && typeof total === 'number' && total > 0) {
+    parts.push(`${(free / GB).toFixed(1)} GB free of ${(total / GB).toFixed(1)} GB at the end`);
+  }
+  return parts.length > 0 ? `${parts.join(', ')}.` : null;
 }
 
 /** mm:ss since a run started. */
@@ -120,6 +162,9 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
   /** Which weights actually answered. Stamped by the backend on results AND
    *  failures, so "which model was this?" is never inferred again. */
   const [judgedBy, setJudgedBy] = useState<string | null>(null);
+  /** How the run went, so a slow one explains itself rather than inviting a
+   *  second investigation into whether the app picked the wrong model. */
+  const [runStats, setRunStats] = useState<string | null>(null);
   // The Citation Manager has no manuscript sentence to offer, so the claim is
   // typed here. It used to be filled with the citation's own TITLE, which made
   // the task self-referential — "does this document support 'Chapter 1 —
@@ -130,6 +175,11 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
   // Set the moment Cancel is pressed, so the run that then rejects is reported
   // as the user's decision rather than as a failure. The panel asked for it; it
   // does not need to parse an error string to recognise its own request.
+  // Decode rate, measured from the heartbeat. The FIRST tick is the baseline,
+  // not the start of the run: everything before it is prefill, and folding a
+  // one-off prefill into a per-token rate makes the rate wrong in exactly the
+  // direction that flatters a slow machine.
+  const decodeStart = useRef<{ at: number; tokens: number } | null>(null);
   const cancelling = useRef(false);
   const [cancelRequested, setCancelRequested] = useState(false);
 
@@ -160,6 +210,8 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
     setProgress(null);
     setSeconds(0);
     setJudgedBy(null);
+    setRunStats(null);
+    decodeStart.current = null;
     cancelling.current = false;
     setCancelRequested(false);
   };
@@ -185,9 +237,21 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
             : { stage: 'generating' },
         );
         break;
-      case 'decoding':
-        setProgress({ stage: 'decoding', tokens: ev.tokens, maxTokens: ev.maxTokens });
+      case 'decoding': {
+        const now = Date.now();
+        if (!decodeStart.current) decodeStart.current = { at: now, tokens: ev.tokens };
+        const base = decodeStart.current;
+        const secs = (now - base.at) / 1000;
+        const produced = ev.tokens - base.tokens;
+        setProgress({
+          stage: 'decoding',
+          tokens: ev.tokens,
+          maxTokens: ev.maxTokens,
+          // Needs a second tick and a real interval before it means anything.
+          tokensPerSec: secs >= 1 && produced > 0 ? produced / secs : null,
+        });
         break;
+      }
       case 'validating':
         setProgress({ stage: 'validating' });
         break;
@@ -210,6 +274,7 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
         onSupportEvent,
       )) as Record<string, any>;
       if (typeof raw.loadedModelFile === 'string') setJudgedBy(raw.loadedModelFile);
+      setRunStats(describeRun(raw));
 
       // The engine's three honest non-success outcomes, each said plainly
       // rather than collapsed into "something went wrong".
@@ -256,6 +321,7 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
     try {
       const raw = (await bridge.citationNeed(claim.trim())) as Record<string, any>;
       if (typeof raw.loadedModelFile === 'string') setJudgedBy(raw.loadedModelFile);
+      setRunStats(describeRun(raw));
       if (raw.outcome === 'validationFailed') {
         setPhase('rejected');
         setMessage('AI output failed verification — retry, or check this sentence yourself.');
@@ -407,7 +473,8 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
 
       {judgedBy && phase !== 'running' && (
         <p className="gds-ai__hint" data-testid="ai-judged-by">
-          Judged on this machine by <code>{judgedBy}</code>.
+          Judged on this machine by <code>{judgedBy}</code>
+          {runStats ? ` — ${runStats}` : '.'}
         </p>
       )}
     </Card>

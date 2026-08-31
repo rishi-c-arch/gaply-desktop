@@ -1107,7 +1107,12 @@ pub fn ai_model_status(state: State<'_, AppState>) -> AiModelStatus {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+// `rename_all` renames VARIANTS ONLY — struct-variant FIELDS keep their Rust
+// snake_case unless `rename_all_fields` says otherwise. Without it this enum
+// serialized `max_tokens`, `total_bytes`, `queued_behind` … while every
+// TypeScript reader asked for the camelCase spelling and silently got
+// `undefined`. Pinned by `event_wire_shape` tests.
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AiGenerateEvent {
     /// One incremental piece of decoded text.
     Token { text: String },
@@ -1240,7 +1245,12 @@ pub async fn ai_citation_need(
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+// `rename_all` renames VARIANTS ONLY — struct-variant FIELDS keep their Rust
+// snake_case unless `rename_all_fields` says otherwise. Without it this enum
+// serialized `max_tokens`, `total_bytes`, `queued_behind` … while every
+// TypeScript reader asked for the camelCase spelling and silently got
+// `undefined`. Pinned by `event_wire_shape` tests.
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AiSupportEvent {
     Retrieving,
     /// How much evidence survived the budget — emitted before generation so a
@@ -1457,6 +1467,23 @@ pub async fn ai_citation_support(
         "chunksDropped": bundle.chunks_dropped,
         "elapsedMs": run.elapsed_ms,
         "loadedModelFile": manager.loaded_model_file(),
+        // WHY IT TOOK THAT LONG. The measured decode rate, and how much memory
+        // the machine had left at the moment the run ended. The bake-off got
+        // 6.7 tok/s from this model on this hardware; a run at a fifth of that
+        // is not the model being slow, it is the machine being squeezed — and
+        // the reader cannot tell those apart from a wall-clock number alone.
+        // Sampled AFTER the run: mid-run is when it mattered, and this is the
+        // closest cheap moment to it.
+        "decodeTokensPerSec": if run.timings.decode_ms > 0 {
+            Some(run.timings.tokens as f64 / (run.timings.decode_ms as f64 / 1000.0))
+        } else {
+            None
+        },
+        "decodeMs": run.timings.decode_ms,
+        "prefillMs": run.timings.prefill_ms,
+        "promptTokens": run.timings.prompt_tokens,
+        "freeMemoryBytes": crate::models::free_memory_bytes(),
+        "totalMemoryBytes": crate::models::total_physical_ram_bytes(),
         // WHAT WAS EXAMINED, best match first. A verdict of
         // insufficient_evidence cites nothing by design, and without these the
         // UI can only refuse to show it — which throws away a true and useful
@@ -1577,7 +1604,12 @@ pub fn ai_model_install_cancel(state: State<'_, AppState>) {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+// `rename_all` renames VARIANTS ONLY — struct-variant FIELDS keep their Rust
+// snake_case unless `rename_all_fields` says otherwise. Without it this enum
+// serialized `max_tokens`, `total_bytes`, `queued_behind` … while every
+// TypeScript reader asked for the camelCase spelling and silently got
+// `undefined`. Pinned by `event_wire_shape` tests.
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AiEmbedEvent {
     Started { pending: usize },
     Progress { done: usize, total: usize },

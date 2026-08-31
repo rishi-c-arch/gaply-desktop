@@ -2189,3 +2189,60 @@ and the two are never interchangeable: `evidence` is what a verdict rests ON,
 `examined` is what it was looked FOR in. Collapsing them would let a claim of
 support borrow the credibility of passages it never cited — which is D18's
 original failure with extra steps.
+
+### D53 — `rename_all` renames variants, not fields; and a slow run must explain itself
+
+The panel read **"Writing the answer — 552 of up to undefined tokens."**
+
+`#[serde(rename_all = "camelCase")]` on an enum renames VARIANT names. Struct-
+variant FIELD names keep their Rust spelling unless `rename_all_fields` says
+otherwise. Proven rather than assumed:
+
+```
+{"kind":"decoding","tokens":1,"max_tokens":2}
+```
+
+Every TypeScript reader asked for the camelCase spelling and got `undefined`.
+Single-word fields (`tokens`, `bytes`, `file`) were unaffected, which is why the
+damage looked partial instead of total. It was not confined to the reported
+symptom:
+
+* `Decoding.max_tokens` → "up to undefined tokens";
+* `Retrieved.chunks_sent` / `chunks_dropped` → the "judging N passages" line
+  could never show a number;
+* `Generating.queued_behind` → `undefined > 0` is false, so the queue indicator
+  built in D49 could **never** render;
+* `InstallEvent.total_bytes` and `GenInstallEvent.total_bytes` / `from_bytes` →
+  the install progress bar divided by `undefined`, sat at 0% for a 1.1 GB
+  download, and the resume signal never fired. That is a SECOND, independent
+  cause of the same symptom D49 diagnosed as the shared `installing` flag.
+
+This is the third time a wire contract has drifted in silence (after
+`kind`/`state` in D46's neighbourhood). The pattern is always the same: a
+missing field does not throw in JavaScript, it renders. So the contract is now
+asserted on the exact JSON in `ai::event_wire_tests`, including a general rule —
+no field of any streamed event may reach the webview containing an underscore —
+so a NEW field fails the test even if nobody remembers to add a case.
+
+**And the run now accounts for itself.** The 3B decoded at ~1.5 tok/s against
+the 6.7 tok/s the bake-off measured for the same model on this same machine. A
+wall-clock number cannot separate "this model is slow" from "this machine had
+nothing left", and on 8 GB with a 2.4 GB model those are indistinguishable from
+outside — which is exactly how the previous slow run became a hunt for a
+mis-selected model. The result payload now carries the MEASURED decode rate
+(`decodeTokensPerSec`, from the run's own timings) and the machine's free/total
+memory sampled as the run ends, and the provenance line reads them out:
+*"Judged on this machine by qwen2.5-3b-instruct-q4_k_m.gguf — 1.5 tok/s decode,
+0.4 GB free of 8.0 GB at the end."* Both figures are reported by the backend;
+neither is estimated. `free_memory_bytes` / `total_physical_ram_bytes` already
+existed for the deep-model gate, so this added no new unsafe code.
+
+**Estimates now follow measurement.** In the citation panel the decode line
+projects the remainder from the rate this run is actually achieving, not a
+constant. In the thesis audit `SECONDS_PER_ITEM = 65` was labelled on screen as
+"measured on this machine's CPU" — true once, on a machine with room to spare,
+and off by roughly 8x under pressure. It is now explicitly the SEED figure, and
+the projection switches to `observedSecondsPerItem` as soon as the run has
+completed two items (one item is a sample, not a rate — and the first also pays
+for loading the weights), with the label saying which of the two it is using. A
+stale number wearing the word "measured" reads as a promise.

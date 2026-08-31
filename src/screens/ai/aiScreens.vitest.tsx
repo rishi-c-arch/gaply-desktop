@@ -5,8 +5,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AiStatusPanel, AiUnavailable } from './AiStatusPanel';
 import { errorCode, errorText } from './aiBridge';
+import { describeRun } from './CitationAiPanel';
 import { CitationAiPanel } from './CitationAiPanel';
-import { ThesisAuditScreen, projectDuration, SECONDS_PER_ITEM } from './ThesisAuditScreen';
+import {
+  observedSecondsPerItem,
+  projectDuration,
+  SECONDS_PER_ITEM,
+  ThesisAuditScreen,
+} from './ThesisAuditScreen';
 import type { JobProgressEvent } from './aiBridge';
 
 vi.mock('react-pdf', () => ({
@@ -386,6 +392,38 @@ describe('Citation AI panel', () => {
     expect(screen.queryByTestId('evidence-ungrounded-notice')).toBeNull();
   });
 
+  it('projects from the run\u2019s OWN rate once it has one, and says which rate it used', () => {
+    // The seed figure claimed to be "measured on this machine's CPU". It was
+    // measured on a machine with room to spare; the same model on the same
+    // laptop under memory pressure has run at a fifth of it. A stale number
+    // wearing the word "measured" reads as a promise.
+    expect(observedSecondsPerItem(0, 0)).toBeNull();
+    expect(observedSecondsPerItem(1, 65_000)).toBeNull(); // one item is a sample, not a rate
+    expect(observedSecondsPerItem(4, 1_200_000)).toBe(300);
+
+    // …and the projection follows the measurement, not the constant.
+    expect(projectDuration(10, 300)).toBe('50 minutes');
+    expect(projectDuration(10, SECONDS_PER_ITEM)).toBe('11 minutes');
+  });
+
+  it('explains a slow run with measured numbers, not adjectives', () => {
+    // A wall-clock figure alone cannot separate "this model is slow" from "this
+    // machine had nothing left", and on 8 GB with a 2.4 GB model those look
+    // identical — which is how a decode at a fifth of the bake-off rate turned
+    // into a hunt for a mis-selected model.
+    expect(
+      describeRun({
+        decodeTokensPerSec: 1.53,
+        freeMemoryBytes: 0.42 * 1024 ** 3,
+        totalMemoryBytes: 8 * 1024 ** 3,
+      }),
+    ).toBe('1.5 tok/s decode, 0.4 GB free of 8.0 GB at the end.');
+    // Absent figures are omitted, never invented or zero-filled.
+    expect(describeRun({ decodeTokensPerSec: 6.7 })).toBe('6.7 tok/s decode.');
+    expect(describeRun({})).toBeNull();
+    expect(describeRun({ decodeTokensPerSec: 0 })).toBeNull();
+  });
+
   it('says WHY support is unavailable when no document is linked, instead of a dead button', () => {
     // Regression: the reason lived in a `title` tooltip on a greyed-out button,
     // so on Wakefield/Naidu (no citation_documents row) the check looked broken.
@@ -427,6 +465,29 @@ describe('Citation AI panel', () => {
 
     await act(async () => emit({ kind: 'decoding', tokens: 64, maxTokens: 1024 }));
     expect(screen.getByTestId('ai-progress').textContent).toMatch(/64 of up to 1024 tokens/);
+    expect(screen.getByTestId('ai-progress').textContent).not.toMatch(/undefined/);
+  });
+
+  it('never prints "undefined tokens" when the backend omits maxTokens', async () => {
+    // Regression: the enum renamed its VARIANTS to camelCase but not its
+    // struct-variant FIELDS, so `max_tokens` went out while the panel read
+    // `maxTokens`. A missing field does not throw in JS — it renders, and it
+    // rendered "552 of up to undefined tokens" for eight minutes.
+    let emit: (ev: any) => void = () => {};
+    const bridge = {
+      ...base,
+      citationSupport: (_c: string, _d: number, _s: string | undefined, onEvent: any) => {
+        emit = onEvent;
+        return new Promise(() => {});
+      },
+    };
+    render(<CitationAiPanel sentence="A claim." documentId={1} aiInstalled bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('ai-check-support'));
+    await waitFor(() => expect(screen.getByTestId('ai-running')).toBeTruthy());
+    await act(async () => emit({ kind: 'decoding', tokens: 552 }));
+    const text = screen.getByTestId('ai-progress').textContent ?? '';
+    expect(text).not.toMatch(/undefined/);
+    expect(text).toMatch(/552 tokens/);
   });
 
   it('reports a user cancellation as a decision, not a failure — and says why it is not instant', async () => {

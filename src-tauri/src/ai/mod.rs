@@ -17,6 +17,8 @@
 //! line.
 
 pub mod cancel;
+#[cfg(test)]
+mod event_wire_tests;
 pub mod device;
 pub mod embeddings;
 pub mod job_runner;

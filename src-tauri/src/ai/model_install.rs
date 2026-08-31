@@ -62,7 +62,12 @@ pub const PINNED_FILES: &[PinnedFile] = &[
 
 /// Progress for the install command's Channel.
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+// `rename_all` renames VARIANTS ONLY — struct-variant FIELDS keep their Rust
+// snake_case unless `rename_all_fields` says otherwise. Without it this enum
+// serialized `max_tokens`, `total_bytes`, `queued_behind` … while every
+// TypeScript reader asked for the camelCase spelling and silently got
+// `undefined`. Pinned by `event_wire_shape` tests.
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum InstallEvent {
     Started { files: usize, total_bytes: u64 },
     /// Emitted when a file was already present and verified — no bytes moved.

@@ -11,14 +11,36 @@
 //     restart because the runner's state is in the database, not in this
 //     component.
 import './ai.css';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Card } from '../../design-system/primitives';
 import { aiBridge, AuditPlan, JobProgressEvent, errorText } from './aiBridge';
 import { EvidenceCard, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
 
-/** Per-item seconds used for the projection. Stated on screen, never hidden. */
+/**
+ * Per-item seconds for the projection BEFORE a run has measured anything.
+ *
+ * It is a starting figure, not a property of the machine. It was measured once,
+ * on a machine with room to spare; the same model on the same laptop under
+ * memory pressure has been observed at a fifth of that speed. So it seeds the
+ * estimate and is replaced by the run's own rate as soon as one exists — see
+ * `observedSecondsPerItem`. Stated on screen either way, and labelled with
+ * which of the two it is.
+ */
 export const SECONDS_PER_ITEM = 65;
+
+/**
+ * Seconds per item as THIS run is actually going, or null before there is
+ * enough to say. One completed item is a sample, not a rate — the first is
+ * also the one that pays for loading the weights — so this waits for two.
+ */
+export function observedSecondsPerItem(
+  completed: number,
+  elapsedMs: number,
+): number | null {
+  if (completed < 2 || elapsedMs <= 0) return null;
+  return elapsedMs / 1000 / completed;
+}
 
 export function projectDuration(items: number, perItem = SECONDS_PER_ITEM): string {
   const total = items * perItem;
@@ -62,6 +84,8 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
   const [plan, setPlan] = useState<AuditPlan | null>(null);
   const [path, setPath] = useState<string | null>(null);
   const [progress, setProgress] = useState<JobProgressEvent | null>(null);
+  /** When this run's items started landing, for the measured rate. */
+  const runStartedAt = useRef<number | null>(null);
   const [items, setItems] = useState<AuditItem[]>([]);
   const [health, setHealth] = useState<Record<string, any> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +95,7 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
 
   const onProgress = useCallback(
     (ev: JobProgressEvent) => {
+      if (runStartedAt.current === null) runStartedAt.current = Date.now();
       setProgress(ev);
       // Pull the newly-retired items rather than trusting the event to carry
       // them: the event is a notification, the database is the record.
@@ -224,6 +249,29 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
               }}
             />
           </div>
+          {(() => {
+            // The estimate switches from the seed figure to THIS run's own rate
+            // as soon as there is one, and says which it is using. A number
+            // labelled "measured on this machine" that was measured on a
+            // different day, with different memory pressure, is worse than no
+            // number: it reads as a promise.
+            if (!progress || progress.total <= progress.completed) return null;
+            const observed = observedSecondsPerItem(
+              progress.completed,
+              runStartedAt.current ? Date.now() - runStartedAt.current : 0,
+            );
+            const left = progress.total - progress.completed;
+            return (
+              <p className="gds-ai__hint" data-testid="audit-remaining">
+                About {projectDuration(left, observed ?? SECONDS_PER_ITEM)} left —{' '}
+                {observed
+                  ? `${Math.round(observed)}s per item, measured on this run`
+                  : `${SECONDS_PER_ITEM}s per item until this run has measured its own rate`}
+                .
+              </p>
+            );
+          })()}
+
           {progress && (
             <p className="gds-ai__hint" data-testid="audit-latest">
               {progress.currentCategory}: {progress.latestItemSummary}
