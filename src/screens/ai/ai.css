@@ -154,6 +154,22 @@
   margin: 6px 0 0;
 }
 
+.gds-root .gds-evidence--unsupported { border-left: 3px solid var(--g-border); }
+/* The account of what was searched leads; the model's prose follows it and is
+   never the first thing read. */
+.gds-root .gds-evidence__searched {
+  margin: 8px 0 2px;
+  font-size: 13px;
+  color: var(--g-text-1);
+}
+.gds-root .gds-evidence__searched-label {
+  margin: 10px 0 2px;
+  font-size: 12px;
+  color: var(--g-text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .gds-root .gds-ai__claim {
   width: 100%;
   box-sizing: border-box;

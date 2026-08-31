@@ -69,6 +69,91 @@ describe('D18 — AI prose never renders without its evidence', () => {
     expect(screen.queryByText(/reports richness but not the magnitude/)).toBeNull();
   });
 
+  /* ---- "checked, and none of them support you" is an ANSWER, not a refusal --- */
+
+  it('renders a checked-but-unsupported verdict against what was examined', () => {
+    // Regression: insufficient_evidence with zero supporting_chunks is the one
+    // verdict the engine's validator lets cite nothing, and the UI met it with
+    // "this assessment cannot be shown". That threw away a true, useful and
+    // fully grounded result and looked like a malfunction.
+    render(
+      <EvidenceCard
+        finding={finding({
+          verdict: 'insufficient_evidence',
+          evidence: [],
+          chunksSent: 12,
+          examined: [row({ chunkId: 'c3', page: 8, quote: 'Soil pH was measured monthly.' })],
+        })}
+        loadBytes={bytes}
+      />,
+    );
+    expect(screen.queryByTestId('evidence-ungrounded-notice')).toBeNull();
+    expect(screen.getByTestId('evidence-verdict').textContent).toContain('Insufficient evidence');
+    expect(screen.getByTestId('evidence-searched').textContent).toBe(
+      'Checked 12 retrieved passages from this source; none support the claim.',
+    );
+    // The explanation IS shown — but only underneath that account.
+    const card = screen.getByTestId('evidence-card');
+    const searched = screen.getByTestId('evidence-searched');
+    const explanation = screen.getByTestId('evidence-explanation');
+    expect(
+      searched.compareDocumentPosition(explanation) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(card.textContent).toContain('reports richness but not the magnitude');
+
+    // The passages examined stay verifiable and page-linked, exactly like cited ones.
+    expect(screen.getByTestId('evidence-examined-quote-0').textContent).toContain('Soil pH');
+    const open = screen.getByTestId('evidence-examined-open-0') as HTMLButtonElement;
+    expect(open.disabled).toBe(false);
+    expect(open.textContent).toContain('p.8');
+  });
+
+  it('says how many of the retrieved passages it is showing', () => {
+    render(
+      <EvidenceCard
+        finding={finding({ verdict: 'insufficient_evidence', evidence: [], chunksSent: 12, examined: [row(), row({ chunkId: 'c9' })] })}
+        loadBytes={bytes}
+      />,
+    );
+    expect(screen.getByTestId('evidence-examined-label').textContent).toBe(
+      'What was examined (top 2 of 12):',
+    );
+  });
+
+  it('distinguishes "nothing was retrieved" from "nothing supported the claim"', () => {
+    // D15: the engine never ran the model. Different fact, different fix
+    // (index the document), so it must not read as a judgement.
+    render(
+      <EvidenceCard
+        finding={finding({ verdict: 'no_evidence', evidence: [], examined: [], chunksSent: 0 })}
+        loadBytes={bytes}
+      />,
+    );
+    expect(screen.getByTestId('evidence-searched').textContent).toContain(
+      'No passages were retrieved',
+    );
+    expect(screen.queryByTestId('evidence-examined-label')).toBeNull();
+  });
+
+  it.each(['strong', 'partial', 'weak', 'contradicts'] as const)(
+    'still REFUSES a %s verdict that cites nothing, even with passages to show',
+    (verdict) => {
+      // The actual invariant. These all assert something about a particular
+      // passage; showing "what was searched" instead would let a claim of
+      // support borrow the credibility of text it never cited.
+      render(
+        <EvidenceCard
+          finding={finding({ verdict, evidence: [], chunksSent: 12, examined: [row()] })}
+          loadBytes={bytes}
+        />,
+      );
+      expect(screen.getByTestId('evidence-ungrounded-notice')).toBeTruthy();
+      expect(screen.queryByTestId('evidence-explanation')).toBeNull();
+      expect(screen.queryByTestId('evidence-searched')).toBeNull();
+      expect(screen.queryByText(/reports richness but not the magnitude/)).toBeNull();
+    },
+  );
+
   it('shows advisories when the output was accepted with them', () => {
     render(
       <EvidenceCard

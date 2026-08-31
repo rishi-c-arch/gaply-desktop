@@ -59,6 +59,11 @@ pub struct EvidenceBundle {
     /// What the model was shown — the same set the validator checks against.
     #[serde(skip)]
     pub ctx: TaskContext,
+    /// The same chunks, IN RANK ORDER. `ctx` keys them by id for lookup, which
+    /// loses the ranking, and the ranking is the thing a reader needs: "these
+    /// are the passages this check actually examined, best match first". A
+    /// verdict of insufficient_evidence is only meaningful next to them.
+    pub examined: Vec<EvidenceChunk>,
     pub chunks_sent: usize,
     /// Retrieved but dropped to fit the budget. Surfaced because the supporting
     /// passage may be one of them, and a caller should be able to tell that
@@ -154,6 +159,7 @@ pub fn assemble(
     let ctx = TaskContext::new(sent.clone());
     Ok(Assembled::Ready(Box::new(EvidenceBundle {
         rendered: ctx.render_evidence(),
+        examined: sent.clone(),
         chunks_sent: sent.len(),
         chunks_dropped: dropped,
         words_estimated: words,

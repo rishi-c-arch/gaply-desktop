@@ -82,12 +82,26 @@ export async function toFinding(
     quote: String(c.quote ?? c.why ?? ''),
     fileAvailable: documentExists,
   }));
+  // What the check SEARCHED, as opposed to what the model cited. Carried so a
+  // verdict that cites nothing can still be shown against something real.
+  const examinedRaw: any[] = raw.examinedPassages ?? [];
+  const examined: EvidenceRow[] = examinedRaw.map((c) => ({
+    chunkId: String(c.chunkId ?? ''),
+    documentId,
+    page: typeof c.page === 'number' ? c.page : null,
+    sourceLabel: citedSource,
+    quote: String(c.text ?? ''),
+    fileAvailable: documentExists,
+  }));
+
   return {
     verdict: (out.verdict as Verdict) ?? 'no_evidence',
     confidence: typeof out.confidence === 'number' ? out.confidence : null,
     explanation: String(out.explanation ?? raw.reason ?? ''),
     advisories: raw.advisories ?? [],
     evidence,
+    examined,
+    chunksSent: typeof raw.chunksSent === 'number' ? raw.chunksSent : undefined,
   };
 }
 

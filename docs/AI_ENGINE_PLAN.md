@@ -2142,3 +2142,50 @@ are the two questions that looked identical here. It travels on every
 `citation_support` and `citation_need` payload, success AND failure, and the
 panel renders it. The startup log now names the selected model too; that it did
 not is why item 1 was a question at all.
+
+### D52 — "I checked, and none of them support you" is a RESULT, not a refusal
+
+A real 3B run against a claim the document does not support returned
+`insufficient_evidence` with zero `supporting_chunks`, passed validation, and
+the UI answered: *"This assessment cannot be shown: it arrived without the
+evidence it was based on."* Correct model behaviour, correct engine behaviour,
+and a screen that reported it as a malfunction.
+
+D18 exists to stop AI prose borrowing credibility from evidence it does not
+have. The unit enforced that by testing `evidence.length === 0` — which is not
+the invariant, it is a proxy for it, and it fails on exactly the case the
+engine's own validator singles out:
+
+> `is empty for verdict '…'` — a judgement about the evidence must say WHICH
+> evidence; **only insufficient_evidence may cite nothing**
+
+So the split is already made upstream, and the UI now matches it. `MUST_CITE`
+= strong / partial / weak / contradicts — every verdict that asserts something
+about a PARTICULAR passage, `contradicts` included, because "this source says
+the opposite" points at text just as hard as "this source supports you".
+Those still get the hard refusal, and it is still enforced at runtime rather
+than trusted to the type, because a finding assembled from JSON can arrive
+empty whatever the type says.
+
+`insufficient_evidence` and `no_evidence` render instead as what they are:
+
+* the verdict, with its badge and confidence;
+* **what was searched** — "Checked 12 retrieved passages from this source; none
+  support the claim", or, for the D15 no-generation case, "No passages were
+  retrieved… so the claim could not be checked against it" (a different fact
+  with a different fix — index the document — and it must not read as a
+  judgement);
+* the model's explanation, positioned UNDER that account and never above it, so
+  the prose is read as a comment on a search that is described rather than as a
+  free-standing conclusion;
+* the top retrieved passages themselves, rendered through the SAME component as
+  cited evidence — openable, page-linked, quote shown.
+
+That last point needed the backend: `EvidenceBundle` kept its chunks only in
+`TaskContext`, which keys them by id and loses the ranking, so `examined` now
+carries them in rank order and `ai_citation_support` returns the top 3 as
+`examinedPassages`. `examined` is deliberately a separate field from `evidence`
+and the two are never interchangeable: `evidence` is what a verdict rests ON,
+`examined` is what it was looked FOR in. Collapsing them would let a claim of
+support borrow the credibility of passages it never cited — which is D18's
+original failure with extra steps.

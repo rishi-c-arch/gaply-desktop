@@ -350,6 +350,42 @@ describe('Citation AI panel', () => {
     expect(screen.getByTestId('ai-judged-by').textContent).toContain('qwen2.5-3b-instruct-q4_k_m.gguf');
   });
 
+  it('carries the examined passages through, so an unsupported verdict has something to show', async () => {
+    // End to end through the panel: the command sends examinedPassages, and
+    // toFinding must map them into the same verifiable row shape as cited
+    // evidence — same document, same source label, same page linking.
+    const bridge = {
+      ...base,
+      citationSupport: async () => ({
+        outcome: 'ok',
+        chunksSent: 9,
+        examinedPassages: [{ chunkId: 'c3', page: 8, text: 'Soil pH was measured monthly.' }],
+        output: {
+          verdict: 'insufficient_evidence',
+          confidence: 0.2,
+          explanation: 'The retrieved passages do not address the claim.',
+          supporting_chunks: [],
+        },
+      }),
+    };
+    render(
+      <CitationAiPanel
+        sentence=""
+        documentId={7}
+        citedSource="Chapter 1"
+        aiInstalled
+        bridge={bridge as any}
+      />,
+    );
+    fireEvent.change(screen.getByTestId('ai-claim'), { target: { value: 'An unsupported claim.' } });
+    fireEvent.click(screen.getByTestId('ai-check-support'));
+    await waitFor(() => expect(screen.getByTestId('evidence-searched')).toBeTruthy());
+    expect(screen.getByTestId('evidence-searched').textContent).toContain('Checked 9 retrieved passages');
+    expect(screen.getByTestId('evidence-examined-quote-0').textContent).toContain('Soil pH');
+    expect(screen.getByTestId('evidence-examined-open-0').textContent).toContain('Chapter 1 — p.8');
+    expect(screen.queryByTestId('evidence-ungrounded-notice')).toBeNull();
+  });
+
   it('says WHY support is unavailable when no document is linked, instead of a dead button', () => {
     // Regression: the reason lived in a `title` tooltip on a greyed-out button,
     // so on Wakefield/Naidu (no citation_documents row) the check looked broken.

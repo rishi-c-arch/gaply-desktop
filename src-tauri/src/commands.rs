@@ -1327,6 +1327,21 @@ pub async fn ai_citation_support(
         chunks_dropped: bundle.chunks_dropped,
     });
 
+    // Snapshot before `bundle` is partly moved into the task below.
+    const EXAMINED_SHOWN: usize = 3;
+    let examined: Vec<serde_json::Value> = bundle
+        .examined
+        .iter()
+        .take(EXAMINED_SHOWN)
+        .map(|c| {
+            serde_json::json!({
+                "chunkId": c.chunk_id,
+                "page": c.page,
+                "text": c.text,
+            })
+        })
+        .collect();
+
     let task = CitationSupportTask {
         claim: claim.clone(),
         cited_source: cited_source.unwrap_or_else(|| format!("document {document_id}")),
@@ -1442,6 +1457,13 @@ pub async fn ai_citation_support(
         "chunksDropped": bundle.chunks_dropped,
         "elapsedMs": run.elapsed_ms,
         "loadedModelFile": manager.loaded_model_file(),
+        // WHAT WAS EXAMINED, best match first. A verdict of
+        // insufficient_evidence cites nothing by design, and without these the
+        // UI can only refuse to show it — which throws away a true and useful
+        // answer ("I looked at these and none of them support you"). Capped:
+        // this is the top of the ranking, not the whole block the model read,
+        // and `chunksSent` says how many that was.
+        "examinedPassages": examined,
     }))
 }
 
