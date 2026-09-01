@@ -248,7 +248,19 @@ class AiBridge {
 
   /* ------------------------------ tasks --------------------------------- */
 
-  async citationNeed(sentence: string, section?: string) {
+  /**
+   * `section` is REQUIRED by the Rust command (`section: String`, not
+   * `Option<String>`), and an optional TS parameter that is left undefined
+   * serializes to a MISSING KEY — which Tauri rejects with "invalid args
+   * `section` for command `ai_citation_need`: missing required key `section`".
+   * The key being present in this source was never enough; the value has to be.
+   *
+   * The default is the honest one: this panel has no manuscript context, so it
+   * does not know which IMRaD section the sentence came from, and the prompt
+   * interpolates the value into `<section>…</section>`. "unknown" says that;
+   * an empty tag would read as a section that is genuinely blank.
+   */
+  async citationNeed(sentence: string, section: string = 'unknown') {
     return this.invoke<Record<string, unknown>>('ai_citation_need', { sentence, section });
   }
 
