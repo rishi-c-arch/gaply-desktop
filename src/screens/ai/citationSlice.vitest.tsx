@@ -192,4 +192,32 @@ describe('per-citation slice — the panel finds the claims itself', () => {
     expect(screen.getByTestId('slice-manuscript').textContent).toMatch(/chapter 1 \.pdf/);
     expect(screen.getByTestId('slice-check')).toBeTruthy();
   });
+
+  it('names the parse and the check differently, so the two cannot be confused', async () => {
+    // These are two different operations on one panel: `slice-check` runs a
+    // deterministic parse that spends no model time, and the claim box below
+    // runs an actual check. They used to carry the SAME label, and that
+    // collision is how a block of the cited paper ended up pasted into the
+    // claim box — with no manuscript loaded, the only button with that name on
+    // screen was the wrong one.
+    // Import, then remount: `slice-check` renders in the idle state, and the
+    // remembered manuscript is what brings it back (same shape as the test
+    // above).
+    const { unmount } = render(panel());
+    fireEvent.click(screen.getByTestId('slice-import'));
+    await waitFor(() => expect(screen.getByTestId('slice-count')).toBeTruthy());
+    unmount();
+    render(panel({ citationId: 'lib-other' }));
+
+    const parse = screen.getByTestId('slice-check').textContent ?? '';
+    expect(parse).toMatch(/find sentences citing this source/i);
+    // It must not promise a check it does not perform.
+    expect(parse).not.toMatch(/check citation support/i);
+
+    // And no two buttons in the panel may share a label.
+    const labels = Array.from(document.querySelectorAll('button'))
+      .map((b) => (b.textContent ?? '').trim().toLowerCase())
+      .filter(Boolean);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
 });

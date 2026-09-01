@@ -501,12 +501,23 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
                 Manuscript: <code>{manuscriptName(manuscript)}</code>
               </p>
               <div className="gds-audit__actions">
+                {/* NOT "Check citation support", which this button used to
+                    say. Two things were wrong with that. It oversold the
+                    action: this runs `runPreview`, a deterministic parse that
+                    finds citing sentences and spends no model time — the check
+                    is the NEXT button, the one that names a count and a
+                    duration. And it collided: the claim box below has a button
+                    with that exact label, so a panel with a manuscript loaded
+                    showed the same words twice on two different operations.
+                    That collision is how a block of the cited paper ended up
+                    pasted into the claim box — the only button with this name
+                    on screen was the wrong one. */}
                 <Button
                   variant="primary"
                   onClick={() => void runPreview(manuscript)}
                   data-testid="slice-check"
                 >
-                  Check citation support
+                  Find sentences citing this source
                 </Button>
                 <Button variant="ghost" onClick={chooseManuscript} data-testid="slice-rechoose">
                   Use a different manuscript
