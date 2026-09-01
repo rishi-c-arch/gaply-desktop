@@ -46,6 +46,29 @@ pub const PROMPT_VERSION: &str = "citation_support-v1.4";
 /// prompts actually measure.
 const MAX_TOKENS: usize = 768;
 
+/// The longest thing that is still a CLAIM rather than a passage.
+///
+/// The first real-manuscript failure spent two 3B generations — minutes — on
+/// 2,163 characters of the cited paper's own Methods section, pasted into the
+/// claim box. The model behaved correctly: it decomposed a whole section into
+/// `claim_elements` and ran out of room mid-array. No prompt or token ceiling
+/// fixes that, because the input was never a claim.
+///
+/// Generous on purpose: a long academic sentence is ~400 characters, and the
+/// measured real claim from `manuscript-nsi.pdf` was 141 characters / 33
+/// tokens. This only catches input that is a different kind of thing.
+pub const MAX_CLAIM_CHARS: usize = 800;
+
+/// `Some(len)` when the claim is too long to be one, `None` when it is fine.
+///
+/// A function rather than an inline `if` at the call site so the bound sits
+/// beside the other limits this task enforces, and so it is testable without
+/// standing up a Tauri command.
+pub fn claim_is_a_passage(claim: &str) -> Option<usize> {
+    let n = claim.trim().chars().count();
+    (n > MAX_CLAIM_CHARS).then_some(n)
+}
+
 /// Spec: `"why" <= 20 words`.
 const MAX_WHY_WORDS: usize = 20;
 
@@ -594,6 +617,31 @@ fn verdict_name(v: Verdict) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_sentence_is_a_claim_and_a_pasted_section_is_not() {
+        use super::{claim_is_a_passage, MAX_CLAIM_CHARS};
+        // The measured real claim from the test manuscript: 141 chars.
+        let real = "A three year audit at a tertiary hospital in western India recorded an \
+                    incidence of 10.4 needlestick injuries per 100 occupied beds per year.";
+        assert_eq!(claim_is_a_passage(real), None, "a real citing sentence was refused");
+
+        // Two long sentences are still a claim — the bound must not catch these.
+        let two_sentences = "x".repeat(MAX_CLAIM_CHARS);
+        assert_eq!(claim_is_a_passage(&two_sentences), None, "the bound itself must be allowed");
+
+        // The shape that actually failed: a block of the source's own prose.
+        let pasted = "y".repeat(2163);
+        assert_eq!(claim_is_a_passage(&pasted), Some(2163));
+    }
+
+    #[test]
+    fn the_bound_is_measured_on_trimmed_text_not_raw_length() {
+        use super::claim_is_a_passage;
+        // A short claim surrounded by whitespace is a short claim.
+        let padded = format!("{}{}{}", " ".repeat(2000), "A short claim.", " ".repeat(2000));
+        assert_eq!(claim_is_a_passage(&padded), None);
+    }
+
     use super::*;
     use crate::ai::task::{EvidenceChunk, Tier};
 

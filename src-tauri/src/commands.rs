@@ -1234,6 +1234,9 @@ pub async fn ai_citation_need(
             return Ok(serde_json::json!({
                 "outcome": "validationFailed",
                 "reason": e.to_string(),
+                // Same reasoning as the support arm: the raw attempts and stop
+                // reasons are the evidence, and a Display string is a summary.
+                "detail": e,
                 "modelId": state.ai_gen.model_id(),
                 "loadedModelFile": state.ai_gen.loaded_model_file(),
             }))
@@ -1299,6 +1302,35 @@ pub async fn ai_citation_support(
     use crate::ai::task::run_task;
     use crate::ai::tasks::citation_support::{CitationSupportTask, Verdict};
     use gaply_core::ai_engine::cards;
+
+    // A CLAIM, not a passage. The first real-manuscript failure was two 3B
+    // generations — minutes — spent on 2,163 characters of the cited paper's
+    // own Methods section, pasted into the claim box. The model did what it was
+    // told: it decomposed a whole section into claim_elements and produced 67
+    // lines of JSON that ran out of room mid-array.
+    //
+    // Refused BEFORE the engine is touched, and as an OUTCOME rather than an
+    // error, because it is a true and actionable answer rather than a fault.
+    // The bound is generous — a long academic sentence is ~400 characters and
+    // the measured real claim was 141 (33 tokens) — so this only catches input
+    // that was never a claim.
+    use crate::ai::tasks::citation_support::{claim_is_a_passage, MAX_CLAIM_CHARS};
+    if let Some(chars) = claim_is_a_passage(&claim) {
+        return Ok(serde_json::json!({
+            "outcome": "claimTooLong",
+            "reason": format!(
+                "That is {} characters — a passage, not a claim. This check asks whether ONE \
+                 sentence from your writing is supported by the cited source, so paste the \
+                 sentence that cites it, not a block of the source itself.",
+                chars
+            ),
+            "claimChars": chars,
+            "maxClaimChars": MAX_CLAIM_CHARS,
+            "documentId": document_id,
+            "persisted": false,
+        }));
+    }
+
 
     // §11 D39 — take priority over any running batch job. Acquired BEFORE the
     // inference gate is touched, so the window is never narrower than the
@@ -1392,9 +1424,32 @@ pub async fn ai_citation_support(
         // wording for it could never fire: the panel has always had a
         // `validationFailed` branch, and the command has never sent one.
         Err(e @ crate::ai::task::TaskError::ValidationFailed { .. }) => {
+            // EVERYTHING the error carries, not just its Display string.
+            //
+            // `TaskError::ValidationFailed` was built to hold both raw outputs
+            // and both stop reasons — its own doc comment calls `stop_reasons`
+            // "the answer to the question a failed run always raises: did the
+            // model say something wrong, or did it simply run out of room?" —
+            // and this arm used to discard all of it and send `e.to_string()`.
+            // The result was a failure nobody could diagnose: the first real
+            // manuscript run hit "EOF while parsing a list at line 67 column 5"
+            // and neither the log nor the payload could say whether the reply
+            // was truncated, how long it was, or what it actually said.
+            //
+            // Logged at WARN as well as returned: a validation failure is rare,
+            // it is the case a developer most needs the transcript for, and the
+            // UI keeps only what it renders.
+            tracing::warn!(
+                error = ?e,
+                document_id,
+                "citation_support failed validation twice — raw attempts follow"
+            );
             return Ok(serde_json::json!({
                 "outcome": "validationFailed",
                 "reason": e.to_string(),
+                // The typed detail: errors, primary, firstRaw, retryRaw,
+                // timings and stopReasons.
+                "detail": e,
                 "documentId": document_id,
                 "persisted": false,
                 // WHICH MODEL SAID THIS. A failure without it sends the reader
