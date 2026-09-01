@@ -77,6 +77,11 @@ pub enum FetchOutcome {
     NoOaCopy { detail: String },
     /// A limiter refused. Retryable, and NOT evidence of absence.
     RateLimited { retry_after_secs: u64 },
+    /// The copy WAS found and downloaded, and the import guard declined it —
+    /// too large, or a scan with no text layer. A distinct arm from `failed`
+    /// because nothing went wrong: the fetch worked and the file is the
+    /// problem, which is a different thing for the user to do something about.
+    NotImportable { detail: String },
     /// The lookup or the download itself failed. The only arm that is a fault.
     Failed { detail: String },
     /// Already linked to an indexed document — nothing was fetched, and no
@@ -255,6 +260,21 @@ fn fetch_one_inner(
             let path = dir.join(format!("{}.pdf", doi_stem(&doi)));
             std::fs::write(&path, &bytes)?;
 
+            // The SAME guard the manual link uses, on the same file, before a
+            // `documents` row exists. A fetched PDF is not exempt from being a
+            // 900-page scan, and a batch must not silently spend an hour on one.
+            //
+            // The confirm tier is reported rather than blocking: the user chose
+            // N sources in one press, and stopping the batch to ask about the
+            // fourth would strand the other eight. `notImportable` names it so
+            // they can link it deliberately.
+            let pre = gaply_core::import_guard::preflight(deps.db, &path, now)?;
+            if pre.is_refused() || pre.needs_confirmation() {
+                let _ = std::fs::remove_file(&path);
+                return Ok(FetchOutcome::NotImportable { detail: pre.summary });
+            }
+            let started = std::time::Instant::now();
+
             let blocks = gaply_core::extract::docparse::parse_path_paged(&path)?;
             let title = target
                 .title
@@ -269,6 +289,14 @@ fn fetch_one_inner(
 
             let (chunks_indexed, chunks_embedded, checkable) =
                 index_embed_and_link(deps, &target.citation_id, document_id, &blocks, embed)?;
+            if chunks_embedded == chunks_indexed {
+                let _ = gaply_core::import_guard::record_rate(
+                    deps.db,
+                    pre.page_equivalents,
+                    started.elapsed().as_secs_f64(),
+                    now,
+                );
+            }
             Ok(FetchOutcome::Fetched {
                 document_id,
                 chunks_indexed,
@@ -609,6 +637,79 @@ mod tests {
             other => panic!("expected AbstractOnly, got {other:?}"),
         }
         assert!(bytes.calls().is_empty(), "the abstract path downloaded something");
+    }
+
+    #[test]
+    fn a_fetched_scan_with_no_text_layer_is_not_importable_and_stores_nothing() {
+        // The fetch worked; the file is a scan. That is not a failure, and it
+        // must not leave a documents row, a link, or the downloaded file behind.
+        let h = Harness::new("scanned_fetch");
+        let db = db_with_citation(Some("10.4103/ijmr.ijmr_892_23"));
+        let scanned = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/gaply-core/tests/fixtures/scanned_no_text.pdf"
+        ))
+        .unwrap();
+        let http = MockHttpFetcher::new().route("unpaywall", 200, UNPAYWALL_PDF);
+        let bytes = MockBytes::new().route("paper.pdf", 200, scanned);
+        let lim = ApiRateLimiters::default();
+        let deps = FetchDeps {
+            db: &db,
+            http: &http,
+            bytes: &bytes,
+            limiters: &lim,
+            contact_email: Some("ci@gaply.test"),
+            app_data_dir: &h.dir,
+        };
+
+        let report = fetch_one(&deps, &target(), 1, &fake_embed);
+        match &report.outcome {
+            FetchOutcome::NotImportable { detail } => {
+                assert!(detail.contains("no extractable text"), "{detail}");
+                assert!(detail.contains("OCR"), "{detail}");
+            }
+            other => panic!("expected NotImportable, got {other:?}"),
+        }
+        assert!(
+            gaply_core::citation_links::documents_for_citation(&db, "c1").unwrap().is_empty(),
+            "a scanned fetch still produced a link"
+        );
+        // The downloaded file is cleaned up: nothing references it.
+        let left = std::fs::read_dir(oa_dir(&h.dir)).map(|d| d.count()).unwrap_or(0);
+        assert_eq!(left, 0, "a rejected download was left on disk");
+    }
+
+    #[test]
+    fn a_completed_fetch_teaches_the_estimator_this_machines_rate() {
+        // The next import's estimate is about THIS machine because this one
+        // recorded what it actually did.
+        let h = Harness::new("rate_learn");
+        let db = db_with_citation(Some("10.4103/ijmr.ijmr_892_23"));
+        assert_eq!(
+            gaply_core::import_guard::current_rate(&db, 1).1,
+            gaply_core::import_guard::EstimateBasis::Seeded
+        );
+
+        let http = MockHttpFetcher::new().route("unpaywall", 200, UNPAYWALL_PDF);
+        let bytes = MockBytes::new().route("paper.pdf", 200, real_pdf_bytes());
+        let lim = ApiRateLimiters::default();
+        let deps = FetchDeps {
+            db: &db,
+            http: &http,
+            bytes: &bytes,
+            limiters: &lim,
+            contact_email: Some("ci@gaply.test"),
+            app_data_dir: &h.dir,
+        };
+        let report = fetch_one(&deps, &target(), 1, &fake_embed);
+        assert!(matches!(report.outcome, FetchOutcome::Fetched { .. }), "{:?}", report.outcome);
+        assert!(
+            matches!(
+                gaply_core::import_guard::current_rate(&db, 1).1,
+                gaply_core::import_guard::EstimateBasis::Measured { .. }
+            ),
+            "a completed fetch did not record a rate"
+        );
     }
 
     #[test]

@@ -170,6 +170,22 @@ export interface OaFetchReport {
   retryAfterSecs?: number;
 }
 
+/** Where an import estimate's number came from. */
+export type EstimateBasis = { kind: 'seeded' } | { kind: 'measured'; samples: number };
+
+/** What an import is about to cost, before anything is spent on it. */
+export interface ImportPreflight {
+  pages: number | null;
+  pageEquivalents: number;
+  bytes: number;
+  estimatedSeconds: number;
+  estimateBasis: EstimateBasis;
+  verdict: 'ok' | 'confirmationRequired' | 'refused';
+  reason?: string;
+  /** The sentence to show. Built in Rust so every surface says the same thing. */
+  summary: string;
+}
+
 /** Stages a batch fetch streams. */
 export type OaFetchEvent =
   | { kind: 'started'; total: number }
@@ -298,12 +314,23 @@ class AiBridge {
     path: string,
     title?: string,
     onEvent?: (ev: LinkSourceEvent) => void,
-  ): Promise<LinkSourceResult> {
-    return this.channelInvoke<LinkSourceResult, LinkSourceEvent>(
+    confirmed?: boolean,
+  ): Promise<LinkSourceResult & { outcome?: string; preflight?: ImportPreflight }> {
+    return this.channelInvoke<LinkSourceResult & { outcome?: string; preflight?: ImportPreflight }, LinkSourceEvent>(
       'ai_link_source_document',
-      { citationId, path, title },
+      { citationId, path, title, confirmed },
       onEvent,
     );
+  }
+
+  /**
+   * What an import will cost, BEFORE it starts (§11 D57).
+   *
+   * The backend enforces the same thresholds, so this is guidance rather than
+   * the gate: a size check that lived only here would be a suggestion.
+   */
+  async importPreflight(path: string): Promise<ImportPreflight> {
+    return this.invoke<ImportPreflight>('ai_import_preflight', { path });
   }
 
   /**

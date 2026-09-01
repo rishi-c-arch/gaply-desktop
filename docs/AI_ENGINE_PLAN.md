@@ -2423,3 +2423,79 @@ traversal-shaped DOI cannot write outside that directory
 that already has a checkable linked document reports `alreadyLinked` without
 making any request — the cheapest privacy win available is the one that is never
 sent.
+
+### D57 — import size is a GUIDANCE problem, and there is deliberately no accuracy-motivated page cap
+
+D55 and D56 both end in the same place: parse, chunk, embed. Embedding is the
+expensive step by two orders of magnitude, and until now the user learned its
+cost by watching it happen. That is information arriving after the decision it
+was needed for.
+
+**Three tiers, and they are not the same kind of rule.**
+
+| tier | threshold | behaviour |
+|---|---|---|
+| inform | any import | states pages and an estimate |
+| confirm | > 150 pages | asks first; the user may always say yes |
+| refuse | > 1,500 pages or > 100 MB | declines, and says why |
+
+The confirm tier is a speed bump, not a gate that can be failed — every dialog
+it raises has a "yes" that works. The ceiling is the only hard stop, and it
+exists because past it the operation stops being "slow" and becomes "the app
+appears to have hung for an hour", which no estimate makes acceptable.
+
+**Why there is NO accuracy-motivated page cap, and why one must not be added.**
+
+The tempting rule is "long documents give worse answers, so cap them". It is
+false here. What reaches the model is never the document: it is the top-ranked
+chunks retrieval selected for one claim, assembled against a fixed token budget
+(`EVIDENCE_BUDGET_TOKENS`). A 40-page paper and a 900-page thesis arrive as the
+same handful of passages, because the BUDGET bounds the model's input, not the
+source. Length changes retrieval *difficulty* — whether the right chunk lands in
+the top-k — which is a ranking problem, improved by better ranking and not at
+all by refusing the document.
+
+So the only honest reason to decline a long document is TIME, and every
+threshold here is denominated in time. The refusal message says so in as many
+words ("a limit on TIME, not on accuracy"), because a user told merely "too big"
+reasonably concludes their thesis cannot be checked properly — which is neither
+true nor what the limit means.
+
+**The estimate is measured, not asserted.** `SEED_SECONDS_PER_PAGE = 0.5` is a
+release-build starting guess; every completed import folds what this machine
+actually did into a running mean (`record_rate`), so the second estimate a user
+sees is about their own hardware. `EstimateBasis` is reported alongside it —
+"about 4 minutes" from one prior import and from a compiled-in guess are
+different claims. The rate lives in the TTL cache deliberately: losing it is
+harmless (the seed is the fallback) and a rate measured under conditions that
+have since changed is worth forgetting. The seed is REPLACED by the first
+measurement rather than averaged with it — averaging a guess with an observation
+keeps the guess alive in every later estimate.
+
+**The scanned check moved up, and the message became one string.** A PDF with no
+text layer was already refused — by `parse_path_paged`, three call sites down,
+each with its own copy of the same sentence. `inspect_path` now runs the SAME
+`has_extractable_text` check during preflight, so the OCR advice arrives before
+a `documents` row exists or a chunk is embedded, and the three copies collapsed
+into `NO_TEXT_LAYER_ADVICE` — a user who meets that refusal twice must not be
+told two different things.
+
+**Every refusal is a verdict, not an exception.** `inspect_path` reports a scan
+as a `Validation` error, which `preflight` converts into
+`PreflightVerdict::Refused`. One shape for "you cannot import this", because a
+caller handling two refusal shapes eventually handles only one of them.
+
+**Enforced in the backend, not only in the UI.** `ai_link_source_document` takes
+`confirmed` and returns `{"outcome": "confirmationRequired", "preflight": …}`
+when the guard wants an answer it has not been given; `ai_index_document` and
+the OA fetch apply the same guard. A size gate that lives in the frontend is a
+suggestion. The cost is one extra parse on the confirm path (preflight, then the
+real parse) — cheap relative to the embedding it guards, and the ceiling means
+it can never be a parse of something enormous.
+
+**The fetch path reports rather than blocks.** A batch is one press over N
+sources; stopping to ask about the fourth would strand the other eight. So an
+OA-fetched file over the confirm threshold — or a fetched scan — comes back as
+`notImportable`, distinct from `failed` because nothing went wrong: the fetch
+worked and the file is the problem. The downloaded file is deleted, since
+nothing references it.

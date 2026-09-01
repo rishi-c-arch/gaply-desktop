@@ -31,6 +31,15 @@ function bridge(over: Record<string, any> = {}) {
       exists: true,
       extension: 'pdf',
     }),
+    importPreflight: async () => ({
+      pages: 38,
+      pageEquivalents: 38,
+      bytes: 2_000_000,
+      estimatedSeconds: 19,
+      estimateBasis: { kind: 'seeded' },
+      verdict: 'ok',
+      summary: '38 pages — about 19 seconds to index on this machine.',
+    }),
     ...over,
   } as any;
 }

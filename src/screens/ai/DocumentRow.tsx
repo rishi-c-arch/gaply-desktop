@@ -12,7 +12,7 @@
 import './ai.css';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Card } from '../../design-system/primitives';
-import { aiBridge, errorText, LinkSourceEvent, OaFetchReport } from './aiBridge';
+import { aiBridge, errorText, ImportPreflight, LinkSourceEvent, OaFetchReport } from './aiBridge';
 import { describeOaOutcome, isFetchSuccess } from './oaOutcome';
 import { pickManuscriptPath } from '../common/pickFile';
 import { mayUseCloud } from '../settings/settingsStore';
@@ -38,7 +38,11 @@ export interface DocumentRowProps {
   citedSource?: string;
   bridge?: Pick<
     typeof aiBridge,
-    'citationDocument' | 'documentSource' | 'linkSourceDocument' | 'fetchOpenAccess'
+    | 'citationDocument'
+    | 'documentSource'
+    | 'linkSourceDocument'
+    | 'fetchOpenAccess'
+    | 'importPreflight'
   >;
   /** The citation's DOI. Without one there is nothing to look up, and the
    *  open-access action is not offered rather than offered and refused. */
@@ -80,6 +84,12 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
   /** Non-null while an open-access fetch is running. */
   const [fetching, setFetching] = useState(false);
   const [fetchNote, setFetchNote] = useState<string | null>(null);
+  /** Set when the import guard wants an answer before spending the time. */
+  const [pendingConfirm, setPendingConfirm] = useState<{ path: string; pre: ImportPreflight } | null>(
+    null,
+  );
+  /** The estimate for an import that is allowed to proceed. */
+  const [estimate, setEstimate] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -113,10 +123,11 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
     };
   }, [bridge, citationId]);
 
-  const linkSource = useCallback(async () => {
+  /** The indexing half, once the guard has been satisfied. */
+  const runLink = useCallback(
+    async (path: string, confirmed: boolean) => {
     setLinkError(null);
-    const path = await pickSource();
-    if (!path) return;
+    setPendingConfirm(null);
     setLinking('Reading the file…');
     try {
       const r = await bridge.linkSourceDocument(citationId, path, citedSource, (ev: LinkSourceEvent) => {
@@ -138,7 +149,13 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
           default:
             break;
         }
-      });
+      }, confirmed);
+      // The backend enforces the gate too, so it can still come back asking —
+      // and that answer is not an error, it is the question being put again.
+      if (r.outcome === 'confirmationRequired' && r.preflight) {
+        setPendingConfirm({ path, pre: r.preflight });
+        return;
+      }
       setState({ kind: 'linked', documentId: r.documentId, path, exists: true });
       setJustLinked(r.checkable ? r.documentId : null);
       if (r.checkable) onLinked?.(r.documentId);
@@ -155,7 +172,37 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
     } finally {
       setLinking(null);
     }
-  }, [bridge, citationId, citedSource, pickSource, onLinked]);
+    },
+    [bridge, citationId, citedSource, onLinked],
+  );
+
+  const linkSource = useCallback(async () => {
+    setLinkError(null);
+    setEstimate(null);
+    setPendingConfirm(null);
+    const path = await pickSource();
+    if (!path) return;
+    // Ask what it will cost BEFORE committing to it. A scanned PDF is refused
+    // here too, which is the point: the OCR advice arrives before any indexing
+    // time is spent rather than after a progress bar has run.
+    let pre: ImportPreflight;
+    try {
+      pre = await bridge.importPreflight(path);
+    } catch (e) {
+      setLinkError(errorText(e));
+      return;
+    }
+    if (pre.verdict === 'refused') {
+      setLinkError(pre.summary);
+      return;
+    }
+    if (pre.verdict === 'confirmationRequired') {
+      setPendingConfirm({ path, pre });
+      return;
+    }
+    setEstimate(pre.summary);
+    await runLink(path, false);
+  }, [bridge, pickSource, runLink]);
 
   const fetchOpenAccess = useCallback(async () => {
     setFetchNote(null);
@@ -250,6 +297,34 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
         <p className="gds-ai__hint" data-testid="document-fetch-result">
           {fetchNote}
         </p>
+      )}
+
+      {estimate && !linking && !pendingConfirm && (
+        <p className="gds-ai__hint" data-testid="document-estimate">
+          {estimate}
+        </p>
+      )}
+
+      {pendingConfirm && (
+        <div data-testid="document-confirm">
+          <p className="gds-ai__hint">{pendingConfirm.pre.summary}</p>
+          <div className="gds-audit__actions">
+            <Button
+              variant="primary"
+              onClick={() => void runLink(pendingConfirm.path, true)}
+              data-testid="document-confirm-yes"
+            >
+              Index it
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setPendingConfirm(null)}
+              data-testid="document-confirm-no"
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
       )}
 
       {linking && (

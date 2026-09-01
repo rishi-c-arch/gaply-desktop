@@ -512,13 +512,91 @@ fn parse_pdf_paged(path: &Path) -> Result<Vec<PagedBlock>, GaplyError> {
     let blocks = reflow_pdf_lines(&tagged);
     let joined: String = blocks.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("\n\n");
     if !has_extractable_text(&joined) {
-        return Err(GaplyError::Validation(
-            "This PDF has no extractable text — it looks scanned or image-only. \
-             Extraction needs a text-based PDF (export from your editor, or run OCR first)."
-                .to_string(),
-        ));
+        return Err(GaplyError::Validation(NO_TEXT_LAYER_ADVICE.to_string()));
     }
     Ok(blocks.into_iter().map(|(page, text)| PagedBlock { page, text }).collect())
+}
+
+/// The message shown when a PDF carries no text layer. ONE definition — the
+/// three parse paths and the import preflight all say the same sentence,
+/// because a user who meets it twice must not be told two different things.
+pub const NO_TEXT_LAYER_ADVICE: &str =
+    "This PDF has no extractable text — it looks scanned or image-only. \
+     Extraction needs a text-based PDF (export from your editor, or run OCR first).";
+
+/// What a file IS, before anything is spent indexing it.
+///
+/// Deliberately cheap-ish and side-effect-free: it parses, but it does not
+/// chunk, does not write a `documents` row and never touches the embedding
+/// engine — which is the expensive part by two orders of magnitude.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentShape {
+    /// Real, printed pages. `None` for formats that HAVE no pages (docx, txt,
+    /// md) — reported as absent rather than guessed, because "12 pages" about a
+    /// text file is a fact the file does not contain.
+    pub pages: Option<u32>,
+    /// Pages for a PDF; for page-less formats, the text's length expressed in
+    /// pages so one estimate can cover both. Labelled as an equivalence at
+    /// every surface that shows it.
+    pub page_equivalents: u32,
+    pub bytes: u64,
+    /// Non-whitespace characters extracted. The evidence behind the scanned
+    /// verdict, kept so a caller can explain the refusal rather than assert it.
+    pub text_chars: usize,
+}
+
+/// Characters of prose taken as one page's worth, for formats with no pages.
+/// A double-spaced manuscript page runs ~1,800–2,000 characters; this is the
+/// round number in that range and it is only ever used for an ESTIMATE.
+const CHARS_PER_PAGE_EQUIVALENT: usize = 2_000;
+
+/// Read a file's shape without indexing it.
+///
+/// Refuses a scanned/image-only PDF here, with the same sentence the parse
+/// paths use, so the refusal arrives BEFORE any indexing time is spent rather
+/// than after a user has watched a progress bar for a document that was never
+/// going to yield text.
+pub fn inspect_path(path: &Path) -> Result<DocumentShape, GaplyError> {
+    if !path.exists() {
+        return Err(GaplyError::Validation(format!(
+            "file not found: {} — the desktop app must pass an absolute file path.",
+            path.display()
+        )));
+    }
+    let bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+
+    if ext == "pdf" {
+        let pages = catch_pdf_panic(|| pdf_extract::extract_text_by_pages(path))?
+            .map_err(|e| GaplyError::Internal(format!("pdf parse failed: {e}")))?;
+        let joined = pages.join("\n");
+        if !has_extractable_text(&joined) {
+            return Err(GaplyError::Validation(NO_TEXT_LAYER_ADVICE.to_string()));
+        }
+        let n = u32::try_from(pages.len()).unwrap_or(u32::MAX);
+        return Ok(DocumentShape {
+            pages: Some(n),
+            page_equivalents: n.max(1),
+            bytes,
+            text_chars: joined.chars().filter(|c| !c.is_whitespace()).count(),
+        });
+    }
+
+    let text = parse_path(path)?;
+    let text_chars = text.chars().filter(|c| !c.is_whitespace()).count();
+    Ok(DocumentShape {
+        pages: None,
+        page_equivalents: u32::try_from(text_chars.div_ceil(CHARS_PER_PAGE_EQUIVALENT))
+            .unwrap_or(u32::MAX)
+            .max(1),
+        bytes,
+        text_chars,
+    })
 }
 
 fn parse_pdf(path: &Path) -> Result<String, GaplyError> {
@@ -531,11 +609,7 @@ fn parse_pdf(path: &Path) -> Result<String, GaplyError> {
     // A PDF that parses but yields (almost) no text is scanned / image-only.
     // Say so specifically rather than proceeding with empty content.
     if !has_extractable_text(&text) {
-        return Err(GaplyError::Validation(
-            "This PDF has no extractable text — it looks scanned or image-only. \
-             Extraction needs a text-based PDF (export from your editor, or run OCR first)."
-                .to_string(),
-        ));
+        return Err(GaplyError::Validation(NO_TEXT_LAYER_ADVICE.to_string()));
     }
     Ok(text)
 }
@@ -550,11 +624,7 @@ pub fn parse_pdf_bytes(bytes: &[u8]) -> Result<String, GaplyError> {
         .map_err(|e| GaplyError::Internal(format!("pdf parse failed: {e}")))?;
     let text = reflow_pdf_text(&text);
     if !has_extractable_text(&text) {
-        return Err(GaplyError::Validation(
-            "This PDF has no extractable text — it looks scanned or image-only. \
-             Extraction needs a text-based PDF (export from your editor, or run OCR first)."
-                .to_string(),
-        ));
+        return Err(GaplyError::Validation(NO_TEXT_LAYER_ADVICE.to_string()));
     }
     Ok(text)
 }
@@ -881,6 +951,46 @@ mod tests {
         assert!(!has_extractable_text("   \n\t  \n "));
         assert!(!has_extractable_text("a b c")); // below the meaningful threshold
         assert!(has_extractable_text("Methods: we recruited 48 participants and ran a t-test."));
+    }
+
+    #[test]
+    fn inspect_reports_shape_for_a_real_text_pdf() {
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/sample_text.pdf");
+        let shape = inspect_path(Path::new(fixture)).expect("a text PDF should inspect");
+        assert!(shape.pages.is_some(), "a PDF must report real pages");
+        assert!(shape.page_equivalents >= 1);
+        assert!(shape.bytes > 0);
+        assert!(shape.text_chars >= MIN_MEANINGFUL_CHARS);
+    }
+
+    #[test]
+    fn inspect_refuses_a_scanned_pdf_with_the_ocr_advice_before_any_indexing() {
+        // A real, valid, 2-page PDF that draws a rectangle and shows no text —
+        // what a scan looks like to an extractor. The refusal must arrive from
+        // INSPECTION, i.e. before a documents row or a single embedded chunk
+        // exists, because the whole cost of finding out later is the point.
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/scanned_no_text.pdf");
+        let err = inspect_path(Path::new(fixture)).expect_err("a scanned PDF must be refused");
+        let msg = err.to_string();
+        assert!(msg.contains("no extractable text"), "{msg}");
+        assert!(msg.contains("OCR"), "the advice must say what to DO about it: {msg}");
+        // And the parse path refuses it with the SAME sentence — one message,
+        // not two descriptions of one situation.
+        let parse_err = parse_path_paged(Path::new(fixture)).expect_err("parse must refuse too");
+        assert_eq!(parse_err.to_string(), msg);
+    }
+
+    #[test]
+    fn inspect_treats_a_page_less_format_as_page_less() {
+        let dir = std::env::temp_dir().join(format!("gaply_inspect_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("notes.txt");
+        std::fs::write(&f, "Methods: we recruited 48 participants and ran a t-test. ".repeat(60))
+            .unwrap();
+        let shape = inspect_path(&f).expect("a txt file should inspect");
+        assert_eq!(shape.pages, None, "a .txt has no pages to report");
+        assert!(shape.page_equivalents >= 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

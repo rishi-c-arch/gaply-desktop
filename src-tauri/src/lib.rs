@@ -136,6 +136,7 @@ pub fn run() {
             commands::ai_generate_cancel,
             // Phase 8 — batch jobs
             commands::ai_job_start_thesis_audit,
+            commands::ai_import_preflight,
             commands::ai_link_source_document,
             commands::citation_fetch_oa,
             commands::ai_citation_audit_preview,

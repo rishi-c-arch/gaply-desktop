@@ -23,6 +23,7 @@ pub mod evidence_store;
 pub mod extract;
 pub mod gap_finder_agent;
 pub mod memory;
+pub mod import_guard;
 pub mod migrations;
 pub mod notes;
 pub mod orchestrator;

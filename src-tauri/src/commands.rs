@@ -1037,7 +1037,15 @@ pub async fn ai_index_document(
             Some(p) if !p.trim().is_empty() => p,
             _ => store::document_source(&db, document_id)?,
         };
-        let blocks = gaply_core::extract::docparse::parse_path_paged(std::path::Path::new(&source))?;
+        // The same guard the link and fetch paths use. This command is the
+        // generic index entry point, so leaving it unguarded would be a way
+        // around the gate rather than an exception to it.
+        let file = std::path::Path::new(&source);
+        let pre = gaply_core::import_guard::preflight(&db, file, gaply_core::now_epoch())?;
+        if pre.is_refused() {
+            return Err(GaplyError::Validation(pre.summary));
+        }
+        let blocks = gaply_core::extract::docparse::parse_path_paged(file)?;
         let chunks = gaply_core::chunk::chunk_paged_default(&blocks);
         let outcome = store::index_chunks(&db, document_id, &chunks)?;
         let status = store::index_status(&db, document_id)?;
@@ -1723,6 +1731,35 @@ pub async fn ai_embed_document(
     .map_err(|e| GaplyError::Internal(format!("ai_embed_document task panicked: {e}")))?
 }
 
+/// What an import is about to cost, BEFORE anything is spent on it.
+///
+/// Called by every surface that is about to index a file, so the user learns
+/// the price while the decision is still theirs. Cheap relative to what it
+/// guards: it parses, but it does not chunk, write a `documents` row or touch
+/// the embedding engine — and embedding is the part that costs two orders of
+/// magnitude more (a debug/release measurement that is now in CLAUDE.md).
+///
+/// A scanned PDF is refused HERE, with the OCR advice, which is the whole
+/// reason the check moved up: finding out after a progress bar has run is
+/// finding out too late to have saved anything.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn ai_import_preflight(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<gaply_core::import_guard::ImportPreflight, GaplyError> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        gaply_core::import_guard::preflight(
+            &db,
+            std::path::Path::new(&path),
+            gaply_core::now_epoch(),
+        )
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("import preflight panicked: {e}")))?
+}
+
 /// Stages of linking a source file to a citation.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -1755,6 +1792,9 @@ pub async fn ai_link_source_document(
     citation_id: String,
     path: String,
     title: Option<String>,
+    // The user's answer to a preflight that asked. `None`/`false` is not an
+    // error — it is only refused when the preflight actually requires one.
+    confirmed: Option<bool>,
     on_event: tauri::ipc::Channel<LinkSourceEvent>,
 ) -> Result<serde_json::Value, GaplyError> {
     use gaply_core::ai_engine::embeddings as core_emb;
@@ -1774,6 +1814,26 @@ pub async fn ai_link_source_document(
                 id: file.display().to_string(),
             });
         }
+
+        // 0. Preflight. Enforced HERE, not only in the UI: a size gate that
+        //    lives in the frontend is a suggestion, and this one exists to stop
+        //    the machine spending twenty minutes on something nobody chose. It
+        //    also refuses a scanned PDF with the OCR advice before a `documents`
+        //    row exists — which is the whole point of moving the check up.
+        let now = gaply_core::now_epoch();
+        let pre = gaply_core::import_guard::preflight(&db, &file, now)?;
+        if pre.is_refused() {
+            return Err(GaplyError::Validation(pre.summary.clone()));
+        }
+        if pre.needs_confirmation() && !confirmed.unwrap_or(false) {
+            // A distinct code so the UI can offer the choice rather than
+            // rendering this as a failure — the user may always say yes.
+            return Ok(serde_json::json!({
+                "outcome": "confirmationRequired",
+                "preflight": pre,
+            }));
+        }
+        let started = std::time::Instant::now();
 
         // 1. Parse. Blocking, and the first thing that can honestly fail — an
         //    unreadable file must not leave a documents row behind.
@@ -1822,7 +1882,23 @@ pub async fn ai_link_source_document(
         let checkable =
             gaply_core::citation_links::checkable_document_for_citation(&db, &citation_id)?
                 .is_some();
+
+        // What this machine ACTUALLY did, folded into the next estimate. Only
+        // on a complete run: a cancelled embed did less work than the pages
+        // imply and would teach the estimator that the machine is fast.
+        if total == done {
+            let _ = gaply_core::import_guard::record_rate(
+                &db,
+                pre.page_equivalents,
+                started.elapsed().as_secs_f64(),
+                now,
+            );
+        }
+
         Ok(serde_json::json!({
+            "outcome": "ok",
+            "pages": pre.pages,
+            "elapsedSeconds": started.elapsed().as_secs_f64(),
             "documentId": document_id,
             "title": display_title,
             "chunksIndexed": outcome.inserted,

@@ -50,6 +50,15 @@ function bridge(over: Record<string, any> = {}) {
       throw new Error('not used here');
     },
     fetchOpenAccess: async () => [report({})],
+    importPreflight: async () => ({
+      pages: 38,
+      pageEquivalents: 38,
+      bytes: 2_000_000,
+      estimatedSeconds: 19,
+      estimateBasis: { kind: 'seeded' },
+      verdict: 'ok',
+      summary: '38 pages — about 19 seconds to index on this machine.',
+    }),
     ...over,
   } as any;
 }
