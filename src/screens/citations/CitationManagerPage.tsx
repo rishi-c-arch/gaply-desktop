@@ -1571,7 +1571,18 @@ const Inner: React.FC<CitationManagerPageProps> = ({
         </section>
 
         {/* Right Detail Pane */}
-        <aside className="hidden xl:flex w-80 bg-surface-container flex-col sticky top-0 h-screen p-6 border-l border-surface-variant/50">
+        {/* `sticky top-0 h-screen` pins this pane to the viewport, which is
+            right — and on its own it CLIPS: the pane is exactly one screen
+            tall, and everything below the fold (the Document card, the whole AI
+            assistance panel) was unreachable, because a pinned box with no
+            overflow rule has nowhere to put its overflow. `overflow-y-auto`
+            gives the pane its own scrollbar so it scrolls independently of the
+            list, and `min-h-0` is the flex-child escape hatch that lets it
+            actually shrink to its container rather than growing to fit content. */}
+        <aside
+          data-testid="detail-pane"
+          className="hidden xl:flex w-80 bg-surface-container flex-col sticky top-0 h-screen min-h-0 overflow-y-auto p-6 border-l border-surface-variant/50"
+        >
           {!selected ? (
             <div className="h-full flex flex-col items-center justify-center text-center border-2 border-dashed border-outline-variant/30 rounded-xl bg-surface-container-lowest/50">
               <span className="material-symbols-outlined text-4xl text-outline-variant mb-4" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">article</span>
@@ -1579,7 +1590,11 @@ const Inner: React.FC<CitationManagerPageProps> = ({
               <p className="font-body text-sm text-outline px-6">Select an item from the library to view metadata, abstract, and attached files.</p>
             </div>
           ) : (
-            <div className="h-full flex flex-col" data-testid="detail">
+            // NOT `h-full`: inside a scrolling parent that pins the height to
+            // one screen, `height: 100%` is the same clip again one level down.
+            // Content-driven height is what lets the pane's scrollbar have
+            // something to scroll.
+            <div className="flex flex-col" data-testid="detail">
               {selected.retracted && (
                 <div className="mb-4 p-3 rounded-lg bg-error-container text-on-error-container text-sm flex items-center gap-2" data-testid="retract-banner">
                   <span className="material-symbols-outlined text-sm">warning</span>
