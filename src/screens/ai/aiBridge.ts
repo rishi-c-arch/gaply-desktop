@@ -96,6 +96,26 @@ export type SupportEvent =
   | { kind: 'decoding'; tokens: number; maxTokens: number }
   | { kind: 'validating' };
 
+/** One manuscript sentence citing a given source, found by the pre-pass. */
+export interface CitingSentence {
+  seq: number;
+  page: number | null;
+  sentence: string;
+  /** The marker that resolved, e.g. "(Smith, 2019)". */
+  marker: string;
+}
+
+/** What a per-citation check WOULD do, before anything is queued. */
+export interface CitationAuditPreview {
+  libraryId: string;
+  /** null = the cited source is not indexed; the UI offers Link/Index. */
+  documentId: number | null;
+  unverifiableReason: string | null;
+  sentences: CitingSentence[];
+  totalSentences: number;
+  documentTypesSupported: string[];
+}
+
 export interface JobProgressEvent {
   jobId: number;
   completed: number;
@@ -218,6 +238,26 @@ class AiBridge {
 
   async jobResults(jobId: number, offset: number, limit: number) {
     return this.invoke<Record<string, unknown>>('ai_job_results', { jobId, offset, limit });
+  }
+
+  /* ---- the per-citation slice of the thesis audit (§11 D54) ---- */
+
+  /** Deterministic, no model, no job: which manuscript sentences cite this. */
+  async citationAuditPreview(citationId: string, path: string): Promise<CitationAuditPreview> {
+    return this.invoke<CitationAuditPreview>('ai_citation_audit_preview', { citationId, path });
+  }
+
+  /** Queue the slice on the shared job runner; streams the usual progress. */
+  async citationAuditStart(
+    citationId: string,
+    path: string,
+    onEvent?: (ev: JobProgressEvent) => void,
+  ) {
+    return this.channelInvoke<Record<string, unknown>, JobProgressEvent>(
+      'ai_citation_audit_start',
+      { citationId, path },
+      onEvent,
+    );
   }
 
   /** Which indexed document backs a citation (§11 D45). null is a real answer. */

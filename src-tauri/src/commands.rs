@@ -2530,16 +2530,30 @@ pub async fn ai_job_start_thesis_audit(
     .await
     .map_err(|e| GaplyError::Internal(format!("audit planning panicked: {e}")))??;
 
-    let control = crate::ai::job_runner::JobControl::new(plan.job_id);
-    state.ai_jobs.lock().expect("job registry poisoned").insert(plan.job_id, control.clone());
+    spawn_job_runner(&state, plan.job_id, on_event);
+    Ok(serde_json::to_value(&plan).unwrap_or(serde_json::Value::Null))
+}
 
-    // The runner outlives this command by design.
+/// Register a planned job and run it in the background.
+///
+/// Shared by the whole-manuscript audit and the per-citation slice — they are
+/// the SAME pipeline with different predicates (§11 D54), and two copies of
+/// this would be two places for resume, preemption and the control registry to
+/// drift apart.
+fn spawn_job_runner(
+    state: &State<'_, AppState>,
+    job_id: i64,
+    on_event: tauri::ipc::Channel<JobProgressEvent>,
+) {
+    let control = crate::ai::job_runner::JobControl::new(job_id);
+    state.ai_jobs.lock().expect("job registry poisoned").insert(job_id, control.clone());
+
+    // The runner outlives the command that started it by design.
     let db = state.db.clone();
     let manager = state.ai_gen.clone();
     let slot = state.ai_embed.clone();
     let priority = state.ai_interactive.clone();
     let registry = state.ai_jobs.clone();
-    let job_id = plan.job_id;
     tokio::spawn(async move {
         let embed = move |claim: &str| slot.with(|e| e.embed_query(claim));
         let emit = move |p: crate::ai::job_runner::JobProgress| {
@@ -2555,15 +2569,62 @@ pub async fn ai_job_start_thesis_audit(
             crate::ai::job_runner::run_job(&db, &manager, &control, &priority, &embed, &emit).await;
         let paused = matches!(outcome, Ok(crate::ai::job_runner::RunOutcome::Paused));
         match &outcome {
-            Ok(o) => tracing::info!(job_id, ?o, "audit finished"),
-            Err(e) => tracing::error!(job_id, %e, "audit failed"),
+            Ok(o) => tracing::info!(job_id, ?o, "job finished"),
+            Err(e) => tracing::error!(job_id, %e, "job failed"),
         }
         // A finished job's control handle is dead weight; a paused one's is not.
         if !paused {
             registry.lock().expect("job registry poisoned").remove(&job_id);
         }
     });
+}
 
+/// Every manuscript sentence that cites ONE library entry — deterministically,
+/// with no model and no job created.
+///
+/// This is what the user confirms before anything is spent. The pre-pass runs
+/// no model (§11 D40), so the list costs a parse and nothing else, and a
+/// citation nothing cites answers in the same breath instead of queueing an
+/// empty job to find out.
+#[tauri::command]
+pub async fn ai_citation_audit_preview(
+    state: State<'_, AppState>,
+    citation_id: String,
+    path: String,
+) -> Result<serde_json::Value, GaplyError> {
+    let db = state.db.clone();
+    let manuscript = std::path::PathBuf::from(path);
+    let preview = tokio::task::spawn_blocking(move || {
+        gaply_core::ai_engine::thesis_audit::preview_citation_audit(&db, &manuscript, &citation_id)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("citation preview panicked: {e}")))??;
+    Ok(serde_json::to_value(&preview).unwrap_or(serde_json::Value::Null))
+}
+
+/// Queue and run the per-citation slice. Same planner, same job rows, same
+/// runner, same pause/resume/cancel commands as the thesis audit.
+#[tauri::command]
+pub async fn ai_citation_audit_start(
+    state: State<'_, AppState>,
+    citation_id: String,
+    path: String,
+    on_event: tauri::ipc::Channel<JobProgressEvent>,
+) -> Result<serde_json::Value, GaplyError> {
+    let db = state.db.clone();
+    let manuscript = std::path::PathBuf::from(path);
+    let plan = tokio::task::spawn_blocking(move || {
+        gaply_core::ai_engine::thesis_audit::plan_citation_audit(
+            &db,
+            &manuscript,
+            crate::ai::tasks::citation_support::PROMPT_VERSION,
+            &citation_id,
+        )
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("citation audit planning panicked: {e}")))??;
+
+    spawn_job_runner(&state, plan.job_id, on_event);
     Ok(serde_json::to_value(&plan).unwrap_or(serde_json::Value::Null))
 }
 

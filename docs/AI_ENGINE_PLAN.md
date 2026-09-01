@@ -2246,3 +2246,52 @@ the projection switches to `observedSecondsPerItem` as soon as the run has
 completed two items (one item is a sample, not a rate — and the first also pays
 for loading the weights), with the label saying which of the two it is using. A
 stale number wearing the word "measured" reads as a promise.
+
+### D54 — the per-citation check is a SLICE of the thesis audit, not a second pipeline
+
+The AI panel asked the user to type a claim. That is backwards: the manuscript
+already contains the sentences that cite a source, the pre-pass already finds
+them deterministically, and asking a person to retype one by hand made the
+feature's own input its weakest link (§11 D51 — a citation title pasted in as a
+claim is what broke the first real check).
+
+**One planner, one predicate.** `plan_thesis_audit` and `plan_citation_audit`
+are the same function under `AuditScope`: same parse, same `prepass`, same
+`resolve_marker`, same `NewItem` rows, same `create_job`, same runner, same
+pause/resume/cancel commands. Only the predicate differs. A fix to any of that
+shared machinery reaches both, and the two can never disagree about what a
+manuscript says — which they would, eventually, as two copies.
+
+`Resolution::Unverifiable` gained `library_id: Option<String>`. Without it a
+per-citation filter cannot tell "this sentence cites Smith 2019, whose PDF is
+not indexed" from "this sentence cites nobody we know", and the first would
+silently vanish from a view that should be showing it with a Link/Index prompt.
+
+**The list is free; the checking is not.** `preview_citation_audit` runs the
+pre-pass and marker resolution and creates NO job — §11 D40's "the pre-pass runs
+no model" is what makes an honest confirmation step possible at all. The user
+sees the exact sentences and the projected cost before agreeing to spend minutes
+each on them. A citation nothing cites answers in the same breath, rather than
+queueing an empty job to find out.
+
+**Uncited sentences are not a source's business.** "Does this sentence need a
+citation?" judges sentences that cite nothing at all, so it cannot be scoped to
+one citation. The per-citation panel links to the manuscript-level audit, which
+already queues exactly those items through this same planner; the manual
+single-sentence mode stays as the fallback it now is.
+
+**The manuscript is session-scoped, deliberately.** Gaply has no persistent
+"current manuscript" — the audit screen picks a path each time, and the Citation
+Manager's `extractedCitations` prop was declared but never passed by any caller,
+so "Import from manuscript (0)" had always been dead. The panel uses the SAME
+picker the audit screen uses and remembers the choice for the session. That is a
+smaller claim than a stored manuscript would make, and it is one the app can
+actually keep.
+
+KNOWN, and a property of the data rather than the code: `resolve_marker` matches
+a marker by lead author + year. A library entry with neither can never be the
+target of a marker, so a citation whose metadata is empty previews as "0
+sentences cite this source" no matter how many do. That is the honest answer for
+what is recorded; the fix is the citation's metadata, not a looser match — a
+title-similarity fallback is exactly how a sentence gets attributed to the wrong
+source, which is the failure D18 exists to prevent.

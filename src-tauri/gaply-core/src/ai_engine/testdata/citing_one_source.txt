@@ -1,0 +1,27 @@
+Soil Biodiversity Under Organic Management
+
+Introduction
+
+Species richness in temperate cropland has been studied for decades, and the
+picture is not settled. Organic management increased soil invertebrate species
+richness by about 31 percent (Smith, 2019). The same paired-fields design was
+later repeated at a larger scale (Jones & Patel, 2020).
+
+Results
+
+The magnitude of the richness effect depended strongly on the baseline soil
+carbon of each field (Smith, 2019). Earthworm biomass responded faster than
+species counts, which complicates any single-metric summary of soil health.
+Reported effects on microbial diversity were smaller and less consistent
+(Smith, 2019).
+
+Discussion
+
+These findings matter for policy because subsidy schemes increasingly reward
+measurable biodiversity outcomes. Nothing in the present data speaks to
+tropical systems at all.
+
+References
+
+Smith, J. (2019). Organic Management and Soil Life. Journal of Soil Biology.
+Jones, A., & Patel, R. (2020). Paired Fields. Agronomy Reports.

@@ -233,7 +233,14 @@ pub enum Resolution {
     /// The cited work is in the library AND its source is indexed + embedded.
     Checkable { library_id: String, document_id: i64 },
     /// Cited, but nothing to check against.
-    Unverifiable { reason: String },
+    ///
+    /// `library_id` is `Some` when the marker DID resolve to a library entry
+    /// and only the source is missing. The distinction is load-bearing for any
+    /// caller filtering by citation: "this sentence cites Smith 2019, whose PDF
+    /// is not indexed" and "this sentence cites nobody we know" are different
+    /// facts, and collapsing them would drop the first sentence out of a
+    /// per-citation view that should be showing it with a Link/Index prompt.
+    Unverifiable { reason: String, library_id: Option<String> },
     /// No marker at all.
     Uncited,
 }
@@ -272,6 +279,7 @@ pub fn resolve_marker(
         // phase does not parse. Honest rather than guessed.
         return Ok(Resolution::Unverifiable {
             reason: "numeric citation style: no numbered bibliography was parsed".to_string(),
+            library_id: None,
         });
     };
 
@@ -296,6 +304,7 @@ pub fn resolve_marker(
     let Some((library_id, title)) = hits.first().cloned() else {
         return Ok(Resolution::Unverifiable {
             reason: format!("cited work not in library: {}", marker.raw),
+            library_id: None,
         });
     };
 
@@ -311,6 +320,7 @@ pub fn resolve_marker(
             } else {
                 format!("the linked document is not indexed or not embedded: {title}")
             },
+            library_id: Some(library_id),
         }),
     }
 }
@@ -483,7 +493,7 @@ mod tests {
         // (a) nothing in the library at all
         let r = resolve_marker(&db, &marker("Nobody", 1999)).unwrap();
         assert!(
-            matches!(&r, Resolution::Unverifiable { reason } if reason.contains("not in library")),
+            matches!(&r, Resolution::Unverifiable { reason, .. } if reason.contains("not in library")),
             "{r:?}"
         );
         assert_eq!(r.kind(), ItemKind::Unverifiable);
@@ -498,7 +508,7 @@ mod tests {
         // In the library, but nothing is linked to it yet.
         let r = resolve_marker(&db, &marker("Smith", 2019)).unwrap();
         assert!(
-            matches!(&r, Resolution::Unverifiable { reason } if reason.contains("no indexed document is linked")),
+            matches!(&r, Resolution::Unverifiable { reason, .. } if reason.contains("no indexed document is linked")),
             "{r:?}"
         );
 
@@ -566,7 +576,7 @@ mod tests {
         crate::citation_links::link_citations(&db).unwrap();
         let r = resolve_marker(&db, &marker("Jones", 2020)).unwrap();
         assert!(
-            matches!(&r, Resolution::Unverifiable { reason } if reason.contains("not indexed or not embedded")),
+            matches!(&r, Resolution::Unverifiable { reason, .. } if reason.contains("not indexed or not embedded")),
             "chunks without vectors must not be called checkable: {r:?}"
         );
     }
@@ -585,7 +595,7 @@ mod tests {
         };
         let r = resolve_marker(&db, &m).unwrap();
         assert!(
-            matches!(&r, Resolution::Unverifiable { reason } if reason.contains("numeric")),
+            matches!(&r, Resolution::Unverifiable { reason, .. } if reason.contains("numeric")),
             "{r:?}"
         );
     }

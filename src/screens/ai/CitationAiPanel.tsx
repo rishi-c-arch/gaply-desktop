@@ -6,7 +6,17 @@
 import './ai.css';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Card } from '../../design-system/primitives';
-import { aiBridge, errorCode, errorText, SupportEvent } from './aiBridge';
+import {
+  aiBridge,
+  CitationAuditPreview,
+  errorCode,
+  errorText,
+  JobProgressEvent,
+  SupportEvent,
+} from './aiBridge';
+import { resultToFinding } from './findingFromResult';
+import { projectDuration, SECONDS_PER_ITEM } from './ThesisAuditScreen';
+import { pickManuscriptPath } from '../common/pickFile';
 import { EvidenceCard, EvidenceRow, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
 
@@ -67,6 +77,39 @@ function describe(p: Progress): string {
 const GB = 1024 ** 3;
 
 /**
+ * The manuscript, for this app session only.
+ *
+ * There is no persistent "current manuscript" anywhere in Gaply — the thesis
+ * audit picks a path each time, and the Citation Manager's `extractedCitations`
+ * prop was never passed by any caller. Rather than invent a store, this keeps
+ * the SAME path the audit screen would ask for, so the two screens agree within
+ * a session and neither claims a durability it does not have.
+ */
+const MANUSCRIPT_KEY = 'gaply.ai.manuscript';
+
+export function rememberedManuscript(): string | null {
+  try {
+    return sessionStorage.getItem(MANUSCRIPT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function rememberManuscript(path: string): void {
+  try {
+    sessionStorage.setItem(MANUSCRIPT_KEY, path);
+  } catch {
+    // A private window with storage disabled still gets the feature; it just
+    // asks for the manuscript again next time.
+  }
+}
+
+/** Last path segment, for naming the manuscript on screen. */
+export function manuscriptName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+/**
  * What the run cost, in the terms that explain a slow one.
  *
  * A wall-clock number alone cannot separate "this model is slow" from "this
@@ -97,6 +140,8 @@ function elapsedLabel(seconds: number): string {
 }
 
 export interface CitationAiPanelProps {
+  /** The library entry this panel is about; the per-citation slice needs it. */
+  citationId?: string;
   /** The claim to judge. May be empty — see the panel's claim field. */
   sentence: string;
   /** The cited source's indexed document, when there is one. */
@@ -104,7 +149,21 @@ export interface CitationAiPanelProps {
   citedSource?: string;
   aiInstalled: boolean;
   onOpenSettings?: () => void;
-  bridge?: Pick<typeof aiBridge, 'citationNeed' | 'citationSupport' | 'cancelGeneration' | 'documentSource'>;
+  bridge?: Pick<
+    typeof aiBridge,
+    | 'citationNeed'
+    | 'citationSupport'
+    | 'cancelGeneration'
+    | 'documentSource'
+    | 'citationAuditPreview'
+    | 'citationAuditStart'
+    | 'jobResults'
+    | 'cancelJob'
+  >;
+  /** Test seam for the native file dialog. */
+  pickManuscript?: () => Promise<string | null>;
+  /** Open the manuscript-level audit, which owns the citation_need question. */
+  onOpenAudit?: () => void;
 }
 
 /** Map a raw support result onto the D18 unit. */
@@ -148,13 +207,26 @@ export async function toFinding(
 }
 
 export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
+  citationId,
   sentence,
   documentId,
   citedSource = 'Cited source',
   aiInstalled,
   onOpenSettings,
   bridge = aiBridge,
+  onOpenAudit,
+  // The formats plan_thesis_audit's parser accepts; the same list the audit
+  // screen offers, because it is the same parse.
+  pickManuscript = () => pickManuscriptPath(['pdf', 'docx', 'txt', 'md'], 'Manuscript'),
 }) => {
+  /* ---------------- the per-citation slice (§11 D54) ---------------- */
+  const [manuscript, setManuscript] = useState<string | null>(rememberedManuscript);
+  const [preview, setPreview] = useState<CitationAuditPreview | null>(null);
+  const [slice, setSlice] = useState<'idle' | 'previewing' | 'confirm' | 'running' | 'done'>('idle');
+  const [sliceItems, setSliceItems] = useState<any[]>([]);
+  const [sliceProgress, setSliceProgress] = useState<JobProgressEvent | null>(null);
+  const [sliceJobId, setSliceJobId] = useState<number | null>(null);
+  const [sliceError, setSliceError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [finding, setFinding] = useState<GroundedFinding | null>(null);
@@ -260,6 +332,61 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
     }
   }, []);
 
+  /** Ask which sentences cite this source. No model, no job — just a parse. */
+  const runPreview = useCallback(
+    async (path: string) => {
+      if (!citationId) return;
+      setSliceError(null);
+      setSlice('previewing');
+      try {
+        const p = await bridge.citationAuditPreview(citationId, path);
+        setPreview(p);
+        setSlice('confirm');
+      } catch (e) {
+        setSliceError(errorText(e));
+        setSlice('idle');
+      }
+    },
+    [bridge, citationId],
+  );
+
+  const chooseManuscript = useCallback(async () => {
+    const p = await pickManuscript();
+    if (!p) return;
+    rememberManuscript(p);
+    setManuscript(p);
+    void runPreview(p);
+  }, [pickManuscript, runPreview]);
+
+  const onJobProgress = useCallback(
+    (ev: JobProgressEvent) => {
+      setSliceProgress(ev);
+      setSliceJobId(ev.jobId);
+      // The event is a notification; the database is the record (same rule the
+      // thesis audit follows).
+      bridge
+        .jobResults(ev.jobId, 0, 200)
+        .then((r: any) => setSliceItems(r.items ?? []))
+        .catch(() => {});
+      if (ev.completed >= ev.total) setSlice('done');
+    },
+    [bridge],
+  );
+
+  /** THE point of no return for model time — after the user has seen the list. */
+  const runSlice = useCallback(async () => {
+    if (!citationId || !manuscript) return;
+    setSliceError(null);
+    setSliceItems([]);
+    setSlice('running');
+    try {
+      await bridge.citationAuditStart(citationId, manuscript, onJobProgress);
+    } catch (e) {
+      setSliceError(errorText(e));
+      setSlice('confirm');
+    }
+  }, [bridge, citationId, manuscript, onJobProgress]);
+
   const runSupport = useCallback(async () => {
     if (documentId == null || !claim.trim()) return;
     reset();
@@ -353,6 +480,151 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
 
   return (
     <Card title="AI assistance" data-testid="citation-ai-panel">
+      {/* ---------- PRIMARY: the sentences that cite this source ---------- */}
+      {citationId && (
+        <div data-testid="citation-slice">
+          {!manuscript && (
+            <>
+              <p className="gds-ai__hint" data-testid="slice-no-manuscript">
+                Import your manuscript to check the sentences that cite this source.
+                Gaply finds them itself — you do not have to paste them in.
+              </p>
+              <Button variant="primary" onClick={chooseManuscript} data-testid="slice-import">
+                Import your manuscript
+              </Button>
+            </>
+          )}
+
+          {manuscript && slice === 'idle' && (
+            <>
+              <p className="gds-ai__hint" data-testid="slice-manuscript">
+                Manuscript: <code>{manuscriptName(manuscript)}</code>
+              </p>
+              <div className="gds-audit__actions">
+                <Button
+                  variant="primary"
+                  onClick={() => void runPreview(manuscript)}
+                  data-testid="slice-check"
+                >
+                  Check citation support
+                </Button>
+                <Button variant="ghost" onClick={chooseManuscript} data-testid="slice-rechoose">
+                  Use a different manuscript
+                </Button>
+              </div>
+            </>
+          )}
+
+          {slice === 'previewing' && (
+            <p className="gds-ai__hint" data-testid="slice-previewing">
+              Reading your manuscript for sentences that cite this source…
+            </p>
+          )}
+
+          {sliceError && (
+            <p className="gds-ai__hint" data-testid="slice-error" style={{ color: 'var(--g-flagged)' }}>
+              {sliceError}
+            </p>
+          )}
+
+          {preview && slice !== 'previewing' && (
+            <>
+              <p className="gds-ai__value" data-testid="slice-count">
+                {preview.sentences.length === 0
+                  ? `No sentences in your manuscript cite this source (of ${preview.totalSentences} checked).`
+                  : `${preview.sentences.length} sentence${preview.sentences.length === 1 ? '' : 's'} in your manuscript cite this source.`}
+              </p>
+
+              {preview.sentences.length > 0 && (
+                <ol className="gds-evidence__rows" data-testid="slice-sentences">
+                  {preview.sentences.map((sn, i) => {
+                    const result = sliceItems.find((it: any) => it.seq === sn.seq)?.result;
+                    return (
+                      <li className="gds-evidence__row" key={sn.seq} data-testid={`slice-sentence-${i}`}>
+                        <p className="gds-evidence__searched-label">
+                          {sn.page === null ? 'page unknown' : `p.${sn.page}`} · {sn.marker}
+                        </p>
+                        <blockquote data-testid={`slice-quote-${i}`}>{sn.sentence}</blockquote>
+                        {/* Each sentence's verdict renders through the SAME D18
+                            unit as every other finding — evidence rows, page
+                            links, refusal rules and all. */}
+                        {result && preview.documentId !== null && (
+                          <EvidenceCard
+                            finding={resultToFinding(result, {
+                              documentId: preview.documentId,
+                              sourceLabel: citedSource,
+                            })}
+                          />
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+
+              {/* The source itself is not checkable: say so and point at the
+                  fix, rather than offering a check that cannot produce
+                  evidence (§11 D40 — unverifiable is a RESULT). */}
+              {preview.sentences.length > 0 && preview.documentId === null && (
+                <p className="gds-ai__hint" data-testid="slice-unverifiable">
+                  These sentences cite this source, but it cannot be checked:{' '}
+                  {preview.unverifiableReason ?? 'its document is not indexed.'} Link and index
+                  the source document above, then run this again.
+                </p>
+              )}
+
+              {slice === 'confirm' && preview.sentences.length > 0 && preview.documentId !== null && (
+                <div className="gds-audit__actions">
+                  <Button variant="primary" onClick={runSlice} data-testid="slice-confirm">
+                    Check all {preview.sentences.length} — about{' '}
+                    {projectDuration(preview.sentences.length)}
+                  </Button>
+                </div>
+              )}
+
+              {(slice === 'running' || slice === 'done') && sliceProgress && (
+                <p className="gds-ai__hint" data-testid="slice-progress">
+                  {sliceProgress.completed} of {sliceProgress.total} checked
+                  {slice === 'running' ? ' — this keeps running if you look elsewhere.' : '.'}
+                </p>
+              )}
+
+              {slice === 'running' && sliceJobId !== null && bridge.cancelJob && (
+                <Button
+                  variant="ghost"
+                  onClick={() => void bridge.cancelJob!(sliceJobId)}
+                  data-testid="slice-cancel"
+                >
+                  Stop checking
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* "Does this sentence need a citation?" is a question about the
+          MANUSCRIPT, not about this source — it judges uncited sentences, which
+          by definition cite nothing at all. It belongs to the audit, which
+          already queues exactly those items through the same planner. The panel
+          keeps a link, not a copy. */}
+      {citationId && onOpenAudit && (
+        <p className="gds-ai__hint" data-testid="slice-need-link">
+          Looking for sentences that may need a citation?{' '}
+          <button type="button" className="gds-link" onClick={onOpenAudit} data-testid="slice-need-open">
+            Check the whole manuscript
+          </button>
+          .
+        </p>
+      )}
+
+      {/* ---------- FALLBACK: one sentence, typed by hand ---------- */}
+      {citationId && (
+        <p className="gds-ai__searched-label" data-testid="slice-manual-label">
+          or check a single sentence
+        </p>
+      )}
+
       {/* THE CLAIM IS AN INPUT, not the citation's title.
           It used to be prefilled with `selected.csl.title`, which made the
           request self-referential — "does this document support the string

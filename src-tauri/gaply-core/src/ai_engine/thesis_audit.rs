@@ -40,6 +40,62 @@ pub struct AuditPlan {
     pub queued_unverifiable: usize,
 }
 
+/// Which sentences a plan covers.
+///
+/// The per-citation check is a SLICE of the thesis audit, not a second
+/// pipeline: same parse, same pre-pass, same marker resolution, same job rows,
+/// same runner. Only the predicate differs, so a fix to any of that shared
+/// machinery reaches both, and the two can never disagree about what a
+/// manuscript says.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AuditScope {
+    /// Every significant sentence: uncited ones become `citation_need`, cited
+    /// ones `citation_support` or `unverifiable`.
+    WholeManuscript,
+    /// Only sentences whose markers resolve to ONE library entry.
+    ///
+    /// Uncited sentences are skipped entirely — "does this sentence need a
+    /// citation?" is a question about the manuscript, not about this source,
+    /// and it has its own manuscript-level action.
+    Citation { library_id: String },
+}
+
+/// One manuscript sentence that cites a given source, before any model runs.
+///
+/// This is the whole point of showing a list first: the sentences are found
+/// deterministically (§11 D40 — the pre-pass runs NO model), so the user sees
+/// exactly what will be checked, and what it will cost, before agreeing to
+/// spend minutes per sentence on it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CitingSentence {
+    pub seq: usize,
+    pub page: Option<u32>,
+    pub sentence: String,
+    /// The marker text that resolved to this citation, e.g. "(Smith, 2019)".
+    pub marker: String,
+}
+
+/// What a per-citation check would do, WITHOUT queueing anything.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CitationAuditPreview {
+    pub library_id: String,
+    /// `Some` when the cited source is indexed AND embedded, i.e. there is
+    /// something to check against. `None` is not an error — it is the
+    /// `unverifiable` finding (§11 D40), and the UI shows a Link/Index prompt
+    /// rather than a check that cannot run.
+    pub document_id: Option<i64>,
+    /// Why, when `document_id` is None. Verbatim from marker resolution, which
+    /// distinguishes "not linked" from "linked but not indexed" because those
+    /// need different things from the user.
+    pub unverifiable_reason: Option<String>,
+    pub sentences: Vec<CitingSentence>,
+    /// Significant sentences in the whole manuscript, for context: "3 of 412".
+    pub total_sentences: usize,
+    pub document_types_supported: Vec<&'static str>,
+}
+
 /// Formats `parse_path` accepts. Recorded in the plan so a caller never has to
 /// guess why a `.doc` or `.tex` was rejected.
 pub const SUPPORTED_DOCUMENT_TYPES: &[&str] = &["pdf", "docx", "txt", "md", "text"];
@@ -54,15 +110,176 @@ pub fn plan_thesis_audit(
     manuscript: &Path,
     prompt_version: &str,
 ) -> Result<AuditPlan, GaplyError> {
+    plan_audit(db, manuscript, prompt_version, &AuditScope::WholeManuscript)
+}
+
+/// Plan a per-citation check: the same pipeline, narrowed to one source.
+pub fn plan_citation_audit(
+    db: &Database,
+    manuscript: &Path,
+    prompt_version: &str,
+    library_id: &str,
+) -> Result<AuditPlan, GaplyError> {
+    plan_audit(
+        db,
+        manuscript,
+        prompt_version,
+        &AuditScope::Citation { library_id: library_id.to_string() },
+    )
+}
+
+/// Read the manuscript and run the deterministic pre-pass. Shared by planning
+/// and by the preview, so what the user is shown and what gets queued come from
+/// the same parse rather than two that could drift.
+fn prepass_manuscript(manuscript: &Path) -> Result<PrepassReport, GaplyError> {
     let blocks = crate::extract::docparse::parse_path_paged(manuscript)?;
-    let paged: Vec<(Option<u32>, String)> =
-        blocks.into_iter().map(|b| (b.page, b.text)).collect();
-    let report: PrepassReport = prepass(&paged);
+    let paged: Vec<(Option<u32>, String)> = blocks.into_iter().map(|b| (b.page, b.text)).collect();
+    Ok(prepass(&paged))
+}
+
+/// Does any of this sentence's markers resolve to `library_id`, and is it
+/// checkable? Returns the resolution that decided, plus the marker text.
+fn resolve_for_citation(
+    db: &Database,
+    markers: &[super::audit_prepass::Marker],
+    library_id: &str,
+) -> Result<Option<(Resolution, String)>, GaplyError> {
+    let mut fallback: Option<(Resolution, String)> = None;
+    for m in markers {
+        match resolve_marker(db, m)? {
+            // A checkable hit on the right work ends the search immediately.
+            r @ Resolution::Checkable { .. } => {
+                if matches!(&r, Resolution::Checkable { library_id: id, .. } if id == library_id) {
+                    return Ok(Some((r, m.raw.clone())));
+                }
+            }
+            // Resolved to this work, but its source is not checkable. Keep it —
+            // the sentence DOES cite this source, and saying so with a
+            // Link/Index prompt beats dropping it silently — but keep looking
+            // in case another marker on the same sentence resolves properly.
+            r @ Resolution::Unverifiable { .. } => {
+                if matches!(&r, Resolution::Unverifiable { library_id: Some(id), .. } if id == library_id)
+                    && fallback.is_none()
+                {
+                    fallback = Some((r, m.raw.clone()));
+                }
+            }
+            Resolution::Uncited => {}
+        }
+    }
+    Ok(fallback)
+}
+
+/// Every manuscript sentence citing one source, with no job created and no
+/// model run. The list the user confirms before anything is spent.
+pub fn preview_citation_audit(
+    db: &Database,
+    manuscript: &Path,
+    library_id: &str,
+) -> Result<CitationAuditPreview, GaplyError> {
+    let report = prepass_manuscript(manuscript)?;
+    let mut sentences = Vec::new();
+    let mut document_id = None;
+    let mut unverifiable_reason = None;
+
+    for (seq, planned) in report.planned.iter().enumerate() {
+        if planned.markers.is_empty() {
+            continue;
+        }
+        let Some((resolution, marker)) = resolve_for_citation(db, &planned.markers, library_id)?
+        else {
+            continue;
+        };
+        match &resolution {
+            Resolution::Checkable { document_id: doc, .. } => document_id = Some(*doc),
+            Resolution::Unverifiable { reason, .. } => {
+                if unverifiable_reason.is_none() {
+                    unverifiable_reason = Some(reason.clone());
+                }
+            }
+            Resolution::Uncited => {}
+        }
+        sentences.push(CitingSentence {
+            seq,
+            page: planned.page,
+            sentence: planned.sentence.clone(),
+            marker,
+        });
+    }
+
+    // A checkable source anywhere settles it for the whole set: the reason only
+    // describes why a check CANNOT run, and it can.
+    if document_id.is_some() {
+        unverifiable_reason = None;
+    }
+
+    Ok(CitationAuditPreview {
+        library_id: library_id.to_string(),
+        document_id,
+        unverifiable_reason,
+        sentences,
+        total_sentences: report.total_sentences,
+        document_types_supported: SUPPORTED_DOCUMENT_TYPES.to_vec(),
+    })
+}
+
+fn plan_audit(
+    db: &Database,
+    manuscript: &Path,
+    prompt_version: &str,
+    scope: &AuditScope,
+) -> Result<AuditPlan, GaplyError> {
+    let report: PrepassReport = prepass_manuscript(manuscript)?;
 
     let mut items: Vec<NewItem> = Vec::with_capacity(report.planned.len());
     let (mut need, mut support, mut unver) = (0usize, 0usize, 0usize);
 
     for (seq, planned) in report.planned.iter().enumerate() {
+        // SCOPED TO ONE CITATION: keep only the sentences that cite it, and
+        // queue them exactly as the whole-manuscript audit would. Uncited
+        // sentences are not this source's business.
+        if let AuditScope::Citation { library_id } = scope {
+            if planned.markers.is_empty() {
+                continue;
+            }
+            let Some((resolution, marker)) =
+                resolve_for_citation(db, &planned.markers, library_id)?
+            else {
+                continue;
+            };
+            match resolution {
+                Resolution::Checkable { library_id, document_id } => {
+                    support += 1;
+                    items.push(NewItem {
+                        seq: seq as i64,
+                        kind: ItemKind::CitationSupport,
+                        chunk_id: None,
+                        page: planned.page,
+                        sentence: planned.sentence.clone(),
+                        payload_json: serde_json::json!({
+                            "documentId": document_id,
+                            "libraryId": library_id,
+                            "citedSource": marker,
+                        })
+                        .to_string(),
+                    });
+                }
+                Resolution::Unverifiable { reason, .. } => {
+                    unver += 1;
+                    items.push(NewItem {
+                        seq: seq as i64,
+                        kind: ItemKind::Unverifiable,
+                        chunk_id: None,
+                        page: planned.page,
+                        sentence: planned.sentence.clone(),
+                        payload_json: serde_json::json!({ "reason": reason }).to_string(),
+                    });
+                }
+                Resolution::Uncited => {}
+            }
+            continue;
+        }
+
         // A sentence with no marker is a candidate for "needs a citation".
         if planned.markers.is_empty() {
             need += 1;
@@ -83,6 +300,7 @@ pub fn plan_thesis_audit(
         // actually cites is the honest reading.
         let mut resolution = Resolution::Unverifiable {
             reason: "cited work not in library".to_string(),
+            library_id: None,
         };
         for m in &planned.markers {
             let r = resolve_marker(db, m)?;
@@ -115,7 +333,7 @@ pub fn plan_thesis_audit(
                     .to_string(),
                 });
             }
-            Resolution::Unverifiable { reason } => {
+            Resolution::Unverifiable { reason, .. } => {
                 unver += 1;
                 items.push(NewItem {
                     seq: seq as i64,
@@ -142,7 +360,14 @@ pub fn plan_thesis_audit(
         }
     }
 
-    let job_id = jobs::create_job(db, "thesis_audit", None, prompt_version, &items)?;
+    // The job KIND records the scope, so a resumed job, a status query and the
+    // health report all know whether they are looking at a whole manuscript or
+    // one citation's slice of it.
+    let job_kind = match scope {
+        AuditScope::WholeManuscript => "thesis_audit",
+        AuditScope::Citation { .. } => "citation_audit",
+    };
+    let job_id = jobs::create_job(db, job_kind, None, prompt_version, &items)?;
 
     Ok(AuditPlan {
         job_id,
@@ -337,6 +562,162 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    fn exec(db: &Database, sql: &str, p: &[&dyn rusqlite::ToSql]) -> i64 {
+        let conn = db.conn().unwrap();
+        conn.execute(sql, p).unwrap();
+        conn.last_insert_rowid()
+    }
+
+    fn slice_fixture(dir: &Path) -> std::path::PathBuf {
+        let p = dir.join("citing.txt");
+        std::fs::write(&p, include_str!("testdata/citing_one_source.txt")).unwrap();
+        p
+    }
+
+    /// Smith 2019 in the library, its source indexed AND embedded → checkable.
+    fn seed_checkable_smith(db: &Database) -> i64 {
+        exec(
+            db,
+            "INSERT INTO citation_library (id, csl_json, title, authors, year, created_at, updated_at)
+             VALUES ('lib-smith', '{}', 'Organic Management and Soil Life', 'Smith, J.', 2019, 1, 1)",
+            &[],
+        );
+        let doc = exec(
+            db,
+            "INSERT INTO documents (source_type, title, fetched_at, checksum, status, created_at)
+             VALUES ('pdf', 'organic management and soil life', 1, 'ck-slice', 'ready', 1)",
+            &[],
+        );
+        let chunk = exec(
+            db,
+            "INSERT INTO ai_chunks (document_id, page, char_start, char_end, content,
+                                    token_estimate, content_hash, created_at)
+             VALUES (?1, 4, 0, 10, 'richness rose', 3, 'h-slice', 1)",
+            &[&doc],
+        );
+        exec(
+            db,
+            "INSERT INTO ai_model_registry (id, kind, display_name, file_path, registered_at)
+             VALUES ('bge-small-en-v1.5', 'embedding', 'bge', '/x', 1)",
+            &[],
+        );
+        exec(
+            db,
+            "INSERT INTO ai_chunk_embeddings (chunk_id, model_id, preprocessing_version, dim, vector, created_at)
+             VALUES (?1, 'bge-small-en-v1.5', 'bge-v1.5-p2', 1, X'00', 1)",
+            &[&chunk],
+        );
+        crate::citation_links::link_citations(db).unwrap();
+        doc
+    }
+
+    /// THE per-citation slice. Three manuscript sentences cite Smith 2019; the
+    /// preview finds all three with NO model and NO job, which is what the user
+    /// confirms before any time is spent (§11 D40 — the pre-pass is
+    /// deterministic).
+    #[test]
+    fn preview_finds_every_sentence_citing_one_source_and_nothing_else() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("preview");
+        let path = slice_fixture(&dir);
+        let doc = seed_checkable_smith(&db);
+
+        let p = preview_citation_audit(&db, &path, "lib-smith").unwrap();
+
+        assert_eq!(p.sentences.len(), 3, "expected 3 citing sentences, got {:?}", p.sentences);
+        assert_eq!(p.document_id, Some(doc), "the checkable source was not resolved");
+        assert!(p.unverifiable_reason.is_none());
+        assert!(p.total_sentences > 3, "the preview lost the manuscript's own size");
+        for s in &p.sentences {
+            assert!(s.sentence.contains("Smith, 2019"), "unrelated sentence kept: {s:?}");
+            assert_eq!(s.marker, "(Smith, 2019)");
+        }
+        // The Jones sentence cites a DIFFERENT source and must not appear.
+        assert!(!p.sentences.iter().any(|s| s.sentence.contains("Jones")));
+        // Uncited sentences are not this source's business — that question has
+        // its own manuscript-level action.
+        assert!(!p.sentences.iter().any(|s| s.sentence.contains("tropical systems")));
+
+        // No job was created: a preview costs nothing and commits to nothing.
+        assert!(jobs::get_job(&db, 1).unwrap().is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Confirming queues exactly those sentences, as ordinary job items on the
+    /// existing runner — the same rows a whole-manuscript audit would produce.
+    #[test]
+    fn planning_the_slice_queues_one_support_item_per_citing_sentence() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("slice-plan");
+        let path = slice_fixture(&dir);
+        seed_checkable_smith(&db);
+
+        let plan = plan_citation_audit(&db, &path, "citation_support-v1.4", "lib-smith").unwrap();
+
+        assert_eq!(plan.queued_citation_support, 3);
+        assert_eq!(plan.queued_unverifiable, 0);
+        // NOT the manuscript-level question, even though the fixture is full of
+        // uncited sentences.
+        assert_eq!(plan.queued_citation_need, 0);
+
+        let items = jobs::job_results(&db, plan.job_id, 0, 50).unwrap();
+        assert_eq!(items.len(), 3);
+        for it in &items {
+            assert_eq!(it.kind, ItemKind::CitationSupport);
+            let payload: serde_json::Value = serde_json::from_str(&it.payload_json).unwrap();
+            assert_eq!(payload["libraryId"], "lib-smith");
+            assert_eq!(payload["citedSource"], "(Smith, 2019)");
+        }
+        let job = jobs::get_job(&db, plan.job_id).unwrap().unwrap();
+        assert_eq!(job.kind, "citation_audit", "the slice must be distinguishable from a full audit");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The unlinked source. The sentences ARE found — they genuinely cite this
+    /// work — and each becomes an `unverifiable` item carrying the reason,
+    /// rather than being dropped or presented as a check that could run.
+    #[test]
+    fn an_unlinked_source_still_finds_its_sentences_and_says_why_it_cannot_check() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("slice-unlinked");
+        let path = slice_fixture(&dir);
+        exec(
+            &db,
+            "INSERT INTO citation_library (id, csl_json, title, authors, year, created_at, updated_at)
+             VALUES ('lib-smith', '{}', 'Organic Management and Soil Life', 'Smith, J.', 2019, 1, 1)",
+            &[],
+        );
+
+        let p = preview_citation_audit(&db, &path, "lib-smith").unwrap();
+        assert_eq!(p.sentences.len(), 3, "sentences were dropped for an unlinked source");
+        assert_eq!(p.document_id, None);
+        assert!(
+            p.unverifiable_reason.as_deref().unwrap_or_default().contains("no indexed document"),
+            "{:?}",
+            p.unverifiable_reason
+        );
+
+        let plan = plan_citation_audit(&db, &path, "citation_support-v1.4", "lib-smith").unwrap();
+        assert_eq!(plan.queued_unverifiable, 3);
+        assert_eq!(plan.queued_citation_support, 0, "an unlinked source must cost ZERO model calls");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A citation nothing cites. Not an error, and not an empty job.
+    #[test]
+    fn a_source_no_sentence_cites_previews_as_zero() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("slice-none");
+        let path = slice_fixture(&dir);
+        seed_checkable_smith(&db);
+
+        let p = preview_citation_audit(&db, &path, "lib-nobody-cites-this").unwrap();
+        assert!(p.sentences.is_empty());
+        assert_eq!(p.document_id, None);
+        assert!(p.total_sentences > 0, "the manuscript was still read");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// End to end, no model: a real .txt chapter becomes a persisted plan whose

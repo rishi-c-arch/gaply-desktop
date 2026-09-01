@@ -1601,6 +1601,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                     because the engine runs one generation at a time. */}
                 <CitationAiPanel
                   key={selected.id}
+                  citationId={selected.id}
+                  onOpenAudit={() => navigate('/app/check/citations')}
                   // EMPTY on purpose. This screen has no manuscript sentence,
                   // and passing the citation's title made the support check
                   // self-referential — the same string as both the claim and
