@@ -85,6 +85,27 @@ time injection.
   targets and `gaply_core` only as a lib dependency, so a broken or failing
   `gaply_core` test passes. That gap hid `release_gate.rs`'s non-compilation for
   four PRs.
+- **`tauri dev` WITHOUT `--release` is a trap for anything touching a model.**
+  Always `npm run tauri dev -- --release` when the path under test loads BGE,
+  candle, or the generative judge. Candle's CPU kernels are unoptimised in a
+  debug build, and the gap is not "a bit slower", it is a different order of
+  magnitude — **measured 1 Sep 2026** on the same 23 chunks of the same PDF
+  through the same `embed_documents` call:
+
+  | build | 23 chunks (2 batches) | first 16-chunk batch |
+  |---|---|---|
+  | release | **10.9 s** total | 7.96 s |
+  | debug (`tauri dev`) | never finished | **still running at 9+ min**, ~240% CPU |
+
+  So ≥68× on the first batch, and a "Link document" that takes 11 seconds in
+  the shipped app looks like a hang in dev. Two whole sessions were spent
+  waiting on that, and the app was killed before it ever finished. Diagnose
+  with `ps -o %cpu` (high CPU = working, not wedged) and `sample <pid>` (frames
+  in `candle_core::cpu_backend` = real matmul). The same applies to
+  `citation_support`, AI Check and every probe.
+- **Launch the dev app DETACHED** or it dies when the tool call that started it
+  ends: `subprocess.Popen([...], start_new_session=True)` (setsid) — a plain
+  `nohup ... &` is NOT enough, the harness's process-group kill still reaches it.
 - Commit ONLY when Rishi provides/approves the message; never push unprompted.
 - Canonical remote: `desktop` (`rishi-c-arch/gaply-desktop`); `main` there is
   the backup of local main. Push only when explicitly requested, never forced.
