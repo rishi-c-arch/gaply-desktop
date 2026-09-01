@@ -87,13 +87,98 @@ describe('Document row', () => {
     expect(screen.getByTestId('document-name').textContent).toBe('chapter 1 .pdf');
   });
 
-  it('offers the coming-soon link affordance when nothing is linked', async () => {
+  it('offers a live Link action when nothing is linked', async () => {
     render(<DocumentRow citationId="cite-1" bridge={bridge({ citationDocument: async () => null })} />);
     await waitFor(() => expect(screen.getByTestId('document-none')).toBeTruthy());
-    expect((screen.getByTestId('document-link-soon') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('document-link') as HTMLButtonElement).disabled).toBe(false);
     expect(screen.queryByTestId('document-open')).toBeNull();
     // Says WHY it matters, rather than leaving a dead button unexplained.
     expect(screen.getByTestId('document-none').textContent).toMatch(/citation support/i);
+  });
+
+  it('links a picked file: index, embed with progress, then a checkable source', async () => {
+    let emit: (ev: any) => void = () => {};
+    const linkSourceDocument = vi.fn(
+      async (_c: string, _p: string, _t: string | undefined, onEvent: any) => {
+        emit = onEvent;
+        emit({ kind: 'parsing' });
+        emit({ kind: 'indexed', chunks: 42 });
+        emit({ kind: 'embedding', done: 20, total: 42 });
+        return {
+          documentId: 9,
+          title: 'Naidu 2023',
+          chunksIndexed: 42,
+          chunksEmbedded: 42,
+          chunksPending: 0,
+          checkable: true,
+        };
+      },
+    );
+    const onLinked = vi.fn();
+    render(
+      <DocumentRow
+        citationId="cite-naidu"
+        citedSource="Naidu 2023"
+        bridge={bridge({ citationDocument: async () => null, linkSourceDocument })}
+        pickSource={async () => '/Users/rishi/Desktop/naidu.pdf'}
+        onLinked={onLinked}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('document-link')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('document-link'));
+
+    await waitFor(() => expect(screen.getByTestId('document-linked-ok')).toBeTruthy());
+    expect(linkSourceDocument.mock.calls[0][0]).toBe('cite-naidu');
+    expect(linkSourceDocument.mock.calls[0][1]).toBe('/Users/rishi/Desktop/naidu.pdf');
+    // The row flips to the linked state, and the panel is told to re-ask.
+    expect(screen.getByTestId('document-name').textContent).toBe('naidu.pdf');
+    expect(onLinked).toHaveBeenCalledWith(9);
+  });
+
+  it('does not call a source checkable when its passages are not embedded', async () => {
+    // Retrieval needs the vectors. "Linked" and "checkable" are different
+    // facts, and reporting the first as the second sends the user back to a
+    // check that still cannot run.
+    const onLinked = vi.fn();
+    render(
+      <DocumentRow
+        citationId="cite-naidu"
+        bridge={bridge({
+          citationDocument: async () => null,
+          linkSourceDocument: async () => ({
+            documentId: 9,
+            title: 't',
+            chunksIndexed: 42,
+            chunksEmbedded: 10,
+            chunksPending: 32,
+            checkable: false,
+          }),
+        })}
+        pickSource={async () => '/x.pdf'}
+        onLinked={onLinked}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('document-link')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('document-link'));
+    await waitFor(() => expect(screen.getByTestId('document-link-error')).toBeTruthy());
+    expect(screen.getByTestId('document-link-error').textContent).toMatch(/32 passages are not embedded/);
+    expect(screen.queryByTestId('document-linked-ok')).toBeNull();
+    expect(onLinked).not.toHaveBeenCalled();
+  });
+
+  it('picking no file leaves everything alone', async () => {
+    const linkSourceDocument = vi.fn();
+    render(
+      <DocumentRow
+        citationId="cite-1"
+        bridge={bridge({ citationDocument: async () => null, linkSourceDocument })}
+        pickSource={async () => null}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('document-link')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('document-link'));
+    await waitFor(() => expect(linkSourceDocument).not.toHaveBeenCalled());
+    expect(screen.getByTestId('document-none')).toBeTruthy();
   });
 
   it('reports a failed lookup instead of claiming nothing is linked', async () => {

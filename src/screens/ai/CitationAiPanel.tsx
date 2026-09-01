@@ -568,8 +568,9 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
               {preview.sentences.length > 0 && preview.documentId === null && (
                 <p className="gds-ai__hint" data-testid="slice-unverifiable">
                   These sentences cite this source, but it cannot be checked:{' '}
-                  {preview.unverifiableReason ?? 'its document is not indexed.'} Link and index
-                  the source document above, then run this again.
+                  {preview.unverifiableReason ?? 'its document is not indexed.'} Use{' '}
+                  <b>Link document</b> above to point Gaply at the source file — it is indexed
+                  and embedded there, and this check becomes available.
                 </p>
               )}
 

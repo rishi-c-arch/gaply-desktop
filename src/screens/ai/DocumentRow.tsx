@@ -10,9 +10,10 @@
 // the store, and reading "No document linked" because the model happens to be
 // absent would be a false statement rather than a missing feature.
 import './ai.css';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Card } from '../../design-system/primitives';
-import { aiBridge, errorText } from './aiBridge';
+import { aiBridge, errorText, LinkSourceEvent } from './aiBridge';
+import { pickManuscriptPath } from '../common/pickFile';
 
 const PdfViewer = React.lazy(() => import('./PdfViewer'));
 
@@ -33,7 +34,11 @@ export interface DocumentRowProps {
   citationId: string;
   /** Window title for the viewer; falls back to the file name. */
   citedSource?: string;
-  bridge?: Pick<typeof aiBridge, 'citationDocument' | 'documentSource'>;
+  bridge?: Pick<typeof aiBridge, 'citationDocument' | 'documentSource' | 'linkSourceDocument'>;
+  /** Test seam for the native file dialog. */
+  pickSource?: () => Promise<string | null>;
+  /** Called once a source becomes checkable, so the panel can offer a re-check. */
+  onLinked?: (documentId: number) => void;
   /** Test seam, forwarded to the viewer. */
   loadBytes?: (documentId: number) => Promise<Uint8Array>;
   /** Test seam for the native reveal. */
@@ -53,10 +58,16 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
   bridge = aiBridge,
   loadBytes,
   reveal = revealInFinder,
+  pickSource = () => pickManuscriptPath(['pdf', 'docx', 'txt', 'md'], 'Source document'),
+  onLinked,
 }) => {
   const [state, setState] = useState<Linked>({ kind: 'loading' });
   const [viewing, setViewing] = useState(false);
   const [revealError, setRevealError] = useState<string | null>(null);
+  /** Non-null while a file is being indexed and embedded into a source. */
+  const [linking, setLinking] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [justLinked, setJustLinked] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -90,6 +101,50 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
     };
   }, [bridge, citationId]);
 
+  const linkSource = useCallback(async () => {
+    setLinkError(null);
+    const path = await pickSource();
+    if (!path) return;
+    setLinking('Reading the file…');
+    try {
+      const r = await bridge.linkSourceDocument(citationId, path, citedSource, (ev: LinkSourceEvent) => {
+        switch (ev.kind) {
+          case 'parsing':
+            setLinking('Reading the file…');
+            break;
+          case 'indexed':
+            setLinking(`Indexed ${ev.chunks} passages. Embedding…`);
+            break;
+          case 'embedding':
+            // Embedding a thesis is not instant, and a spinner that says
+            // nothing is how a working step gets mistaken for a stuck one.
+            setLinking(`Embedding ${ev.done} of ${ev.total} passages…`);
+            break;
+          case 'linked':
+            setLinking('Linking…');
+            break;
+          default:
+            break;
+        }
+      });
+      setState({ kind: 'linked', documentId: r.documentId, path, exists: true });
+      setJustLinked(r.checkable ? r.documentId : null);
+      if (r.checkable) onLinked?.(r.documentId);
+      if (!r.checkable) {
+        // Linked but not checkable is a real state, not a success: retrieval
+        // needs the vectors, and saying "done" here would send the user back
+        // to a check that still cannot run.
+        setLinkError(
+          `Linked, but ${r.chunksPending} passages are not embedded yet — a support check cannot run until they are.`,
+        );
+      }
+    } catch (e) {
+      setLinkError(errorText(e));
+    } finally {
+      setLinking(null);
+    }
+  }, [bridge, citationId, citedSource, pickSource, onLinked]);
+
   return (
     <Card title="Document" data-testid="citation-document-row">
       {state.kind === 'loading' && (
@@ -110,10 +165,33 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
             No document linked. Citation support and the source viewer both read
             the cited document, so neither can run until one is.
           </p>
-          <Button variant="secondary" disabled data-testid="document-link-soon">
-            Link document (coming soon)
+          <Button
+            variant="primary"
+            onClick={linkSource}
+            disabled={linking !== null}
+            data-testid="document-link"
+          >
+            {linking ? 'Linking…' : 'Link document'}
           </Button>
         </>
+      )}
+
+      {linking && (
+        <p className="gds-ai__hint" data-testid="document-linking">
+          {linking}
+        </p>
+      )}
+
+      {linkError && (
+        <p className="gds-ai__hint" data-testid="document-link-error" style={{ color: 'var(--g-flagged)' }}>
+          {linkError}
+        </p>
+      )}
+
+      {justLinked !== null && (
+        <p className="gds-ai__hint" data-testid="document-linked-ok">
+          Linked and indexed. The sentences citing this source can be checked now.
+        </p>
       )}
 
       {state.kind === 'linked' && (

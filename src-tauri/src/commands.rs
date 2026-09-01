@@ -1673,6 +1673,120 @@ pub async fn ai_embed_document(
     .map_err(|e| GaplyError::Internal(format!("ai_embed_document task panicked: {e}")))?
 }
 
+/// Stages of linking a source file to a citation.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum LinkSourceEvent {
+    Parsing,
+    Indexed { chunks: usize },
+    Embedding { done: usize, total: usize },
+    Linked { document_id: i64 },
+}
+
+/// Link a local file to a citation as its source: create the document row,
+/// index it, embed it, and record the link as MANUAL.
+///
+/// # Why one command and not four
+///
+/// The four steps already exist separately (`ai_index_document`,
+/// `ai_embed_document`, `citation_links::link_manually`) and a UI could call
+/// them in order — but a citation whose document is created and indexed and NOT
+/// embedded is exactly the `unverifiable` state the user was trying to leave,
+/// and a half-linked source is worse than an unlinked one because it looks
+/// done. This composes them so the outcome is all-or-nothing from the user's
+/// side, and streams the stages because embedding a thesis is not instant.
+///
+/// `matched_by = 'manual'` is the point: the user asserted this link, so it
+/// outranks the DOI and title heuristics and is never silently re-derived.
+#[tauri::command]
+#[tracing::instrument(skip(state, on_event))]
+pub async fn ai_link_source_document(
+    state: State<'_, AppState>,
+    citation_id: String,
+    path: String,
+    title: Option<String>,
+    on_event: tauri::ipc::Channel<LinkSourceEvent>,
+) -> Result<serde_json::Value, GaplyError> {
+    use gaply_core::ai_engine::embeddings as core_emb;
+    use gaply_core::ai_engine::store;
+
+    let db = state.db.clone();
+    let slot = state.ai_embed.clone();
+    let cancel = state.ai_embed_cancel.clone();
+    cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    tokio::task::spawn_blocking(move || {
+        use std::sync::atomic::Ordering;
+        let file = std::path::PathBuf::from(&path);
+        if !file.is_file() {
+            return Err(GaplyError::NotFound {
+                entity: "source file",
+                id: file.display().to_string(),
+            });
+        }
+
+        // 1. Parse. Blocking, and the first thing that can honestly fail — an
+        //    unreadable file must not leave a documents row behind.
+        let _ = on_event.send(LinkSourceEvent::Parsing);
+        let blocks = gaply_core::extract::docparse::parse_path_paged(&file)?;
+
+        let display_title = title.filter(|t| !t.trim().is_empty()).unwrap_or_else(|| {
+            file.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled source").to_string()
+        });
+        // Path-derived, so re-linking the same file finds the same row rather
+        // than growing a duplicate every time.
+        let checksum = format!("manual-{}", store::content_hash(&file.display().to_string()));
+        let document_id =
+            store::create_document(&db, &display_title, &file.display().to_string(), &checksum)?;
+
+        // 2. Index. Idempotent by database constraint, so a re-run is safe.
+        let chunks = gaply_core::chunk::chunk_paged_default(&blocks);
+        let outcome = store::index_chunks(&db, document_id, &chunks)?;
+        let _ = on_event.send(LinkSourceEvent::Indexed { chunks: outcome.inserted });
+
+        // 3. Embed. Retrieval needs the vectors — an indexed but unembedded
+        //    source is still unverifiable (audit_prepass says so explicitly).
+        let space = crate::ai::embedding_space();
+        let pending = core_emb::chunks_missing_embeddings(&db, Some(document_id), &space.model_id)?;
+        let total = pending.len();
+        let mut done = 0usize;
+        for batch in pending.chunks(crate::ai::EMBED_BATCH_SIZE) {
+            if cancel.load(Ordering::SeqCst) {
+                break;
+            }
+            let texts: Vec<String> = batch.iter().map(|p| p.content.clone()).collect();
+            let vectors = slot.with(|e| e.embed_documents(&texts))?;
+            let rows: Vec<(i64, Vec<f32>)> = batch.iter().map(|p| p.chunk_id).zip(vectors).collect();
+            core_emb::put_embeddings(&db, &space, &rows)?;
+            done += rows.len();
+            let _ = on_event.send(LinkSourceEvent::Embedding { done, total });
+        }
+
+        // 4. Link. Recorded even when embedding was cancelled part-way: the
+        //    link is true either way, and `checkable_document_for_citation`
+        //    decides separately whether there are enough vectors to check
+        //    against. Claiming the link failed would be the lie.
+        gaply_core::citation_links::link_manually(&db, &citation_id, document_id)?;
+        let _ = on_event.send(LinkSourceEvent::Linked { document_id });
+
+        let checkable =
+            gaply_core::citation_links::checkable_document_for_citation(&db, &citation_id)?
+                .is_some();
+        Ok(serde_json::json!({
+            "documentId": document_id,
+            "title": display_title,
+            "chunksIndexed": outcome.inserted,
+            "chunksEmbedded": done,
+            "chunksPending": total.saturating_sub(done),
+            // The only question the caller actually cares about: can a support
+            // check run against this source now?
+            "checkable": checkable,
+        }))
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("link source task panicked: {e}")))?
+}
+
 #[tauri::command]
 pub fn ai_embed_cancel(state: State<'_, AppState>) {
     state.ai_embed_cancel.store(true, std::sync::atomic::Ordering::SeqCst);

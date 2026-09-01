@@ -167,6 +167,8 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const [query, setQuery] = useState('');
   // Which card's overflow menu is open (null = none). Pure UI state.
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  /** Bumped when a source is linked, to re-ask the AI panel what it can check. */
+  const [relinked, setRelinked] = useState(0);
   // Which citation the metadata editor is open on (null = closed). D1.
   const [editingId, setEditingId] = useState<string | null>(null);
   // Which indexed document backs the SELECTED citation (§11 D45). null means
@@ -1585,6 +1587,11 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                   key={`doc-${selected.id}`}
                   citationId={selected.id}
                   citedSource={selected.csl.title || selected.doi || undefined}
+                  // Linking a source changes the answer to "can this citation
+                  // be checked?", so the AI panel is remounted to re-ask it.
+                  // Its manuscript survives (session-scoped), so this reads as
+                  // "re-check available", not as losing your place.
+                  onLinked={() => setRelinked((n) => n + 1)}
                 />
               </div>
 
@@ -1600,7 +1607,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                     orphaned run (see the panel's unmount effect), which matters
                     because the engine runs one generation at a time. */}
                 <CitationAiPanel
-                  key={selected.id}
+                  key={`ai-${selected.id}-${relinked}`}
                   citationId={selected.id}
                   onOpenAudit={() => navigate('/app/check/citations')}
                   // EMPTY on purpose. This screen has no manuscript sentence,

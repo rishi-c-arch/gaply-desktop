@@ -38,6 +38,8 @@ permitted network operation."
 *Consequence:* R2 is narrowed, not weakened — `ai_model_install` is the single, explicitly
 user-invoked exception, it lives in the app crate, and it never runs at startup (see §9.4).
 
+---
+
 **R3 — The SLM never generates citation strings, DOIs, years, or metadata values.**
 The generative model may only *select*, *classify*, *rank*, *summarise* and *point at* text that
 already exists in a stored chunk. Every generative output must be anchored to a `chunk_id` that the
@@ -2295,3 +2297,29 @@ sentences cite this source" no matter how many do. That is the honest answer for
 what is recorded; the fix is the citation's metadata, not a looser match — a
 title-similarity fallback is exactly how a sentence gets attributed to the wrong
 source, which is the failure D18 exists to prevent.
+
+### D55 — "Link document" is one command, and it is all-or-nothing
+
+D45 gave the UI a read path for the citation→document link, and D54's panel
+could then say honestly that a source was not checkable. Neither gave anyone a
+way to FIX that, so the Document row shipped a disabled "Link document (coming
+soon)" — an accurate label on a dead end.
+
+The four steps it needs already existed separately (`ai_index_document`,
+`ai_embed_document`, `citation_links::link_manually`, and the document row
+itself), and a UI could have called them in order. It must not. A citation whose
+document is created and indexed and NOT embedded is exactly the `unverifiable`
+state the user was trying to leave, and a half-linked source is worse than an
+unlinked one because it looks finished. `ai_link_source_document` composes the
+four so the outcome is all-or-nothing from the caller's side, and streams the
+stages (`parsing` → `indexed` → `embedding` → `linked`) because embedding a
+thesis on CPU is minutes, and a spinner that says nothing is how a working step
+gets mistaken for a stuck one.
+
+`matched_by = 'manual'` is the point of the write: the user asserted this link,
+so it outranks the DOI and title heuristics and is never silently re-derived.
+
+Two states are reported separately because they are two facts: the command
+returns `checkable` from `checkable_document_for_citation` — asked of the store,
+not inferred — and the row refuses to say "done" when the link exists but the
+vectors do not.

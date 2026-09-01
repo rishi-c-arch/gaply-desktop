@@ -137,6 +137,24 @@ export interface AuditPlan {
   queuedUnverifiable: number;
 }
 
+/** Stages of linking a local file to a citation as its source. */
+export type LinkSourceEvent =
+  | { kind: 'parsing' }
+  | { kind: 'indexed'; chunks: number }
+  | { kind: 'embedding'; done: number; total: number }
+  | { kind: 'linked'; documentId: number };
+
+export interface LinkSourceResult {
+  documentId: number;
+  title: string;
+  chunksIndexed: number;
+  chunksEmbedded: number;
+  chunksPending: number;
+  /** Whether a support check can actually run against it now. */
+  checkable: boolean;
+}
+
+
 class AiBridge {
   private async invoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
     const { invoke } = await import('@tauri-apps/api/core');
@@ -241,6 +259,20 @@ class AiBridge {
   }
 
   /* ---- the per-citation slice of the thesis audit (§11 D54) ---- */
+
+  /** Create + index + embed a local file and link it to this citation. */
+  async linkSourceDocument(
+    citationId: string,
+    path: string,
+    title?: string,
+    onEvent?: (ev: LinkSourceEvent) => void,
+  ): Promise<LinkSourceResult> {
+    return this.channelInvoke<LinkSourceResult, LinkSourceEvent>(
+      'ai_link_source_document',
+      { citationId, path, title },
+      onEvent,
+    );
+  }
 
   /** Deterministic, no model, no job: which manuscript sentences cite this. */
   async citationAuditPreview(citationId: string, path: string): Promise<CitationAuditPreview> {
