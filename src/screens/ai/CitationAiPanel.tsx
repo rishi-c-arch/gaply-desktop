@@ -227,6 +227,10 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
   const [sliceProgress, setSliceProgress] = useState<JobProgressEvent | null>(null);
   const [sliceJobId, setSliceJobId] = useState<number | null>(null);
   const [sliceError, setSliceError] = useState<string | null>(null);
+  /** The manual claim box, CLOSED by default. It is the fallback, and leaving
+   *  it open beside the automatic path is what made the two look like equals —
+   *  which is how a block of the cited paper ended up pasted into it. */
+  const [manualOpen, setManualOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [finding, setFinding] = useState<GroundedFinding | null>(null);
@@ -373,6 +377,21 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
     [bridge],
   );
 
+  /**
+   * The citing sentences appear on SELECTION, not on a click.
+   *
+   * Finding them is a deterministic parse — no model, no job, no network — so
+   * asking the user to press a button first made them request a fact the app
+   * could simply state. Worse, it made the automatic path look optional beside
+   * the manual claim box, and the first real run went into the claim box
+   * instead: the per-citation slice had never once executed.
+   */
+  useEffect(() => {
+    if (!citationId || !manuscript) return;
+    if (slice !== 'idle' || preview) return;
+    void runPreview(manuscript);
+  }, [citationId, manuscript, slice, preview, runPreview]);
+
   /** THE point of no return for model time — after the user has seen the list. */
   const runSlice = useCallback(async () => {
     if (!citationId || !manuscript) return;
@@ -486,8 +505,8 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
           {!manuscript && (
             <>
               <p className="gds-ai__hint" data-testid="slice-no-manuscript">
-                Import your manuscript to check the sentences that cite this source.
-                Gaply finds them itself — you do not have to paste them in.
+                Import your manuscript and Gaply finds the sentences that cite this
+                source by itself — you do not have to paste anything in.
               </p>
               <Button variant="primary" onClick={chooseManuscript} data-testid="slice-import">
                 Import your manuscript
@@ -495,35 +514,18 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
             </>
           )}
 
-          {manuscript && slice === 'idle' && (
-            <>
-              <p className="gds-ai__hint" data-testid="slice-manuscript">
-                Manuscript: <code>{manuscriptName(manuscript)}</code>
-              </p>
-              <div className="gds-audit__actions">
-                {/* NOT "Check citation support", which this button used to
-                    say. Two things were wrong with that. It oversold the
-                    action: this runs `runPreview`, a deterministic parse that
-                    finds citing sentences and spends no model time — the check
-                    is the NEXT button, the one that names a count and a
-                    duration. And it collided: the claim box below has a button
-                    with that exact label, so a panel with a manuscript loaded
-                    showed the same words twice on two different operations.
-                    That collision is how a block of the cited paper ended up
-                    pasted into the claim box — the only button with this name
-                    on screen was the wrong one. */}
-                <Button
-                  variant="primary"
-                  onClick={() => void runPreview(manuscript)}
-                  data-testid="slice-check"
-                >
-                  Find sentences citing this source
-                </Button>
-                <Button variant="ghost" onClick={chooseManuscript} data-testid="slice-rechoose">
-                  Use a different manuscript
-                </Button>
-              </div>
-            </>
+          {manuscript && (
+            <p className="gds-ai__hint" data-testid="slice-manuscript">
+              Manuscript: <code>{manuscriptName(manuscript)}</code>{' '}
+              <button
+                type="button"
+                className="gds-link"
+                onClick={chooseManuscript}
+                data-testid="slice-rechoose"
+              >
+                Use a different manuscript
+              </button>
+            </p>
           )}
 
           {slice === 'previewing' && (
@@ -586,12 +588,22 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
               )}
 
               {slice === 'confirm' && preview.sentences.length > 0 && preview.documentId !== null && (
-                <div className="gds-audit__actions">
-                  <Button variant="primary" onClick={runSlice} data-testid="slice-confirm">
-                    Check all {preview.sentences.length} — about{' '}
-                    {projectDuration(preview.sentences.length)}
-                  </Button>
-                </div>
+                <>
+                  <div className="gds-audit__actions">
+                    <Button variant="primary" onClick={runSlice} data-testid="slice-confirm">
+                      Check these {preview.sentences.length} sentence
+                      {preview.sentences.length === 1 ? '' : 's'}
+                    </Button>
+                  </div>
+                  {/* The estimate keeps its own line rather than riding in the
+                      label: this is the button that starts spending model time,
+                      and the cost belongs next to it — but a label that changes
+                      length with the projection is a label people stop reading. */}
+                  <p className="gds-ai__hint" data-testid="slice-estimate">
+                    About {projectDuration(preview.sentences.length)} on this machine.
+                    It keeps running if you look elsewhere.
+                  </p>
+                </>
               )}
 
               {(slice === 'running' || slice === 'done') && sliceProgress && (
@@ -632,9 +644,15 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
 
       {/* ---------- FALLBACK: one sentence, typed by hand ---------- */}
       {citationId && (
-        <p className="gds-ai__searched-label" data-testid="slice-manual-label">
-          or check a single sentence
-        </p>
+        <button
+          type="button"
+          className="gds-link"
+          aria-expanded={manualOpen}
+          onClick={() => setManualOpen((v) => !v)}
+          data-testid="slice-manual-toggle"
+        >
+          {manualOpen ? 'Hide the single-sentence box' : 'Check a single sentence I type'}
+        </button>
       )}
 
       {/* THE CLAIM IS AN INPUT, not the citation's title.
@@ -647,63 +665,72 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
           runs this identical code path against real sentences ("Organic
           management increased soil invertebrate species richness by about 31
           percent") and passes; the difference was never the model. */}
-      <label className="gds-ai__label" htmlFor="ai-claim">
-        Claim to check against this source
-      </label>
-      <textarea
-        id="ai-claim"
-        className="gds-ai__claim"
-        rows={2}
-        value={claim}
-        placeholder="Paste the sentence from your writing that cites this source…"
-        onChange={(e) => setClaim(e.target.value)}
-        data-testid="ai-claim"
-      />
-      <p className="gds-ai__hint">
-        A sentence that asserts something checkable. A reference title is not a
-        claim — there is nothing in it to verify.
-      </p>
+      {/* Open when there is nothing to demote it BELOW. The disclosure exists
+          to stop the manual box competing with the automatic path; with no
+          citation selected there IS no automatic path, the typed sentence is
+          the only way to ask anything, and hiding it behind a toggle would be
+          hiding the feature. */}
+      {(manualOpen || !citationId) && (
+        <>
+        <label className="gds-ai__label" htmlFor="ai-claim">
+          Claim to check against this source
+        </label>
+        <textarea
+          id="ai-claim"
+          className="gds-ai__claim"
+          rows={2}
+          value={claim}
+          placeholder="Paste the sentence from your writing that cites this source…"
+          onChange={(e) => setClaim(e.target.value)}
+          data-testid="ai-claim"
+        />
+        <p className="gds-ai__hint">
+          A sentence that asserts something checkable. A reference title is not a
+          claim — there is nothing in it to verify.
+        </p>
 
-      <div className="gds-audit__actions">
-        {/* A support check reads the CITED DOCUMENT. With nothing indexed behind
-            this citation there is no evidence to read, so the check cannot
-            produce a result — and a button that is merely greyed out, with the
-            reason hidden in a tooltip, reads as a bug. Say it instead. */}
-        {documentId == null ? (
-          <p className="gds-ai__hint" data-testid="ai-support-unavailable">
-            Citation support needs the cited source indexed in Gaply. This
-            citation isn’t linked to an indexed document, so there are no
-            passages to check it against.
-          </p>
-        ) : (
+        <div className="gds-audit__actions">
+          {/* A support check reads the CITED DOCUMENT. With nothing indexed behind
+              this citation there is no evidence to read, so the check cannot
+              produce a result — and a button that is merely greyed out, with the
+              reason hidden in a tooltip, reads as a bug. Say it instead. */}
+          {documentId == null ? (
+            <p className="gds-ai__hint" data-testid="ai-support-unavailable">
+              Citation support needs the cited source indexed in Gaply. This
+              citation isn’t linked to an indexed document, so there are no
+              passages to check it against.
+            </p>
+          ) : (
+            <Button
+              variant="secondary"
+              onClick={runSupport}
+              disabled={phase === 'running' || !claim.trim()}
+              data-testid="ai-check-support"
+            >
+              Check citation support
+            </Button>
+          )}
           <Button
             variant="secondary"
-            onClick={runSupport}
+            onClick={runNeed}
             disabled={phase === 'running' || !claim.trim()}
-            data-testid="ai-check-support"
+            data-testid="ai-check-need"
           >
-            Check citation support
+            Check if citation is needed
           </Button>
-        )}
-        <Button
-          variant="secondary"
-          onClick={runNeed}
-          disabled={phase === 'running' || !claim.trim()}
-          data-testid="ai-check-need"
-        >
-          Check if citation is needed
-        </Button>
-        {phase === 'running' && (
-          <Button
-            variant="ghost"
-            onClick={requestCancel}
-            disabled={cancelRequested}
-            data-testid="ai-cancel"
-          >
-            {cancelRequested ? 'Stopping…' : 'Cancel'}
-          </Button>
-        )}
-      </div>
+          {phase === 'running' && (
+            <Button
+              variant="ghost"
+              onClick={requestCancel}
+              disabled={cancelRequested}
+              data-testid="ai-cancel"
+            >
+              {cancelRequested ? 'Stopping…' : 'Cancel'}
+            </Button>
+          )}
+          </div>
+        </>
+      )}
 
       {phase === 'running' && (
         <p className="gds-ai__hint" data-testid="ai-running">

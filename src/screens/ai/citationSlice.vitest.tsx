@@ -60,15 +60,52 @@ const panel = (props: Record<string, any> = {}) => (
 );
 
 describe('per-citation slice — the panel finds the claims itself', () => {
-  it('leads with import when no manuscript is loaded, manual box beneath', () => {
+  it('with no manuscript, leads with ONE action and says Gaply does the finding', () => {
     render(panel());
     expect(screen.getByTestId('slice-no-manuscript').textContent).toMatch(
-      /Import your manuscript to check the sentences that cite this source/,
+      /Gaply finds the sentences that cite this source by itself/,
     );
     expect(screen.getByTestId('slice-import')).toBeTruthy();
-    // The manual path is still there — demoted, not removed.
-    expect(screen.getByTestId('slice-manual-label').textContent).toBe('or check a single sentence');
+
+    // Exactly one primary action in this state. The manual box is the fallback
+    // and is CLOSED — leaving it open beside the automatic path is what made
+    // the two look like equals, and the first real run went into the wrong one.
+    expect(screen.queryByTestId('ai-claim')).toBeNull();
+    expect(screen.queryByTestId('ai-check-support')).toBeNull();
+    expect(screen.getByTestId('slice-manual-toggle').textContent).toMatch(
+      /check a single sentence i type/i,
+    );
+  });
+
+  it('the manual box opens and closes on the disclosure, and stays shut until asked', () => {
+    render(panel());
+    expect(screen.queryByTestId('ai-claim')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('slice-manual-toggle'));
     expect(screen.getByTestId('ai-claim')).toBeTruthy();
+    expect(screen.getByTestId('slice-manual-toggle').getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.click(screen.getByTestId('slice-manual-toggle'));
+    expect(screen.queryByTestId('ai-claim')).toBeNull();
+  });
+
+  it('with a manuscript, the citing sentences appear on SELECTION with no click', async () => {
+    // Finding them is a deterministic parse — no model, no job, no network. A
+    // button in front of it asked the user to request a fact the app could
+    // simply state, and made the automatic path look optional.
+    const citationAuditPreview = vi.fn(async () => preview());
+    const { unmount } = render(panel());
+    fireEvent.click(screen.getByTestId('slice-import'));
+    await waitFor(() => expect(screen.getByTestId('slice-count')).toBeTruthy());
+    unmount();
+
+    // Fresh panel, manuscript remembered: nothing is pressed.
+    render(panel({ citationId: 'lib-other', bridge: bridge({ citationAuditPreview }) }));
+    await waitFor(() => expect(screen.getByTestId('slice-confirm')).toBeTruthy());
+    expect(citationAuditPreview).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('slice-confirm').textContent).toMatch(/Check these 3 sentences/);
+    // The cost still gets said, just not inside the label.
+    expect(screen.getByTestId('slice-estimate').textContent).toMatch(/about/i);
   });
 
   it('finds three citing sentences and does NOT run a model until confirmed', async () => {
@@ -91,7 +128,7 @@ describe('per-citation slice — the panel finds the claims itself', () => {
     expect(citationAuditStart).not.toHaveBeenCalled();
 
     // The cost is stated before it is spent.
-    expect(screen.getByTestId('slice-confirm').textContent).toMatch(/Check all 3 — about/);
+    expect(screen.getByTestId('slice-confirm').textContent).toMatch(/Check these 3 sentences/);
   });
 
   it('queues the slice on confirm and renders each result through the D18 unit', async () => {
@@ -177,7 +214,11 @@ describe('per-citation slice — the panel finds the claims itself', () => {
     fireEvent.click(screen.getByTestId('slice-need-open'));
     expect(onOpenAudit).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('slice-need-link').textContent).toMatch(/whole manuscript/);
-    // The single-sentence mode survives as the fallback it now is.
+    // The single-sentence mode survives as the fallback it now is — behind a
+    // disclosure that is CLOSED until asked for, so it cannot be mistaken for
+    // the main path.
+    expect(screen.queryByTestId('ai-check-need')).toBeNull();
+    fireEvent.click(screen.getByTestId('slice-manual-toggle'));
     expect(screen.getByTestId('ai-check-need')).toBeTruthy();
   });
 
@@ -190,34 +231,36 @@ describe('per-citation slice — the panel finds the claims itself', () => {
     render(panel({ citationId: 'lib-other' }));
     expect(screen.queryByTestId('slice-no-manuscript')).toBeNull();
     expect(screen.getByTestId('slice-manuscript').textContent).toMatch(/chapter 1 \.pdf/);
-    expect(screen.getByTestId('slice-check')).toBeTruthy();
-  });
-
-  it('names the parse and the check differently, so the two cannot be confused', async () => {
-    // These are two different operations on one panel: `slice-check` runs a
-    // deterministic parse that spends no model time, and the claim box below
-    // runs an actual check. They used to carry the SAME label, and that
-    // collision is how a block of the cited paper ended up pasted into the
-    // claim box — with no manuscript loaded, the only button with that name on
-    // screen was the wrong one.
-    // Import, then remount: `slice-check` renders in the idle state, and the
-    // remembered manuscript is what brings it back (same shape as the test
-    // above).
-    const { unmount } = render(panel());
-    fireEvent.click(screen.getByTestId('slice-import'));
+    // No button to press: with a manuscript remembered, the citing sentences
+    // are found on selection.
     await waitFor(() => expect(screen.getByTestId('slice-count')).toBeTruthy());
-    unmount();
-    render(panel({ citationId: 'lib-other' }));
-
-    const parse = screen.getByTestId('slice-check').textContent ?? '';
-    expect(parse).toMatch(/find sentences citing this source/i);
-    // It must not promise a check it does not perform.
-    expect(parse).not.toMatch(/check citation support/i);
-
-    // And no two buttons in the panel may share a label.
-    const labels = Array.from(document.querySelectorAll('button'))
-      .map((b) => (b.textContent ?? '').trim().toLowerCase())
-      .filter(Boolean);
-    expect(new Set(labels).size).toBe(labels.length);
   });
+
+  it('no two buttons in the panel share a label, in any state', async () => {
+    // Two controls once both read "Check citation support" — the manuscript
+    // parse and the manual check — and with no manuscript loaded the only one
+    // on screen was the wrong one. That collision is how a block of the cited
+    // paper ended up pasted into the claim box.
+    const seen = async (openManual: boolean) => {
+      if (openManual) fireEvent.click(screen.getByTestId('slice-manual-toggle'));
+      const labels = Array.from(document.querySelectorAll('button'))
+        .map((b) => (b.textContent ?? '').trim().toLowerCase())
+        .filter(Boolean);
+      expect(new Set(labels).size, `duplicate label in: ${labels.join(' | ')}`).toBe(labels.length);
+    };
+
+    // no manuscript, manual closed / open
+    const first = render(panel());
+    await seen(false);
+    await seen(true);
+    first.unmount();
+
+    // manuscript loaded, sentences listed, manual closed / open
+    render(panel());
+    fireEvent.click(screen.getByTestId('slice-import'));
+    await waitFor(() => expect(screen.getByTestId('slice-confirm')).toBeTruthy());
+    await seen(false);
+    await seen(true);
+  });
+
 });
