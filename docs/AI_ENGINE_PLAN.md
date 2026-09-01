@@ -33,12 +33,29 @@ module and stays where it is; the AI engine must not call it or depend on it.
 
 **R4 — Nothing leaves the machine.**
 "No telemetry, usage statistics, document content, queries, embeddings, or error payloads are sent
-to any remote service by the AI layer. The pinned model download in ai_model_install is the sole
-permitted network operation."
-*Consequence:* R2 is narrowed, not weakened — `ai_model_install` is the single, explicitly
-user-invoked exception, it lives in the app crate, and it never runs at startup (see §9.4).
+to any remote service by the AI layer."
 
----
+There are **exactly three permitted network operations**, and this list is CLOSED — a fourth needs
+its own decision record and its own argument, not an appeal to these:
+
+| # | Operation | Outbound payload | Trigger |
+|---|---|---|---|
+| 1 | Embedding-model download (`ai_model_install`) | a pinned URL, sha256-verified | user presses Install |
+| 2 | Generative-model download (`gen_install`) | a pinned URL, sha256-verified | user presses Install |
+| 3 | **Open-access full-text fetch (`citation_fetch_oa`, D56)** | **a DOI**, to Unpaywall / OpenAlex, then a GET of the PDF URL those return | user presses "Fetch open-access PDF" |
+
+*Consequence:* R2 is narrowed, not weakened. All three live in the app crate, all three are
+explicitly user-invoked, and none of them runs at startup (see §9.4). Every one is pinned by a
+startup test that greps the modules owning the relevant lifecycle for network identifiers:
+`gen_startup_tests::startup_performs_no_generative_load_and_no_network` for 1 and 2, and
+`oa_fetch::tests::startup_performs_no_open_access_fetch_and_no_network` for 3.
+
+*The invariant that lets #3 exist:* **ID-only outbound.** A DOI is a public identifier for a
+published work, not a fact about the person holding it — no manuscript text, no claim under check,
+no title, no author and nothing about the user is in the request. Operation 3 would be forbidden the
+moment it needed to send anything else, which is why the resolvers are addressed by DOI and a
+citation without one makes no request at all
+(`oa_fetch::tests::a_citation_without_a_doi_makes_no_request_at_all`).
 
 **R3 — The SLM never generates citation strings, DOIs, years, or metadata values.**
 The generative model may only *select*, *classify*, *rank*, *summarise* and *point at* text that
@@ -2323,3 +2340,86 @@ Two states are reported separately because they are two facts: the command
 returns `checkable` from `checkable_document_for_citation` — asked of the store,
 not inferred — and the row refuses to say "done" when the link exists but the
 vectors do not.
+
+### D56 — fetching the open-access copy, and the third (and last) permitted network operation
+
+D45 gave a citation a link to an indexed document; the Document row's "Link
+document" gave a person a way to create one from a file they already had. Both
+assume the file exists on the machine. For a great many citations it does not,
+and the honest answer the panel could give was a dead end: *this source cannot
+be checked, go and find the PDF yourself.*
+
+For open-access work that is a solvable problem, and solving it is worth a rule
+change — so the rule is changed EXPLICITLY, in §1's R4, rather than quietly
+widened at a call site. R4 now enumerates three permitted network operations and
+declares the list closed.
+
+**What makes this one permissible is the shape of the request, not its
+usefulness.** The outbound payload is a DOI. Unpaywall and OpenAlex are both
+addressed as `…/{doi}`; there is no title search, no author, no manuscript text,
+no sentence under check and nothing about the user. A DOI identifies a published
+work — it is a fact about the literature, not about the person holding it. A
+citation with no DOI therefore makes **no request at all** rather than falling
+back to a title query, which would have leaked exactly the thing this invariant
+exists to protect. That is asserted, not asserted-to
+(`a_citation_without_a_doi_makes_no_request_at_all`,
+`outbound_urls_carry_the_doi_and_nothing_else_about_the_user`).
+
+The other two conditions are inherited from operations 1 and 2: it happens only
+on an explicit press, and it never happens at startup — pinned by
+`oa_fetch::tests::startup_performs_no_open_access_fetch_and_no_network`, which
+greps the startup modules for network identifiers exactly as
+`gen_startup_tests` does, and additionally greps THIS module for `spawn(`,
+`thread::`, `interval`, `sleep(` and `tokio::time` so the fetch cannot quietly
+grow a scheduler later.
+
+**Magic bytes decide what was downloaded, not the URL and not Content-Type.** A
+`.pdf` URL that answers with an HTML login interstitial is an ordinary shape on
+publisher sites, and indexing that page would put a paywall notice into evidence
+*for the paper*. A body that does not start with `%PDF-` is reported as
+`noOaCopy` and nothing is written.
+
+**The abstract fallback, and why it is capped rather than refused.** Some works
+have no free full text but do publish an abstract, and OpenAlex carries it (as
+an inverted index, which `abstract_from_inverted_index` rebuilds by position).
+Checking a claim against 250 words is genuinely better than refusing to check
+it — and it is also strictly less than reading the paper: a subgroup, a
+limitation, or a number in a table is not decidable from a summary. So the
+abstract is stored as a document *flagged* `abstract_only` (migration v18, a
+defaulted additive column — everything that existed before this feature is a
+full text, because nothing before it could produce anything else), and
+`ai_citation_support` reads that flag and **caps the verdict at `partial`**,
+returning `checkedAgainstLabel: "checked against abstract only"`.
+
+The cap is applied ON TOP of the model's answer, not by rewriting it. The
+validator ties `partial` to a non-null `suggested_rewrite`; editing `verdict` in
+place would produce an output object that fails the checks it had just passed.
+So the response carries both — `output.verdict` (what the model said about the
+evidence it saw) and `effectiveVerdict` + `verdictCapped` (what Gaply stands
+behind, given what that evidence WAS) — and the evidence card stores the
+effective one, because a stored `strong` that every surface renders as `partial`
+is a store that disagrees with its own UI.
+
+**The abstract arrives already defused.** It is third-party web text and prime
+injection bait, so it travels as `UntrustedText` and `gaply_core::oa_fetch`
+returns only its `llm_safe()` form — there is no accessor for the raw string, so
+no call site can be one refactor away from writing un-firewalled text into the
+document store. `an_injected_abstract_arrives_defused_and_flagged` pins it.
+
+**Link provenance:** `matched_by = 'doi'`. `link_by_doi` upgrades an existing
+`title` link (an identifier is better evidence for the same fact) and refuses to
+touch a `manual` one — a person who pointed Gaply at a file has asserted
+something an automatic agreement must not silently overwrite.
+
+**What is stored is a file, not a blob.** Both paths write into
+`<app data>/oa_papers/` — the PDF as `.pdf`, the abstract as `.txt` — because
+the viewer, "Open document", "Reveal in Finder" and `ai_document_source`'s
+`exists` all read a real path. A blob would have made every one of those
+surfaces lie. The filename is the DOI reduced to `[A-Za-z0-9]` and dashes, so a
+traversal-shaped DOI cannot write outside that directory
+(`a_doi_cannot_write_outside_the_oa_directory`).
+
+**Idempotence:** the document checksum is derived from the DOI, and a citation
+that already has a checkable linked document reports `alreadyLinked` without
+making any request — the cheapest privacy win available is the one that is never
+sent.

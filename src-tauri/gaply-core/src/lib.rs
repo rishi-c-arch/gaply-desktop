@@ -27,6 +27,7 @@ pub mod migrations;
 pub mod notes;
 pub mod orchestrator;
 pub mod perplexity;
+pub mod oa_fetch;
 pub mod plagiarism;
 pub mod plagiarism_exact;
 pub mod plagiarism_library;

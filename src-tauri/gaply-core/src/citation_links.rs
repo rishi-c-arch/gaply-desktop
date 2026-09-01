@@ -213,6 +213,29 @@ pub fn link_manually(
     Ok(())
 }
 
+/// Record a link established by DOI — an identifier match, not a heuristic.
+///
+/// Ranks below `manual` and above `title`, and the conflict clause says so: an
+/// existing DOI or title link is upgraded to `doi`, a MANUAL one is left alone.
+/// A person who pointed Gaply at a specific file has asserted something the
+/// identifier cannot overrule, and silently replacing that assertion is exactly
+/// the class of "helpful" overwrite this table exists to prevent.
+pub fn link_by_doi(
+    db: &Database,
+    citation_id: &str,
+    document_id: i64,
+) -> Result<(), GaplyError> {
+    let conn = db.conn()?;
+    conn.execute(
+        "INSERT INTO citation_documents (citation_id, document_id, matched_by, created_at)
+         VALUES (?1, ?2, 'doi', ?3)
+         ON CONFLICT (citation_id, document_id)
+           DO UPDATE SET matched_by = 'doi' WHERE matched_by <> 'manual'",
+        params![citation_id, document_id, now_epoch()],
+    )?;
+    Ok(())
+}
+
 /// Documents linked to a citation, most trustworthy match first.
 pub fn documents_for_citation(
     db: &Database,
@@ -416,6 +439,45 @@ mod tests {
 
     /// Re-running adds nothing, and never downgrades a human's decision.
     #[test]
+    #[test]
+    fn link_by_doi_records_doi_and_upgrades_a_title_link() {
+        let db = Database::in_memory().unwrap();
+        cite(&db, "c1", Some("10.1/a"), "A Paper");
+        let d = doc(&db, "A Paper", "/tmp/a.pdf", "ck-a");
+
+        // A pre-existing TITLE link is a heuristic; an identifier match is
+        // better evidence for the same fact, so it is allowed to replace it.
+        exec(
+            &db,
+            "INSERT INTO citation_documents (citation_id, document_id, matched_by, created_at)
+             VALUES ('c1', ?1, 'title', 1)",
+            &[&d],
+        );
+        link_by_doi(&db, "c1", d).unwrap();
+        assert_eq!(documents_for_citation(&db, "c1").unwrap(), vec![(d, MatchedBy::Doi)]);
+
+        // Idempotent: re-running changes nothing and adds no second row.
+        link_by_doi(&db, "c1", d).unwrap();
+        assert_eq!(documents_for_citation(&db, "c1").unwrap(), vec![(d, MatchedBy::Doi)]);
+    }
+
+    #[test]
+    fn link_by_doi_never_downgrades_a_manual_link() {
+        // The user pointed at this file themselves. A later automatic fetch
+        // that happens to agree must not rewrite the record of who decided.
+        let db = Database::in_memory().unwrap();
+        cite(&db, "c1", Some("10.1/a"), "A Paper");
+        let d = doc(&db, "A Paper", "/tmp/a.pdf", "ck-a");
+        link_manually(&db, "c1", d).unwrap();
+
+        link_by_doi(&db, "c1", d).unwrap();
+        assert_eq!(
+            documents_for_citation(&db, "c1").unwrap(),
+            vec![(d, MatchedBy::Manual)],
+            "a manual link was downgraded to doi"
+        );
+    }
+
     fn relinking_is_idempotent_and_never_overwrites_a_manual_link() {
         let db = Database::in_memory().unwrap();
         cite(&db, "c1", None, "Paired Fields");

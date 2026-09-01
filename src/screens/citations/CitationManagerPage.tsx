@@ -29,6 +29,8 @@ import { CitationEditor } from './CitationEditor';
 import { CitationAiPanel } from '../ai/CitationAiPanel';
 import { DocumentRow } from '../ai/DocumentRow';
 import { aiBridge } from '../ai/aiReady';
+import { describeOaOutcome, summariseOaBatch } from '../ai/oaOutcome';
+import { OaFetchReport } from '../ai/aiBridge';
 import {
   applyVerification,
   RefVerifyBridge,
@@ -169,6 +171,11 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   /** Bumped when a source is linked, to re-ask the AI panel what it can check. */
   const [relinked, setRelinked] = useState(0);
+  /** Progress line while a batch open-access fetch runs (null = not running). */
+  const [oaProgress, setOaProgress] = useState<string | null>(null);
+  /** Per-source results of the last batch fetch. Kept until the next one, so a
+   *  user can read the four that failed rather than a tally that hid them. */
+  const [oaReports, setOaReports] = useState<OaFetchReport[]>([]);
   // Which citation the metadata editor is open on (null = closed). D1.
   const [editingId, setEditingId] = useState<string | null>(null);
   // Which indexed document backs the SELECTED citation (§11 D45). null means
@@ -736,6 +743,52 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   };
 
   /* ----------------------------- bulk actions --------------------------- */
+  /**
+   * Fetch open-access full text for every citation that has a DOI and no
+   * linked source yet (§11 D56).
+   *
+   * Scoped to those two conditions on purpose: a citation with no DOI cannot be
+   * looked up at all, and one that already has a source needs nothing. Asking
+   * about either would be a request that could not help.
+   */
+  const fetchAvailablePdfs = async () => {
+    if (!mayUseCloud('citation_verification')) {
+      toast('Citation verification is turned off in Settings → Sync & Privacy', 'assessed');
+      return;
+    }
+    const eligible = citations.filter((c) => !!c.doi);
+    if (eligible.length === 0) {
+      toast('No citations with a DOI — there is nothing to look up.', 'assessed');
+      return;
+    }
+    setBusy(true);
+    setOaReports([]);
+    setOaProgress(`Looking up ${eligible.length} source${eligible.length === 1 ? '' : 's'}…`);
+    try {
+      const reports = await aiBridge.fetchOpenAccess(
+        eligible.map((c) => c.id),
+        (ev) => {
+          if (ev.kind === 'fetching') {
+            // Names the paper, not just a count: a batch that says "3 of 12"
+            // cannot tell you which one is taking the time.
+            setOaProgress(
+              `Looking up ${ev.index + 1} of ${ev.total}: ${ev.title ?? 'untitled source'}…`,
+            );
+          }
+        },
+      );
+      setOaReports(reports);
+      toast(summariseOaBatch(reports), 'assessed');
+      // Anything newly linked changes what the AI panel can check.
+      if (reports.some((r) => r.checkable)) setRelinked((n) => n + 1);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'The open-access fetch failed.', 'flagged');
+    } finally {
+      setOaProgress(null);
+      setBusy(false);
+    }
+  };
+
   const checkAllRetractions = async () => {
     if (!mayUseCloud('citation_verification')) {
       toast('Citation verification is turned off in Settings → Sync & Privacy', 'assessed');
@@ -1002,8 +1055,44 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                   <span className="material-symbols-outlined text-base" aria-hidden="true">health_and_safety</span>
                   Check all for retractions
                 </button>
+                <button
+                  type="button"
+                  onClick={fetchAvailablePdfs}
+                  disabled={busy}
+                  data-testid="fetch-oa-batch"
+                  className="px-3 py-1.5 rounded bg-secondary-container/30 hover:bg-secondary-container/60 dark:bg-surface-variant dark:hover:bg-surface-container-highest text-on-surface transition-colors flex items-center gap-1.5 font-medium border border-outline-variant/20 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-base" aria-hidden="true">download</span>
+                  {`Fetch available PDFs for these ${citations.filter((c) => !!c.doi).length} sources`}
+                </button>
               </div>
             </div>
+
+            {oaProgress && (
+              <p className="text-sm text-on-surface-variant" data-testid="oa-progress">
+                {oaProgress}
+              </p>
+            )}
+            {oaReports.length > 0 && (
+              <div
+                className="bg-surface-container-lowest rounded-xl p-4 border border-outline-variant/20 flex flex-col gap-2"
+                data-testid="oa-report"
+              >
+                <p className="text-sm font-medium text-on-surface">{summariseOaBatch(oaReports)}</p>
+                {/* EVERY source, not just the failures and not just a count:
+                    "8 of 12 succeeded" is the sentence that hides the four the
+                    user has to do something about. */}
+                <ul className="flex flex-col gap-1">
+                  {oaReports.map((r) => (
+                    <li key={r.citationId} className="text-sm text-on-surface-variant">
+                      <span className="font-medium text-on-surface">{r.title ?? r.citationId}</span>
+                      {' — '}
+                      {describeOaOutcome(r)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Search & Add Panel */}
             <div className="bg-surface-container-lowest rounded-xl p-4 shadow-sm border border-outline-variant/20 flex flex-col gap-4">
@@ -1587,6 +1676,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                   key={`doc-${selected.id}`}
                   citationId={selected.id}
                   citedSource={selected.csl.title || selected.doi || undefined}
+                  doi={selected.doi}
                   // Linking a source changes the answer to "can this citation
                   // be checked?", so the AI panel is remounted to re-ask it.
                   // Its manuscript survives (session-scoped), so this reads as

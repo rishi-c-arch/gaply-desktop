@@ -570,7 +570,32 @@ pub struct RetractionCheck {
 pub struct OpenAccess {
     pub is_oa: bool,
     pub best_url: Option<String>,
+    /// The PDF specifically, when the source names one.
+    ///
+    /// Separate from `best_url` because that field falls back to the landing
+    /// page, and a landing page is HTML: downloading it would store a
+    /// publisher's marketing shell as if it were the paper. A fetcher needs to
+    /// know which of the two it is holding, so the two are not collapsed.
+    pub pdf_url: Option<String>,
     pub license: Option<String>,
+    pub provenance: Provenance,
+}
+
+/// An open-access LOCATION plus the abstract, as OpenAlex reports them.
+///
+/// Distinct from [`ExistenceCheck`] (same endpoint, different question): that
+/// asks "does this work exist and is it retracted", this asks "is there a copy
+/// I may fetch, and if not, is there at least an abstract". Both read the same
+/// cached body, so asking the second costs no extra request.
+#[derive(Debug, serde::Serialize)]
+pub struct OaLocation {
+    pub is_oa: bool,
+    pub pdf_url: Option<String>,
+    pub landing_url: Option<String>,
+    pub license: Option<String>,
+    /// Reconstructed from `abstract_inverted_index`. Web text from a third
+    /// party, so it is `UntrustedText` like every other fetched string here.
+    pub abstract_text: Option<UntrustedText>,
     pub provenance: Provenance,
 }
 
@@ -725,6 +750,102 @@ pub fn openalex_lookup(
     }
 }
 
+/// Reconstruct an abstract from OpenAlex's `abstract_inverted_index`.
+///
+/// OpenAlex ships abstracts as `{word: [positions]}` rather than prose (a
+/// copyright accommodation). Rebuilding it is pure index arithmetic: place each
+/// word at each of its positions, then join in order. A gap in the positions —
+/// which happens when the source record is partial — is left as a gap rather
+/// than closed up, because silently splicing two halves of a sentence together
+/// invents an assertion the source never made.
+///
+/// Returns `None` for an absent or empty index, never an empty string, so a
+/// caller can tell "no abstract" from "an abstract that says nothing".
+pub fn abstract_from_inverted_index(index: &serde_json::Value) -> Option<String> {
+    let map = index.as_object()?;
+    let mut slots: Vec<(usize, &str)> = Vec::new();
+    for (word, positions) in map {
+        for p in positions.as_array()? {
+            if let Some(i) = p.as_u64() {
+                slots.push((i as usize, word.as_str()));
+            }
+        }
+    }
+    if slots.is_empty() {
+        return None;
+    }
+    slots.sort_by_key(|(i, _)| *i);
+    // Cap: an inverted index is attacker-influenced in the same way any fetched
+    // field is, and a pathological one should not become an unbounded string.
+    const MAX_WORDS: usize = 4000;
+    let text = slots
+        .iter()
+        .take(MAX_WORDS)
+        .map(|(_, w)| *w)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// OpenAlex — where a free copy lives, and the abstract if there is no copy.
+///
+/// Hits the SAME work URL as [`openalex_lookup`] and caches under the SAME key,
+/// so calling both costs one request: the second read is a cache hit by
+/// construction rather than by luck.
+pub fn openalex_oa_location(
+    ctx: &VerifyContext,
+    reference: &Reference,
+    now: i64,
+) -> Result<ConnectorOutcome<OaLocation>, GaplyError> {
+    let Some(doi) = normalized_doi(reference) else {
+        return Ok(ConnectorOutcome::NotFound);
+    };
+    let cache_key = format!("refverify:openalex:doi:{doi}");
+    let url = format!("https://api.openalex.org/works/doi:{}", pct(&doi));
+    let req = HttpRequest::get(url);
+
+    match cached_fetch(ctx, "openalex", &cache_key, TTL_OA, req, now)? {
+        Fetched::RateLimited { retry_after_secs } => Ok(ConnectorOutcome::RateLimited { retry_after_secs }),
+        Fetched::HttpStatus { status: 404 } => Ok(ConnectorOutcome::NotFound),
+        Fetched::HttpStatus { status } => Ok(ConnectorOutcome::Unavailable { detail: format!("openalex http {status}") }),
+        Fetched::Body { body, provenance } => {
+            let v = json(&body, "openalex")?;
+            let work = if v.get("results").is_some() { &v["results"][0] } else { &v };
+            if work.is_null() || work["id"].is_null() {
+                return Ok(ConnectorOutcome::NotFound);
+            }
+            let best = &work["best_oa_location"];
+            let is_oa = work["open_access"]["is_oa"].as_bool().unwrap_or(false);
+            // OpenAlex names the PDF `pdf_url` on the location object; fall back
+            // across `locations[]` for the same reason Unpaywall does.
+            let pdf_url = best["pdf_url"].as_str().map(|s| s.to_string()).or_else(|| {
+                work["locations"]
+                    .as_array()?
+                    .iter()
+                    .find_map(|l| l["pdf_url"].as_str())
+                    .map(|s| s.to_string())
+            });
+            let landing_url = best["landing_page_url"].as_str().map(|s| s.to_string());
+            let license = best["license"].as_str().map(|s| s.to_string());
+            let abstract_text = abstract_from_inverted_index(&work["abstract_inverted_index"])
+                .map(|a| UntrustedText::new(a, provenance.clone()));
+            Ok(ConnectorOutcome::Found(OaLocation {
+                is_oa,
+                pdf_url,
+                landing_url,
+                license,
+                abstract_text,
+                provenance,
+            }))
+        }
+    }
+}
+
 /// Retraction Watch — retraction status for a DOI. Accepts the CrossRef-Labs
 /// shape (`message.update-to[].type == "retraction"`) and a simple
 /// `{retracted, reasons, notice_url}` shape. Requires a DOI.
@@ -809,9 +930,21 @@ pub fn unpaywall_open_access(
             let v = json(&body, "unpaywall")?;
             let is_oa = v["is_oa"].as_bool().unwrap_or(false);
             let best = &v["best_oa_location"];
-            let best_url = best["url_for_pdf"].as_str().or_else(|| best["url"].as_str()).map(|s| s.to_string());
+            let pdf_url = best["url_for_pdf"].as_str().map(|s| s.to_string());
+            let best_url = pdf_url.clone().or_else(|| best["url"].as_str().map(|s| s.to_string()));
             let license = best["license"].as_str().map(|s| s.to_string());
-            Ok(ConnectorOutcome::Found(OpenAccess { is_oa, best_url, license, provenance }))
+            // `url_for_pdf` is null for a great many OA records whose only
+            // location is a landing page. Falling back to ANY location in the
+            // `oa_locations` array recovers the ones that do name a PDF, which
+            // is the difference between "no OA copy" and a fetchable paper.
+            let pdf_url = pdf_url.or_else(|| {
+                v["oa_locations"]
+                    .as_array()?
+                    .iter()
+                    .find_map(|l| l["url_for_pdf"].as_str())
+                    .map(|s| s.to_string())
+            });
+            Ok(ConnectorOutcome::Found(OpenAccess { is_oa, best_url, pdf_url, license, provenance }))
         }
     }
 }

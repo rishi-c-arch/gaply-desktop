@@ -16,7 +16,7 @@
 //! reliable page boundaries. Nothing in this module derives a page from position
 //! in the text.
 
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -243,6 +243,54 @@ pub fn create_document(
         params![checksum],
         |r| r.get(0),
     )?)
+}
+
+/// Create a document that holds an ABSTRACT rather than a full text.
+///
+/// Same row shape as [`create_document`] plus the v18 flag, and it is a
+/// separate function on purpose: the flag is the only thing standing between a
+/// 250-word summary and a verdict presented as if the paper had been read, so
+/// setting it must be a decision at the call site rather than an argument
+/// someone can forget to pass.
+pub fn create_abstract_document(
+    db: &Database,
+    title: &str,
+    source_url: &str,
+    checksum: &str,
+) -> Result<i64, GaplyError> {
+    let conn = db.conn()?;
+    conn.execute(
+        "INSERT INTO documents
+             (source_type, title, source_url, fetched_at, checksum, status, created_at, abstract_only)
+         VALUES ('paper', ?1, ?2, ?3, ?4, 'ingested', ?3, 1)
+         ON CONFLICT (checksum) DO UPDATE SET abstract_only = 1",
+        params![title, source_url, now_epoch(), checksum],
+    )?;
+    Ok(conn.query_row(
+        "SELECT id FROM documents WHERE checksum = ?1",
+        params![checksum],
+        |r| r.get(0),
+    )?)
+}
+
+/// Whether this document is an abstract rather than the paper (v18).
+///
+/// A missing document answers `false` rather than erroring: the caller asking
+/// this question is deciding how much to trust a verdict, and the safe reading
+/// of "I cannot find that row" is not "assume it was a full text" — but the row
+/// is always present in every path that calls this (the verdict is about a
+/// document that was just retrieved from), so a `false` here means exactly what
+/// it says.
+pub fn is_abstract_only(db: &Database, document_id: i64) -> Result<bool, GaplyError> {
+    let conn = db.conn()?;
+    let flag: Option<i64> = conn
+        .query_row(
+            "SELECT abstract_only FROM documents WHERE id = ?1",
+            params![document_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(flag.unwrap_or(0) != 0)
 }
 
 /// The recorded source of a document — its `source_url`, which for a locally

@@ -1402,12 +1402,45 @@ pub async fn ai_citation_support(
     };
     let _ = on_event.send(AiSupportEvent::Validating);
 
+    // Is this document the PAPER, or an abstract of it (v18)? Asked of the
+    // store rather than inferred from the text, because a 250-word document and
+    // a 250-word paper are indistinguishable by content and only the fetch that
+    // wrote the row knows which it produced.
+    let abstract_only = {
+        let db = db.clone();
+        tokio::task::spawn_blocking(move || {
+            gaply_core::ai_engine::store::is_abstract_only(&db, document_id)
+        })
+        .await
+        .map_err(|e| GaplyError::Internal(format!("abstract-only lookup panicked: {e}")))??
+    };
+    // THE CAP. An abstract can support a claim, but it cannot establish one:
+    // the subgroup, the limitation and the number in the table are all outside
+    // it, and `strong` asserts a completeness the evidence never had.
+    //
+    // Applied ON TOP of the model's answer rather than by rewriting it. The
+    // validator's own invariants tie `partial` to a non-null `suggested_rewrite`
+    // (§11 D32's family of rules), so editing `verdict` in place would produce
+    // an output object that fails the very checks it just passed. What is
+    // recorded instead is both facts: what the model said about the evidence it
+    // saw, and what Gaply is prepared to stand behind given what that evidence
+    // WAS.
+    let capped_verdict = if abstract_only && run.output.verdict == Verdict::Strong {
+        Some(Verdict::Partial)
+    } else {
+        None
+    };
+    let effective_verdict = capped_verdict.unwrap_or(run.output.verdict);
+
     // Persist. The validator has already proved every chunk_id was sent and
     // every page matches the store, so the join rows below cannot point at
     // anything the model invented.
     let advisories: Vec<String> = run.advisories.iter().map(|a| a.to_string()).collect();
     let provenance = serde_json::json!({
         "advisories": advisories,
+        "abstractOnly": abstract_only,
+        "rawVerdict": run.output.verdict,
+        "verdictCapped": capped_verdict.is_some(),
         "chunksSent": bundle.chunks_sent,
         "chunksDropped": bundle.chunks_dropped,
         "evidenceWords": bundle.words_estimated,
@@ -1441,7 +1474,11 @@ pub async fn ai_citation_support(
         },
         // Serialize the enum rather than hand-writing the five strings twice —
         // a second mapping is a second thing to drift from the spec.
-        verdict: serde_json::to_value(run.output.verdict)
+        //
+        // The EFFECTIVE verdict, not the raw one: the card is what the app
+        // stands behind, and a stored `strong` that every surface renders as
+        // `partial` is a store that disagrees with its own UI.
+        verdict: serde_json::to_value(effective_verdict)
             .ok()
             .and_then(|v| v.as_str().map(str::to_string)),
         confidence: Some(run.output.confidence),
@@ -1459,6 +1496,19 @@ pub async fn ai_citation_support(
         "cardId": card_id,
         "persisted": true,
         "output": run.output,
+        // WHAT THE SOURCE WAS. A check run against an abstract is a real check
+        // and a useful one, but the reader has to be told which it was — an
+        // unlabelled verdict invites them to believe the paper was read.
+        "abstractOnly": abstract_only,
+        "checkedAgainstLabel": if abstract_only {
+            Some("checked against abstract only")
+        } else {
+            None
+        },
+        // The verdict the app stands behind, and — when they differ — the one
+        // the model gave, so the cap is visible rather than silent.
+        "effectiveVerdict": effective_verdict,
+        "verdictCapped": capped_verdict.is_some(),
         "advisories": advisories,
         "retried": run.retried,
         "promptVersion": run.prompt_version,
@@ -1785,6 +1835,113 @@ pub async fn ai_link_source_document(
     })
     .await
     .map_err(|e| GaplyError::Internal(format!("link source task panicked: {e}")))?
+}
+
+/// Progress through a batch of open-access fetches.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum OaFetchEvent {
+    /// How many sources the batch will attempt, before anything is requested.
+    Started { total: usize },
+    /// About to look one source up. Named so a person watching a batch of
+    /// twelve can see WHICH paper is being asked about, not just a count.
+    Fetching { index: usize, total: usize, title: Option<String> },
+    /// One source finished, with its own outcome.
+    Done { index: usize, total: usize, report: crate::oa_fetch::FetchReport },
+}
+
+/// Fetch open-access full text for one or more citations.
+///
+/// # The third permitted network operation (plan §1, R4)
+///
+/// Outbound: a DOI, to Unpaywall and OpenAlex. Nothing else — not the
+/// manuscript, not the claim being checked, not the title, not the user. It
+/// runs only from this command, and this command runs only when a person
+/// presses a button that says what it will do. There is no scheduler and no
+/// prefetch; `oa_fetch`'s own startup test asserts as much.
+///
+/// # One command for both surfaces
+///
+/// "Fetch open-access PDF" for one source and "Fetch available PDFs for these N
+/// sources" are the same operation over a list of one or a list of N. A second
+/// command would be a second place for the outcome vocabulary to drift, and the
+/// outcomes are the whole point: a batch reports twelve answers, not a count.
+#[tauri::command]
+#[tracing::instrument(skip(state, on_event))]
+pub async fn citation_fetch_oa(
+    state: State<'_, AppState>,
+    citation_ids: Vec<String>,
+    on_event: tauri::ipc::Channel<OaFetchEvent>,
+) -> Result<Vec<crate::oa_fetch::FetchReport>, GaplyError> {
+    use crate::oa_fetch::{fetch_one, FetchDeps, FetchTarget};
+
+    if citation_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let db = state.db.clone();
+    let slot = state.ai_embed.clone();
+    let app_data_dir = state.app_data_dir.clone();
+
+    tokio::task::spawn_blocking(move || {
+        // Read each citation's identity from the library FIRST: the fetch takes
+        // a DOI, and a DOI it was handed by the caller is a DOI nobody checked
+        // against the user's own library.
+        let targets: Vec<FetchTarget> = citation_ids
+            .iter()
+            .map(|id| {
+                let stored = gaply_core::citation_library::get(&db, id)?;
+                Ok(FetchTarget {
+                    citation_id: id.clone(),
+                    doi: stored.as_ref().and_then(|r| r.doi.clone()),
+                    title: stored
+                        .as_ref()
+                        .map(|r| r.title.clone())
+                        .filter(|t| !t.trim().is_empty()),
+                })
+            })
+            .collect::<Result<Vec<_>, GaplyError>>()?;
+
+        let http = crate::http_fetcher::ReqwestFetcher::new()?;
+        let bytes = crate::paper_corpus::ReqwestPaperFetcher::new()?;
+        let limiters = gaply_core::refverify::ApiRateLimiters::with_polite_defaults();
+        let deps = FetchDeps {
+            db: &db,
+            http: &http,
+            bytes: &bytes,
+            limiters: &limiters,
+            // No contact email is configured in the product today, so Unpaywall
+            // is skipped rather than sent a request it is certain to refuse.
+            // OpenAlex answers the same question without one.
+            contact_email: None,
+            app_data_dir: &app_data_dir,
+        };
+        let embed = |texts: &[String]| slot.with(|e| e.embed_documents(texts));
+
+        let total = targets.len();
+        let _ = on_event.send(OaFetchEvent::Started { total });
+        let now = gaply_core::now_epoch();
+        let mut reports = Vec::with_capacity(total);
+        for (i, t) in targets.iter().enumerate() {
+            let _ = on_event.send(OaFetchEvent::Fetching {
+                index: i,
+                total,
+                title: t.title.clone(),
+            });
+            // Never `?`: one publisher's 403 must not end a batch of twelve.
+            // Every failure mode is already an OUTCOME.
+            let report = fetch_one(&deps, t, now, &embed);
+            let _ = on_event.send(OaFetchEvent::Done {
+                index: i,
+                total,
+                report: report.clone(),
+            });
+            reports.push(report);
+        }
+        Ok(reports)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("open-access fetch task panicked: {e}")))?
 }
 
 #[tauri::command]

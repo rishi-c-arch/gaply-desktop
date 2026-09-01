@@ -144,6 +144,38 @@ export type LinkSourceEvent =
   | { kind: 'embedding'; done: number; total: number }
   | { kind: 'linked'; documentId: number };
 
+/** How one open-access fetch ended. Mirrors `oa_fetch::FetchOutcome`. */
+export type OaOutcome =
+  | 'fetched'
+  | 'abstractOnly'
+  | 'paywalled'
+  | 'noOaCopy'
+  | 'rateLimited'
+  | 'failed'
+  | 'alreadyLinked';
+
+/** One source's result. `outcome` is the tag; the rest varies by arm. */
+export interface OaFetchReport {
+  citationId: string;
+  title: string | null;
+  outcome: OaOutcome;
+  documentId?: number;
+  chunksIndexed?: number;
+  chunksEmbedded?: number;
+  checkable?: boolean;
+  source?: string;
+  license?: string | null;
+  injectionFlagged?: boolean;
+  detail?: string;
+  retryAfterSecs?: number;
+}
+
+/** Stages a batch fetch streams. */
+export type OaFetchEvent =
+  | { kind: 'started'; total: number }
+  | { kind: 'fetching'; index: number; total: number; title: string | null }
+  | { kind: 'done'; index: number; total: number; report: OaFetchReport };
+
 export interface LinkSourceResult {
   documentId: number;
   title: string;
@@ -270,6 +302,25 @@ class AiBridge {
     return this.channelInvoke<LinkSourceResult, LinkSourceEvent>(
       'ai_link_source_document',
       { citationId, path, title },
+      onEvent,
+    );
+  }
+
+  /**
+   * Fetch the open-access full text for one or more citations (§11 D56).
+   *
+   * ONE method for both surfaces: the single-source action passes a list of
+   * one. A second entry point would be a second place for the outcome
+   * vocabulary to drift, and the outcomes are the whole point — a batch of
+   * twelve answers twelve times, never with a count.
+   */
+  async fetchOpenAccess(
+    citationIds: string[],
+    onEvent?: (ev: OaFetchEvent) => void,
+  ): Promise<OaFetchReport[]> {
+    return this.channelInvoke<OaFetchReport[], OaFetchEvent>(
+      'citation_fetch_oa',
+      { citationIds },
       onEvent,
     );
   }

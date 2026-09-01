@@ -12,8 +12,10 @@
 import './ai.css';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Card } from '../../design-system/primitives';
-import { aiBridge, errorText, LinkSourceEvent } from './aiBridge';
+import { aiBridge, errorText, LinkSourceEvent, OaFetchReport } from './aiBridge';
+import { describeOaOutcome, isFetchSuccess } from './oaOutcome';
 import { pickManuscriptPath } from '../common/pickFile';
+import { mayUseCloud } from '../settings/settingsStore';
 
 const PdfViewer = React.lazy(() => import('./PdfViewer'));
 
@@ -34,7 +36,13 @@ export interface DocumentRowProps {
   citationId: string;
   /** Window title for the viewer; falls back to the file name. */
   citedSource?: string;
-  bridge?: Pick<typeof aiBridge, 'citationDocument' | 'documentSource' | 'linkSourceDocument'>;
+  bridge?: Pick<
+    typeof aiBridge,
+    'citationDocument' | 'documentSource' | 'linkSourceDocument' | 'fetchOpenAccess'
+  >;
+  /** The citation's DOI. Without one there is nothing to look up, and the
+   *  open-access action is not offered rather than offered and refused. */
+  doi?: string | null;
   /** Test seam for the native file dialog. */
   pickSource?: () => Promise<string | null>;
   /** Called once a source becomes checkable, so the panel can offer a re-check. */
@@ -56,6 +64,7 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
   citationId,
   citedSource,
   bridge = aiBridge,
+  doi,
   loadBytes,
   reveal = revealInFinder,
   pickSource = () => pickManuscriptPath(['pdf', 'docx', 'txt', 'md'], 'Source document'),
@@ -68,6 +77,9 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
   const [linking, setLinking] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [justLinked, setJustLinked] = useState<number | null>(null);
+  /** Non-null while an open-access fetch is running. */
+  const [fetching, setFetching] = useState(false);
+  const [fetchNote, setFetchNote] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -145,6 +157,45 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
     }
   }, [bridge, citationId, citedSource, pickSource, onLinked]);
 
+  const fetchOpenAccess = useCallback(async () => {
+    setFetchNote(null);
+    setLinkError(null);
+    // The SAME consent gate the batch action reads. An outbound lookup is an
+    // outbound lookup: a user who turned this off in Settings did not turn it
+    // off only for the toolbar button.
+    if (!mayUseCloud('citation_verification')) {
+      setFetchNote(
+        'Citation verification is turned off in Settings → Sync & Privacy, so nothing was looked up.',
+      );
+      return;
+    }
+    setFetching(true);
+    try {
+      const [report] = await bridge.fetchOpenAccess([citationId]);
+      if (!report) {
+        setFetchNote('The fetch returned no result.');
+        return;
+      }
+      // The sentence comes from the shared vocabulary, so this row and the
+      // batch report never describe the same outcome two different ways.
+      setFetchNote(describeOaOutcome(report));
+      if (isFetchSuccess(report) && report.documentId != null) {
+        const src = await bridge.documentSource(report.documentId);
+        setState({
+          kind: 'linked',
+          documentId: report.documentId,
+          path: src.path,
+          exists: src.exists,
+        });
+        if (report.checkable) onLinked?.(report.documentId);
+      }
+    } catch (e) {
+      setFetchNote(errorText(e));
+    } finally {
+      setFetching(false);
+    }
+  }, [bridge, citationId, onLinked]);
+
   return (
     <Card title="Document" data-testid="citation-document-row">
       {state.kind === 'loading' && (
@@ -165,15 +216,40 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
             No document linked. Citation support and the source viewer both read
             the cited document, so neither can run until one is.
           </p>
-          <Button
-            variant="primary"
-            onClick={linkSource}
-            disabled={linking !== null}
-            data-testid="document-link"
-          >
-            {linking ? 'Linking…' : 'Link document'}
-          </Button>
+          <div className="gds-audit__actions">
+            <Button
+              variant="primary"
+              onClick={linkSource}
+              disabled={linking !== null || fetching}
+              data-testid="document-link"
+            >
+              {linking ? 'Linking…' : 'Link document'}
+            </Button>
+            {/* Offered only with a DOI: the lookup is BY DOI, and a button that
+                can only fail is worse than one that is not there. */}
+            {doi && (
+              <Button
+                variant="secondary"
+                onClick={fetchOpenAccess}
+                disabled={fetching || linking !== null}
+                data-testid="document-fetch-oa"
+              >
+                {fetching ? 'Looking for a free copy…' : 'Fetch open-access PDF'}
+              </Button>
+            )}
+          </div>
+          {doi && (
+            <p className="gds-ai__hint" data-testid="document-fetch-oa-note">
+              Sends this source's DOI to Unpaywall and OpenAlex — nothing else leaves your machine.
+            </p>
+          )}
         </>
+      )}
+
+      {fetchNote && (
+        <p className="gds-ai__hint" data-testid="document-fetch-result">
+          {fetchNote}
+        </p>
       )}
 
       {linking && (
