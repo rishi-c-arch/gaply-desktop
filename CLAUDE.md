@@ -85,6 +85,28 @@ time injection.
   targets and `gaply_core` only as a lib dependency, so a broken or failing
   `gaply_core` test passes. That gap hid `release_gate.rs`'s non-compilation for
   four PRs.
+- **Before a merge, verify the COMMITTED tree — not your working tree:**
+  `scripts/verify-clean-checkout.sh` (defaults to HEAD; takes a ref).
+
+  It checks out the ref into a throwaway detached worktree and builds/tests
+  `gaply_core` there. **Every local `cargo test --workspace` compiles your
+  working tree, uncommitted files included, so it cannot see a file you forgot
+  to `git add`.** That is not hypothetical: `main` did not compile for weeks
+  while every run was green, because two things committed code referenced lived
+  only in the tree — `gaply-core/src/scientific_model.rs` (declared by df4eef3,
+  never added) and `sentences_in` in `extract/sentence.rs` (called by
+  `audit_prepass.rs` and `chunk.rs`). A fresh clone failed with
+  `error[E0583]: file not found for module scientific_model`.
+
+  The script prints any uncommitted `.rs` files up front, since one of them is
+  usually the answer when it fails. It skips the app crate when
+  `src-tauri/bundled-models/*.gguf` is absent — that resource is gitignored by
+  design (~400 MB) — and says so rather than failing ambiguously; `gaply_core`
+  is the crate that must build from source alone and is always checked.
+
+  **Do not rely on the Windows workflow for this.** It is
+  `workflow_dispatch:` — manual dispatch only, no push or PR trigger — so it
+  effectively never runs, which is the other half of why this hid for weeks.
 - **`tauri dev` WITHOUT `--release` is a trap for anything touching a model.**
   Always `npm run tauri dev -- --release` when the path under test loads BGE,
   candle, or the generative judge. Candle's CPU kernels are unoptimised in a
