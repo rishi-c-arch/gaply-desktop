@@ -16,7 +16,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use super::audit_prepass::{prepass, resolve_marker, PrepassReport, Resolution};
+use super::audit_prepass::{prepass, PrepassReport, Resolution};
 use super::jobs::{self, ItemKind, NewItem};
 use crate::db::Database;
 use crate::GaplyError;
@@ -143,10 +143,11 @@ fn resolve_for_citation(
     db: &Database,
     markers: &[super::audit_prepass::Marker],
     library_id: &str,
+    bibliography: &std::collections::BTreeMap<u32, super::audit_prepass::BibEntry>,
 ) -> Result<Option<(Resolution, String)>, GaplyError> {
     let mut fallback: Option<(Resolution, String)> = None;
     for m in markers {
-        match resolve_marker(db, m)? {
+        match super::audit_prepass::resolve_marker_with(db, m, bibliography)? {
             // A checkable hit on the right work ends the search immediately.
             r @ Resolution::Checkable { .. } => {
                 if matches!(&r, Resolution::Checkable { library_id: id, .. } if id == library_id) {
@@ -186,7 +187,7 @@ pub fn preview_citation_audit(
         if planned.markers.is_empty() {
             continue;
         }
-        let Some((resolution, marker)) = resolve_for_citation(db, &planned.markers, library_id)?
+        let Some((resolution, marker)) = resolve_for_citation(db, &planned.markers, library_id, &report.bibliography)?
         else {
             continue;
         };
@@ -243,7 +244,7 @@ fn plan_audit(
                 continue;
             }
             let Some((resolution, marker)) =
-                resolve_for_citation(db, &planned.markers, library_id)?
+                resolve_for_citation(db, &planned.markers, library_id, &report.bibliography)?
             else {
                 continue;
             };
@@ -303,7 +304,7 @@ fn plan_audit(
             library_id: None,
         };
         for m in &planned.markers {
-            let r = resolve_marker(db, m)?;
+            let r = super::audit_prepass::resolve_marker_with(db, m, &report.bibliography)?;
             let checkable = matches!(r, Resolution::Checkable { .. });
             resolution = r;
             if checkable {

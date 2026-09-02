@@ -26,6 +26,7 @@
 //! and not is measured in hours, not tidiness.
 
 use regex::Regex;
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use super::jobs::ItemKind;
@@ -77,6 +78,133 @@ pub struct PrepassReport {
     pub skipped: usize,
     pub markers_found: usize,
     pub planned: Vec<PlannedSentence>,
+    /// The paper's own numbered reference list, `[n]` → entry. Empty when the
+    /// paper uses author-year, or when no references heading was found.
+    pub bibliography: BTreeMap<u32, BibEntry>,
+}
+
+/// One entry from the paper's own numbered reference list.
+///
+/// Deliberately not a full CSL parse: what the resolver needs is a DOI if there
+/// is one, a title-ish string, and a lead author with a year. Reference formats
+/// vary by publisher and a strict grammar would fail on most of them, so this
+/// takes the parts that are recognisable and leaves the rest as `raw`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BibEntry {
+    pub number: u32,
+    pub raw: String,
+    pub doi: Option<String>,
+    pub lead_author: Option<String>,
+    pub year: Option<i32>,
+}
+
+fn bib_start_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    // "[12] Author…" or "12. Author…" at the start of a line.
+    RE.get_or_init(|| Regex::new(r"^\s*(?:\[(\d{1,3})\]|(\d{1,3})\.)\s+(\S.*)$").expect("bib regex"))
+}
+
+fn doi_in_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+").expect("doi regex"))
+}
+
+/// Parse the numbered reference list out of the text that FOLLOWS the
+/// references heading.
+///
+/// # Why this exists
+///
+/// A numeric citation is an index into a list, and without the list `[5]` names
+/// nothing. `resolve_marker` said exactly that — "numeric citation style: no
+/// numbered bibliography was parsed" — and on the first real audited paper that
+/// answer accounted for 15 of 17 unverifiable items. Every one of those
+/// sentences genuinely cites a real work; the audit simply had no way to say
+/// WHICH. The list is right there in the manuscript, a few lines below the
+/// prose the pre-pass already stops at.
+pub fn parse_numbered_bibliography(text: &str) -> BTreeMap<u32, BibEntry> {
+    let mut out: BTreeMap<u32, BibEntry> = BTreeMap::new();
+
+    // Bracketed form FIRST, and split on the markers wherever they fall rather
+    // than at line starts. PDF extraction reflows the reference list into
+    // paragraphs — on the first audited paper the entire list arrived as THREE
+    // lines — so a line-anchored parser found 2 of 24 entries. The marker is
+    // the only reliable delimiter.
+    let marks: Vec<(usize, usize, u32)> = bib_marker_re()
+        .captures_iter(text)
+        .filter_map(|c| {
+            let whole = c.get(0)?;
+            let n = c.get(1)?.as_str().parse::<u32>().ok()?;
+            Some((whole.start(), whole.end(), n))
+        })
+        .collect();
+
+    if !marks.is_empty() {
+        for (i, (_, body_start, n)) in marks.iter().enumerate() {
+            let body_end = marks.get(i + 1).map(|(s, _, _)| *s).unwrap_or(text.len());
+            let raw = text[*body_start..body_end].split_whitespace().collect::<Vec<_>>().join(" ");
+            if raw.is_empty() {
+                continue;
+            }
+            out.insert(*n, BibEntry { number: *n, raw, ..Default::default() });
+        }
+    } else {
+        // `1. Author …` form. Only line-anchored: mid-paragraph "12." is far
+        // more often the end of a sentence than the start of a reference.
+        let mut current: Option<BibEntry> = None;
+        for line in text.lines() {
+            let flat = line.split_whitespace().collect::<Vec<_>>().join(" ");
+            if let Some(c) = bib_start_re().captures(&flat) {
+                if let Some(done) = current.take() {
+                    out.insert(done.number, done);
+                }
+                let number =
+                    c.get(2).and_then(|m| m.as_str().parse::<u32>().ok()).unwrap_or(0);
+                let body = c.get(3).map(|m| m.as_str()).unwrap_or("").to_string();
+                current = Some(BibEntry { number, raw: body, ..Default::default() });
+            } else if let Some(cur) = current.as_mut() {
+                if !flat.is_empty() {
+                    cur.raw.push(' ');
+                    cur.raw.push_str(&flat);
+                }
+            }
+        }
+        if let Some(done) = current.take() {
+            out.insert(done.number, done);
+        }
+    }
+
+    for e in out.values_mut() {
+        e.doi = doi_in_re()
+            .find(&e.raw)
+            .map(|m| m.as_str().trim_end_matches(|c| c == '.' || c == ',').to_string());
+        e.year = year_in_re().find(&e.raw).and_then(|m| m.as_str().parse::<i32>().ok());
+        // The lead author is the first surname-shaped token. Entry formats
+        // differ on initials-first vs surname-first, so this takes the first
+        // token that LOOKS like a surname rather than assuming an order.
+        e.lead_author = e
+            .raw
+            .split(|c: char| c == ',' || c == '.' || c == ' ')
+            .map(str::trim)
+            .find(|t| {
+                t.len() >= 3
+                    && t.chars().next().is_some_and(|c| c.is_uppercase())
+                    && t.chars().all(|c| c.is_alphabetic())
+            })
+            .map(|t| t.to_lowercase());
+    }
+    out
+}
+
+/// `[12]` followed by whitespace — a reference-list marker wherever it appears.
+fn bib_marker_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\[(\d{1,3})\]\s+").expect("bib marker regex"))
+}
+
+fn year_in_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?:1[6-9]|20)\d{2}").expect("year regex"))
 }
 
 fn author_year_re() -> &'static Regex {
@@ -379,10 +507,17 @@ pub fn is_significant(sentence: &str) -> bool {
 pub fn prepass(blocks: &[(Option<u32>, String)]) -> PrepassReport {
     let mut report = PrepassReport::default();
     let mut in_references = false;
+    // Everything after the references heading, kept rather than discarded: a
+    // numeric citation is an index into this list, and without it `[5]` names
+    // nothing.
+    let mut references_text = String::new();
 
     for (page, text) in blocks {
-        // Already past the bibliography: nothing after it is prose.
+        // Already past the bibliography: nothing after it is prose, but it IS
+        // the reference list.
         if in_references {
+            references_text.push('\n');
+            references_text.push_str(text);
             continue;
         }
         // The heading can sit INSIDE a block — a whole chapter is often one
@@ -396,6 +531,9 @@ pub fn prepass(blocks: &[(Option<u32>, String)]) -> PrepassReport {
             if is_references_heading(line) {
                 prose_end = offset;
                 in_references = true;
+                // The list starts on this block, after the heading.
+                references_text.push('\n');
+                references_text.push_str(&text[offset..]);
                 break;
             }
             offset += line.len();
@@ -422,6 +560,8 @@ pub fn prepass(blocks: &[(Option<u32>, String)]) -> PrepassReport {
             });
         }
     }
+
+    report.bibliography = parse_numbered_bibliography(&references_text);
     report
 }
 
@@ -466,15 +606,110 @@ impl Resolution {
 /// preferred over title matches and the method recorded per link. This function
 /// asks that table rather than re-deriving a heuristic, so an audit's verdict
 /// about availability is the same one the user can see and correct.
+/// Match one reference-list entry against the citation library.
+///
+/// `None` means the work is genuinely not in the library — a different answer
+/// from "we could not read the reference", and the caller words them
+/// differently.
+fn resolve_bib_entry(
+    db: &crate::db::Database,
+    entry: &BibEntry,
+) -> Result<Option<Resolution>, crate::GaplyError> {
+    use rusqlite::params;
+
+    let library_id: Option<String> = {
+        let conn = db.conn()?;
+        // DOI first: an identifier beats a name, and a reference list that
+        // prints a DOI has given us the unambiguous answer.
+        let by_doi = entry.doi.as_deref().and_then(|doi| {
+            let norm = crate::citation_links::normalise_doi(doi)?;
+            conn.query_row(
+                "SELECT id FROM citation_library WHERE LOWER(doi) = ?1 LIMIT 1",
+                params![norm],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+        });
+        match by_doi {
+            Some(id) => Some(id),
+            None => match (entry.lead_author.as_deref(), entry.year) {
+                (Some(a), Some(y)) => conn
+                    .query_row(
+                        "SELECT id FROM citation_library
+                         WHERE LOWER(authors) LIKE ?1 AND year = ?2 LIMIT 1",
+                        params![format!("%{a}%"), y],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .ok(),
+                _ => None,
+            },
+        }
+    };
+
+    let Some(library_id) = library_id else { return Ok(None) };
+    match crate::citation_links::checkable_document_for_citation(db, &library_id)? {
+        Some((document_id, _)) => Ok(Some(Resolution::Checkable { library_id, document_id })),
+        None => Ok(Some(Resolution::Unverifiable {
+            reason: format!(
+                "[{}] is in your library but its source is not indexed — link the document",
+                entry.number
+            ),
+            library_id: Some(library_id),
+        })),
+    }
+}
+
 pub fn resolve_marker(
     db: &crate::db::Database,
     marker: &Marker,
 ) -> Result<Resolution, crate::GaplyError> {
+    resolve_marker_with(db, marker, &BTreeMap::new())
+}
+
+/// `resolve_marker`, with the paper's own reference list available.
+///
+/// A numeric `[5]` is an index into that list. Given the list, the entry it
+/// names can be matched against the library by DOI, then by lead author + year
+/// — the same evidence order `citation_links` uses, for the same reason: a DOI
+/// is an identifier and a name is a heuristic.
+pub fn resolve_marker_with(
+    db: &crate::db::Database,
+    marker: &Marker,
+    bibliography: &BTreeMap<u32, BibEntry>,
+) -> Result<Resolution, crate::GaplyError> {
     use rusqlite::params;
 
+    // A numeric marker resolves through the bibliography, when there is one.
+    if marker.lead_author.is_none() && !marker.numbers.is_empty() {
+        if bibliography.is_empty() {
+            return Ok(Resolution::Unverifiable {
+                reason: "numeric citation style: no numbered bibliography was parsed".to_string(),
+                library_id: None,
+            });
+        }
+        // A sentence may cite several works; the FIRST that resolves decides,
+        // matching the author-year path's rule.
+        let mut missing: Vec<String> = Vec::new();
+        for n in &marker.numbers {
+            let Some(entry) = bibliography.get(n) else {
+                missing.push(format!("[{n}] is not in the reference list"));
+                continue;
+            };
+            match resolve_bib_entry(db, entry)? {
+                Some(r) => return Ok(r),
+                None => missing.push(format!(
+                    "[{n}] {} — not in your library",
+                    entry.raw.chars().take(60).collect::<String>()
+                )),
+            }
+        }
+        return Ok(Resolution::Unverifiable {
+            reason: missing.join("; "),
+            library_id: None,
+        });
+    }
+
     let Some(lead) = marker.lead_author.as_deref() else {
-        // A bare [3] names nobody without a numbered bibliography, which this
-        // phase does not parse. Honest rather than guessed.
         return Ok(Resolution::Unverifiable {
             reason: "numeric citation style: no numbered bibliography was parsed".to_string(),
             library_id: None,
@@ -594,6 +829,161 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn a_numbered_reference_list_is_parsed_from_extraction_whitespace() {
+        // Real IEEE shape, with the re-flow a PDF gives it: entries wrap, and
+        // the wrapped lines belong to the entry above them.
+        let refs = "\n[1] R. Plutchik, \"A general psychoevolutionary theory of emotion,\"\n                    Theories of Emotion, 1980, doi:10.1016/B978-0-12-558701-3.50007-7\n                    [2] S. Hochreiter and J. Schmidhuber, Long short-term memory,\n                    Neural Computation, 1997.\n                    [12] A. Vaswani, Attention is all you need, NeurIPS 2017.\n";
+        let bib = parse_numbered_bibliography(refs);
+        assert_eq!(bib.len(), 3, "{bib:?}");
+
+        let one = &bib[&1];
+        assert_eq!(one.doi.as_deref(), Some("10.1016/B978-0-12-558701-3.50007-7"));
+        assert_eq!(one.year, Some(1980));
+        assert_eq!(one.lead_author.as_deref(), Some("plutchik"));
+        // The wrapped continuation line was joined, not dropped.
+        assert!(one.raw.contains("Theories of Emotion"), "{}", one.raw);
+
+        // Numbers are the entry's own, not positional.
+        assert_eq!(bib[&12].year, Some(2017));
+        assert_eq!(bib[&2].lead_author.as_deref(), Some("Hochreiter".to_lowercase().as_str()));
+    }
+
+    #[test]
+    fn prepass_keeps_the_reference_list_it_stops_prose_at() {
+        // The pre-pass already stops prose at the references heading. It used
+        // to throw the list away, which is why `[5]` could never name anything.
+        let blocks = vec![(
+            Some(1u32),
+            "Emotion detection matters a great deal in practice [1].\n             REFERENCES\n             [1] R. Plutchik, A general theory of emotion, 1980.\n"
+                .to_string(),
+        )];
+        let report = prepass(&blocks);
+        assert_eq!(report.bibliography.len(), 1);
+        assert_eq!(report.bibliography[&1].year, Some(1980));
+        // …and the reference entry itself is still not queued as prose.
+        assert!(
+            report.planned.iter().all(|p| !p.sentence.contains("Plutchik")),
+            "a reference entry leaked into the prose plan"
+        );
+    }
+
+    #[test]
+    fn a_numeric_marker_resolves_through_the_bibliography_to_a_checkable_source() {
+        // The whole point: [1] is an index into the paper's own list, the list
+        // names a work, and the work is in the library with an indexed source.
+        let db = crate::Database::in_memory().unwrap();
+        {
+            let conn = db.conn().unwrap();
+            conn.execute(
+                "INSERT INTO citation_library (id, csl_json, doi, title, authors, year, tags, sync_status, created_at, updated_at)
+                 VALUES ('lib-1', '{}', '10.1234/abc', 'Mining large-scale social media', 'De Choudhury, M', 2013, '[]', 'local_only', 1, 1)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO documents (source_type, title, source_url, fetched_at, checksum, status, created_at)
+                 VALUES ('paper', 'Mining', '/tmp/a.pdf', 1, 'ck-1', 'ingested', 1)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO citation_documents (citation_id, document_id, matched_by, created_at)
+                 VALUES ('lib-1', 1, 'manual', 1)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO ai_model_registry (id, kind, display_name, file_path, dim, registered_at)
+                 VALUES ('m', 'embedding', 'm', '/dev/null', 384, 1)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO ai_chunks (document_id, page, section, char_start, char_end, content, token_estimate, content_hash, created_at)
+                 VALUES (1, 1, NULL, 0, 5, 'text', 1, 'h1', 1)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO ai_chunk_embeddings (chunk_id, model_id, preprocessing_version, dim, vector, created_at)
+                 VALUES (1, 'm', 'p', 384, X'00', 1)",
+                [],
+            ).unwrap();
+        }
+
+        // Matched by DOI when the entry prints one …
+        let bib = parse_numbered_bibliography(
+            "[1] M. De Choudhury, Mining large-scale social media, 2013, doi:10.1234/abc",
+        );
+        let m = &markers_in("Emotion detection matters [1].")[0];
+        match resolve_marker_with(&db, m, &bib).unwrap() {
+            Resolution::Checkable { library_id, document_id } => {
+                assert_eq!(library_id, "lib-1");
+                assert_eq!(document_id, 1);
+            }
+            other => panic!("expected Checkable, got {other:?}"),
+        }
+
+        // … and by lead author + year when it does not.
+        let bib2 = parse_numbered_bibliography(
+            "[1] M. De Choudhury, S. Counts, Mining large-scale social media, ICWSM, 2013, pp. 1-10.",
+        );
+        assert!(matches!(
+            resolve_marker_with(&db, m, &bib2).unwrap(),
+            Resolution::Checkable { .. }
+        ));
+    }
+
+    #[test]
+    fn an_unresolved_number_names_the_work_it_could_not_find() {
+        // The old answer was "no numbered bibliography was parsed" for every
+        // numeric citation in the paper — true once, and useless. With the list
+        // parsed, the reason can say WHICH work is missing, which is the thing
+        // the user can act on.
+        let db = crate::Database::in_memory().unwrap();
+        let bib = parse_numbered_bibliography("[5] S. Mohammad and P. Turney, Crowdsourcing, 2013.");
+        let m = &markers_in("Lexicons help [5].")[0];
+        match resolve_marker_with(&db, m, &bib).unwrap() {
+            Resolution::Unverifiable { reason, library_id } => {
+                assert!(reason.contains("[5]"), "{reason}");
+                assert!(reason.contains("Mohammad"), "{reason}");
+                assert!(reason.contains("not in your library"), "{reason}");
+                assert!(library_id.is_none());
+            }
+            other => panic!("expected Unverifiable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_dotted_form_is_parsed_only_when_no_bracketed_markers_exist() {
+        // A list uses ONE style. Mid-paragraph "12." is far more often the end
+        // of a sentence than the start of a reference, so the dotted form is
+        // read only line-anchored and only when no bracket markers are present.
+        let dotted = "1. R. Plutchik, A general theory of emotion, 1980.\n                      2. S. Hochreiter, Long short-term memory, 1997.\n";
+        let bib = parse_numbered_bibliography(dotted);
+        assert_eq!(bib.len(), 2, "{bib:?}");
+        assert_eq!(bib[&1].year, Some(1980));
+
+        // With brackets present, a stray "12." inside an entry stays part of it
+        // rather than starting a phantom reference.
+        let mixed = "[1] R. Plutchik, A general theory, 1980, pp. 12. and following.";
+        let bib2 = parse_numbered_bibliography(mixed);
+        assert_eq!(bib2.len(), 1, "{bib2:?}");
+    }
+
+    #[test]
+    fn a_reference_list_reflowed_into_one_paragraph_still_parses() {
+        // How extraction actually delivers it: the whole list on one line.
+        let one_line = "[1]  M. De Choudhury, Mining, 2013, pp. 1-10. [2]  Rudra, Extracting                         situational information, 2015, pp. 583-592. [3]  Liu, Sentiment Analysis.                         Morgan & Claypool, 2012.";
+        let bib = parse_numbered_bibliography(one_line);
+        assert_eq!(bib.len(), 3, "{bib:?}");
+        assert_eq!(bib[&2].lead_author.as_deref(), Some("rudra"));
+        assert_eq!(bib[&3].year, Some(2012));
+    }
+
+    #[test]
+    fn a_numeric_marker_without_a_bibliography_says_so_and_nothing_more() {
+        let m = &markers_in("Emotion detection matters [5].")[0];
+        assert_eq!(m.numbers, vec![5]);
+        assert!(m.lead_author.is_none());
+    }
+
     #[test]
     fn narrative_citations_are_markers_too() {
         // The audit was blind to these, so every sentence citing "Tang et al.
