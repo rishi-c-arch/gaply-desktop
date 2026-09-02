@@ -1,0 +1,30 @@
+# Line-ending policy. There was none, and on the first Windows CI run three
+# tests failed because of it — none of them a logic defect.
+#
+# Git guesses "text or binary" by looking for a NUL byte in the first 8 KB. A
+# hand-built PDF fixture can contain none, so git classified
+# `tests/fixtures/scanned_no_text.pdf` as TEXT, a Windows checkout rewrote its
+# 43 LF bytes as CRLF, every byte offset in the xref table shifted, and
+# pdf-extract reported `Invalid file trailer`. The other real PDF in that
+# directory survived only because its compressed streams happen to contain NULs.
+#
+# Separately, artifacts that Rust generates and then compares BYTE FOR BYTE
+# against a checked-in copy cannot tolerate CRLF either: `vocabulary.rs`
+# produces `\n` and the Windows checkout held `\r\n`.
+#
+# This is repo configuration, not a concession to CI — a Windows contributor
+# cloning the repo hit exactly the same three failures.
+
+# Normalise text in the repository, and check it out with LF everywhere. Byte
+# comparisons against generated content only work if both sides agree.
+* text=auto eol=lf
+
+# Formats that must never be touched, whatever git's heuristic concludes.
+*.pdf   binary
+*.gguf  binary
+*.docx  binary
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
