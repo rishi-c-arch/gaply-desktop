@@ -315,6 +315,17 @@ class AiBridge {
   }
 
   /**
+   * Export a finished audit (§11 D58). Returns the bytes; the caller saves them.
+   */
+  async exportAuditReport(
+    jobId: number,
+    manuscriptName: string,
+    format: 'pdf' | 'html',
+  ): Promise<{ bytes: number[]; extension: string; suggestedName: string }> {
+    return this.invoke('ai_job_export_report', { jobId, manuscriptName, format });
+  }
+
+  /**
    * Re-queue ONLY the items that became checkable after sources were fetched,
    * and run them. Re-running the whole audit would re-judge sentences whose
    * answers have not changed and overwrite verdicts already read.

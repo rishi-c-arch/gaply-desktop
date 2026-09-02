@@ -779,6 +779,34 @@ describe('Thesis audit', () => {
     expect(recheckItems.mock.calls[0][1]).toEqual(['lib-5']);
   });
 
+  it('exports the report and reports where it went', async () => {
+    let emit: ((e: JobProgressEvent) => void) | undefined;
+    const exportAuditReport = vi.fn(
+      async (_jobId: number, _name: string, _format: 'pdf' | 'html') => ({
+        bytes: [37, 80, 68, 70],
+        extension: 'pdf',
+        suggestedName: 't-citation-audit.pdf',
+      }),
+    );
+    const bridge = bridgeWith({
+      startThesisAudit: async (_p: string, cb: any) => { emit = cb; return plan; },
+      jobStatus: async () => ({ health: { completedItems: 1, flagged: [] } }),
+      exportAuditReport,
+    });
+    render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(emit).toBeTruthy());
+    emit!({ jobId: 7, completed: 1, total: 1, currentCategory: 'citation_need', latestItemSummary: '' });
+
+    await waitFor(() => expect(screen.getByTestId('audit-export-pdf')).toBeTruthy());
+    expect(screen.getByTestId('audit-export-html')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('audit-export-pdf'));
+    await waitFor(() => expect(exportAuditReport).toHaveBeenCalled());
+    // The manuscript's NAME reaches the cover, not its whole path.
+    expect(exportAuditReport.mock.calls[0][1]).toBe('t.pdf');
+    expect(exportAuditReport.mock.calls[0][2]).toBe('pdf');
+  });
+
   it('offers a resume when a job was interrupted by a restart', async () => {
     const resumeJob = vi.fn(async () => ({}));
     render(

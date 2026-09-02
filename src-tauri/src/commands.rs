@@ -3030,6 +3030,52 @@ pub async fn ai_citation_audit_start(
     Ok(serde_json::to_value(&plan).unwrap_or(serde_json::Value::Null))
 }
 
+/// Export a finished audit as PDF or HTML.
+///
+/// Returns the bytes; the frontend writes them wherever the user chose. The
+/// composer and both renderers live in gaply-core, so this command is a read
+/// plus a render and owns no wording of its own.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn ai_job_export_report(
+    state: State<'_, AppState>,
+    job_id: i64,
+    manuscript_name: String,
+    format: String,
+) -> Result<serde_json::Value, GaplyError> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        // Passed in rather than read from a clock inside the composer, so a
+        // report is reproducible and its tests are not time-dependent.
+        let generated_on = crate::audit_export::today_label();
+        let model = crate::audit_export::build_model(&db, job_id, &manuscript_name, &generated_on)?;
+        let blocks = gaply_core::audit_report::compose_audit(&model);
+        let (bytes, extension) = match format.as_str() {
+            "pdf" => (gaply_core::report_pdf::render_pdf(&blocks), "pdf"),
+            "html" => (
+                gaply_core::report_html::render_html(&blocks, "Thesis citation audit")
+                    .into_bytes(),
+                "html",
+            ),
+            other => {
+                return Err(GaplyError::Validation(format!(
+                    "unknown export format {other:?} — expected \"pdf\" or \"html\""
+                )))
+            }
+        };
+        Ok(serde_json::json!({
+            "bytes": bytes,
+            "extension": extension,
+            "suggestedName": format!(
+                "{}-citation-audit.{extension}",
+                manuscript_name.trim_end_matches(".pdf").replace(' ', "-")
+            ),
+        }))
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("report export panicked: {e}")))?
+}
+
 /// Re-queue only the items that became checkable, and run them.
 ///
 /// The loop that turns a report with no evidence into one with evidence: the

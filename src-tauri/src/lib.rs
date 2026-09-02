@@ -142,6 +142,7 @@ pub fn run() {
             commands::citation_fetch_oa,
             commands::ai_citation_audit_preview,
             commands::ai_citation_audit_start,
+            commands::ai_job_export_report,
             commands::ai_job_recheck_items,
             commands::ai_job_status,
             commands::ai_job_pause,

@@ -82,6 +82,7 @@ export interface ThesisAuditScreenProps {
     | 'jobResults'
     | 'fetchOpenAccess'
     | 'recheckItems'
+    | 'exportAuditReport'
   >;
 }
 
@@ -248,6 +249,28 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
       setBusyAction(null);
     }
   }, [bridge, jobId, nowCheckable, onProgress]);
+
+  const exportReport = useCallback(
+    async (format: 'pdf' | 'html') => {
+      if (jobId == null) return;
+      setBusyAction(`export-${format}`);
+      setExportNote(null);
+      try {
+        const r = await bridge.exportAuditReport(jobId, manuscriptLabel, format);
+        const { save } = await import('@tauri-apps/plugin-dialog');
+        const path = await save({ defaultPath: r.suggestedName });
+        if (!path) return;
+        const { writeFile } = await import('@tauri-apps/plugin-fs');
+        await writeFile(path, new Uint8Array(r.bytes));
+        setExportNote(`Saved to ${path}`);
+      } catch (e) {
+        setExportNote(errorText(e));
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [bridge, jobId, manuscriptLabel],
+  );
 
   if (!aiInstalled) {
     return <AiUnavailable feature="The thesis citation audit" onOpenSettings={onOpenSettings} />;
@@ -557,6 +580,30 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
             </div>
           )}
 
+          {/* ---- Export ---- */}
+          <div className="gds-audit__actions" data-testid="audit-export">
+            <Button
+              variant="secondary"
+              disabled={busyAction !== null}
+              onClick={() => void exportReport('pdf')}
+              data-testid="audit-export-pdf"
+            >
+              {busyAction === 'export-pdf' ? 'Saving…' : 'Export report (PDF)'}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={busyAction !== null}
+              onClick={() => void exportReport('html')}
+              data-testid="audit-export-html"
+            >
+              Export as HTML
+            </Button>
+          </div>
+          {exportNote && (
+            <p className="gds-ai__hint" data-testid="audit-export-note">
+              {exportNote}
+            </p>
+          )}
         </Card>
       )}
 
