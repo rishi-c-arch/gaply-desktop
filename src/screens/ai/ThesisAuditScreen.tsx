@@ -14,6 +14,7 @@ import './ai.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Card } from '../../design-system/primitives';
 import { aiBridge, AuditPlan, JobProgressEvent, errorText } from './aiBridge';
+import { describeOaOutcome } from './oaOutcome';
 import { EvidenceCard, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
 
@@ -62,6 +63,10 @@ export interface AuditItem {
 type Stage = 'idle' | 'planned' | 'running' | 'paused' | 'done';
 
 export interface ThesisAuditScreenProps {
+  /** Open a citation in the Citation Manager, where its Document card offers
+   *  "Link document". Attaching a PDF by hand belongs there — this screen would
+   *  otherwise grow a second, competing file-picker for the same job. */
+  onOpenCitation?: (citationId: string) => void;
   aiInstalled: boolean;
   onOpenSettings?: () => void;
   /** A job left running/paused by a previous launch, offered for resume. */
@@ -69,7 +74,14 @@ export interface ThesisAuditScreenProps {
   pickManuscript?: () => Promise<string | null>;
   bridge?: Pick<
     typeof aiBridge,
-    'startThesisAudit' | 'jobStatus' | 'pauseJob' | 'resumeJob' | 'cancelJob' | 'jobResults'
+    | 'startThesisAudit'
+    | 'jobStatus'
+    | 'pauseJob'
+    | 'resumeJob'
+    | 'cancelJob'
+    | 'jobResults'
+    | 'fetchOpenAccess'
+    | 'recheckItems'
   >;
 }
 
@@ -79,6 +91,7 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
   resumableJob = null,
   pickManuscript,
   bridge = aiBridge,
+  onOpenCitation,
 }) => {
   const [stage, setStage] = useState<Stage>('idle');
   const [plan, setPlan] = useState<AuditPlan | null>(null);
@@ -92,10 +105,18 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
    *  sentences and flags a handful; leading with all hundred buries the report
    *  under the material it was computed from. */
   const [dumpOpen, setDumpOpen] = useState(false);
+  /** Per-source fetch results from the report's own actions, by citation id. */
+  const [fetchNotes, setFetchNotes] = useState<Record<string, string>>({});
+  /** Citations whose source became checkable, so a re-check is worth offering. */
+  const [nowCheckable, setNowCheckable] = useState<string[]>([]);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [exportNote, setExportNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drill, setDrill] = useState<GroundedFinding | null>(null);
 
   const jobId = plan?.jobId ?? resumableJob?.jobId ?? null;
+  /** The manuscript's file name, for the report's cover. */
+  const manuscriptLabel = (path ?? 'manuscript').split(/[\\/]/).filter(Boolean).pop() ?? 'manuscript';
 
   const onProgress = useCallback(
     (ev: JobProgressEvent) => {
@@ -166,6 +187,67 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
     }
     return g;
   }, [items]);
+
+  /** The unverifiable items, with the citation each one is blocked on. */
+  const blocked = React.useMemo(() => {
+    const out: Array<{ seq: number; sentence: string; reason: string; citationId?: string }> = [];
+    for (const it of items) {
+      if (it.kind !== 'unverifiable') continue;
+      out.push({
+        seq: it.seq,
+        sentence: it.sentence,
+        reason: String((it as any).reason ?? (it as any).payload?.reason ?? ''),
+        citationId: (it as any).libraryId ?? (it as any).payload?.libraryId,
+      });
+    }
+    return out;
+  }, [items]);
+
+  /** Fetch open-access copies for the sources this report is blocked on. */
+  const fetchForSources = useCallback(
+    async (citationIds: string[], label: string) => {
+      if (citationIds.length === 0) return;
+      setBusyAction(label);
+      try {
+        const reports = await bridge.fetchOpenAccess(citationIds);
+        const notes: Record<string, string> = {};
+        const gained: string[] = [];
+        for (const r of reports) {
+          notes[r.citationId] = describeOaOutcome(r);
+          if (r.checkable) gained.push(r.citationId);
+        }
+        setFetchNotes((prev) => ({ ...prev, ...notes }));
+        setNowCheckable((prev) => Array.from(new Set([...prev, ...gained])));
+      } catch (e) {
+        setExportNote(errorText(e));
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [bridge],
+  );
+
+  /** Re-run ONLY the items that became checkable. */
+  const recheck = useCallback(async () => {
+    if (jobId == null || nowCheckable.length === 0) return;
+    setBusyAction('recheck');
+    try {
+      const r = await bridge.recheckItems(jobId, nowCheckable, onProgress);
+      setExportNote(
+        r.requeued === 0
+          ? 'Nothing became checkable, so nothing was re-run.'
+          : `Re-checking ${r.requeued} sentence${r.requeued === 1 ? '' : 's'}.`,
+      );
+      if (r.requeued > 0) {
+        setStage('running');
+        setNowCheckable([]);
+      }
+    } catch (e) {
+      setExportNote(errorText(e));
+    } finally {
+      setBusyAction(null);
+    }
+  }, [bridge, jobId, nowCheckable, onProgress]);
 
   if (!aiInstalled) {
     return <AiUnavailable feature="The thesis citation audit" onOpenSettings={onOpenSettings} />;
@@ -383,6 +465,98 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
             </div>
           ))}
           {drill && <EvidenceCard finding={drill} />}
+
+          {/* ---- The loop that turns a report with no evidence into one with
+                  evidence. Every unverifiable item here is blocked on ONE
+                  thing: the cited work is not in the library. Saying so and
+                  stopping is a dead end; the actions are the report. ---- */}
+          {blocked.length > 0 && (
+            <div data-testid="audit-blocked">
+              <h4>Cited, but not checkable — {blocked.length}</h4>
+              <p className="gds-ai__hint">
+                These sentences DO cite something. Gaply could not check them because the cited
+                work is not available to it — a gap in your library, not a defect in the writing.
+              </p>
+
+              <div className="gds-audit__actions">
+                <Button
+                  variant="primary"
+                  disabled={busyAction !== null}
+                  data-testid="audit-fetch-all"
+                  onClick={() =>
+                    void fetchForSources(
+                      Array.from(
+                        new Set(blocked.map((b) => b.citationId).filter(Boolean) as string[]),
+                      ),
+                      'fetch-all',
+                    )
+                  }
+                >
+                  {busyAction === 'fetch-all'
+                    ? 'Looking for free copies…'
+                    : `Fetch available PDFs for these ${
+                        new Set(blocked.map((b) => b.citationId).filter(Boolean)).size
+                      } sources`}
+                </Button>
+              </div>
+
+              {/* Offered only once something ACTUALLY became checkable — asked
+                  of the store, not inferred from a fetch reporting success. */}
+              {nowCheckable.length > 0 && (
+                <div className="gds-audit__actions">
+                  <Button
+                    variant="primary"
+                    disabled={busyAction !== null}
+                    onClick={() => void recheck()}
+                    data-testid="audit-recheck"
+                  >
+                    {busyAction === 'recheck'
+                      ? 'Re-checking…'
+                      : `Re-check the ${nowCheckable.length} item${
+                          nowCheckable.length === 1 ? '' : 's'
+                        } that became checkable`}
+                  </Button>
+                </div>
+              )}
+
+              <ul className="gds-audit__blocked-list">
+                {blocked.map((b) => (
+                  <li key={b.seq} data-testid={`audit-blocked-${b.seq}`}>
+                    <p className="gds-audit__sentence">{b.sentence}</p>
+                    {b.reason && <p className="gds-ai__hint">{b.reason}</p>}
+                    {b.citationId && (
+                      <div className="gds-audit__actions">
+                        <Button
+                          variant="secondary"
+                          disabled={busyAction !== null}
+                          data-testid={`audit-fetch-${b.seq}`}
+                          onClick={() => void fetchForSources([b.citationId!], `fetch-${b.seq}`)}
+                        >
+                          {busyAction === `fetch-${b.seq}`
+                            ? 'Looking…'
+                            : 'Fetch open-access PDF'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          disabled={busyAction !== null}
+                          data-testid={`audit-attach-${b.seq}`}
+                          onClick={() => onOpenCitation?.(b.citationId!)}
+                        >
+                          Attach PDF…
+                        </Button>
+                      </div>
+                    )}
+                    {b.citationId && fetchNotes[b.citationId] && (
+                      <p className="gds-ai__hint" data-testid={`audit-fetch-note-${b.seq}`}>
+                        {fetchNotes[b.citationId]}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
         </Card>
       )}
 

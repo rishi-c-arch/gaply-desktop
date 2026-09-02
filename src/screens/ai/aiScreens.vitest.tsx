@@ -696,6 +696,89 @@ describe('Thesis audit', () => {
     expect(screen.getByTestId('audit-skipped').textContent).toMatch(/5 a table row/);
   });
 
+  it('an unverifiable item offers BOTH ways to supply the source', async () => {
+    // The report was a dead end: it named what it could not check and stopped.
+    // Every one of these items is blocked on the same thing — the cited work is
+    // not in the library — and both remedies belong beside the item.
+    let emit: ((e: JobProgressEvent) => void) | undefined;
+    const bridge = bridgeWith({
+      startThesisAudit: async (_p: string, cb: any) => { emit = cb; return plan; },
+      jobStatus: async () => ({ health: { completedItems: 1, flagged: [] } }),
+      jobResults: async () => ({
+        items: [
+          {
+            seq: 4,
+            kind: 'unverifiable',
+            page: 1,
+            sentence: 'Lexicons help [5].',
+            status: 'done',
+            reason: '[5] S. Mohammad — not in your library',
+            libraryId: 'lib-5',
+          },
+        ],
+      }),
+    });
+    render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(emit).toBeTruthy());
+    emit!({ jobId: 7, completed: 1, total: 1, currentCategory: 'unverifiable', latestItemSummary: '' });
+
+    await waitFor(() => expect(screen.getByTestId('audit-blocked-4')).toBeTruthy());
+    expect(screen.getByTestId('audit-blocked-4').textContent).toMatch(/not in your library/);
+    expect(screen.getByTestId('audit-fetch-4')).toBeTruthy();
+    expect(screen.getByTestId('audit-attach-4')).toBeTruthy();
+    // And the header offers the batch over the distinct sources.
+    expect(screen.getByTestId('audit-fetch-all').textContent).toMatch(/these 1 sources/);
+  });
+
+  it('offers a re-check ONLY for what actually became checkable', async () => {
+    // A fetch that succeeded and an item that can now be checked are different
+    // facts: an abstract-only fetch "works" and still leaves nothing to check
+    // against. The offer follows `checkable`, not success.
+    let emit: ((e: JobProgressEvent) => void) | undefined;
+    const recheckItems = vi.fn(
+      async (_jobId: number, _ids: string[], _onEvent?: unknown) => ({
+        requeued: 1,
+        items: [{ seq: 4, documentId: 8 }],
+      }),
+    );
+    const bridge = bridgeWith({
+      startThesisAudit: async (_p: string, cb: any) => { emit = cb; return plan; },
+      jobStatus: async () => ({ health: { completedItems: 1, flagged: [] } }),
+      jobResults: async () => ({
+        items: [
+          { seq: 4, kind: 'unverifiable', page: 1, sentence: 'A [5].', status: 'done',
+            reason: 'not in your library', libraryId: 'lib-5' },
+          { seq: 6, kind: 'unverifiable', page: 1, sentence: 'B [6].', status: 'done',
+            reason: 'not in your library', libraryId: 'lib-6' },
+        ],
+      }),
+      fetchOpenAccess: async () => [
+        { citationId: 'lib-5', title: 'A', outcome: 'fetched', checkable: true, chunksIndexed: 20, chunksEmbedded: 20 },
+        // Fetched an abstract: real, useful, and NOT checkable-for-support.
+        { citationId: 'lib-6', title: 'B', outcome: 'abstractOnly', checkable: false },
+      ],
+      recheckItems,
+    });
+    render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(emit).toBeTruthy());
+    emit!({ jobId: 7, completed: 2, total: 2, currentCategory: 'unverifiable', latestItemSummary: '' });
+
+    await waitFor(() => expect(screen.getByTestId('audit-fetch-all')).toBeTruthy());
+    // No offer before anything has been fetched.
+    expect(screen.queryByTestId('audit-recheck')).toBeNull();
+    fireEvent.click(screen.getByTestId('audit-fetch-all'));
+
+    await waitFor(() => expect(screen.getByTestId('audit-recheck')).toBeTruthy());
+    // ONE item became checkable, not two.
+    expect(screen.getByTestId('audit-recheck').textContent).toMatch(/the 1 item that became checkable/);
+    fireEvent.click(screen.getByTestId('audit-recheck'));
+    await waitFor(() => expect(recheckItems).toHaveBeenCalled());
+    // Only the citation that gained a readable source is re-queued.
+    expect(recheckItems.mock.calls[0][1]).toEqual(['lib-5']);
+  });
+
   it('offers a resume when a job was interrupted by a restart', async () => {
     const resumeJob = vi.fn(async () => ({}));
     render(

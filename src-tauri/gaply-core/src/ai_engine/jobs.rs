@@ -279,6 +279,51 @@ pub fn resume_job(db: &Database, job_id: i64) -> Result<usize, GaplyError> {
     Ok(n)
 }
 
+/// Re-queue SPECIFIC items of a finished job, converting them to a new kind.
+///
+/// The loop this exists for: an audit reports `unverifiable` because the cited
+/// work was not in the library, the user fetches the source, and now those
+/// items — and ONLY those — can be checked for real. Re-running the whole audit
+/// would spend minutes of model time re-judging dozens of sentences whose
+/// answers have not changed, and would overwrite verdicts the user has already
+/// read.
+///
+/// Returns how many rows were actually re-queued. Items are matched by `seq`
+/// within the job, so a caller cannot reach into another job's rows.
+pub fn requeue_items(
+    db: &Database,
+    job_id: i64,
+    seqs: &[i64],
+    new_kind: ItemKind,
+    payload_json: &str,
+) -> Result<usize, GaplyError> {
+    if seqs.is_empty() {
+        return Ok(0);
+    }
+    let mut conn = db.conn()?;
+    let tx = conn.transaction()?;
+    let mut n = 0usize;
+    {
+        let mut stmt = tx.prepare(
+            "UPDATE ai_job_items
+                SET status = 'queued', kind = ?3, payload_json = ?4,
+                    result_json = NULL, error = NULL, attempts = 0
+              WHERE job_id = ?1 AND seq = ?2",
+        )?;
+        for seq in seqs {
+            n += stmt.execute(params![job_id, seq, new_kind.as_str(), payload_json])?;
+        }
+    }
+    // The job is no longer finished: it has work again, and a status that still
+    // said 'done' would make the runner refuse to pick these up.
+    tx.execute(
+        "UPDATE ai_jobs SET status = 'queued', finished_at = NULL WHERE id = ?1",
+        params![job_id],
+    )?;
+    tx.commit()?;
+    Ok(n)
+}
+
 /// Claim the next item, atomically.
 ///
 /// The UPDATE *is* the lock: `WHERE status = 'queued'` means a zero-row result
@@ -442,6 +487,86 @@ pub fn item_tallies(db: &Database, job_id: i64) -> Result<Vec<(String, String, i
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn requeue_touches_only_the_named_items_and_reopens_the_job() {
+        // The loop: an audit finished, the user supplied the missing sources,
+        // and only the items that became checkable should run again. Re-running
+        // everything would spend minutes re-judging unchanged sentences and
+        // overwrite verdicts the user has already read.
+        let db = Database::in_memory().unwrap();
+        let items: Vec<NewItem> = (1..=3)
+            .map(|seq| NewItem {
+                seq,
+                kind: ItemKind::Unverifiable,
+                chunk_id: None,
+                page: Some(1),
+                sentence: format!("Sentence {seq}."),
+                payload_json: r#"{"reason":"not in your library"}"#.to_string(),
+            })
+            .collect();
+        let job = create_job(&db, "thesis_audit", None, "v1.4", &items).unwrap();
+        for it in job_results(&db, job, 0, 10).unwrap() {
+            complete_item(&db, it.id, "done", Some("{}"), None).unwrap();
+        }
+        set_job_status(&db, job, JobStatus::Done).unwrap();
+
+        let n = requeue_items(
+            &db,
+            job,
+            &[1, 3],
+            ItemKind::CitationSupport,
+            r#"{"documentId":8}"#,
+        )
+        .unwrap();
+        assert_eq!(n, 2);
+
+        let rows = job_results(&db, job, 0, 10).unwrap();
+        let by_seq = |s: i64| rows.iter().find(|r| r.seq == s).unwrap();
+        for seq in [1, 3] {
+            let r = by_seq(seq);
+            assert_eq!(r.status, "queued", "seq {seq}");
+            assert_eq!(r.kind, ItemKind::CitationSupport);
+            assert_eq!(r.payload_json, r#"{"documentId":8}"#);
+            // A stale result would be read as this run's answer.
+            assert!(r.result_json.is_none(), "seq {seq} kept a stale result");
+            assert_eq!(r.attempts, 0);
+        }
+        // The untouched item keeps everything, including its kind.
+        let two = by_seq(2);
+        assert_eq!(two.status, "done");
+        assert_eq!(two.kind, ItemKind::Unverifiable);
+        assert!(two.result_json.is_some());
+
+        // And the job is runnable again — a status still saying 'done' would
+        // make the runner refuse to pick these up.
+        assert_eq!(get_job(&db, job).unwrap().unwrap().status, JobStatus::Queued);
+    }
+
+    #[test]
+    fn requeueing_nothing_changes_nothing() {
+        let db = Database::in_memory().unwrap();
+        let job = create_job(
+            &db,
+            "thesis_audit",
+            None,
+            "v1.4",
+            &[NewItem {
+                seq: 1,
+                kind: ItemKind::Unverifiable,
+                chunk_id: None,
+                page: None,
+                sentence: "S.".into(),
+                payload_json: "{}".into(),
+            }],
+        )
+        .unwrap();
+        set_job_status(&db, job, JobStatus::Done).unwrap();
+        assert_eq!(requeue_items(&db, job, &[], ItemKind::CitationSupport, "{}").unwrap(), 0);
+        // The job is NOT reopened by a no-op.
+        assert_eq!(get_job(&db, job).unwrap().unwrap().status, JobStatus::Done);
+    }
+
     use super::*;
 
     fn db() -> Database {

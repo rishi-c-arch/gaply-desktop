@@ -314,6 +314,19 @@ class AiBridge {
     return this.invoke<boolean>('ai_job_cancel', { jobId });
   }
 
+  /**
+   * Re-queue ONLY the items that became checkable after sources were fetched,
+   * and run them. Re-running the whole audit would re-judge sentences whose
+   * answers have not changed and overwrite verdicts already read.
+   */
+  async recheckItems(
+    jobId: number,
+    citationIds: string[],
+    onEvent?: (ev: JobProgressEvent) => void,
+  ): Promise<{ requeued: number; items: Array<{ seq: number; documentId: number }> }> {
+    return this.channelInvoke('ai_job_recheck_items', { jobId, citationIds }, onEvent);
+  }
+
   async jobResults(jobId: number, offset: number, limit: number) {
     return this.invoke<Record<string, unknown>>('ai_job_results', { jobId, offset, limit });
   }

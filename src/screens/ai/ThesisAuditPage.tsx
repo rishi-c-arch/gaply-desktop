@@ -52,6 +52,10 @@ export const ThesisAuditPage: React.FC = () => {
           aiInstalled={aiInstalled}
           resumableJob={resumable}
           pickManuscript={pickManuscript}
+          // Attaching a PDF by hand belongs to the citation's Document card;
+          // this screen sends the user there rather than growing a second,
+          // competing file-picker for the same job.
+          onOpenCitation={() => navigate('/app/citations')}
         />
       </div>
     </AppShell>

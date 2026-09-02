@@ -3030,6 +3030,102 @@ pub async fn ai_citation_audit_start(
     Ok(serde_json::to_value(&plan).unwrap_or(serde_json::Value::Null))
 }
 
+/// Re-queue only the items that became checkable, and run them.
+///
+/// The loop that turns a report with no evidence into one with evidence: the
+/// user fetched the missing sources, so the sentences citing them can now be
+/// checked for real. Only those items are re-queued — re-running the whole
+/// audit would spend minutes re-judging sentences whose answers have not
+/// changed, and would overwrite verdicts the user has already read.
+#[tauri::command]
+#[tracing::instrument(skip(state, on_event))]
+pub async fn ai_job_recheck_items(
+    state: State<'_, AppState>,
+    job_id: i64,
+    citation_ids: Vec<String>,
+    on_event: tauri::ipc::Channel<JobProgressEvent>,
+) -> Result<serde_json::Value, GaplyError> {
+    use gaply_core::ai_engine::{audit_prepass, jobs};
+
+    let db = state.db.clone();
+    let requeued: Vec<serde_json::Value> = {
+        let db = db.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<serde_json::Value>, GaplyError> {
+            let mut out = Vec::new();
+            // Which unverifiable items now resolve to a checkable document? Asked
+            // of the store, not assumed from the fetch's own report: a fetch that
+            // succeeded and an item that can now be checked are different facts.
+            let mut offset = 0i64;
+            loop {
+                let page = jobs::job_results(&db, job_id, offset, 200)?;
+                if page.is_empty() {
+                    break;
+                }
+                offset += page.len() as i64;
+                for it in page {
+                    if it.kind.as_str() != "unverifiable" {
+                        continue;
+                    }
+                    for m in audit_prepass::markers_in(&it.sentence) {
+                        // Only the citations the user actually just fetched.
+                        let hit = citation_ids.iter().find(|cid| {
+                            gaply_core::citation_links::checkable_document_for_citation(&db, cid)
+                                .ok()
+                                .flatten()
+                                .is_some()
+                                && audit_prepass::resolve_marker(&db, &m)
+                                    .ok()
+                                    .map(|r| matches!(r, audit_prepass::Resolution::Checkable { library_id, .. } if &library_id == *cid))
+                                    .unwrap_or(false)
+                        });
+                        if let Some(cid) = hit {
+                            if let Ok(Some((doc, _))) =
+                                gaply_core::citation_links::checkable_document_for_citation(&db, cid)
+                            {
+                                out.push(serde_json::json!({
+                                    "seq": it.seq,
+                                    "documentId": doc,
+                                    "libraryId": cid,
+                                }));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| GaplyError::Internal(format!("recheck scan panicked: {e}")))??
+    };
+
+    if requeued.is_empty() {
+        return Ok(serde_json::json!({ "requeued": 0, "items": [] }));
+    }
+
+    // One re-queue per item, because each carries its own document id.
+    let db2 = db.clone();
+    let items = requeued.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), GaplyError> {
+        for it in &items {
+            let seq = it["seq"].as_i64().unwrap_or(-1);
+            jobs::requeue_items(
+                &db2,
+                job_id,
+                &[seq],
+                jobs::ItemKind::CitationSupport,
+                &it.to_string(),
+            )?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("recheck requeue panicked: {e}")))??;
+
+    spawn_job_runner(&state, job_id, on_event);
+    Ok(serde_json::json!({ "requeued": requeued.len(), "items": requeued }))
+}
+
 /// Status plus the Thesis Health report so far. Readable mid-job.
 #[tauri::command]
 pub async fn ai_job_status(

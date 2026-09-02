@@ -292,3 +292,15 @@
 .gds-root .gds-audit__counts b {
   color: var(--g-text-1);
 }
+
+/* The blocked-sources list in the audit report. A list of things to DO, so the
+   sentence is quiet and the actions are not. */
+.gds-root .gds-audit__blocked-list {
+  list-style: none;
+  margin: var(--g-space-1) 0 0;
+  padding: 0;
+}
+.gds-root .gds-audit__blocked-list > li {
+  border-top: 1px solid var(--g-border);
+  padding: var(--g-space-1) 0;
+}
