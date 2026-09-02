@@ -11,11 +11,19 @@
 name: Windows Build Check
 
 on:
-  # Manual dispatch ONLY — this workflow never runs automatically on any push,
-  # PR, or schedule. It is the zero-Vercel-interaction path: trigger it by hand
-  # from the Actions tab (or `gh workflow run`) against whatever ref you choose.
-  # (To also run it on a dedicated non-main branch, add a `push:` trigger for
-  # that branch — never main/master, to stay clear of the Vercel production deploy.)
+  # NO LONGER dispatch-only. It was, and that is half the reason a broken `main`
+  # survived for weeks: the only workflow that builds a clean checkout never
+  # ran. The Vercel isolation that motivated dispatch-only is now moot — the old
+  # `origin` (RishiSTARP/gaply-react-frontend) was deleted in the phase-0 history
+  # purge and 404s, and nothing here has ever run a `vercel` command or pushed a
+  # commit.
+  #
+  # This build is heavy (npm ci, a full Tauri Windows build), so it runs where
+  # the cost buys something — on pull requests and on main — while the cheap
+  # `clean-checkout` workflow carries the missing-`git add` guard on every push.
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch: {}
 
 # Least privilege: read the code + upload an artifact. No write to the repo.

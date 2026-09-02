@@ -104,9 +104,18 @@ time injection.
   design (~400 MB) — and says so rather than failing ambiguously; `gaply_core`
   is the crate that must build from source alone and is always checked.
 
-  **Do not rely on the Windows workflow for this.** It is
-  `workflow_dispatch:` — manual dispatch only, no push or PR trigger — so it
-  effectively never runs, which is the other half of why this hid for weeks.
+  **CI now enforces this too**, which it did not before. `.github/workflows/
+  clean-checkout.yml` runs on every push and PR and builds + tests `gaply_core`
+  from the checkout — a CI checkout IS the committed tree, so a missing
+  `git add` fails there. It is deliberately cheap: no Node, no Tauri
+  prerequisites, no bundled model. It also runs the script itself, so a guard
+  that rots fails rather than passing quietly.
+
+  `windows-build-check.yml` is no longer dispatch-only either — it now runs on
+  PRs and on main. Its dispatch-only setting existed to stay clear of a Vercel
+  deploy from the old `origin`, which was deleted in the phase-0 purge and 404s;
+  that constraint is gone. It stays off every-push because it is heavy (npm ci,
+  a full Tauri Windows build); the cheap workflow carries the per-push guard.
 - **`tauri dev` WITHOUT `--release` is a trap for anything touching a model.**
   Always `npm run tauri dev -- --release` when the path under test loads BGE,
   candle, or the generative judge. Candle's CPU kernels are unoptimised in a

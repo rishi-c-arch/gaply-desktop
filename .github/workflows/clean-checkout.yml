@@ -1,0 +1,85 @@
+# Does the COMMITTED tree build?
+#
+# `main` did not compile for weeks while every local run was green, because two
+# things committed code referenced lived only in a working tree:
+# `gaply-core/src/scientific_model.rs` (declared by df4eef3, never added) and
+# `sentences_in` in `extract/sentence.rs`. A local `cargo test --workspace`
+# compiles the tree, uncommitted files included, so it structurally cannot see a
+# missing `git add`. The one workflow that would have caught it —
+# windows-build-check — is dispatch-only and effectively never ran.
+#
+# This job exists so that gap fails HERE, on a push, rather than on someone's
+# future clone. It is deliberately cheap: no Node, no npm, no Tauri
+# prerequisites, no bundled model. It builds and tests `gaply_core`, which is
+# the portable crate and MUST build from source alone.
+name: Clean checkout
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clean-checkout-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gaply-core:
+    name: gaply_core builds and tests from source alone
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 because the verify script below creates a git worktree,
+      # which a depth-1 clone cannot do. The build itself does not need history.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # src-tauri/ is not on every ref; skip cleanly rather than failing with a
+      # cryptic path error, matching windows-build-check's own detection.
+      - name: Detect Tauri project
+        id: detect
+        run: |
+          if [ -d src-tauri ] && [ -f src-tauri/Cargo.toml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=No src-tauri on this ref::skipped"
+          fi
+
+      - name: Install Rust (stable)
+        if: steps.detect.outputs.present == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        if: steps.detect.outputs.present == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # THE GUARD. A CI checkout is already exactly the committed tree — that is
+      # the property the whole job turns on — so building it here IS the check,
+      # and a file nobody staged fails on this line.
+      - name: cargo check -p gaply_core --all-targets
+        if: steps.detect.outputs.present == 'true'
+        working-directory: src-tauri
+        run: cargo check -p gaply_core --all-targets
+
+      - name: cargo test -p gaply_core
+        if: steps.detect.outputs.present == 'true'
+        working-directory: src-tauri
+        run: cargo test -p gaply_core
+
+      # Runs the LOCAL guard against itself. Redundant as a build check — the
+      # checkout above is already clean — and kept anyway for one reason: the
+      # script is what developers run before merging, and a guard that silently
+      # stops working is worse than none. This fails if the script rots.
+      #
+      # It reports SKIPPED for the app crate here, and that is correct rather
+      # than a gap: the build script needs `bundled-models/*.gguf`, ~400 MB and
+      # gitignored by design, which CI has no way to provide. gaply_core is the
+      # crate that must build from source alone and is fully checked above.
+      - name: verify-clean-checkout.sh still works
+        if: steps.detect.outputs.present == 'true'
+        run: ./scripts/verify-clean-checkout.sh
