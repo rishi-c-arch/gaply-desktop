@@ -7,13 +7,21 @@
 //! format-specific code.
 
 pub mod citations;
+pub mod claims;
+pub mod datasets;
 pub mod docparse;
+pub mod methods;
 pub mod persist;
 pub mod sections;
 pub mod sentence;
 pub mod stats;
+pub mod variables;
+
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+
+use crate::scientific_model::ScientificExtraction;
 
 pub use citations::{Citation, CitationStyle, Reference};
 pub use sections::{Section, SectionKind};
@@ -159,7 +167,7 @@ pub struct TableRef {
 }
 
 /// The full typed result of extracting one manuscript.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExtractionResult {
     pub title: Option<String>,
     pub sections: Vec<Section>,
@@ -167,6 +175,10 @@ pub struct ExtractionResult {
     pub citations: Vec<Citation>,
     pub references: Vec<Reference>,
     pub tables: Vec<TableRef>,
+    /// Optional scientific-understanding layer. Always constructed locally;
+    /// cloud stages only receive bounded summaries derived from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scientific: Option<Arc<ScientificExtraction>>,
 }
 
 /// Extract structure and claims from already-parsed manuscript plaintext.
@@ -196,7 +208,48 @@ pub fn extract_from_text(text: &str) -> ExtractionResult {
         }
     }
 
-    ExtractionResult { title, sections: secs, statistics, citations, references, tables }
+    let mut result = ExtractionResult {
+        title,
+        sections: secs,
+        statistics,
+        citations,
+        references,
+        tables,
+        ..Default::default()
+    };
+
+    // Stage 1 deterministic scientific extraction. Best-effort: never fails the run.
+    let claims = claims::extract_claims(&result);
+    let variables = variables::extract_variables(&result, &claims);
+    let mut methods = methods::extract_methods(&result, &claims, &variables);
+    let datasets = datasets::extract_datasets(&result, &claims, &variables, &methods);
+
+    // Cross-link datasets back into methods.
+    for m in &mut methods {
+        m.associated_datasets = datasets
+            .iter()
+            .filter(|d| d.associated_methods.iter().any(|mid| mid.0 == m.id.0))
+            .map(|d| d.id.clone())
+            .collect();
+        m.associated_datasets.sort_by(|a, b| a.0.cmp(&b.0));
+    }
+
+    let scientific = ScientificExtraction {
+        claims,
+        variables,
+        methods,
+        datasets,
+        ..Default::default()
+    };
+    if !scientific.claims.is_empty()
+        || !scientific.variables.is_empty()
+        || !scientific.methods.is_empty()
+        || !scientific.datasets.is_empty()
+    {
+        result.scientific = Some(Arc::new(scientific));
+    }
+
+    result
 }
 
 /// A paragraph that begins "Table N ..." is treated as that table's caption.

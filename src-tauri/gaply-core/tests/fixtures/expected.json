@@ -90,6 +90,258 @@
       "year": 2019
     }
   ],
+  "scientific": {
+    "claims": [
+      {
+        "category": "method_claim",
+        "citations": [],
+        "confidence": 0.85,
+        "datasets": [],
+        "evidence": [],
+        "id": "claim-1",
+        "methods": [],
+        "nature": "descriptive",
+        "normalized": null,
+        "novelty_links": [],
+        "reviewer_notes": [],
+        "sentence_indices": [
+          1
+        ],
+        "source": "deterministic",
+        "source_span": {
+          "Point": {
+            "paragraph": 0,
+            "section": "abstract"
+          }
+        },
+        "statement": "randomized controlled trial (n = 96), participants who slept nine hours outperformed a control group (p < 0.001, 95% CI: 2.1 to 4.8).",
+        "statistics": [
+          {
+            "index": 0,
+            "location": {
+              "paragraph": 0,
+              "section": "abstract"
+            }
+          },
+          {
+            "index": 1,
+            "location": {
+              "paragraph": 0,
+              "section": "abstract"
+            }
+          },
+          {
+            "index": 2,
+            "location": {
+              "paragraph": 0,
+              "section": "abstract"
+            }
+          }
+        ],
+        "variables": [],
+        "verification_status": "unverified"
+      },
+      {
+        "category": "method_claim",
+        "citations": [],
+        "confidence": 0.75,
+        "datasets": [],
+        "evidence": [],
+        "id": "claim-2",
+        "methods": [],
+        "nature": "descriptive",
+        "normalized": null,
+        "novelty_links": [],
+        "reviewer_notes": [],
+        "sentence_indices": [
+          1
+        ],
+        "source": "deterministic",
+        "source_span": {
+          "Point": {
+            "paragraph": 0,
+            "section": "methods"
+          }
+        },
+        "statement": "We used an independent t-test to compare group means and a one-way ANOVA to assess dose response across three sleep durations.",
+        "statistics": [
+          {
+            "index": 4,
+            "location": {
+              "paragraph": 0,
+              "section": "methods"
+            }
+          },
+          {
+            "index": 5,
+            "location": {
+              "paragraph": 0,
+              "section": "methods"
+            }
+          }
+        ],
+        "variables": [],
+        "verification_status": "unverified"
+      }
+    ],
+    "contributions": [],
+    "datasets": [],
+    "hypotheses": [],
+    "limitations": [],
+    "methods": [
+      {
+        "algorithms": [],
+        "associated_claims": [
+          "claim-1"
+        ],
+        "associated_datasets": [],
+        "associated_variables": [],
+        "blinding": null,
+        "comparator": "control group",
+        "confidence": 0.98,
+        "design": "clinical_trial",
+        "evaluation_metrics": [],
+        "experimental_design": null,
+        "id": "method-0-0",
+        "intervention": null,
+        "libraries": [],
+        "materials": [],
+        "name": "clinical trial",
+        "procedure_summary": "We examined whether extended sleep improves working-memory performance. In a randomized controlled trial (n = 96), participants who slept nine hours outperformed a control group (p < 0.001, 95% CI: 2.1 to 4.8). Prior work has been mixed (Kim, 2018; Alvarez & Novak, 2021).",
+        "protocol_references": [],
+        "randomization": null,
+        "sampling": {
+          "frame": null,
+          "method": null,
+          "size": 96
+        },
+        "software": [],
+        "source": "deterministic",
+        "source_spans": [
+          {
+            "Point": {
+              "paragraph": 0,
+              "section": "abstract"
+            }
+          }
+        ],
+        "statistical_tests": [
+          {
+            "name": "p < 0.001",
+            "stat": {
+              "index": 0,
+              "location": {
+                "paragraph": 0,
+                "section": "abstract"
+              }
+            }
+          },
+          {
+            "name": "95% CI: 2.1 to 4.8",
+            "stat": {
+              "index": 1,
+              "location": {
+                "paragraph": 0,
+                "section": "abstract"
+              }
+            }
+          },
+          {
+            "name": "n = 96",
+            "stat": {
+              "index": 2,
+              "location": {
+                "paragraph": 0,
+                "section": "abstract"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "algorithms": [],
+        "associated_claims": [
+          "claim-2"
+        ],
+        "associated_datasets": [],
+        "associated_variables": [],
+        "blinding": null,
+        "comparator": null,
+        "confidence": 0.85,
+        "design": "clinical_trial",
+        "evaluation_metrics": [],
+        "experimental_design": null,
+        "id": "method-2-0",
+        "intervention": "two groups",
+        "libraries": [],
+        "materials": [],
+        "name": "clinical trial",
+        "procedure_summary": "Ninety-six healthy adults were randomized into two groups (n = 96). We used an independent t-test to compare group means and a one-way ANOVA to assess dose response across three sleep durations. Categorical outcomes were analyzed with a chi-square test.",
+        "protocol_references": [],
+        "randomization": null,
+        "sampling": {
+          "frame": null,
+          "method": null,
+          "size": 96
+        },
+        "software": [],
+        "source": "deterministic",
+        "source_spans": [
+          {
+            "Point": {
+              "paragraph": 0,
+              "section": "methods"
+            }
+          }
+        ],
+        "statistical_tests": [
+          {
+            "name": "n = 96",
+            "stat": {
+              "index": 3,
+              "location": {
+                "paragraph": 0,
+                "section": "methods"
+              }
+            }
+          },
+          {
+            "name": "t-test",
+            "stat": {
+              "index": 4,
+              "location": {
+                "paragraph": 0,
+                "section": "methods"
+              }
+            }
+          },
+          {
+            "name": "ANOVA",
+            "stat": {
+              "index": 5,
+              "location": {
+                "paragraph": 0,
+                "section": "methods"
+              }
+            }
+          },
+          {
+            "name": "chi-square",
+            "stat": {
+              "index": 6,
+              "location": {
+                "paragraph": 0,
+                "section": "methods"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "questions": [],
+    "schema_version": 1,
+    "variables": []
+  },
   "sections": [
     {
       "heading": "",

@@ -51,6 +51,21 @@ pub enum Stat {
     SignificanceThreshold { operator: String, value: f64, raw: String },
 }
 
+impl Stat {
+    /// The verbatim text from which this statistic was extracted.
+    pub fn raw(&self) -> &str {
+        match self {
+            Stat::PValue { raw, .. }
+            | Stat::ConfidenceInterval { raw, .. }
+            | Stat::SampleSize { raw, .. }
+            | Stat::Test { raw, .. }
+            | Stat::TestStatistic { raw, .. }
+            | Stat::EffectSize { raw, .. }
+            | Stat::SignificanceThreshold { raw, .. } => raw.as_str(),
+        }
+    }
+}
+
 /// Phrases whose presence in a p-value's SENTENCE establishes that the p-value
 /// is a significance CRITERION.
 ///

@@ -7,7 +7,7 @@ rust-version = "1.77.2"
 
 [dependencies]
 thiserror = "2"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
 tracing = "0.1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 r2d2 = "0.8"
