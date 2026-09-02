@@ -25,6 +25,12 @@ const HERO_OPTIONS = [
   { label: 'Statistical Analysis Check', href: '/app/check/stats' },
   { label: 'Statistical Analysis Verifier ★', href: '/app/statsverifier' },
   { label: 'Citation Manager', href: '/app/citations' },
+  // The whole-manuscript citation audit. It had a route and no way in: the only
+  // link lived inside a SELECTED citation's AI panel ("Check the whole
+  // manuscript"), so reaching a manuscript-level feature meant first picking a
+  // single citation it has nothing to do with — and the audit is what the
+  // Citation Manager's per-citation slice is a slice OF.
+  { label: 'Citation Audit', href: '/app/check/citations' },
   { label: 'Note Creator', href: '/app/notes' },
   { label: 'Journal Check', href: '/app/journal' },
   { label: 'Journal Verification ★', href: '/app/journal-verify' },
