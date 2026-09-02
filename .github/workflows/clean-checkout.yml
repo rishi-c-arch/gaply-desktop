@@ -62,7 +62,10 @@ jobs:
         if: steps.detect.outputs.present == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev pkg-config
+          # libdbus-1-dev + pkg-config: the BUILD requirement.
+          # gnome-keyring + dbus-x11: the RUNTIME one — `secrets.rs` talks to a
+          # live Secret Service daemon, and a bare runner has none.
+          sudo apt-get install -y libdbus-1-dev pkg-config gnome-keyring dbus-x11
 
       - name: Install Rust (stable)
         if: steps.detect.outputs.present == 'true'
@@ -82,10 +85,20 @@ jobs:
         working-directory: src-tauri
         run: cargo check -p gaply_core --all-targets
 
-      - name: cargo test -p gaply_core
+      # Inside a session bus with an unlocked keyring. `secrets.rs` is a thin
+      # wrapper over the OS credential store and its tests exercise a REAL one
+      # — that is the point of them, and stubbing the store to make CI pass
+      # would delete the only coverage the wrapper has. gaply-core/Cargo.toml
+      # already documents the requirement: "at RUNTIME a Secret Service daemon
+      # (gnome-keyring / KWallet) must be running". So the runner provides one.
+      - name: cargo test -p gaply_core (with a Secret Service daemon)
         if: steps.detect.outputs.present == 'true'
         working-directory: src-tauri
-        run: cargo test -p gaply_core
+        run: |
+          dbus-run-session -- bash -c '
+            echo "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1 || true
+            cargo test -p gaply_core
+          ' 
 
       # Runs the LOCAL guard against itself. Redundant as a build check — the
       # checkout above is already clean — and kept anyway for one reason: the
@@ -98,4 +111,8 @@ jobs:
       # crate that must build from source alone and is fully checked above.
       - name: verify-clean-checkout.sh still works
         if: steps.detect.outputs.present == 'true'
-        run: ./scripts/verify-clean-checkout.sh
+        run: |
+          dbus-run-session -- bash -c '
+            echo "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1 || true
+            ./scripts/verify-clean-checkout.sh
+          ' 
