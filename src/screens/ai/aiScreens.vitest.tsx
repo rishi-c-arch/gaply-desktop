@@ -632,13 +632,68 @@ describe('Thesis audit', () => {
 
     emit!({ jobId: 7, completed: 2, total: 28, currentCategory: 'citation_need', latestItemSummary: 'needs_citation=true' });
 
-    await waitFor(() => expect(screen.getByTestId('audit-results')).toBeTruthy());
+    // The full dump is now BEHIND a disclosure: the report leads, and the
+    // hundred sentences it was computed from do not bury it.
+    await waitFor(() => expect(screen.getByTestId('audit-dump-toggle')).toBeTruthy());
+    expect(screen.getByTestId('audit-dump-toggle').textContent).toMatch(/Show every sentence/);
+    expect(screen.queryByTestId('audit-results')).toBeNull();
+    fireEvent.click(screen.getByTestId('audit-dump-toggle'));
+
+    expect(screen.getByTestId('audit-results')).toBeTruthy();
     expect(screen.getByTestId('audit-group-citation_need')).toBeTruthy();
     expect(screen.getByTestId('audit-group-unverifiable')).toBeTruthy();
     // page:null never becomes a fake number
     expect(screen.getByTestId('audit-item-1').textContent).toContain('page unknown');
     // unverifiable items carry their (deferred) affordances, clearly marked
     expect(screen.getByTestId('audit-link-1').textContent).toContain('coming soon');
+  });
+
+  it('leads with counts by category, not with a hundred sentences', async () => {
+    // The first real audit rendered 100 paragraphs above the report. Every
+    // number below was already being computed by `thesis_health`; the screen
+    // simply showed none of them.
+    const health = {
+      jobId: 7,
+      totalItems: 100,
+      completedItems: 96,
+      countsPerCategory: {
+        citation_need: { done: 79, failed: 4 },
+        unverifiable: { done: 17 },
+      },
+      verdictBreakdown: { 'need:needs_citation': 52, 'need:no_citation_needed': 27 },
+      unverifiableReasons: { 'numeric citation style: no numbered bibliography was parsed': 15 },
+      skippedReasons: { 'a table row or a figure caption': 5 },
+      flagged: [{ sentence: 'An uncited empirical claim.', result: { output: { needs_citation: true } } }],
+    };
+    let emit: ((e: JobProgressEvent) => void) | undefined;
+    const bridge = bridgeWith({
+      startThesisAudit: async (_p: string, cb: any) => {
+        emit = cb;
+        return plan;
+      },
+      jobStatus: async () => ({ health }),
+      jobResults: async () => ({ items: [] }),
+    });
+    render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(emit).toBeTruthy());
+    emit!({ jobId: 7, completed: 100, total: 100, currentCategory: 'citation_need', latestItemSummary: '' });
+
+    await waitFor(() => expect(screen.getByTestId('audit-health')).toBeTruthy());
+    // Counts by category, with the failures named rather than folded in.
+    expect(screen.getByTestId('audit-count-citation_need').textContent).toMatch(/83 citation need/);
+    expect(screen.getByTestId('audit-count-citation_need').textContent).toMatch(/4 could not be judged/);
+    expect(screen.getByTestId('audit-count-unverifiable').textContent).toMatch(/17 unverifiable/);
+    // What the model actually SAID, which is the number that matters and is
+    // not the same as the number queued.
+    expect(screen.getByTestId('audit-verdicts').textContent).toMatch(/52 needs citation/);
+    expect(screen.getByTestId('audit-verdicts').textContent).toMatch(/27 no citation needed/);
+    // Why the unverifiable ones could not be checked.
+    expect(screen.getByTestId('audit-unverifiable-reasons').textContent).toMatch(
+      /15 numeric citation style/,
+    );
+    // And what was never judged at all, kept out of every tally.
+    expect(screen.getByTestId('audit-skipped').textContent).toMatch(/5 a table row/);
   });
 
   it('offers a resume when a job was interrupted by a restart', async () => {

@@ -88,6 +88,10 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
   const runStartedAt = useRef<number | null>(null);
   const [items, setItems] = useState<AuditItem[]>([]);
   const [health, setHealth] = useState<Record<string, any> | null>(null);
+  /** The full sentence dump, CLOSED by default. The audit reads a hundred
+   *  sentences and flags a handful; leading with all hundred buries the report
+   *  under the material it was computed from. */
+  const [dumpOpen, setDumpOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drill, setDrill] = useState<GroundedFinding | null>(null);
 
@@ -294,41 +298,64 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
         </Card>
       )}
 
-      {items.length > 0 && (
-        <Card title="Results" data-testid="audit-results">
-          {Object.entries(grouped).map(([kind, list]) => (
-            <div className="gds-audit__group" key={kind} data-testid={`audit-group-${kind}`}>
-              <h4>{kind.replace('_', ' ')} — {list.length}</h4>
-              {list.map((it) => (
-                <div className="gds-audit__item" key={it.seq} data-testid={`audit-item-${it.seq}`}>
-                  <Badge status={it.kind === 'unverifiable' ? 'neutral' : 'assessed'}>
-                    {it.page === null ? 'page unknown' : `p.${it.page}`}
-                  </Badge>
-                  <p className="gds-audit__sentence">{it.sentence}</p>
-                  {it.kind === 'unverifiable' && (
-                    <div className="gds-audit__actions">
-                      {/* DEFERRED, and said so rather than looking broken. */}
-                      <Button variant="ghost" disabled title="Not yet available" data-testid={`audit-link-${it.seq}`}>
-                        Link source (coming soon)
-                      </Button>
-                      <Button variant="ghost" disabled title="Not yet available" data-testid={`audit-index-${it.seq}`}>
-                        Index document (coming soon)
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
-        </Card>
-      )}
-
       {health && (
         <Card title="Thesis health" data-testid="audit-health">
           <div className="gds-audit__stats">
             <div className="gds-audit__stat"><b>{health.completedItems}</b><span>checked</span></div>
             <div className="gds-audit__stat"><b>{(health.flagged ?? []).length}</b><span>need review</span></div>
           </div>
+
+          {/* COUNTS BY CATEGORY. The backend has computed these all along —
+              `countsPerCategory`, `verdictBreakdown`, `unverifiableReasons` —
+              and the screen showed none of them, leading instead with all
+              hundred sentences it had read. A reader needs the shape of the
+              result before its raw material. */}
+          <ul className="gds-audit__counts" data-testid="audit-counts">
+            {Object.entries(health.countsPerCategory ?? {}).map(([kind, byStatus]) => {
+              const total = Object.values(byStatus as Record<string, number>).reduce(
+                (a, b) => a + b,
+                0,
+              );
+              const failed = (byStatus as Record<string, number>).failed ?? 0;
+              return (
+                <li key={kind} data-testid={`audit-count-${kind}`}>
+                  <b>{total}</b> {kind.replace(/_/g, ' ')}
+                  {failed > 0 && <span className="gds-ai__hint"> · {failed} could not be judged</span>}
+                </li>
+              );
+            })}
+          </ul>
+
+          {Object.keys(health.verdictBreakdown ?? {}).length > 0 && (
+            <ul className="gds-audit__counts" data-testid="audit-verdicts">
+              {Object.entries(health.verdictBreakdown ?? {}).map(([v, n]) => (
+                <li key={v} data-testid={`audit-verdict-${v}`}>
+                  <b>{String(n)}</b> {v.replace(/^support:/, 'support — ').replace(/^need:/, '')
+                    .replace(/_/g, ' ')}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {Object.keys(health.unverifiableReasons ?? {}).length > 0 && (
+            <ul className="gds-audit__counts" data-testid="audit-unverifiable-reasons">
+              {Object.entries(health.unverifiableReasons ?? {}).map(([r, n]) => (
+                <li key={r}>
+                  <b>{String(n)}</b> {r}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {Object.keys(health.skippedReasons ?? {}).length > 0 && (
+            <p className="gds-ai__hint" data-testid="audit-skipped">
+              Not judged:{' '}
+              {Object.entries(health.skippedReasons ?? {})
+                .map(([r, n]) => `${n} ${r}`)
+                .join(', ')}
+              .
+            </p>
+          )}
           {(health.flagged ?? []).map((f: any, i: number) => (
             <div className="gds-audit__item" key={i} data-testid={`audit-flagged-${i}`}>
               <p className="gds-audit__sentence">{f.sentence}</p>
@@ -358,6 +385,50 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
           {drill && <EvidenceCard finding={drill} />}
         </Card>
       )}
+
+      {items.length > 0 && (
+        <button
+          type="button"
+          className="gds-link"
+          aria-expanded={dumpOpen}
+          onClick={() => setDumpOpen((v) => !v)}
+          data-testid="audit-dump-toggle"
+        >
+          {dumpOpen
+            ? 'Hide every sentence the audit read'
+            : `Show every sentence the audit read (${items.length})`}
+        </button>
+      )}
+
+      {items.length > 0 && dumpOpen && (
+        <Card title="Every sentence read" data-testid="audit-results">
+          {Object.entries(grouped).map(([kind, list]) => (
+            <div className="gds-audit__group" key={kind} data-testid={`audit-group-${kind}`}>
+              <h4>{kind.replace('_', ' ')} — {list.length}</h4>
+              {list.map((it) => (
+                <div className="gds-audit__item" key={it.seq} data-testid={`audit-item-${it.seq}`}>
+                  <Badge status={it.kind === 'unverifiable' ? 'neutral' : 'assessed'}>
+                    {it.page === null ? 'page unknown' : `p.${it.page}`}
+                  </Badge>
+                  <p className="gds-audit__sentence">{it.sentence}</p>
+                  {it.kind === 'unverifiable' && (
+                    <div className="gds-audit__actions">
+                      {/* DEFERRED, and said so rather than looking broken. */}
+                      <Button variant="ghost" disabled title="Not yet available" data-testid={`audit-link-${it.seq}`}>
+                        Link source (coming soon)
+                      </Button>
+                      <Button variant="ghost" disabled title="Not yet available" data-testid={`audit-index-${it.seq}`}>
+                        Index document (coming soon)
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </Card>
+      )}
+
     </div>
   );
 };

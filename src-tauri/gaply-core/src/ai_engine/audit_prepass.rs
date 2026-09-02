@@ -93,6 +93,27 @@ fn author_year_re() -> &'static Regex {
     })
 }
 
+/// NARRATIVE author-year: `Tang et al. (2016)`, `Wang and Liu (2019)`.
+///
+/// The audit was blind to this form. `author_year_re` requires the author
+/// INSIDE the parentheses, so `(Smith, 2019)` matched and `Smith (2019)` did
+/// not — and on the first real paper that meant sentences citing Tang, Wang and
+/// Demszky were counted as UNCITED and sent to the model as "does this need a
+/// citation?", which is precisely the question they already answer.
+///
+/// The pattern mirrors `extract::stats`'s canonical `narrative_cite`, including
+/// its `et\s+al\.` — `\s+`, not a literal space, because PDF extraction emits
+/// `et  al.` with a doubled space often enough to matter.
+fn narrative_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?P<lead>[A-Z][\p{L}'’.\-]+)(?:\s+(?:et\s+al\.?|(?:and|&)\s+[A-Z][\p{L}'’.\-]+|,\s+[A-Z][\p{L}'’.\-]+)+)?\s*\(\s*(?P<year>(?:1[6-9]|20)\d{2})[a-z]?\s*\)",
+        )
+        .expect("narrative regex")
+    })
+}
+
 fn numeric_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
@@ -114,6 +135,21 @@ pub fn markers_in(sentence: &str) -> Vec<Marker> {
             lead_author: c.name("lead").map(|m| m.as_str().to_lowercase()),
             year: c.name("year").and_then(|m| m.as_str().parse::<i32>().ok()),
             raw,
+            style: MarkerStyle::AuthorYear,
+            numbers: Vec::new(),
+        });
+    }
+    // Narrative form, skipping any span the parenthetical scanner already took
+    // so `(Smith, 2019)` is never counted twice.
+    for c in narrative_re().captures_iter(sentence) {
+        let whole = c.get(0).map(|m| m.as_str()).unwrap_or_default();
+        if out.iter().any(|m: &Marker| whole.contains(&m.raw)) {
+            continue;
+        }
+        out.push(Marker {
+            lead_author: c.name("lead").map(|m| m.as_str().to_lowercase()),
+            year: c.name("year").and_then(|m| m.as_str().parse::<i32>().ok()),
+            raw: whole.to_string(),
             style: MarkerStyle::AuthorYear,
             numbers: Vec::new(),
         });
@@ -168,10 +204,172 @@ pub fn looks_like_heading(sentence: &str) -> bool {
     words.len() <= 8
 }
 
+/// Why a line was not worth a model call. Typed rather than boolean so the
+/// report can say WHAT it dropped — "83 sentences need a citation" and "17 of
+/// those were table rows" are very different messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkipReason {
+    TooShort,
+    Heading,
+    /// Title block, authors, affiliations, emails, abstract/keyword labels.
+    FrontMatter,
+    /// A table row, a table caption, or a figure caption.
+    TableOrFigure,
+    /// Acknowledgements, funding, conflicts, copyright/DOI furniture.
+    BackMatter,
+    /// A numbered or lettered step in a procedure list.
+    ListItem,
+    /// An equation or a line of symbolic notation.
+    Notation,
+}
+
+impl SkipReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SkipReason::TooShort => "too short to be a claim",
+            SkipReason::Heading => "a heading, not a claim",
+            SkipReason::FrontMatter => "front matter (title, authors, abstract or keywords)",
+            SkipReason::TableOrFigure => "a table row or a figure caption",
+            SkipReason::BackMatter => "acknowledgements or publication furniture",
+            SkipReason::ListItem => "a numbered step in a procedure list",
+            SkipReason::Notation => "an equation, not prose",
+        }
+    }
+}
+
+/// Fraction of the cased letters that are uppercase. A title set in caps is not
+/// a claim, and on PDF-extracted text this is far more reliable than looking
+/// for a heading's punctuation, which extraction routinely mangles.
+fn uppercase_ratio(t: &str) -> f32 {
+    let cased: Vec<char> = t.chars().filter(|c| c.is_alphabetic()).collect();
+    if cased.len() < 8 {
+        return 0.0;
+    }
+    let upper = cased.iter().filter(|c| c.is_uppercase()).count();
+    upper as f32 / cased.len() as f32
+}
+
+/// Proportion of whitespace-separated tokens that are numeric-ish. Table rows
+/// are mostly numbers and short labels; prose is not.
+fn numeric_token_ratio(t: &str) -> f32 {
+    let toks: Vec<&str> = t.split_whitespace().collect();
+    if toks.len() < 4 {
+        return 0.0;
+    }
+    let numeric = toks
+        .iter()
+        .filter(|w| {
+            let w = w.trim_matches(|c: char| !c.is_alphanumeric());
+            !w.is_empty() && w.chars().any(|c| c.is_ascii_digit())
+        })
+        .count();
+    numeric as f32 / toks.len() as f32
+}
+
+/// Why this line is not a claim, or `None` if it is one.
+///
+/// # Why this got much stricter
+///
+/// The first real audit queued 83 of 100 lines from an IEEE-style PDF as
+/// "needs a citation", and among them were the paper's TITLE, the author list
+/// with an email address, the abstract, the keyword line, `TABLE I. DATASET
+/// STATISTICS …`, figure captions, section headers and the acknowledgement.
+/// None of those is a claim, and each one cost a model call to be told so.
+///
+/// The old filter was "six words and not a short unpunctuated line", which
+/// catches `3.2 Methods` and nothing else. PDF extraction produces long,
+/// unpunctuated, whitespace-mangled lines for exactly the furniture that needs
+/// dropping, so every test here is written against that kind of text rather
+/// than against clean prose.
+pub fn skip_reason(sentence: &str) -> Option<SkipReason> {
+    let t = sentence.trim();
+    // Collapse the runs of spaces PDF extraction leaves behind, so every rule
+    // below sees the words rather than the layout.
+    let flat = t.split_whitespace().collect::<Vec<_>>().join(" ");
+    let lower = flat.to_lowercase();
+    let words = flat.split_whitespace().count();
+
+    if words < MIN_CLAIM_WORDS {
+        return Some(SkipReason::TooShort);
+    }
+
+    // --- front matter -----------------------------------------------------
+    // An email address never appears inside a claim; it appears in an author
+    // block, which extraction glues to whatever surrounds it.
+    if flat.contains('@') && flat.split_whitespace().any(|w| w.contains('@') && w.contains('.')) {
+        return Some(SkipReason::FrontMatter);
+    }
+    for label in ["abstract", "keywords", "key words", "index terms"] {
+        // "Abstract-", "Keywords:", "Index Terms —" all start the line.
+        if lower.starts_with(label)
+            && lower[label.len()..].starts_with(|c: char| !c.is_alphanumeric())
+        {
+            return Some(SkipReason::FrontMatter);
+        }
+    }
+    // A title or an ALL-CAPS running header.
+    if uppercase_ratio(&flat) >= 0.7 {
+        return Some(SkipReason::FrontMatter);
+    }
+
+    // --- tables and figures ----------------------------------------------
+    if lower.starts_with("table ") || lower.starts_with("fig.") || lower.starts_with("figure ") {
+        return Some(SkipReason::TableOrFigure);
+    }
+    // A row of mostly numbers, with no verb-bearing prose to speak of.
+    if numeric_token_ratio(&flat) >= 0.4 {
+        return Some(SkipReason::TableOrFigure);
+    }
+
+    // --- back matter ------------------------------------------------------
+    for label in ["acknowledg", "conflict of interest", "funding statement", "©", "doi:", "arxiv:"] {
+        if lower.starts_with(label) {
+            return Some(SkipReason::BackMatter);
+        }
+    }
+
+    // --- procedure lists --------------------------------------------------
+    // "2) Emoji-to-text replacement …", "3. Tokenization …". A pipeline step is
+    // a description of what THIS paper did, not a claim about the literature.
+    // Anchored to the very start so a mid-sentence "(2)" cannot trip it.
+    if flat
+        .split_once(|c: char| c == ')' || c == '.')
+        .is_some_and(|(head, rest)| {
+            !head.is_empty()
+                && head.len() <= 3
+                && head.chars().all(|c| c.is_ascii_digit())
+                && rest.starts_with(' ')
+        })
+    {
+        return Some(SkipReason::ListItem);
+    }
+
+    // --- notation ---------------------------------------------------------
+    // An equation is not prose. Counted as symbol density rather than matched
+    // as a pattern, because extraction renders maths as whatever it can.
+    let symbols = flat
+        .chars()
+        // Brackets are DELIBERATELY absent: `[1]` is a numeric citation, and a
+        // rule that counted it as maths dropped "…points to mental health
+        // monitoring [1]" — a genuinely cited claim — as an equation. A filter
+        // that discards cited sentences is failing at the one thing it must
+        // never do.
+        .filter(|c| "=+*/^_∑Σαβθπ≤≥".contains(*c))
+        .count();
+    if symbols >= 6 && symbols as f32 / flat.chars().count().max(1) as f32 >= 0.04 {
+        return Some(SkipReason::Notation);
+    }
+
+    if looks_like_heading(&flat) {
+        return Some(SkipReason::Heading);
+    }
+    None
+}
+
 /// Is this sentence worth a model call at all?
 pub fn is_significant(sentence: &str) -> bool {
-    let words = sentence.split_whitespace().count();
-    words >= MIN_CLAIM_WORDS && !looks_like_heading(sentence)
+    skip_reason(sentence).is_none()
 }
 
 /// Run the whole deterministic pass over paged blocks.
@@ -396,6 +594,76 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn narrative_citations_are_markers_too() {
+        // The audit was blind to these, so every sentence citing "Tang et al.
+        // (2016)" was counted UNCITED and asked whether it needed a citation.
+        for text in [
+            "The TD-LSTM was introduced by Tang et al. (2016) to model aspects.",
+            "GoEmotions by Demszky et al. (2020) fine-tuned BERT and reached 46%.",
+            "Gordon and Burford (1984) reported the opposite.",
+            // Doubled space: PDF extraction emits this, and a literal-space
+            // pattern misses it.
+            "The ATAE-LSTM model was proposed by Wang  et  al.  (2016) for gates.",
+        ] {
+            let m = markers_in(text);
+            assert_eq!(m.len(), 1, "no marker found in {text:?}");
+            assert_eq!(m[0].style, MarkerStyle::AuthorYear);
+            assert!(m[0].year.is_some(), "no year in {text:?}");
+            assert!(m[0].lead_author.is_some(), "no lead author in {text:?}");
+        }
+    }
+
+    #[test]
+    fn a_parenthetical_citation_is_not_counted_twice() {
+        let m = markers_in("Yields rose sharply (Smith, 2019) in the trial.");
+        assert_eq!(m.len(), 1, "double-counted: {m:?}");
+        assert_eq!(m[0].lead_author.as_deref(), Some("smith"));
+    }
+
+    #[test]
+    fn a_bare_year_in_parentheses_is_not_a_citation() {
+        // "(2016) to incorporate …" is the tail of a sentence the splitter cut
+        // in half. It names nobody, so it must not resolve to anything.
+        assert!(markers_in("(2016) to incorporate the aspect information.").is_empty());
+        assert!(markers_in("The study ran from 1998 to (2004) without issue.").is_empty());
+    }
+
+    #[test]
+    fn the_filter_drops_the_furniture_of_a_real_pdf() {
+        use SkipReason::*;
+        // Every one of these is a real line from the first audited paper, with
+        // its extraction whitespace intact.
+        let cases: &[(&str, SkipReason)] = &[
+            ("HEFCSO-BILSTM: A HYBRID FIREFLY-CROW SEARCH OPTIMIZED BIDIRECTIONAL LSTM FOR EMOTION DETECTION", FrontMatter),
+            ("yadav.neha109@gmail.com Abstract- Emotion detection in social media text must deal with five challenges", FrontMatter),
+            ("Keywords- emotion detection, social media NLP, BiLSTM, Firefly Algorithm, Crow Search", FrontMatter),
+            ("TABLE I. DATASET STATISTICS Dataset Source Samples Emotions Avg.", TableOrFigure),
+            ("Fig. 2. The complete architecture of the proposed system pipeline", TableOrFigure),
+            ("ACKNOWLEDGEMENT The authors thank the Department of Computer Science & Engineering", BackMatter),
+            ("2) Emoji-to- text replacement followed by the Python-emoji emoji description library.", ListItem),
+            ("An attention mechanism computes c = Σ_t α_t h_t, where α_t = SoftMax(v_a^T tanh(W_a h_t))", Notation),
+            ("3.2 Methods", TooShort),
+        ];
+        for (text, want) in cases {
+            assert_eq!(skip_reason(text), Some(*want), "wrong verdict for {text:?}");
+        }
+    }
+
+    #[test]
+    fn the_filter_never_drops_a_real_claim_or_a_cited_sentence() {
+        // The one thing it must not do. A rule that counted `[1]` as maths
+        // dropped the first of these — a genuinely cited claim.
+        for keep in [
+            "Exact profiling of microemotional states from such  text  carries  points  to  mental  health  monitoring  [1]",
+            "In  the  combined  data  set,  the  results  achieved  96.42% accuracy, 95.00% F1-score",
+            "The TD-LSTM was introduced by Tang et al. (2016) to model aspects of the sentiment.",
+            "Organic management increased soil invertebrate species richness by about 31 percent.",
+        ] {
+            assert_eq!(skip_reason(keep), None, "wrongly dropped: {keep:?}");
+        }
+    }
+
     fn the_significance_filter_drops_headings_and_stubs() {
         assert!(!is_significant("3.2 Methods"));
         assert!(!is_significant("Introduction"));

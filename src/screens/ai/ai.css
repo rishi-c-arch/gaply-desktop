@@ -275,3 +275,20 @@
   flex-wrap: wrap;
   margin: 12px 0;
 }
+
+/* Counts by category in the Thesis Health report. A list, not a grid: the
+   number of categories varies with what the audit found, and a fixed grid
+   either wraps badly or leaves holes. */
+.gds-root .gds-audit__counts {
+  list-style: none;
+  margin: var(--g-space-1) 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g-space-1) var(--g-space-2);
+  font-size: var(--g-text-size-sm);
+  color: var(--g-text-2);
+}
+.gds-root .gds-audit__counts b {
+  color: var(--g-text-1);
+}
