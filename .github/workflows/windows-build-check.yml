@@ -124,14 +124,38 @@ jobs:
         working-directory: src-tauri
         run: cargo test -p gaply_core
 
+      # tauri.conf.json lists `bundled-models/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf`
+      # (~400 MB) and `bundled-models/tokenizer.json` (~11 MB) as bundle
+      # resources. Both are gitignored, so a clean checkout does not have them
+      # and the build script stops with `resource path ... doesn't exist`.
+      #
+      # The build is therefore GATED rather than faked. Substituting placeholder
+      # files would let it succeed and would upload a real, installable MSI/NSIS
+      # containing a model that cannot work — a worse outcome than not building,
+      # because the artifact looks legitimate. Everything that checks Windows
+      # PORTABILITY — the full cargo compile and the gaply_core test suite —
+      # runs above this line and is unaffected.
+      - name: Detect bundled model resources
+        id: detect_models
+        if: steps.detect_tauri.outputs.present == 'true'
+        shell: bash
+        run: |
+          if [ -f "src-tauri/bundled-models/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf" ] \
+             && [ -f "src-tauri/bundled-models/tokenizer.json" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Bundle skipped::bundled-models/*.gguf and tokenizer.json are gitignored (~400 MB) and absent on a clean checkout, so the installer is not built. The Windows compile and the gaply_core test suite both ran."
+          fi
+
       # Produces the real Windows installers (bundle.targets = "all" → MSI + NSIS).
       # beforeBuildCommand builds the CRA frontend first.
       - name: Build Tauri Windows app
-        if: steps.detect_tauri.outputs.present == 'true'
+        if: steps.detect_tauri.outputs.present == 'true' && steps.detect_models.outputs.present == 'true'
         run: npm run tauri build
 
       - name: Upload Windows installer(s)
-        if: steps.detect_tauri.outputs.present == 'true'
+        if: steps.detect_tauri.outputs.present == 'true' && steps.detect_models.outputs.present == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gaply-windows-installer
