@@ -56,11 +56,23 @@ pub(crate) const ABBREVIATIONS: &[&str] = &[
 /// this, `"unaffected."` matches the `"ed."` abbreviation and a real sentence
 /// boundary is suppressed.
 pub(crate) fn ends_with_abbreviation(tail: &str) -> bool {
+    // Compare against whitespace-NORMALISED text. PDF extraction routinely
+    // emits "et  al." with a doubled space, and `ABBREVIATIONS` holds
+    // "et al." with one — so the literal match failed on exactly the text this
+    // guard exists for. On the first real audited paper, 1 of the 4 "et al."
+    // occurrences was doubled, and that is precisely the one that split:
+    // "…was proposed by Wang  et  al." became an uncited sentence and
+    // "(2016) to incorporate…" became an orphan fragment, so one whitespace
+    // artifact manufactured two false findings out of one real citation.
+    let flat: String = tail.split_whitespace().collect::<Vec<_>>().join(" ");
+    // A trailing space is meaningful to `ends_with`, and `split_whitespace`
+    // discards it; restore it so "cf. " still matches "cf.".
+    let flat = if tail.ends_with(char::is_whitespace) { flat + " " } else { flat };
     ABBREVIATIONS.iter().any(|a| {
-        tail.ends_with(a) && {
-            let before = tail.len() - a.len();
+        flat.ends_with(a) && {
+            let before = flat.len() - a.len();
             before == 0
-                || !tail[..before].chars().next_back().map(|c| c.is_alphanumeric()).unwrap_or(false)
+                || !flat[..before].chars().next_back().map(|c| c.is_alphanumeric()).unwrap_or(false)
         }
     })
 }
@@ -101,7 +113,7 @@ pub(crate) fn ends_with_abbreviation(tail: &str) -> bool {
 /// **THE REDUNDANCY IS INTENTIONAL AND RECORDED HERE** so a future reader does
 /// not remove one clause as dead — finding the tests still green — and then
 /// remove the other as equally dead.
-fn closes_sentence(text: &str, i: usize) -> bool {
+pub(crate) fn closes_sentence(text: &str, i: usize) -> bool {
     let bytes = text.as_bytes();
     let terminator = bytes[i] as char;
     debug_assert!(matches!(terminator, '.' | '!' | '?'));
@@ -173,8 +185,62 @@ pub fn sentence_containing(text: &str, at: usize) -> &str {
     text[start..end].trim()
 }
 
+/// Split a paragraph into sentences.
+///
+/// Returns the trimmed slice for each sentence. The same boundary rules as
+/// [`sentence_containing`] apply, preserving the numeric-literal invariant.
+pub fn sentences_in(text: &str) -> Vec<&str> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out = Vec::new();
+    let mut start = 0usize;
+
+    for (i, c) in text.char_indices() {
+        if matches!(c, '.' | '!' | '?') && closes_sentence(text, i) {
+            let end = i + c.len_utf8();
+            let trimmed = text[start..end].trim();
+            if !trimmed.is_empty() {
+                out.push(trimmed);
+            }
+            start = end;
+        }
+    }
+
+    if start < text.len() {
+        let tail = text[start..].trim();
+        if !tail.is_empty() {
+            out.push(tail);
+        }
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn pdf_doubled_whitespace_does_not_defeat_an_abbreviation() {
+        // The exact text from the first audited paper. One whitespace artifact
+        // used to manufacture two false findings from one real citation: an
+        // "uncited" sentence ending at "Wang  et  al." and an orphan fragment
+        // starting "(2016) to incorporate…".
+        let mangled = "The  ATAE-LSTM  model  was  proposed  by  Wang  et  al.  (2016)  to incorporate the aspect information.";
+        let got = sentences_in(mangled);
+        assert_eq!(got.len(), 1, "split at a doubled-space abbreviation: {got:?}");
+
+        // Single-spaced still works, and so does the rest of the list.
+        assert_eq!(sentences_in("Reported by Smith et al. (2019) in the trial.").len(), 1);
+        assert!(ends_with_abbreviation("reported by Smith et  al."));
+        assert!(ends_with_abbreviation("reported by Smith et al."));
+        assert!(ends_with_abbreviation("see  Fig."));
+
+        // And a real sentence boundary is still a boundary.
+        assert_eq!(sentences_in("Yields rose.  The effect held.").len(), 2);
+    }
+
     use super::*;
 
     /// **THE INVARIANT, asserted directly.** A boundary landing inside a decimal
