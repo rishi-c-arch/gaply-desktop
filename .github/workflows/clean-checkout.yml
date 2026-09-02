@@ -48,6 +48,22 @@ jobs:
             echo "::notice title=No src-tauri on this ref::skipped"
           fi
 
+      # gaply_core reaches the OS keychain through `keyring`, and on Linux that
+      # is Secret Service over D-Bus:
+      #   gaply_core -> keyring (sync-secret-service) -> dbus-secret-service
+      #              -> dbus -> libdbus-sys, whose build script needs dbus-1.pc
+      # The macOS and Windows builds use the native backends and need none of
+      # this, which is why it never showed up locally. It is a RUNNER
+      # prerequisite, not a portability defect: the per-platform keyring
+      # features are a deliberate choice documented in gaply-core/Cargo.toml,
+      # and weakening them to make a Linux runner happy would be changing the
+      # product to suit the pipeline.
+      - name: Install Linux build prerequisites (D-Bus for keyring)
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
+
       - name: Install Rust (stable)
         if: steps.detect.outputs.present == 'true'
         uses: dtolnay/rust-toolchain@stable
