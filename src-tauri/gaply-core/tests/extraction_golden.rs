@@ -3,13 +3,16 @@
 //! gaply_core --test extraction_golden` after an intentional change, then
 //! review the diff before committing.
 
-use gaply_core::extract::extract_from_text;
+use gaply_core::extract::{extract_from_text_with, ExtractOptions};
 
 const MANUSCRIPT: &str = include_str!("fixtures/manuscript.txt");
 
 #[test]
 fn extraction_matches_golden_file() {
-    let result = extract_from_text(MANUSCRIPT);
+    // WITH the scientific layer: it is opt-in for callers, and the golden file
+    // is where its output stays pinned. A golden that only covered the base
+    // structure would let the Stage-1 extractors drift unwatched.
+    let result = extract_from_text_with(MANUSCRIPT, ExtractOptions::with_scientific());
     let actual = serde_json::to_value(&result).unwrap();
 
     let golden_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/expected.json");

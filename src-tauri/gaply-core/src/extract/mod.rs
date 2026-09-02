@@ -181,9 +181,44 @@ pub struct ExtractionResult {
     pub scientific: Option<Arc<ScientificExtraction>>,
 }
 
+/// What an extraction run should compute beyond the base structure.
+///
+/// The Stage-1 scientific extractors are OPT-IN. They landed wired into every
+/// call, which made every existing caller — AI Check, PublishReady, the audit
+/// pre-pass, the paper corpus — pay for four extra passes over the manuscript
+/// to populate a field none of them reads. The base extraction is on the hot
+/// path of features that run over hundreds of pages; the scientific layer is
+/// consumed by one that does not exist yet. Charging the first for the second
+/// is the wrong default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ExtractOptions {
+    /// Run `claims`/`variables`/`methods`/`datasets` and populate
+    /// [`ExtractionResult::scientific`].
+    pub scientific: bool,
+}
+
+impl ExtractOptions {
+    /// Base structure only — the historical behaviour.
+    pub fn base() -> Self {
+        Self { scientific: false }
+    }
+    /// Base structure plus the Stage-1 scientific layer.
+    pub fn with_scientific() -> Self {
+        Self { scientific: true }
+    }
+}
+
 /// Extract structure and claims from already-parsed manuscript plaintext.
+///
+/// Base structure only. Callers that want the scientific layer ask for it with
+/// [`extract_from_text_with`].
 #[tracing::instrument(skip(text), fields(len = text.len()))]
 pub fn extract_from_text(text: &str) -> ExtractionResult {
+    extract_from_text_with(text, ExtractOptions::base())
+}
+
+/// [`extract_from_text`], with the optional stages named explicitly.
+pub fn extract_from_text_with(text: &str, opts: ExtractOptions) -> ExtractionResult {
     let (title, secs) = sections::split_document(text);
 
     let mut statistics = Vec::new();
@@ -217,6 +252,10 @@ pub fn extract_from_text(text: &str) -> ExtractionResult {
         tables,
         ..Default::default()
     };
+
+    if !opts.scientific {
+        return result;
+    }
 
     // Stage 1 deterministic scientific extraction. Best-effort: never fails the run.
     let claims = claims::extract_claims(&result);
