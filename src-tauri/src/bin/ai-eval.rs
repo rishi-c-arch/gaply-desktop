@@ -139,6 +139,16 @@ struct Report {
     task: String,
     model_id: String,
     prompt_version: String,
+    /// WHICH COMPILER built this binary and WHICH OS ran it (§11 D61).
+    ///
+    /// A 2.65x CPU prefill regression against D34 had to be attributed between
+    /// the OS and the toolchain, and neither was recorded. Excluding the
+    /// toolchain took forensics on `~/.rustup` directory mtimes — circumstantial
+    /// evidence that stops working the moment anyone runs `rustup update`. Two
+    /// fields turn that into a lookup. Timing cells whose `rustc` or `os`
+    /// differ are not comparable, the same rule `loadContext` already carries.
+    rustc: String,
+    os: String,
     n_ctx: usize,
     /// Caller-supplied so the report is reproducible without a clock in the
     /// engine; falls back to "unknown" rather than inventing a date.
@@ -425,6 +435,31 @@ fn write_bakeoff(prefix: &str, out_dir: &Path) -> Result<(), Box<dyn std::error:
     std::fs::write(&path, md)?;
     println!("bake-off comparison written to {}", path.display());
     Ok(())
+}
+
+/// The OS this cell ran on. `uname -r` is the kernel (Darwin) version, which is
+/// what distinguishes a macOS major release for our purposes and needs no crate.
+fn os_version() -> String {
+    let kernel = std::process::Command::new("uname")
+        .arg("-r")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    #[cfg(target_os = "macos")]
+    {
+        let product = std::process::Command::new("sw_vers")
+            .arg("-productVersion")
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+        return format!("macOS {product} (Darwin {kernel})");
+    }
+    #[cfg(not(target_os = "macos"))]
+    format!("{} (kernel {kernel})", std::env::consts::OS)
 }
 
 #[tokio::main]
@@ -744,6 +779,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let report = Report {
         task: task_name.clone(),
+        rustc: env!("GAPLY_BUILD_RUSTC").to_string(),
+        os: os_version(),
         model_id,
         prompt_version: variant.version().to_string(),
         n_ctx: TASK_N_CTX,
@@ -1520,6 +1557,15 @@ async fn run_citation_support(
         // Which binary produced this cell. Never compare two cells whose
         // hashes differ.
         "binaryHash": binary_hash,
+        // WHICH COMPILER built it, and WHICH OS ran it (§11 D61).
+        //
+        // A 2.65x CPU prefill regression against D34 had to be attributed
+        // between the OS and the toolchain, and neither was in the report. The
+        // toolchain was eventually excluded by inspecting `~/.rustup` directory
+        // mtimes — circumstantial evidence that stops working the moment anyone
+        // runs `rustup update`. Two fields make that a lookup instead.
+        "rustc": env!("GAPLY_BUILD_RUSTC"),
+        "os": os_version(),
         // §11 D33. Timing figures from cells with DIFFERENT load context are
         // not comparable — that is a rule, not a caveat. `ranIsolated` is a
         // DECLARATION by the operator, not a measurement: it says nothing else

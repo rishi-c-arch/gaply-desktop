@@ -2782,3 +2782,108 @@ thermal or performance warning was recorded, so it is not throttling.
 matters more than the Metal win.** It is recorded here as unresolved rather than
 asserted; the controlled re-measure is CPU arm FIRST on a cold machine with
 everything else closed.
+
+### D61 — CPU prefill regressed 2.65x on macOS 26, and that makes the model choice a PER-PLATFORM question
+
+D60 left this open. It is now closed as far as this machine can close it: the
+regression is real, it is not contention, and the toolchain is excluded.
+
+#### The measurement, controlled
+
+Same seeds, same binary, CPU both times. Seeds 03 and 04 are the only clean
+comparison points — single attempt, no retry, prompts byte-identical across
+arms:
+
+| seed | CPU contended | CPU cold + caffeinate | Metal | cold vs D34 |
+|---|---|---|---|---|
+| cs-seed-03 | 93.5 ms/tok | **95.2 ms/tok** | 14.3 | **2.65x** |
+| cs-seed-04 | 79.0 ms/tok | **98.2 ms/tok** | 8.0 | **2.74x** |
+
+against D34's **35.9 ms/tok** on macOS 14.5. The re-measure ran CPU FIRST on a
+quiet machine: Chrome and the app closed, `caffeinate -dimsu`, load average 1.73
+at start, swap **894.56 MB -> 1033.81 MB** (+139 MB, no pressure event), and no
+thermal or performance warning recorded.
+
+**It reproduced slightly WORSE, not better.** Contention, background load, memory
+pressure and thermal throttling are all excluded.
+
+Two secondary results from the same run:
+
+- **CPU is deterministic with itself.** Seeds 02 and 05 failed validation on
+  exactly the same rules in both CPU runs, faithfulness violations landed on the
+  same seeds, and the summary was identical (4/6 valid, 33%, 1638 mean prompt
+  tokens). So D60's CPU-vs-Metal divergence is a genuine device effect, not
+  run-to-run noise.
+- **A "cold machine" is not uniformly faster for this workload.** cs-seed-01
+  looked 2.13x faster cold, but it was the FIRST case in the contended run and
+  paid model page-in; cs-seed-04 went the other way and was 21% SLOWER cold. A
+  warm page cache helps a memory-bound workload, so "cold" is not a synonym for
+  "fast" here and a single seed's improvement proves nothing.
+
+#### The toolchain is excluded by provenance, not by experiment
+
+The obvious next step was to rebuild under the rustc that built D34. There is
+nothing to rebuild against:
+
+```
+~/.rustup/toolchains/                     13 Jul 18:07   one toolchain, ever
+  stable-aarch64-apple-darwin/bin/rustc   13 Jul 18:08   never modified since
+~/.rustup/downloads/                      empty          no update ever fetched
+rustc 1.97.0 (2d8144b78 2026-07-07)
+```
+
+D34 was measured **29 August 2026**, six weeks after that install; the Metal work
+is **4 September**. One toolchain, installed once, never updated — so **D34 and
+the current runs used the same byte-identical compiler**. Installing an "older"
+toolchain would have compared 1.97.0 against 1.97.0 and produced a number with no
+information in it. `Cargo.lock` pins `candle-core 0.11.0`, identical to D34, so
+the library is excluded too.
+
+**What remains is the OS.** The honest bound: v1.4 -> v1.5 grew the prompt
+998 -> 1252 tokens, which even granting fully quadratic attention accounts for at
+most ~1.25-1.57x, so **2.65x is an upper bound on the OS-attributable share, not
+a clean measurement of it.** It is not zero, and it is not all of it.
+
+**The reports now record `rustc` and `os`** (`build.rs` captures cargo's `RUSTC`,
+so it is the compiler that actually built the binary rather than whatever is on
+PATH at runtime). Excluding the toolchain this time required forensics on rustup
+directory mtimes — circumstantial evidence that stops working the moment anyone
+runs `rustup update`. Timing cells whose `rustc` or `os` differ are not
+comparable, the same rule `loadContext` already carries.
+
+### The product consequence: CPU is the floor, and the floor is now three hours
+
+This is not a benchmarking curiosity. Measured, per citation check and for a
+65-sentence audit:
+
+| | per check | 65-sentence audit |
+|---|---|---|
+| **CPU** (every non-Metal user) | ~170-200 s | **~3 hours** |
+| **Metal** (macOS 15+ only) | ~31 s | **~30 minutes** |
+
+**Metal is macOS 15+ only** (D35/D36), so **every Windows user, every Linux user
+and every Mac below macOS 15 is on the three-hour floor.** Phase 8 was already
+shaped by long audits — crash-resume, streaming and cancellation are the feature,
+not polish — but three hours is a different product from thirty minutes, and the
+gap is now platform-determined rather than universal.
+
+**So the shipped model choice is a PER-PLATFORM question, and it belongs beside
+D30's Metal conditional rather than being rediscovered later.** The 3B is
+defensible at ~31 s on Metal. At ~170-200 s it is hard to defend as a default,
+and **the 1.5B may be the honest default without Metal** — it is already pinned,
+installed and registered (`qwen2.5-1.5b-instruct-q4km`), so this is a selection
+decision rather than new work.
+
+**Not decided here, because the data does not exist yet.** The 1.5B's quality on
+`citation_support` has never been measured against the 3B on the CURRENT prompt —
+the bake-off cells are v1/v2.1, not v1.5 — and choosing a weaker default judge on
+speed alone would trade a correctness property for a latency one without knowing
+the exchange rate. **What must be measured first:** 1.5B on v1.5, CPU and Metal,
+same six seeds, reporting valid-output rate, cited-planted-chunk and faithfulness
+violations beside ms/tok. If the 1.5B holds grounding at materially lower latency,
+per-platform defaults follow; if it does not, the honest answer is that the CPU
+floor is slow and the UI must say so rather than that a weaker judge is shipped
+quietly to hide it.
+
+Sequenced against D59: the citation_need prompt work is blocked on eval
+throughput, and this is the same constraint seen from the product side.
