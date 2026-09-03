@@ -39,7 +39,28 @@ pub enum Block {
     Bullet { text: String, indent: u8 },
     /// A caveat, disclosure or limitation. Rendered de-emphasised.
     Note { text: String },
+    /// A verdict, as a label with a SEMANTIC tone rather than a colour.
+    ///
+    /// The tone is the composer's (it knows what "contradicts" means); the
+    /// colour is each renderer's (only it knows its medium). A composer that
+    /// said `#c0392b` would be deciding presentation, which is the layering
+    /// this block set exists to prevent — and it would be wrong in a
+    /// monochrome print anyway.
+    Badge { text: String, tone: Tone },
     PageBreak,
+}
+
+/// How a badge should read, not how it should look.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tone {
+    /// Checked and supported.
+    Good,
+    /// Needs the author's attention.
+    Warn,
+    /// Wrong, contradicted, or failed.
+    Bad,
+    /// Stated without judgement.
+    Neutral,
 }
 
 /// Disclosure for characters FOLDED to a Latin base letter (`Śarmā` → `Sarma`).
@@ -79,9 +100,9 @@ pub enum Block {
 /// change rather than showing an instance of it**: showing one is impossible in
 /// the medium doing the showing.
 pub const NOTE_SIMPLIFIED: &str =
-    "Some letters in this report were simplified to their closest basic Latin form, so \
-     a letter carrying an accent or other mark may appear here as its plain equivalent. \
-     The spelling in your manuscript is unchanged.";
+    "Some characters in this report were written in their closest basic Latin form: a letter \
+     carrying an accent appears as its plain equivalent, and a Greek letter or mathematical \
+     symbol appears as its name spelled out. Your manuscript is unchanged.";
 
 /// Disclosure for characters this renderer cannot represent at all.
 ///

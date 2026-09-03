@@ -3044,11 +3044,22 @@ pub async fn ai_job_export_report(
     format: String,
 ) -> Result<serde_json::Value, GaplyError> {
     let db = state.db.clone();
+    let app_data = state.app_data_dir.clone();
     tokio::task::spawn_blocking(move || {
         // Passed in rather than read from a clock inside the composer, so a
         // report is reproducible and its tests are not time-dependent.
         let generated_on = crate::audit_export::today_label();
-        let model = crate::audit_export::build_model(&db, job_id, &manuscript_name, &generated_on)?;
+        // Only reached for jobs that predate model recording, and disclosed as
+        // a guess on the cover when it is used.
+        let installed = crate::ai::generative::resolve_generative_loader(&db, &app_data)
+            .map(|l| l.model_id());
+        let model = crate::audit_export::build_model_with(
+            &db,
+            job_id,
+            &manuscript_name,
+            &generated_on,
+            installed.as_deref(),
+        )?;
         let blocks = gaply_core::audit_report::compose_audit(&model);
         let (bytes, extension) = match format.as_str() {
             "pdf" => (gaply_core::report_pdf::render_pdf(&blocks), "pdf"),

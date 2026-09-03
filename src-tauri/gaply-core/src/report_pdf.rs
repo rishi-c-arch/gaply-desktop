@@ -151,6 +151,39 @@ fn latin_base(ch: char) -> Option<&'static str> {
         // `p ? 0.05`, which made EVERY significance criterion unreadable in a
         // report whose subject is statistics (§52.4). The sentinel was working;
         // the table was incomplete.
+        // ── GREEK ────────────────────────────────────────────────────────
+        //
+        // Same argument as the maths above, one step further: a Greek letter in
+        // a methods sentence is notation with a conventional English spelling,
+        // and `α_t = SoftMax(v_a^T tanh(W_a h_t))` rendered as
+        // `?_t = SoftMax(...)` loses the variable the sentence is ABOUT. The
+        // audit report's attention sections are full of these — every equation
+        // line from the reference paper hit it.
+        //
+        // Spelled out rather than approximated to a Latin lookalike: `a` for α
+        // would read as a different variable, which is worse than a longer one.
+        '\u{03B1}' => "alpha",  '\u{0391}' => "Alpha",
+        '\u{03B2}' => "beta",   '\u{0392}' => "Beta",
+        '\u{03B3}' => "gamma",  '\u{0393}' => "Gamma",
+        '\u{03B4}' => "delta",  '\u{0394}' => "Delta",
+        '\u{03B5}' => "epsilon",
+        '\u{03B8}' => "theta",  '\u{0398}' => "Theta",
+        '\u{03BB}' => "lambda", '\u{039B}' => "Lambda",
+        '\u{03BC}' => "mu",
+        '\u{03C0}' => "pi",     '\u{03A0}' => "Pi",
+        '\u{03C1}' => "rho",
+        '\u{03C3}' => "sigma",  '\u{03A3}' => "Sigma",
+        '\u{03C4}' => "tau",
+        '\u{03C6}' => "phi",    '\u{03A6}' => "Phi",
+        '\u{03C7}' => "chi",
+        '\u{03C8}' => "psi",    '\u{03A8}' => "Psi",
+        '\u{03C9}' => "omega",  '\u{03A9}' => "Omega",
+        '\u{2211}' => "sum",    // ∑
+        '\u{220F}' => "prod",   // ∏
+        '\u{221A}' => "sqrt",   // √
+        '\u{221E}' => "inf",    // ∞
+        '\u{2248}' => "~=",     // ≈
+        '\u{00B1}' => "+/-",    // ±  (in Latin-1, but spelled for clarity)
         '\u{2264}' => "<=", // ≤
         '\u{2265}' => ">=", // ≥
         '\u{2260}' => "!=", // ≠
@@ -353,6 +386,13 @@ enum Decor {
     /// A section heading followed by a rule of the given weight and colour.
     /// That single rule is what creates the hierarchy.
     RuleUnder(f64, Rgb),
+    /// A verdict pill: a tinted fill sized to the TEXT, not to the column.
+    ///
+    /// Full-column is what `Panel` is for, and a verdict drawn that way reads
+    /// as a section rather than as a label on one. A badge has to be scannable
+    /// down the left edge of a page of findings, which means it has to end
+    /// where its word ends.
+    Pill(Rgb),
 }
 
 /// A group of lines drawn together, with its decoration. Groups are the unit
@@ -378,6 +418,7 @@ impl Elem {
             Decor::Panel => 22.0,
             Decor::Quote => 20.0 + 16.0,
             Decor::RuleUnder(..) => 11.0 + 6.0,
+            Decor::Pill(_) => 3.0 + 5.0,
             Decor::None => 0.0,
         }
     }
@@ -517,6 +558,34 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
                 let lines = lay(&mut outcome, text, scale::SMALL, Face::Regular, 11.0, MUTED, 12.0, TEXT_W - 22.0);
                 elems.push(Elem { lines, decor: Decor::Panel, soft_break: false, hard_break: false });
             }
+            Block::Badge { text, tone } => {
+                use crate::report_compose::Tone;
+                // Ink and tint, not one colour: coloured text on white is a
+                // word that happens to be red. The fill is what makes it a
+                // badge you can find by scanning rather than by reading.
+                let (ink, tint) = match tone {
+                    Tone::Good => (rgb(0x1C, 0x73, 0x40), rgb(0xEE, 0xF7, 0xF1)),
+                    Tone::Warn => (rgb(0xB5, 0x6B, 0x0D), rgb(0xFD, 0xF5, 0xE9)),
+                    Tone::Bad => (rgb(0xB3, 0x21, 0x21), rgb(0xFB, 0xED, 0xED)),
+                    Tone::Neutral => (MUTED, rgb(0xF2, 0xF2, 0xF0)),
+                };
+                let lines = lay(
+                    &mut outcome,
+                    &text.to_uppercase(),
+                    scale::FIELD_LABEL,
+                    Face::Bold,
+                    0.0,
+                    ink,
+                    8.0,
+                    TEXT_W,
+                );
+                elems.push(Elem {
+                    lines,
+                    decor: Decor::Pill(tint),
+                    soft_break: false,
+                    hard_break: false,
+                });
+            }
             Block::PageBreak => elems.push(Elem::br(true, false)),
         }
     }
@@ -597,6 +666,7 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
         let pad = match el.decor {
             Decor::Panel => 11.0,
             Decor::Quote => 10.0,
+            Decor::Pill(_) => 3.0,
             _ => 0.0,
         };
         if pad > 0.0 {
@@ -637,6 +707,24 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
                 y -= 11.0;
                 stream.extend_from_slice(&fill_rect(MARGIN_X, y, TEXT_W, w, c));
                 y -= 6.0;
+            }
+            Decor::Pill(tint) => {
+                // Widest line, so a two-word verdict is not clipped. Padded 6pt
+                // each side; the extra 2pt of height sits under the baseline so
+                // descenders are not cut by the fill's lower edge.
+                let w = el
+                    .lines
+                    .iter()
+                    .map(|l| text_width_in(&l.bytes, l.size, l.face))
+                    .fold(0.0_f64, f64::max);
+                stream.extend_from_slice(&fill_rect(
+                    MARGIN_X - 6.0,
+                    y - 2.0,
+                    w + 12.0,
+                    block_top - y,
+                    tint,
+                ));
+                y -= 5.0;
             }
             Decor::None => {}
         }
@@ -917,6 +1005,27 @@ mod tests {
 
     /// Each disclosure fires INDEPENDENTLY: folding alone must not claim that
     /// something could not be displayed.
+    #[test]
+    fn greek_and_maths_are_spelled_out_rather_than_becoming_question_marks() {
+        // A methods section is full of these — "the objective function J(θ)",
+        // "search space Ω", "p = σ(x)". WinAnsi has none of them, so before the
+        // fold table covered them every one rendered as `?`, which is the one
+        // outcome a reader cannot interpret: they cannot tell a lost symbol
+        // from a symbol the author never wrote.
+        let blocks = vec![Block::Paragraph {
+            text: "The objective J(θ) over Ω with p = σ(x), α ≈ β, and ∑ √n.".into(),
+        }];
+        let pdf = render_pdf(&blocks);
+        let text = squash(&text_from_pdf(&pdf));
+        for word in ["theta", "Omega", "sigma", "alpha", "beta", "sum", "sqrt"] {
+            assert!(text.contains(word), "{word} was not spelled out:\n{text}");
+        }
+        assert!(!text.contains('?'), "a character still folded to `?`:\n{text}");
+        // And the reader is told the substitution happened.
+        assert!(text.contains(&squash(NOTE_SIMPLIFIED)), "no disclosure:\n{text}");
+        assert!(!text.contains(&squash(NOTE_MARKED)), "claimed a loss that did not happen");
+    }
+
     #[test]
     fn folding_alone_discloses_only_simplification() {
         let m = model(Some("Study by Łukasz"), vec![finding("f1", "Ordinary title", FindingSeverity::Minor)]);

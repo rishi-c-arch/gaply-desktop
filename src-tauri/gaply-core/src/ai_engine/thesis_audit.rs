@@ -290,7 +290,10 @@ fn plan_audit(
                 chunk_id: None,
                 page: planned.page,
                 sentence: planned.sentence.clone(),
-                payload_json: "{}".to_string(),
+                // The section the sentence sits under. The prompt has a rule
+                // keyed on it that could never fire while this was empty.
+                payload_json: serde_json::json!({ "section": planned.section })
+                    .to_string(),
             });
             continue;
         }

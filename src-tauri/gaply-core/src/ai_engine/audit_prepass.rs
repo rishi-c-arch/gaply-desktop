@@ -65,6 +65,14 @@ pub struct PlannedSentence {
     pub page: Option<u32>,
     pub sentence: String,
     pub markers: Vec<Marker>,
+    /// The nearest preceding heading, e.g. "RESULTS AND DISCUSSION".
+    ///
+    /// The citation_need prompt has always had a rule keyed on this — "the same
+    /// sentence in Results is probably the author's own finding" — and the
+    /// audit passed an EMPTY section, so it could never fire. That is why the
+    /// first real run flagged the authors' own results, their hardware setup
+    /// and their own F1 scores as needing citations.
+    pub section: Option<String>,
 }
 
 /// What the pre-pass measured, before any model call.
@@ -495,6 +503,31 @@ pub fn skip_reason(sentence: &str) -> Option<SkipReason> {
     None
 }
 
+/// The section heading this line IS, if it is one.
+///
+/// Deliberately narrow: an ALL-CAPS or numbered short line, which is what IEEE
+/// and thesis templates produce and what extraction preserves. A loose rule
+/// here would relabel ordinary sentences and mislead every judgement beneath
+/// them, which is worse than having no section at all.
+pub fn heading_of(sentence: &str) -> Option<String> {
+    let t = sentence.split_whitespace().collect::<Vec<_>>().join(" ");
+    let t = t.trim();
+    if t.is_empty() || t.split_whitespace().count() > 8 {
+        return None;
+    }
+    // Strip a leading "IV." / "4.2" / "B." enumerator before judging the words.
+    let body = t
+        .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ')' || c == ' ')
+        .trim_start_matches(|c: char| "IVXLC".contains(c) && t.starts_with(|f: char| f.is_uppercase()))
+        .trim_start_matches(['.', ')', ' ']);
+    let letters: Vec<char> = body.chars().filter(|c| c.is_alphabetic()).collect();
+    if letters.len() < 3 {
+        return None;
+    }
+    let upper = letters.iter().filter(|c| c.is_uppercase()).count();
+    (upper as f32 / letters.len() as f32 >= 0.8).then(|| body.trim().to_string())
+}
+
 /// Is this sentence worth a model call at all?
 pub fn is_significant(sentence: &str) -> bool {
     skip_reason(sentence).is_none()
@@ -511,6 +544,7 @@ pub fn prepass(blocks: &[(Option<u32>, String)]) -> PrepassReport {
     // numeric citation is an index into this list, and without it `[5]` names
     // nothing.
     let mut references_text = String::new();
+    let mut current_section: Option<String> = None;
 
     for (page, text) in blocks {
         // Already past the bibliography: nothing after it is prose, but it IS
@@ -541,6 +575,13 @@ pub fn prepass(blocks: &[(Option<u32>, String)]) -> PrepassReport {
         let prose = &text[..prose_end];
 
         for sentence in crate::extract::sentence::sentences_in(prose) {
+            // A heading is not a claim, but it TELLS us what the claims under
+            // it are. Tracked as the scan passes rather than looked up later,
+            // because "the nearest preceding heading" is a property of reading
+            // order and nothing downstream can reconstruct it.
+            if let Some(h) = heading_of(sentence) {
+                current_section = Some(h);
+            }
             report.total_sentences += 1;
             let markers = markers_in(sentence);
             report.markers_found += markers.len();
@@ -555,6 +596,7 @@ pub fn prepass(blocks: &[(Option<u32>, String)]) -> PrepassReport {
             }
             report.planned.push(PlannedSentence {
                 page: *page,
+                section: current_section.clone(),
                 sentence: sentence.to_string(),
                 markers,
             });

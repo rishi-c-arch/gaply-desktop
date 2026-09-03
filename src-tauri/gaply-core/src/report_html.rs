@@ -50,6 +50,12 @@ h4{margin-top:1.25rem;font-size:.95rem;color:#333}\
 color:#444;font-size:.92rem}\
 ul{margin:.4rem 0;padding-left:1.25rem}li{margin:.2rem 0}\
 li.nested{margin-left:1rem}\
+.badge{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.04em;\
+text-transform:uppercase;padding:.12rem .45rem;border-radius:3px;border:1px solid}\
+.badge.good{color:#1c7340;border-color:#1c7340;background:#eef7f1}\
+.badge.warn{color:#b56b0d;border-color:#b56b0d;background:#fdf5e9}\
+.badge.bad{color:#b32121;border-color:#b32121;background:#fbeded}\
+.badge.neutral{color:#555;border-color:#bbb;background:#f4f4f4}\
 .pagebreak{page-break-after:always;height:0}\
 @media print{body{margin:0;max-width:none}}";
 
@@ -112,6 +118,19 @@ pub fn render_html(blocks: &[Block], document_title: &str) -> String {
                     }
                     Block::Note { text } => {
                         s.push_str(&format!("<div class=\"note\">{}</div>\n", escape(text)));
+                    }
+                    Block::Badge { text, tone } => {
+                        use crate::report_compose::Tone;
+                        let cls = match tone {
+                            Tone::Good => "good",
+                            Tone::Warn => "warn",
+                            Tone::Bad => "bad",
+                            Tone::Neutral => "neutral",
+                        };
+                        s.push_str(&format!(
+                            "<span class=\"badge {cls}\">{}</span>\n",
+                            escape(text)
+                        ));
                     }
                     Block::PageBreak => s.push_str("<div class=\"pagebreak\"></div>\n"),
                     Block::Bullet { .. } => unreachable!("handled above"),

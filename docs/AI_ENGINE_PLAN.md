@@ -2499,3 +2499,151 @@ OA-fetched file over the confirm threshold — or a fetched scan — comes back 
 `notImportable`, distinct from `failed` because nothing went wrong: the fetch
 worked and the file is the problem. The downloaded file is deleted, since
 nothing references it.
+
+### D58 — the two prompts the first real manuscript broke, and what each fix costs
+
+The first end-to-end audit on a real paper (Naidu 2023, 84 sentences) failed in
+two distinct ways, and they need different remedies.
+
+**`citation_support` truncated mid-array, twice.** Both attempts died with
+`EOF while parsing a list at line 67 column 5`. "Line 67" is the whole
+diagnosis: the model was pretty-printing its JSON, and newlines and indentation
+are generation tokens like any other. It ran out of room inside
+`claim_elements`, which is the LAST thing a long reply writes. Three changes,
+`citation_support-v1.4` → **`v1.5`**:
+
+1. `COMPACT_RULE` demands single-line JSON with no whitespace. Kept OUT of
+   `RULES` so the bake-off's rule set is untouched and the v1↔v2 comparison
+   still means something.
+2. `claim_elements` capped at 5 in the prompt. The validator already treated
+   "outside 1-8" as advisory; the prompt never said a number at all.
+3. `MAX_TOKENS` 768 → 1024. **The arithmetic, because the two budgets trade
+   against each other:** `generative.rs` enforces
+   `prompt_budget = TASK_N_CTX - max_tokens` with `TASK_N_CTX = 4096`, so 1024
+   leaves **3072** for the prompt. The v1 prompt measures 2035–2775 on real
+   evidence plus ~50 for the labelled header — worst case 2825 against 3072,
+   fitting with 247 to spare. 1280 would NOT fit: it leaves 2816, under the
+   measured worst case. Both halves are pinned by
+   `the_prompt_carries_the_spec_blocks_and_puts_the_claim_last`.
+
+**`citation_need` flagged the authors' own work.** 41 of 65 sentences came back
+`needs_citation`, including hardware descriptions ("I carried out all the
+experiments on an Intel Core i7-11800H CPU, 16 GB RAM"), the paper's own results
+("The highest F1-scores are for joy (97.0%)") and its own comparisons
+("HEFCSO-BiLSTM outperforms all eight baselines"). The model's own `reason`
+sometimes said *"likely represents the author's own finding"* and it still
+answered `true`.
+
+**The rule existed and could not fire.** `citation_need`'s own-results rule is
+keyed on the sentence's SECTION, and `job_runner.rs` passed
+`section: String::new()` for every item — the field was never populated between
+the pre-pass and the job row. Two fixes, `citation_need-v2` → **`v3`**:
+
+1. `audit_prepass` now tracks the nearest preceding heading
+   (`PlannedSentence.section`), `thesis_audit` writes it into the item's
+   `payload_json`, and `job_runner` reads it back. The rule can now fire at all.
+2. `RULES_V3_ADDENDUM`, placed at the END of the prompt where this model weights
+   hardest, states the two rules most often got wrong: the authors' own work
+   never needs a citation (with three worked examples taken verbatim from this
+   failure), and **`search_query` MUST be null when `needs_citation` is false** —
+   five sentences failed validation twice on exactly that, a rule the validator
+   enforced and the prompt never mentioned.
+
+Neither change is a model swap; both are the prompt saying what the engine
+already required.
+
+### D59 — what D58 did not fix, in the order it should be picked up
+
+D58's own-work rule works: on the Naidu 2023 audit, own-results false positives
+fell **18 → 2** and validation failures **5 → 3 (8% → 5%)**. A targeted probe on
+ten sentences the first eval could not adjudicate found six answered correctly
+*and for the right stated reason*, one ambiguous (a garbled extraction artifact)
+and **two genuine misses**. Those two are the work that remains, and they are not
+what D58 was about.
+
+**1. The reason and the verdict are only weakly coupled — BOTH WAYS.**
+
+This is the real defect, and D58 moved the bias without fixing it. Before D58 the
+model wrote *"likely represents the author's own finding"* and answered
+`needs_citation: true`. After D58, sentence 42 of the same paper produced:
+
+> reason: *"the physiologically motivated sigmoid probability switching
+> probability is a definition attributable to a source"* — `needs_citation: false`
+
+The reason argues FOR a citation and the boolean says no. Same defect, inverted.
+A prompt that biases the boolean is treating the symptom: the model is not
+deriving the answer from its own argument, so a rule that pushes the answer one
+way just relocates the error.
+
+Two candidate fixes, and **neither should be chosen without eval data**:
+
+- Make the schema emit `reason` FIRST and have the boolean follow it, so the
+  argument is in the context window before the answer is committed to. Cheap,
+  but this model may simply ignore the ordering.
+- A validator rule that flags a contradiction between reason text and verdict
+  (a reason containing "attributable to a source" / "requires a citation" with
+  `needs_citation: false`, and the converse). Deterministic and testable, but
+  keyword matching on model prose is exactly the kind of rule that looks precise
+  and is not — it needs a labelled set before it earns a tier.
+
+**2. `parse_docx` throws away the structure the file explicitly carries.**
+
+Measured on `R PAPER .docx`: `w:pStyle` gives `Heading1`×1, `Heading2`×3,
+`Heading3`×15 and `TableParagraph`×32. `parse_docx` harvests `<w:t>` text and
+discards every style, so 19 tagged headings and 32 tagged table cells arrive as
+undifferentiated prose and the pre-pass has to guess with an ALL-CAPS heuristic.
+It guesses badly: the probe saw `"HEFCSO-BILSTM: A HYBRID"` attached to abstract
+sentences and `"SEAR"` — truncated — across the whole methods run.
+
+**One change fixes three separate things**, which is why it outranks its size:
+
+- D58's own-work rule keys on SECTION, so on Word files it is currently reasoning
+  from a garbled label.
+- Table rows are flagged as needing citations; `TableParagraph` identifies them
+  structurally, no heuristic required.
+- It supplies the LOCATOR a `.docx` otherwise has no way to give — `Methods · ¶12`
+  in place of "no page numbers".
+
+Scope: `parse_docx` emits `(style, text)` per paragraph; the paged block carries
+an optional style; `heading_of` prefers a real `HeadingN` and keeps today's
+heuristic as fallback; `skip_reason` treats `TableParagraph` as a table row.
+**~1–1.5 days.** Researchers audit Word manuscripts constantly, and this is what
+makes that path as good as the PDF path everywhere except pagination.
+
+*Rejected alternatives for `.docx` pagination, measured on the same file:*
+`lastRenderedPageBreak` carries 3 markers for 5 internal boundaries — one of them
+degenerate at character 0, the usable two at 51% and 63% where an even six-page
+split needs 17/33/50/67/83% — so it would be wrong for most of the document.
+Interpolating from `docProps/app.xml`'s `<Pages>6</Pages>` (accurate here, and
+matching the PDF exactly) assumes uniform text density, which the paper's 31
+tables break. Both manufacture numbers that LOOK checkable, which `page_label`'s
+own doc comment already rules out. Converting to PDF locally is legitimate and
+touches no R4 constraint — conversion is not a network operation — but needs a
+real layout engine: LibreOffice headless is ~700 MB, more than twice the app, and
+driving an installed Word via AppleScript/COM is per-user and platform-bound. It
+belongs as a later opt-in ("Word is installed — paginate via Word?"), not a
+default.
+
+**3. The residual 5% of validation failures have a DIFFERENT cause now.**
+
+D58 stated the `search_query`-must-be-null rule in the prompt and the failures it
+was aimed at went away. What is left is not that: sentence 47 failed twice with
+`missing field 'severity'`. That is schema completeness, not a rule the prompt
+failed to state, so it needs its own fix and the null-rule remedy will not touch
+it.
+
+#### The constraint behind all three: eval throughput, not ideas
+
+Every number above cost **~5 minutes per sentence** — a 65-sentence before/after
+is roughly five and a half hours on an 8 GB M1 Air running the 3B through
+`quantized_qwen2_lowmem`'s CPU path under swap pressure, and the ten-sentence
+probe was another fifty minutes. At that rate a prompt change cannot be iterated;
+it can only be committed and hoped for, which is how D58 shipped a real
+improvement while leaving the coupling defect above undetected until a second
+probe went looking for it.
+
+**`citation_need` prompt work is blocked on Metal, not on ideas.** A GPU path
+turns a five-hour eval into minutes and makes all three items above measurable
+rather than arguable — item 1 in particular CANNOT be settled without a labelled
+set run repeatedly. Sequence accordingly: Metal first if any of this is to be
+done properly, and treat every prompt change made before then as provisional.

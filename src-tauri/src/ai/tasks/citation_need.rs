@@ -31,8 +31,11 @@ use crate::ai::task::{AiTask, TaskContext, ValidationError};
 pub const PROMPT_VERSION_V1: &str = "citation_need-v1";
 /// v2 — same rules, target sentence last and explicitly labelled.
 pub const PROMPT_VERSION_V2: &str = "citation_need-v2";
+/// v3 — the own-work rule stated explicitly, with worked examples, and the
+/// validator's `search_query` constraint written into the prompt.
+pub const PROMPT_VERSION_V3: &str = "citation_need-v3";
 /// What a caller gets if it does not choose.
-pub const PROMPT_VERSION: &str = PROMPT_VERSION_V2;
+pub const PROMPT_VERSION: &str = PROMPT_VERSION_V3;
 
 /// Which INPUT layout to use. The SPEC RULES are byte-identical across both;
 /// only the arrangement of the input differs.
@@ -43,6 +46,10 @@ pub enum PromptVariant {
     /// Context first and subordinate, then the target sentence LAST, labelled,
     /// immediately before the output instruction.
     V2,
+    /// V2's layout with [`RULES_V3_ADDENDUM`]: the own-work rule stated
+    /// explicitly with worked examples, and the validator's `search_query`
+    /// constraint written into the prompt rather than left to be discovered.
+    V3,
 }
 
 impl PromptVariant {
@@ -50,12 +57,14 @@ impl PromptVariant {
         match self {
             PromptVariant::V1 => PROMPT_VERSION_V1,
             PromptVariant::V2 => PROMPT_VERSION_V2,
+            PromptVariant::V3 => PROMPT_VERSION_V3,
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "v1" | PROMPT_VERSION_V1 => Some(PromptVariant::V1),
             "v2" | PROMPT_VERSION_V2 => Some(PromptVariant::V2),
+            "v3" | PROMPT_VERSION_V3 => Some(PromptVariant::V3),
             _ => None,
         }
     }
@@ -150,6 +159,42 @@ const RULES: &str = r#"- needs_citation = true for: empirical claims about the w
 - search_query: 6-12 keyword query for the library search, only when needs_citation=true.
 - reason <= 25 words."#;
 
+/// What v3 ADDS to [`RULES`]. Kept separate so v1 and v2 stay byte-identical to
+/// the variants that were measured — a version that silently changed its rules
+/// would make every earlier eval number a claim about a prompt that no longer
+/// exists.
+const RULES_V3_ADDENDUM: &str = r#"
+
+THE TWO RULES THAT ARE MOST OFTEN GOT WRONG. Apply these last, and let them
+override anything above.
+
+(1) THE AUTHORS' OWN WORK NEVER NEEDS A CITATION. A paper does not cite itself.
+    This covers their own results and numbers, their own method and algorithm,
+    their own experimental setup, and the hardware or software they ran on.
+    A number is not a reason to say true: a number the authors MEASURED is
+    their own, and only a number they took FROM someone else needs a source.
+    If your own reason would say "this is the author's own finding", the answer
+    is false. Say false.
+
+    Sentence: "I carried out all the experiments on an Intel Core i7-11800H CPU
+    with 16 GB RAM."
+    -> needs_citation: false, sentence_type: "author_own_result",
+       reason: "the authors' own experimental setup", search_query: null
+
+    Sentence: "The highest F1-scores are for joy (97.0%) and sadness (96.1%)."
+    -> needs_citation: false, sentence_type: "author_own_result",
+       reason: "the authors' own measured results", search_query: null
+
+    Sentence: "HEFCSO-BiLSTM outperforms all eight baselines on the combined set."
+    -> needs_citation: false, sentence_type: "author_own_result",
+       reason: "a claim about the authors' own system", search_query: null
+
+(2) search_query MUST be null when needs_citation is false. This is enforced,
+    not advisory: an answer with needs_citation false and a non-null
+    search_query is REJECTED and the whole judgement is thrown away. When you
+    answer false, write "search_query": null."#;
+
+
 pub struct CitationNeedTask {
     pub input: CitationNeedInput,
     pub variant: PromptVariant,
@@ -159,7 +204,9 @@ impl CitationNeedTask {
     /// Default to v2 — the variant measured to be less prone to classifying the
     /// wrong sentence.
     pub fn new(input: CitationNeedInput) -> Self {
-        Self { input, variant: PromptVariant::V2 }
+        // v3 by default: v2's layout, plus the own-work rule and the
+        // search_query constraint the first real audit proved were needed.
+        Self { input, variant: PromptVariant::V3 }
     }
     pub fn with_variant(input: CitationNeedInput, variant: PromptVariant) -> Self {
         Self { input, variant }
@@ -262,6 +309,11 @@ impl AiTask for CitationNeedTask {
         match self.variant {
             PromptVariant::V1 => self.build_v1(),
             PromptVariant::V2 => self.build_v2(),
+            // Same layout as v2; the difference is the rules it carries.
+            PromptVariant::V3 => self.build_v2().replace(
+                &format!("RULES\n{RULES}\n"),
+                &format!("RULES\n{RULES}{RULES_V3_ADDENDUM}\n"),
+            ),
         }
     }
 
@@ -696,11 +748,79 @@ mod tests {
     }
 
     #[test]
+    fn v3_states_the_own_work_rule_with_worked_examples() {
+        // The first real audit flagged the authors' own hardware, their own F1
+        // scores and a claim about their own system as needing citations —
+        // sometimes with a reason that SAID it was the author's own finding.
+        // The rule existed; it was mid-prompt and keyed on a section the audit
+        // never passed. v3 states it last and shows it.
+        let t = CitationNeedTask::with_variant(
+            CitationNeedInput {
+                sentence: "The highest F1-scores are for joy (97.0%).".into(),
+                preceding_sentence: String::new(),
+                following_sentence: String::new(),
+                section: "RESULTS".into(),
+            },
+            PromptVariant::V3,
+        );
+        let p = t.build_prompt();
+        assert!(p.contains("THE AUTHORS' OWN WORK NEVER NEEDS A CITATION"), "{p}");
+        assert!(p.contains("Intel Core i7-11800H"), "worked example missing");
+        assert!(p.contains("outperforms all eight baselines"), "worked example missing");
+        // A number is not itself a reason to say true.
+        assert!(p.contains("a number the authors MEASURED is"), "{p}");
+        // And the rule comes AFTER the general rules it overrides.
+        let general = p.find("needs_citation = true for").unwrap();
+        let own = p.find("THE AUTHORS' OWN WORK").unwrap();
+        assert!(general < own, "the override rule must come last");
+    }
+
+    #[test]
+    fn v3_states_the_search_query_constraint_the_validator_enforces() {
+        // Five sentences failed validation TWICE on exactly this, so the
+        // constraint stopped being a detail worth leaving implicit.
+        let t = CitationNeedTask::with_variant(
+            CitationNeedInput {
+                sentence: "A sentence.".into(),
+                preceding_sentence: String::new(),
+                following_sentence: String::new(),
+                section: String::new(),
+            },
+            PromptVariant::V3,
+        );
+        let p = t.build_prompt();
+        assert!(p.contains("search_query MUST be null when needs_citation is false"), "{p}");
+        assert!(p.contains("REJECTED"), "the prompt must say it is enforced: {p}");
+    }
+
+    #[test]
+    fn v1_and_v2_are_untouched_by_v3() {
+        // A version that silently changed its rules would make every earlier
+        // eval number a claim about a prompt that no longer exists.
+        let input = || CitationNeedInput {
+            sentence: "A sentence.".into(),
+            preceding_sentence: String::new(),
+            following_sentence: String::new(),
+            section: String::new(),
+        };
+        for v in [PromptVariant::V1, PromptVariant::V2] {
+            let p = CitationNeedTask::with_variant(input(), v).build_prompt();
+            assert!(!p.contains("THE AUTHORS' OWN WORK"), "{v:?} gained v3's rules");
+        }
+        let v3 = CitationNeedTask::with_variant(input(), PromptVariant::V3).build_prompt();
+        let v2 = CitationNeedTask::with_variant(input(), PromptVariant::V2).build_prompt();
+        // v3 IS v2 plus the addendum — same layout, more rules.
+        assert!(v3.len() > v2.len());
+        assert!(v3.contains("TARGET SENTENCE") == v2.contains("TARGET SENTENCE"));
+    }
+
+    #[test]
     fn variant_parsing_accepts_short_and_full_names() {
         assert_eq!(PromptVariant::parse("v1"), Some(PromptVariant::V1));
         assert_eq!(PromptVariant::parse("citation_need-v2"), Some(PromptVariant::V2));
-        assert_eq!(PromptVariant::parse("v3"), None);
+        assert_eq!(PromptVariant::parse("v3"), Some(PromptVariant::V3));
+        assert_eq!(PromptVariant::parse("v4"), None);
         // the default must be a real variant, not a third string
-        assert_eq!(PROMPT_VERSION, PROMPT_VERSION_V2);
+        assert_eq!(PROMPT_VERSION, PROMPT_VERSION_V3);
     }
 }

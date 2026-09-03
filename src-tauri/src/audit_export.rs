@@ -121,11 +121,20 @@ pub fn today_label() -> String {
 }
 
 /// Build the report model from the store.
-pub fn build_model(
+/// Build the report model from the store.
+///
+/// `installed_model_id` is used ONLY when the job predates model recording, and
+/// it is labelled as a guess when it is. Jobs run before `set_job_model` existed
+/// have no model on the row and none in their item results, so the truthful
+/// options are "not recorded" — which tells the reader nothing — or the model
+/// installed now, said to be exactly that. A bare model name that might not be
+/// the one that produced the verdicts would be the one unacceptable option.
+pub fn build_model_with(
     db: &Database,
     job_id: i64,
     manuscript_name: &str,
     generated_on: &str,
+    installed_model_id: Option<&str>,
 ) -> Result<AuditReportModel, GaplyError> {
     let job = jobs::get_job(db, job_id)?
         .ok_or_else(|| GaplyError::NotFound { entity: "job", id: job_id.to_string() })?;
@@ -134,8 +143,15 @@ pub fn build_model(
     let mut m = AuditReportModel {
         manuscript_name: manuscript_name.to_string(),
         generated_on: generated_on.to_string(),
-        model_id: job.model_id.clone().unwrap_or_else(|| "not recorded".to_string()),
+        model_id: job.model_id.clone().unwrap_or_else(|| match installed_model_id {
+            Some(id) => format!("{id} (not recorded for this run; this is the model installed now)"),
+            None => "not recorded".to_string(),
+        }),
         prompt_version: job.prompt_version.clone(),
+        // A PDF has pages; a .docx has none. Read from the items rather than
+        // from the file name: the planner is the authority on what extraction
+        // produced, and a renamed file must not change the report's claims.
+        has_pages: items.iter().any(|i| i.page.is_some()),
         total_sentences: items.len(),
         checked: items.iter().filter(|i| i.status == "done").count(),
         ..Default::default()
@@ -362,4 +378,14 @@ mod tests {
         assert_eq!(m.needs_citation.len(), 0);
         assert!(m.failed[0].reason.as_deref().unwrap().contains("validation"));
     }
+}
+
+/// Back-compatible entry point: no installed-model hint available.
+pub fn build_model(
+    db: &Database,
+    job_id: i64,
+    manuscript_name: &str,
+    generated_on: &str,
+) -> Result<AuditReportModel, GaplyError> {
+    build_model_with(db, job_id, manuscript_name, generated_on, None)
 }

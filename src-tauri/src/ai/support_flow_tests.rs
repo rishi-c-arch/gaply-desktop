@@ -180,7 +180,7 @@ async fn a_valid_result_persists_a_card_with_queryable_chunk_refs() {
 
     let stored = cards::get_card(&db, id).unwrap().unwrap();
     assert_eq!(stored.verdict.as_deref(), Some("strong"));
-    assert_eq!(stored.prompt_version, "citation_support-v1.4");
+    assert_eq!(stored.prompt_version, "citation_support-v1.5");
     assert_eq!(stored.model_version, "Q4_K_M");
     assert_eq!(
         cards::card_chunks(&db, id).unwrap(),

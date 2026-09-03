@@ -134,9 +134,34 @@ time injection.
   with `ps -o %cpu` (high CPU = working, not wedged) and `sample <pid>` (frames
   in `candle_core::cpu_backend` = real matmul). The same applies to
   `citation_support`, AI Check and every probe.
-- **Launch the dev app DETACHED** or it dies when the tool call that started it
-  ends: `subprocess.Popen([...], start_new_session=True)` (setsid) — a plain
-  `nohup ... &` is NOT enough, the harness's process-group kill still reaches it.
+- **Launch the dev app with `scripts/dev-detached.sh`** — release by default,
+  double-forked and setsid so it ends up owned by launchd (PPID 1) in its own
+  process group, logging to `~/gaply-dev.log`:
+
+  ```
+  scripts/dev-detached.sh          # release; the correct default
+  tail -f ~/gaply-dev.log
+  scripts/dev-detached.sh --stop   # stops it by SESSION, not by pattern
+  ```
+
+  The log lives in `$HOME`, never in a temp or session directory — those are
+  cleaned at exactly the moment you want the log, which is after something
+  vanished.
+
+  **`--stop` kills the process group it recorded, deliberately not
+  `pkill -f "tauri dev"`.** Four audits were lost mid-run to the app
+  "dying at session teardown", and the log eventually showed the truth: a
+  `pkill -f "target/release/app"` issued at the START of the next relaunch was
+  killing the instance that had just come up seconds earlier. A pattern kill
+  cannot tell your run from anyone else's, including your own newer one.
+  `nohup ... &` is not enough either: it survives SIGHUP but stays in the
+  launching shell's process group.
+- **Stage by PATH ONLY. Never `git add .`, `git add -A`, or `git add
+  --renormalize .`.** This working tree almost always carries unrelated in-flight
+  work, so whole-tree staging sweeps someone else's changes into your commit —
+  `--renormalize .` once pulled 64 lines of `public/sitemap.xml` generator churn
+  into a `.gitattributes` commit. Name every path, then read
+  `git diff --cached --stat` before committing.
 - Commit ONLY when Rishi provides/approves the message; never push unprompted.
 - Canonical remote: `desktop` (`rishi-c-arch/gaply-desktop`); `main` there is
   the backup of local main. Push only when explicitly requested, never forced.

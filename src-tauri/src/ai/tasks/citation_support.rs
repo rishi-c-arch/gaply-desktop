@@ -28,7 +28,7 @@ use crate::ai::task::{AiTask, TaskContext, ValidationError};
 
 /// Bumped v1 -> v1.1 by §11 D26: the evidence header rendering changed, so a
 /// report from either side of that change describes a different prompt.
-pub const PROMPT_VERSION: &str = "citation_support-v1.4";
+pub const PROMPT_VERSION: &str = "citation_support-v1.5";
 
 /// SPEC OVERRIDE — §11 D27. The spec pins `max_tokens: 400`; measurement
 /// retired it.
@@ -38,13 +38,24 @@ pub const PROMPT_VERSION: &str = "citation_support-v1.4";
 /// cut off mid-JSON is unparseable, and unparseable scored identically to
 /// wrong, so the arm was measuring the ceiling rather than the models.
 ///
-/// 768 is derived, not guessed: the largest COMPLETE v1 first attempt observed
-/// was 309 tokens and the schema's own limits put a realistic three-chunk reply
-/// near 420. It is NOT provisioned for the schema-legal maximum — with
-/// `supporting_chunks` uncapped, twelve chunks would need ~1400 tokens, and
-/// `TASK_N_CTX - max_tokens` would then leave less prompt budget than the
-/// prompts actually measure.
-const MAX_TOKENS: usize = 768;
+/// 768 was derived, not guessed — and on the first real manuscript it was still
+/// short. The Naidu 2023 run failed validation TWICE with
+/// `EOF while parsing a list at line 67 column 5`: the reply was pretty-printed
+/// across 67 lines and ran out of room inside `claim_elements`. "line 67" is
+/// the tell — a compact object of the same content is one line.
+///
+/// v1.5 attacks both halves. The prompt now demands single-line JSON (see
+/// `COMPACT_RULE`), which removes the newlines and indentation the model was
+/// spending tokens on, and the ceiling rises to 1024.
+///
+/// THE ARITHMETIC, since the two budgets trade against each other:
+/// `generative.rs` enforces `prompt_budget = TASK_N_CTX - max_tokens`, and
+/// `TASK_N_CTX` is 4096. At 1024 that leaves **3072 tokens of prompt**. The v1
+/// prompt measures 2035-2775 on real evidence (`a_full_prompt_fits_the_context`
+/// pins the ceiling), plus ~50 for the labelled header, so the worst measured
+/// case is 2825 against 3072 — it fits, with 247 to spare. Going higher would
+/// not: 1280 would leave 2816, under the measured worst case.
+const MAX_TOKENS: usize = 1024;
 
 /// The longest thing that is still a CLAIM rather than a passage.
 ///
@@ -208,7 +219,19 @@ const RULES: &str = r#"- Decompose the claim into its checkable elements first (
 - "why" <= 20 words, must paraphrase the chunk, never quote more than 10 words.
 - suggested_rewrite: only for "partial" - rewrite the author's sentence so it becomes
   accurate for this source. null for every other verdict.
-- Never say a claim is supported because it is plausible or well known."#;
+- Never say a claim is supported because it is plausible or well known.
+- At most 5 claim_elements. Decompose to the checkable parts, not to every word."#;
+
+/// Formatting, kept OUT of `RULES` so the bake-off's rule set is unchanged.
+///
+/// This is not a style preference. The first real-manuscript failure was a
+/// truncated reply 67 pretty-printed lines long: newlines and indentation are
+/// generation tokens like any other, and the ones spent on layout are the ones
+/// missing from the end of the array. The reader never sees this JSON.
+const COMPACT_RULE: &str = "\
+- Output the JSON on ONE line, with no newlines, no indentation and no spaces \
+between tokens. Every character of layout is a character you cannot spend on \
+the answer, and a reply that stops mid-array is discarded entirely.";
 
 /* ------------------- how this task maps spec rules to tiers ---------------- *
  * Beside the validator so the mapping is reviewable (plan §9.11). THE SPEC'S
@@ -260,7 +283,7 @@ impl AiTask for CitationSupportTask {
             "<|im_start|>system\n{SYSTEM}\n<|im_end|>\n\
              <|im_start|>user\n\
              OUTPUT SCHEMA\n{OUTPUT_SCHEMA}\n\n\
-             RULES\n{RULES}\n\n\
+             RULES\n{RULES}\n{COMPACT_RULE}\n\n\
              <cited_source>\n{source}\n</cited_source>\n\n\
              {evidence}\n\n\
              CLAIM UNDER TEST\n<claim>\n{claim}\n</claim>\n\n\
@@ -1123,7 +1146,18 @@ mod tests {
         let ev_at = p.rfind("[CHUNK_ID=c1 PAGE=8 SECTION=Results]").unwrap();
         assert!(claim_at > ev_at, "the claim must come after the evidence");
         assert!(p[claim_at..].contains("beginning with {"));
-        assert_eq!(CitationSupportTask::max_tokens(), 768, "§11 D27 pins max_tokens: 768");
-        assert_eq!(t.prompt_version(), "citation_support-v1.4");
+        // §11 D58 raises v1 768 -> 1024 after a real manuscript truncated
+        // mid-array twice. The number is not free: `TASK_N_CTX - max_tokens`
+        // is the prompt budget, so 1024 leaves 3072 against a worst measured
+        // prompt of 2825.
+        assert_eq!(CitationSupportTask::max_tokens(), 1024, "§11 D58 pins max_tokens: 1024");
+        assert!(
+            crate::ai::generative::TASK_N_CTX - CitationSupportTask::max_tokens() >= 2825,
+            "the token raise ate the prompt budget the measured prompts need"
+        );
+        assert_eq!(t.prompt_version(), "citation_support-v1.5");
+        // The compact-output rule reaches the model, not just the source.
+        assert!(p.contains("ONE line"), "the compact-JSON rule is missing: {p}");
+        assert!(p.contains("At most 5 claim_elements"), "the element cap is missing: {p}");
     }
 }

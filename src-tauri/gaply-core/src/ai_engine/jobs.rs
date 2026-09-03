@@ -245,6 +245,21 @@ pub fn set_job_status(db: &Database, job_id: i64, status: JobStatus) -> Result<(
     Ok(())
 }
 
+/// Record WHICH model judged this job.
+///
+/// The report's cover said "JUDGED BY: not recorded" because nothing ever wrote
+/// it: `ai_jobs.model_id` has existed since the table did, and the runner — the
+/// only code that knows which loader actually answered — never set it. A report
+/// that cannot name the model behind its verdicts is not one a reader can weigh
+/// months later.
+pub fn set_job_model(db: &Database, job_id: i64, model_id: &str) -> Result<(), GaplyError> {
+    db.conn()?.execute(
+        "UPDATE ai_jobs SET model_id = ?2 WHERE id = ?1",
+        params![job_id, model_id],
+    )?;
+    Ok(())
+}
+
 pub fn set_job_summary(db: &Database, job_id: i64, summary_json: &str) -> Result<(), GaplyError> {
     let conn = db.conn()?;
     conn.execute(

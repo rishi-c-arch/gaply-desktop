@@ -141,6 +141,11 @@ pub async fn run_job(
 ) -> Result<RunOutcome, gaply_core::GaplyError> {
     let job_id = control.job_id;
     jobs::set_job_status(db, job_id, JobStatus::Running)?;
+    // WHICH model is answering. `model_id()` is the configured loader and
+    // `acquire()` has no silent fallback (§11 D51), so recording it here is a
+    // true statement about what judged this job — and it is what the exported
+    // report's cover reads.
+    let _ = jobs::set_job_model(db, job_id, &manager.model_id());
 
     loop {
         if control.is_cancelled() {
@@ -234,11 +239,20 @@ async fn run_citation_need(
     use crate::ai::task::run_task;
     use crate::ai::tasks::citation_need::{CitationNeedInput, CitationNeedTask};
 
+    // The SECTION, from the planner's payload. This was `String::new()`, and
+    // the prompt's "the same sentence in Results is probably the author's own
+    // finding" rule therefore never fired once — which is why the first real
+    // audit flagged the authors' own F1 scores and their hardware setup as
+    // needing citations.
+    let section = serde_json::from_str::<serde_json::Value>(&item.payload_json)
+        .ok()
+        .and_then(|v| v.get("section")?.as_str().map(str::to_string))
+        .unwrap_or_default();
     let task = CitationNeedTask::new(CitationNeedInput {
         sentence: item.sentence.clone(),
         preceding_sentence: String::new(),
         following_sentence: String::new(),
-        section: String::new(),
+        section,
     });
     // The job's cancel IS the per-token cancel: a cancel lands within one
     // decode step rather than waiting out the item.
