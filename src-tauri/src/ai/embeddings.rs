@@ -78,7 +78,12 @@ impl EmbeddingEngine {
 
     /// Load from a directory whose hashes have ALREADY been verified.
     pub fn load_verified(dir: &Path) -> Result<Self, GaplyError> {
-        let device = Device::Cpu; // CPU-native, matching the rest of the app
+        // Phase 7 STEP 2: same process-wide selection as the generative engine
+        // (§11 D36). They must agree — a judge on Metal with an embedder on CPU
+        // is neither configuration anyone wants to measure.
+        let selected = crate::ai::device::shared();
+        let device = selected.device.clone();
+        tracing::info!(device = selected.kind.as_str(), "loading embedding backend");
         let config: Config = serde_json::from_slice(&std::fs::read(dir.join("config.json"))?)
             .map_err(|e| GaplyError::Internal(format!("model config unreadable: {e}")))?;
         if config.hidden_size != EMBED_DIM {

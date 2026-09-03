@@ -124,6 +124,26 @@ pub fn select() -> Selected {
     select_with(metal_gate, default_probe)
 }
 
+/// The ONE device this process runs on, chosen on first use and reused.
+///
+/// Two reasons this is process-wide rather than per-engine.
+///
+/// **The first Metal use on a machine costs seconds, not milliseconds.**
+/// `candle-metal-kernels` compiles its `.metal` shaders at runtime from
+/// `include_str!`d source (§11 D35). Measured here on the first ever Metal run:
+/// a 256x256 matmul took **9.25 s**, and the same call in a later process took
+/// **17.5 ms** — macOS caches the compiled library on disk, so the cost is
+/// once per machine, not once per process. Selecting per engine would still
+/// pay device construction repeatedly for no benefit.
+///
+/// **The generative and embedding engines must agree.** A run with the judge on
+/// Metal and the embedder on CPU is neither of the two configurations anyone
+/// wants to measure, and `GAPLY_FORCE_CPU` has to mean the whole process.
+pub fn shared() -> &'static Selected {
+    static SHARED: std::sync::OnceLock<Selected> = std::sync::OnceLock::new();
+    SHARED.get_or_init(select)
+}
+
 /// Seam for testing. Both the gate and the probe are injected because the two
 /// failure modes they defend against cannot both be reproduced on one machine.
 pub fn select_with(
@@ -234,6 +254,43 @@ mod tests {
     /// A gate that refuses must never reach the probe. If it did, the panic
     /// would escape on macOS 14 — so the probe here is one that would fail the
     /// test loudly if it were ever called.
+    /// THE BELT, tested on every OS forever.
+    ///
+    /// `a_forced_open_gate_cannot_panic_the_caller` used to prove this by
+    /// forcing the gate open on a macOS 14 machine, where `default_probe`
+    /// genuinely panicked. That machine is now on macOS 26, the class exists,
+    /// and that test's panic branch is unreachable — it asserts the happy path
+    /// and nothing else. The `Err(_)` arm of the `catch_unwind` match would
+    /// have become untested at exactly the moment the machine could no longer
+    /// reproduce the failure it was written for.
+    ///
+    /// Injecting the panic removes the dependency on the host OS being old.
+    #[test]
+    fn a_panicking_probe_yields_cpu_rather_than_unwinding() {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let s = select_with(|| Ok(()), || panic!("simulating D35's MTLResidencySetDescriptor panic"));
+        std::panic::set_hook(previous);
+
+        assert_eq!(s.kind, DeviceKind::Cpu, "a panicking probe must yield CPU, not an unwind");
+        assert!(matches!(s.device, Device::Cpu));
+        assert!(
+            s.fallback_reason.as_deref().unwrap_or_default().contains("panicked"),
+            "the fallback reason must say it panicked: {:?}",
+            s.fallback_reason
+        );
+    }
+
+    /// `shared()` must hand back the SAME selection every time — the engines
+    /// disagreeing about the device is the bug this exists to prevent.
+    #[test]
+    fn the_shared_device_is_selected_once_and_is_stable() {
+        let a = shared();
+        let b = shared();
+        assert_eq!(a.kind, b.kind);
+        assert!(std::ptr::eq(a, b), "shared() must not re-select");
+    }
+
     #[test]
     fn a_closed_gate_never_reaches_the_probe() {
         let s = select_with(

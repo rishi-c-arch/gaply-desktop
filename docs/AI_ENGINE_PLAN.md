@@ -2647,3 +2647,138 @@ turns a five-hour eval into minutes and makes all three items above measurable
 rather than arguable — item 1 in particular CANNOT be settled without a labelled
 set run repeatedly. Sequence accordingly: Metal first if any of this is to be
 done properly, and treat every prompt change made before then as provisional.
+
+### D60 — Phase 7 STEP 2 lands: the macOS 15 gate opens, and Metal is 5.4-5.8x on prefill-bound work
+
+D35 parked this on an OS version. **The machine is now on macOS 26.6.2 (Darwin
+25.6.0)** and the blocker is gone, measured rather than assumed:
+
+```
+MTLCaptureDescriptor      (control, 10.15+): true
+MTLResidencySetDescriptor (the blocker, 15+): true
+metal_gate()  : Ok(())
+select().kind : metal
+Device::new_metal(0) OK
+```
+
+D35's other prediction also held: `candle-metal-kernels` compiles its shaders at
+runtime, so the whole stack builds with **Command Line Tools only** — there is no
+`metal` compiler on this machine (`xcrun -sdk macosx metal` fails) and nothing
+needed one. The cold rebuild was clean in 5m30s; nothing in candle, tauri or the
+toolchain broke on the macOS 14 -> 26 jump.
+
+#### The first Metal use on a machine costs SECONDS, and it is not per-process
+
+The first 256x256 quantized matmul took **9.25 s**; the same call in a later
+process took **17.5 ms**. macOS caches the compiled shader library on disk, so
+the cost is once per machine per kernel set — and it recurs for a *different*
+kernel set: the BGE embedder's first Metal run paid it again (17.0 s cold vs
+6.35/6.31 s warm).
+
+That is why the device is selected **once, process-wide** (`device::shared()`),
+not per engine. Two reasons, both load-bearing:
+
+1. The compilation cost is paid at app start rather than on a user's first
+   check. The running app logs `AI engine device: metal` at startup.
+2. **The engines must agree.** A judge on Metal with an embedder on CPU is
+   neither of the two configurations anyone wants to measure, and
+   `GAPLY_FORCE_CPU` has to mean the whole process for the comparison below to
+   mean anything.
+
+#### Why both arms ran v1.5, and why D34 is context rather than a control
+
+The correctness run was scoped as "3B v1.4". **v1.4 no longer exists** — D58
+shipped `citation_support-v1.5`, changing the prompt AND `MAX_TOKENS` 768 -> 1024.
+Running Metal on v1.5 against D34's v1.4 CPU number would have compared runs
+differing in three ways at once and attributed the whole delta to the device.
+
+So **both arms ran v1.5 from ONE binary, toggled only by `GAPLY_FORCE_CPU`** —
+which is exactly what that env var's doc comment says it exists for. Device is
+then the only variable. D34's 65.4 s is historical context, and any arithmetic
+against it is arithmetic across three changes.
+
+#### The measurement (isolated, same binary, same seeds)
+
+| metric | CPU v1.4 (D34, macOS 14.5) | CPU v1.5 | **Metal v1.5** |
+|---|---|---|---|
+| mean latency | 65,393 ms | 183,635 ms | **42,530 ms** |
+| mean prefill | 35,809 ms | 119,587 ms | **14,052 ms** |
+| mean decode | 29,434 ms | 63,736 ms | **28,260 ms** |
+| decode tok/s | 7.31 | 4.17 | **11.5** |
+| prefill share | 0.548 | 0.651 | **0.330** |
+| valid outputs | 6/6 | 4/6 | 5/6 |
+| faithfulness violations | 1 | 2 | **0** |
+| RAM | 2,295 MB | 2,295 MB | 2,295 MB |
+
+**The clean pair is seeds 03 and 04** — no retries on either device, and prompts
+byte-identical (1252/1252, 1265/1265 tokens):
+
+| seed | CPU prefill | Metal prefill | speedup |
+|---|---|---|---|
+| cs-seed-03 | 117,035 ms (93.5 ms/tok) | 17,889 ms (**14.3 ms/tok**) | **5.39x** |
+| cs-seed-04 | 99,972 ms (79.0 ms/tok) | 10,121 ms (**8.0 ms/tok**) | **5.80x** |
+
+Those identical token counts are themselves a result: **the embedder retrieves
+identically on both devices**, so evidence assembly is unaffected. The summary
+table's mean-prompt-token gap (1638 CPU vs 1320 Metal) is **purely a retry
+artifact** — a retried case sends its prompt twice — not a device difference.
+Both needle tests rank the needle **#1 on Metal**, with scores byte-identical to
+CPU (0.8821, 0.7669).
+
+#### Metal is NOT bit-identical to CPU, and the divergence is reported, not averaged
+
+Greedy decoding does not reproduce across devices, and on this seed set it
+crossed the validity boundary in **both** directions:
+
+- **cs-seed-01**: Metal failed validation (`suggested_rewrite must be null when
+  the verdict is 'weak'`); CPU produced a valid `weak`.
+- **cs-seed-02 / cs-seed-05**: the mirror image — CPU failed both, Metal was
+  valid for both.
+- **Faithfulness**: CPU violated on 03 and 04; **Metal on neither**.
+- **cited-planted-chunk went the WRONG way on Metal**: 0.33 vs CPU 1.00. On six
+  seeds with different retry paths that is one or two cases, so it is not a
+  conclusion — but it is the one metric where Metal looks worse and it needs a
+  larger seed set before anyone rules either way.
+
+Net 5/6 valid on Metal against 4/6 on CPU. Nothing here says Metal is wrong; it
+says per-device reproducibility is not a property this engine has, which is now
+measured rather than assumed.
+
+#### The gate's own test had gone vacuous, and was rewritten
+
+`a_forced_open_gate_cannot_panic_the_caller` proved the `catch_unwind` belt by
+forcing the gate open on macOS 14, where `default_probe` **genuinely panicked**.
+On macOS 26 that same call builds a working Metal device and takes the happy
+branch: the `else` asserting `"panicked"` is dead, and the panic-suppressing hook
+is pointless. **The `Err(_)` arm became untested at exactly the moment this
+machine stopped being able to reproduce the failure it was written for** — the
+hazard D36 tried to avoid by writing a test that passes on both sides of the
+boundary. Passing on both sides is not the same as testing on both sides.
+
+`a_panicking_probe_yields_cpu_rather_than_unwinding` injects the panic instead of
+depending on an old host OS, so the belt is exercised everywhere, forever.
+`the_shared_device_is_selected_once_and_is_stable` pins the engines-agree
+property. `the_real_gate_agrees_with_the_runtime` survives unchanged and still
+earns its place; its `if !present` branch is now dead on this machine only.
+
+#### OPEN: v1.5 does not clear interactive range, and decode is why
+
+Metal steady state is **28.9 / 31.7 / 33.1 s** per check against a 10-20 s
+target — 5.4x closer than CPU, still 1.5-3x short. The profile has INVERTED:
+prefill share 0.548 -> **0.330**. Prefill is largely solved (93.5 -> 14.3 ms/tok);
+decode improved only 7.31 -> 11.5 tok/s (**1.57x**) because decode is
+memory-bandwidth-bound, which Metal barely helps. **The remaining 2-3x is an
+output-token problem, not a GPU problem.**
+
+#### OPEN AND MORE IMPORTANT: CPU prefill is ~2.4x slower than the macOS 14.5 baseline
+
+**93.5 and 79.0 ms/tok against D34's 35.9 — already normalised per token**, so
+prompt growth does not explain it. Not isolated between three candidates: the OS
+jump, memory pressure (2.8 GB swap on an 8 GB machine, and the CPU arm ran
+second), and background load (load avg 4.86 with Chrome open vs D34's 4.25). No
+thermal or performance warning was recorded, so it is not throttling.
+
+**CPU is the shipped floor for every user without Metal, so if this is real it
+matters more than the Metal win.** It is recorded here as unresolved rather than
+asserted; the controlled re-measure is CPU arm FIRST on a cold machine with
+everything else closed.

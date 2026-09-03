@@ -215,7 +215,12 @@ impl QwenGenerativeBackend {
     pub fn load(model_gguf: &Path, tokenizer_json: &Path) -> Result<Self, GaplyError> {
         use candle_core::quantized::gguf_file;
 
-        let device = Device::Cpu;
+        // Phase 7 STEP 2: the process-wide selection, gated per §11 D36. CPU
+        // remains the floor — `shared()` returns a CPU device whenever the gate
+        // refuses, so this line is not a Metal requirement.
+        let selected = crate::ai::device::shared();
+        let device = selected.device.clone();
+        tracing::info!(device = selected.kind.as_str(), "loading generative backend");
         let mut file = std::fs::File::open(model_gguf).map_err(|e| {
             GaplyError::Validation(format!("open gguf {}: {e}", model_gguf.display()))
         })?;
