@@ -77,7 +77,9 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # macOS-only: the AI-Check RAM gate reads total physical memory via
 # sysctlbyname("hw.memsize") to decide whether the SLM-1 7B deep pass may run
 # (proven-fatal on 8GB). libc 0.2 is already in the lockfile via candle.
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(unix)'.dependencies]
+# macOS: sysctlbyname("hw.memsize") for the SLM-1 tier gate. Unix generally:
+# termios, so `label-cn` can read a single keypress (§11 D71).
 libc = "0.2"
 
 # Phase 7 gate (§11 D36). macOS only, and cargo unifies these with the base

@@ -128,6 +128,24 @@ pub fn plan_citation_audit(
     )
 }
 
+/// The locator fields EVERY item payload must carry (§11 D72).
+///
+/// These went in one payload site at a time and were missed twice — the
+/// whole-manuscript `citation_support` site, then the whole-manuscript
+/// `unverifiable` site — because the plan builds payloads in four places and
+/// each one is a separate `json!` literal. A reader checking "did D65 land?"
+/// sees the field present at the site they happen to open.
+///
+/// This does not make omission impossible; a new site can still forget to call
+/// it. `every_planned_item_carries_a_locator` is the guard that actually holds
+/// the property, over every item the plan emits.
+fn locator_payload(planned: &super::audit_prepass::PlannedSentence) -> serde_json::Map<String, serde_json::Value> {
+    let mut o = serde_json::Map::new();
+    o.insert("paragraph".into(), serde_json::json!(planned.paragraph));
+    o.insert("section".into(), serde_json::json!(planned.section));
+    o
+}
+
 /// Read the manuscript and run the deterministic pre-pass. Shared by planning
 /// and by the preview, so what the user is shown and what gets queued come from
 /// the same parse rather than two that could drift.
@@ -364,7 +382,11 @@ fn plan_audit(
                     chunk_id: None,
                     page: planned.page,
                     sentence: planned.sentence.clone(),
-                    payload_json: serde_json::json!({ "reason": reason }).to_string(),
+                    payload_json: {
+                        let mut o = locator_payload(planned);
+                        o.insert("reason".into(), serde_json::json!(reason));
+                        serde_json::Value::Object(o).to_string()
+                    },
                 });
             }
             // `prepass` already established there IS a marker, so this arm is
@@ -611,6 +633,51 @@ mod tests {
         let p = dir.join("styled.docx");
         std::fs::write(&p, &buf).unwrap();
         p
+    }
+
+    /// §11 D72. EVERY item the plan emits carries a locator — not the ones I
+    /// remembered to edit.
+    ///
+    /// The locator fields went in one payload site at a time and were missed
+    /// TWICE: first the whole-manuscript `citation_support` site, then the
+    /// whole-manuscript `unverifiable` site, which is why 16 items of a real
+    /// audit still printed "no page numbers" while 67 showed a paragraph. This
+    /// asserts the property over the plan's OUTPUT, so a site added later is
+    /// covered without anyone remembering it exists.
+    #[test]
+    fn every_planned_item_carries_a_locator() {
+        let dir = std::env::temp_dir().join(format!("gaply-locator-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = write_styled_docx(&dir);
+        let db = Database::in_memory().unwrap();
+
+        let plan = plan_thesis_audit(&db, &path, "test-v1").unwrap();
+        let items = jobs::job_results(&db, plan.job_id, 0, 500).unwrap();
+        assert!(!items.is_empty(), "the fixture produced no items");
+
+        // The fixture is a .docx: no pages, so a paragraph is the ONLY locator
+        // available and every item must have one.
+        let mut kinds_seen: std::collections::BTreeSet<String> = Default::default();
+        for it in &items {
+            kinds_seen.insert(format!("{:?}", it.kind));
+            let payload: serde_json::Value =
+                serde_json::from_str(&it.payload_json).unwrap_or(serde_json::Value::Null);
+            assert!(
+                payload.get("paragraph").and_then(|v| v.as_u64()).is_some(),
+                "{:?} item seq {} has no paragraph locator — a payload site was \
+                 added or edited without one. payload: {}",
+                it.kind,
+                it.seq,
+                it.payload_json
+            );
+        }
+        // And the fixture must actually exercise more than one kind, or this
+        // test passes by only covering the site that was already right.
+        assert!(
+            kinds_seen.len() >= 2,
+            "the fixture only produced {kinds_seen:?} — it cannot catch a miss in another arm"
+        );
     }
 
     /// §11 D68. THE STANDING CHECK: a pre-pass change must be verified through

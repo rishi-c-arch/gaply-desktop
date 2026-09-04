@@ -3612,3 +3612,93 @@ text of chunks c469 and c474 from the fetched SemEval-2018 PDF. Fixtures are
 chosen for coverage of behaviour; they are not a sample of what real documents
 contain. That is D69's population point again, in a different subsystem, found
 the same way — by running the real thing end to end.
+
+### D72 — the locator was added one payload site at a time, and missed two of four
+
+D65 gave every audit item a paragraph locator so a Word manuscript would stop
+printing "no page numbers" 84 times. It reached two of the four sites that build
+an item payload, and the misses were found one real audit at a time:
+
+- the whole-manuscript **`citation_support`** site — found when a card had no
+  locator to show;
+- the whole-manuscript **`unverifiable`** site — found because a real exported
+  report showed **67 paragraph locators and 16 "no page numbers"**, and the 16
+  were exactly the unverifiable items.
+
+Measured on `R PAPER .docx` before the fix: `citation_need` 65/65 carried a
+paragraph, `citation_support` 3/3, **`unverifiable` 0/16**. After: **16/16**.
+
+#### Why it kept happening
+
+The plan builds payloads in four places, each a separate `json!` literal, in two
+scope branches (`AuditScope::Citation` and `AuditScope::WholeManuscript`) that
+mirror each other. Adding a field means editing four literals, and a reader
+checking "did D65 land?" sees the field present at whichever site they open
+first. Both misses were in the WHOLE-MANUSCRIPT branch — the one a thesis audit
+actually takes — while the citation-scope branch, the one easiest to reach from
+the tests, was right.
+
+**This is the third instance of the same shape in this feature** (D68 was the
+first two: the shipped entry point calling the shim, and the `citedSource` site).
+Editing where you are looking is not the same as editing where the product runs.
+
+#### The fix is a guard over the OUTPUT, not a tidier input
+
+`locator_payload()` makes the fields easy to attach, but it does not make
+omission impossible — a new site can simply not call it, which is exactly how
+this happened twice.
+
+`every_planned_item_carries_a_locator` asserts the property over **every item
+the plan emits**, on a `.docx` fixture where a paragraph is the only locator
+available. A payload site added later is covered without anyone remembering the
+test exists. It also asserts the fixture produces **at least two item kinds**, so
+it cannot pass by exercising only the arm that was already correct — the precise
+way the earlier tests missed this.
+
+Verified against the bug: reverting the unverifiable site fails with
+*"Unverifiable item seq 0 has no paragraph locator — a payload site was added or
+edited without one"*, naming the arm.
+
+`examples/audit_report_preview.rs` also loses its paragraph backfill, which
+joined sentences to ordinals by text because the payloads did not carry them.
+They do now, so the workaround measured its own join rather than the product.
+
+### D71 — a labelling tool, and the neighbour fields the product never sends
+
+Every `citation_need` accuracy number so far has leaned on a fixed keyword
+heuristic for "the authors' own work", applied identically to both arms —
+honest about DIRECTION and SIZE, and explicitly not ground truth. D59 item 1
+(the reason/verdict coupling defect) cannot be settled without a labelled set,
+and D59 recorded that the blocker was eval throughput. Metal removed that; what
+remained missing was the labels.
+
+`src/bin/label-cn.rs` walks a real manuscript's planned sentences — the pre-pass
+filtered ones are already gone — showing each with its section and locator, and
+records `needs_citation`, `sentence_type` and `severity` on single keypresses,
+appending to `evals/citation_need.jsonl` in the existing schema. It resumes by
+SENTENCE TEXT rather than index, so re-running after a pre-pass change does not
+re-ask what was already answered, and each case is flushed immediately so
+quitting never loses completed work. Default scope is UNCITED sentences: those
+are what the audit routes to `citation_need`, and a sentence carrying a marker is
+a `citation_support` question.
+
+`severity` is omitted when `needs_citation` is false — §11 D66 established the
+field grades a need that does not exist — so the tool does not ask.
+
+#### The finding: the seed set measures a configuration the product does not run
+
+`job_runner` builds `CitationNeedInput` with `preceding_sentence: String::new()`
+and `following_sentence: String::new()`. **The product never shows the model a
+neighbour.** `ai-eval` deserialises `CitationNeedInput` straight from the case
+file, so whatever a case carries is what the model sees.
+
+The eight existing seed cases all carry real neighbours. **So the seed set has
+been measuring a richer configuration than ships** — the §11 D68 shape again, in
+the eval harness rather than the pre-pass.
+
+The tool therefore writes neighbours EMPTY by default, matching the product, with
+`--with-neighbours` to opt into the richer configuration deliberately. Not
+resolved here, because it is a decision rather than a defect: either
+`job_runner` should pass neighbours, or the seeds should stop carrying them. What
+must not happen is a labelled set built to one convention and scored under the
+other.

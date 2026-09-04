@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let installed =
         app_lib::ai::generative::resolve_generative_loader(&db, &app_data).map(|l| l.model_id());
     let today = app_lib::audit_export::today_label();
-    let mut m = app_lib::audit_export::build_model_with(
+    let m = app_lib::audit_export::build_model_with(
         &db,
         job,
         &name,
@@ -34,29 +34,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         gaply_core::audit_report::health_score(&m)
     );
 
-    // Optional 4th arg: the source file. Job 7 predates the D65 paragraph
-    // payload, so its locators are backfilled here by re-running the pre-pass
-    // and joining on sentence text — the same ordinals a fresh audit records
-    // natively. Labelled rather than silent: this is a demo join, not storage.
-    if let Some(src) = std::env::args().nth(4) {
-        let blks = gaply_core::extract::docparse::parse_path_paged(std::path::Path::new(&src))?;
-        let pre = gaply_core::ai_engine::audit_prepass::prepass_blocks(&blks);
-        let by_sentence: std::collections::HashMap<&str, u32> = pre
-            .planned
-            .iter()
-            .filter_map(|p| p.paragraph.map(|n| (p.sentence.as_str(), n)))
-            .collect();
-        let mut hit = 0usize;
-        for v in [&mut m.supported, &mut m.needs_citation, &mut m.unverifiable, &mut m.failed] {
-            for it in v.iter_mut() {
-                if let Some(n) = by_sentence.get(it.sentence.trim()) {
-                    it.paragraph = Some(*n);
-                    hit += 1;
-                }
-            }
-        }
-        println!("  backfilled paragraph locators for {hit} items from {src}");
-    }
+    // §11 D72: how many items carry a locator. A .docx has no pages, so this
+    // is the number that says whether the paragraph locator reached the report.
+    let located = m
+        .supported
+        .iter()
+        .chain(m.needs_citation.iter())
+        .chain(m.unverifiable.iter())
+        .chain(m.failed.iter())
+        .filter(|i| i.page.is_some() || i.paragraph.is_some())
+        .count();
+    let total = m.supported.len() + m.needs_citation.len() + m.unverifiable.len() + m.failed.len();
+    println!("  items carrying a locator: {located}/{total}");
 
     let blocks = gaply_core::audit_report::compose_audit(&m);
     let pdf = gaply_core::report_pdf::render_pdf(&blocks);
