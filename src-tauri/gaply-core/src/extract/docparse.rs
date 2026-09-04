@@ -442,6 +442,20 @@ pub fn parse_path(path: &Path) -> Result<String, GaplyError> {
 /// One reflowed block together with the page it was recorded on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PagedBlock {
+    /// The Word paragraph style, when the source is a `.docx` that names one —
+    /// `Heading1`, `BodyText`, `TableParagraph`, `ListParagraph`.
+    ///
+    /// This is STRUCTURE THE FILE ALREADY CARRIES and the pre-pass used to
+    /// throw away, leaving it to guess headings from ALL-CAPS shape and table
+    /// rows from digit density. On `R PAPER .docx` that guess produced
+    /// `"SEAR"` (truncated) and `"HEFCSO-BILSTM: A HYBRID"` for whole runs of
+    /// the paper, while the file plainly declared 1 `Heading1`, 3 `Heading2`,
+    /// 15 `Heading3` and 32 `TableParagraph`.
+    ///
+    /// `None` for every other format: a PDF has no such notion, and inventing
+    /// one would be an estimate dressed as provenance — the same reason `page`
+    /// is `None` rather than guessed.
+    pub style: Option<String>,
     /// The page the block STARTED on, 1-based.
     ///
     /// `None` means the source carries no reliable page boundaries — a DOCX,
@@ -479,6 +493,12 @@ pub fn parse_path_paged(path: &Path) -> Result<Vec<PagedBlock>, GaplyError> {
         // No pagination exists in these formats, so every block is honestly
         // page-less. Blocks are the blank-line-separated paragraphs the
         // non-paged path already produces.
+        // A Word file HAS structure — headings and table cells are declared,
+        // not inferred. Reading it is what lets the pre-pass stop guessing.
+        "docx" => {
+            let bytes = std::fs::read(path)?;
+            Ok(parse_docx_blocks(&bytes)?)
+        }
         _ => {
             let text = parse_path(path)?;
             Ok(blocks_without_pages(&text))
@@ -492,7 +512,7 @@ fn blocks_without_pages(text: &str) -> Vec<PagedBlock> {
     text.split("\n\n")
         .map(str::trim)
         .filter(|b| !b.is_empty())
-        .map(|b| PagedBlock { page: None, text: b.to_string() })
+        .map(|b| PagedBlock { page: None, style: None, text: b.to_string() })
         .collect()
 }
 
@@ -514,7 +534,10 @@ fn parse_pdf_paged(path: &Path) -> Result<Vec<PagedBlock>, GaplyError> {
     if !has_extractable_text(&joined) {
         return Err(GaplyError::Validation(NO_TEXT_LAYER_ADVICE.to_string()));
     }
-    Ok(blocks.into_iter().map(|(page, text)| PagedBlock { page, text }).collect())
+    Ok(blocks
+        .into_iter()
+        .map(|(page, text)| PagedBlock { page, style: None, text })
+        .collect())
 }
 
 /// The message shown when a PDF carries no text layer. ONE definition — the
@@ -663,6 +686,74 @@ pub fn parse_docx(bytes: &[u8]) -> Result<String, GaplyError> {
             },
             // paragraph end → blank line so the section splitter sees breaks
             Ok(Event::End(e)) if e.local_name().as_ref() == b"p" => out.push_str("\n\n"),
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(GaplyError::Internal(format!("docx xml error: {e}"))),
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+/// Parse a `.docx` into one block per Word paragraph, carrying its style.
+///
+/// [`parse_docx`] harvests `<w:t>` text and discards everything else, which is
+/// the right shape for the plain-text callers. This keeps the paragraph
+/// boundaries and the `w:pStyle` beside each one, so the pre-pass can read the
+/// document's own headings and table cells instead of inferring them.
+///
+/// Deliberately a SIBLING rather than a rewrite: `parse_docx` has callers whose
+/// contract is "the text, blank-line separated", and changing that to serve this
+/// would ripple through the reference-list scanner and the chunker for no gain.
+pub fn parse_docx_blocks(bytes: &[u8]) -> Result<Vec<PagedBlock>, GaplyError> {
+    let cursor = std::io::Cursor::new(bytes);
+    let mut zip = zip::ZipArchive::new(cursor)
+        .map_err(|e| GaplyError::Validation(format!("not a valid docx (zip): {e}")))?;
+    let mut xml = String::new();
+    zip.by_name("word/document.xml")
+        .map_err(|e| GaplyError::Validation(format!("docx missing document.xml: {e}")))?
+        .read_to_string(&mut xml)?;
+
+    let mut reader = Reader::from_str(&xml);
+    let cfg = reader.config_mut();
+    cfg.trim_text(false);
+    cfg.check_end_names = false;
+
+    let mut out: Vec<PagedBlock> = Vec::new();
+    let mut text = String::new();
+    let mut style: Option<String> = None;
+    let mut in_text = false;
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) if e.local_name().as_ref() == b"t" => in_text = true,
+            Ok(Event::End(e)) if e.local_name().as_ref() == b"t" => in_text = false,
+            Ok(Event::Text(t)) if in_text => {
+                text.push_str(&t.unescape().unwrap_or_default());
+            }
+            Ok(Event::Empty(e)) | Ok(Event::Start(e)) => {
+                match e.local_name().as_ref() {
+                    b"tab" => text.push('\t'),
+                    b"br" | b"cr" => text.push('\n'),
+                    // <w:pStyle w:val="Heading2"/> — the declaration this
+                    // whole function exists to keep.
+                    b"pStyle" => {
+                        if let Some(v) = e.attributes().flatten().find(|a| {
+                            a.key.local_name().as_ref() == b"val"
+                        }) {
+                            style = String::from_utf8(v.value.to_vec()).ok();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(e)) if e.local_name().as_ref() == b"p" => {
+                let t = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                if !t.is_empty() {
+                    out.push(PagedBlock { page: None, style: style.clone(), text: t });
+                }
+                text.clear();
+                style = None;
+            }
             Ok(Event::Eof) => break,
             Err(e) => return Err(GaplyError::Internal(format!("docx xml error: {e}"))),
             _ => {}

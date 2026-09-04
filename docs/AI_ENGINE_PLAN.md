@@ -3125,3 +3125,80 @@ differs from the shipped prompt by exactly the lines under test.
 what let this question be answered in one run per device without touching the
 shipped prompt, and the diff test is what keeps such a cell honest — a variant
 that quietly differs in two ways measures neither.
+
+### D65 — `.docx` carries its own structure, and the pre-pass was throwing it away
+
+D59 item 2. A Word file DECLARES what the pre-pass was guessing: `R PAPER .docx`
+contains 1 `Heading1`, 3 `Heading2`, 15 `Heading3` and 32 `TableParagraph`, and
+`parse_docx` harvested `<w:t>` text and discarded every `w:pStyle`. So the
+pre-pass inferred headings from ALL-CAPS shape and table rows from digit
+density, on a document that had already said which was which.
+
+`parse_docx_blocks` keeps paragraph boundaries and the style beside each one.
+`prepass_blocks` reads them; `prepass` remains as the `(page, text)` shim, so a
+source with no style information behaves exactly as before — every existing
+caller and test is unchanged. **Structure first, heuristics second: a declared
+style is a fact, ALL-CAPS shape is a guess about one.**
+
+Both arms below run on the SAME parsed blocks — the shim discards styles, which
+is exactly the old behaviour — so structure awareness is the only variable.
+
+#### Section labels: 9 guesses -> 19 declared
+
+| before (ALL-CAPS guess) | after (`w:pStyle`) |
+|---|---|
+| `SEAR` | `Statistical Significance Testing` |
+| `PER-EMOTION PERFORMANCE (HEFCSO-` | `Per-Emotion F1-Score Analysis` |
+| `BiLSTM + SMOTE` | `Text Pre-Processing Pipeline` |
+| `HEFCSO-BiLSTM` | `Proposed HEFCSO Algorithm` |
+| `EXPERIMENTAL SETUP AND RESULTS` | `Experimental Configuration`, `Dataset Acquisition`, … |
+
+Nineteen real section names in place of nine, several of which were truncated
+fragments. **This is the half that matters**, because D58's own-work rule keys on
+section and was reasoning from `"SEAR"` on every Word manuscript.
+
+#### THE FILTER'S OUTPUT DID NOT CHANGE. Its EXPLANATION was wrong for 51 items.
+
+Stated plainly so nobody later cites the table-row number as an accuracy win:
+
+| skip reason | before | after |
+|---|---|---|
+| table row or figure caption | 7 | **39** |
+| heading, not a claim | 5 | **24** |
+| too short to be a claim | 202 | **151** |
+| **planned (sent to the model)** | **84** | **84** |
+
+**+32 tables and +19 headings match the declared counts EXACTLY** — the deltas
+are not approximately right, they are the file's own structure. But 202 -> 151 is
+the same 51 items: they were ALREADY being dropped, as *"too short to be a
+claim"*, and are now dropped as what they actually are.
+
+**Nothing new is excluded from the audit and no sentence changed side.**
+`7 -> 39 table rows dropped` is a REPORTING correction, not a filtering
+improvement — the report's "Not judged, and why" section was misdescribing a
+fifth of its own skips. Anyone citing it as an accuracy gain is citing it wrong.
+
+#### A paragraph is a locator; "no page numbers" is not
+
+A `.docx` has no pagination until something lays it out, so 84 items reading
+*"no page numbers"* told a reader where nothing was. `PlannedSentence.paragraph`
+is a 1-based ordinal counted over every block — including skipped ones, since a
+locator must match what the reader counts in the document — and rides in the
+item payload beside `section`.
+
+Rendered on job 7: **94 `¶N` references, zero "no page numbers"**. The attention
+list reads `[needs citation] ¶8 · sentence 3`.
+
+**`page` WINS whenever both exist** (`a_page_wins_over_a_paragraph_when_both_exist`).
+Two locators for one sentence is a reader deciding which to trust, and the page
+is the one they can act on. PDF behaviour is byte-unchanged.
+
+#### KNOWN GAP, not a defect to chase
+
+`HEFCSO-BILSTM: A HYBRID` still appears as the section for the abstract. **The
+file declares no `Title` style for that paragraph**, so there is no structure to
+read and the ALL-CAPS fallback fires and truncates at its 8-word limit. Structure
+fixed the 19 paragraphs Word actually marked; it cannot fix one Word did not.
+Chasing it means improving the heuristic for unstyled documents, which is a
+different piece of work with its own eval — and per D64, a change near this model
+is not additive and would need measuring rather than assuming.

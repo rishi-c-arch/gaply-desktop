@@ -350,9 +350,9 @@ mod tests {
 
     fn blocks() -> Vec<PagedBlock> {
         vec![
-            PagedBlock { page: Some(1), text: "Methods".into() },
-            PagedBlock { page: Some(1), text: "We did the thing. Then we measured it.".into() },
-            PagedBlock { page: Some(2), text: "The thing worked. Numbers followed.".into() },
+            PagedBlock { page: Some(1), style: None, text: "Methods".into() },
+            PagedBlock { page: Some(1), style: None, text: "We did the thing. Then we measured it.".into() },
+            PagedBlock { page: Some(2), style: None, text: "The thing worked. Numbers followed.".into() },
         ]
     }
 
@@ -421,7 +421,7 @@ mod tests {
     #[test]
     fn page_less_chunks_store_null_and_are_queryable_as_such() {
         let (db, doc) = db_with_document();
-        let blocks = vec![PagedBlock { page: None, text: "No pages here. Two sentences.".into() }];
+        let blocks = vec![PagedBlock { page: None, style: None, text: "No pages here. Two sentences.".into() }];
         let chunks = crate::chunk::chunk_paged(&blocks, 100, 10);
         index_chunks(&db, doc, &chunks).unwrap();
 

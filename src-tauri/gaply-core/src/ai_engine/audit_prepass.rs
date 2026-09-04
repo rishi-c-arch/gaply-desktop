@@ -73,6 +73,16 @@ pub struct PlannedSentence {
     /// first real run flagged the authors' own results, their hardware setup
     /// and their own F1 scores as needing citations.
     pub section: Option<String>,
+    /// 1-based paragraph ordinal within the document, for sources that have no
+    /// pages (§11 D65).
+    ///
+    /// A `.docx` has no pagination until something lays it out, so "page
+    /// unknown" was reporting a defect where there is only a file format. A
+    /// paragraph ordinal is a REAL locator the format does define, and it is
+    /// counted from the document's own paragraph boundaries rather than
+    /// estimated from character position. `None` for a PDF, which has the
+    /// better locator already.
+    pub paragraph: Option<u32>,
 }
 
 /// What the pre-pass measured, before any model call.
@@ -84,6 +94,10 @@ pub struct PrepassReport {
     pub uncited: usize,
     /// Dropped by the significance filter: headings, references, short lines.
     pub skipped: usize,
+    /// WHY they were dropped, by reason. `skipped` alone cannot distinguish
+    /// "the filter removed 40 table rows" from "the filter ate 40 claims",
+    /// which are opposite facts about the same number.
+    pub skipped_by_reason: BTreeMap<String, usize>,
     pub markers_found: usize,
     pub planned: Vec<PlannedSentence>,
     /// The paper's own numbered reference list, `[n]` → entry. Empty when the
@@ -528,6 +542,27 @@ pub fn heading_of(sentence: &str) -> Option<String> {
     (upper as f32 / letters.len() as f32 >= 0.8).then(|| body.trim().to_string())
 }
 
+/// Does this Word style DECLARE the paragraph a heading, and at what level?
+///
+/// `Heading1`/`Heading2`/`Heading3` are what Word writes when an author uses the
+/// heading styles, and they are exact — unlike `heading_of`, which infers from
+/// ALL-CAPS shape and produced `"SEAR"` and `"HEFCSO-BILSTM: A HYBRID"` on a
+/// real paper. `Title` counts too: it names the document, and the sentences
+/// under it before the first real heading belong to it.
+pub fn style_is_heading(style: Option<&str>) -> bool {
+    matches!(style, Some(s) if s.starts_with("Heading") || s == "Title" || s == "Subtitle")
+}
+
+/// Does this Word style DECLARE the paragraph a table cell?
+///
+/// `TableParagraph` is written for every cell of every table. The heuristic it
+/// replaces guessed from digit density, which cannot tell a table row from a
+/// sentence that happens to quote several numbers — and a Results paragraph
+/// full of percentages is exactly that sentence.
+pub fn style_is_table(style: Option<&str>) -> bool {
+    matches!(style, Some(s) if s.contains("Table"))
+}
+
 /// Is this sentence worth a model call at all?
 pub fn is_significant(sentence: &str) -> bool {
     skip_reason(sentence).is_none()
@@ -538,6 +573,23 @@ pub fn is_significant(sentence: &str) -> bool {
 /// Takes `(page, text)` pairs rather than a path so it stays pure and testable
 /// — the caller does the parsing with `extract::docparse::parse_path_paged`.
 pub fn prepass(blocks: &[(Option<u32>, String)]) -> PrepassReport {
+    let owned: Vec<crate::extract::docparse::PagedBlock> = blocks
+        .iter()
+        .map(|(page, text)| crate::extract::docparse::PagedBlock {
+            page: *page,
+            style: None,
+            text: text.clone(),
+        })
+        .collect();
+    prepass_blocks(&owned)
+}
+
+/// The real implementation, over blocks that may carry their Word style.
+///
+/// `prepass` remains as the `(page, text)` shim so every existing caller and
+/// test is unchanged; a source with no style information behaves exactly as it
+/// did, because `style: None` takes every heuristic path it took before.
+pub fn prepass_blocks(blocks: &[crate::extract::docparse::PagedBlock]) -> PrepassReport {
     let mut report = PrepassReport::default();
     let mut in_references = false;
     // Everything after the references heading, kept rather than discarded: a
@@ -546,7 +598,13 @@ pub fn prepass(blocks: &[(Option<u32>, String)]) -> PrepassReport {
     let mut references_text = String::new();
     let mut current_section: Option<String> = None;
 
-    for (page, text) in blocks {
+    // 1-based paragraph ordinal, counted over EVERY block including the ones
+    // that get skipped — a locator has to match what the reader counts in the
+    // document, not what survived the filter.
+    let mut paragraph: u32 = 0;
+    for block in blocks {
+        let (page, text, style) = (&block.page, &block.text, block.style.as_deref());
+        paragraph += 1;
         // Already past the bibliography: nothing after it is prose, but it IS
         // the reference list.
         if in_references {
@@ -574,6 +632,36 @@ pub fn prepass(blocks: &[(Option<u32>, String)]) -> PrepassReport {
         }
         let prose = &text[..prose_end];
 
+        // STRUCTURE FIRST, heuristics second. A style the file declares is a
+        // fact; ALL-CAPS shape and digit density are guesses about one.
+        if style_is_heading(style) {
+            // The whole paragraph is the heading. Take it verbatim rather than
+            // re-deriving it — `heading_of` would truncate "Experimental Setup
+            // and Results" to nothing, since it is neither short nor upper.
+            let h = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            if !h.is_empty() {
+                current_section = Some(h);
+            }
+            report.total_sentences += 1;
+            report.skipped += 1;
+            *report
+                .skipped_by_reason
+                .entry(SkipReason::Heading.as_str().to_string())
+                .or_default() += 1;
+            continue;
+        }
+        if style_is_table(style) {
+            // Every cell of every table. The heuristic could not tell one from
+            // a Results sentence quoting several numbers.
+            report.total_sentences += 1;
+            report.skipped += 1;
+            *report
+                .skipped_by_reason
+                .entry(SkipReason::TableOrFigure.as_str().to_string())
+                .or_default() += 1;
+            continue;
+        }
+
         for sentence in crate::extract::sentence::sentences_in(prose) {
             // A heading is not a claim, but it TELLS us what the claims under
             // it are. Tracked as the scan passes rather than looked up later,
@@ -590,12 +678,16 @@ pub fn prepass(blocks: &[(Option<u32>, String)]) -> PrepassReport {
             } else {
                 report.cited += 1;
             }
-            if !is_significant(sentence) {
+            if let Some(reason) = skip_reason(sentence) {
                 report.skipped += 1;
+                *report.skipped_by_reason.entry(reason.as_str().to_string()).or_default() += 1;
                 continue;
             }
             report.planned.push(PlannedSentence {
                 page: *page,
+                // Only where there is no page. A PDF has the better locator
+                // and two competing ones is a reader deciding which to trust.
+                paragraph: page.is_none().then_some(paragraph),
                 section: current_section.clone(),
                 sentence: sentence.to_string(),
                 markers,

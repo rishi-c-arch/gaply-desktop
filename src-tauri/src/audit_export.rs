@@ -171,6 +171,12 @@ pub fn build_model_with(
         let mut item = ReportItem {
             seq: it.seq,
             page: it.page,
+            // §11 D65. The pre-pass records a paragraph ordinal for sources
+            // with no pages; it rides in the payload beside `section`.
+            paragraph: payload
+                .get("paragraph")
+                .and_then(|v| v.as_u64())
+                .and_then(|v| u32::try_from(v).ok()),
             sentence: it.sentence.clone(),
             ..Default::default()
         };

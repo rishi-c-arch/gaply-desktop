@@ -280,7 +280,7 @@ mod tests {
     /* --------------------- page-aware chunking (AI engine) ----------------- */
 
     fn blk(page: Option<u32>, text: &str) -> PagedBlock {
-        PagedBlock { page, text: text.to_string() }
+        PagedBlock { page, style: None, text: text.to_string() }
     }
 
     /// N sentences, each ~10 tokens, so a small budget forces several windows.

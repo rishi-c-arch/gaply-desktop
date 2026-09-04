@@ -261,6 +261,8 @@ fn plan_audit(
                             "documentId": document_id,
                             "libraryId": library_id,
                             "citedSource": marker,
+                            "paragraph": planned.paragraph,
+                            "section": planned.section,
                         })
                         .to_string(),
                     });
@@ -273,7 +275,12 @@ fn plan_audit(
                         chunk_id: None,
                         page: planned.page,
                         sentence: planned.sentence.clone(),
-                        payload_json: serde_json::json!({ "reason": reason }).to_string(),
+                        payload_json: serde_json::json!({
+                            "reason": reason,
+                            "paragraph": planned.paragraph,
+                            "section": planned.section,
+                        })
+                        .to_string(),
                     });
                 }
                 Resolution::Uncited => {}
@@ -292,8 +299,11 @@ fn plan_audit(
                 sentence: planned.sentence.clone(),
                 // The section the sentence sits under. The prompt has a rule
                 // keyed on it that could never fire while this was empty.
-                payload_json: serde_json::json!({ "section": planned.section })
-                    .to_string(),
+                payload_json: serde_json::json!({
+                    "section": planned.section,
+                    "paragraph": planned.paragraph,
+                })
+                .to_string(),
             });
             continue;
         }

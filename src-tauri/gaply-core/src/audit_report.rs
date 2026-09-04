@@ -43,6 +43,11 @@ pub struct ReportEvidence {
 pub struct ReportItem {
     pub seq: i64,
     pub page: Option<u32>,
+    /// Paragraph ordinal, for a source with no pages (§11 D65). Never set
+    /// alongside `page` — a PDF has the better locator, and offering two is a
+    /// reader deciding which to trust.
+    #[serde(default)]
+    pub paragraph: Option<u32>,
     pub sentence: String,
     /// `strong` | `partial` | … for support; `needs_citation` / `no_citation_needed`
     /// for need; absent when the item was never judged.
@@ -115,6 +120,23 @@ fn page_label(page: Option<u32>, has_pages: bool) -> String {
     }
 }
 
+/// Where a finding IS, in the best terms the source supports (§11 D65).
+///
+/// A PDF has pages. A Word file does not — but it does have paragraphs, and a
+/// paragraph ordinal is a real locator rather than an absence. Before this, 84
+/// items of a Word manuscript all read "no page numbers", which told a reader
+/// where nothing was.
+///
+/// Page WINS when both exist. Two locators for one sentence is a reader
+/// deciding which to trust, and the page is the one they can act on.
+fn locator(item: &ReportItem, has_pages: bool) -> String {
+    match (item.page, item.paragraph) {
+        (Some(p), _) => format!("p.{p}"),
+        (None, Some(par)) => format!("¶{par}"),
+        (None, None) => page_label(None, has_pages),
+    }
+}
+
 /// How a verdict should read. The composer knows what the words mean; the
 /// renderers decide what the tone looks like in their medium.
 fn tone_of(verdict: Option<&str>) -> Tone {
@@ -168,7 +190,7 @@ fn emit_finding(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
     // spent four paragraphs per item, which turned 65 findings into something
     // to wade through rather than read.
     out.push(heading(
-        format!("Sentence {} · {}", item.seq, page_label(item.page, has_pages)),
+        format!("Sentence {} · {}", item.seq, locator(item, has_pages)),
         3,
     ));
     if let Some(v) = &item.verdict {
@@ -315,7 +337,7 @@ fn emit_blocked_sources(out: &mut Vec<Block>, items: &[ReportItem], has_pages: b
             out.push(bullet(
                 format!(
                     "{} — “{}”",
-                    page_label(it.page, has_pages),
+                    locator(it, has_pages),
                     it.sentence.trim().chars().take(110).collect::<String>()
                 ),
                 0,
@@ -435,7 +457,7 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
                 format!(
                     "[{}] {} · sentence {} — “{}”",
                     it.verdict.as_deref().unwrap_or("?").replace('_', " "),
-                    page_label(it.page, m.has_pages),
+                    locator(it, m.has_pages),
                     it.seq,
                     it.sentence.trim().chars().take(96).collect::<String>()
                 ),
@@ -656,6 +678,50 @@ mod tests {
         let text = all_text(&compose_audit(&m));
         assert!(text.contains("c7 · p.4 —"), "{text}");
         assert!(text.contains("c9 · page unknown —"), "{text}");
+    }
+
+    /// §11 D65. A Word file has no pages, but it HAS paragraphs — and a
+    /// paragraph ordinal is a locator rather than an absence. 84 items reading
+    /// "no page numbers" told a reader where nothing was.
+    #[test]
+    fn an_unpaginated_source_locates_findings_by_paragraph() {
+        let mut m = model();
+        m.has_pages = false;
+        m.needs_citation = vec![ReportItem {
+            seq: 4,
+            page: None,
+            paragraph: Some(12),
+            sentence: "An uncited assertion.".into(),
+            verdict: Some("needs_citation".into()),
+            ..Default::default()
+        }];
+        let text = all_text(&compose_audit(&m));
+        assert!(text.contains("¶12"), "no paragraph locator:\n{text}");
+        assert!(
+            !text.contains("no page numbers"),
+            "fell back to the absence message despite having a locator:\n{text}"
+        );
+    }
+
+    /// A page and a paragraph must never both show: two locators for one
+    /// sentence is a reader deciding which to trust.
+    #[test]
+    fn a_page_wins_over_a_paragraph_when_both_exist() {
+        let it = ReportItem {
+            seq: 1,
+            page: Some(7),
+            paragraph: Some(12),
+            ..Default::default()
+        };
+        assert_eq!(locator(&it, true), "p.7");
+    }
+
+    /// And an item with neither still says which KIND of absence it is.
+    #[test]
+    fn neither_locator_still_distinguishes_the_two_absences() {
+        let bare = ReportItem { seq: 1, ..Default::default() };
+        assert_eq!(locator(&bare, true), "page unknown");
+        assert_eq!(locator(&bare, false), "no page numbers");
     }
 
     #[test]

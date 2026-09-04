@@ -331,6 +331,7 @@ fn fetch_one_inner(
             )?;
 
             let blocks = vec![gaply_core::extract::docparse::PagedBlock {
+                style: None,
                 page: Some(1),
                 text: safe_text.clone(),
             }];
