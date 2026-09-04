@@ -111,7 +111,21 @@ pub enum Severity {
 pub struct CitationNeedOutput {
     pub needs_citation: bool,
     pub sentence_type: SentenceType,
-    pub severity: Severity,
+    /// How badly the sentence needs a citation — **only meaningful when it
+    /// needs one** (§11 D66).
+    ///
+    /// The spec declared this unconditionally required, and the engine threw
+    /// away every answer that omitted it. Reading the raw outputs showed those
+    /// were not model failures: the model returned a complete, well-formed,
+    /// CORRECT object and left out the one field that carries no information
+    /// when `needs_citation` is false. A sentence that needs no citation has no
+    /// severity-of-need to report.
+    ///
+    /// So the requirement is CONDITIONAL, mirroring `search_query`, which the
+    /// spec already treats this way in the opposite direction: required when
+    /// `needs_citation` is true, legal to omit when it is false.
+    #[serde(default)]
+    pub severity: Option<Severity>,
     pub reason: String,
     /// Spec: "only when needs_citation=true", null otherwise.
     #[serde(default)]
@@ -282,6 +296,7 @@ impl CitationNeedTask {
 pub const FATAL_RULES: &[&str] = &[
     "sentence_type outside the ten spec values (rejected by serde at parse time)",
     "severity outside high|medium|low (rejected by serde at parse time)",
+    "severity absent when needs_citation is true (the field that grades the need)",
     "reason empty — a required field with no content",
     "search_query present when needs_citation is false (fields contradict)",
     "search_query absent when needs_citation is true (fields contradict)",
@@ -337,6 +352,26 @@ impl AiTask for CitationNeedTask {
             // FATAL: a required field with no content is a schema violation,
             // not a style one.
             errors.push(ValidationError::fatal("reason", "must not be empty"));
+        }
+
+        match (out.needs_citation, out.severity) {
+            // FATAL: the field that GRADES the need is missing while a need is
+            // asserted. Unlike its absence below, this loses information the
+            // report shows.
+            (true, None) => errors.push(ValidationError::fatal(
+                "severity",
+                "must be present when needs_citation is true — it grades the need",
+            )),
+            // ACCEPTED SILENTLY, and this is a reversal worth recording. The
+            // first draft made it an advisory — "a grade for a need that does
+            // not exist is noise". `a_false_verdict_with_a_null_query_passes`
+            // failed, and it was right to: the SPEC declares `severity` present
+            // unconditionally, so a model that emits it here is doing exactly
+            // what it was asked. D66 widens what is ACCEPTED; it must not
+            // simultaneously start complaining about the compliant shape.
+            // An advisory would penalise correct behaviour and inflate
+            // `advisoryRate`, which the bake-off reads as a quality signal.
+            (true, Some(_)) | (false, None) | (false, Some(_)) => {}
         }
 
         match (out.needs_citation, out.search_query.as_deref()) {
@@ -449,7 +484,7 @@ mod tests {
         CitationNeedOutput {
             needs_citation: true,
             sentence_type: SentenceType::EmpiricalClaim,
-            severity: Severity::High,
+            severity: Some(Severity::High),
             reason: "Empirical claim about the world stated without attribution.".into(),
             search_query: Some("organic farming soil biodiversity species richness meta analysis".into()),
         }
@@ -469,7 +504,7 @@ mod tests {
         let out = CitationNeedOutput {
             needs_citation: false,
             sentence_type: SentenceType::AuthorOwnResult,
-            severity: Severity::Low,
+            severity: Some(Severity::Low),
             reason: "The author's own result, reported in Results.".into(),
             search_query: None,
         };
@@ -673,6 +708,61 @@ mod tests {
         assert!(tail.contains("beginning with {"));
     }
 
+    /// §11 D66. `severity` is required ONLY when a citation is needed. All four
+    /// combinations, because a conditional rule that is only tested on the two
+    /// convenient sides is a rule nobody has checked.
+    #[test]
+    fn severity_is_required_only_when_a_citation_is_needed() {
+        let out = |needs: bool, sev: Option<Severity>| CitationNeedOutput {
+            needs_citation: needs,
+            sentence_type: SentenceType::EmpiricalClaim,
+            severity: sev,
+            reason: "r".into(),
+            search_query: needs.then(|| "a query of about eight words here now".to_string()),
+        };
+        let tier_of = |o: CitationNeedOutput| -> Option<Tier> {
+            CitationNeedTask::validate(&o, &ctx())
+                .err()?
+                .into_iter()
+                .find(|e| e.field == "severity")
+                .map(|e| e.tier)
+        };
+
+        // 1. needs a citation, graded — the ordinary case.
+        assert_eq!(tier_of(out(true, Some(Severity::High))), None);
+        // 2. needs a citation, UNGRADED — fatal: the grade is the information.
+        assert_eq!(tier_of(out(true, None)), Some(Tier::Fatal));
+        // 3. no citation needed, absent — LEGAL. This is the whole point: the
+        //    model returned a complete correct object and the engine used to
+        //    discard it over a field grading a need that does not exist.
+        assert_eq!(tier_of(out(false, None)), None);
+        // 4. no citation needed, but graded anyway — ACCEPTED. The spec asks
+        //    for severity unconditionally, so this is the COMPLIANT shape and
+        //    must not be penalised while D66 widens what is accepted.
+        assert_eq!(tier_of(out(false, Some(Severity::Low))), None);
+    }
+
+    /// The exact payload from the live diagnostic, byte for byte: a complete,
+    /// correct, own-work answer that the engine used to throw away.
+    #[test]
+    fn the_real_discarded_output_now_parses_and_validates() {
+        let raw = r#"{
+  "needs_citation": false,
+  "sentence_type": "author_own_result",
+  "reason": "the authors' own pre-trained vectors",
+  "search_query": null
+}"#;
+        let out: CitationNeedOutput =
+            serde_json::from_str(raw).expect("this is what the model actually returns");
+        assert!(!out.needs_citation);
+        assert_eq!(out.severity, None);
+        assert_eq!(out.sentence_type, SentenceType::AuthorOwnResult);
+        assert!(
+            CitationNeedTask::validate(&out, &ctx()).is_ok(),
+            "the engine still rejects an answer that is correct"
+        );
+    }
+
     /// Keeps FATAL_RULES / ADVISORY_RULES honest against what the validator
     /// actually does. A doc comment that drifts from the code is worse than no
     /// doc comment, and this mapping is the reviewable record of a decision.
@@ -730,7 +820,7 @@ mod tests {
         assert_eq!(tier_of(o, "search_query"), Some(Tier::Advisory));
 
         // the declared lists are non-empty and documented
-        assert_eq!(FATAL_RULES.len(), 6);
+        assert_eq!(FATAL_RULES.len(), 7);
         assert_eq!(ADVISORY_RULES.len(), 2);
     }
 

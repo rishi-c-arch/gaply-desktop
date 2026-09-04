@@ -3193,6 +3193,69 @@ list reads `[needs citation] ¶8 · sentence 3`.
 Two locators for one sentence is a reader deciding which to trust, and the page
 is the one they can act on. PDF behaviour is byte-unchanged.
 
+#### AMENDMENT — the accuracy claim was MEASURED, and it is a null result
+
+D65's section work was justified by D58: the own-work rule keys on section and
+was reading `"SEAR"`. That is a claim about model behaviour, and per D64 nothing
+prompt-adjacent on this model is safe to assume, so it was checked.
+
+**30 sentences whose section label CHANGED**, run on Metal with the 3B and
+`PromptVariant::V3`. Both arms share the sentences, the model, the device and the
+prompt; only the section string differs.
+
+| | BEFORE (guessed) | AFTER (declared) |
+|---|---|---|
+| needs_citation = true | 0 | 0 |
+| needs_citation = false | 23 | 23 |
+| validation failures | 7 (23%) | 7 (23%) |
+| own-work answered TRUE | **0** | **0** |
+
+**Every distribution is identical, and not one sentence changed its verdict.**
+Six answers "changed" and all six are validation noise — three
+`failure -> valid false` and three `valid false -> failure`, netting to zero,
+which is the `missing field 'severity'` problem of D59 item 3 landing on
+different sentences run to run.
+
+**Why the effect was zero: the relabelled population is the wrong shape.** The
+sentences whose labels improved are related-work claims about OTHER people's
+methods — *"Recurrent network parameters have been tuned by PSO [19]"*,
+*"Yang [9] formalized FA…"* — relabelled
+`HEFCSO-BILSTM: A HYBRID -> Nature-Inspired Hyperparameter Optimisation`. Those
+were already answered `false` correctly under the bad label, and the own-work
+rule was never going to fire on them. The sentences the rule EXISTS for — the
+authors' own results and hardware — live in the abstract and Results, and those
+labels did NOT change: the abstract is the known `Title` gap below, and
+`EXPERIMENTAL SETUP AND RESULTS` was already being guessed correctly.
+
+**So D65 is a REPORTING and LOCATOR change, not an accuracy one** — the same
+correction the table-row numbers needed, applying to the section labels too. The
+labels are genuinely better; on this manuscript that improvement did not reach a
+single sentence where it could change an answer.
+
+**Caveats, because this is a null result being used to withdraw a claim:** n=30
+on ONE paper, and — at the time of the first run — 23% of each arm was
+uninformative from the severity failures, so roughly a quarter of the population
+carried no signal either way. A manuscript where the ALL-CAPS guess mangles the
+*Results* heading — rather than the related-work subheadings, as here — could
+still show a real effect. This says the section signal did not matter HERE, not
+that it never matters.
+
+**RE-RUN ON THE CLEAN DENOMINATOR (after D66).** The first run was measured on a
+compromised population and could not be left standing on one, so it was repeated
+verbatim once the severity failures were gone:
+
+| | BEFORE (guessed) | AFTER (declared) |
+|---|---|---|
+| needs_citation = true | 0 | 0 |
+| needs_citation = false | 29 | 30 |
+| validation failures | 1 (3%) | **0 (0%)** |
+| own-work answered TRUE | **0** | **0** |
+
+**The null HOLDS on a clean population** — uninformative cases fell 23% -> 0-3%,
+and still not one sentence changed its verdict. The single "changed" answer is
+again failure -> valid `false`, not a flip. **D65's amendment therefore stands,
+and is now trustworthy rather than merely stated.**
+
 #### KNOWN GAP, not a defect to chase
 
 `HEFCSO-BILSTM: A HYBRID` still appears as the section for the abstract. **The
@@ -3202,3 +3265,107 @@ fixed the 19 paragraphs Word actually marked; it cannot fix one Word did not.
 Chasing it means improving the heuristic for unstyled documents, which is a
 different piece of work with its own eval — and per D64, a change near this model
 is not additive and would need measuring rather than assuming.
+
+### D66 — `severity` could not exist in a legal state, and the engine blamed the model
+
+D59 item 3. 23% of every `citation_need` eval arm was failing validation with
+`missing field 'severity'`. Treated as a model defect for as long as it was only
+read through the error message.
+
+#### Read the raw output before blaming the model
+
+The failures are byte-identical in shape, seven times out of seven:
+
+```json
+{
+  "needs_citation": false,
+  "sentence_type": "author_own_result",
+  "reason": "the authors' own pre-trained vectors",
+  "search_query": null
+}
+```
+
+with `stop_reasons: [EndOfTurn, EndOfTurn]`. **Not truncation** — the model
+finished cleanly, twice. The field is **absent**, not null and not an
+out-of-range variant (serde would say `invalid type: null` or `unknown variant`
+for those, and the message was read closely enough to be sure).
+
+**The correlation is total: 7/7 have `needs_citation: false`, and 7/7 have
+`sentence_type: "author_own_result"`. Zero failures had `needs_citation: true`.**
+
+A sentence that needs no citation has **no severity-of-need to report**. The
+spec declared the field unconditionally required, so the model's only legal
+options were to invent a grade for a need that does not exist, or to be rejected.
+It chose correctly and was rejected. **These were never model failures.**
+
+Worse: `sentence_type: "author_own_result"` means D58's own-work rule was FIRING
+AND RIGHT, and the engine was throwing that exact answer away.
+
+#### The fix is in the schema, not the prompt
+
+`severity` becomes `Option<Severity>`, required CONDITIONALLY — mirroring
+`search_query`, which the spec already treats this way in the opposite
+direction. All four combinations are tested, because a conditional rule checked
+only on its convenient sides is a rule nobody has checked:
+
+| `needs_citation` | `severity` | verdict |
+|---|---|---|
+| true | present | ok |
+| true | **absent** | **FATAL** — the grade is the information |
+| false | **absent** | **LEGAL** — the fix |
+| false | present | accepted silently |
+
+**The fourth row is a reversal worth recording.** The first draft made it an
+ADVISORY — "a grade for a need that does not exist is noise" — and the existing
+`a_false_verdict_with_a_null_query_passes` failed. The test was right: the spec
+declares `severity` present unconditionally, so a model emitting it there is
+doing exactly what it was asked. D66 widens what is ACCEPTED; it must not
+simultaneously start complaining about the compliant shape, and an advisory would
+have penalised correct behaviour and inflated `advisoryRate`, which the bake-off
+reads as a quality signal. **The prompt was not touched** (D64).
+
+#### Measured, on the same 30 sentences
+
+| | before | after |
+|---|---|---|
+| validation failures | 7 (23%) | **0 (0%)** |
+
+And "it validates" is not the claim D66 makes, so the verdicts were measured
+too, not inferred: **30/30 `needs_citation: false`, 0 failures, and exactly 7
+carrying `severity` absent** — the same seven, recovered in the shape the raw
+text showed. `sentence_type`: AuthorOwnResult 12, CommonKnowledge 7, Definition
+4, PriorWork 6, Transition 1.
+
+#### THE THIRD DEFECT CLASS
+
+Three prompt/schema defects have now been diagnosed on this task, and they sit at
+three different layers. Confusing them wastes runs:
+
+- **D58 — the rule was never stated.** The validator rejected on something the
+  prompt did not say. *Fix: tell the model.*
+- **D64 — the rules compete.** Stating a further rule displaced compliance with
+  one already stated. *Fix: state fewer; a rule budget, not a list.*
+- **D66 — the field could not exist in a legal state.** The spec demanded
+  information that does not exist for a legal answer. *Fix: the schema. The
+  model was right.*
+
+**The third is the one where instinct misleads hardest.** `missing field
+'severity'` reads as an omission by the model, and every cheap response — a
+prompt line, a default, a retry — treats it as one. **Read the raw output before
+blaming the model.** Seven discarded correct answers per thirty were the cost of
+not doing so earlier.
+
+#### The measurement tax, and what it means for D65
+
+This was not only a user-facing defect. **A quarter of every eval arm carried no
+signal, and not a random quarter** — the discarded sentences were exactly the
+own-work ones, which is the population D58's rule targets and precisely what the
+`own-work answered TRUE` metric counts.
+
+**So D65's amendment was measured on a weaker population than its `n=30`
+implies.** Its null result read `own-work answered TRUE = 0` in BOTH arms, and
+part of that zero was these answers being counted as failures rather than as the
+correct `false` they were. The null is not overturned — the six changed answers
+there were failure/valid churn with no verdict flips — but it was **less cleanly
+measured than the amendment currently states**, and it is re-run on the clean
+denominator rather than left standing on a compromised one.
