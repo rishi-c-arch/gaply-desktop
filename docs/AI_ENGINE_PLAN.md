@@ -3369,3 +3369,203 @@ correct `false` they were. The null is not overturned — the six changed answer
 there were failure/valid churn with no verdict flips — but it was **less cleanly
 measured than the amendment currently states**, and it is re-run on the clean
 denominator rather than left standing on a compromised one.
+
+### D67 — Word keeps list numbers in `numbering.xml`, so 22 of 25 references were invisible
+
+Found while closing the OA loop, and it blocked it: `R PAPER .docx` parsed **3**
+reference entries where the PDF rendered from the same file parsed **25**.
+
+**The numbers are not in the text.** Entries [1]-[22] are a Word auto-numbered
+list (`ListParagraph` + `<w:numPr>`), and Word stores their ordinals in
+`word/numbering.xml`, never in the paragraph. So `<w:t>` extraction yields the
+entry text with NO marker, and `parse_numbered_bibliography` — which needs a
+`[n]` delimiter — found nothing. Entries [23]-[25] were typed by hand with
+literal markers, which is why exactly three survived.
+
+**This is D65's principle one step further**, and it is pre-existing rather than
+a D65 regression: the `prepass` shim (styles discarded) also returns 3.
+
+#### The naive fix is WRONG, and the document says so
+
+"Number the `ListParagraph` run 1, 2, 3…" is the obvious repair and it breaks on
+CONTINUATIONS. Block 233 is `"pp. 436-465, 2013."` — a wrapped tail of entry [5],
+in its own paragraph. Counting it shifts every later ordinal by one, and a wrong
+reference number is worse than a missing one: it resolves a citation to the WRONG
+paper, which is the failure this engine exists to prevent.
+
+`<w:numPr>` does not separate them either — **all 24 `ListParagraph` paragraphs
+carry it, the continuation included**, so Word itself counts that wrapped line as
+its own list item.
+
+#### The guard is agreement with what Word actually renders
+
+The PDF was produced from this docx, so **its numbering IS Word's numbering**,
+and it settles the question:
+
+```
+[5] S. Mohammad and P. Turney, "Crowdsourcing a word-emotion association lexicon,"
+[6] pp. 436-465, 2013.
+[7] Cortes and V. Vapnik, "Support-vector networks,"
+```
+
+**The document numbers the continuation as entry 6.** That is the author's own
+off-by-one, and reproducing it is CORRECT: a reader's `[6]` is whatever their
+document shows, not what they meant. So positional numbering of the list run is
+right after all — it reproduces Word — and the earlier objection was an objection
+to a fix that guessed, not to this one.
+
+Verified end to end: docx now parses **25** entries and every one matches the PDF,
+`[6]` quirk included. GoEmotions lands at [19] and SemEval-2018 at [22] on both
+paths.
+
+#### A literal marker is ground truth AND the check
+
+Synthesised ordinals are kept ONLY while every literal marker agrees with the
+running count. `R PAPER .docx` supplies exactly that confirmation: 22 synthesised
+entries, then a literal `[23]` that matches. On disagreement the synthesis is
+abandoned **wholesale** — not patched, not partially trusted — and only entries
+carrying their own marker survive. Four tests pin it: the auto-numbered case, the
+disagreeing case, the agreeing case, and an already-marked list item that must
+not be double-numbered.
+
+### D68 — the shipped audit path bypassed D65 and D67 entirely, and both were "verified" in probes
+
+Found while closing the OA loop, and it invalidates how two prior entries were
+checked.
+
+`prepass_manuscript` — **the audit's own entry point** — still did this:
+
+```rust
+let blocks = parse_path_paged(manuscript)?;
+let paged: Vec<(Option<u32>, String)> = blocks.into_iter().map(|b| (b.page, b.text)).collect();
+Ok(prepass(&paged))
+```
+
+It converted every block to a `(page, text)` pair and called the SHIM. The shim
+discards `PagedBlock.style`, and with it **every declared heading and table cell
+(D65) and every auto-numbered reference ordinal (D67)** — on `R PAPER .docx`, 22
+of 25 references. The product never received either feature.
+
+**Both were measured with probes that called `prepass_blocks` directly.** The
+probes were correct about `prepass_blocks`; they were not measuring the product.
+Two D-entries described behaviour the shipped path did not have.
+
+#### The pattern: verifying through something other than the real path
+
+This is the SECOND time in this work that a measurement was taken through a path
+the product was not running, and the two failures rhyme:
+
+- The real-model needle tests reported **"2 passed … finished in 0.00s"** while
+  silently SKIPPING — `GAPLY_TEST_MODEL_DIR` pointed one directory too deep. A
+  green that measured nothing. Caught only because 0.00s is impossible for 500
+  real embeddings.
+- D65/D67 measured `prepass_blocks` while the product called `prepass`. A green
+  that measured the wrong thing.
+
+Both are the same error with different faces: **the verification did not go
+through the path the user's work goes through, and nothing checked that it had.**
+A passing check is evidence only about the code it actually executed.
+
+#### THE STANDING CHECK
+
+**Any pre-pass change must be verified through the SHIPPED entry point, not the
+module it edits.** `the_shipped_manuscript_path_keeps_declared_structure` does
+that: it writes a real `.docx` with a styled `Heading1` and an auto-numbered
+reference list — ordinals in `numbering.xml`, absent from the text, the way Word
+writes them — calls `prepass_manuscript`, and asserts both the bibliography and
+the section survive.
+
+**The guard was verified against the bug rather than assumed to catch it.**
+Reverting `prepass_manuscript` to the shim makes it fail with
+`left: 0, right: 2` and the message *"the shipped path lost the auto-numbered
+reference list — it is calling the (page, text) shim again"*. A guard that does
+not fail on the defect it names is not a guard.
+
+The `prepass` shim is deliberately KEPT: it is the honest behaviour for a source
+with no style information, and every existing caller and test depends on it. The
+defect was never the shim's existence — it was the entry point choosing it.
+
+### D69 — the retry costs `max_tokens` TWICE, and the budget was validated on fixtures
+
+The first `citation_support` check ever run against a real open-access source —
+fetched from OpenAlex while closing the OA loop — was **rejected before
+generation**: `prompt is 3246 tokens; the configured context is 4096`.
+
+#### The evidence bundle was not the problem
+
+Measured, no model runs, on all three real fetched-source checks:
+
+| seq | evidence tok | prompt tok | over the old 3072 budget? |
+|---|---|---|---|
+| 25 | 1390 | 2155 | no |
+| 26 | 1361 | 2078 | no |
+| 33 | 1200 | 1919 | no |
+
+**0 of 3 over.** The first attempt fits comfortably. The 3246 was the RETRY.
+
+#### THE INVARIANT
+
+`retry_prompt` quotes the rejected reply VERBATIM — deliberately, per §11 D10:
+*"showing it its own output is the point, and sanitising it would hide the very
+thing being corrected."* So a retry costs the original prompt PLUS a reply that
+may run to `max_tokens`, and **`max_tokens` is subtracted twice** — once for the
+reply being generated, once for the reply being quoted:
+
+```text
+original <= TASK_N_CTX - 2*MAX_TOKENS - RETRY_OVERHEAD_TOKENS
+```
+
+`RETRY_OVERHEAD_TOKENS = 67` is measured, not assumed: 3246 - 2155 - 1024 = 67.
+
+At 4096/1024 the ceiling was **1981**, and real prompts measure 1919-2155. **Two
+of three real checks could not be retried at all.** They survived only by passing
+first time; the one that did not was lost outright.
+
+**The factor of two is the durable finding.** The specific numbers will move;
+`a_retryable_prompt_fits_the_configured_context` asserts the invariant against
+the configured constants, so changing either one without the other fails in the
+test rather than in a user's audit. Verified against the bug: reverting to 4096
+makes it fail with *"a real fetched-source prompt of 2155 tokens could not be
+RETRIED: ceiling is 1981"*.
+
+#### Why the context grew rather than `max_tokens` shrinking
+
+Three levers, and only two avoid the evidence bundle — grounding has been refused
+as a trade twice already (D62, D64):
+
+| lever | headroom | cost | risk |
+|---|---|---|---|
+| `MAX_TOKENS` 1024 -> 768 | 2490 | none | **re-opens D58's truncation class** |
+| **`TASK_N_CTX` 4096 -> 5120** | **2982** | **+37.7 MB KV** | none behavioural |
+| trim evidence | — | grounding | refused |
+
+**Chosen: the context.** It is the only lever with no behavioural failure mode.
+37.7 MB against a measured 2295 MB working set is 1.6%, on a floor whose 8 GB
+proof had ~4.4 GB of margin; prompts do not grow, so prefill is unaffected (the
+context is an allocation ceiling, not a length); and the 3B advertises 32768, so
+`effective_ctx` clamping is not a factor.
+
+`MAX_TOKENS = 1024` IS over-provisioned — real post-`COMPACT_RULE` outputs measure
+**max 326, median 234 (n=24)**, so it is 3.1x the observed maximum. It stays
+anyway. Lowering it rests on `COMPACT_RULE` continuing to hold, and D64 is
+precisely the finding that a prompt-side property must not be assumed stable
+while a budget depending on it is changed. **If 1024 is revisited it gets its own
+measured cell.**
+
+A fourth option — truncating the quoted attempt — was rejected: the failure a
+retry most needs to show the model is truncated JSON, where the defect is at the
+END, so trimming the quote would hide exactly what the retry exists to correct.
+
+#### THE POPULATION POINT
+
+D58 justified `MAX_TOKENS = 1024` with *"the worst measured prompt is 2825"*.
+That number came from **six synthetic seeds**. Real OA sources exceed it, and the
+budget those fixtures justified could not retry two of the first three real
+checks ever run.
+
+**Budgets and thresholds are validated against real fetched sources, not
+fixtures.** A fixture set is chosen for coverage of BEHAVIOUR; it is not a sample
+of the size distribution, and using it as one silently sets limits to fit the
+test data. `a_retryable_prompt_fits_the_configured_context` therefore pins
+`LARGEST_REAL_PROMPT = 2155` — a measurement from a real fetched paper — rather
+than a seed figure.

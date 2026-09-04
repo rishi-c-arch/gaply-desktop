@@ -916,6 +916,50 @@ mod tests {
         assert_ne!(PROMPT_VERSION_V17, PROMPT_VERSION);
     }
 
+    /// §11 D69. THE RETRY INVARIANT, pinned against the configured constants.
+    ///
+    /// `retry_prompt` quotes the rejected reply verbatim (D10), so a retry costs
+    /// the original prompt PLUS a reply of up to `max_tokens`. `max_tokens` is
+    /// therefore subtracted TWICE — once for the reply being generated, once for
+    /// the reply being quoted:
+    ///
+    /// ```text
+    /// original <= TASK_N_CTX - 2*MAX_TOKENS - RETRY_OVERHEAD_TOKENS
+    /// ```
+    ///
+    /// At 4096/1024 that ceiling was 1981 and REAL prompts measured 1919-2155,
+    /// so a real check that failed validation could not be retried at all — it
+    /// was rejected before generation with `prompt is 3246 tokens`. Changing
+    /// either constant without the other must fail here rather than in a user's
+    /// audit.
+    #[test]
+    fn a_retryable_prompt_fits_the_configured_context() {
+        use crate::ai::generative::{max_retryable_prompt_tokens, RETRY_OVERHEAD_TOKENS, TASK_N_CTX};
+        let max_tokens = <CitationSupportTask as AiTask>::max_tokens();
+        let ceiling = max_retryable_prompt_tokens(max_tokens);
+
+        // The arithmetic itself, stated so a future edit cannot quietly drop the
+        // factor of two.
+        assert_eq!(ceiling, TASK_N_CTX - 2 * max_tokens - RETRY_OVERHEAD_TOKENS);
+
+        // MEASURED against real open-access sources fetched from OpenAlex, NOT
+        // against the six synthetic seeds — §11 D69: the seeds' "worst measured
+        // 2825" was a property of the fixtures, and real sources exceed the
+        // budget those fixtures justified. 2155 is the largest real prompt
+        // observed (GoEmotions, 6 chunks, 1390 evidence tokens).
+        const LARGEST_REAL_PROMPT: usize = 2155;
+        assert!(
+            ceiling >= LARGEST_REAL_PROMPT,
+            "a real fetched-source prompt of {LARGEST_REAL_PROMPT} tokens could not be \
+             RETRIED: ceiling is {ceiling} (TASK_N_CTX {TASK_N_CTX}, max_tokens \
+             {max_tokens}). Raise TASK_N_CTX or lower max_tokens — but lowering \
+             max_tokens re-opens D58's truncation class and needs its own cell."
+        );
+
+        // And the first attempt must fit too, which is the weaker of the two.
+        assert!(TASK_N_CTX - max_tokens >= LARGEST_REAL_PROMPT);
+    }
+
     #[test]
     fn the_prompt_never_mentions_the_chunk_bound() {
         let v1 = CitationSupportTask {

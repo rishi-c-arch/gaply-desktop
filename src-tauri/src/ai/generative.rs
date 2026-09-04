@@ -143,7 +143,45 @@ const KV_DTYPE_BYTES: u64 = 4;
 /// This is a CONFIGURED CEILING, not a guess: prompts are checked against it
 /// (see `fits_context`), so the reported figure is what the engine will actually
 /// use rather than an optimistic average.
-pub const TASK_N_CTX: usize = 4096;
+///
+/// # 4096 -> 5120 (§11 D69)
+///
+/// A real `citation_support` check against an open-access source fetched from
+/// OpenAlex was REJECTED BEFORE GENERATION at `prompt is 3246 tokens`. The
+/// first-attempt prompts were fine (1919-2155, all under the old 3072 budget);
+/// what did not fit was the RETRY, which quotes the rejected reply verbatim by
+/// design (D10). See [`RETRY_OVERHEAD_TOKENS`] for the invariant that governs
+/// this, and D69 for why the context grew rather than `max_tokens` shrinking.
+pub const TASK_N_CTX: usize = 5120;
+
+/// Scaffolding a retry adds beyond the original prompt and the quoted attempt.
+///
+/// MEASURED, not assumed: the observed failure was a 3246-token retry built
+/// from a 2155-token original, giving 3246 - 2155 - 1024 = 67.
+pub const RETRY_OVERHEAD_TOKENS: usize = 67;
+
+/// The largest first-attempt prompt this configuration can still RETRY.
+///
+/// # The invariant, and why it is the durable part
+///
+/// `retry_prompt` (§11 D10) embeds the rejected reply verbatim, so a retry costs
+/// the original prompt PLUS a reply that may run to `max_tokens`:
+///
+/// ```text
+/// original <= TASK_N_CTX - 2*MAX_TOKENS - RETRY_OVERHEAD_TOKENS
+/// ```
+///
+/// The factor of TWO is the part that surprises: `max_tokens` is subtracted
+/// once for the reply being generated and once for the reply being quoted. At
+/// 4096/1024 that left 1981 — BELOW two of three real prompts, so any real check
+/// needing a retry could not have one. The specific numbers here will move; the
+/// invariant is what future changes to either constant must respect, and
+/// `a_retryable_prompt_fits_the_configured_context` fails loudly if they do not.
+pub fn max_retryable_prompt_tokens(max_tokens: usize) -> usize {
+    TASK_N_CTX
+        .saturating_sub(2 * max_tokens)
+        .saturating_sub(RETRY_OVERHEAD_TOKENS)
+}
 
 /// Read GGUF metadata and compute the RAM estimate WITHOUT loading weights.
 ///

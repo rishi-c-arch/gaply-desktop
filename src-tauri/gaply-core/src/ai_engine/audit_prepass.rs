@@ -563,6 +563,25 @@ pub fn style_is_table(style: Option<&str>) -> bool {
     matches!(style, Some(s) if s.contains("Table"))
 }
 
+/// Does this Word style DECLARE the paragraph a numbered-list item?
+///
+/// Word puts auto-list NUMBERS in `numbering.xml`, never in the paragraph text,
+/// so `<w:t>` extraction of a numbered reference list yields entries with NO
+/// number at all (§11 D67). On `R PAPER .docx` that made 22 of 25 references
+/// invisible to the marker parser while the PDF rendered from the same file
+/// parsed all 25 — the numbers exist only once something lays the list out.
+pub fn style_is_list(style: Option<&str>) -> bool {
+    matches!(style, Some(s) if s.contains("List"))
+}
+
+/// The `[n]` a reference entry already carries, if any.
+fn leading_bib_marker(text: &str) -> Option<u32> {
+    let t = text.trim_start();
+    let rest = t.strip_prefix('[')?;
+    let end = rest.find(']')?;
+    rest[..end].trim().parse::<u32>().ok()
+}
+
 /// Is this sentence worth a model call at all?
 pub fn is_significant(sentence: &str) -> bool {
     skip_reason(sentence).is_none()
@@ -597,6 +616,12 @@ pub fn prepass_blocks(blocks: &[crate::extract::docparse::PagedBlock]) -> Prepas
     // nothing.
     let mut references_text = String::new();
     let mut current_section: Option<String> = None;
+    // §11 D67. The same reference list, with ordinals synthesised for
+    // auto-numbered items — kept SEPARATELY and used only if it stays
+    // consistent with the entries that carry a literal marker.
+    let mut synthesised_text = String::new();
+    let mut synth_next: u32 = 1;
+    let mut synthesis_consistent = true;
 
     // 1-based paragraph ordinal, counted over EVERY block including the ones
     // that get skipped — a locator has to match what the reader counts in the
@@ -610,6 +635,30 @@ pub fn prepass_blocks(blocks: &[crate::extract::docparse::PagedBlock]) -> Prepas
         if in_references {
             references_text.push('\n');
             references_text.push_str(text);
+
+            synthesised_text.push('\n');
+            match leading_bib_marker(text) {
+                // A literal marker is GROUND TRUTH and also the check: if the
+                // document's own number disagrees with our count, the count is
+                // wrong and every synthesised ordinal is suspect.
+                Some(n) => {
+                    if n != synth_next {
+                        synthesis_consistent = false;
+                    }
+                    synth_next = n + 1;
+                }
+                // An auto-numbered item whose number lives in numbering.xml.
+                // Position IS the number Word displays — including, on this
+                // paper, an author's own wrapped line that Word counts as its
+                // own entry. Reproducing that is correct: the reader's [6] is
+                // whatever their document shows, not what they meant.
+                None if style_is_list(style) => {
+                    synthesised_text.push_str(&format!("[{synth_next}] "));
+                    synth_next += 1;
+                }
+                None => {}
+            }
+            synthesised_text.push_str(text);
             continue;
         }
         // The heading can sit INSIDE a block — a whole chapter is often one
@@ -695,7 +744,17 @@ pub fn prepass_blocks(blocks: &[crate::extract::docparse::PagedBlock]) -> Prepas
         }
     }
 
+    // Prefer the synthesised list ONLY when it stayed consistent with every
+    // literal marker AND actually found more. A wrong reference number is worse
+    // than a missing one: it resolves a citation to the wrong paper, which is
+    // the failure this engine exists to prevent.
     report.bibliography = parse_numbered_bibliography(&references_text);
+    if synthesis_consistent {
+        let synth = parse_numbered_bibliography(&synthesised_text);
+        if synth.len() > report.bibliography.len() {
+            report.bibliography = synth;
+        }
+    }
     report
 }
 
@@ -1000,6 +1059,96 @@ mod tests {
             report.planned.iter().all(|p| !p.sentence.contains("Plutchik")),
             "a reference entry leaked into the prose plan"
         );
+    }
+
+    #[test]
+    /// §11 D67. Word keeps auto-list numbers in `numbering.xml`, never in the
+    /// paragraph text, so a numbered reference list extracts with NO markers.
+    #[test]
+    fn auto_numbered_reference_entries_get_the_ordinal_word_would_display() {
+        let b = |style: Option<&str>, text: &str| crate::extract::docparse::PagedBlock {
+            page: None,
+            style: style.map(str::to_string),
+            text: text.to_string(),
+        };
+        let blocks = vec![
+            b(None, "A claim about the field [2]."),
+            b(Some("BodyText"), "References"),
+            b(Some("ListParagraph"), "First, A. Paper one. J. One, 2001."),
+            b(Some("ListParagraph"), "Second, B. Paper two. J. Two, 2002."),
+            b(Some("ListParagraph"), "Third, C. Paper three. J. Three, 2003."),
+        ];
+        let r = prepass_blocks(&blocks);
+        assert_eq!(r.bibliography.len(), 3, "auto-numbered entries were invisible");
+        assert!(r.bibliography[&1].raw.contains("Paper one"));
+        assert!(r.bibliography[&2].raw.contains("Paper two"));
+        assert!(r.bibliography[&3].raw.contains("Paper three"));
+    }
+
+    /// A LITERAL marker is ground truth AND the check. When the document's own
+    /// number disagrees with the running count, every synthesised ordinal is
+    /// suspect and the synthesis is abandoned wholesale — a wrong reference
+    /// number resolves a citation to the WRONG paper, which is worse than a
+    /// missing one and is the failure this engine exists to prevent.
+    #[test]
+    fn a_disagreeing_literal_marker_abandons_the_synthesis_entirely() {
+        let b = |style: Option<&str>, text: &str| crate::extract::docparse::PagedBlock {
+            page: None,
+            style: style.map(str::to_string),
+            text: text.to_string(),
+        };
+        let blocks = vec![
+            b(Some("BodyText"), "References"),
+            b(Some("ListParagraph"), "First, A. Paper one. J. One, 2001."),
+            b(Some("ListParagraph"), "Second, B. Paper two. J. Two, 2002."),
+            // The document says this is [9]; our count says 3. One of us is
+            // wrong, and it is not the document.
+            b(None, "[9] Ninth, D. Paper nine. J. Nine, 2009."),
+        ];
+        let r = prepass_blocks(&blocks);
+        // Only the literal entry survives. Synthesised 1 and 2 are discarded.
+        assert_eq!(r.bibliography.len(), 1, "kept ordinals it could not vouch for");
+        assert!(r.bibliography.contains_key(&9));
+    }
+
+    /// The consistent case: auto-numbered items followed by literal ones that
+    /// AGREE. This is `R PAPER .docx` — 22 auto-numbered entries then a literal
+    /// [23] — and the whole list is kept.
+    #[test]
+    fn agreeing_literal_markers_confirm_the_synthesis_and_the_list_is_kept() {
+        let b = |style: Option<&str>, text: &str| crate::extract::docparse::PagedBlock {
+            page: None,
+            style: style.map(str::to_string),
+            text: text.to_string(),
+        };
+        let mut blocks = vec![b(Some("BodyText"), "References")];
+        for i in 1..=3 {
+            blocks.push(b(Some("ListParagraph"), &format!("Author{i}, A. Paper {i}. J, 200{i}.")));
+        }
+        blocks.push(b(None, "[4] Fourth, D. Paper four. J. Four, 2004."));
+        let r = prepass_blocks(&blocks);
+        assert_eq!(r.bibliography.len(), 4, "the confirmed synthesis was discarded");
+        assert!(r.bibliography[&1].raw.contains("Paper 1"));
+        assert!(r.bibliography[&4].raw.contains("Paper four"));
+    }
+
+    /// A list item that ALREADY carries its marker must not be double-numbered.
+    #[test]
+    fn a_list_item_with_its_own_marker_is_not_renumbered() {
+        let b = |style: Option<&str>, text: &str| crate::extract::docparse::PagedBlock {
+            page: None,
+            style: style.map(str::to_string),
+            text: text.to_string(),
+        };
+        let blocks = vec![
+            b(Some("BodyText"), "References"),
+            b(Some("ListParagraph"), "[1] First, A. Paper one. J. One, 2001."),
+            b(Some("ListParagraph"), "[2] Second, B. Paper two. J. Two, 2002."),
+        ];
+        let r = prepass_blocks(&blocks);
+        assert_eq!(r.bibliography.len(), 2);
+        assert!(r.bibliography[&1].raw.contains("Paper one"), "{:?}", r.bibliography[&1].raw);
+        assert!(!r.bibliography[&1].raw.contains("[1]"), "the marker was left in the body");
     }
 
     #[test]

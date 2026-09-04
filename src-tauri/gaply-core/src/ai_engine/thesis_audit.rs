@@ -16,7 +16,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use super::audit_prepass::{prepass, PrepassReport, Resolution};
+use super::audit_prepass::{prepass_blocks, PrepassReport, Resolution};
 use super::jobs::{self, ItemKind, NewItem};
 use crate::db::Database;
 use crate::GaplyError;
@@ -133,8 +133,12 @@ pub fn plan_citation_audit(
 /// the same parse rather than two that could drift.
 fn prepass_manuscript(manuscript: &Path) -> Result<PrepassReport, GaplyError> {
     let blocks = crate::extract::docparse::parse_path_paged(manuscript)?;
-    let paged: Vec<(Option<u32>, String)> = blocks.into_iter().map(|b| (b.page, b.text)).collect();
-    Ok(prepass(&paged))
+    // `prepass_blocks`, NOT the `(page, text)` shim. The shim discards
+    // `PagedBlock.style`, and with it every declared heading and table cell
+    // (§11 D65) and the auto-numbered reference ordinals (§11 D67) — on
+    // `R PAPER .docx` that was 22 of 25 references. This path is the whole
+    // reason those exist, and it was still converting them away.
+    Ok(prepass_blocks(&blocks))
 }
 
 /// Does any of this sentence's markers resolve to `library_id`, and is it
@@ -343,6 +347,11 @@ fn plan_audit(
                         "documentId": document_id,
                         "libraryId": library_id,
                         "citedSource": cited_source,
+                        // D65's locator. This site was MISSED when the other
+                        // three payloads got it — the whole-manuscript path is
+                        // the one a thesis audit actually takes.
+                        "paragraph": planned.paragraph,
+                        "section": planned.section,
                     })
                     .to_string(),
                 });
@@ -564,6 +573,82 @@ pub fn thesis_health(db: &Database, job_id: i64) -> Result<ThesisHealth, GaplyEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A .docx with a STYLED heading and an auto-numbered reference list —
+    /// exactly the shape §11 D65 and D67 exist for, written the way Word writes
+    /// it (the ordinals live in numbering.xml, never in the paragraph text).
+    fn write_styled_docx(dir: &Path) -> std::path::PathBuf {
+        use std::io::Write;
+        let para = |style: Option<&str>, text: &str| {
+            let ppr = style
+                .map(|s| {
+                    format!("<w:pPr><w:pStyle w:val=\"{s}\"/><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"1\"/></w:numPr></w:pPr>")
+                })
+                .unwrap_or_default();
+            format!("<w:p>{ppr}<w:r><w:t xml:space=\"preserve\">{text}</w:t></w:r></w:p>")
+        };
+        let body = [
+            para(None, "Deep models often overfit on small corpora [2]."),
+            para(Some("Heading1"), "Experimental Configuration"),
+            para(None, "All runs used a fixed seed."),
+            para(Some("References"), "References"),
+            para(Some("ListParagraph"), "First, A. Paper one. J. One, 2001."),
+            para(Some("ListParagraph"), "Second, B. Paper two. J. Two, 2002."),
+        ]
+        .join("");
+        let doc = format!(
+            "<?xml version=\"1.0\"?><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>{body}</w:body></w:document>"
+        );
+        let mut buf = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zip.start_file("word/document.xml", opts).unwrap();
+            zip.write_all(doc.as_bytes()).unwrap();
+            zip.finish().unwrap();
+        }
+        let p = dir.join("styled.docx");
+        std::fs::write(&p, &buf).unwrap();
+        p
+    }
+
+    /// §11 D68. THE STANDING CHECK: a pre-pass change must be verified through
+    /// the SHIPPED entry point, not the module it edits.
+    ///
+    /// D65 and D67 both landed in `audit_prepass` and both were measured with
+    /// probes calling `prepass_blocks` directly — while `prepass_manuscript`,
+    /// the audit's own entry, still converted blocks to `(page, text)` and
+    /// called the shim. Every declared heading and every auto-numbered
+    /// reference was discarded before the product ever saw it, and two D-entries
+    /// described behaviour the product did not have.
+    ///
+    /// This test goes through the entry point, so that cannot recur silently.
+    #[test]
+    fn the_shipped_manuscript_path_keeps_declared_structure() {
+        let dir = std::env::temp_dir()
+            .join(format!("gaply-shipped-path-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = write_styled_docx(&dir);
+        let pre = prepass_manuscript(&path).expect("the docx must parse");
+
+        // D67: auto-numbered entries carry the ordinal Word displays. The shim
+        // returns ZERO here, because the numbers are not in the text.
+        assert_eq!(
+            pre.bibliography.len(),
+            2,
+            "the shipped path lost the auto-numbered reference list — it is \
+             calling the (page, text) shim again"
+        );
+        assert!(pre.bibliography[&1].raw.contains("Paper one"));
+
+        // D65: the declared heading reaches the planned sentences as a section.
+        assert!(
+            pre.planned.iter().any(|p| p.section.as_deref() == Some("Experimental Configuration")),
+            "the declared Heading1 never reached the plan: {:?}",
+            pre.planned.iter().map(|p| p.section.clone()).collect::<Vec<_>>()
+        );
+    }
 
     fn write_fixture(dir: &Path) -> std::path::PathBuf {
         let p = dir.join("chapter.txt");
