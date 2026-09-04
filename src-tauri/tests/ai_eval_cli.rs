@@ -86,3 +86,46 @@ fn the_bakeoff_summary_refuses_to_invent_a_document_from_nothing() {
     assert!(!ok, "{out}");
     assert!(out.contains("no reports matching"), "{out}");
 }
+
+/// §11 D73. Every `citation_need` case must send EMPTY neighbours, because the
+/// product does.
+///
+/// `job_runner` builds `CitationNeedInput` with `preceding_sentence:
+/// String::new()` and `following_sentence: String::new()` — the shipped engine
+/// never shows the model a neighbour. `ai-eval` deserialises whatever the case
+/// file carries, so a case with neighbours is scored under a configuration that
+/// does not ship: the §11 D68 shape, in the eval harness.
+///
+/// This is a property of the DATA, so it is asserted against the data rather
+/// than left to whoever adds the next case. If neighbours are ever wanted, that
+/// is a change to `job_runner` with its own measured cell — and this test is
+/// what forces the two to move together.
+#[test]
+fn citation_need_cases_send_the_neighbours_the_product_sends() {
+    let path = std::path::Path::new("evals/citation_need.jsonl");
+    let raw = std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let mut checked = 0usize;
+    for (i, line) in raw.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let case: serde_json::Value = serde_json::from_str(line)
+            .unwrap_or_else(|e| panic!("line {}: {e}", i + 1));
+        let id = case["id"].as_str().unwrap_or("<no id>");
+        for field in ["preceding_sentence", "following_sentence"] {
+            let v = case["input"][field].as_str().unwrap_or_else(|| {
+                panic!("case {id}: input.{field} must be present (and empty)")
+            });
+            assert!(
+                v.is_empty(),
+                "case {id}: input.{field} is {v:?}, but job_runner sends an empty \
+                 string — this case would be scored under a configuration the \
+                 product does not run (§11 D73). Clear it, or change job_runner \
+                 and measure that as its own cell."
+            );
+        }
+        checked += 1;
+    }
+    assert!(checked >= 8, "only {checked} cases checked — did the file move?");
+}

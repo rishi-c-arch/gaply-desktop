@@ -3702,3 +3702,48 @@ resolved here, because it is a decision rather than a defect: either
 `job_runner` should pass neighbours, or the seeds should stop carrying them. What
 must not happen is a labelled set built to one convention and scored under the
 other.
+
+### D73 — the seed cases sent neighbours the product never sends
+
+D71 surfaced this and deliberately left it as a decision. Decided: **the labelled
+set measures what ships.**
+
+`job_runner` builds `CitationNeedInput` with `preceding_sentence: String::new()`
+and `following_sentence: String::new()`. **The shipped engine never shows the
+model a neighbouring sentence.** `ai-eval` deserialises `CitationNeedInput`
+straight from the case file, so whatever a case carries is what the model sees —
+and **all eight seed cases carried real neighbours.**
+
+So every `citation_need` number ever produced was measured with context the
+product does not supply. That is the §11 D68 shape again, in the eval harness
+rather than the pre-pass: **a check is evidence only about the configuration it
+actually ran.** The list of instances is now long enough to be a pattern rather
+than a coincidence — the needle tests that silently skipped, `prepass_manuscript`
+calling the shim, two missed payload sites (D72), a fold table built from
+synthetic examples (D70), a token budget sized on fixtures (D69), and this.
+
+**All eight seeds are stripped**: `preceding_sentence` and `following_sentence`
+are now `""` throughout. Nothing else changed — sentence, section and every
+`expected` field are byte-identical, verified field by field rather than assumed
+from the diff.
+
+#### This is a decision about the PRODUCT, not a convention the eval may assume
+
+If neighbours are wanted, that is a change to `job_runner` — give the model the
+context — **with its own measured cell**, because more context is a different
+configuration and D64 established that changes near this model are not additive.
+What must not happen is the eval quietly assuming a richer input than the engine
+provides and reporting the result as the engine's accuracy.
+
+`citation_need_cases_send_the_neighbours_the_product_sends` asserts the property
+against the DATA, so it holds for every case added later rather than depending on
+whoever writes the next one. Verified against the bug: restoring a single
+neighbour fails with *"case cn-seed-01: input.preceding_sentence is … but
+job_runner sends an empty string … Clear it, or change job_runner and measure
+that as its own cell."* — naming both remedies, so the test forces the two sides
+to move together instead of drifting apart again.
+
+`label-cn` already writes empty neighbours by default, so labelling done from
+here is consistent with the stripped seeds; `--with-neighbours` remains for
+anyone deliberately measuring the other configuration, and the guard will fail if
+those cases land in the shipped case file.
