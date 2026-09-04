@@ -560,6 +560,85 @@ fn validate_support(
     }
 }
 
+/* ============ v1.7 — the chunk bound, RE-TESTED under changed conditions ==== *
+ * EXPERIMENT ONLY. Not selected by `PROMPT_VERSION`, not reachable from the
+ * app — `--support-variant v1c` in the eval harness is the only caller. The
+ * shipped v1.6 prompt is byte-unchanged, and
+ * `the_prompt_never_mentions_the_chunk_bound` still guards it.
+ *
+ * WHY THIS EXISTS AT ALL, given D32 measured it harmful. D32's cells were:
+ *
+ *   no mention      planted-chunk citation 75%
+ *   stated plainly                         50%
+ *   stated + guidance                      25%
+ *
+ * so D34 removed it. Two things have changed since. The cap NEVER FIRED on the
+ * 3B then (cited counts 2, 4, 2, 3, 0); under v1.5 and v1.6 it fires on CPU,
+ * where seeds 02 and 05 are rejected for 5 entries and are now the ONLY
+ * remaining CPU failures. And D62/D63 changed what else is in the prompt.
+ *
+ * The narrow question: does stating the bound fix seeds 02 and 05 WITHOUT
+ * moving cited-planted the way D32 saw? Cited-planted is the metric that killed
+ * it before and it is the metric that decides it now — if it drops on either
+ * device this variant does not ship, whatever the failure rate does. Grounding
+ * over latency, the same rule that refused the 1.5B in D62.
+ *
+ * It states the bound PLAINLY and adds no guidance. D32's own numbers say the
+ * guidance phrasing was the worse of the two (25% vs 50%), so re-running the
+ * more harmful wording would answer a question nobody asked. */
+
+/// The experiment's version string. Distinct so its reports can never be
+/// conflated with a shipped v1.6 cell.
+pub const PROMPT_VERSION_V17: &str = "citation_support-v1.7-chunkbound";
+
+/// Bare statement of the bound. No "cite only the chunks that carry the point",
+/// no "listing every chunk is not evidence" — that is D32's 25% cell.
+const CHUNK_BOUND_RULE: &str =
+    "3. supporting_chunks MUST contain AT MOST 4 entries.";
+
+/// v1.6's task with the chunk bound appended to the fatal-rule block.
+#[derive(Debug, Clone)]
+pub struct CitationSupportV17Task {
+    pub claim: String,
+    pub cited_source: String,
+    pub evidence: String,
+}
+
+impl AiTask for CitationSupportV17Task {
+    type Output = CitationSupportOutput;
+
+    fn prompt_version(&self) -> &'static str {
+        PROMPT_VERSION_V17
+    }
+
+    fn max_tokens() -> usize {
+        MAX_TOKENS
+    }
+
+    fn build_prompt(&self) -> String {
+        // v1.6's prompt with ONE line added, so any difference measured is
+        // attributable to that line and nothing else.
+        let base = CitationSupportTask {
+            claim: self.claim.clone(),
+            cited_source: self.cited_source.clone(),
+            evidence: self.evidence.clone(),
+        }
+        .build_prompt();
+        // The fatal-rule block says TWO; with the bound it says three.
+        base.replace("TWO RULES THAT ARE REJECTED", "THREE RULES THAT ARE REJECTED")
+            .replace(
+                "\"weak\", not \"contradicts\".",
+                &format!("\"weak\", not \"contradicts\".\n{CHUNK_BOUND_RULE}"),
+            )
+    }
+
+    fn validate(out: &Self::Output, ctx: &TaskContext) -> Result<(), Vec<ValidationError>> {
+        // IDENTICAL validation to v1. The bound was always enforced; the only
+        // question is whether SAYING it changes what the model produces.
+        validate_support(out, ctx, false)
+    }
+}
+
 /* ======================= v2 — the D18 mitigation ========================== *
  * Phase 5 measured that the grounding guarantee covers IDENTIFIERS only: a
  * model can cite a real chunk, report its page correctly, and still describe it
@@ -802,6 +881,41 @@ mod tests {
     /// stated with guidance). The validator enforces the maximum without the
     /// model's cooperation, so a prompt line buys nothing and charges for it.
     /// This test exists to stop a well-meaning future edit reintroducing one.
+    /// The experiment variant must differ from v1.6 by EXACTLY the bound line —
+    /// otherwise its cell measures more than the thing under test.
+    #[test]
+    fn v17_is_v16_plus_the_bound_and_nothing_else() {
+        let base = CitationSupportTask {
+            claim: "C".into(),
+            cited_source: "S".into(),
+            evidence: ctx().render_evidence(),
+        }
+        .build_prompt();
+        let v17 = CitationSupportV17Task {
+            claim: "C".into(),
+            cited_source: "S".into(),
+            evidence: ctx().render_evidence(),
+        }
+        .build_prompt();
+
+        assert!(v17.contains("AT MOST 4 entries"), "the bound is missing: {v17}");
+        assert!(!base.contains("AT MOST 4 entries"), "v1.6 leaked the bound: {base}");
+        assert!(v17.contains("THREE RULES THAT ARE REJECTED"), "count not updated: {v17}");
+        // Bare statement only. D32 measured the guidance phrasing at 25% planted
+        // citation against 50% for the plain one; re-running the worse wording
+        // would answer a question nobody asked.
+        let lower = v17.to_lowercase();
+        assert!(!lower.contains("not evidence"), "the D32 guidance wording came back: {v17}");
+        assert!(!lower.contains("carry the point"), "the D32 guidance wording came back: {v17}");
+
+        // EXACTLY one added line, so the cell isolates it.
+        let extra: Vec<&str> = v17.lines().filter(|l| !base.contains(*l)).collect();
+        assert_eq!(extra.len(), 2, "expected the bound line + the reworded header, got {extra:?}");
+
+        // And its reports can never be confused with a shipped cell.
+        assert_ne!(PROMPT_VERSION_V17, PROMPT_VERSION);
+    }
+
     #[test]
     fn the_prompt_never_mentions_the_chunk_bound() {
         let v1 = CitationSupportTask {

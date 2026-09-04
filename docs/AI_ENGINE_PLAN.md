@@ -3036,3 +3036,92 @@ for the rise.
 Cited-planted on CPU moved 1.00 -> 0.67. That is the metric D32 saw fall when
 prompt text was added, so it is worth watching — but at three checkable cases it
 is one case flipping, not a trend.
+
+### D64 — the chunk bound, re-tested and refused a second time; and prompt rules COMPETE
+
+D63 stated two of the three fatal rules and refused the third — *at most 4
+`supporting_chunks`* — on D32's evidence. Two things had changed since D32, so it
+was worth re-asking rather than assuming: the cap **now fires** (v1.5 and v1.6
+both produce 5-chunk answers on CPU, where D32 measured cited counts of
+2, 4, 2, 3, 0 and the cap never engaged), and the surrounding prompt is different.
+
+Run as `citation_support-v1.7-chunkbound`, one cell per device, the same six
+seeds, the shipped v1.6 prompt byte-unchanged.
+
+#### It works exactly as scoped, and it is refused anyway
+
+**CPU validity: 4/6 -> 6/6, failure rate 33% -> 0%.** Both chunk-bound
+rejections (seeds 02 and 05) are fixed. That was the narrow question and the
+answer is yes.
+
+**And cited-planted fell on both devices, so it does not ship.** Grounding over
+latency — the rule that refused the 1.5B in D62.
+
+Metal, per seed:
+
+| seed | v1.5 | v1.6 | **v1.7** |
+|---|---|---|---|
+| cs-seed-01 | failed | cites planted | **failed again** |
+| cs-seed-03 | cites planted | cites planted | **does not** |
+| aggregate | 0.33 | **0.50** | **0.00** |
+
+**Not one accepted Metal answer cites the planted passage.**
+
+CPU, on the three seeds checkable under all three versions (01, 03, 04):
+**3/3 -> 2/3 -> 1/3**. cs-seed-04 lost the planted chunk and its cited count fell
+**3 -> 2** — which is, word for word, what D32 recorded: *"cs-seed-04's cited
+count fell 3 -> 2"*. Same seed, same movement, six weeks and three prompt
+versions apart.
+
+The mechanism is visible and it is not subtle: **v1.7 buys validity by making the
+model cite FEWER chunks, and the chunk it drops is disproportionately the one
+that carries the point.** A 6/6 run in which no answer cites the planted evidence
+is worse than a 4/6 run in which the accepted ones do.
+
+#### THE PHRASING QUESTION IS CLOSED
+
+D32 measured three cells — no mention 75%, **stated plainly 50%**, stated with
+guidance 25% — and D34 removed the guidance-laden wording. That left an obvious
+hypothesis: perhaps the *guidance* did the damage, not the bound.
+
+**v1.7 used the bare statement, with no guidance, and its test asserts neither
+guidance phrase can reappear.** It still cost grounding on CPU and wiped it on
+Metal. **The bound is harmful to this model regardless of how it is worded.** Do
+not run this a third time hoping for a kinder phrasing; there isn't one. The
+question is settled, and `the_prompt_never_mentions_the_chunk_bound` stands
+UNCHANGED — a stronger guard now than before, because what it forbids has been
+tested twice, under different conditions, with the same answer.
+
+#### THE RULE BUDGET: prompt rules on this model COMPETE, they do not accumulate
+
+The finding that generalises past this bound.
+
+**Metal validity REGRESSED 6/6 -> 5/6 under v1.7**, because cs-seed-01 failed
+again on `suggested_rewrite must be null when the verdict is 'weak'` — *the exact
+rule v1.6 had just fixed*. Nothing about rule 1 changed. The only edit was adding
+a third rule beneath it, and compliance with the first fell away.
+
+So the mental model of "state one more rule, get one more rule obeyed" is wrong
+for this model. **Attention to a stated rule appears to be a budget that a new
+rule spends from, not a list that grows.** That is a constraint on EVERY future
+prompt change, not a footnote to this one:
+
+- A new rule's cell must re-check the rules already stated, not only the failure
+  it targets. D63 would have caught nothing here by looking at its own two rules.
+- "The prompt does not mention X" is a real configuration with real value, not an
+  oversight waiting to be corrected. D34 was right to remove the bound, and right
+  for a reason more general than the bound.
+- Adding rules to fix retries has a ceiling, and v1.6 may already be at it.
+
+#### The apparatus stays
+
+`CitationSupportV17Task` remains as a **permanent, unreachable-from-the-app
+experiment slot**: `--support-variant v1c` in the eval harness is its only
+caller, `PROMPT_VERSION_V17` keeps its reports from ever being confused with a
+shipped cell, and `v17_is_v16_plus_the_bound_and_nothing_else` pins that it
+differs from the shipped prompt by exactly the lines under test.
+
+**The next prompt variant should reuse this slot rather than rebuild it.** It is
+what let this question be answered in one run per device without touching the
+shipped prompt, and the diff test is what keeps such a cell honest — a variant
+that quietly differs in two ways measures neither.

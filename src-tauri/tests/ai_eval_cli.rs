@@ -72,7 +72,10 @@ fn a_model_dir_that_does_not_hold_the_weights_is_refused() {
 fn an_unknown_support_variant_is_refused() {
     let (ok, out) = run(&["--task", "citation_support", "--support-variant", "v3"]);
     assert!(!ok, "{out}");
-    assert!(out.contains("v1 or v2"), "{out}");
+    // The message must NAME the legal variants, including the D64 experiment
+    // one — an error that lists two of three options sends the reader looking
+    // for a flag that exists.
+    assert!(out.contains("v1, v2 or v1c"), "{out}");
 }
 
 #[test]

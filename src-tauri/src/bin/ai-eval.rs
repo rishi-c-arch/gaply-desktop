@@ -579,7 +579,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let sv = match arg("--support-variant").as_deref() {
             None | Some("v1") => SupportVariant::V1,
             Some("v2") => SupportVariant::V2,
-            Some(o) => return Err(format!("unknown --support-variant {o:?}; use v1 or v2").into()),
+            Some("v1c") => SupportVariant::V1ChunkBound,
+            Some(o) => return Err(format!("unknown --support-variant {o:?}; use v1, v2 or v1c").into()),
         };
         // §11 D29. `--embedder-dir` selects the REAL embedder. Absent, the
         // mock runs and the report is stamped `embedderIsReal: false` — a
@@ -977,6 +978,9 @@ fn embed_fixture(db: &Database, emb: &EvalEmbedder) -> Result<(), Box<dyn std::e
 enum SupportVariant {
     V1,
     V2,
+    /// §11 D64 EXPERIMENT: v1.6 plus the chunk bound, stated plainly. Not a
+    /// shipped configuration — reachable only from this harness.
+    V1ChunkBound,
 }
 
 impl SupportVariant {
@@ -988,6 +992,9 @@ impl SupportVariant {
         match self {
             SupportVariant::V1 => app_lib::ai::tasks::citation_support::PROMPT_VERSION,
             SupportVariant::V2 => app_lib::ai::tasks::citation_support::PROMPT_VERSION_V2,
+            SupportVariant::V1ChunkBound => {
+                app_lib::ai::tasks::citation_support::PROMPT_VERSION_V17
+            }
         }
     }
 
@@ -1001,6 +1008,9 @@ impl SupportVariant {
             }
             SupportVariant::V2 => {
                 <app_lib::ai::tasks::citation_support::CitationSupportV2Task as AiTask>::max_tokens()
+            }
+            SupportVariant::V1ChunkBound => {
+                <app_lib::ai::tasks::citation_support::CitationSupportV17Task as AiTask>::max_tokens()
             }
         }
     }
@@ -1272,6 +1282,14 @@ async fn run_citation_support(
             }
             SupportVariant::V2 => {
                 let task = CitationSupportV2Task {
+                    claim: claim.clone(),
+                    cited_source: source,
+                    evidence: bundle.rendered.clone(),
+                };
+                run_task(&manager, &task, &bundle.ctx, cancel, None).await
+            }
+            SupportVariant::V1ChunkBound => {
+                let task = app_lib::ai::tasks::citation_support::CitationSupportV17Task {
                     claim: claim.clone(),
                     cited_source: source,
                     evidence: bundle.rendered.clone(),

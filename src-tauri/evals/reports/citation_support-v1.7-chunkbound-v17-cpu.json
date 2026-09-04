@@ -1,0 +1,439 @@
+{
+  "advisoryRate": 0.5,
+  "binaryHash": "3e91fa2de5283709eefa268044dce5e16f22127d288ed16eaef347b95f07b2e7",
+  "casesFile": "evals/citation_support.jsonl",
+  "chunkIdFormatCases": [],
+  "chunkIdFormatFailures": 0,
+  "citedPlantedChunk": 0.5,
+  "date": "v17-cpu",
+  "diagnosticFaithfulnessCases": [],
+  "diagnosticFaithfulnessFailures": 0,
+  "embedder": "bge-small-en-v1.5",
+  "embedderIsReal": true,
+  "evidenceBudgetTokens": 1200,
+  "faithfulnessCheckedCases": 2,
+  "faithfulnessViolationCases": [],
+  "faithfulnessViolations": 0,
+  "loadContext": {
+    "loadAvg1mEnd": 7.8125,
+    "loadAvg1mStart": 12.46240234375,
+    "ranIsolated": false
+  },
+  "maxTokensCeiling": 1024,
+  "meanDecodeMs": 25863.0,
+  "meanDecodeTokensPerSec": 7.9584619498472735,
+  "meanLatencyMs": 73845.0,
+  "meanPrefillMs": 47779.333333333336,
+  "meanPromptTokens": 1151.5,
+  "modelId": "qwen2.5-3b-instruct-q4km",
+  "modelLoadMs": 2471,
+  "nCtx": 4096,
+  "os": "macOS 26.6.2 (Darwin 25.6.0)",
+  "prefillShare": 0.6470219152729817,
+  "preprocessingVersion": "bge-v1.5-p2",
+  "promptVersion": "citation_support-v1.7-chunkbound",
+  "ramTotalMb": 2295,
+  "results": [
+    {
+      "advisories": [
+        "supporting_chunks[0].why: is 22 words; the limit is 20",
+        "supporting_chunks[1].why: is 23 words; the limit is 20"
+      ],
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 29371,
+      "decodeTokensPerSec": 7.286098532566137,
+      "elapsedMs": 93615,
+      "evidenceWords": 439,
+      "id": "cs-seed-01",
+      "outcome": "ok",
+      "prefillMs": 64054,
+      "promptTokens": 1385,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.4,\"supporting_chunks\":[{\"chunk_id\":\"c13\",\"page\":5,\"why\":\"Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent.\"},{\"chunk_id\":\"c7\",\"page\":3,\"why\":\"Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01).\"}],\"claim_elements\":[{\"element\":\"Organic management increased soil invertebrate species richness\",\"status\":\"found\"},{\"element\":\"by about 31 percent\",\"status\":\"absent\"}],\"explanation\":\"The evidence shows an increase of 31 percent, but does not specify 'about' or provide a precise magnitude.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": true,
+        "expected": {
+          "planted_chunk_contains": "richness rose 31 percent",
+          "verdict": "strong"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Organic management increased soil invertebrate species richness",
+              "status": "found"
+            },
+            {
+              "element": "by about 31 percent",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.4,
+          "explanation": "The evidence shows an increase of 31 percent, but does not specify 'about' or provide a precise magnitude.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c13",
+              "page": 5,
+              "why": "Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent."
+            },
+            {
+              "chunk_id": "c7",
+              "page": 3,
+              "why": "Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01)."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": false,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 214,
+      "truncated": false
+    },
+    {
+      "advisories": [
+        "supporting_chunks[0].why: is 22 words; the limit is 20",
+        "supporting_chunks[1].why: is 37 words; the limit is 20",
+        "supporting_chunks[2].why: is 31 words; the limit is 20"
+      ],
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 42943,
+      "decodeTokensPerSec": 7.265444892066228,
+      "elapsedMs": 95734,
+      "evidenceWords": 440,
+      "id": "cs-seed-02",
+      "outcome": "ok",
+      "prefillMs": 52356,
+      "promptTokens": 1384,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.4,\"supporting_chunks\":[{\"chunk_id\":\"c13\",\"page\":5,\"why\":\"Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent.\"},{\"chunk_id\":\"c2\",\"page\":1,\"why\":\"We compared soil biological indicators across paired organic and conventional fields over three growing seasons. Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent.\"},{\"chunk_id\":\"c7\",\"page\":3,\"why\":\"Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01). The effect was consistent across all three seasons.\"}],\"claim_elements\":[{\"element\":\"Organic management\",\"status\":\"found\"},{\"element\":\"soil invertebrate species richness\",\"status\":\"found\"},{\"element\":\"doubled\",\"status\":\"absent\"}],\"explanation\":\"The evidence shows that organic management was associated with higher invertebrate species richness, but the magnitude of the effect (31 percent) is not double the conventional field richness. The claim of doubling is not supported.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": true,
+        "expected": {
+          "planted_chunk_contains": "richness rose 31 percent",
+          "verdict": "partial"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Organic management",
+              "status": "found"
+            },
+            {
+              "element": "soil invertebrate species richness",
+              "status": "found"
+            },
+            {
+              "element": "doubled",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.4,
+          "explanation": "The evidence shows that organic management was associated with higher invertebrate species richness, but the magnitude of the effect (31 percent) is not double the conventional field richness. The claim of doubling is not supported.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c13",
+              "page": 5,
+              "why": "Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent."
+            },
+            {
+              "chunk_id": "c2",
+              "page": 1,
+              "why": "We compared soil biological indicators across paired organic and conventional fields over three growing seasons. Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent."
+            },
+            {
+              "chunk_id": "c7",
+              "page": 3,
+              "why": "Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01). The effect was consistent across all three seasons."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": false,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 312,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 22482,
+      "decodeTokensPerSec": 8.940485721910862,
+      "elapsedMs": 75747,
+      "evidenceWords": 429,
+      "id": "cs-seed-03",
+      "outcome": "ok",
+      "prefillMs": 53079,
+      "promptTokens": 1369,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.4,\"supporting_chunks\":[{\"chunk_id\":\"c11\",\"page\":4,\"why\":\"The magnitude of soil invertebrate species richness under organic management was at the upper end of published estimates.\"},{\"chunk_id\":\"c13\",\"page\":5,\"why\":\"Effects on microbial biomass and on soil fauna abundance were less consistent, not detectable at the sample sizes available.\"}],\"claim_elements\":[{\"element\":\"Organic management\",\"status\":\"found\"},{\"element\":\"reduced nitrogen leaching\",\"status\":\"absent\"}],\"explanation\":\"The evidence shows organic management increased soil invertebrate species richness but did not detect effects on microbial biomass or soil fauna abundance. No inference about nitrogen leaching is drawn.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": false,
+        "expected": {
+          "faithfulness": {
+            "forbidden_language": [
+              "supports the claim",
+              "support the claim",
+              "supports this claim",
+              "increase",
+              "increased",
+              "increases",
+              "rose",
+              "higher",
+              "reduced",
+              "reduction",
+              "decreased",
+              "confirms",
+              "demonstrates",
+              "shows a significant",
+              "significant increase",
+              "significant reduction"
+            ],
+            "note": "planted passage reports no finding; asserting one is a faithfulness violation",
+            "planted_chunk_contains": "Nitrogen leaching was not measured"
+          },
+          "planted_chunk_contains": "Nitrogen leaching was not measured",
+          "verdict": "weak"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Organic management",
+              "status": "found"
+            },
+            {
+              "element": "reduced nitrogen leaching",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.4,
+          "explanation": "The evidence shows organic management increased soil invertebrate species richness but did not detect effects on microbial biomass or soil fauna abundance. No inference about nitrogen leaching is drawn.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c11",
+              "page": 4,
+              "why": "The magnitude of soil invertebrate species richness under organic management was at the upper end of published estimates."
+            },
+            {
+              "chunk_id": "c13",
+              "page": 5,
+              "why": "Effects on microbial biomass and on soil fauna abundance were less consistent, not detectable at the sample sizes available."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": true,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 201,
+      "truncated": false
+    },
+    {
+      "advisories": [
+        "supporting_chunks[0].why: is 22 words; the limit is 20",
+        "supporting_chunks[1].why: is 33 words; the limit is 20"
+      ],
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 25008,
+      "decodeTokensPerSec": 8.837172104926424,
+      "elapsedMs": 80600,
+      "evidenceWords": 440,
+      "id": "cs-seed-04",
+      "outcome": "ok",
+      "prefillMs": 55434,
+      "promptTokens": 1382,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.4,\"supporting_chunks\":[{\"chunk_id\":\"c13\",\"page\":5,\"why\":\"Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent.\"},{\"chunk_id\":\"c8\",\"page\":3,\"why\":\"Microbial biomass carbon did not differ significantly between systems in this dataset. The point estimate favoured organic fields but the confidence interval included zero, so we do not interpret this as an effect.\"}],\"claim_elements\":[{\"element\":\"Organic management\",\"status\":\"found\"},{\"element\":\"significantly increased\",\"status\":\"absent\"},{\"element\":\"earthworm abundance\",\"status\":\"absent\"}],\"explanation\":\"The evidence shows organic management increased invertebrate species richness but did not significantly affect earthworm abundance.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": false,
+        "expected": {
+          "faithfulness": {
+            "forbidden_language": [
+              "supports the claim",
+              "support the claim",
+              "supports this claim",
+              "increase",
+              "increased",
+              "increases",
+              "rose",
+              "higher",
+              "reduced",
+              "reduction",
+              "decreased",
+              "confirms",
+              "demonstrates",
+              "shows a significant",
+              "significant increase",
+              "significant reduction"
+            ],
+            "note": "planted passage reports no finding; asserting one is a faithfulness violation",
+            "planted_chunk_contains": "No significant effect"
+          },
+          "planted_chunk_contains": "No significant effect",
+          "verdict": "contradicts"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Organic management",
+              "status": "found"
+            },
+            {
+              "element": "significantly increased",
+              "status": "absent"
+            },
+            {
+              "element": "earthworm abundance",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.4,
+          "explanation": "The evidence shows organic management increased invertebrate species richness but did not significantly affect earthworm abundance.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c13",
+              "page": 5,
+              "why": "Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent."
+            },
+            {
+              "chunk_id": "c8",
+              "page": 3,
+              "why": "Microbial biomass carbon did not differ significantly between systems in this dataset. The point estimate favoured organic fields but the confidence interval included zero, so we do not interpret this as an effect."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": false,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 221,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 35374,
+      "decodeTokensPerSec": 7.463108497766721,
+      "elapsedMs": 97324,
+      "evidenceWords": 440,
+      "id": "cs-seed-05",
+      "outcome": "ok",
+      "prefillMs": 61753,
+      "promptTokens": 1389,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.4,\"supporting_chunks\":[{\"chunk_id\":\"c13\",\"page\":5,\"why\":\"Organic management associated with higher invertebrate species richness, but no effect on microbial biomass or earthworm abundance.\"},{\"chunk_id\":\"c2\",\"page\":1,\"why\":\"Organic management associated with higher invertebrate species richness, but effects on microbial biomass and soil fauna abundance were less consistent.\"},{\"chunk_id\":\"c4\",\"page\":2,\"why\":\"Several reviews report positive but heterogeneous effects of organic versus conventional systems on soil invertebrate communities.\"}],\"claim_elements\":[{\"element\":\"Hedgerow planting\",\"status\":\"absent\"},{\"element\":\"wild bee visitation rates\",\"status\":\"absent\"},{\"element\":\"adjacent orchards\",\"status\":\"absent\"}],\"explanation\":\"The evidence discusses soil invertebrate communities under organic management but does not mention wild bee visitation rates or hedgerow planting. The claim is not supported by the evidence.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": null,
+        "expected": {
+          "verdict": "insufficient_evidence"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Hedgerow planting",
+              "status": "absent"
+            },
+            {
+              "element": "wild bee visitation rates",
+              "status": "absent"
+            },
+            {
+              "element": "adjacent orchards",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.4,
+          "explanation": "The evidence discusses soil invertebrate communities under organic management but does not mention wild bee visitation rates or hedgerow planting. The claim is not supported by the evidence.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c13",
+              "page": 5,
+              "why": "Organic management associated with higher invertebrate species richness, but no effect on microbial biomass or earthworm abundance."
+            },
+            {
+              "chunk_id": "c2",
+              "page": 1,
+              "why": "Organic management associated with higher invertebrate species richness, but effects on microbial biomass and soil fauna abundance were less consistent."
+            },
+            {
+              "chunk_id": "c4",
+              "page": 2,
+              "why": "Several reviews report positive but heterogeneous effects of organic versus conventional systems on soil invertebrate communities."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": false,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 264,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 0,
+      "decodeMs": 0,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 50,
+      "evidenceWords": 0,
+      "id": "cs-seed-06",
+      "outcome": "ok",
+      "prefillMs": 0,
+      "promptTokens": 0,
+      "raw": "NoEvidence: no chunks retrieved for document 2",
+      "retried": false,
+      "scored": {
+        "expectedNoEvidence": true,
+        "noEvidence": true
+      },
+      "stopReasons": [],
+      "tokens": 0,
+      "truncated": false
+    }
+  ],
+  "retryRate": 0.0,
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "task": "citation_support",
+  "totalCases": 6,
+  "truncationCases": [],
+  "truncationCount": 0,
+  "validOutputs": 6,
+  "validationFailureRate": 0.0,
+  "verdictAgreement": 0.2,
+  "verdictDistribution": {
+    "weak": 5
+  }
+}
