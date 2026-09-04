@@ -3747,3 +3747,81 @@ to move together instead of drifting apart again.
 here is consistent with the stripped seeds; `--with-neighbours` remains for
 anyone deliberately measuring the other configuration, and the guard will fail if
 those cases land in the shipped case file.
+
+### D74 — a score built on DECLINED judgements, and why one manuscript is a weak instrument
+
+A pre-labelling audit of the whole feature turned up one thing that changed the
+shipping picture, and one that changed how the labelled set must be built.
+
+#### 0 of 65 was almost right, and the report presented it as a clean bill
+
+`citation_need` answered `needs_citation = false` for **all 65** uncited
+sentences on `R PAPER .docx`, on two consecutive runs, where the pre-D58 prompt
+had answered `true` for 41 of 60. The obvious reading is over-suppression from
+D58's addendum. **It is not**, and the reasons say so.
+
+Classifying all 65 stated reasons:
+
+| | count | share |
+|---|---|---|
+| sound — correctly identifies the authors' own work | 28 | 43% |
+| sound — other correct grounds (figure reference, definition, standard practice) | 17 | 26% |
+| generic template — *"a general statement about X"* | 16 | 24% |
+| **contradictory (the D59 seq-42 shape)** | **2** | **3%** |
+
+**The coupling defect is real but RARE — 3%, not the explanation.** (A first
+keyword pass reported 4; two were false positives where the reason argued
+correctly against and merely contained the words "high severity". Counting by
+pattern needs the patterns checked.)
+
+What explains 0/65 is the POPULATION. Grouping the uncited sentences by section:
+16 in the pre-first-heading block (title/abstract/intro), 27 across eleven
+methods-and-results sections, 13 in discussion/conclusion, and **1 in a
+related-work section.** The paper's literature review is properly cited, so every
+claim there carries a marker and routes to `citation_support`/`unverifiable`.
+What reaches `citation_need` is overwhelmingly the authors' own work, where
+`false` is the right answer and D58's rule is doing its job.
+
+#### The report claimed more than that supports
+
+`health 97 / 100` on a manuscript containing a miscitation the audit itself
+caught. Arithmetically exact — 65 of 67 judged items "came back clean" — and read
+by a researcher as *almost nothing to fix*, when 65 of that 65 was the model
+DECLINING to flag rather than an issue ruled out.
+
+The score stays one number and now states its basis:
+
+> **97/100 — 65 of 67 items were judged not to need a citation; 2 raised issues.**
+> The score is that fraction and nothing else — it counts no opinion Gaply did not
+> form. 65 of those are the model deciding a sentence needs no citation, **which is
+> not the same as confirming the sentence is sound.** The 16 sentences Gaply could
+> not check at all are excluded from the score and listed separately.
+
+The cover's **"Sentences checked" becomes "Sentences answered"** for the same
+reason: a `citation_need` item answering `false` is `done`, so "83 checked"
+invited the reading that 83 sentences were meaningfully assessed.
+`a_score_resting_on_declined_judgements_says_so` pins all of it, built from
+job 10's real ratio.
+
+#### THE INSTRUMENT REQUIREMENT
+
+**A labelled set drawn from one manuscript inherits that manuscript's citation
+habits.** `R PAPER .docx` is a WEAK instrument for `citation_need`: with ~1
+uncited related-work sentence, it cannot exercise the case the task exists for.
+Fifty cases labelled from it would be ~70% "authors' own work -> false" and would
+say almost nothing about false-negative risk — the failure mode that matters,
+because a missed uncited claim is silent.
+
+**The labelled set must therefore:**
+
+- draw from **2-3 papers**, not one;
+- include **at least one with a thinly-cited literature review** — the case
+  `citation_need` exists to catch;
+- aim for a **balanced true/false split** rather than whatever the source papers
+  happen to produce.
+
+This is the population lesson a third time — D69 (a token budget sized on six
+synthetic seeds), D70 (a fold table built from examples I wrote), and now an eval
+set that would have been built from whatever one paper contained. **A corpus is
+chosen for the distribution it must measure, not for being the file already on
+the desk.**

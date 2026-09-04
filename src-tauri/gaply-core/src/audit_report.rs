@@ -82,6 +82,14 @@ pub struct AuditReportModel {
     pub model_id: String,
     pub prompt_version: String,
     pub total_sentences: usize,
+    /// Items the engine RETURNED AN ANSWER FOR — not items it examined and
+    /// cleared (§11 D74).
+    ///
+    /// A `citation_need` item answering "no citation needed" is `done`, so this
+    /// counted 83 for a manuscript where 65 of those were the model declining to
+    /// flag anything. "Sentences checked: 83" invited the reading that 83
+    /// sentences were meaningfully assessed. The cover now says "answered", and
+    /// the at-a-glance section says how many of those answers were declinations.
     pub checked: usize,
     /// `kind` → count, e.g. `citation_need` → 65.
     pub counts_by_category: Vec<(String, usize)>,
@@ -391,7 +399,8 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
             ("Judged by".to_string(), m.model_id.clone()),
             ("Prompt version".to_string(), m.prompt_version.clone()),
             ("Sentences read".to_string(), m.total_sentences.to_string()),
-            ("Sentences checked".to_string(), m.checked.to_string()),
+            // "answered", not "checked": see `AuditReportModel::checked`.
+            ("Sentences answered".to_string(), m.checked.to_string()),
         ],
     });
 
@@ -411,12 +420,34 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
             _ => Tone::Bad,
         },
     });
+    // §11 D74. The score's BASIS, not just its value. On a real manuscript 65
+    // of 67 "clean" items were the model answering "no citation needed" — a
+    // correct answer for a methods-and-results paper, but "97/100" alone reads
+    // as "almost nothing to fix". A researcher must be able to see that the
+    // number rests overwhelmingly on judgements DECLINED rather than issues
+    // ruled out.
+    let declined = m
+        .needs_citation
+        .iter()
+        .filter(|i| i.verdict.as_deref() == Some("no_citation_needed"))
+        .count();
     out.push(para(format!(
-        "{} of {} judged sentences came back clean. The score is that fraction and nothing else —          it counts no opinion Gaply did not form, and the {} sentence{} it could not check at all          are excluded from it and listed separately.",
+        "{score}/100 — {} of {} items were judged not to need a citation; {} raised {}.",
         judged.saturating_sub(attention.len()),
         judged,
+        attention.len(),
+        if attention.len() == 1 { "an issue" } else { "issues" },
+    )));
+    out.push(para(format!(
+        "The score is that fraction and nothing else — it counts no opinion Gaply did not form. \
+         {} of those {} the model deciding a sentence needs no citation, which is not the same as \
+         confirming the sentence is sound. The {} sentence{} Gaply could not check at all {} \
+         excluded from the score and listed separately.",
+        if declined == 0 { "None".to_string() } else { format!("{declined}") },
+        if declined == 1 { "is" } else { "are" },
         m.unverifiable.len(),
         if m.unverifiable.len() == 1 { "" } else { "s" },
+        if m.unverifiable.len() == 1 { "is" } else { "are" },
     )));
 
     // The breakdown, as proportions rather than a list of numbers to hold in
@@ -827,6 +858,51 @@ mod tests {
         }
         // And the section says whose fault it is not.
         assert!(text.contains("not a defect in the writing"), "{text}");
+    }
+
+    /// §11 D74. A high score built on DECLINED judgements must say so.
+    ///
+    /// The real shape from job 10 on `R PAPER .docx`: 65 of 67 judged items
+    /// came back "no citation needed" — correct for a methods-and-results
+    /// paper — and the report said "health 97 / 100" with nothing to indicate
+    /// the number rested on the model declining to flag rather than on issues
+    /// ruled out. Arithmetically right, and read as "almost nothing to fix".
+    #[test]
+    fn a_score_resting_on_declined_judgements_says_so() {
+        let mut m = model();
+        m.supported = vec![ReportItem {
+            seq: 1,
+            sentence: "A weak claim.".into(),
+            verdict: Some("weak".into()),
+            ..Default::default()
+        }];
+        // 9 declinations against 1 issue — the job-10 ratio in miniature.
+        m.needs_citation = (0..9)
+            .map(|i| ReportItem {
+                seq: 10 + i,
+                sentence: format!("Own-work sentence {i}."),
+                verdict: Some("no_citation_needed".into()),
+                ..Default::default()
+            })
+            .collect();
+        let text = all_text(&compose_audit(&m));
+
+        // The score is still one number.
+        assert!(text.contains("90/100"), "the score changed shape:\n{text}");
+        // And its BASIS is stated in words a reader parses correctly.
+        assert!(
+            text.contains("judged not to need a citation"),
+            "the declination basis is not stated:\n{text}"
+        );
+        assert!(text.contains("raised an issue"), "the issue count is not stated:\n{text}");
+        // The load-bearing sentence: a declination is not a clearance.
+        assert!(
+            text.contains("not the same as confirming"),
+            "nothing warns that a declination is not a clean bill:\n{text}"
+        );
+        // The cover must not say "checked" for an item the model merely answered.
+        assert!(text.contains("Sentences answered"), "cover still claims 'checked':\n{text}");
+        assert!(!text.contains("Sentences checked"), "cover still claims 'checked':\n{text}");
     }
 
     #[test]
