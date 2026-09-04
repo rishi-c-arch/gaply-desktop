@@ -193,6 +193,73 @@ fn latin_base(ch: char) -> Option<&'static str> {
         '\u{2192}' => "->", // →
         '\u{2190}' => "<-", // ←
 
+        // ── TYPOGRAPHIC LIGATURES ────────────────────────────────────────
+        //
+        // §11 D70. These are the characters REAL fetched papers broke the table
+        // with, immediately. The Greek and maths above were added from
+        // synthetic examples; the first open-access PDF ever pulled through the
+        // OA path (SemEval-2018, OpenAlex) rendered `classification` as
+        // `classi?cation` and `~1,500` as `?1,500`, because typesetters emit
+        // U+FB01 and U+223C and nothing here covered them.
+        //
+        // A ligature is PURELY presentational — `ﬁ` IS `fi`, with no semantic
+        // content whatsoever — so folding it is lossless, not an approximation.
+        // A `?` in the middle of a word, by contrast, is the one outcome a
+        // reader cannot interpret: it hides which word was written.
+        '\u{FB00}' => "ff",
+        '\u{FB01}' => "fi",
+        '\u{FB02}' => "fl",
+        '\u{FB03}' => "ffi",
+        '\u{FB04}' => "ffl",
+        '\u{FB05}' => "st",   // ﬅ long-s+t, archaic but present in scans
+        '\u{FB06}' => "st",   // ﬆ
+
+        // ── DASHES AND HYPHENS NOT IN WINANSI ────────────────────────────
+        //
+        // En-dash, em-dash and the four curly quotes are already WinAnsi code
+        // points (0x96, 0x97, 0x91-0x94) and need no entry — these are the ones
+        // that are not.
+        '\u{2010}' => "-",  // ‐ HYPHEN (distinct from HYPHEN-MINUS)
+        '\u{2011}' => "-",  // ‑ non-breaking hyphen
+        '\u{2012}' => "-",  // ‒ figure dash
+        '\u{2015}' => "--", // ― horizontal bar
+        '\u{2053}' => "~",  // ⁓ swung dash
+
+        // ── QUOTES AND BRACKETS NOT IN WINANSI ───────────────────────────
+        '\u{201B}' => "'",  // ‛ single high-reversed-9
+        '\u{201F}' => "\"", // ‟ double high-reversed-9
+        '\u{2039}' => "<",  // ‹
+        '\u{203A}' => ">",  // ›
+        '\u{27E8}' => "<",  // ⟨ mathematical angle bracket
+        '\u{27E9}' => ">",  // ⟩
+
+        // ── SPACES ───────────────────────────────────────────────────────
+        //
+        // PDF extraction emits these constantly for justified text. Folding to
+        // an ordinary space is exact: they differ only in width.
+        '\u{2002}' | '\u{2003}' | '\u{2004}' | '\u{2005}' | '\u{2006}'
+        | '\u{2007}' | '\u{2008}' | '\u{2009}' | '\u{200A}' | '\u{202F}'
+        | '\u{205F}' => " ",
+        '\u{200B}' | '\u{FEFF}' => "",  // zero-width space / BOM: emit nothing
+
+        // ── FURTHER MATHS SEEN IN FETCHED PAPERS ─────────────────────────
+        '\u{223C}' => "~",   // ∼ TILDE OPERATOR — "~1,500 tweets"
+        '\u{223D}' => "~",   // ∽
+        '\u{2243}' => "~=",  // ≃
+        '\u{2245}' => "~=",  // ≅
+        '\u{221D}' => "prop to", // ∝
+        '\u{226A}' => "<<",  // ≪
+        '\u{226B}' => ">>",  // ≫
+        '\u{22C5}' => "*",   // ⋅ dot operator
+        '\u{00D7}' => "x",   // × (WinAnsi has it, but "x" reads better in prose)
+        '\u{2191}' => "^",   // ↑
+        '\u{2193}' => "v",   // ↓
+        '\u{2194}' => "<->", // ↔
+        '\u{21D2}' => "=>",  // ⇒
+        '\u{21D0}' => "<=",  // ⇐
+        '\u{2208}' => "in",  // ∈
+        '\u{2205}' => "{}",  // ∅
+
         'Ā' | 'Ă' | 'Ą' => "A",
         'ā' | 'ă' | 'ą' => "a",
         'Ć' | 'Ĉ' | 'Ċ' | 'Č' => "C",
@@ -1005,6 +1072,53 @@ mod tests {
 
     /// Each disclosure fires INDEPENDENTLY: folding alone must not claim that
     /// something could not be displayed.
+    /// §11 D70. The REAL strings that broke the table, taken verbatim from the
+    /// first open-access paper ever pulled through the OA path.
+    ///
+    /// The Greek/maths entries below were added from examples I wrote; these
+    /// two characters — a ligature and a tilde operator — appeared in the first
+    /// real fetched PDF and neither was covered. A ligature is purely
+    /// presentational, so folding it is lossless; a `?` in the middle of a word
+    /// hides which word was written, which is the one outcome a reader cannot
+    /// interpret.
+    #[test]
+    fn ligatures_and_typography_from_real_fetched_papers_survive() {
+        // VERBATIM from SemEval-2018 via OpenAlex, chunks c469 and c474.
+        let blocks = vec![Block::Paragraph {
+            text: "The multi-label emotion classi\u{FB01}cation dataset included \u{223C}1,500                    tweets \u{2010} a\u{2009}sample \u{2014} of the o\u{FB03}cial set."
+                .to_string(),
+        }];
+        let text = squash(&text_from_pdf(&render_pdf(&blocks)));
+
+        assert!(text.contains("classification"), "fi-ligature lost:\n{text}");
+        assert!(text.contains("officialset") || text.contains("official"), "ffi lost:\n{text}");
+        assert!(text.contains("~1,500"), "tilde operator lost:\n{text}");
+        assert!(!text.contains('?'), "a character still folded to `?`:\n{text}");
+        // Nothing was LOST, so the marked-character disclosure must not fire.
+        assert!(!text.contains(&squash(NOTE_MARKED)), "claimed a loss that did not happen");
+    }
+
+    /// Every ligature and space fold, exhaustively — these are the ones a
+    /// typesetter emits and a synthetic fixture never contains.
+    #[test]
+    fn every_ligature_folds_to_its_letters() {
+        for (ch, want) in [
+            ('\u{FB00}', "ff"), ('\u{FB01}', "fi"), ('\u{FB02}', "fl"),
+            ('\u{FB03}', "ffi"), ('\u{FB04}', "ffl"),
+        ] {
+            assert_eq!(latin_base(ch), Some(want), "ligature U+{:04X}", ch as u32);
+        }
+        // Width-only spaces fold to an ordinary one; zero-width ones vanish.
+        assert_eq!(latin_base('\u{2009}'), Some(" "));
+        assert_eq!(latin_base('\u{202F}'), Some(" "));
+        assert_eq!(latin_base('\u{200B}'), Some(""));
+        // En/em dash and curly quotes are WinAnsi code points already and need
+        // NO fold — asserting that keeps someone from adding a redundant one.
+        assert_eq!(latin_base('\u{2013}'), None);
+        assert_eq!(latin_base('\u{2014}'), None);
+        assert_eq!(latin_base('\u{201C}'), None);
+    }
+
     #[test]
     fn greek_and_maths_are_spelled_out_rather_than_becoming_question_marks() {
         // A methods section is full of these — "the objective function J(θ)",

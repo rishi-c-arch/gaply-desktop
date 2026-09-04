@@ -3569,3 +3569,46 @@ of the size distribution, and using it as one silently sets limits to fit the
 test data. `a_retryable_prompt_fits_the_configured_context` therefore pins
 `LARGEST_REAL_PROMPT = 2155` — a measurement from a real fetched paper — rather
 than a seed figure.
+
+### D70 — the fold table was built from synthetic examples, and the first real paper broke it
+
+D69 in miniature, and the same lesson: **a table built from examples I wrote is a
+table validated against my imagination.**
+
+The Greek and mathematical entries were added because a reference manuscript
+rendered `p <= 0.05` as `p ? 0.05` — real evidence, but from a manuscript. The
+first open-access paper ever pulled through the OA path (SemEval-2018, OpenAlex)
+immediately produced two characters the table did not cover:
+
+| in the fetched PDF | rendered as | now |
+|---|---|---|
+| `classiﬁcation` (U+FB01) | `classi?cation` | `classification` |
+| `∼1,500` (U+223C) | `?1,500` | `~1,500` |
+
+Four `?` glyphs in the exported report; **now zero**, and the marked-character
+disclosure correctly stops firing because nothing is lost any more.
+
+**A ligature is PURELY presentational** — `ﬁ` IS `fi`, with no semantic content —
+so folding it is lossless rather than an approximation, the same argument the
+maths entries already rest on. A `?` in the middle of a word is the one outcome a
+reader cannot interpret: it hides which word was written, in a report whose
+entire purpose is showing exactly what a source says.
+
+Added: all five common ligatures (ﬀ ﬁ ﬂ ﬃ ﬄ) plus the two archaic st-ligatures
+scans produce; the dashes and hyphens WinAnsi lacks (U+2010, 2011, 2012, 2015,
+2053); quotes and angle brackets it lacks (U+201B, 201F, 2039, 203A, 27E8, 27E9);
+the width-only spaces PDF extraction emits constantly for justified text (U+2002
+-200A, 202F, 205F -> " "; U+200B and the BOM -> nothing); and the further maths
+real papers carry (∼ ∽ ≃ ≅ ∝ ≪ ≫ ⋅ × ↑ ↓ ↔ ⇒ ⇐ ∈ ∅).
+
+**NOT added, deliberately: the en-dash, em-dash and curly quotes.** Those are
+WinAnsi code points already (0x96, 0x97, 0x91-0x94) and need no fold;
+`every_ligature_folds_to_its_letters` asserts `latin_base` returns `None` for
+them, so nobody adds a redundant entry believing it fixes something.
+
+**The test is built from the real strings, not new synthetic ones** —
+`ligatures_and_typography_from_real_fetched_papers_survive` renders the verbatim
+text of chunks c469 and c474 from the fetched SemEval-2018 PDF. Fixtures are
+chosen for coverage of behaviour; they are not a sample of what real documents
+contain. That is D69's population point again, in a different subsystem, found
+the same way — by running the real thing end to end.
