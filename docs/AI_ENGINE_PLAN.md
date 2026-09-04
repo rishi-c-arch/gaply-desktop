@@ -2887,3 +2887,152 @@ quietly to hide it.
 
 Sequenced against D59: the citation_need prompt work is blocked on eval
 throughput, and this is the same constraint seen from the product side.
+
+### D62 — the 1.5B does not hold grounding, so the CPU floor stays on the 3B and the UI says so
+
+D61 named the 1.5B as the candidate default for non-Metal platforms and refused
+to decide without data. The data now exists: **1.5B on `citation_support-v1.5`,
+both devices, the same six seeds, isolated, CPU arm first.**
+
+| arm | valid | fail rate | cited planted | faithfulness | outputs checkable | mean latency | prefill ms/tok |
+|---|---|---|---|---|---|---|---|
+| 3B CPU (cold) | 4/6 | 33% | **1.00** | 2 viol. | 2 | 198,751 ms | 85.3 |
+| **3B Metal** | **5/6** | **17%** | 0.33 | **0** | 2 | **42,530 ms** | 10.6 |
+| 1.5B CPU | 1/6 | **83%** | — | — | **0** | 55,054 ms | 17.9 |
+| 1.5B Metal | 1/6 | **83%** | — | — | **0** | 60,248 ms | 10.8 |
+
+Per-seed prefill on the clean seeds (03/04): 3B CPU 95.2/98.2 -> 1.5B CPU
+**18.3/18.5 ms/tok**. The 1.5B IS ~5x faster on CPU prefill, as its parameter
+count predicts. It does not matter.
+
+#### That `1/6` is worse than it reads
+
+**The one "valid" case is cs-seed-06 — the NoEvidence case that runs no model at
+all.** Across all five seeds that actually invoke the model, on BOTH devices, the
+1.5B produced **zero** valid outputs.
+
+So `citedPlantedChunk` is `None` and faithfulness reads *"0 violations of 0
+accepted outputs checked"*. Those are not good scores, they are **undefined** —
+there were no accepted outputs to measure grounding on. Reporting "the 1.5B had
+zero faithfulness violations" would be the single most misleading number
+available in this whole comparison.
+
+#### The failures are structural, and the same one every time
+
+On CPU, **all five** broke the identical rule: *verdict is 'contradicts' but no
+claim element is marked 'different'*. The model reaches for the strongest verdict
+and cannot show it in the decomposition — precisely the property the validator
+exists to enforce, and precisely what makes a verdict auditable.
+
+Metal failed differently and worse: seed-01 cited **9** chunks and seed-02 cited
+**12 of the 12 sent** — every chunk it was given, which is the behaviour the rule
+text explicitly warns against. That is the deeper finding. **A judge that cites
+everything is not selecting evidence, and unselective citation grounds nothing.**
+The 3B cited 1-4 on the same seeds.
+
+#### Decision: the CPU path stays on the 3B
+
+Per D61's own framing — *if it does not hold grounding, we do NOT ship a weaker
+judge to hide a slow floor*. This is not a marginal trade of some agreement for
+5x speed; it is a failure to produce a legal grounded answer 5 times out of 5 on
+both devices, and the retry cost would consume much of the speed advantage
+anyway. **The 3B remains the judge on every platform, and the UI states the wait
+plainly before an audit starts.**
+
+**Two caveats, recorded because the result is being used to close a decision.**
+Six seeds is a small set, and the 3B's own `citedPlantedChunk` moved 1.00 -> 0.33
+between devices, which shows these metrics are noisy at n=6 — so this is not
+evidence about how much better the 3B is, only that the 1.5B fails structurally.
+And this tests the 1.5B **on a prompt tuned for the 3B**; a prompt written for a
+smaller model is a real future option if the CPU floor becomes unacceptable, but
+it is new work with its own eval, **not a default swap**.
+
+#### The projection seed is now PER DEVICE, and the wait is stated in words
+
+`SECONDS_PER_ITEM = 65` came from the D34 CPU baseline and, after Phase 7 STEP 2,
+was wrong in both directions at once — a 65-sentence audit was quoted at "70
+minutes" whether the truth was ~3.3 hours or ~34 minutes:
+
+| device | old seed | measured (3B, v1.5) | 65-sentence audit |
+|---|---|---|---|
+| CPU | 65 s | **185 s** | ~3.3 hours |
+| Metal | 65 s | **31 s** | ~34 minutes |
+
+`seedSecondsPerItem(device)` selects from `ai_model_status.activeDevice`, and
+**an unknown device falls back to the CPU figure** — a projection that
+under-promises turns a three-hour job into an unpleasant surprise, so the honest
+direction to be wrong in is the pessimistic one. `observedSecondsPerItem` still
+takes over after two items, and the screen still labels which of the two is in
+use; only the seed and its selection changed.
+
+`waitAdvice()` states the consequence in words at the confirmation step, because
+a bare duration reads as a progress bar that has not started: on CPU, that the
+machine will be busy for that whole time, that it can be cancelled and that
+finished items are kept; on Metal, that the GPU does the work. **This is the
+moment the user consents to a long job, and it is written to be honest rather
+than optimistic.**
+
+These are numbers about a MACHINE and they expire. When the engine gets faster
+this is one of the places that must be re-measured, not adjusted by feel.
+
+### D63 — v1.6 states two of the three fatal rules, and the third is refused on D32's evidence
+
+D60 named retries as the largest single decode cost (17% of Metal cases, 33% of
+CPU). D58's defect shape explains them: **a rule the validator rejects on that
+the prompt never states**. Every v1.5 validation failure, on both devices, was
+one of three such rules.
+
+`citation_support-v1.6` states two of them, at the END where D58 measured this
+model weights hardest:
+
+1. `suggested_rewrite` MUST be null unless the verdict is exactly `partial`.
+2. `contradicts` REQUIRES at least one `claim_element` with status `different`.
+
+#### The third rule is DELIBERATELY ABSENT, and a test stopped it being added
+
+The obvious third — *at most 4 `supporting_chunks`* — was written, and
+`the_prompt_never_mentions_the_chunk_bound` failed and caught it. **D32 measured
+that exact line on this exact model**: the cap **never fired** (the 3B's cited
+counts were 2, 4, 2, 3, 0) while **planted-chunk citation fell 75% -> 25%**. D34
+removed it for that reason and left the test as the guard. Adding it back to save
+a retry would trade the grounding property this engine exists to provide for
+latency — the same trade refused for the 1.5B in D62.
+
+What HAS changed since D32: v1.5 and v1.6 both produce 5-chunk answers on CPU,
+where D32 saw the cap never fire. That is an argument for measuring the bound as
+its own variant, not for quietly re-adding a line already shown to cost
+grounding.
+
+#### Result: a clear win on Metal, neutral-to-slightly-worse on CPU
+
+| arm | valid | fail rate | retry rate | cited planted | faithfulness |
+|---|---|---|---|---|---|
+| v1.5 CPU (cold) | 4/6 | 33% | 33% | 1.00 | 2/2 |
+| **v1.6 CPU** | 4/6 | **33%** | 33% | 0.67 | **1/2** |
+| v1.5 Metal | 5/6 | 17% | 17% | 0.33 | 0/2 |
+| **v1.6 Metal** | **6/6** | **0%** | **0%** | 0.50 | 0/2 |
+
+**Metal: retries eliminated.** The single v1.5 Metal failure was cs-seed-01 on
+`suggested_rewrite must be null when the verdict is 'weak'` — rule 1 fixed
+exactly that case, and cited-planted moved 0.33 -> 0.50, so nothing was traded
+for it. D58's defect shape, confirmed a second time.
+
+**CPU: unchanged, and predictably so.** Both CPU failures are
+`supporting_chunks: has 5 entries` — the one rule not stated. The two rules that
+were stated address failures CPU does not have.
+
+#### THE LATENCY COLUMN IS NOT REPORTED HERE, ON PURPOSE
+
+Mean latency rose on both arms, including on the Metal arm that eliminated a
+retry entirely and whose mean prompt tokens FELL (1320 -> 1142, since no case
+sends its prompt twice any more). A retry-free run cannot be slower than a
+retry-carrying one because of a slightly longer prompt, so that number is not
+measuring what it claims to. Combined with D61's finding that this machine's CPU
+throughput is unstable between runs, **validity, retry rate and cited-planted are
+the only trustworthy columns at n=6.** No latency claim is made in either
+direction — neither the win that would have been convenient nor an explanation
+for the rise.
+
+Cited-planted on CPU moved 1.00 -> 0.67. That is the metric D32 saw fall when
+prompt text was added, so it is worth watching — but at three checkable cases it
+is one case flipping, not a trend.

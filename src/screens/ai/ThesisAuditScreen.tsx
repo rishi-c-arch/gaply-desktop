@@ -19,16 +19,62 @@ import { EvidenceCard, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
 
 /**
- * Per-item seconds for the projection BEFORE a run has measured anything.
+ * Per-item seconds for the projection BEFORE a run has measured anything,
+ * PER DEVICE (§11 D62).
  *
- * It is a starting figure, not a property of the machine. It was measured once,
- * on a machine with room to spare; the same model on the same laptop under
- * memory pressure has been observed at a fifth of that speed. So it seeds the
- * estimate and is replaced by the run's own rate as soon as one exists — see
- * `observedSecondsPerItem`. Stated on screen either way, and labelled with
- * which of the two it is.
+ * There used to be one figure, 65, taken from the §11 D34 CPU baseline. After
+ * Phase 7 STEP 2 it was wrong in both directions at once — it under-promised CPU
+ * by ~2.8x and over-promised Metal by ~2.3x, so a 65-sentence audit was quoted
+ * at "70 minutes" whether the truth was ~3.3 hours or ~34 minutes.
+ *
+ * MEASURED on the same six seeds, 3B, citation_support-v1.5, isolated:
+ * CPU ~185 s/item (mean latency 198,751 ms over 6) and Metal ~31 s/item
+ * (42,530 ms). Both are seeds only: `observedSecondsPerItem` replaces them with
+ * the run's own rate after two items, and the screen says which is in use.
+ *
+ * These are numbers about a MACHINE and they expire. When the engine gets
+ * faster, this is one of the places that has to be re-measured — not adjusted
+ * by feel.
  */
-export const SECONDS_PER_ITEM = 65;
+export const SECONDS_PER_ITEM_BY_DEVICE = { cpu: 185, metal: 31 } as const;
+
+/** The old single-figure export, kept as the CPU floor for callers without a
+ *  device to hand. CPU is the floor everywhere (§11 D36), so defaulting to the
+ *  SLOW number is the honest direction to be wrong in: a projection that
+ *  under-promises turns a three-hour job into an unpleasant surprise. */
+export const SECONDS_PER_ITEM: number = SECONDS_PER_ITEM_BY_DEVICE.cpu;
+
+/** Seed seconds/item for a device, defaulting to the slower CPU figure when the
+ *  device is not yet known (status still loading, or an older backend). */
+export function seedSecondsPerItem(device?: string | null): number {
+    return device === 'metal'
+        ? SECONDS_PER_ITEM_BY_DEVICE.metal
+        : SECONDS_PER_ITEM_BY_DEVICE.cpu;
+}
+
+/**
+ * What the wait actually MEANS, in words, at the moment the user consents.
+ *
+ * A duration alone reads as a progress bar that has not started. "About 3.3
+ * hours" and "about 3.3 hours, and this machine will be busy for that time"
+ * are different pieces of information, and the second is the one someone needs
+ * before starting a job they cannot pause into the evening.
+ */
+export function waitAdvice(items: number, device?: string | null): string {
+    const seconds = items * seedSecondsPerItem(device);
+    if (device === 'metal') {
+        return seconds > 900
+            ? 'Your GPU does the work, so you can keep using the machine, but leave the app open.'
+            : 'Your GPU does the work; this should not get in your way.';
+    }
+    if (seconds > 5400) {
+        return 'This runs on the CPU and will keep the machine busy for that whole time. '
+            + 'Start it when you do not need the laptop — it can be cancelled, and finished items are kept.';
+    }
+    return seconds > 900
+        ? 'This runs on the CPU and the machine will be noticeably busy. It can be cancelled, and finished items are kept.'
+        : 'This runs on the CPU.';
+}
 
 /**
  * Seconds per item as THIS run is actually going, or null before there is
@@ -81,6 +127,7 @@ export interface ThesisAuditScreenProps {
     | 'cancelJob'
     | 'jobResults'
     | 'fetchOpenAccess'
+    | 'modelStatus'
     | 'recheckItems'
     | 'exportAuditReport'
   >;
@@ -114,6 +161,27 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
   const [exportNote, setExportNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drill, setDrill] = useState<GroundedFinding | null>(null);
+  /** Which device the engine actually got, for the projection seed (§11 D62).
+   *  Null until the status call lands; `seedSecondsPerItem` then falls back to
+   *  the slower CPU figure, which is the honest direction to be wrong in. */
+  const [activeDevice, setActiveDevice] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    // Optional-called: the projection is a convenience, and a bridge that does
+    // not carry `modelStatus` (a narrower test double, an older build) must
+    // still render an audit screen rather than throwing out of an effect.
+    Promise.resolve(bridge.modelStatus?.())
+      .then((s) => {
+        if (alive && s) setActiveDevice(s.activeDevice);
+      })
+      // A projection is a convenience; failing to read the device must never
+      // stop the screen. The CPU fallback still gives an honest estimate.
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [bridge]);
 
   const jobId = plan?.jobId ?? resumableJob?.jobId ?? null;
   /** The manuscript's file name, for the report's cover. */
@@ -330,8 +398,13 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
           </div>
           <p className="gds-ai__hint" data-testid="audit-projection">
             {queued} items queued; {modelItems} need the model. Estimated{' '}
-            {projectDuration(modelItems)} — based on {SECONDS_PER_ITEM}s per item measured on this
-            machine’s CPU. Unverifiable items are instant and are not counted.
+            {projectDuration(modelItems, seedSecondsPerItem(activeDevice))} — based on{' '}
+            {seedSecondsPerItem(activeDevice)}s per item measured on this machine’s{' '}
+            {activeDevice === 'metal' ? 'GPU (Metal)' : 'CPU'}. Unverifiable items are
+            instant and are not counted.
+          </p>
+          <p className="gds-ai__hint" data-testid="audit-wait-advice">
+            {waitAdvice(modelItems, activeDevice)}
           </p>
           <div className="gds-audit__actions">
             <Button variant="primary" onClick={start} data-testid="audit-confirm-start">
@@ -370,12 +443,13 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
               runStartedAt.current ? Date.now() - runStartedAt.current : 0,
             );
             const left = progress.total - progress.completed;
+            const seed = seedSecondsPerItem(activeDevice);
             return (
               <p className="gds-ai__hint" data-testid="audit-remaining">
-                About {projectDuration(left, observed ?? SECONDS_PER_ITEM)} left —{' '}
+                About {projectDuration(left, observed ?? seed)} left —{' '}
                 {observed
                   ? `${Math.round(observed)}s per item, measured on this run`
-                  : `${SECONDS_PER_ITEM}s per item until this run has measured its own rate`}
+                  : `${seed}s per item until this run has measured its own rate`}
                 .
               </p>
             );

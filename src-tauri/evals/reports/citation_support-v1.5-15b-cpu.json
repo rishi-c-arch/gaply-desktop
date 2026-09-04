@@ -1,0 +1,217 @@
+{
+  "advisoryRate": 0.0,
+  "binaryHash": "addbfecd81750e58c05e9f319428151d7a465ccaa9007b4c7096657f3ab0737c",
+  "casesFile": "evals/citation_support.jsonl",
+  "chunkIdFormatCases": [],
+  "chunkIdFormatFailures": 0,
+  "citedPlantedChunk": null,
+  "date": "15b-cpu",
+  "diagnosticFaithfulnessCases": [
+    {
+      "findings": [
+        "claim_element \"31 percent\" is marked found, but \"31\" appears in none of the cited evidence"
+      ],
+      "id": "cs-seed-01",
+      "outcome": "validationFailed"
+    },
+    {
+      "findings": [
+        "explanation asserts a finding the planted passage reports as ABSENT (matched \"higher\")"
+      ],
+      "id": "cs-seed-03",
+      "outcome": "validationFailed"
+    },
+    {
+      "findings": [
+        "explanation asserts a finding the planted passage reports as ABSENT (matched \"increase\")"
+      ],
+      "id": "cs-seed-04",
+      "outcome": "validationFailed"
+    }
+  ],
+  "diagnosticFaithfulnessFailures": 3,
+  "embedder": "bge-small-en-v1.5",
+  "embedderIsReal": true,
+  "evidenceBudgetTokens": 1200,
+  "faithfulnessCheckedCases": 0,
+  "faithfulnessViolationCases": [],
+  "faithfulnessViolations": 0,
+  "loadContext": {
+    "loadAvg1mEnd": 3.82421875,
+    "loadAvg1mStart": 3.09130859375,
+    "ranIsolated": false
+  },
+  "maxTokensCeiling": 1024,
+  "meanDecodeMs": 12097.0,
+  "meanDecodeTokensPerSec": 17.356125974669748,
+  "meanLatencyMs": 55054.166666666664,
+  "meanPrefillMs": 42814.5,
+  "meanPromptTokens": 2391.0,
+  "modelId": "qwen2.5-1.5b-instruct-q4km",
+  "modelLoadMs": 1493,
+  "nCtx": 4096,
+  "os": "macOS 26.6.2 (Darwin 25.6.0)",
+  "prefillShare": 0.7776795580110497,
+  "preprocessingVersion": "bge-v1.5-p2",
+  "promptVersion": "citation_support-v1.5",
+  "ramTotalMb": 1289,
+  "results": [
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 16149,
+      "decodeTokensPerSec": 17.833921605052943,
+      "diagnosticFaithfulness": [
+        "claim_element \"31 percent\" is marked found, but \"31\" appears in none of the cited evidence"
+      ],
+      "elapsedMs": 63874,
+      "evidenceWords": 439,
+      "fatalErrors": [
+        "verdict: is 'contradicts' but no claim element is marked 'different' — a contradiction must be visible in the decomposition",
+        "suggested_rewrite: must be null when the verdict is 'contradicts'"
+      ],
+      "id": "cs-seed-01",
+      "outcome": "validationFailed",
+      "prefillMs": 47555,
+      "promptTokens": 2922,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"contradicts\",\n  \"confidence\": 0.9,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"why\": \"Organic management was associated with higher soil invertebrate species richness in this paired comparison.\"\n    },\n    {\n      \"chunk_id\": \"c12\",\n      \"page\": 4,\n      \"why\": \"The absence of a microbial biomass effect contrasts with some prior work and may reflect the relatively short duration of organic management in our pairs.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"Organic management\",\n      \"status\": \"found\"\n    },\n    {\n      \"element\": \"soil invertebrate species richness\",\n      \"status\": \"found\"\n    },\n    {\n      \"element\": \"31 percent\",\n      \"status\": \"found\"\n    }\n  ],\n  \"explanation\": \"The evidence shows that organic management was associated with higher soil invertebrate species richness, which contradicts the claim that organic management increased soil invertebrate species richness by about 31 percent.\",\n  \"suggested_rewrite\": \"The evidence shows that organic management was associated with higher soil invertebrate species richness, which contradicts the claim that organic management increased soil invertebrate species richness by about 31 percent.\"\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 288,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 15274,
+      "decodeTokensPerSec": 17.349744664135134,
+      "elapsedMs": 66477,
+      "evidenceWords": 440,
+      "fatalErrors": [
+        "verdict: is 'contradicts' but no claim element is marked 'different' — a contradiction must be visible in the decomposition"
+      ],
+      "id": "cs-seed-02",
+      "outcome": "validationFailed",
+      "prefillMs": 51022,
+      "promptTokens": 2880,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"contradicts\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"why\": \"The claim states that organic management doubled soil invertebrate species richness, but the evidence shows a 31% increase.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 1,\n      \"why\": \"The claim states that organic management doubled soil invertebrate species richness, but the evidence shows a 31% increase.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 1,\n      \"why\": \"The claim states that organic management doubled soil invertebrate species richness, but the evidence shows a 31% increase.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"Organic management doubled soil invertebrate species richness\",\n      \"status\": \"absent\"\n    }\n  ],\n  \"explanation\": \"The evidence shows a 31% increase in soil invertebrate species richness under organic management, contradicting the claim that organic management doubled soil invertebrate species richness.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 265,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 15878,
+      "decodeTokensPerSec": 17.193601209220304,
+      "diagnosticFaithfulness": [
+        "explanation asserts a finding the planted passage reports as ABSENT (matched \"higher\")"
+      ],
+      "elapsedMs": 68797,
+      "evidenceWords": 429,
+      "fatalErrors": [
+        "verdict: is 'contradicts' but no claim element is marked 'different' — a contradiction must be visible in the decomposition",
+        "suggested_rewrite: must be null when the verdict is 'contradicts'"
+      ],
+      "id": "cs-seed-03",
+      "outcome": "validationFailed",
+      "prefillMs": 52753,
+      "promptTokens": 2875,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"contradicts\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c10\",\n      \"page\": 4,\n      \"why\": \"Nitrogen leaching was not measured in this study and no inference about water quality can be drawn from these data.\"\n    },\n    {\n      \"chunk_id\": \"c11\",\n      \"page\": 4,\n      \"why\": \"The richness result is consistent with the direction reported in earlier reviews, though our magnitude is at the upper end of published estimates. The absence of a microbial biomass effect contrasts with some prior work and may reflect the relatively short duration of organic management in our pairs.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"organic management\",\n      \"status\": \"found\"\n    },\n    {\n      \"element\": \"reduced nitrogen leaching\",\n      \"status\": \"absent\"\n    }\n  ],\n  \"explanation\": \"The evidence shows that organic management was associated with higher soil invertebrate species richness, but not with reduced nitrogen leaching into groundwater.\",\n  \"suggested_rewrite\": \"The evidence shows that organic management was associated with higher soil invertebrate species richness, but not with reduced nitrogen leaching into groundwater.\"\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 273,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 9213,
+      "decodeTokensPerSec": 17.47530663193314,
+      "diagnosticFaithfulness": [
+        "explanation asserts a finding the planted passage reports as ABSENT (matched \"increase\")"
+      ],
+      "elapsedMs": 60529,
+      "evidenceWords": 440,
+      "fatalErrors": [
+        "verdict: is 'contradicts' but no claim element is marked 'different' — a contradiction must be visible in the decomposition"
+      ],
+      "id": "cs-seed-04",
+      "outcome": "validationFailed",
+      "prefillMs": 51190,
+      "promptTokens": 2772,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"contradicts\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c9\",\n      \"page\": 3,\n      \"why\": \"No significant effect of management was observed for earthworm abundance. Counts were highly variable between fields, and the null result should not be read as evidence of equivalence given the limited statistical power.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"Organic management significantly increased earthworm abundance\",\n      \"status\": \"absent\"\n    }\n  ],\n  \"explanation\": \"The evidence shows that earthworm abundance was not significantly increased under organic management, which contradicts the claim.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 161,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 16068,
+      "decodeTokensPerSec": 16.92805576300722,
+      "elapsedMs": 70598,
+      "evidenceWords": 440,
+      "fatalErrors": [
+        "verdict: is 'contradicts' but no claim element is marked 'different' — a contradiction must be visible in the decomposition"
+      ],
+      "id": "cs-seed-05",
+      "outcome": "validationFailed",
+      "prefillMs": 54367,
+      "promptTokens": 2897,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"contradicts\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c1\",\n      \"page\": 1,\n      \"why\": \"The study found that organic management was associated with higher soil invertebrate species richness, not increased wild bee visitation rates.\"\n    },\n    {\n      \"chunk_id\": \"c2\",\n      \"page\": 1,\n      \"why\": \"The study compared soil biological indicators across paired organic and conventional fields over three growing seasons, not specifically about wild bee visitation rates.\"\n    },\n    {\n      \"chunk_id\": \"c3\",\n      \"page\": 1,\n      \"why\": \"The study did not find any significant effect of management on wild bee visitation rates.\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"wild bee visitation rates\",\n      \"status\": \"absent\"\n    }\n  ],\n  \"explanation\": \"The evidence does not support the claim that hedgerow planting increased wild bee visitation rates in adjacent orchards. Instead, it found that organic management was associated with higher soil invertebrate species richness, which is not the same as increased wild bee visitation rates.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 272,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 0,
+      "decodeMs": 0,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 50,
+      "evidenceWords": 0,
+      "id": "cs-seed-06",
+      "outcome": "ok",
+      "prefillMs": 0,
+      "promptTokens": 0,
+      "raw": "NoEvidence: no chunks retrieved for document 2",
+      "retried": false,
+      "scored": {
+        "expectedNoEvidence": true,
+        "noEvidence": true
+      },
+      "stopReasons": [],
+      "tokens": 0,
+      "truncated": false
+    }
+  ],
+  "retryRate": 0.8333333333333334,
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "task": "citation_support",
+  "totalCases": 6,
+  "truncationCases": [],
+  "truncationCount": 0,
+  "validOutputs": 1,
+  "validationFailureRate": 0.8333333333333334,
+  "verdictAgreement": null,
+  "verdictDistribution": {}
+}

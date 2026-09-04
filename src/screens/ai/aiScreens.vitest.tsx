@@ -11,6 +11,8 @@ import {
   observedSecondsPerItem,
   projectDuration,
   SECONDS_PER_ITEM,
+  seedSecondsPerItem,
+  waitAdvice,
   ThesisAuditScreen,
 } from './ThesisAuditScreen';
 import type { JobProgressEvent } from './aiBridge';
@@ -403,7 +405,7 @@ describe('Citation AI panel', () => {
 
     // …and the projection follows the measurement, not the constant.
     expect(projectDuration(10, 300)).toBe('50 minutes');
-    expect(projectDuration(10, SECONDS_PER_ITEM)).toBe('11 minutes');
+    expect(projectDuration(10, SECONDS_PER_ITEM)).toBe('31 minutes');
   });
 
   it('explains a slow run with measured numbers, not adjectives', () => {
@@ -584,9 +586,46 @@ describe('Thesis audit', () => {
     };
   }
 
+  /** §11 D62. One seed for both devices was wrong in BOTH directions at once:
+   *  it under-promised CPU by ~2.8x and over-promised Metal by ~2.3x. */
+  it('seeds the projection from the DEVICE, and defaults to the slow one', () => {
+    expect(seedSecondsPerItem('cpu')).toBe(185);
+    expect(seedSecondsPerItem('metal')).toBe(31);
+    // Unknown device => the CPU figure. A projection that under-promises turns
+    // a three-hour job into an unpleasant surprise, so the honest direction to
+    // be wrong in is the pessimistic one.
+    expect(seedSecondsPerItem(null)).toBe(185);
+    expect(seedSecondsPerItem(undefined)).toBe(185);
+    expect(seedSecondsPerItem('something-new')).toBe(185);
+  });
+
+  /** The confirmation is where someone consents to a job they cannot pause into
+   *  the evening. A bare duration reads as a progress bar that has not started. */
+  it('states the wait in WORDS at the confirmation, not just a number', () => {
+    const cpu = waitAdvice(65, 'cpu');
+    expect(cpu).toContain('CPU');
+    expect(cpu).toMatch(/busy/i);
+    expect(cpu).toMatch(/cancel/i);
+
+    // Metal is half an hour, so it must NOT borrow the CPU warning.
+    const metal = waitAdvice(65, 'metal');
+    expect(metal).not.toMatch(/keep the machine busy for that whole time/i);
+    expect(metal).toMatch(/GPU/);
+
+    // And the two must actually differ — the bug this replaces was one string
+    // for both devices.
+    expect(cpu).not.toBe(metal);
+  });
+
+  it('projects the SAME audit very differently per device, as measured', () => {
+    // 65 sentences: ~3.3 hours on CPU, ~34 minutes on Metal.
+    expect(projectDuration(65, seedSecondsPerItem('cpu'))).toBe('3.3 hours');
+    expect(projectDuration(65, seedSecondsPerItem('metal'))).toBe('34 minutes');
+  });
+
   it('projects duration from item count, excluding instant unverifiable items', () => {
-    expect(projectDuration(10, SECONDS_PER_ITEM)).toBe('11 minutes');
-    expect(projectDuration(238, SECONDS_PER_ITEM)).toBe('4.3 hours');
+    expect(projectDuration(10, SECONDS_PER_ITEM)).toBe('31 minutes');
+    expect(projectDuration(238, SECONDS_PER_ITEM)).toBe('12 hours');
   });
 
   /** THE gate: no model work may begin without an explicit confirmation. */
@@ -604,7 +643,11 @@ describe('Thesis audit', () => {
 
     // the pre-pass is shown and NOTHING has run
     expect(screen.getByTestId('audit-projection').textContent).toContain('10 need the model');
-    expect(screen.getByTestId('audit-projection').textContent).toContain('11 minutes');
+    // The seed is per-device now (§11 D62) and this bridge reports no device,
+    // so the projection must fall back to the SLOWER CPU figure — being wrong
+    // in the optimistic direction is the failure that matters here.
+    expect(screen.getByTestId('audit-projection').textContent).toContain('31 minutes');
+    expect(screen.getByTestId('audit-projection').textContent).toContain('CPU');
     expect(screen.getByTestId('audit-plan-unverifiable').textContent).toContain('18');
     expect(resumeJob).not.toHaveBeenCalled();
 

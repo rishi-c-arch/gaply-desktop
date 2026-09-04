@@ -28,7 +28,7 @@ use crate::ai::task::{AiTask, TaskContext, ValidationError};
 
 /// Bumped v1 -> v1.1 by §11 D26: the evidence header rendering changed, so a
 /// report from either side of that change describes a different prompt.
-pub const PROMPT_VERSION: &str = "citation_support-v1.5";
+pub const PROMPT_VERSION: &str = "citation_support-v1.6";
 
 /// SPEC OVERRIDE — §11 D27. The spec pins `max_tokens: 400`; measurement
 /// retired it.
@@ -228,6 +228,43 @@ const RULES: &str = r#"- Decompose the claim into its checkable elements first (
 /// truncated reply 67 pretty-printed lines long: newlines and indentation are
 /// generation tokens like any other, and the ones spent on layout are the ones
 /// missing from the end of the array. The reader never sees this JSON.
+/// The FATAL rules the validator enforced and the prompt never stated.
+///
+/// Exactly the defect shape §11 D58 fixed for `citation_need`'s `search_query`:
+/// a rule the engine rejects on, that the model was never told. On the v1.5
+/// six-seed run every validation failure on both devices was one of these — 17%
+/// of Metal cases and 33% of CPU cases — and a failure costs a full second
+/// attempt, the largest single decode cost in the profile (§11 D60).
+///
+/// Placed at the END, where this model weights hardest — the placement D58
+/// found necessary rather than merely tidy.
+///
+/// # The chunk bound is DELIBERATELY NOT STATED HERE
+///
+/// The obvious third rule — "at most 4 supporting_chunks" — is absent on
+/// purpose, and `the_prompt_never_mentions_the_chunk_bound` guards its absence.
+/// §11 D32 measured that exact line on this exact model: the cap **never fired**
+/// (the 3B's cited counts were 2, 4, 2, 3, 0) and stating it moved
+/// **planted-chunk citation 75% -> 25%** — a grounding regression invisible in
+/// every other metric. D34 removed it for that reason. Adding it back to save a
+/// retry would trade the property this engine exists to provide for latency.
+///
+/// v1.5 DID produce two 5-chunk rejections where D32 saw none, so the bound now
+/// fires where it did not. That is an argument for MEASURING it again as its own
+/// variant, not for quietly re-adding a line already shown to cost grounding.
+///
+/// These rules state constraints that ALREADY EXIST. Nothing legal becomes
+/// illegal, so a v1.5 answer is still a v1.6 answer; only how often the model
+/// produces one should change.
+const FATAL_RULES_STATED: &str = "\
+TWO RULES THAT ARE REJECTED OUTRIGHT. An answer breaking either is discarded and \
+you are asked again, so read them last and check them before you answer.
+1. suggested_rewrite MUST be null unless verdict is exactly \"partial\". For \
+strong, weak, contradicts and insufficient_evidence it is null. No exceptions.
+2. verdict \"contradicts\" REQUIRES at least one claim_element with \
+status \"different\". If nothing in the decomposition differs, the verdict is \
+\"weak\", not \"contradicts\".";
+
 const COMPACT_RULE: &str = "\
 - Output the JSON on ONE line, with no newlines, no indentation and no spaces \
 between tokens. Every character of layout is a character you cannot spend on \
@@ -284,6 +321,7 @@ impl AiTask for CitationSupportTask {
              <|im_start|>user\n\
              OUTPUT SCHEMA\n{OUTPUT_SCHEMA}\n\n\
              RULES\n{RULES}\n{COMPACT_RULE}\n\n\
+             {FATAL_RULES_STATED}\n\n\
              <cited_source>\n{source}\n</cited_source>\n\n\
              {evidence}\n\n\
              CLAIM UNDER TEST\n<claim>\n{claim}\n</claim>\n\n\
@@ -1155,7 +1193,17 @@ mod tests {
             crate::ai::generative::TASK_N_CTX - CitationSupportTask::max_tokens() >= 2825,
             "the token raise ate the prompt budget the measured prompts need"
         );
-        assert_eq!(t.prompt_version(), "citation_support-v1.5");
+        assert_eq!(t.prompt_version(), "citation_support-v1.6");
+        // §11 D63: the three FATAL rules the validator enforces must be STATED.
+        // Each is pinned by the phrase a reader would grep for, not by the
+        // whole block, so wording can improve without the test rotting.
+        assert!(p.contains("suggested_rewrite MUST be null"), "rule 1 missing: {p}");
+        assert!(p.contains("REQUIRES at least one claim_element"), "rule 2 missing: {p}");
+        // And they sit at the END, after the evidence and the claim — the
+        // placement D58 measured as necessary for this model.
+        let rules_at = p.rfind("TWO RULES THAT ARE REJECTED").expect("block absent");
+        let schema_at = p.find("OUTPUT SCHEMA").expect("schema absent");
+        assert!(rules_at > schema_at, "the fatal-rule block drifted above the schema");
         // The compact-output rule reaches the model, not just the source.
         assert!(p.contains("ONE line"), "the compact-JSON rule is missing: {p}");
         assert!(p.contains("At most 5 claim_elements"), "the element cap is missing: {p}");
