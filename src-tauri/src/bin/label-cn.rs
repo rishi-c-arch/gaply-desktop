@@ -27,8 +27,29 @@
 //! that a sentence needing no citation has no severity-of-need, and the schema
 //! treats the field as conditional.
 use std::io::{Read, Write};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 const TARGET_CASES: usize = 50;
+
+/// How a label came to exist. Written on every case this tool produces, because
+/// the three kinds are NOT interchangeable when scoring (§11 D75).
+///
+/// - `cold` — labelled without seeing the model's answer. THE ONLY KIND THAT
+///   GIVES AN UNBIASED ACCURACY NUMBER.
+/// - `suggested_overridden` — the model proposed, the human disagreed. Scoring
+///   on these alone is a LOWER BOUND, not accuracy: they are selected precisely
+///   for disagreement.
+/// - `suggested_accepted` — the model proposed, the human agreed. **Cannot
+///   score the model at all.** The label carries the model's own answer, so
+///   comparing the two is circular.
+///
+/// Anchoring is the reason this is recorded rather than trusted to memory: a
+/// confident proposal shifts the reader's judgement, not just the keystroke, so
+/// "I would have said the same anyway" is not evidence.
+const PROVENANCE_COLD: &str = "cold";
+const PROVENANCE_ACCEPTED: &str = "suggested_accepted";
+const PROVENANCE_OVERRIDDEN: &str = "suggested_overridden";
 
 /// The ten spec sentence types, with the key that selects each.
 const TYPES: &[(char, &str, &str)] = &[
@@ -111,7 +132,33 @@ fn wrap(s: &str, width: usize, indent: &str) -> String {
     out
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// Ask the model what it thinks. Returns its answer VERBATIM — the reason is
+/// the model's own text, never paraphrased or tidied, so what the labeller reads
+/// is what the engine actually said.
+async fn suggest(
+    manager: &app_lib::ai::model_manager::ModelManager,
+    sentence: &str,
+    section: &str,
+) -> Option<app_lib::ai::tasks::citation_need::CitationNeedOutput> {
+    use app_lib::ai::tasks::citation_need::{CitationNeedInput, CitationNeedTask};
+    let task = CitationNeedTask::new(CitationNeedInput {
+        sentence: sentence.to_string(),
+        // EMPTY, matching job_runner (§11 D73). A suggestion produced with
+        // richer input than the product supplies would be a different engine's
+        // opinion.
+        preceding_sentence: String::new(),
+        following_sentence: String::new(),
+        section: section.to_string(),
+    });
+    let cancel = Arc::new(AtomicBool::new(false));
+    app_lib::ai::task::run_task(manager, &task, &Default::default(), cancel, None)
+        .await
+        .ok()
+        .map(|r| r.output)
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let manuscript = args
         .iter()
@@ -123,6 +170,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // citation_need. A sentence that already carries a marker is a
     // citation_support question, not this one.
     let include_cited = args.iter().any(|a| a == "--all");
+    let suggest_mode = args.iter().any(|a| a == "--suggest");
 
     let out_path = std::path::Path::new("evals/citation_need.jsonl");
     if !out_path.exists() {
@@ -179,6 +227,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // The model, only when asked for. A labelling session must still work with
+    // no model installed — suggestions are an accelerator, never a requirement.
+    let manager = if suggest_mode {
+        let home = std::path::PathBuf::from(std::env::var("HOME")?);
+        let app_data = home.join("Library/Application Support/ai.gaply.app");
+        let db = gaply_core::Database::open(&app_data.join("gaply.db"))?;
+        match app_lib::ai::generative::resolve_generative_loader(&db, &app_data) {
+            Some(l) => {
+                let m = app_lib::ai::model_manager::ModelManager::new(l);
+                println!(
+                    "\x1b[33msuggest mode\x1b[0m — {} on {}. Each sentence costs one model call.",
+                    m.model_id(),
+                    app_lib::ai::device::shared().kind.as_str()
+                );
+                println!(
+                    "\x1b[33mAnchoring:\x1b[0m accepted suggestions CANNOT score the model \
+                     (the label carries its answer). Overrides are a lower bound.\n\
+                     Label a cold set with no --suggest for the unbiased number.\n"
+                );
+                Some(m)
+            }
+            None => {
+                println!("\x1b[31mno generative model installed — running without suggestions\x1b[0m\n");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     #[cfg(unix)]
     let _raw = RawMode::enter();
     #[cfg(unix)]
@@ -212,11 +290,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         println!("\n  {}\n", wrap(p.sentence.trim(), 72, "  "));
 
+        // The model's proposal, shown VERBATIM. It is labelled as a proposal
+        // every time — never rendered as a finding, never merged silently into
+        // the record, and never accepted without a keystroke.
+        let proposal = match manager.as_ref() {
+            Some(m) => {
+                print!("  \x1b[2masking the model…\x1b[0m");
+                std::io::stdout().flush()?;
+                let p = suggest(m, p.sentence.trim(), p.section.as_deref().unwrap_or("")).await;
+                print!("\r                    \r");
+                std::io::stdout().flush()?;
+                p
+            }
+            None => None,
+        };
+        if let Some(sg) = &proposal {
+            let label = TYPES
+                .iter()
+                .find(|(_, v, _)| *v == serde_json::to_value(sg.sentence_type)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_default())
+                .map(|(_, _, l)| *l)
+                .unwrap_or("?");
+            println!(
+                "  \x1b[35mmodel proposes\x1b[0m  {}  ·  {}{}",
+                if sg.needs_citation { "needs a citation" } else { "no citation needed" },
+                label,
+                sg.severity
+                    .and_then(|s| serde_json::to_value(s).ok())
+                    .and_then(|v| v.as_str().map(|x| format!("  ·  {x}")))
+                    .unwrap_or_default(),
+            );
+            println!("  \x1b[2m  its reason: {}\x1b[0m", wrap(&sg.reason, 66, "              "));
+            println!("  \x1b[2m  [a] accept as-is   — or answer below to override\x1b[0m");
+        } else if suggest_mode {
+            println!("  \x1b[31mmodel gave no usable answer — label it cold\x1b[0m");
+        }
+
         // 1. needs_citation
+        let mut accepted = false;
         let needs = loop {
             print!("  needs a citation?  \x1b[1my\x1b[0mes  \x1b[1mn\x1b[0mo  \x1b[1ms\x1b[0mkip  \x1b[1mq\x1b[0muit  ");
             std::io::stdout().flush()?;
             match key(raw) {
+                'a' if proposal.is_some() => {
+                    println!("accepted");
+                    accepted = true;
+                    break proposal.as_ref().expect("checked").needs_citation;
+                }
                 'y' => { println!("yes"); break true }
                 'n' => { println!("no"); break false }
                 's' => { println!("skipped\n"); continue 'outer }
@@ -225,8 +347,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        // 2. sentence_type
-        let stype = loop {
+        // 2. sentence_type — skipped entirely when the whole proposal was
+        //    accepted, so accepting is genuinely ONE key.
+        let accepted_type = accepted
+            .then(|| proposal.as_ref().and_then(|sg| serde_json::to_value(sg.sentence_type).ok()))
+            .flatten()
+            .and_then(|v| v.as_str().map(str::to_string));
+        let stype: String = if let Some(t) = accepted_type {
+            t
+        } else {
+        loop {
             println!("  type?");
             for row in TYPES.chunks(2) {
                 let cells: Vec<String> = row
@@ -244,28 +374,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             if let Some((_, v, label)) = TYPES.iter().find(|(c, _, _)| *c == k) {
                 println!("{label}");
-                break *v;
+                break v.to_string();
             }
             println!();
+        }
         };
 
         // 3. severity — ONLY when a citation is needed. §11 D66: a sentence
         //    that needs none has no severity-of-need, and the schema treats the
         //    field as conditional rather than always-present.
-        let severity = if needs {
+        let severity: Option<String> = if !needs {
+            None
+        } else if accepted {
+            proposal
+                .as_ref()
+                .and_then(|sg| sg.severity)
+                .and_then(|s| serde_json::to_value(s).ok())
+                .and_then(|v| v.as_str().map(str::to_string))
+        } else {
             loop {
                 print!("  severity?  \x1b[1mh\x1b[0migh  \x1b[1mm\x1b[0medium  \x1b[1ml\x1b[0mow  ");
                 std::io::stdout().flush()?;
                 match key(raw) {
-                    'h' => { println!("high"); break Some("high") }
-                    'm' => { println!("medium"); break Some("medium") }
-                    'l' => { println!("low"); break Some("low") }
+                    'h' => { println!("high"); break Some("high".to_string()) }
+                    'm' => { println!("medium"); break Some("medium".to_string()) }
+                    'l' => { println!("low"); break Some("low".to_string()) }
                     'q' => { println!("quit\n"); break 'outer }
                     _ => println!(),
                 }
             }
-        } else {
-            None
         };
 
         let idx = pre.planned.iter().position(|q| q.sentence == p.sentence).unwrap_or(0);
@@ -282,9 +419,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut expected = serde_json::Map::new();
         expected.insert("needs_citation".into(), needs.into());
-        expected.insert("sentence_type".into(), stype.into());
-        if let Some(s) = severity {
-            expected.insert("severity".into(), s.into());
+        expected.insert("sentence_type".into(), stype.clone().into());
+        if let Some(s) = &severity {
+            expected.insert("severity".into(), s.clone().into());
         }
 
         max_label += 1;
@@ -307,6 +444,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "section": p.section.clone().unwrap_or_default(),
             },
             "expected": expected,
+            // §11 D75. HOW this label came to exist. Written on every case,
+            // because the three kinds are not interchangeable when scoring:
+            // accepted suggestions cannot score the model at all, overrides are
+            // a lower bound, and only cold labels give an unbiased number.
+            // The model's own proposal is stored VERBATIM beside the human
+            // answer so agreement is computable and contamination stays visible
+            // rather than being remembered.
+            "labelling": {
+                "provenance": match (&proposal, accepted) {
+                    (Some(_), true) => PROVENANCE_ACCEPTED,
+                    (Some(_), false) => PROVENANCE_OVERRIDDEN,
+                    (None, _) => PROVENANCE_COLD,
+                },
+                "model_id": manager.as_ref().map(|m| m.model_id()),
+                "prompt_version":
+                    app_lib::ai::tasks::citation_need::PROMPT_VERSION,
+                "suggested": proposal.as_ref().map(|sg| serde_json::json!({
+                    "needs_citation": sg.needs_citation,
+                    "sentence_type": sg.sentence_type,
+                    "severity": sg.severity,
+                    "reason": sg.reason,
+                })),
+                // Which FIELDS the human changed — the per-field agreement the
+                // aggregate rate would hide.
+                "differs": proposal.as_ref().map(|sg| {
+                    let sgt = serde_json::to_value(sg.sentence_type).ok()
+                        .and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+                    let sgs = sg.severity.and_then(|x| serde_json::to_value(x).ok())
+                        .and_then(|v| v.as_str().map(str::to_string));
+                    serde_json::json!({
+                        "needs_citation": sg.needs_citation != needs,
+                        "sentence_type": sgt != stype,
+                        // NOT APPLICABLE when no citation is needed. §11 D66
+                        // makes severity conditional, and the model emitting
+                        // one anyway is the spec-compliant shape rather than a
+                        // disagreement — comparing there manufactures a false
+                        // difference and corrupts any per-field agreement rate.
+                        "severity": if needs {
+                            serde_json::json!(sgs != severity)
+                        } else {
+                            serde_json::Value::Null
+                        },
+                    })
+                }),
+            },
         });
         writeln!(file, "{}", serde_json::to_string(&case)?)?;
         file.flush()?;

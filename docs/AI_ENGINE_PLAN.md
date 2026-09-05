@@ -3825,3 +3825,143 @@ synthetic seeds), D70 (a fold table built from examples I wrote), and now an eva
 set that would have been built from whatever one paper contained. **A corpus is
 chosen for the distribution it must measure, not for being the file already on
 the desk.**
+
+### D75 — model-suggested labels, and the three provenances that are not interchangeable
+
+`label-cn --suggest` calls `citation_need` for each sentence, shows its answer
+and reason VERBATIM, and lets the labeller accept with one key or override. It
+makes 50 cases achievable in an evening instead of a week.
+
+**It also contaminates every label it touches, and the contamination is not
+optional — it is the point of the feature.** So the case file records HOW each
+label was produced:
+
+| provenance | what it is | what it can score |
+|---|---|---|
+| `cold` | labelled without seeing the model | **the only unbiased accuracy number** |
+| `suggested_overridden` | the model proposed, the human disagreed | a **lower bound** — selected for disagreement |
+| `suggested_accepted` | the model proposed, the human agreed | **nothing.** The label carries the model's own answer; comparing them is circular |
+
+**Anchoring is why this is recorded rather than trusted to memory.** A confident
+proposal shifts the reader's JUDGEMENT, not merely the keystroke, so "I would
+have said the same anyway" is not evidence — it is the effect being measured.
+Agreement rate on suggested cases is a real number and it is NOT accuracy; it
+tells you how often a labeller ratifies the engine, which is a different question
+and an interesting one.
+
+**A held-out cold set therefore remains mandatory**, and is the number any claim
+about `citation_need` accuracy must rest on. `--suggest` speeds up corpus
+building; it cannot speed up measurement.
+
+#### What the tool records, and two details that matter
+
+The model's proposal is stored beside the human answer — `needs_citation`,
+`sentence_type`, `severity` and the reason verbatim — so agreement is computable
+after the fact rather than tallied at labelling time, and a `differs` map gives
+PER-FIELD agreement, which an aggregate rate would hide (a labeller may keep the
+boolean and reject the type, which is exactly the D74 pattern where 24% of
+reasons were a generic template attached to a correct answer).
+
+Two details, both found by running it:
+
+- **`severity` is NOT COMPARED when no citation is needed.** §11 D66 makes the
+  field conditional; a model that emits one anyway is producing the
+  spec-compliant shape, not disagreeing. The first version marked it a
+  difference, so an ACCEPTED case reported a disagreement with itself — a false
+  difference that would have corrupted the per-field rate.
+- **Suggestions use EMPTY neighbours**, matching `job_runner` (§11 D73). A
+  proposal generated from richer input than the product supplies is a different
+  engine's opinion, and accepting it would bake that difference into the label.
+
+`labelled_cases_record_how_they_were_produced` asserts the provenance is present
+and known, and that an accepted case never records a per-field difference — if
+the record and the keystroke disagree, one of them is wrong.
+
+### D76 — the labelled set, and the answer: recall is ZERO
+
+42 cold labels (14 from `R PAPER .docx`, 28 from a health economics paper) plus
+the 8 synthetic seeds. **No `--suggest` was used**, so every label is `cold` and
+scores the model without contamination (§11 D75).
+
+**Label distribution — and why the second paper was the whole point:**
+
+| source | true | false |
+|---|---|---|
+| R PAPER | 3 | 11 |
+| **health economics** | **14** | **14** |
+| synthetic seeds | 3 | 5 |
+
+D74 required a second paper with a thinly-cited literature review. It produced a
+clean 14/14 split where R PAPER alone was 3/11, and without it the set would have
+been ~21% true and unable to measure the failure mode that matters.
+
+#### The confusion matrix, 41 cold cases
+
+```
+                 model: yes    model: no
+  you: yes            0            17
+  you: no             0            24
+```
+
+**Recall 0%. False-negative rate 100%.** The model answered "no citation needed"
+to EVERY cold case, including all 17 labelled as needing one.
+
+**This is over-suppression, and it corrects D74.** That entry concluded R PAPER's
+0/65 was "substantially correct for this manuscript" — true of that manuscript,
+and generalised too far. A paper with real uncited claims falsifies it.
+
+**The accuracy figures are worthless without the matrix**, which is why they are
+reported together:
+
+| source | accuracy |
+|---|---|
+| R PAPER (14 cold) | 78% |
+| health economics (27 cold) | 48% |
+| **all cold (41)** | **58%** |
+
+**A constant "no" scores exactly 58% on this set** (24 of 41 labels are false).
+The model's 58% IS that constant. R PAPER scores 78% only because 11 of its 14
+labels are false — the score tracks the label distribution, not the model. On
+R PAPER alone this engine would have looked 78% accurate while being incapable of
+a positive answer.
+
+#### D59 item 1, measured at last: coupling is real but is NOT the cause
+
+**4 of 17 false negatives (23%)** state a reason that argues FOR a citation while
+answering no — `cn-label-019`: *"methods and statistical tests… borrowed from
+existing literature"* -> `false`; `cn-label-016`: *"a transition sentence that
+sets up the need for evidence"* -> `false`.
+
+Higher than the 3% estimated from job 10's reasons alone, and still only a
+quarter. **The other 77% argue coherently AGAINST.** That is a judgement problem,
+not a plumbing one, and it means fixing the reason/verdict coupling would recover
+at most a quarter of the misses.
+
+#### The mechanism: misclassification, not the boolean
+
+`sentence_type` agreement is **37% (18/48)**, and the confusion is one-directional:
+
+| you said -> model said | n |
+|---|---|
+| `empirical_claim` -> `common_knowledge` | 6 |
+| `empirical_claim` -> `transition` | 3 |
+| `author_own_result` -> `common_knowledge` | 3 |
+
+The model **over-uses `common_knowledge` (14x) and `transition` (5x)** and
+**under-uses `empirical_claim` (12x)**. That is how recall reaches zero: an
+empirical claim relabelled common knowledge needs no citation BY DEFINITION. The
+boolean is downstream of a type error. D74's "24% generic template" finding was
+this in miniature — lazy wording turns out to be actual misclassification.
+
+#### D66 held; a new failure class appeared
+
+**4% validation-failure rate, 48/50 valid.** Neither failure is the `severity`
+class D66 fixed: `cn-seed-03` omitted `search_query` on a `true` answer, and
+`cn-label-040` **invented the variant `research_question`**, rejected by serde at
+parse time as `FATAL_RULES` documents. Enum invention is a class worth watching.
+
+#### What this sample supports
+
+41 cold cases is enough for **"recall 0% vs recall 60%"** and not for
+**"58% vs 62%"** — one case is 2.4 points, and variant comparison needs the true
+cell above ~30. Every claim here is of the first kind.

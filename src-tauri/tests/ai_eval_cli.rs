@@ -129,3 +129,54 @@ fn citation_need_cases_send_the_neighbours_the_product_sends() {
     }
     assert!(checked >= 8, "only {checked} cases checked — did the file move?");
 }
+
+/// §11 D75. A case labelled from the model's own suggestion cannot score the
+/// model, and the case file must make that checkable rather than remembered.
+///
+/// Three provenances, not interchangeable:
+///   cold                 — labelled without seeing the model. The ONLY kind
+///                          that yields an unbiased accuracy number.
+///   suggested_overridden — the human disagreed. A LOWER BOUND: these cases are
+///                          selected precisely for disagreement.
+///   suggested_accepted   — the label carries the model's own answer. Scoring
+///                          against it is circular.
+///
+/// This asserts the field is present and one of the three whenever it exists,
+/// and that an ACCEPTED case never claims a per-field difference — accepting
+/// means agreeing, so a `differs: true` there would mean the record and the
+/// keystroke disagree.
+#[test]
+fn labelled_cases_record_how_they_were_produced() {
+    let path = std::path::Path::new("evals/citation_need.jsonl");
+    let raw = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    for (i, line) in raw.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let case: serde_json::Value =
+            serde_json::from_str(line).unwrap_or_else(|e| panic!("line {}: {e}", i + 1));
+        let id = case["id"].as_str().unwrap_or("<no id>");
+        // Legacy seeds predate the field; anything the tool writes must have it.
+        let Some(lab) = case.get("labelling") else { continue };
+        let prov = lab["provenance"].as_str().unwrap_or_else(|| {
+            panic!("case {id}: labelling.provenance missing")
+        });
+        assert!(
+            matches!(prov, "cold" | "suggested_accepted" | "suggested_overridden"),
+            "case {id}: unknown provenance {prov:?} — the eval cannot tell whether \
+             this case may score the model"
+        );
+        if prov == "suggested_accepted" {
+            if let Some(d) = lab.get("differs") {
+                for field in ["needs_citation", "sentence_type", "severity"] {
+                    assert_ne!(
+                        d[field].as_bool(),
+                        Some(true),
+                        "case {id}: accepted the suggestion but records a difference in \
+                         {field} — the record and the keystroke disagree"
+                    );
+                }
+            }
+        }
+    }
+}

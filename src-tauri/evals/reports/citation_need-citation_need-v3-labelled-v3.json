@@ -1,0 +1,1654 @@
+{
+  "task": "citation_need",
+  "modelId": "qwen2.5-3b-instruct-q4km",
+  "promptVersion": "citation_need-v3",
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "os": "macOS 26.6.2 (Darwin 25.6.0)",
+  "nCtx": 5120,
+  "date": "labelled-v3",
+  "casesFile": "evals/citation_need.jsonl",
+  "totalCases": 50,
+  "needsCitationAccuracy": 0.625,
+  "sentenceTypeAgreement": 0.375,
+  "severityAgreement": 0.25,
+  "validationFailureRate": 0.04,
+  "retryRate": 0.04,
+  "advisoryRate": 0.06,
+  "meanLatencyMs": 9248.78,
+  "tokensPerSecond": 6.061339982138184,
+  "meanPromptTokens": 816.94,
+  "meanPrefillMs": 5766.58,
+  "meanDecodeMs": 3444.88,
+  "prefillShare": 0.6260223677896881,
+  "meanDecodeTokensPerSec": 16.27087219333508,
+  "answerDistribution": {
+    "needsCitationTrue": 2,
+    "sentenceType": {
+      "author_own_result": 11,
+      "common_knowledge": 16,
+      "definition": 4,
+      "empirical_claim": 2,
+      "interpretation": 1,
+      "method_borrowed": 2,
+      "prior_work": 1,
+      "statistic": 4,
+      "transition": 7
+    },
+    "severity": {
+      "high": 20,
+      "low": 23
+    },
+    "validOutputs": 48
+  },
+  "results": [
+    {
+      "id": "cn-seed-01",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence is an empirical claim about the effect of organic farming on soil microbial biomass, which requires citation.\",\"search_query\":\"Organic farming soil microbial biomass increase\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence is an empirical claim about the effect of organic farming on soil microbial biomass, which requires citation.",
+          "search_query": "Organic farming soil microbial biomass increase",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 8975,
+      "tokens": 67,
+      "promptTokens": 759,
+      "prefillMs": 4883,
+      "decodeMs": 4050,
+      "decodeTokensPerSec": 16.543209876543212,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-02",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"The sentence is an empirical claim about a global statistic that requires citation.\",\"search_query\":\"global arable land degraded 1960\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence is an empirical claim about a global statistic that requires citation.",
+          "search_query": "global arable land degraded 1960",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 8722,
+      "tokens": 62,
+      "promptTokens": 765,
+      "prefillMs": 4930,
+      "decodeMs": 3751,
+      "decodeTokensPerSec": 16.528925619834713,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-03",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": true,\n  \"sentence_type\": \"empirical_claim\",\n  \"severity\": \"high\",\n  \"reason\": \"The sentence is an empirical claim about observed data (species richness increase) and includes a statistical result (p = 0.03). Such claims require citation.\",\n  \"search_query\": null\n}\n--- retry ---\n.\n--- primary: First ---",
+      "retried": true,
+      "elapsedMs": 15768,
+      "tokens": 73,
+      "promptTokens": 1678,
+      "prefillMs": 11285,
+      "decodeMs": 4436,
+      "decodeTokensPerSec": 16.456266907123535,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "fatalErrors": [
+        "search_query: is required when needs_citation is true (6-12 keywords)"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-04",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"transition\",\"severity\":\"low\",\"reason\":\"The sentence is a transition and does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a transition and does not require citation.",
+          "search_query": null,
+          "sentence_type": "transition",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 7781,
+      "tokens": 48,
+      "promptTokens": 756,
+      "prefillMs": 4862,
+      "decodeMs": 2887,
+      "decodeTokensPerSec": 16.62625562868029,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-05",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"definition\",\"severity\":\"low\",\"reason\":\"The sentence is a definition and does not require citation as it is a commonly accepted term.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "definition",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a definition and does not require citation as it is a commonly accepted term.",
+          "search_query": null,
+          "sentence_type": "definition",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 8328,
+      "tokens": 55,
+      "promptTokens": 757,
+      "prefillMs": 4982,
+      "decodeMs": 3310,
+      "decodeTokensPerSec": 16.61631419939577,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-06",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence is an empirical claim about the effect weakening at higher latitudes, which is attributed to the authors' analysis. This is a high severity claim as it is part of the Literature Review section.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "prior_work",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is an empirical claim about the effect weakening at higher latitudes, which is attributed to the authors' analysis. This is a high severity claim as it is part of the Literature Review section.",
+          "search_query": null,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 35 words; the limit is 25"
+      ],
+      "elapsedMs": 9753,
+      "tokens": 79,
+      "promptTokens": 757,
+      "prefillMs": 4915,
+      "decodeMs": 4788,
+      "decodeTokensPerSec": 16.499582289055972,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-07",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general scientific fact that does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general scientific fact that does not require citation.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 7967,
+      "tokens": 51,
+      "promptTokens": 753,
+      "prefillMs": 4868,
+      "decodeMs": 3066,
+      "decodeTokensPerSec": 16.634050880626223,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-08",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"interpretation\",\"severity\":\"high\",\"reason\":\"the authors' own interpretation of the data\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "hedged_speculation",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own interpretation of the data",
+          "search_query": null,
+          "sentence_type": "interpretation",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 7834,
+      "tokens": 47,
+      "promptTokens": 765,
+      "prefillMs": 4963,
+      "decodeMs": 2839,
+      "decodeTokensPerSec": 16.555125044029587,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-001",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"author_own_result\",\"severity\":\"high\",\"reason\":\"the authors' own finding about the sensitivity of BiLSTM-like architectures to hyper parameterization\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own finding about the sensitivity of BiLSTM-like architectures to hyper parameterization",
+          "search_query": null,
+          "sentence_type": "author_own_result",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8937,
+      "tokens": 58,
+      "promptTokens": 804,
+      "prefillMs": 5341,
+      "decodeMs": 3556,
+      "decodeTokensPerSec": 16.310461192350957,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-002",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general statement about the nature of hyperparameter tuning, which is common knowledge.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "common_knowledge"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general statement about the nature of hyperparameter tuning, which is common knowledge.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8667,
+      "tokens": 57,
+      "promptTokens": 771,
+      "prefillMs": 5171,
+      "decodeMs": 3459,
+      "decodeTokensPerSec": 16.478751084128362,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-003",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"definition\",\"severity\":\"low\",\"reason\":\"The Firefly Algorithm and Crow Search Algorithm are defined by the author and not empirical claims or results.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The Firefly Algorithm and Crow Search Algorithm are defined by the author and not empirical claims or results.",
+          "search_query": null,
+          "sentence_type": "definition",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 8761,
+      "tokens": 57,
+      "promptTokens": 786,
+      "prefillMs": 5248,
+      "decodeMs": 3479,
+      "decodeTokensPerSec": 16.38401839609083,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-004",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"transition\",\"severity\":\"low\",\"reason\":\"The sentence is a transition and does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a transition and does not require citation.",
+          "search_query": null,
+          "sentence_type": "transition",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 8113,
+      "tokens": 48,
+      "promptTokens": 772,
+      "prefillMs": 5174,
+      "decodeMs": 2909,
+      "decodeTokensPerSec": 16.500515641113786,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-005",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"author_own_result\",\"severity\":\"high\",\"reason\":\"the authors' own algorithmic approach\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own algorithmic approach",
+          "search_query": null,
+          "sentence_type": "author_own_result",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8125,
+      "tokens": 47,
+      "promptTokens": 791,
+      "prefillMs": 5222,
+      "decodeMs": 2866,
+      "decodeTokensPerSec": 16.399162595952546,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-006",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"author_own_result\",\"severity\":\"high\",\"reason\":\"This is the author's own proposal and description of the algorithm, which is considered high severity as it outlines the contributions of the study.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is the author's own proposal and description of the algorithm, which is considered high severity as it outlines the contributions of the study.",
+          "search_query": null,
+          "sentence_type": "author_own_result",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 9206,
+      "tokens": 66,
+      "promptTokens": 790,
+      "prefillMs": 5130,
+      "decodeMs": 4032,
+      "decodeTokensPerSec": 16.36904761904762,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-007",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"author_own_result\",\"severity\":\"high\",\"reason\":\"the authors' own experimental pipeline and evaluation results\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own experimental pipeline and evaluation results",
+          "search_query": null,
+          "sentence_type": "author_own_result",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8558,
+      "tokens": 49,
+      "promptTokens": 827,
+      "prefillMs": 5485,
+      "decodeMs": 3040,
+      "decodeTokensPerSec": 16.11842105263158,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-008",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"prior_work\",\"severity\":\"high\",\"reason\":\"This is a claim about previous work, which is considered a key novelty of the paper.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a claim about previous work, which is considered a key novelty of the paper.",
+          "search_query": null,
+          "sentence_type": "prior_work",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8610,
+      "tokens": 56,
+      "promptTokens": 790,
+      "prefillMs": 5148,
+      "decodeMs": 3425,
+      "decodeTokensPerSec": 16.35036496350365,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-009",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general statement about the study's methodology and does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general statement about the study's methodology and does not require citation.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8297,
+      "tokens": 55,
+      "promptTokens": 761,
+      "prefillMs": 4931,
+      "decodeMs": 3328,
+      "decodeTokensPerSec": 16.52644230769231,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-010",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general statement about a pre-processing pipeline and does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general statement about a pre-processing pipeline and does not require citation.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8562,
+      "tokens": 55,
+      "promptTokens": 771,
+      "prefillMs": 5191,
+      "decodeMs": 3336,
+      "decodeTokensPerSec": 16.486810551558754,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-011",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general statement about handling out-of-vocabulary tokens and does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "method_borrowed",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general statement about handling out-of-vocabulary tokens and does not require citation.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 8435,
+      "tokens": 57,
+      "promptTokens": 767,
+      "prefillMs": 4942,
+      "decodeMs": 3455,
+      "decodeTokensPerSec": 16.49782923299566,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-012",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"definition\",\"severity\":\"low\",\"reason\":\"The sentence defines a concept (θ) and does not claim any empirical results or use numbers.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence defines a concept (θ) and does not claim any empirical results or use numbers.",
+          "search_query": null,
+          "sentence_type": "definition",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8599,
+      "tokens": 56,
+      "promptTokens": 775,
+      "prefillMs": 5154,
+      "decodeMs": 3404,
+      "decodeTokensPerSec": 16.45123384253819,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-013",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"The validation subset is a standard practice in machine learning and not attributed to a specific source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The validation subset is a standard practice in machine learning and not attributed to a specific source.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8601,
+      "tokens": 57,
+      "promptTokens": 766,
+      "prefillMs": 5097,
+      "decodeMs": 3466,
+      "decodeTokensPerSec": 16.44547028274668,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-014",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"author_own_result\",\"severity\":null,\"reason\":\"the authors' own initialisation method\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own initialisation method",
+          "search_query": null,
+          "sentence_type": "author_own_result",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7571,
+      "tokens": 40,
+      "promptTokens": 765,
+      "prefillMs": 5122,
+      "decodeMs": 2419,
+      "decodeTokensPerSec": 16.535758577924764,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-015",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"The sentence is a general statement about a national digital health-insurance system in Oman, which is considered common knowledge.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "definition",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a general statement about a national digital health-insurance system in Oman, which is considered common knowledge.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 9210,
+      "tokens": 62,
+      "promptTokens": 776,
+      "prefillMs": 5365,
+      "decodeMs": 3804,
+      "decodeTokensPerSec": 16.298633017875922,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-016",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"transition\",\"severity\":\"high\",\"reason\":\"This is a transition sentence that sets up the need for evidence, not an empirical claim or author's own finding.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a transition sentence that sets up the need for evidence, not an empirical claim or author's own finding.",
+          "search_query": null,
+          "sentence_type": "transition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 8915,
+      "tokens": 60,
+      "promptTokens": 767,
+      "prefillMs": 5208,
+      "decodeMs": 3662,
+      "decodeTokensPerSec": 16.38448935008192,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-017",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"transition\",\"severity\":\"high\",\"reason\":\"This is an objective statement setting up the research, not a claim about the world or the author's own finding.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is an objective statement setting up the research, not a claim about the world or the author's own finding.",
+          "search_query": null,
+          "sentence_type": "transition",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 9305,
+      "tokens": 60,
+      "promptTokens": 789,
+      "prefillMs": 5559,
+      "decodeMs": 3702,
+      "decodeTokensPerSec": 16.207455429497568,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-018",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"method_borrowed\",\"severity\":\"high\",\"reason\":\"The sentence describes a method (survey) and its characteristics (n = 222, prior to enforcement, stratified purposive sampling) that are borrowed from a previous study or source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence describes a method (survey) and its characteristics (n = 222, prior to enforcement, stratified purposive sampling) that are borrowed from a previous study or source.",
+          "search_query": null,
+          "sentence_type": "method_borrowed",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 27 words; the limit is 25"
+      ],
+      "elapsedMs": 10407,
+      "tokens": 79,
+      "promptTokens": 778,
+      "prefillMs": 5476,
+      "decodeMs": 4874,
+      "decodeTokensPerSec": 16.208453016003283,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-019",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"method_borrowed\",\"severity\":\"high\",\"reason\":\"The sentence describes methods and statistical tests used in the study, which are borrowed from existing literature and do not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "method_borrowed",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence describes methods and statistical tests used in the study, which are borrowed from existing literature and do not require citation.",
+          "search_query": null,
+          "sentence_type": "method_borrowed",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 9951,
+      "tokens": 64,
+      "promptTokens": 821,
+      "prefillMs": 5897,
+      "decodeMs": 4011,
+      "decodeTokensPerSec": 15.956120668162553,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-020",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"author_own_result\",\"severity\":\"high\",\"reason\":\"the authors' own measured results\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own measured results",
+          "search_query": null,
+          "sentence_type": "author_own_result",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8841,
+      "tokens": 46,
+      "promptTokens": 817,
+      "prefillMs": 5941,
+      "decodeMs": 2872,
+      "decodeTokensPerSec": 16.016713091922007,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-021",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"the authors' own measured odds ratio\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own measured odds ratio",
+          "search_query": null,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8537,
+      "tokens": 46,
+      "promptTokens": 792,
+      "prefillMs": 5664,
+      "decodeMs": 2844,
+      "decodeTokensPerSec": 16.17440225035162,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-022",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"the authors' own measured results\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own measured results",
+          "search_query": null,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8557,
+      "tokens": 45,
+      "promptTokens": 799,
+      "prefillMs": 5735,
+      "decodeMs": 2790,
+      "decodeTokensPerSec": 16.129032258064516,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-023",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"author_own_result\",\"severity\":null,\"reason\":\"the authors' own claim about the functions of insurance mandates\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own claim about the functions of insurance mandates",
+          "search_query": null,
+          "sentence_type": "author_own_result",
+          "severity": null
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 8149,
+      "tokens": 44,
+      "promptTokens": 765,
+      "prefillMs": 5429,
+      "decodeMs": 2688,
+      "decodeTokensPerSec": 16.369047619047617,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-024",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general statement about employment and insurance, considered common knowledge.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general statement about employment and insurance, considered common knowledge.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8702,
+      "tokens": 53,
+      "promptTokens": 765,
+      "prefillMs": 5422,
+      "decodeMs": 3249,
+      "decodeTokensPerSec": 16.312711603570328,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-025",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general statement about risk pooling and workplace practices that is widely known and does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general statement about risk pooling and workplace practices that is widely known and does not require citation.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 9182,
+      "tokens": 60,
+      "promptTokens": 762,
+      "prefillMs": 5472,
+      "decodeMs": 3672,
+      "decodeTokensPerSec": 16.33986928104575,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-026",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"transition\",\"severity\":\"low\",\"reason\":\"The sentence is a transition and does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a transition and does not require citation.",
+          "search_query": null,
+          "sentence_type": "transition",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8401,
+      "tokens": 48,
+      "promptTokens": 764,
+      "prefillMs": 5432,
+      "decodeMs": 2937,
+      "decodeTokensPerSec": 16.34320735444331,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-027",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"transition\",\"severity\":\"low\",\"reason\":\"The sentence is a transition and does not claim any new information or data.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a transition and does not claim any new information or data.",
+          "search_query": null,
+          "sentence_type": "transition",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 8953,
+      "tokens": 52,
+      "promptTokens": 773,
+      "prefillMs": 5719,
+      "decodeMs": 3197,
+      "decodeTokensPerSec": 16.265248670628715,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-028",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"The sentence is stating a general fact about compliance costs and their impact on different types of enterprises, which is common knowledge.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is stating a general fact about compliance costs and their impact on different types of enterprises, which is common knowledge.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 9640,
+      "tokens": 63,
+      "promptTokens": 790,
+      "prefillMs": 5781,
+      "decodeMs": 3815,
+      "decodeTokensPerSec": 16.513761467889907,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-029",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general statement about a program and its effects, which is common knowledge.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general statement about a program and its effects, which is common knowledge.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 9302,
+      "tokens": 56,
+      "promptTokens": 788,
+      "prefillMs": 5793,
+      "decodeMs": 3470,
+      "decodeTokensPerSec": 16.138328530259365,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-030",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"The sentence is a general statement about structural problems facing countries, which is considered common knowledge.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "hedged_speculation"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a general statement about structural problems facing countries, which is considered common knowledge.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 9191,
+      "tokens": 57,
+      "promptTokens": 769,
+      "prefillMs": 5684,
+      "decodeMs": 3470,
+      "decodeTokensPerSec": 16.42651296829971,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-031",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general statement about the Omani Health System and the Dhamani Scheme, which is common knowledge.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general statement about the Omani Health System and the Dhamani Scheme, which is common knowledge.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 9610,
+      "tokens": 62,
+      "promptTokens": 785,
+      "prefillMs": 5740,
+      "decodeMs": 3828,
+      "decodeTokensPerSec": 16.19644723092999,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-032",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"The sentence is a statistic and does not require citation as it is a known fact about the Omani Health System.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a statistic and does not require citation as it is a known fact about the Omani Health System.",
+          "search_query": null,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 9722,
+      "tokens": 61,
+      "promptTokens": 779,
+      "prefillMs": 5906,
+      "decodeMs": 3779,
+      "decodeTokensPerSec": 16.141836464673194,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-033",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"definition\",\"severity\":\"high\",\"reason\":\"The term 'Dhamani' is defined and no citation is needed as it is a proper noun and not a claim about the world.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The term 'Dhamani' is defined and no citation is needed as it is a proper noun and not a claim about the world.",
+          "search_query": null,
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 10045,
+      "tokens": 65,
+      "promptTokens": 810,
+      "prefillMs": 6004,
+      "decodeMs": 4003,
+      "decodeTokensPerSec": 16.23782163377467,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-034",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"The sentence is a general statement about the scheme's requirements and does not require citation as it is common knowledge.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a general statement about the scheme's requirements and does not require citation as it is common knowledge.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 9624,
+      "tokens": 61,
+      "promptTokens": 782,
+      "prefillMs": 5808,
+      "decodeMs": 3780,
+      "decodeTokensPerSec": 16.13756613756614,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-035",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"The sentence provides information about the Dhamani benefits package, which is common knowledge and does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence provides information about the Dhamani benefits package, which is common knowledge and does not require citation.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 10370,
+      "tokens": 61,
+      "promptTokens": 827,
+      "prefillMs": 6449,
+      "decodeMs": 3881,
+      "decodeTokensPerSec": 15.71759855707292,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-036",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"author_own_result\",\"severity\":\"high\",\"reason\":\"the authors' own description of a system they have developed\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own description of a system they have developed",
+          "search_query": null,
+          "sentence_type": "author_own_result",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 9087,
+      "tokens": 51,
+      "promptTokens": 799,
+      "prefillMs": 5901,
+      "decodeMs": 3152,
+      "decodeTokensPerSec": 16.18020304568528,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-037",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"The sentence is a general statement about the scheme's limitations and does not require citation as it is common knowledge.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a general statement about the scheme's limitations and does not require citation as it is common knowledge.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 9636,
+      "tokens": 61,
+      "promptTokens": 768,
+      "prefillMs": 5781,
+      "decodeMs": 3822,
+      "decodeTokensPerSec": 15.960230245944532,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-038",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"author_own_result\",\"severity\":null,\"reason\":\"the authors' own findings about the comparators\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "interpretation"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own findings about the comparators",
+          "search_query": null,
+          "sentence_type": "author_own_result",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8602,
+      "tokens": 42,
+      "promptTokens": 781,
+      "prefillMs": 5933,
+      "decodeMs": 2638,
+      "decodeTokensPerSec": 15.921152388172858,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-039",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"author_own_result\",\"severity\":null,\"reason\":\"the authors' own research objectives and hypotheses are not empirical claims or prior work that require citation\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own research objectives and hypotheses are not empirical claims or prior work that require citation",
+          "search_query": null,
+          "sentence_type": "author_own_result",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 9178,
+      "tokens": 51,
+      "promptTokens": 778,
+      "prefillMs": 5976,
+      "decodeMs": 3169,
+      "decodeTokensPerSec": 16.093404859577152,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-040",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": false,\n  \"sentence_type\": \"research_question\",\n  \"severity\": \"high\",\n  \"reason\": \"This is a research question and does not require citation as it is a statement of the study's objective.\",\n  \"search_query\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "elapsedMs": 18076,
+      "tokens": 59,
+      "promptTokens": 1731,
+      "prefillMs": 14324,
+      "decodeMs": 3705,
+      "decodeTokensPerSec": 15.92442645074224,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "fatalErrors": [
+        "<output>: not valid JSON: unknown variant `research_question`, expected one of `empirical_claim`, `statistic`, `definition`, `prior_work`, `method_borrowed`, `common_knowledge`, `author_own_result`, `transition`, `interpretation`, `hedged_speculation` at line 3 column 38"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-041",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"transition\",\"severity\":\"high\",\"reason\":\"the sentence is a transition and does not claim any new empirical finding or use any specific statistic.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the sentence is a transition and does not claim any new empirical finding or use any specific statistic.",
+          "search_query": null,
+          "sentence_type": "transition",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 9957,
+      "tokens": 56,
+      "promptTokens": 784,
+      "prefillMs": 6290,
+      "decodeMs": 3631,
+      "decodeTokensPerSec": 15.422748554117325,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-042",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"author_own_result\",\"severity\":null,\"reason\":\"the authors' own hypothesis\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "the authors' own hypothesis",
+          "search_query": null,
+          "sentence_type": "author_own_result",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 9119,
+      "tokens": 38,
+      "promptTokens": 782,
+      "prefillMs": 6596,
+      "decodeMs": 2498,
+      "decodeTokensPerSec": 15.21216973578863,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    }
+  ]
+}
