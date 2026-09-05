@@ -4459,3 +4459,24 @@ the one D78's conclusion — that the 3B cannot make this call — already rests
 Nothing user-facing moves: `ADVISORY_RECALL_PCT` / `ADVISORY_PRECISION_PCT` are
 computed over cold labels only and `cn-seed-07` is a seed, so §11 D83's guard
 still passes against the report of record.
+
+### D83 — a test that could silently rebind the number it validates
+
+`advisory_figures_match_a_real_eval_of_the_shipped_prompt` (D79) binds
+`ADVISORY_RECALL_PCT` / `ADVISORY_PRECISION_PCT` to a real eval report. It found
+that report by scanning `evals/reports` and taking **the first entry whose
+`promptVersion` matches** — and `read_dir` order is filesystem order, not a
+decision.
+
+So a second report for the shipped prompt — a diagnostic run, a re-measure, a
+five-case reproduction — could become the authority for two numbers printed to
+researchers, without anything changing in the test or the constants. During D81
+this was live: those runs were deliberately kept out of `evals/reports` for
+exactly this reason, which is a workaround standing in for a fix.
+
+**A guard that can silently change what it validates is worse than no guard**,
+because it still reads as one. Now: collect every matching report, sort by
+`date` (descending, ties broken by filename so the order is total), and take the
+newest — with the chosen report's filename in every failure message, so the
+assertion says which measurement it is speaking for.
+

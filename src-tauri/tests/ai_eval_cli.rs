@@ -210,23 +210,84 @@ fn advisory_figures_match_a_real_eval_of_the_shipped_prompt() {
             })
             .collect();
 
-    // The report for the shipped prompt, whatever it is called.
-    let mut report = None;
+    // Recompute from a report's per-case results, over COLD labels only
+    // (§11 D75): a suggested-accepted label carries the model's own answer and
+    // cannot score it. Defined before selection so EVERY candidate can be
+    // measured, not only the one that wins.
+    let measure = |v: &serde_json::Value| -> (u32, u32, u32, u32, u32) {
+        let (mut tp, mut fp, mut fn_) = (0u32, 0u32, 0u32);
+        for r in v["results"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+            let id = r["id"].as_str().unwrap_or_default();
+            let Some(case) = cases.get(id) else { continue };
+            let Some(lab) = case.get("labelling") else { continue };
+            if lab["provenance"].as_str() != Some("cold") {
+                continue;
+            }
+            match (case["expected"]["needs_citation"].as_bool(), r["scored"]["got"]["needs_citation"].as_bool()) {
+                (Some(true), Some(true)) => tp += 1,
+                (Some(true), Some(false)) => fn_ += 1,
+                (Some(false), Some(true)) => fp += 1,
+                _ => {}
+            }
+        }
+        let recall = (tp * 100).checked_div(tp + fn_).unwrap_or(0);
+        let precision = (tp * 100).checked_div(tp + fp).unwrap_or(0);
+        (tp, fp, fn_, recall, precision)
+    };
+
+    // WHICH report speaks for the printed numbers (§11 D83).
+    //
+    // This used to take the FIRST `read_dir` entry matching the prompt version.
+    // `read_dir` order is filesystem order, not a decision — so a second report
+    // for the shipped prompt (a diagnostic run, a re-measure, a five-case
+    // reproduction) could silently become the authority for two numbers printed
+    // to researchers, with nothing in the test or the constants changing. A
+    // guard that can quietly change what it validates is worse than none,
+    // because it still reads as one.
+    //
+    // `date` cannot decide it: the field is a caller-supplied TAG, by design
+    // ("reproducible without a clock in the engine"), and the values on disk are
+    // things like `bo-3b` and `labelled-v4`. So recency is not available, and
+    // inventing a clock to get it would override that decision for a tiebreak.
+    //
+    // Instead the order is: **the report that scores the MOST cold labels wins**,
+    // ties broken by filename descending so the order is total. That is not
+    // arbitrary — the fullest measurement is the one entitled to authorise a
+    // published number, and it excludes a narrow diagnostic run by what the run
+    // IS rather than by what it is called.
+    let cold_scored = |v: &serde_json::Value| -> usize {
+        v["results"]
+            .as_array()
+            .map(|rs| {
+                rs.iter()
+                    .filter(|r| {
+                        let id = r["id"].as_str().unwrap_or_default();
+                        cases
+                            .get(id)
+                            .and_then(|c| c.get("labelling"))
+                            .and_then(|l| l["provenance"].as_str())
+                            == Some("cold")
+                            && r["scored"]["got"]["needs_citation"].is_boolean()
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    };
+
+    let mut candidates: Vec<(usize, String, serde_json::Value)> = Vec::new();
     for e in std::fs::read_dir("evals/reports").expect("reports dir").flatten() {
-        let raw = match std::fs::read_to_string(e.path()) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        let v: serde_json::Value = match serde_json::from_str(&raw) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
+        let Ok(raw) = std::fs::read_to_string(e.path()) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
         if v["promptVersion"].as_str() == Some(shipped) && v.get("results").is_some() {
-            report = Some(v);
-            break;
+            let name = e.file_name().to_string_lossy().into_owned();
+            candidates.push((cold_scored(&v), name, v));
         }
     }
-    let report = report.unwrap_or_else(|| {
+    // Descending on both keys, so the winner is the same on every machine.
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+
+    let tied = candidates.clone();
+    let (n_cold, chosen, report) = candidates.into_iter().next().unwrap_or_else(|| {
         panic!(
             "no eval report found for the SHIPPED prompt {shipped}. The report prints \
              ADVISORY_RECALL_PCT/ADVISORY_PRECISION_PCT to researchers; they may not \
@@ -236,30 +297,38 @@ fn advisory_figures_match_a_real_eval_of_the_shipped_prompt() {
         )
     });
 
-    // Recompute from the per-case results, over COLD labels only (§11 D75):
-    // a suggested-accepted label carries the model's own answer and cannot
-    // score it.
-    let (mut tp, mut fp, mut fn_) = (0u32, 0u32, 0u32);
-    for r in report["results"].as_array().expect("results") {
-        let id = r["id"].as_str().unwrap_or_default();
-        let Some(case) = cases.get(id) else { continue };
-        let Some(lab) = case.get("labelling") else { continue };
-        if lab["provenance"].as_str() != Some("cold") {
-            continue;
-        }
-        let want = case["expected"]["needs_citation"].as_bool();
-        let got = r["scored"]["got"]["needs_citation"].as_bool();
-        match (want, got) {
-            (Some(true), Some(true)) => tp += 1,
-            (Some(true), Some(false)) => fn_ += 1,
-            (Some(false), Some(true)) => fp += 1,
-            _ => {}
-        }
-    }
-    assert!(tp + fn_ > 0, "no cold true cases scored — the set cannot support a recall figure");
+    // A report that scores almost nothing cannot authorise a published number,
+    // and computing a percentage from it would be the failure that looks like a
+    // result. Refuse rather than divide.
+    const MIN_COLD_CASES: usize = 20;
+    assert!(
+        n_cold >= MIN_COLD_CASES,
+        "the fullest report for the SHIPPED prompt {shipped} is {chosen}, which scores only \
+         {n_cold} cold labelled cases (minimum {MIN_COLD_CASES}). ADVISORY_RECALL_PCT / \
+         ADVISORY_PRECISION_PCT are printed to researchers and cannot rest on that few."
+    );
 
-    let recall = tp * 100 / (tp + fn_);
-    let precision = if tp + fp == 0 { 0 } else { tp * 100 / (tp + fp) };
+    // A TIE AT THE TOP IS AMBIGUITY, NOT A COIN FLIP (§11 D83).
+    //
+    // Coverage plus filename is a total order, so SOME report always wins — but
+    // if two equally full measurements of the shipped prompt disagree, picking
+    // one by name is exactly the silent rebinding this is meant to end. Two
+    // full runs that disagree (a different model, a changed case file) is a
+    // question for a human, so it fails and names them both.
+    let rivals: Vec<&(usize, String, serde_json::Value)> =
+        tied.iter().filter(|(n, name, v)| *n == n_cold && *name != chosen && measure(v).3 != measure(&report).3).collect();
+    assert!(
+        rivals.is_empty(),
+        "{} other report(s) measure the SHIPPED prompt {shipped} just as fully as {chosen} \
+         and disagree with it on recall: {}. Two equally complete measurements cannot both \
+         authorise the number printed to researchers — reconcile them, or remove the one \
+         that is not the measurement of record.",
+        rivals.len(),
+        rivals.iter().map(|(_, n, v)| format!("{n} (recall {}%)", measure(v).3)).collect::<Vec<_>>().join(", ")
+    );
+
+    let (tp, fp, fn_, recall, precision) = measure(&report);
+    assert!(tp + fn_ > 0, "no cold true cases scored — the set cannot support a recall figure");
 
     // Integer division and rounding can differ by a point; more than that means
     // the constants describe a different run.
@@ -268,13 +337,15 @@ fn advisory_figures_match_a_real_eval_of_the_shipped_prompt() {
     assert!(
         recall.abs_diff(recall_const) <= 1,
         "the report tells researchers recall is {recall_const}%, but the eval of the \
-         SHIPPED prompt {shipped} measures {recall}% (tp {tp}, fn {fn_}). Re-measure or \
-         correct the constant — this number is printed to users."
+         SHIPPED prompt {shipped} measures {recall}% (tp {tp}, fn {fn_}) in {chosen}, over \
+         {n_cold} cold cases. Re-measure or correct the constant — this number is printed \
+         to users."
     );
     assert!(
         precision.abs_diff(precision_const) <= 1,
         "the report tells researchers precision is {precision_const}%, but the eval of the \
-         SHIPPED prompt {shipped} measures {precision}% (tp {tp}, fp {fp}). Re-measure or \
-         correct the constant — this number is printed to users."
+         SHIPPED prompt {shipped} measures {precision}% (tp {tp}, fp {fp}) in {chosen}, over \
+         {n_cold} cold cases. Re-measure or correct the constant — this number is printed \
+         to users."
     );
 }
