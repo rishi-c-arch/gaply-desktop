@@ -4652,3 +4652,36 @@ reports.
 
 Plus the negative: an ordinary manuscript still imports, because a guard that
 refuses everything is not a guard.
+
+#### The threshold, measured against real documents rather than argued
+
+D80 picked three markers by reasoning. Eleven real files off the Desktop —
+including four documents *about* Gaply, which is the false-positive case the
+threshold exists for — say it was right, and by a wide margin:
+
+| document | markers | refused |
+|---|---|---|
+| `R PAPER .pdf` (the manuscript) | 0 | no |
+| `IJAS Manuscript … haemolymph.pdf` | 0 | no |
+| `chapter 1 .pdf`, `final final L.pdf` | 0 | no |
+| Gaply Remediation Plan / SLM Training (design docs) | 0 | no |
+| Gaply Desktop Blueprint / Frontend Build Prompts | 1 | no |
+| `gaply-publishready-…pdf` (a DIFFERENT report type) | 1 | no |
+| **`R-PAPER-.docx-citation-audit.pdf`** | **5** | **yes** |
+| **`…-citation-audit-citation-audit.pdf`** (an audit OF an audit) | **8** | **yes** |
+
+**Nothing scored 2, 3 or 4.** Real documents land at 0-1 and real reports at 5-8,
+so the threshold sits in an empty gap rather than on a judgement call — including
+for documents that discuss the tool at length and still only reach 1.
+
+#### KNOWN LIMIT, stated rather than discovered later
+
+`gaply-publishready-…pdf` is **also our own output** — a PublishReady report — and
+it scores 1, so it is NOT refused. `GAPLY_REPORT_MARKERS` describes the *thesis
+citation audit* skeleton specifically, and no other report type is covered.
+
+Indexing a PublishReady report is the same class of problem in a milder form. It
+is left alone deliberately: covering it means a second marker set bound to a
+second composer, which is a decision about that report rather than about this
+one, and guessing at markers for it would put untested phrases in a guard that
+currently has a measured empty gap on either side of its threshold.
