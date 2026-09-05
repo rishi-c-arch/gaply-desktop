@@ -4547,3 +4547,56 @@ against a varying one as if they were the same kind of number.
 report already builds — one distinct value across the valid outputs — so it
 turns itself off if a prompt ever grades again, and no constant in the code has
 to be remembered and updated.
+
+### D86 — the frontend suite's flaky test was never flaky; it had no headroom
+
+A `npm run test:design` run came back 692/693. Re-running passed, and **twelve
+consecutive idle runs passed**. That is the shape D79 warns about: a failure that
+cannot be reproduced gets called noise, and the suite quietly stops meaning
+anything.
+
+#### Reproduced deliberately, by restoring the condition
+
+The original failure happened while `cargo` was compiling in the background, so
+the variable was LOAD, not chance. Twelve spinners on eight cores, and it failed
+on the **first** run:
+
+```
+FAIL src/screens/citations/cslEngine.vitest.ts > spot-checked known-correct
+     formatting > Chicago author-date: quoted title, year after authors
+Error: Test timed out in 5000ms.
+```
+
+**A timeout, not an assertion.** Nothing raced and nothing was ordered wrongly —
+the test simply did not finish.
+
+#### The measurement, and why the first one misled
+
+| condition | duration |
+|---|---|
+| every other assertion test in that file | 0-16 ms |
+| Chicago, file run **alone** | 713 ms |
+| Chicago, **full 61-file suite** (files run in parallel) | **2,871 ms** |
+| vitest default `testTimeout` | 5,000 ms |
+
+Measuring the file alone suggested a comfortable 7x margin. Running the suite as
+it is actually run shows **1.7x** — and a loaded CI runner erases that easily.
+`chicago-author-date.csl` is 167 KB against `nature.csl`'s 6 KB, and citeproc
+compiles the whole style; the cost is real work, not a defect.
+
+**And it is not one test.** Six others exceed 1 s in the parallel suite
+(1,314 / 1,214 / 1,139 / 1,136 / 1,074 / 964 ms). The suite does real citeproc
+formatting over the full bundled style repository, and the 5,000 ms default is
+sized for trivial unit tests. **The mis-sized ceiling is the defect**, not the
+one test that reached it first.
+
+#### `testTimeout: 20000`, at the config, with the numbers beside it
+
+Raised globally rather than annotating the one test that happened to lose the
+race: the next-slowest are within 4x of the same wall, and patching them one
+timeout at a time as each surfaces is how a suite ends up with six unexplained
+magic numbers. 20 s is ~7x the measured worst case.
+
+The cost of a higher ceiling is that a genuinely hung test takes 20 s rather than
+5 s to fail. Against a 30 s suite that is a fair trade for a guard that stops
+lying under load.
