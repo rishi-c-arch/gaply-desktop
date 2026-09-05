@@ -30,6 +30,21 @@ different products.** Neither name tells you which is which.
   repointing it would destroy a real link to a live product.
   To confirm it exists: `gh auth switch --user RishiSTARP`, query, then
   `gh auth switch --user rishi-c-arch`.
+- **`origin`'s push URL is a deliberate dead end**, so this does not depend on
+  anyone reading the rule above. Its *fetch* URL is the real repo and still
+  works; its *push* URL was replaced with a string that is not a repository:
+
+  ```
+  $ git push origin main
+  fatal: 'DO-NOT-PUSH-origin-is-the-gaply.in-web-app-see-CLAUDE.md-section-Remotes'
+         does not appear to be a git repository
+  ```
+
+  The URL IS the error message — git echoes it verbatim, so the failure explains
+  itself to someone who has never read this file. Set with
+  `git remote set-url --push origin <that string>`; undo with
+  `git remote set-url --push origin https://github.com/RishiSTARP/gaply-react-frontend.git`.
+  A bare `git push` is unaffected: it goes to `desktop`.
 - **The two share NO history.** `git merge-base main origin/main` returns nothing
   — unrelated lineages, not a stale copy of this one. `origin/main` is a July ref
   that cannot be refreshed under the active credential, so its staleness is not a
