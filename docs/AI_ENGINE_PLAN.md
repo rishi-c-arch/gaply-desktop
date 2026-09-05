@@ -4496,3 +4496,54 @@ point, and the resulting card would look exactly like a genuine one.
 Not fixed here: it is a different path with a different refusal decision to make
 (refuse outright, or index but exclude from retrieval), and the detector is
 already in `gaply_core` and callable from both.
+
+### D85 — `severityAgreement` scored a field with no variance, and said nothing
+
+D82 established that `severity` is `high` in 37 of 37 valid v4 outputs. The
+report went on printing
+
+```
+severity agreement      : 36%
+```
+
+as though that were a quality measurement. It is not: every valid output carried
+the same value, so the number is a property of the LABELS — how many of them
+happen to say `high` — and cannot move for any reason to do with the model's
+judgement. **A number that cannot respond to the thing it names is worse than
+absent**, because absent invites a question and 36% invites a conclusion.
+
+#### Dropping it would be wrong, and the reports say why
+
+The obvious fix is to delete the metric. The evidence refuses it — the field is
+not inherently constant, and the collapse is a property of **v4 specifically**:
+
+| prompt | model | severity distribution | agreement |
+|---|---|---|---|
+| v2 | 1.5B | `{high: 4, medium: 2}` | 50% |
+| v2 | 3B | `{high: 40, low: 7}` | 35% |
+| **v3** | **3B** | **`{high: 20, low: 23}`** | **25%** |
+| **v4** | **3B** | **`{high: 37}`** | **38%** |
+
+v3 graded the corpus almost evenly. **v4 collapsed it**, and that collapse is
+itself a finding about v4 worth keeping visible — deleting the metric would
+delete the evidence for it, and would leave nothing to notice if a future prompt
+restored the variance.
+
+#### So the metric self-reports its own degeneracy
+
+`severityDistinctValues` goes in the report, and the agreement figure is marked
+where it is printed:
+
+```
+severity agreement      : 36%  [DEGENERATE: every valid output said "high" —
+                                no variance, so this cannot measure judgement]
+```
+
+The bake-off table carries the same marker, since that table is read across
+models and is exactly where a collapsed column would otherwise be compared
+against a varying one as if they were the same kind of number.
+
+**The condition is computed, not asserted.** It keys on the distribution the
+report already builds — one distinct value across the valid outputs — so it
+turns itself off if a prompt ever grades again, and no constant in the code has
+to be remembered and updated.

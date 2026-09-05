@@ -159,6 +159,19 @@ struct Report {
     needs_citation_accuracy: Option<f64>,
     sentence_type_agreement: Option<f64>,
     severity_agreement: Option<f64>,
+    /// How many DISTINCT `severity` values the valid outputs carried (§11 D85).
+    ///
+    /// `severity_agreement` above is scored against three-valued labels, so
+    /// when this is 1 the model graded everything the same and the percentage
+    /// is a property of the LABEL distribution, not of the model's judgement —
+    /// it cannot move for any quality-related reason. v4 collapsed to `high`
+    /// 37/37; v3 on the same model and corpus was `{high: 20, low: 23}`, so the
+    /// collapse is a fact about the PROMPT and worth keeping visible rather
+    /// than deleting the metric over.
+    ///
+    /// Computed from the distribution the report already builds, so it turns
+    /// itself off the moment a prompt grades again.
+    severity_distinct_values: usize,
     /// Of ALL cases. This is the headline number for a weak model.
     validation_failure_rate: f64,
     retry_rate: f64,
@@ -376,7 +389,13 @@ fn write_bakeoff(prefix: &str, out_dir: &Path) -> Result<(), Box<dyn std::error:
             g(r, "modelId"),
             pctf(r, "needsCitationAccuracy"),
             pctf(r, "sentenceTypeAgreement"),
-            pctf(r, "severityAgreement"),
+            // §11 D85. A collapsed column next to a varying one, compared as
+            // if they were the same kind of number, is exactly what this table
+            // invites — so it says which is which.
+            match r.get("severityDistinctValues").and_then(|v| v.as_u64()) {
+                Some(1) => format!("{} (degenerate)", pctf(r, "severityAgreement")),
+                _ => pctf(r, "severityAgreement"),
+            },
             r.get("answerDistribution").map(|v| v.to_string()).unwrap_or_default(),
         ));
     }
@@ -460,6 +479,27 @@ fn os_version() -> String {
     }
     #[cfg(not(target_os = "macos"))]
     format!("{} (kernel {kernel})", std::env::consts::OS)
+}
+
+/// §11 D85. The warning that must ride along with `severityAgreement`.
+///
+/// `severity` is scored against three-valued labels. When every valid output
+/// carried the SAME value there is no variance to score, so the percentage is a
+/// property of how many labels happen to say that value — it cannot move for
+/// any reason to do with the model's judgement, and a bare "36%" reads as a
+/// measurement of exactly the thing it cannot measure.
+///
+/// Keyed on the distribution the report already builds rather than on a
+/// hardcoded value, so it turns itself off if a prompt ever grades again. v3 on
+/// this model and corpus produced `{high: 20, low: 23}`; v4 produced
+/// `{high: 37}`. The collapse is a fact about the PROMPT, which is why the
+/// metric is annotated rather than deleted.
+fn degenerate_severity_note(sevs: &std::collections::BTreeMap<String, usize>) -> Option<String> {
+    let (only, _) = sevs.iter().next().filter(|_| sevs.len() == 1)?;
+    Some(format!(
+        "  [DEGENERATE: every valid output said \"{only}\" — no variance, so this \
+         cannot measure judgement]"
+    ))
 }
 
 #[tokio::main]
@@ -791,6 +831,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         needs_citation_accuracy,
         sentence_type_agreement,
         severity_agreement,
+        severity_distinct_values: sevs.len(),
         validation_failure_rate,
         retry_rate,
         advisory_rate,
@@ -814,7 +855,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pct = |v: Option<f64>| v.map(|x| format!("{:.0}%", x * 100.0)).unwrap_or("n/a".into());
     println!("needs_citation accuracy : {}", pct(report.needs_citation_accuracy));
     println!("sentence_type agreement : {}", pct(report.sentence_type_agreement));
-    println!("severity agreement      : {}", pct(report.severity_agreement));
+    // §11 D85. Never print this percentage bare when the field has no variance.
+    println!(
+        "severity agreement      : {}{}",
+        pct(report.severity_agreement),
+        degenerate_severity_note(&sevs).unwrap_or_default()
+    );
     println!("validation failure rate : {:.0}%", report.validation_failure_rate * 100.0);
     println!("retry rate              : {:.0}%", report.retry_rate * 100.0);
     println!("advisory rate           : {:.0}%", report.advisory_rate * 100.0);
@@ -1739,5 +1785,33 @@ mod diagnostic_tests {
     #[test]
     fn a_truncated_reply_has_nothing_to_diagnose() {
         assert!(parse_for_diagnosis(r#"{"verdict":"strong","supporting_chunks":[{"chunk_i"#).is_none());
+    }
+
+    /// §11 D85. The metric must announce when it cannot measure anything.
+    ///
+    /// Both directions, because a warning that fires always is as useless as one
+    /// that never fires — and the whole reason the metric was kept rather than
+    /// deleted is that v3 DID grade this corpus.
+    #[test]
+    fn severity_agreement_is_marked_degenerate_only_when_it_has_no_variance() {
+        let dist = |pairs: &[(&str, usize)]| {
+            pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect::<std::collections::BTreeMap<String, usize>>()
+        };
+
+        // v4 on the 3B: `high` 37/37. No variance — the percentage is a
+        // property of the labels, and saying so is the point.
+        let note = degenerate_severity_note(&dist(&[("high", 37)])).expect("must be marked");
+        assert!(note.contains("DEGENERATE"), "{note}");
+        assert!(note.contains("\"high\""), "the note must name the value: {note}");
+        assert!(note.contains("cannot measure judgement"), "{note}");
+
+        // v3 on the SAME model and corpus graded almost evenly. Nothing to warn
+        // about, and a warning here would train the reader to ignore it.
+        assert_eq!(degenerate_severity_note(&dist(&[("high", 20), ("low", 23)])), None);
+        assert_eq!(degenerate_severity_note(&dist(&[("high", 4), ("medium", 2)])), None);
+
+        // No valid outputs at all is not a degenerate GRADE — it is a run with
+        // nothing in it, which `validOutputs` already reports.
+        assert_eq!(degenerate_severity_note(&dist(&[])), None);
     }
 }
