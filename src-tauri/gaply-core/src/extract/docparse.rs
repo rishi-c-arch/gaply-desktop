@@ -581,6 +581,21 @@ const CHARS_PER_PAGE_EQUIVALENT: usize = 2_000;
 /// than after a user has watched a progress bar for a document that was never
 /// going to yield text.
 pub fn inspect_path(path: &Path) -> Result<DocumentShape, GaplyError> {
+    inspect_path_with_text(path).map(|(shape, _)| shape)
+}
+
+/// [`inspect_path`], plus the text it had to extract anyway (§11 D87).
+///
+/// The shape is computed FROM the document's text — `text_chars` is a count of
+/// it — and that text was then dropped on the floor. `import_guard::preflight`
+/// needs to look at it to refuse one of our own audit reports, and re-parsing
+/// the file to see something already in memory would spend the exact time
+/// `preflight` exists to save.
+///
+/// The text is returned rather than the verdict because the POLICY belongs in
+/// `import_guard`. `extract` reports what a document is; it holds no opinion
+/// about which documents may be imported.
+pub fn inspect_path_with_text(path: &Path) -> Result<(DocumentShape, String), GaplyError> {
     if !path.exists() {
         return Err(GaplyError::Validation(format!(
             "file not found: {} — the desktop app must pass an absolute file path.",
@@ -602,24 +617,26 @@ pub fn inspect_path(path: &Path) -> Result<DocumentShape, GaplyError> {
             return Err(GaplyError::Validation(NO_TEXT_LAYER_ADVICE.to_string()));
         }
         let n = u32::try_from(pages.len()).unwrap_or(u32::MAX);
-        return Ok(DocumentShape {
-            pages: Some(n),
-            page_equivalents: n.max(1),
-            bytes,
-            text_chars: joined.chars().filter(|c| !c.is_whitespace()).count(),
-        });
+        let text_chars = joined.chars().filter(|c| !c.is_whitespace()).count();
+        return Ok((
+            DocumentShape { pages: Some(n), page_equivalents: n.max(1), bytes, text_chars },
+            joined,
+        ));
     }
 
     let text = parse_path(path)?;
     let text_chars = text.chars().filter(|c| !c.is_whitespace()).count();
-    Ok(DocumentShape {
-        pages: None,
-        page_equivalents: u32::try_from(text_chars.div_ceil(CHARS_PER_PAGE_EQUIVALENT))
-            .unwrap_or(u32::MAX)
-            .max(1),
-        bytes,
-        text_chars,
-    })
+    Ok((
+        DocumentShape {
+            pages: None,
+            page_equivalents: u32::try_from(text_chars.div_ceil(CHARS_PER_PAGE_EQUIVALENT))
+                .unwrap_or(u32::MAX)
+                .max(1),
+            bytes,
+            text_chars,
+        },
+        text,
+    ))
 }
 
 fn parse_pdf(path: &Path) -> Result<String, GaplyError> {
