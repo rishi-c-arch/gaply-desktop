@@ -4172,3 +4172,67 @@ Verified against both drift modes rather than assumed:
 Changing the prompt, the default variant, or either number without a matching
 eval run now fails in the test rather than in a researcher's report. **That is
 the only way a number printed to a user stays true.**
+
+### D80 — the audit read Gaply's own report, and nothing stopped it
+
+An audit was started on Gaply's own exported PDF instead of the manuscript. It
+ran to completion — 98 items, a health score, a full report — and the output
+looks like a normal audit. Nothing in the pipeline noticed that the "manuscript"
+was a Gaply report.
+
+**This will happen to researchers.** The audit PDF sits in the same folder as the
+thesis, exported minutes earlier, with a similar name. The pre-pass accepts any
+PDF, and a report that audits a report is not obviously wrong on the page — it
+has sentences, sections and page numbers, and the model answers every one of
+them.
+
+#### What it actually judged
+
+The five sentences that failed validation are all report furniture, and the
+footer is glued onto the heading that follows it:
+
+```
+"84 sentences were read and 79 were checked against a source or judged for
+ whether they need one."
+"PublishReady 3 Sentences that may need a citation These sentences carry no
+ citation."
+"Check the citation is PublishReady 18 Not judged The model's answer for these
+ did not pass Gaply's own checks, twice."
+```
+
+The 72 items that *passed* are no better — they are the same furniture with a
+verdict attached. **The failures are the visible part of an entirely meaningless
+run**, which is the point: a researcher reads the 72 that "worked".
+
+#### The guard, and why it needs more than one marker
+
+Detection sits in `prepass_manuscript` — the single function both `plan_audit`
+and `preview_citation_audit` call — so the refusal happens before a job exists
+and before anything is spent, and the preview refuses too.
+
+`compose_audit` emits a fixed skeleton, and the detector keys on that skeleton
+rather than on any one phrase: the cover title `Thesis citation audit`, the
+`PublishReady` page furniture, and the section headings (`At a glance`,
+`The counts`, `Claims checked against their source`, `Cited, but not checkable`,
+`Worth a second look`, `Not judged`).
+
+**One marker is not enough and must not be.** A genuine manuscript may quote a
+heading, and a paper *about* this tool would name it. The rule is **three
+distinct markers**. The message names the markers it found, so a false positive
+is arguable rather than mysterious.
+
+Measured rather than assumed, on both a composed report and the real file:
+
+| document | markers | refused |
+|---|---|---|
+| `compose_audit` output today | 7 | yes |
+| **`R-PAPER-.docx-citation-audit.pdf`, the actual mis-audited file** | **5** | **yes** |
+| a manuscript naming two headings in prose | 2 | no |
+
+**The real PDF scores 5, not 7** — it predates D78, so three of today's headings
+are absent and the `PublishReady` footer is present instead. That is the case for
+a threshold rather than a single sentinel: the guard has to fire on reports this
+version of the composer never wrote, and it does, with two markers to spare.
+
+Refused as `GaplyError::Validation`, matching how an unsupported format is
+already refused before any work.

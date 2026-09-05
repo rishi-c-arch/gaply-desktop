@@ -712,6 +712,54 @@ mod tests {
         }
     }
 
+    /// §11 D80. The guard's marker list must keep matching the real composer.
+    ///
+    /// The guard refuses a document carrying `GAPLY_REPORT_MIN_MARKERS` of
+    /// these. Rename a heading in `compose_audit` and the list silently loses a
+    /// marker; do that three times and the guard stops firing on the exact
+    /// document it exists to catch, with every test still green. So the list is
+    /// checked against real composed output rather than trusted.
+    #[test]
+    fn every_marker_appears_in_a_real_composed_report() {
+        use crate::ai_engine::audit_prepass::{
+            detect_gaply_report, gaply_report_markers_in, GAPLY_REPORT_MARKERS,
+            GAPLY_REPORT_MIN_MARKERS,
+        };
+
+        let text = all_text(&compose_audit(&model()));
+        let found = gaply_report_markers_in(&text);
+
+        // `PublishReady` is page furniture drawn by `report_pdf`, not by
+        // `compose_audit`, so it is the one marker this composer cannot show.
+        // Named explicitly rather than skipped by count, so that if it ever
+        // starts being emitted here the exemption is revisited.
+        let missing: Vec<&str> = GAPLY_REPORT_MARKERS
+            .iter()
+            .copied()
+            .filter(|m| *m != "PublishReady" && !found.contains(m))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "these markers no longer appear in a composed report, so the guard is weaker \
+             than it reads: {missing:?}\n\n{text}"
+        );
+
+        // And the whole point: a real report trips the guard, with margin.
+        let fired = detect_gaply_report(&[crate::extract::docparse::PagedBlock {
+            page: Some(1),
+            style: None,
+            text: text.clone(),
+        }]);
+        assert!(fired.is_some(), "a real composed report did not trip the guard:\n{text}");
+        assert!(
+            found.len() > GAPLY_REPORT_MIN_MARKERS,
+            "a real report trips the guard with no margin ({} markers, threshold {}); \
+             one renamed heading would disarm it",
+            found.len(),
+            GAPLY_REPORT_MIN_MARKERS
+        );
+    }
+
     #[test]
     fn d18_prose_never_appears_without_its_evidence() {
         // THE RULE. §11 D18: `explanation` is unvalidated free text — a model

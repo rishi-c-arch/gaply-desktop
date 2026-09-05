@@ -591,6 +591,57 @@ pub fn is_significant(sentence: &str) -> bool {
 ///
 /// Takes `(page, text)` pairs rather than a path so it stays pure and testable
 /// — the caller does the parsing with `extract::docparse::parse_path_paged`.
+/// The structural skeleton `audit_report::compose_audit` always emits (§11 D80).
+///
+/// Deliberately the report's FURNITURE — its cover title, its page footer and
+/// its section headings — and not any sentence it happens to contain. Furniture
+/// is what a Gaply report has and a manuscript does not; a sentence about
+/// citations is something both can have.
+///
+/// Each entry must be text `compose_audit` emits verbatim. The test
+/// `every_marker_appears_in_a_real_composed_report` holds that against the real
+/// composer, so a heading renamed there fails here instead of silently
+/// weakening the guard to the point where it stops firing.
+pub const GAPLY_REPORT_MARKERS: &[&str] = &[
+    "Thesis citation audit",
+    "PublishReady",
+    "At a glance",
+    "The counts",
+    "Claims checked against their source",
+    "Cited, but not checkable",
+    "Worth a second look",
+    "Not judged",
+];
+
+/// How many DISTINCT markers must appear before a document is refused.
+///
+/// Not one. A genuine manuscript may quote one of these headings, and a paper
+/// about this tool would name several deliberately — refusing on a single hit
+/// would block real work to prevent a mistake. Our own report emits every
+/// marker in the list, so three is comfortably clear of anything a manuscript
+/// reaches by accident while still leaving the guard no way to miss a report.
+pub const GAPLY_REPORT_MIN_MARKERS: usize = 3;
+
+/// Which of the skeleton's markers this text contains, in list order.
+///
+/// Case-sensitive on purpose: these are rendered headings, not prose, and
+/// lowercasing would match a sentence that merely mentions "the counts".
+pub fn gaply_report_markers_in(text: &str) -> Vec<&'static str> {
+    GAPLY_REPORT_MARKERS.iter().copied().filter(|m| text.contains(m)).collect()
+}
+
+/// Is this document one of OUR reports rather than a manuscript?
+///
+/// Returns the markers that decided, so the refusal can name them and a false
+/// positive is arguable rather than mysterious.
+pub fn detect_gaply_report(
+    blocks: &[crate::extract::docparse::PagedBlock],
+) -> Option<Vec<&'static str>> {
+    let text = blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>().join("\n");
+    let found = gaply_report_markers_in(&text);
+    (found.len() >= GAPLY_REPORT_MIN_MARKERS).then_some(found)
+}
+
 pub fn prepass(blocks: &[(Option<u32>, String)]) -> PrepassReport {
     let owned: Vec<crate::extract::docparse::PagedBlock> = blocks
         .iter()

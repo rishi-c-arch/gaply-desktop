@@ -156,6 +156,25 @@ fn prepass_manuscript(manuscript: &Path) -> Result<PrepassReport, GaplyError> {
     // (§11 D65) and the auto-numbered reference ordinals (§11 D67) — on
     // `R PAPER .docx` that was 22 of 25 references. This path is the whole
     // reason those exist, and it was still converting them away.
+
+    // §11 D80: REFUSE OUR OWN REPORT, before a job exists and before anything
+    // is spent. Both `plan_audit` and `preview_citation_audit` come through
+    // here, so the preview refuses too rather than offering a list the plan
+    // would then reject.
+    //
+    // An audit of an audit runs to completion and looks normal — 98 items, a
+    // health score, a full report — while every judgement is about report
+    // furniture. The failures are the visible part; the items that "worked"
+    // are the danger.
+    if let Some(markers) = super::audit_prepass::detect_gaply_report(&blocks) {
+        return Err(GaplyError::Validation(format!(
+            "this looks like a Gaply audit report, not a manuscript — it contains {}. \
+             Auditing a report produces a plausible-looking result about the report's own \
+             wording rather than about your writing. Select the manuscript instead.",
+            markers.iter().map(|m| format!("“{m}”")).collect::<Vec<_>>().join(", ")
+        )));
+    }
+
     Ok(prepass_blocks(&blocks))
 }
 
@@ -998,6 +1017,65 @@ mod tests {
         assert!(support.payload_json.contains("documentId"));
         assert!(support.sentence.contains("(Smith, 2019)"), "{}", support.sentence);
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// §11 D80. Auditing our own exported report is refused before a job exists.
+    ///
+    /// This actually happened: 98 items, a health score and a full report, all
+    /// of it judging report furniture. The five items that failed validation
+    /// were the visible part — the 72 that "succeeded" are the danger, because
+    /// a researcher reads those.
+    #[test]
+    fn a_gaply_audit_report_is_refused_as_a_manuscript() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("selfaudit");
+        let p = dir.join("audit.txt");
+        // The real skeleton, including the footer-glued-to-heading shape the
+        // PDF extractor actually produced.
+        std::fs::write(
+            &p,
+            "Thesis citation audit\nR PAPER .pdf\n\nAt a glance\n\
+             The counts\n84 sentences were read and 79 were checked against a source \
+             or judged for whether they need one.\n\
+             Claims checked against their source\nEach sentence below cites a source \
+             Gaply could read.\n\
+             PublishReady 3 Sentences that may need a citation These sentences carry \
+             no citation.\n",
+        )
+        .unwrap();
+
+        let err = plan_thesis_audit(&db, &p, "citation_need-v4").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Gaply audit report"), "{msg}");
+        // The refusal NAMES what it matched, so a false positive is arguable.
+        assert!(msg.contains("Thesis citation audit"), "the markers are not named: {msg}");
+        // And nothing was queued.
+        assert!(jobs::get_job(&db, 1).unwrap().is_none(), "a job was created anyway");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// §11 D80. One or two markers is NOT enough, and must not be.
+    ///
+    /// A manuscript may quote a heading; a paper about this tool would name
+    /// several. Refusing on a single hit would block real work to prevent a
+    /// mistake, so the threshold is three and this holds it there.
+    #[test]
+    fn a_manuscript_that_merely_mentions_the_report_is_not_refused() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("mentions");
+        let p = dir.join("thesis.txt");
+        std::fs::write(
+            &p,
+            "Introduction\nRecent tools produce a thesis citation audit automatically [1]. \
+             We evaluate whether such an audit is worth a second look for research writing. \
+             Prior work established that citation screening improves accuracy [2].\n",
+        )
+        .unwrap();
+
+        let plan = plan_thesis_audit(&db, &p, "citation_need-v4")
+            .expect("a manuscript mentioning two markers must not be refused");
+        assert!(plan.total_sentences > 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
