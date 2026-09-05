@@ -12,6 +12,7 @@ import {
   errorCode,
   errorText,
   JobProgressEvent,
+  NOT_CHECKABLE_MESSAGE,
   SupportEvent,
 } from './aiBridge';
 import { resultToFinding } from './findingFromResult';
@@ -146,6 +147,10 @@ export interface CitationAiPanelProps {
   sentence: string;
   /** The cited source's indexed document, when there is one. */
   documentId?: number | null;
+  /** §11 D90. Offered when there is no readable source — the Manager's half of
+   *  the affordance the Audit already has. Absent = no action shown. */
+  onFixSource?: () => void;
+  fixingSource?: boolean;
   citedSource?: string;
   aiInstalled: boolean;
   onOpenSettings?: () => void;
@@ -212,6 +217,8 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
   documentId,
   citedSource = 'Cited source',
   aiInstalled,
+  onFixSource,
+  fixingSource = false,
   onOpenSettings,
   bridge = aiBridge,
   onOpenAudit,
@@ -695,11 +702,23 @@ export const CitationAiPanel: React.FC<CitationAiPanelProps> = ({
               produce a result — and a button that is merely greyed out, with the
               reason hidden in a tooltip, reads as a bug. Say it instead. */}
           {documentId == null ? (
-            <p className="gds-ai__hint" data-testid="ai-support-unavailable">
-              Citation support needs the cited source indexed in Gaply. This
-              citation isn’t linked to an indexed document, so there are no
-              passages to check it against.
-            </p>
+            /* §11 D90. Same condition as the Audit, so now the same words and
+               the same next step. Saying "cannot check" and stopping is the
+               dead end the Audit already fixed by putting the action beside the
+               problem. */
+            <div data-testid="ai-support-unavailable">
+              <p className="gds-ai__hint">{NOT_CHECKABLE_MESSAGE}</p>
+              {onFixSource && (
+                <Button
+                  variant="secondary"
+                  onClick={onFixSource}
+                  disabled={fixingSource}
+                  data-testid="ai-fix-source"
+                >
+                  {fixingSource ? 'Looking…' : 'Fetch or attach the source'}
+                </Button>
+              )}
+            </div>
           ) : (
             <Button
               variant="secondary"

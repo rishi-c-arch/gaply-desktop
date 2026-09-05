@@ -4685,3 +4685,98 @@ is left alone deliberately: covering it means a second marker set bound to a
 second composer, which is a decision about that report rather than about this
 one, and guessing at markers for it would put untested phrases in a guard that
 currently has a measured empty gap on either side of its threshold.
+
+### D88 — the audit started before the confirmation, and the card measured the wrong thing
+
+Two defects on one screen, found while acting on the investigation's §14.
+
+#### The "Before you start" card was not a confirmation
+
+`choose` calls `ai_job_start_thesis_audit`, and that command plans the job and
+then calls `spawn_job_runner` — which runs items immediately. **By the time the
+card asking "Start the audit?" renders, the model is already generating.**
+"Not now" abandons a run that has been going for as long as the user spent
+reading the card.
+
+The frontend even asserts the opposite, in a comment written to reassure:
+
+```
+// NOTE: the backend plans AND persists the job in one call, so this is the
+// point of no return for item creation — but NOT for running the model.
+// Nothing is generated until `start` below.
+```
+
+`start` calls `resume_job`, which re-queues nothing on a job whose items are
+already `queued` or `running`, so it *looks* like the trigger. It is not.
+
+#### And the number it showed was the wrong grain
+
+The card reported `queuedUnverifiable` — a count of SENTENCES. A researcher
+does not have 40 unverifiable sentences; they have **four sources without a
+PDF**, cited 40 times. The sentence count reads as a manuscript problem when it
+is a library gap, it is unactionable (there is no per-sentence fix), and it
+hides how small the actual remedy is.
+
+#### `preview_thesis_audit`: no job, no model, per SOURCE
+
+A real preview — pre-pass and marker resolution, no `create_job`, no runner —
+mirroring `preview_citation_audit`, which already establishes that a preview
+creates nothing. It returns the sentence tallies AND `sources`: one row per
+distinct cited work, each with whether a check could run against it and, when
+not, the deterministic reason.
+
+The card then says what the run can actually do, before it does any of it:
+
+> **6 of 10 cited sources have a PDF Gaply can read.** The other 4 can be
+> flagged, but not verified against their source.
+
+with the fetch and attach actions offered **there**, on the blocked sources,
+rather than discovered three hours later in a section titled "Cited, but not
+checkable".
+
+### D89 — the advisory list wore the findings' clothes
+
+§14's second item. `emit_finding` renders every item the same way: a
+`Block::Badge` carrying the verdict, then the sentence. So a `citation_need`
+suggestion — 43% precision, checked against nothing — arrived in the same
+badge, at the same weight, as a `strong` verdict backed by a quoted passage.
+
+The section's caveat was a paragraph at the top. **A reader who lands on item
+19 never sees it**, and by then the badge is the only signal present.
+
+- Suggestions get their own emitter: **no verdict badge**, a plain
+  `suggestion` label, lighter weight.
+- **The measured rate rides with each item**, not only in the intro — a reader
+  meeting one suggestion in isolation still learns it is right slightly under
+  half the time.
+- Same on the screen: the `citation_need` group loses the `assessed` badge that
+  made it look adjudicated.
+
+No severity anywhere in the report — `ADVISORY_*` figures are about the list,
+and per-item severity is a constant (§11 D82) that would read as triage.
+
+### D90 — Manager and Audit: the CONDITION already agreed; the offer did not
+
+§13 of the investigation claimed the two features disagree about when a
+citation can be checked. **Re-reading the code, that claim was wrong** and is
+corrected here: `ai_citation_document` calls
+`checkable_document_for_citation`, which is the identical predicate
+`plan_audit` uses. Both require a linked document with chunks AND embeddings.
+
+The real inconsistency is what happens next:
+
+| | Audit | Manager |
+|---|---|---|
+| condition | `checkable_document_for_citation` | **same** |
+| when false | queues `unverifiable`, reports it grouped by source with an action | one static sentence, **no way to fix it** |
+
+**Chosen: both refuse, with the same words and the same affordance.** Not "make
+the Manager run and report unverifiable like the Audit" — because the Audit does
+not run the model on those items either. It marks them deterministically and
+moves on. Running a check that is known in advance to have nothing to read would
+spend a minute of model time to produce a sentence the database could have
+written.
+
+So the refusal text becomes one shared constant, and the Manager gains the
+fetch/attach action the Audit already offers. Same condition, same message, same
+next step.

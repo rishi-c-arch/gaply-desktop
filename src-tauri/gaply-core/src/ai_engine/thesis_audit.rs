@@ -96,6 +96,155 @@ pub struct CitationAuditPreview {
     pub document_types_supported: Vec<&'static str>,
 }
 
+/// One distinct cited WORK, and whether the audit could check anything against
+/// it (§11 D88).
+///
+/// The grain is the point. `queued_unverifiable` counts SENTENCES, and a
+/// researcher does not have forty unverifiable sentences — they have four
+/// sources without a PDF, cited forty times. One is a manuscript problem they
+/// cannot act on; the other is a library gap with an obvious fix.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CitedSourceStatus {
+    /// The marker as it appears in the text — `[12]`, `(Smith, 2019)`. What the
+    /// reader will recognise, not an internal id.
+    pub label: String,
+    /// The library entry, when resolution found one.
+    pub library_id: Option<String>,
+    /// The indexed, embedded document a check would read. `None` = not checkable.
+    pub document_id: Option<i64>,
+    /// Deterministic, from marker resolution. Distinguishes "not in your
+    /// library" from "in your library but no PDF", which need different actions.
+    pub reason: Option<String>,
+    /// How many sentences in this manuscript cite it.
+    pub citing_sentences: usize,
+}
+
+/// What an audit WOULD do, computed without creating a job or loading a model
+/// (§11 D88).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThesisAuditPreview {
+    pub total_sentences: usize,
+    pub cited: usize,
+    pub uncited: usize,
+    pub skipped: usize,
+    /// What planning would queue, by kind — the same arithmetic `plan_audit`
+    /// does, so the card cannot promise a shape the plan will not produce.
+    pub would_check: usize,
+    pub would_suggest: usize,
+    pub would_be_unverifiable: usize,
+    /// Per distinct cited work. The card's headline is derived from this.
+    pub sources: Vec<CitedSourceStatus>,
+    pub checkable_sources: usize,
+    pub blocked_sources: usize,
+    pub document_types_supported: Vec<&'static str>,
+}
+
+/// Everything the confirmation card needs, and NOTHING that starts work.
+///
+/// `plan_thesis_audit` persists a job and the command that wraps it spawns the
+/// runner, so by the time a "start?" card could render, generation has begun
+/// (§11 D88). This is the honest half of that call: the same parse, the same
+/// pre-pass, the same marker resolution, and no side effect at all.
+pub fn preview_thesis_audit(
+    db: &Database,
+    manuscript: &Path,
+) -> Result<ThesisAuditPreview, GaplyError> {
+    let report = prepass_manuscript(manuscript)?;
+
+    // Keyed by the resolution's identity, NOT by the marker text: `[12]` and
+    // `Smith (2019)` can be the same work, and counting them twice would
+    // overstate the gap the card exists to describe. Falls back to the marker
+    // when nothing resolved, which is the only identity available then.
+    let mut order: Vec<String> = Vec::new();
+    let mut by_key: BTreeMap<String, CitedSourceStatus> = BTreeMap::new();
+    let (mut would_check, mut would_suggest, mut would_be_unverifiable) = (0usize, 0usize, 0usize);
+
+    for planned in &report.planned {
+        if planned.markers.is_empty() {
+            would_suggest += 1;
+            continue;
+        }
+        // The SAME first-resolvable-marker rule `plan_audit` uses, so the
+        // preview and the plan cannot disagree about one sentence.
+        let mut resolution = Resolution::Unverifiable {
+            reason: "cited work not in library".to_string(),
+            library_id: None,
+        };
+        let mut marker = planned.markers[0].raw.clone();
+        for m in &planned.markers {
+            let r = super::audit_prepass::resolve_marker_with(db, m, &report.bibliography)?;
+            let checkable = matches!(r, Resolution::Checkable { .. });
+            resolution = r;
+            marker = m.raw.clone();
+            if checkable {
+                break;
+            }
+        }
+
+        let (key, entry) = match &resolution {
+            Resolution::Checkable { library_id, document_id } => {
+                would_check += 1;
+                (
+                    format!("lib:{library_id}"),
+                    CitedSourceStatus {
+                        label: marker.clone(),
+                        library_id: Some(library_id.clone()),
+                        document_id: Some(*document_id),
+                        reason: None,
+                        citing_sentences: 0,
+                    },
+                )
+            }
+            Resolution::Unverifiable { reason, library_id } => {
+                would_be_unverifiable += 1;
+                (
+                    library_id.clone().map(|l| format!("lib:{l}")).unwrap_or(format!("mark:{marker}")),
+                    CitedSourceStatus {
+                        label: marker.clone(),
+                        library_id: library_id.clone(),
+                        document_id: None,
+                        reason: Some(reason.clone()),
+                        citing_sentences: 0,
+                    },
+                )
+            }
+            // `prepass` established there IS a marker, so this cannot occur; a
+            // suggestion is the safe reading rather than a panic.
+            Resolution::Uncited => {
+                would_suggest += 1;
+                continue;
+            }
+        };
+        if !by_key.contains_key(&key) {
+            order.push(key.clone());
+            by_key.insert(key.clone(), entry);
+        }
+        if let Some(e) = by_key.get_mut(&key) {
+            e.citing_sentences += 1;
+        }
+    }
+
+    let sources: Vec<CitedSourceStatus> =
+        order.into_iter().filter_map(|k| by_key.remove(&k)).collect();
+    let checkable_sources = sources.iter().filter(|s| s.document_id.is_some()).count();
+
+    Ok(ThesisAuditPreview {
+        total_sentences: report.total_sentences,
+        cited: report.cited,
+        uncited: report.uncited,
+        skipped: report.skipped,
+        would_check,
+        would_suggest,
+        would_be_unverifiable,
+        blocked_sources: sources.len() - checkable_sources,
+        checkable_sources,
+        sources,
+        document_types_supported: SUPPORTED_DOCUMENT_TYPES.to_vec(),
+    })
+}
+
 /// Formats `parse_path` accepts. Recorded in the plan so a caller never has to
 /// guess why a `.doc` or `.tex` was rejected.
 pub const SUPPORTED_DOCUMENT_TYPES: &[&str] = &["pdf", "docx", "txt", "md", "text"];
@@ -1076,6 +1225,87 @@ mod tests {
         let plan = plan_thesis_audit(&db, &p, "citation_need-v4")
             .expect("a manuscript mentioning two markers must not be refused");
         assert!(plan.total_sentences > 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// §11 D88. A preview must create NOTHING — that is its entire reason to
+    /// exist. `plan_thesis_audit` persists a job and the command spawns the
+    /// runner, so a card built on it is asking permission for work already
+    /// under way.
+    #[test]
+    fn a_preview_creates_no_job_and_no_items() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("preview-none");
+        let p = dir.join("thesis.txt");
+        std::fs::write(
+            &p,
+            "Organic farming increases soil microbial biomass by roughly a third [1].\n\
+             The authors measured this themselves on their own plots this season.\n\
+             References\n[1] R. Smith, Soil biology and management, 2019.\n",
+        )
+        .unwrap();
+
+        let pre = preview_thesis_audit(&db, &p).unwrap();
+        assert!(pre.total_sentences > 0, "the pre-pass read nothing");
+        assert!(jobs::get_job(&db, 1).unwrap().is_none(), "the preview created a job");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// §11 D88. The grain is the whole point: SOURCES, not sentences.
+    ///
+    /// A work cited eleven times is ONE thing to fix, and reporting eleven
+    /// unverifiable sentences describes a manuscript problem the researcher
+    /// cannot act on instead of a library gap they can.
+    #[test]
+    fn a_preview_counts_sources_not_sentences() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("preview-sources");
+        let p = dir.join("thesis.txt");
+        // ONE cited work, THREE citing sentences.
+        std::fs::write(
+            &p,
+            "Soil microbial biomass rises by roughly a third under organic management [1].\n\
+             A later synthesis reported the same direction of effect across Europe [1].\n\
+             The effect is strongest on previously degraded arable land [1].\n\
+             References\n[1] R. Smith, Soil biology and management, 2019.\n",
+        )
+        .unwrap();
+
+        let pre = preview_thesis_audit(&db, &p).unwrap();
+        assert_eq!(pre.sources.len(), 1, "one work cited three times must be ONE source: {:?}", pre.sources);
+        assert_eq!(pre.sources[0].citing_sentences, 3, "{:?}", pre.sources);
+        assert_eq!(pre.checkable_sources, 0, "nothing is in the library");
+        assert_eq!(pre.blocked_sources, 1);
+        // And the sentence-grain number still exists, because the estimate needs
+        // it — it simply is not what the headline is built from.
+        assert_eq!(pre.would_be_unverifiable, 3);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// §11 D88. The preview and the plan must not disagree about one sentence:
+    /// a card that promises 12 checks and a run that performs 4 is worse than
+    /// no card.
+    #[test]
+    fn the_preview_matches_what_planning_actually_queues() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("preview-agrees");
+        let p = dir.join("thesis.txt");
+        std::fs::write(
+            &p,
+            "Soil microbial biomass rises by roughly a third under organic management [1].\n\
+             Every experiment reported here was run on our own instrument this season.\n\
+             A later synthesis reported the same direction of effect across Europe [1].\n\
+             References\n[1] R. Smith, Soil biology and management, 2019.\n",
+        )
+        .unwrap();
+
+        let pre = preview_thesis_audit(&db, &p).unwrap();
+        let plan = plan_thesis_audit(&db, &p, "citation_need-v4").unwrap();
+
+        assert_eq!(pre.would_check, plan.queued_citation_support, "support count drifted");
+        assert_eq!(pre.would_suggest, plan.queued_citation_need, "need count drifted");
+        assert_eq!(pre.would_be_unverifiable, plan.queued_unverifiable, "unverifiable count drifted");
+        assert_eq!(pre.total_sentences, plan.total_sentences);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

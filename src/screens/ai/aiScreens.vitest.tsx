@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AiStatusPanel, AiUnavailable } from './AiStatusPanel';
-import { errorCode, errorText } from './aiBridge';
+import { errorCode, errorText, NOT_CHECKABLE_MESSAGE } from './aiBridge';
 import { describeRun } from './CitationAiPanel';
 import { CitationAiPanel } from './CitationAiPanel';
 import {
@@ -432,9 +432,35 @@ describe('Citation AI panel', () => {
     render(<CitationAiPanel sentence="A claim." documentId={null} aiInstalled bridge={base as any} />);
     expect(screen.queryByTestId('ai-check-support')).toBeNull();
     const why = screen.getByTestId('ai-support-unavailable').textContent ?? '';
-    expect(why).toMatch(/isn’t linked to an indexed document/);
+    // §11 D90: the SHARED wording, so the Manager and the Audit cannot drift
+    // into describing the identical condition in different words.
+    expect(why).toContain(NOT_CHECKABLE_MESSAGE);
     // "Needs a citation?" judges a sentence, not a source — it stays available.
     expect(screen.getByTestId('ai-check-need')).toBeTruthy();
+  });
+
+  /** §11 D90. Same condition, same offer. The Audit groups blocked sources and
+   *  says what to do; the Manager used to say "cannot check" and stop, which is
+   *  the dead end the Audit already fixed. */
+  it('offers the fix beside the refusal, not just the reason', () => {
+    const onFixSource = vi.fn();
+    render(
+      <CitationAiPanel
+        sentence="A claim."
+        documentId={null}
+        aiInstalled
+        onFixSource={onFixSource}
+        bridge={base as any}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('ai-fix-source'));
+    expect(onFixSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows no action when the caller supplies none, rather than a dead button', () => {
+    render(<CitationAiPanel sentence="A claim." documentId={null} aiInstalled bridge={base as any} />);
+    expect(screen.getByTestId('ai-support-unavailable')).toBeTruthy();
+    expect(screen.queryByTestId('ai-fix-source')).toBeNull();
   });
 
   it('reports the live stage and elapsed time, never a predicted duration', async () => {
@@ -574,8 +600,29 @@ describe('Thesis audit', () => {
     queuedUnverifiable: 18,
   };
 
+  /** §11 D88. What the CARD is built from — no job, no model. */
+  const preview = {
+    totalSentences: 31,
+    cited: 20,
+    uncited: 11,
+    skipped: 3,
+    wouldCheck: 2,
+    wouldSuggest: 8,
+    wouldBeUnverifiable: 18,
+    checkableSources: 1,
+    blockedSources: 2,
+    sources: [
+      { label: '[1]', libraryId: 'lib-1', documentId: 44, reason: null, citingSentences: 2 },
+      { label: '[2]', libraryId: 'lib-2', documentId: null, reason: 'not in your library', citingSentences: 11 },
+      { label: '(Smith, 2019)', libraryId: 'lib-3', documentId: null, reason: 'in your library, no PDF attached', citingSentences: 7 },
+    ],
+    documentTypesSupported: ['pdf'],
+  };
+
   function bridgeWith(over: Record<string, any> = {}) {
     return {
+      previewThesisAudit: async () => preview,
+      fetchOpenAccess: async () => [],
       startThesisAudit: async () => plan,
       jobStatus: async () => ({ health: { completedItems: 2, flagged: [] } }),
       pauseJob: async () => true,
@@ -630,29 +677,122 @@ describe('Thesis audit', () => {
 
   /** THE gate: no model work may begin without an explicit confirmation. */
   it('never starts the model without explicit confirmation', async () => {
-    const resumeJob = vi.fn(async () => ({}));
+    const startThesisAudit = vi.fn(async () => plan);
     render(
       <ThesisAuditScreen
         aiInstalled
         pickManuscript={async () => '/thesis.pdf'}
-        bridge={bridgeWith({ resumeJob }) as any}
+        bridge={bridgeWith({ startThesisAudit }) as any}
       />,
     );
     fireEvent.click(screen.getByTestId('audit-pick'));
     await waitFor(() => expect(screen.getByTestId('audit-plan')).toBeTruthy());
 
-    // the pre-pass is shown and NOTHING has run
     expect(screen.getByTestId('audit-projection').textContent).toContain('10 need the model');
     // The seed is per-device now (§11 D62) and this bridge reports no device,
     // so the projection must fall back to the SLOWER CPU figure — being wrong
     // in the optimistic direction is the failure that matters here.
     expect(screen.getByTestId('audit-projection').textContent).toContain('31 minutes');
     expect(screen.getByTestId('audit-projection').textContent).toContain('CPU');
-    expect(screen.getByTestId('audit-plan-unverifiable').textContent).toContain('18');
-    expect(resumeJob).not.toHaveBeenCalled();
+
+    // §11 D88. THE ASSERTION THIS TEST WAS NAMED FOR, and never made.
+    //
+    // It watched `resumeJob` — which the screen calls at confirmation — and
+    // concluded nothing had started. The call that actually plans the job AND
+    // spawns the runner is `startThesisAudit`, and `choose` was already making
+    // it: the model was generating while this test asserted it was not. Watch
+    // the door the work comes through.
+    expect(startThesisAudit).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('audit-confirm-start'));
-    await waitFor(() => expect(resumeJob).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(startThesisAudit).toHaveBeenCalledTimes(1));
+  });
+
+  /** §11 D89. On screen as in the PDF: a suggestion must not wear the badge an
+   *  adjudicated result wears. `assessed` is the report's "we judged this"
+   *  vocabulary and citation_need was borrowing it. */
+  it('marks suggestions as unchecked rather than assessed', async () => {
+    const items = [
+      { seq: 1, kind: 'citation_need', page: 4, sentence: 'An uncited assertion.', status: 'done' },
+      { seq: 2, kind: 'citation_support', page: 5, sentence: 'A checked claim.', status: 'done' },
+    ];
+    let emit: ((e: JobProgressEvent) => void) | undefined;
+    render(
+      <ThesisAuditScreen
+        aiInstalled
+        pickManuscript={async () => '/t.pdf'}
+        bridge={
+          bridgeWith({
+            startThesisAudit: async (_p: string, cb: any) => { emit = cb; return plan; },
+            jobResults: async () => ({ items }),
+          }) as any
+        }
+      />,
+    );
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(screen.getByTestId('audit-confirm-start')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('audit-confirm-start'));
+    await waitFor(() => expect(emit).toBeTruthy());
+    emit!({ jobId: 7, completed: 2, total: 2, currentCategory: 'citation_need', latestItemSummary: '' });
+    await waitFor(() => expect(screen.queryByTestId('audit-dump-toggle')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('audit-dump-toggle'));
+
+    const label = await screen.findByTestId('audit-suggestion-label-1');
+    expect(label.textContent).toMatch(/suggestion/);
+    expect(label.textContent).toMatch(/unchecked/);
+    expect(label.textContent).toMatch(/4 in 10/);
+    // The checked item keeps its badge; the two must stay distinguishable.
+    expect(screen.queryByTestId('audit-suggestion-label-2')).toBeNull();
+  });
+
+  /** §11 D88. The cliff: a three-hour run that ends in "cannot check" must not
+   *  be a surprise at the end. The card says it at the start, per SOURCE. */
+  it('states source coverage BEFORE the run, in sources not sentences', async () => {
+    render(
+      <ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridgeWith() as any} />,
+    );
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(screen.getByTestId('audit-plan')).toBeTruthy());
+
+    const coverage = screen.getByTestId('audit-source-coverage').textContent ?? '';
+    expect(coverage).toContain('1 of 3 cited sources');
+    expect(coverage).toMatch(/PDF Gaply can read/);
+
+    // The gap, in the grain a researcher can act on — plus the sentence count
+    // as consequence, not as the headline.
+    const gap = screen.getByTestId('audit-source-gap').textContent ?? '';
+    expect(gap).toContain('other 2');
+    expect(gap).toMatch(/not verified against their source/);
+    expect(gap).toContain('18 sentences');
+
+    // Each blocked source is named, with its own deterministic reason.
+    expect(screen.getByTestId('audit-blocked-0').textContent).toContain('not in your library');
+    expect(screen.getByTestId('audit-blocked-1').textContent).toContain('no PDF attached');
+  });
+
+  /** §11 D88. The fix is offered HERE, not discovered three hours later. */
+  it('offers fetch and attach on the confirmation card itself', async () => {
+    const fetchOpenAccess = vi.fn(async () => []);
+    const onOpenCitation = vi.fn();
+    render(
+      <ThesisAuditScreen
+        aiInstalled
+        pickManuscript={async () => '/t.pdf'}
+        onOpenCitation={onOpenCitation}
+        bridge={bridgeWith({ fetchOpenAccess }) as any}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(screen.getByTestId('audit-fetch-sources')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('audit-fetch-sources'));
+    // Only the blocked sources that HAVE a library entry can be looked up.
+    await waitFor(() => expect(fetchOpenAccess).toHaveBeenCalledWith(['lib-2', 'lib-3']));
+
+    // Attaching by hand routes to the Manager, which owns the Document card —
+    // this screen must not grow a second file-picker for the same job.
+    fireEvent.click(screen.getByTestId('audit-attach-sources'));
+    expect(onOpenCitation).toHaveBeenCalledWith('lib-2');
   });
 
   it('fills the results list from streamed progress events', async () => {
@@ -671,6 +811,9 @@ describe('Thesis audit', () => {
     });
     render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
     fireEvent.click(screen.getByTestId('audit-pick'));
+    // §11 D88: the run starts at the CONFIRMATION now, not at the pick.
+    await waitFor(() => expect(screen.getByTestId('audit-confirm-start')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('audit-confirm-start'));
     await waitFor(() => expect(emit).toBeTruthy());
 
     emit!({ jobId: 7, completed: 2, total: 28, currentCategory: 'citation_need', latestItemSummary: 'needs_citation=true' });
@@ -719,6 +862,9 @@ describe('Thesis audit', () => {
     });
     render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
     fireEvent.click(screen.getByTestId('audit-pick'));
+    // §11 D88: the run starts at the CONFIRMATION now, not at the pick.
+    await waitFor(() => expect(screen.getByTestId('audit-confirm-start')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('audit-confirm-start'));
     await waitFor(() => expect(emit).toBeTruthy());
     emit!({ jobId: 7, completed: 100, total: 100, currentCategory: 'citation_need', latestItemSummary: '' });
 
@@ -763,6 +909,9 @@ describe('Thesis audit', () => {
     });
     render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
     fireEvent.click(screen.getByTestId('audit-pick'));
+    // §11 D88: the run starts at the CONFIRMATION now, not at the pick.
+    await waitFor(() => expect(screen.getByTestId('audit-confirm-start')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('audit-confirm-start'));
     await waitFor(() => expect(emit).toBeTruthy());
     emit!({ jobId: 7, completed: 1, total: 1, currentCategory: 'unverifiable', latestItemSummary: '' });
 
@@ -805,6 +954,9 @@ describe('Thesis audit', () => {
     });
     render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
     fireEvent.click(screen.getByTestId('audit-pick'));
+    // §11 D88: the run starts at the CONFIRMATION now, not at the pick.
+    await waitFor(() => expect(screen.getByTestId('audit-confirm-start')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('audit-confirm-start'));
     await waitFor(() => expect(emit).toBeTruthy());
     emit!({ jobId: 7, completed: 2, total: 2, currentCategory: 'unverifiable', latestItemSummary: '' });
 
@@ -838,6 +990,9 @@ describe('Thesis audit', () => {
     });
     render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
     fireEvent.click(screen.getByTestId('audit-pick'));
+    // §11 D88: the run starts at the CONFIRMATION now, not at the pick.
+    await waitFor(() => expect(screen.getByTestId('audit-confirm-start')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('audit-confirm-start'));
     await waitFor(() => expect(emit).toBeTruthy());
     emit!({ jobId: 7, completed: 1, total: 1, currentCategory: 'citation_need', latestItemSummary: '' });
 

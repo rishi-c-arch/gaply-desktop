@@ -13,7 +13,7 @@
 import './ai.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Card } from '../../design-system/primitives';
-import { aiBridge, AuditPlan, JobProgressEvent, errorText } from './aiBridge';
+import { aiBridge, AuditPlan, JobProgressEvent, ThesisAuditPreview, errorText } from './aiBridge';
 import { describeOaOutcome } from './oaOutcome';
 import { EvidenceCard, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
@@ -121,6 +121,8 @@ export interface ThesisAuditScreenProps {
   bridge?: Pick<
     typeof aiBridge,
     | 'startThesisAudit'
+    | 'previewThesisAudit'
+    | 'fetchOpenAccess'
     | 'jobStatus'
     | 'pauseJob'
     | 'resumeJob'
@@ -143,6 +145,10 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
 }) => {
   const [stage, setStage] = useState<Stage>('idle');
   const [plan, setPlan] = useState<AuditPlan | null>(null);
+  /** What the audit WOULD do. Drives the confirmation card (§11 D88). */
+  const [preview, setPreview] = useState<ThesisAuditPreview | null>(null);
+  const [fixing, setFixing] = useState(false);
+  const [fixNote, setFixNote] = useState<string | null>(null);
   const [path, setPath] = useState<string | null>(null);
   const [progress, setProgress] = useState<JobProgressEvent | null>(null);
   /** When this run's items started landing, for the measured rate. */
@@ -210,27 +216,31 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
     const p = pickManuscript ? await pickManuscript() : null;
     if (!p) return;
     setPath(p);
-    // NOTE: the backend plans AND persists the job in one call, so this is the
-    // point of no return for item creation — but NOT for running the model.
-    // Nothing is generated until `start` below.
+    // PREVIEW ONLY — no job, no model (§11 D88). This used to call
+    // startThesisAudit, which plans the job AND spawns the runner, so the
+    // "Before you start" card below rendered while the model was already
+    // generating and "Not now" abandoned a run in progress.
     try {
-      const planned = await bridge.startThesisAudit(p, onProgress);
-      setPlan(planned);
+      setPreview(await bridge.previewThesisAudit(p));
       setStage('planned');
     } catch (e) {
       setError(errorText(e));
     }
-  }, [bridge, pickManuscript, onProgress]);
+  }, [bridge, pickManuscript]);
 
   const start = useCallback(async () => {
-    if (!plan) return;
+    if (!path) return;
     setStage('running');
     try {
-      await bridge.resumeJob(plan.jobId, onProgress);
+      // NOW the job is created and the runner spawned — after the card, which
+      // is what "Start the audit" has always claimed to do.
+      const planned = await bridge.startThesisAudit(path, onProgress);
+      setPlan(planned);
     } catch (e) {
       setError(errorText(e));
+      setStage('planned');
     }
-  }, [bridge, plan, onProgress]);
+  }, [bridge, path, onProgress]);
 
   const resume = useCallback(async () => {
     if (!resumableJob) return;
@@ -384,33 +394,130 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
         </p>
       )}
 
-      {plan && stage === 'planned' && (
+      {preview && stage === 'planned' && (
         <Card title="Before you start" data-testid="audit-plan">
           <p className="gds-ai__hint">{path}</p>
           <div className="gds-audit__stats">
-            <div className="gds-audit__stat"><b>{plan.totalSentences}</b><span>sentences</span></div>
-            <div className="gds-audit__stat"><b>{plan.cited}</b><span>cited</span></div>
-            <div className="gds-audit__stat"><b>{plan.uncited}</b><span>uncited</span></div>
-            <div className="gds-audit__stat"><b>{plan.skipped}</b><span>filtered out</span></div>
-            <div className="gds-audit__stat" data-testid="audit-plan-unverifiable">
-              <b>{plan.queuedUnverifiable}</b><span>can’t be checked</span>
-            </div>
+            <div className="gds-audit__stat"><b>{preview.totalSentences}</b><span>sentences</span></div>
+            <div className="gds-audit__stat"><b>{preview.cited}</b><span>cited</span></div>
+            <div className="gds-audit__stat"><b>{preview.uncited}</b><span>uncited</span></div>
+            <div className="gds-audit__stat"><b>{preview.skipped}</b><span>filtered out</span></div>
           </div>
+
+          {/* THE HEADLINE, PER SOURCE (§11 D88). `wouldBeUnverifiable` counts
+              SENTENCES; a researcher does not have 40 unverifiable sentences,
+              they have 4 sources without a PDF cited 40 times. One is
+              unactionable, the other is a short list of fixes. */}
+          <p className="gds-ai__value" data-testid="audit-source-coverage">
+            {preview.sources.length === 0
+              ? 'No cited sources were found in this manuscript.'
+              : `${preview.checkableSources} of ${preview.sources.length} cited source${
+                  preview.sources.length === 1 ? '' : 's'
+                } ${preview.checkableSources === 1 ? 'has' : 'have'} a PDF Gaply can read.`}
+          </p>
+          {preview.blockedSources > 0 && (
+            <p className="gds-ai__hint" data-testid="audit-source-gap">
+              The other {preview.blockedSources} can be flagged, but{' '}
+              <b>not verified against their source</b> — {preview.wouldBeUnverifiable} sentence
+              {preview.wouldBeUnverifiable === 1 ? '' : 's'} cite them. Fetching or attaching those
+              PDFs now is the difference between a checked claim and a note saying it could not be
+              checked.
+            </p>
+          )}
+
+          {/* The fix, offered HERE — not discovered three hours later in a
+              section titled "Cited, but not checkable". */}
+          {preview.blockedSources > 0 && (
+            <div data-testid="audit-blocked-sources">
+              <ul className="gds-audit__counts">
+                {preview.sources
+                  .filter((src) => src.documentId === null)
+                  .slice(0, 8)
+                  .map((src, i) => (
+                    <li key={i} data-testid={`audit-blocked-${i}`}>
+                      <b>{src.label}</b> — {src.reason ?? 'no source available'} (
+                      {src.citingSentences} sentence{src.citingSentences === 1 ? '' : 's'})
+                    </li>
+                  ))}
+              </ul>
+              <div className="gds-audit__actions">
+                <Button
+                  variant="secondary"
+                  disabled={fixing}
+                  data-testid="audit-fetch-sources"
+                  onClick={async () => {
+                    const ids = preview.sources
+                      .filter((src) => src.documentId === null && src.libraryId)
+                      .map((src) => src.libraryId as string);
+                    if (ids.length === 0) {
+                      setFixNote(
+                        'None of these are in your library yet, so there is no DOI to look up. Add them in the Citation Manager first, then re-check.',
+                      );
+                      return;
+                    }
+                    setFixing(true);
+                    setFixNote(null);
+                    try {
+                      await bridge.fetchOpenAccess(ids);
+                      if (path) setPreview(await bridge.previewThesisAudit(path));
+                    } catch (e) {
+                      setFixNote(errorText(e));
+                    } finally {
+                      setFixing(false);
+                    }
+                  }}
+                >
+                  {fixing ? 'Looking…' : 'Fetch open-access copies'}
+                </Button>
+                {/* Attaching by hand belongs in the Manager's Document card —
+                    this screen must not grow a second file-picker for the same
+                    job (the prop's own contract). */}
+                <Button
+                  variant="ghost"
+                  data-testid="audit-attach-sources"
+                  onClick={() => {
+                    const first = preview.sources.find(
+                      (src) => src.documentId === null && src.libraryId,
+                    );
+                    if (first?.libraryId) onOpenCitation?.(first.libraryId);
+                    else
+                      setFixNote(
+                        'These works are not in your library yet, so there is nothing to attach a PDF to. Add them in the Citation Manager first.',
+                      );
+                  }}
+                >
+                  Attach a PDF in the Citation Manager
+                </Button>
+              </div>
+              {fixNote && (
+                <p className="gds-ai__hint" data-testid="audit-fix-note">{fixNote}</p>
+              )}
+            </div>
+          )}
+
           <p className="gds-ai__hint" data-testid="audit-projection">
-            {queued} items queued; {modelItems} need the model. Estimated{' '}
-            {projectDuration(modelItems, seedSecondsPerItem(activeDevice))} — based on{' '}
-            {seedSecondsPerItem(activeDevice)}s per item measured on this machine’s{' '}
-            {activeDevice === 'metal' ? 'GPU (Metal)' : 'CPU'}. Unverifiable items are
-            instant and are not counted.
+            {preview.wouldCheck + preview.wouldSuggest + preview.wouldBeUnverifiable} items;{' '}
+            {preview.wouldCheck + preview.wouldSuggest} need the model. Estimated{' '}
+            {projectDuration(
+              preview.wouldCheck + preview.wouldSuggest,
+              seedSecondsPerItem(activeDevice),
+            )}{' '}
+            — based on {seedSecondsPerItem(activeDevice)}s per item measured on this machine’s{' '}
+            {activeDevice === 'metal' ? 'GPU (Metal)' : 'CPU'}. Unverifiable items are instant and
+            are not counted.
           </p>
           <p className="gds-ai__hint" data-testid="audit-wait-advice">
-            {waitAdvice(modelItems, activeDevice)}
+            {waitAdvice(preview.wouldCheck + preview.wouldSuggest, activeDevice)}
           </p>
           <div className="gds-audit__actions">
             <Button variant="primary" onClick={start} data-testid="audit-confirm-start">
               Start the audit
             </Button>
-            <Button variant="ghost" onClick={() => { setStage('idle'); setPlan(null); }} data-testid="audit-abandon">
+            <Button
+              variant="ghost"
+              onClick={() => { setStage('idle'); setPreview(null); setFixNote(null); }}
+              data-testid="audit-abandon"
+            >
               Not now
             </Button>
           </div>
@@ -702,9 +809,24 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
               <h4>{kind.replace('_', ' ')} — {list.length}</h4>
               {list.map((it) => (
                 <div className="gds-audit__item" key={it.seq} data-testid={`audit-item-${it.seq}`}>
-                  <Badge status={it.kind === 'unverifiable' ? 'neutral' : 'assessed'}>
-                    {it.page === null ? 'page unknown' : `p.${it.page}`}
-                  </Badge>
+                  {/* §11 D89. A citation_need item is a SUGGESTION — nothing was
+                      checked against any source and its measured precision is
+                      43%. It must not wear `assessed`, which is the badge an
+                      adjudicated result wears; at a glance the two were
+                      indistinguishable. */}
+                  {it.kind === 'citation_need' ? (
+                    <span
+                      className="gds-ai__hint"
+                      data-testid={`audit-suggestion-label-${it.seq}`}
+                    >
+                      suggestion · unchecked · about 4 in 10 are real ·{' '}
+                      {it.page === null ? 'page unknown' : `p.${it.page}`}
+                    </span>
+                  ) : (
+                    <Badge status={it.kind === 'unverifiable' ? 'neutral' : 'assessed'}>
+                      {it.page === null ? 'page unknown' : `p.${it.page}`}
+                    </Badge>
+                  )}
                   <p className="gds-audit__sentence">{it.sentence}</p>
                   {it.kind === 'unverifiable' && (
                     <div className="gds-audit__actions">

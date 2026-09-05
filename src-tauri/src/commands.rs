@@ -2908,6 +2908,25 @@ pub struct JobProgressEvent {
 /// runs for hours, and a command that blocked for that long would be unusable.
 /// The plan itself is the immediate, useful answer: how many items, of which
 /// kinds, before any time is spent.
+/// What an audit WOULD do — no job, no model, no side effect (§11 D88).
+///
+/// `ai_job_start_thesis_audit` plans AND spawns the runner, so it cannot be the
+/// thing behind a "start?" card: by the time the card renders, generation has
+/// begun. This is what the card asks instead.
+#[tauri::command]
+pub async fn ai_thesis_audit_preview(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<gaply_core::ai_engine::thesis_audit::ThesisAuditPreview, GaplyError> {
+    let db = state.db.clone();
+    let manuscript = std::path::PathBuf::from(path);
+    tokio::task::spawn_blocking(move || {
+        gaply_core::ai_engine::thesis_audit::preview_thesis_audit(&db, &manuscript)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("audit preview panicked: {e}")))?
+}
+
 #[tauri::command]
 pub async fn ai_job_start_thesis_audit(
     state: State<'_, AppState>,

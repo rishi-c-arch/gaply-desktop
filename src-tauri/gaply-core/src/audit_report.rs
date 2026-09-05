@@ -258,6 +258,45 @@ fn emit_finding(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
     }
 }
 
+/// Emit ONE SUGGESTION (§11 D89).
+///
+/// Deliberately not `emit_finding`. A suggestion is not a finding: nothing was
+/// checked against any source, and the measured precision is 43% — so it must
+/// not arrive in the badge a `strong` verdict wears, at the weight a verdict
+/// carries.
+///
+/// The rate rides with the ITEM. The section's caveat is a paragraph at the
+/// top, and a reader who lands on item 19 never sees it; by then the label is
+/// the only thing on the page telling them what this is.
+fn emit_suggestion(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
+    out.push(heading(format!("Sentence {} · {}", item.seq, locator(item, has_pages)), 3));
+    // NO Block::Badge. A badge is the report's verdict vocabulary and this is
+    // not a verdict. NO severity either — it is a constant (§11 D82) and would
+    // read as triage.
+    out.push(para(
+        "suggestion · not checked against any source · about 4 in 10 of these are real",
+    ));
+    out.push(para(format!("\u{201c}{}\u{201d}", item.sentence.trim())));
+    if let Some(r) = &item.reason {
+        out.push(para(r.trim().to_string()));
+    }
+}
+
+/// The advisory list, emitted with `emit_suggestion` (§11 D89).
+fn emit_suggestions(out: &mut Vec<Block>, title: &str, blurb: &str, items: &[ReportItem], has_pages: bool) {
+    out.push(heading(title, 1));
+    if items.is_empty() {
+        out.push(para(format!("{blurb} None found.")));
+        return;
+    }
+    out.push(para(blurb));
+    let mut sorted: Vec<&ReportItem> = items.iter().collect();
+    sorted.sort_by_key(|i| i.seq);
+    for item in sorted {
+        emit_suggestion(out, item, has_pages);
+    }
+}
+
 fn emit_section(
     out: &mut Vec<Block>,
     title: &str,
@@ -617,7 +656,7 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         .cloned()
         .collect();
     out.push(Block::PageBreak);
-    emit_section(
+    emit_suggestions(
         &mut out,
         "Worth a second look — suggestions, not findings",
         "SUGGESTIONS. These sentences carry no citation and a language model thought they might \
@@ -1001,6 +1040,84 @@ mod tests {
         // And the measured precision is stated, so the claim is checkable.
         assert!(text.contains("43%"), "precision not disclosed:\n{text}");
         assert!(text.contains("82%"), "recall not disclosed:\n{text}");
+    }
+
+    /// §11 D89. A suggestion must not arrive dressed as a finding.
+    ///
+    /// `emit_finding` gives every item a `Block::Badge` carrying its verdict, so
+    /// a 43%-precision suggestion wore the same badge, at the same weight, as a
+    /// `strong` verdict backed by a quoted passage. At a glance they were the
+    /// same kind of statement.
+    #[test]
+    fn a_suggestion_carries_no_verdict_badge_and_a_finding_still_does() {
+        let mut m = model();
+        m.supported = (0..10)
+            .map(|i| ReportItem {
+                seq: i,
+                sentence: format!("Checked claim {i}."),
+                verdict: Some("strong".into()),
+                ..Default::default()
+            })
+            .collect();
+        m.needs_citation = vec![ReportItem {
+            seq: 77,
+            sentence: "An uncited assertion about the world.".into(),
+            verdict: Some("needs_citation".into()),
+            reason: Some("States a fact a reader would want to check.".into()),
+            ..Default::default()
+        }];
+
+        let blocks = compose_audit(&m);
+
+        // The evidence-backed side KEEPS its badge — the fix must not flatten
+        // both into the same undifferentiated grey.
+        assert!(
+            blocks.iter().any(|b| matches!(b, Block::Badge { text, .. } if text == "strong")),
+            "the checked findings lost their verdict badge"
+        );
+        // The advisory side has none.
+        assert!(
+            !blocks
+                .iter()
+                .any(|b| matches!(b, Block::Badge { text, .. } if text.contains("needs citation"))),
+            "a suggestion is still wearing a verdict badge"
+        );
+    }
+
+    /// §11 D89. The rate must ride with the ITEM, not only sit in the intro.
+    ///
+    /// A reader who lands on item 19 never sees the paragraph at the top of the
+    /// section, and by then the label is the only thing on the page telling
+    /// them what they are looking at.
+    #[test]
+    fn every_suggestion_says_what_it_is_where_it_is() {
+        let mut m = model();
+        m.needs_citation = (0..3)
+            .map(|i| ReportItem {
+                seq: 100 + i,
+                sentence: format!("Uncited assertion {i}."),
+                verdict: Some("needs_citation".into()),
+                ..Default::default()
+            })
+            .collect();
+        let text = all_text(&compose_audit(&m));
+
+        // Once per item, not once per section.
+        assert_eq!(
+            text.matches("not checked against any source").count(),
+            3,
+            "the label must appear beside EVERY suggestion:\n{text}"
+        );
+        assert_eq!(
+            text.matches("about 4 in 10 of these are real").count(),
+            3,
+            "the measured rate must ride with every item:\n{text}"
+        );
+        // And no severity anywhere: it is a constant (§11 D82) and would read
+        // as triage.
+        for banned in ["severity", "HIGH", "MEDIUM"] {
+            assert!(!text.contains(banned), "{banned:?} leaked into the report:\n{text}");
+        }
     }
 
     /// §11 D78. The advisory section lists only what was actually FLAGGED.

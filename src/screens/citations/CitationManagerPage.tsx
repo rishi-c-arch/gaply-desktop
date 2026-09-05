@@ -1732,6 +1732,30 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                     'Cited source'
                   }
                   aiInstalled={aiInstalled}
+                  // §11 D90. The Audit puts the fix beside the blocked source;
+                  // the Manager said "cannot check" and stopped. Same condition,
+                  // so now the same next step — and the Manager is where the
+                  // library lives, so it can actually do it.
+                  fixingSource={busy}
+                  onFixSource={async () => {
+                    if (!selected.doi) {
+                      toast(
+                        'This entry has no DOI, so there is nothing to look up. Add the DOI in the editor, or attach the PDF from the Document card.',
+                        'assessed',
+                      );
+                      return;
+                    }
+                    setBusy(true);
+                    try {
+                      const reports = await aiBridge.fetchOpenAccess([selected.id]);
+                      toast(summariseOaBatch(reports), 'assessed');
+                      if (reports.some((r) => r.checkable)) setRelinked((n) => n + 1);
+                    } catch (e) {
+                      toast(e instanceof Error ? e.message : 'The open-access fetch failed.', 'flagged');
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
                 />
               </div>
             </div>

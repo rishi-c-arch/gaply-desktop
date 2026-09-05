@@ -124,6 +124,45 @@ export interface JobProgressEvent {
   latestItemSummary: string;
 }
 
+/**
+ * THE ONE REFUSAL, shared by the Audit and the Citation Manager (§11 D90).
+ *
+ * Both features already use the identical CONDITION —
+ * `checkable_document_for_citation`: a linked document with chunks AND
+ * embeddings. What differed was the offer. The Audit grouped the blocked
+ * sources and said what to do; the Manager showed a static sentence with no way
+ * to act on it.
+ *
+ * Kept as one constant so the two cannot drift into describing the same state
+ * in different words.
+ */
+export const NOT_CHECKABLE_MESSAGE =
+  'Gaply has no readable copy of this source, so there are no passages to check the claim against. Fetch an open-access copy or attach the PDF, then try again.';
+
+/** One distinct cited work, and whether a check could run against it (§11 D88). */
+export interface CitedSourceStatus {
+  label: string;
+  libraryId: string | null;
+  documentId: number | null;
+  reason: string | null;
+  citingSentences: number;
+}
+
+/** What an audit WOULD do — computed with no job and no model (§11 D88). */
+export interface ThesisAuditPreview {
+  totalSentences: number;
+  cited: number;
+  uncited: number;
+  skipped: number;
+  wouldCheck: number;
+  wouldSuggest: number;
+  wouldBeUnverifiable: number;
+  sources: CitedSourceStatus[];
+  checkableSources: number;
+  blockedSources: number;
+  documentTypesSupported: string[];
+}
+
 export interface AuditPlan {
   jobId: number;
   documentTypesSupported: string[];
@@ -285,6 +324,17 @@ class AiBridge {
   }
 
   /* ------------------------------- jobs --------------------------------- */
+
+  /**
+   * What the audit WOULD do, before anything starts (§11 D88).
+   *
+   * `startThesisAudit` plans AND spawns the runner, so it cannot back a
+   * "start?" card — by the time the card renders the model is already
+   * generating. This creates nothing.
+   */
+  async previewThesisAudit(path: string): Promise<ThesisAuditPreview> {
+    return this.invoke<ThesisAuditPreview>('ai_thesis_audit_preview', { path });
+  }
 
   async startThesisAudit(path: string, onEvent?: (ev: JobProgressEvent) => void) {
     return this.channelInvoke<AuditPlan, JobProgressEvent>(
