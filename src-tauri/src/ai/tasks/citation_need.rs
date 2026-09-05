@@ -143,8 +143,44 @@ pub struct CitationNeedOutput {
     pub severity: Option<Severity>,
     pub reason: String,
     /// Spec: "only when needs_citation=true", null otherwise.
-    #[serde(default)]
-    pub search_query: Option<String>,
+    ///
+    /// **Two `None`s, deliberately** (§11 D81). The outer one means the reply
+    /// did not contain the key at all; `Some(None)` means it contained
+    /// `"search_query": null`. Those are different facts about what the model
+    /// did and they point at different fixes — a dropped field is a schema or
+    /// prompt problem, a deliberate `null` beside `needs_citation: true` is an
+    /// incoherent judgement — and `Option<String>` could not tell them apart.
+    ///
+    /// It said "is required when needs_citation is true" for both, so the one
+    /// case that actually shipped (the model supplying `null`, 5/5) was
+    /// reported as an omission the model had not committed. D66's whole lesson
+    /// is that this distinction decides who is at fault; the type now carries
+    /// it.
+    ///
+    /// Both remain FATAL. Only the message changed.
+    #[serde(default, deserialize_with = "present_but_maybe_null")]
+    pub search_query: Option<Option<String>>,
+}
+
+/// Distinguish "key absent" from `"key": null` (§11 D81).
+///
+/// serde calls this ONLY when the key is present, so reaching it at all proves
+/// presence; `#[serde(default)]` supplies the outer `None` when it is not.
+fn present_but_maybe_null<'de, D>(d: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    Option::<String>::deserialize(d).map(Some)
+}
+
+impl CitationNeedOutput {
+    /// The query the model actually offered, flattening both kinds of absence.
+    ///
+    /// Every consumer wants this; only the validator cares which `None` it was.
+    pub fn query(&self) -> Option<&str> {
+        self.search_query.as_ref().and_then(|q| q.as_deref())
+    }
 }
 
 /// Exactly the spec's INPUT block.
@@ -396,7 +432,8 @@ pub const FATAL_RULES: &[&str] = &[
     "severity absent when needs_citation is true (the field that grades the need)",
     "reason empty — a required field with no content",
     "search_query present when needs_citation is false (fields contradict)",
-    "search_query absent when needs_citation is true (fields contradict)",
+    "search_query missing from the reply when needs_citation is true (a dropped field)",
+    "search_query supplied as null when needs_citation is true (fields contradict) — §11 D81",
     "search_query shaped like a reference: parenthesised year, 'et al', DOI, or URL",
 ];
 
@@ -472,7 +509,7 @@ impl AiTask for CitationNeedTask {
             (true, Some(_)) | (false, None) | (false, Some(_)) => {}
         }
 
-        match (out.needs_citation, out.search_query.as_deref()) {
+        match (out.needs_citation, out.query()) {
             // Spec: a query ONLY when a citation is needed.
             // FATAL: the two fields contradict each other, so at least one is
             // wrong and there is no way to tell which.
@@ -480,13 +517,28 @@ impl AiTask for CitationNeedTask {
                 "search_query",
                 "must be null when needs_citation is false",
             )),
-            // FATAL: same contradiction, the other way round.
+            // FATAL, both ways — but they are different events and the message
+            // now says which (§11 D81). The old text asserted an omission for
+            // both, and the case that actually reached users was the second:
+            // the model SUPPLIED the field, as null, and was told it had not.
             (true, None) | (true, Some("")) => errors.push(ValidationError::fatal(
                 "search_query",
-                format!(
-                    "is required when needs_citation is true \
-                     ({MIN_QUERY_WORDS}-{MAX_QUERY_WORDS} keywords)"
-                ),
+                match &out.search_query {
+                    // The reply did not carry the key. A dropped field.
+                    None => format!(
+                        "was not in the reply at all; it is required when needs_citation \
+                         is true ({MIN_QUERY_WORDS}-{MAX_QUERY_WORDS} keywords)"
+                    ),
+                    // The reply carried it, empty or null. Not an omission: the
+                    // model asserted a citation is needed and then declined to
+                    // say what would be searched for, which is the judgement
+                    // contradicting itself rather than a missing field.
+                    Some(_) => format!(
+                        "was supplied as null while needs_citation is true — the reply \
+                         asserts a citation is needed and gives nothing to search for \
+                         ({MIN_QUERY_WORDS}-{MAX_QUERY_WORDS} keywords expected)"
+                    ),
+                },
             )),
             (true, Some(q)) => {
                 let words = q.split_whitespace().count();
@@ -584,7 +636,7 @@ mod tests {
             sentence_type: SentenceType::EmpiricalClaim,
             severity: Some(Severity::High),
             reason: "Empirical claim about the world stated without attribution.".into(),
-            search_query: Some("organic farming soil biodiversity species richness meta analysis".into()),
+            search_query: Some(Some("organic farming soil biodiversity species richness meta analysis".into())),
         }
     }
 
@@ -676,17 +728,95 @@ mod tests {
         );
     }
 
+    /// §11 D81. THE DISTINCTION THAT DECIDES WHO IS AT FAULT.
+    ///
+    /// Both are FATAL and always were. What changed is that the engine can now
+    /// tell them apart, because it could not, and so it reported the one that
+    /// actually shipped — the model supplying `null`, 5 times out of 5 — as an
+    /// omission the model had not committed. A reader who trusts that message
+    /// concludes the model dropped a field and reaches for D66's fix.
+    #[test]
+    fn an_absent_query_and_a_null_query_are_reported_as_different_events() {
+        let problem = |sq| {
+            let mut out = ok_output();
+            out.search_query = sq;
+            let errors = CitationNeedTask::validate(&out, &ctx()).unwrap_err();
+            let e = errors
+                .iter()
+                .find(|e| e.field == "search_query")
+                .unwrap_or_else(|| panic!("no search_query error: {errors:?}"))
+                .clone();
+            assert_eq!(e.tier, Tier::Fatal, "both cases must stay FATAL");
+            e.problem
+        };
+
+        // The key was not in the reply: a dropped field.
+        let absent = problem(None);
+        assert!(absent.contains("not in the reply at all"), "{absent}");
+
+        // The key WAS in the reply, as null. Not an omission.
+        let null = problem(Some(None));
+        assert!(null.contains("supplied as null"), "{null}");
+        assert!(
+            !null.contains("not in the reply"),
+            "a supplied null is still being described as absent: {null}"
+        );
+
+        assert_ne!(absent, null, "the two events still report identically");
+    }
+
+    /// And the distinction survives DESERIALISATION, which is the only place it
+    /// can be observed — by the time validation runs, the reply is gone.
+    #[test]
+    fn serde_preserves_whether_the_reply_carried_the_key() {
+        let with_null = r#"{"needs_citation":true,"sentence_type":"empirical_claim",
+                            "severity":"high","reason":"r","search_query":null}"#;
+        let omitted = r#"{"needs_citation":true,"sentence_type":"empirical_claim",
+                          "severity":"high","reason":"r"}"#;
+
+        let a: CitationNeedOutput = serde_json::from_str(with_null).expect("null parses");
+        assert_eq!(a.search_query, Some(None), "an explicit null read as absent");
+
+        let b: CitationNeedOutput = serde_json::from_str(omitted).expect("omission parses");
+        assert_eq!(b.search_query, None, "an omitted key read as present");
+
+        // Consumers see one thing, as they did before.
+        assert_eq!(a.query(), None);
+        assert_eq!(b.query(), None);
+    }
+
+    /// The exact reply from the D80 mis-run, verbatim, 5/5 of which produced
+    /// this shape. Kept as a fixture so the message that describes it cannot
+    /// drift back into claiming an omission.
+    #[test]
+    fn the_shape_that_actually_shipped_is_named_correctly() {
+        let raw = r#"{
+              "needs_citation": true,
+              "reason": "PublishReady 3 Sentences that may need a citation These sentences carry no citation.",
+              "search_query": null,
+              "sentence_type": "common_knowledge",
+              "severity": "high"
+            }"#;
+        let out: CitationNeedOutput = serde_json::from_str(raw).expect("the real reply parses");
+        // It parsed. The model produced a well-formed object; the JUDGEMENT is
+        // what is wrong, and D81 refuses to widen the schema to accept it.
+        let errors = CitationNeedTask::validate(&out, &ctx()).unwrap_err();
+        let e = errors.iter().find(|e| e.field == "search_query").expect("no search_query error");
+        assert_eq!(e.tier, Tier::Fatal);
+        assert!(e.problem.contains("supplied as null"), "{}", e.problem);
+    }
+
     #[test]
     fn a_query_outside_six_to_twelve_words_is_rejected() {
         let mut out = ok_output();
-        out.search_query = Some("too short".into());
+        out.search_query = Some(Some("too short".into()));
         assert!(CitationNeedTask::validate(&out, &ctx()).is_err());
-        out.search_query = Some((0..13).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" "));
+        out.search_query = Some(Some((0..13).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ")));
         assert!(CitationNeedTask::validate(&out, &ctx()).is_err());
         // the boundaries themselves are legal
-        out.search_query = Some((0..6).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" "));
+        out.search_query = Some(Some((0..6).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ")));
         assert!(CitationNeedTask::validate(&out, &ctx()).is_ok());
-        out.search_query = Some((0..12).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" "));
+        out.search_query = Some(Some((0..12).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ")));
         assert!(CitationNeedTask::validate(&out, &ctx()).is_ok());
     }
 
@@ -705,7 +835,7 @@ mod tests {
             ("url", "organic farming biodiversity https://example.org richness effects study"),
         ] {
             let mut out = ok_output();
-            out.search_query = Some(q.to_string());
+            out.search_query = Some(Some(q.to_string()));
             let errors = CitationNeedTask::validate(&out, &ctx())
                 .expect_err(&format!("{label}: a citation-shaped query was ACCEPTED"));
             assert!(
@@ -718,7 +848,7 @@ mod tests {
     #[test]
     fn citation_shaped_rejections_name_the_hard_rule() {
         let mut out = ok_output();
-        out.search_query = Some("organic farming soil biodiversity Smith et al review".into());
+        out.search_query = Some(Some("organic farming soil biodiversity Smith et al review".into()));
         let errors = CitationNeedTask::validate(&out, &ctx()).unwrap_err();
         let e = errors.iter().find(|e| e.field == "search_query").expect("flagged");
         assert!(e.problem.contains("et al"), "{e}");
@@ -733,9 +863,9 @@ mod tests {
         // "(2021)" is a citation; "2021" as a keyword, or a bare parenthesis,
         // is not. Over-rejecting would push the model toward worse queries.
         let mut out = ok_output();
-        out.search_query = Some("soil carbon sequestration 2021 survey data cropland".into());
+        out.search_query = Some(Some("soil carbon sequestration 2021 survey data cropland".into()));
         assert!(CitationNeedTask::validate(&out, &ctx()).is_ok(), "a bare year was rejected");
-        out.search_query = Some("nitrogen (N) fixation legume rotation yield response".into());
+        out.search_query = Some(Some("nitrogen (N) fixation legume rotation yield response".into()));
         assert!(CitationNeedTask::validate(&out, &ctx()).is_ok(), "a non-year parenthesis was rejected");
     }
 
@@ -816,7 +946,7 @@ mod tests {
             sentence_type: SentenceType::EmpiricalClaim,
             severity: sev,
             reason: "r".into(),
-            search_query: needs.then(|| "a query of about eight words here now".to_string()),
+            search_query: needs.then(|| Some("a query of about eight words here now".to_string())),
         };
         let tier_of = |o: CitationNeedOutput| -> Option<Tier> {
             CitationNeedTask::validate(&o, &ctx())
@@ -887,12 +1017,18 @@ mod tests {
             "contradicting fields must be fatal"
         );
 
+        // BOTH kinds of missing query are fatal, and they are two declared
+        // rules rather than one because they are two different events (§11 D81).
         let mut o = ok_output();
-        o.search_query = None;
+        o.search_query = None; // not in the reply at all
         assert_eq!(tier_of(o, "search_query"), Some(Tier::Fatal));
 
         let mut o = ok_output();
-        o.search_query = Some("organic farming soil biodiversity Smith et al review".into());
+        o.search_query = Some(None); // in the reply, as null
+        assert_eq!(tier_of(o, "search_query"), Some(Tier::Fatal));
+
+        let mut o = ok_output();
+        o.search_query = Some(Some("organic farming soil biodiversity Smith et al review".into()));
         assert_eq!(
             tier_of(o, "search_query"),
             Some(Tier::Fatal),
@@ -906,7 +1042,7 @@ mod tests {
         assert_eq!(tier_of(o, "reason"), Some(Tier::Advisory), "a long reason is untidy, not wrong");
 
         let mut o = ok_output();
-        o.search_query = Some("too short".into());
+        o.search_query = Some(Some("too short".into()));
         assert_eq!(
             tier_of(o, "search_query"),
             Some(Tier::Advisory),
@@ -914,11 +1050,11 @@ mod tests {
         );
 
         let mut o = ok_output();
-        o.search_query = Some((0..14).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" "));
+        o.search_query = Some(Some((0..14).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ")));
         assert_eq!(tier_of(o, "search_query"), Some(Tier::Advisory));
 
         // the declared lists are non-empty and documented
-        assert_eq!(FATAL_RULES.len(), 7);
+        assert_eq!(FATAL_RULES.len(), 8);
         assert_eq!(ADVISORY_RULES.len(), 2);
     }
 
@@ -927,7 +1063,7 @@ mod tests {
         // The exact shape that failed 8/8 in Phase 4b: valid JSON, right
         // classification, query 4 words instead of 6.
         let mut o = ok_output();
-        o.search_query = Some("land degradation distribution survey".into());
+        o.search_query = Some(Some("land degradation distribution survey".into()));
         let errors = CitationNeedTask::validate(&o, &ctx()).unwrap_err();
         assert!(
             errors.iter().all(|e| e.tier == Tier::Advisory),

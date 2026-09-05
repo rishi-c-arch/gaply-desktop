@@ -276,7 +276,7 @@ async fn run_citation_need(
                 summary,
             }
         }
-        Err(e) => failed_outcome("citation_need", e),
+        Err(e) => failed_task_outcome("citation_need", e),
     }
 }
 
@@ -376,7 +376,7 @@ async fn run_citation_support(
                 summary: format!("verdict={verdict}"),
             }
         }
-        Err(e) => failed_outcome("citation_support", e),
+        Err(e) => failed_task_outcome("citation_support", e),
     }
 }
 
@@ -449,6 +449,41 @@ fn persist_card(
     }
 }
 
+/// Record a failed item — INCLUDING what the model actually said (§11 D81).
+///
+/// `TaskError::ValidationFailed` carries both raw outputs for exactly one
+/// reason: so a human can see what the model produced instead of inferring it
+/// from an error message. This function used to drop them, storing only
+/// `{category, outcome}` and the Display text.
+///
+/// That made D66's rule — *read the raw output before blaming the model* —
+/// impossible to follow on the shipped path. Diagnosing D81 meant rebuilding
+/// five inputs from `ai_job_items.sentence` and re-running the model to recover
+/// output the engine had already held and thrown away; and the error message
+/// that stood in for it named the wrong culprit. The next one is a query.
+fn failed_task_outcome(category: &str, e: crate::ai::task::TaskError) -> ItemOutcome {
+    let msg = e.to_string();
+    let mut result = serde_json::json!({ "category": category, "outcome": "error" });
+    if let crate::ai::task::TaskError::ValidationFailed { primary, first_raw, retry_raw, stop_reasons, .. } = &e {
+        // Verbatim, never summarised — a summary of a malformed reply is a
+        // second guess about the thing being diagnosed.
+        result["raw"] = serde_json::json!({
+            "firstAttempt": first_raw,
+            "retry": retry_raw,
+            "primary": format!("{primary:?}"),
+            "stopReasons": stop_reasons,
+        });
+    }
+    ItemOutcome {
+        status: "failed",
+        result_json: result.to_string(),
+        error: Some(msg.clone()),
+        summary: format!("failed: {msg}"),
+    }
+}
+
+/// A failure that is not a model reply — retrieval, the database, the loader.
+/// There is no raw output to keep, so there is nothing to lose here.
 fn failed_outcome<E: std::fmt::Display>(category: &str, e: E) -> ItemOutcome {
     let msg = e.to_string();
     ItemOutcome {
@@ -970,6 +1005,21 @@ mod tests {
 
         let it2 = &job_results(&db2, job2, 0, 10).unwrap()[0];
         assert_eq!(it2.status, "failed", "an invented chunk_id must not be accepted");
+
+        // §11 D81. WHAT THE MODEL SAID SURVIVES THE FAILURE.
+        //
+        // The engine carries both raw attempts all the way to
+        // `TaskError::ValidationFailed` so a human can read them, and the job
+        // runner used to drop them on the floor — leaving the error message as
+        // the only account of a reply nobody could see. That is how D81 came to
+        // be diagnosed from a message that named the wrong culprit.
+        let raw = it2.result_json.as_deref().expect("a failed item recorded no result");
+        assert!(raw.contains("\"raw\""), "the raw outputs were discarded: {raw}");
+        assert!(
+            raw.contains("c999"),
+            "the raw output does not contain what the model actually said: {raw}"
+        );
+        assert!(raw.contains("firstAttempt") && raw.contains("retry"), "{raw}");
         assert_eq!(
             cards_for(&db2, doc2),
             0,

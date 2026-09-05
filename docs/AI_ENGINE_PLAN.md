@@ -4236,3 +4236,127 @@ version of the composer never wrote, and it does, with two markers to spare.
 
 Refused as `GaplyError::Validation`, matching how an unsupported format is
 already refused before any work.
+
+### D81 — the model supplied `search_query`; the error message said it had not
+
+D80's mis-run failed 5 `citation_need` items twice on
+
+```
+search_query: is required when needs_citation is true (6-12 keywords)
+```
+
+which reads as an omission by the model, and reads as D66's mirror: D66 made
+`severity` conditional for the `false` branch, and the `true` branch has the same
+conditional shape. The obvious next move is to widen the schema the same way.
+
+**D66's own rule is: read the raw output before blaming the model.** Doing that
+refutes the hypothesis.
+
+#### The raw output, reproduced 5/5 on the same five sentences
+
+```json
+{
+  "needs_citation": true,
+  "reason": "PublishReady 3 Sentences that may need a citation These sentences carry no citation.",
+  "search_query": null,
+  "sentence_type": "common_knowledge",
+  "severity": "high"
+}
+```
+
+`stop_reasons: [EndOfTurn, EndOfTurn]`, not truncated, in all five.
+
+**The field is PRESENT, as explicit `null`** — the value the schema's own type
+line (`"search_query": string|null`) offers. The model neither omitted it nor
+malformed it. It answered the schema exactly as written and was told it had not
+supplied a field it did supply.
+
+**And `reason` is a near-verbatim echo of the input sentence in all five.** The
+model is not reasoning; it is parroting, because the input carries no
+proposition to reason about. These are not sentences — they are report furniture
+with a page footer glued to the heading below it (D80).
+
+#### So the proposed schema fix is REFUSED, and here is why it is not D66
+
+D66's test is *does this field carry information that exists?* For
+`needs_citation: false` a severity-of-need does not exist, so requiring it forced
+the model to invent or be rejected. The mirror does not hold: when a citation IS
+needed, a query for it exists, and it is **the entire actionable payload of the
+advisory list** — D78 ships this task as "here are sentences worth a glance", and
+a suggestion with nothing to search for is not a suggestion.
+
+`needs_citation: true` with no query is a genuinely incoherent answer, and the
+FATAL is right to refuse it. Widening the schema would not recover a correct
+answer as D66 did; it would launder five meaningless judgements into a list a
+researcher reads. **The verdict was wrong, not the schema.**
+
+#### The correlation says the same thing, and it is total
+
+| population | prompt | judged | this error |
+|---|---|---|---|
+| Gaply's own report (job 12) | v4 | 77 | **5** |
+| real manuscript (job 13) | v4 | 54 | 0 |
+| 42 cold labelled + 8 seeds | v4 | 50 | **0** |
+
+**Every occurrence in the whole job history is in the one mis-run.** The
+pre-v4 jobs (2-7) failed 22 times on the OPPOSITE branch — query present when
+`false` — and never once on this one. The trigger is D80's population, and D80's
+guard is the fix. These two items are one defect.
+
+#### What IS fixed here: the engine could not tell absence from null
+
+Two changes, both about being able to diagnose this next time in a query rather
+than a session:
+
+1. **`search_query` becomes `Option<Option<String>>`.** Absent and `null` are
+   different facts about what the model did — D66's diagnosis turned on exactly
+   that distinction, argued from the error text alone — and the validator could
+   not represent it, so its message asserted the wrong one. Both stay **FATAL**;
+   only the message changes, and it now says which happened.
+
+2. **`job_runner` keeps `first_raw` and `retry_raw` on failure.** `TaskError::
+   ValidationFailed` carries both raw outputs specifically so a human can see
+   what the model said, and `failed_outcome` was discarding them, storing only
+   `{category, outcome}` plus the Display message. **The product path made D66's
+   own rule impossible to follow** — this session had to rebuild the five inputs
+   from `ai_job_items.sentence` and re-run the model to see output the engine
+   had already had in hand.
+
+#### Measured on the 41 cold cases, before and after
+
+Neither change can move a rate — one alters a message, the other stores a
+string — and "it cannot" is not a measurement, so it was run rather than
+reasoned. Same binary, same device, greedy decoding:
+
+| | before | after |
+|---|---|---|
+| validation failures, 50 cases | 2 (4%) | 2 (4%) |
+| **this error, 42 cold cases** | **0** | **0** |
+| `needs_citation` accuracy | 48% | 48% |
+
+The two failures are unchanged and neither is the reported one: `cn-seed-07`
+omits `severity` while `true`, and `cn-label-007` puts `"high"` into
+`sentence_type`.
+
+And the message was checked on the inputs it exists for — the same five
+sentences, 5/5:
+
+```
+search_query: was supplied as null while needs_citation is true — the reply
+asserts a citation is needed and gives nothing to search for
+```
+
+#### Left as a recommendation, not taken
+
+**`severity` is a constant, and it is FATAL.** It came back `high` in 37 of 37
+valid cold outputs and 5 of 5 here — it never varies, so it grades nothing. Its
+only product consumer is `CitationAiPanel`, which already renders `'unrated'`
+when it is absent; the audit report never reads it. Yet `severity` absent while
+`true` is FATAL, and it discarded one of the two cold-set failures — a judgement
+thrown away over a field that is read in one place, defaulted there, and
+constant when present.
+
+That is D66's shape one field over, and the evidence for it is in this section.
+It is **not** changed here: it alters what ships for an unmentioned field, and
+D66's own tier decision needed a reversal before it was right. It is a decision,
+and the decision is not mine.
