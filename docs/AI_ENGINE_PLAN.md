@@ -4360,3 +4360,102 @@ That is D66's shape one field over, and the evidence for it is in this section.
 It is **not** changed here: it alters what ships for an unmentioned field, and
 D66's own tier decision needed a reversal before it was right. It is a decision,
 and the decision is not mine.
+
+### D82 — `severity` graded nothing, and a FATAL rule enforced it
+
+D81 left this as a recommendation because it changes what ships for a field
+nobody had raised. Taken now, on the evidence D81 gathered.
+
+#### The field carries no information, measured
+
+| | |
+|---|---|
+| value in valid cold outputs | `high` **37 of 37** |
+| value in the D80 repro | `high` **5 of 5** |
+| read by `audit_report` | **never** |
+| read by `CitationAiPanel` | yes — as `out.severity ?? 'unrated'` |
+
+**It never varies, so it grades nothing.** Its single consumer already renders a
+default for absence, and the PDF the researcher actually reads does not mention
+it. Yet `severity` absent while `needs_citation` is true was **FATAL** — one
+retry, then the whole judgement discarded. That cost one of the two remaining
+failures on the labelled set (`cn-seed-07`), whose answer was otherwise complete
+and correct.
+
+That is D66's shape — a rule enforcing a field that cannot inform the reader —
+on the field the evidence indicts rather than the one the error message pointed
+at (D81).
+
+#### ADVISORY, not silently accepted
+
+The two tiers are declared, and the choice follows from them: FATAL is for output
+that is **actively misleading**, ADVISORY for output that is **untidy**. A
+missing constant misleads nobody, so it is not fatal. But it is also not
+compliant — `RULES_V4` asks for `severity` and excuses it *only* when
+`needs_citation` is false — so it is not nothing either.
+
+**This is the opposite call to D66's fourth row, and deliberately.** There,
+`severity` present on a `false` verdict was accepted SILENTLY because the spec
+asks for the field unconditionally and the model was doing as it was told;
+an advisory would have penalised correct behaviour and inflated `advisoryRate`,
+which the bake-off reads as a quality signal. Here the model is *not* doing as
+it was told, so counting it is exactly right — and `advisoryRate` keeps
+visibility on a behaviour worth watching, given `cn-label-007` put `"high"` into
+`sentence_type` in the same run. Field confusion is a thing this model does.
+
+Accepting also removes the retry, which on this task is a whole generation that
+has been observed returning an empty string.
+
+| `needs_citation` | `severity` | before | after |
+|---|---|---|---|
+| true | present | ok | ok |
+| true | **absent** | **FATAL** | **ADVISORY** |
+| false | absent | legal (D66) | legal |
+| false | present | accepted silently (D66) | accepted silently |
+
+#### Measured on the labelled set, same binary, idle machine
+
+| | before | after |
+|---|---|---|
+| validation failures, 50 cases | 2 (4%) | **1 (2%)** |
+| retry rate | 4% | **2%** |
+| valid outputs | 48 | **49** |
+| `needs_citation` accuracy | 47.9% | **46.9%** |
+| advisory rate | 36% | 38% |
+| `severityAgreement` | 37.5% | 36.0% |
+| `sentenceTypeAgreement` | 33.3% | 34.7% |
+
+`cn-seed-07` is recovered — it returns a judgement instead of nothing, carrying
+two advisories (absent severity, a 5-word query). The one remaining failure is
+`cn-label-007`, a genuine parse error (`"high"` in `sentence_type`), which stays
+fatal and should.
+
+#### THE ACCURACY WENT DOWN, AND THAT IS THE POINT
+
+This was predicted to rise before it was run, and the prediction was wrong in
+DIRECTION, not just in size. It is recorded because the reason matters more than
+the number:
+
+```
+cn-seed-07  "Plants require light to photosynthesise."
+            expected needs_citation: false   (common knowledge)
+            model    needs_citation: true
+```
+
+**The recovered case is a MISS.** Accuracy is unchanged in the numerator (23) and
+gains one in the denominator: 23/48 -> 23/49.
+
+So the fatal rule was not only discarding correct answers, as D66 found. **Here
+it discarded a WRONG answer, and the accuracy figure was flattered by its
+absence.** Every rate on this task was computed over the subset that survived
+validation, and validation was silently removing cases on a criterion unrelated
+to whether the model was right. `severityAgreement` falls for the same reason —
+a discarded case is not scored at all, a recovered one with no grade scores as
+disagreement.
+
+**A number that improves when you delete the cases you failed to judge is not
+measuring judgement.** 46.9% is the worse number and the truer one, and it is
+the one D78's conclusion — that the 3B cannot make this call — already rests on.
+Nothing user-facing moves: `ADVISORY_RECALL_PCT` / `ADVISORY_PRECISION_PCT` are
+computed over cold labels only and `cn-seed-07` is a seed, so §11 D83's guard
+still passes against the report of record.

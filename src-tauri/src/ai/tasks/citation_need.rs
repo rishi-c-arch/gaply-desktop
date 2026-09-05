@@ -429,7 +429,6 @@ impl CitationNeedTask {
 pub const FATAL_RULES: &[&str] = &[
     "sentence_type outside the ten spec values (rejected by serde at parse time)",
     "severity outside high|medium|low (rejected by serde at parse time)",
-    "severity absent when needs_citation is true (the field that grades the need)",
     "reason empty — a required field with no content",
     "search_query present when needs_citation is false (fields contradict)",
     "search_query missing from the reply when needs_citation is true (a dropped field)",
@@ -439,6 +438,7 @@ pub const FATAL_RULES: &[&str] = &[
 
 /// Violations that make an output UNTIDY. Accepted; reported as advisories.
 pub const ADVISORY_RULES: &[&str] = &[
+    "severity absent when needs_citation is true — §11 D82 (it grades nothing: `high` 37/37)",
     "reason longer than 25 words",
     "search_query outside the 6-12 word range",
 ];
@@ -490,12 +490,22 @@ impl AiTask for CitationNeedTask {
         }
 
         match (out.needs_citation, out.severity) {
-            // FATAL: the field that GRADES the need is missing while a need is
-            // asserted. Unlike its absence below, this loses information the
-            // report shows.
-            (true, None) => errors.push(ValidationError::fatal(
+            // ADVISORY (§11 D82). This was FATAL — "the grade is the
+            // information" — and the grade turned out not to be information at
+            // all: `severity` came back `high` in 37 of 37 valid cold outputs
+            // and 5 of 5 in the D80 repro. It never varies. `audit_report`
+            // never reads it, and its one consumer already renders `'unrated'`
+            // when it is absent.
+            //
+            // So a missing severity misleads nobody, which is what FATAL is
+            // for. It is still not compliant — RULES_V4 excuses it only when
+            // `needs_citation` is false — which is what ADVISORY is for, and
+            // keeping it counted preserves visibility on a model that put
+            // "high" into `sentence_type` in this same run.
+            (true, None) => errors.push(ValidationError::advisory(
                 "severity",
-                "must be present when needs_citation is true — it grades the need",
+                "is absent while needs_citation is true; the prompt excuses it only \
+                 when needs_citation is false",
             )),
             // ACCEPTED SILENTLY, and this is a reversal worth recording. The
             // first draft made it an advisory — "a grade for a need that does
@@ -958,8 +968,11 @@ mod tests {
 
         // 1. needs a citation, graded — the ordinary case.
         assert_eq!(tier_of(out(true, Some(Severity::High))), None);
-        // 2. needs a citation, UNGRADED — fatal: the grade is the information.
-        assert_eq!(tier_of(out(true, None)), Some(Tier::Fatal));
+        // 2. needs a citation, UNGRADED — ADVISORY since §11 D82. It was fatal
+        //    on the reasoning that "the grade is the information", and the
+        //    grade is not information: `high` in 37 of 37 valid cold outputs.
+        //    Accepted with a note, not discarded.
+        assert_eq!(tier_of(out(true, None)), Some(Tier::Advisory));
         // 3. no citation needed, absent — LEGAL. This is the whole point: the
         //    model returned a complete correct object and the engine used to
         //    discard it over a field grading a need that does not exist.
@@ -1037,6 +1050,18 @@ mod tests {
         );
 
         // --- ADVISORY ---
+        // §11 D82. `severity` had entries in these lists but no assertion here,
+        // so the declared tier was never actually held against the validator —
+        // which is the one thing this test exists to do.
+        let mut o = ok_output();
+        o.severity = None; // needs_citation is true in ok_output()
+        assert_eq!(
+            tier_of(o, "severity"),
+            Some(Tier::Advisory),
+            "a missing severity must be accepted with a note, not discarded — it is `high` \
+             in 37 of 37 valid cold outputs and grades nothing"
+        );
+
         let mut o = ok_output();
         o.reason = (0..30).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ");
         assert_eq!(tier_of(o, "reason"), Some(Tier::Advisory), "a long reason is untidy, not wrong");
@@ -1054,8 +1079,8 @@ mod tests {
         assert_eq!(tier_of(o, "search_query"), Some(Tier::Advisory));
 
         // the declared lists are non-empty and documented
-        assert_eq!(FATAL_RULES.len(), 8);
-        assert_eq!(ADVISORY_RULES.len(), 2);
+        assert_eq!(FATAL_RULES.len(), 7);
+        assert_eq!(ADVISORY_RULES.len(), 3);
     }
 
     #[test]
