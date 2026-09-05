@@ -5,6 +5,41 @@ Tauri 2.0 shell (`src-tauri/`), with all business logic in the portable,
 Tauri-free Rust crate `src-tauri/gaply-core/`, plus a standalone FastAPI proxy
 (`gaply-proxy/`, Tailscale-hidden) that is the ONLY path to the cloud.
 
+## Remotes — READ BEFORE ANY PUSH
+
+**This checkout has two remotes on two different GitHub accounts, and they are
+different products.** Neither name tells you which is which.
+
+| remote | URL | what it is |
+|---|---|---|
+| `desktop` | `rishi-c-arch/gaply-desktop` | **THE ONE THIS REPO'S WORK GOES TO.** The Tauri desktop app. CI is three GitHub Actions workflows (clean-checkout, windows-build-check, package-release) and no deploy job. |
+| `origin` | `RishiSTARP/gaply-react-frontend` | **NEVER PUSH.** A separate live private repo on Rishi's *other* GitHub account (`RishiSTARP`). It is the **gaply.in web lineage** and pushing it triggers the live Vercel deploy. |
+
+### The rules
+
+- **All desktop work goes to `desktop`.** `main` tracks `desktop/main`, so a bare
+  `git push` goes there. Verify with `git rev-parse --abbrev-ref main@{upstream}`
+  -> `desktop/main`.
+- **NEVER push to `origin`.** Not `git push origin`, not `git push origin main`,
+  not a `--set-upstream` that repoints `main`. Rishi is not working on that repo
+  and does not want it touched. Pushing it deploys gaply.in.
+- **`origin` is NOT dead — do not "clean it up".** `git fetch origin` and `gh`
+  both report *"Repository not found"*, because the active `gh` account is
+  `rishi-c-arch` and the repo belongs to `RishiSTARP`. It is a **private repo the
+  current credential cannot see**, not a missing one. Deleting the remote or
+  repointing it would destroy a real link to a live product.
+  To confirm it exists: `gh auth switch --user RishiSTARP`, query, then
+  `gh auth switch --user rishi-c-arch`.
+- **The two share NO history.** `git merge-base main origin/main` returns nothing
+  — unrelated lineages, not a stale copy of this one. `origin/main` is a July ref
+  that cannot be refreshed under the active credential, so its staleness is not a
+  signal about anything.
+
+**Why this is written down:** `main` once had no upstream at all, so a bare
+`git push` reached for `origin`, 404'd on the private repo, and the remote looked
+dead. The obvious next step — prune it — would have severed a live product's
+remote. A remote that looks dead and is not is worse than one that is.
+
 ## The six Gaply agents (built in gaply_core)
 
 | Agent | Module | Role | Cloud? |
