@@ -3965,3 +3965,78 @@ parse time as `FATAL_RULES` documents. Enum invention is a class worth watching.
 41 cold cases is enough for **"recall 0% vs recall 60%"** and not for
 **"58% vs 62%"** — one case is 2.4 points, and variant comparison needs the true
 cell above ~30. Every claim here is of the first kind.
+
+### D77 — v2 and v3 are mirror images, and neither is judging
+
+D76 established that v3 has **zero recall**. The obvious question is whether the
+D58 own-work addendum caused it. Same 41 cold cases, same device, only the prompt
+differing:
+
+| | v3 (with addendum) | v2 (pre-D58) |
+|---|---|---|
+| **recall** | **0%** (0/17) | **68%** (11/16) |
+| **precision** | 0% | **42%** (11 of 26 "yes" were right) |
+| accuracy | 58% | 50% |
+| false positives | 0 | **15** |
+
+```
+v3                          v2
+        yes    no                  yes    no
+you:yes   0    17         you:yes   11     5
+you:no    0    24         you:no    15     9
+```
+
+**The addendum causes the zero recall — settled.** Removing it moves recall
+0% -> 68%, and 41 cases comfortably supports a difference that size.
+
+**And v2 is not a fix.** It answers "yes" to 26 of 40 and is wrong on 15 — 42%
+precision, so a researcher gets three false flags for every two real ones. Its
+accuracy is LOWER than v3's, because on this set a blanket "no" beats an
+over-eager "yes".
+
+**Job 7's 41-true-of-60 was a blanket YES, not sensitivity.** That is D74's trap
+seen from the other side: a population where the failing behaviour happens to
+look like the right one. Neither prompt discriminates; they fail in opposite
+directions.
+
+#### The mechanism is a TYPE error, and the boolean is downstream of it
+
+v2's `sentence_type` agreement is **10/40 (25%)** — worse than v3's 37%. What v2
+calls `empirical_claim`:
+
+| actually was | n |
+|---|---|
+| **`author_own_result`** | **12** |
+| `empirical_claim` | 7 |
+| everything else | 5 |
+
+**v2 labels the authors' own results as empirical claims** — precisely the defect
+D58 was written to fix, and it DID fix it. v3 under-uses `empirical_claim` 12x;
+v2 over-uses it 12x. The prompts are mirror images:
+
+- **v2**: everything is an empirical claim -> flag it
+- **v3**: everything is common knowledge or a transition -> do not
+
+D58's 18 -> 2 improvement was real. It overshot. The underlying weakness — **the
+3B cannot reliably tell an empirical claim from the authors' own result** — was
+present the whole time and neither prompt addresses it.
+
+#### What 41 cases supports, and what it does not
+
+**Supported** (all large effects): the addendum causes the zero recall; v2
+recovers recall; v2's precision is poor; both prompts misclassify types badly.
+
+**NOT supported**: that a *narrowed* addendum lands between them. That is the
+obvious next move and predicting where a middle version falls needs the true cell
+above ~30; it is at 16-17.
+
+#### The lever this points at
+
+Both failure modes are downstream of a type error at 25-37% agreement. **A prompt
+that fixes the boolean while the type is still wrong is fixing a symptom** — the
+type is currently CAUSING the answer rather than explaining it. Dropping
+`sentence_type` from the decision path (ask only "does this need a citation, and
+why", with the type emitted afterwards as description, or not at all) tests that
+directly, and tests D59 item 1 from a different angle: if the boolean improves
+once it stops being derived from a misclassification, the coupling was
+STRUCTURAL rather than a wording problem.

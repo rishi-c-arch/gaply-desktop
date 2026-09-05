@@ -1,0 +1,1661 @@
+{
+  "task": "citation_need",
+  "modelId": "qwen2.5-3b-instruct-q4km",
+  "promptVersion": "citation_need-v2",
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "os": "macOS 26.6.2 (Darwin 25.6.0)",
+  "nCtx": 5120,
+  "date": "labelled-v2",
+  "casesFile": "evals/citation_need.jsonl",
+  "totalCases": 50,
+  "needsCitationAccuracy": 0.5106382978723404,
+  "sentenceTypeAgreement": 0.2978723404255319,
+  "severityAgreement": 0.34782608695652173,
+  "validationFailureRate": 0.06,
+  "retryRate": 0.06,
+  "advisoryRate": 0.18,
+  "meanLatencyMs": 6613.96,
+  "tokensPerSecond": 10.728822067263788,
+  "meanPromptTokens": 425.8,
+  "meanPrefillMs": 2778.42,
+  "meanDecodeMs": 3789.36,
+  "prefillShare": 0.4230379214894531,
+  "meanDecodeTokensPerSec": 18.8467072413197,
+  "answerDistribution": {
+    "needsCitationTrue": 31,
+    "sentenceType": {
+      "author_own_result": 1,
+      "common_knowledge": 10,
+      "empirical_claim": 27,
+      "method_borrowed": 1,
+      "prior_work": 1,
+      "statistic": 4,
+      "transition": 3
+    },
+    "severity": {
+      "high": 40,
+      "low": 7
+    },
+    "validOutputs": 47
+  },
+  "results": [
+    {
+      "id": "cn-seed-01",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence is an empirical claim about a specific finding in organic farming compared to conventional systems.\",\"search_query\":\"organic farming soil microbial biomass increase\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence is an empirical claim about a specific finding in organic farming compared to conventional systems.",
+          "search_query": "organic farming soil microbial biomass increase",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 5208,
+      "tokens": 63,
+      "promptTokens": 373,
+      "prefillMs": 2068,
+      "decodeMs": 3101,
+      "decodeTokensPerSec": 20.31602708803612,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-02",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about a global statistic that requires citation.\",\"search_query\":\"33% degraded arable land 1960\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about a global statistic that requires citation.",
+          "search_query": "33% degraded arable land 1960",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 5189,
+      "tokens": 63,
+      "promptTokens": 379,
+      "prefillMs": 2047,
+      "decodeMs": 3109,
+      "decodeTokensPerSec": 20.26375040205854,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-03",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about observed data (statistic) and requires citation as it presents a result from a study.\",\"search_query\":\"12% increase in species richness treatment plots p = 0.03\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about observed data (statistic) and requires citation as it presents a result from a study.",
+          "search_query": "12% increase in species richness treatment plots p = 0.03",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 5946,
+      "tokens": 78,
+      "promptTokens": 381,
+      "prefillMs": 2055,
+      "decodeMs": 3845,
+      "decodeTokensPerSec": 20.286085825747723,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-04",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"transition\",\"severity\":\"high\",\"reason\":\"This is a transition sentence and does not introduce new information that requires citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a transition sentence and does not introduce new information that requires citation.",
+          "search_query": null,
+          "sentence_type": "transition",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 4623,
+      "tokens": 52,
+      "promptTokens": 370,
+      "prefillMs": 2023,
+      "decodeMs": 2570,
+      "decodeTokensPerSec": 20.233463035019458,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-05",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": false,\n  \"sentence_type\": \"definition\",\n  \"severity\": \"high\",\n  \"reason\": \"This is a definition that is commonly attributed to ecosystem literature and does not require citation.\",\n  \"search_query\": \"ecosystem services definition\"\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "elapsedMs": 7864,
+      "tokens": 59,
+      "promptTokens": 868,
+      "prefillMs": 4920,
+      "decodeMs": 2908,
+      "decodeTokensPerSec": 20.288858321870702,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "fatalErrors": [
+        "search_query: must be null when needs_citation is false"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-06",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence is an empirical claim about the weakening effect at higher latitudes, which is likely based on the author's own research or findings.\",\"search_query\":\"effect weakened at higher latitudes analysis\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "prior_work",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence is an empirical claim about the weakening effect at higher latitudes, which is likely based on the author's own research or findings.",
+          "search_query": "effect weakened at higher latitudes analysis",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 5750,
+      "tokens": 74,
+      "promptTokens": 371,
+      "prefillMs": 2028,
+      "decodeMs": 3679,
+      "decodeTokensPerSec": 20.114161456917643,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-07",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"high\",\"reason\":\"This is a common scientific fact that does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a common scientific fact that does not require citation.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 4601,
+      "tokens": 51,
+      "promptTokens": 367,
+      "prefillMs": 2069,
+      "decodeMs": 2502,
+      "decodeTokensPerSec": 20.38369304556355,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-08",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about the possible role of mycorrhizal networks in mediating the response, which is not covered by the author's own results and is not common knowledge.\",\"search_query\":\"mycorrhizal networks mediate response\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "hedged_speculation",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about the possible role of mycorrhizal networks in mediating the response, which is not covered by the author's own results and is not common knowledge.",
+          "search_query": "mycorrhizal networks mediate response",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 30 words; the limit is 25",
+        "search_query: is 4 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 6446,
+      "tokens": 86,
+      "promptTokens": 379,
+      "prefillMs": 2070,
+      "decodeMs": 4325,
+      "decodeTokensPerSec": 19.884393063583815,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-001",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence makes an empirical claim about the sensitivity of BiLSTM-like architectures to hyper parameterization, which is a factual statement about the state of the art in the field.\",\"search_query\":\"BiLSTM architecture sensitivity hyperparameter\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence makes an empirical claim about the sensitivity of BiLSTM-like architectures to hyper parameterization, which is a factual statement about the state of the art in the field.",
+          "search_query": "BiLSTM architecture sensitivity hyperparameter",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 29 words; the limit is 25",
+        "search_query: is 4 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 6858,
+      "tokens": 81,
+      "promptTokens": 418,
+      "prefillMs": 2589,
+      "decodeMs": 4223,
+      "decodeTokensPerSec": 19.18067724366564,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-002",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general statement about the nature of searching through hyperparameter spaces and does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "common_knowledge"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general statement about the nature of searching through hyperparameter spaces and does not require citation.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 5375,
+      "tokens": 59,
+      "promptTokens": 385,
+      "prefillMs": 2278,
+      "decodeMs": 3057,
+      "decodeTokensPerSec": 19.299967288191038,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-003",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"high\",\"reason\":\"The Firefly Algorithm and Crow Search Algorithm are well-known terms in the field of optimization algorithms.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The Firefly Algorithm and Crow Search Algorithm are well-known terms in the field of optimization algorithms.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 5535,
+      "tokens": 58,
+      "promptTokens": 400,
+      "prefillMs": 2359,
+      "decodeMs": 3132,
+      "decodeTokensPerSec": 18.51851851851852,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-004",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"transition\",\"severity\":\"high\",\"reason\":\"The sentence is a transition and does not introduce new information that requires citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a transition and does not introduce new information that requires citation.",
+          "search_query": null,
+          "sentence_type": "transition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 5173,
+      "tokens": 52,
+      "promptTokens": 386,
+      "prefillMs": 2263,
+      "decodeMs": 2862,
+      "decodeTokensPerSec": 18.16911250873515,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-005",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"transition\",\"severity\":\"high\",\"reason\":\"The sentence is a transition and does not introduce new empirical claims or findings.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a transition and does not introduce new empirical claims or findings.",
+          "search_query": null,
+          "sentence_type": "transition",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 5171,
+      "tokens": 52,
+      "promptTokens": 405,
+      "prefillMs": 2297,
+      "decodeMs": 2834,
+      "decodeTokensPerSec": 18.34862385321101,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-006",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"author_own_result\",\"severity\":\"high\",\"reason\":\"The sentence is an author's own result and continues the same attributed idea as the previous sentence.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is an author's own result and continues the same attributed idea as the previous sentence.",
+          "search_query": null,
+          "sentence_type": "author_own_result",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 5463,
+      "tokens": 58,
+      "promptTokens": 404,
+      "prefillMs": 2306,
+      "decodeMs": 3119,
+      "decodeTokensPerSec": 18.595703751202308,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-007",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about the effectiveness of the pipeline and evaluation methods, which requires citation.\",\"search_query\":\"HEFCSO-BILSTM unified emotion detection pipeline HEFCSO Bi-LSTM attention\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about the effectiveness of the pipeline and evaluation methods, which requires citation.",
+          "search_query": "HEFCSO-BILSTM unified emotion detection pipeline HEFCSO Bi-LSTM attention",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7150,
+      "tokens": 77,
+      "promptTokens": 441,
+      "prefillMs": 2610,
+      "decodeMs": 4482,
+      "decodeTokensPerSec": 17.17983043284248,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-008",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"prior_work\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about previous work in the field of hyperparameter optimization for BiLSTM emotion classification.\",\"search_query\":\"previous work hybridizing FA with CSA for hyperparameter optimization BiLSTM emotion classification\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about previous work in the field of hyperparameter optimization for BiLSTM emotion classification.",
+          "search_query": "previous work hybridizing FA with CSA for hyperparameter optimization BiLSTM emotion classification",
+          "sentence_type": "prior_work",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6703,
+      "tokens": 76,
+      "promptTokens": 404,
+      "prefillMs": 2401,
+      "decodeMs": 4243,
+      "decodeTokensPerSec": 17.911854819703038,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-009",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general statement about the study's methodology and does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general statement about the study's methodology and does not require citation.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 5341,
+      "tokens": 55,
+      "promptTokens": 375,
+      "prefillMs": 2245,
+      "decodeMs": 3059,
+      "decodeTokensPerSec": 17.979731938542006,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-010",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"The sentence is a general statement about a pre-processing pipeline and does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a general statement about a pre-processing pipeline and does not require citation.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 5459,
+      "tokens": 56,
+      "promptTokens": 385,
+      "prefillMs": 2489,
+      "decodeMs": 2926,
+      "decodeTokensPerSec": 19.138755980861244,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-011",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Out-of-vocabulary tokens are a claim about the behavior of the GloVe embeddings model, which is an empirical claim.\",\"search_query\":\"GloVe embeddings out-of-vocabulary initialization character-level n-gram\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "method_borrowed",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Out-of-vocabulary tokens are a claim about the behavior of the GloVe embeddings model, which is an empirical claim.",
+          "search_query": "GloVe embeddings out-of-vocabulary initialization character-level n-gram",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 6318,
+      "tokens": 77,
+      "promptTokens": 381,
+      "prefillMs": 2303,
+      "decodeMs": 3963,
+      "decodeTokensPerSec": 19.429724955841532,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-012",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": false,\n  \"sentence_type\": \"definition\",\n  \"severity\": \"high\",\n  \"reason\": \"The sentence defines a concept (θ) used in the algorithm, which is an empirical claim in the Introduction/Literature Review section.\",\n  \"search_query\": \"HEFCSO algorithm configuration 4-dimensional vector\"\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "elapsedMs": 10041,
+      "tokens": 74,
+      "promptTokens": 919,
+      "prefillMs": 6095,
+      "decodeMs": 3874,
+      "decodeTokensPerSec": 19.101703665462054,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "fatalErrors": [
+        "search_query: must be null when needs_citation is false"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-013",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence makes an empirical claim about the validation subset's use in assessing a categorical cross-entropy objective function, which is a specific technical detail.\",\"search_query\":\"validation subset categorical cross-entropy objective function HEFCSO Algorithm\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence makes an empirical claim about the validation subset's use in assessing a categorical cross-entropy objective function, which is a specific technical detail.",
+          "search_query": "validation subset categorical cross-entropy objective function HEFCSO Algorithm",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6473,
+      "tokens": 81,
+      "promptTokens": 380,
+      "prefillMs": 2288,
+      "decodeMs": 4120,
+      "decodeTokensPerSec": 19.66019417475728,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-014",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence makes an empirical claim about the method of initialisation, which is high severity as it is part of the Proposed HEFCSO Algorithm section.\",\"search_query\":\"Initialisation of 30 solutions carried out randomly search space\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence makes an empirical claim about the method of initialisation, which is high severity as it is part of the Proposed HEFCSO Algorithm section.",
+          "search_query": "Initialisation of 30 solutions carried out randomly search space",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6603,
+      "tokens": 82,
+      "promptTokens": 379,
+      "prefillMs": 2367,
+      "decodeMs": 4183,
+      "decodeTokensPerSec": 19.603155629930672,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-015",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence makes an empirical claim about a specific system in Oman, which requires citation.\",\"search_query\":\"Dhamani platform Oman digital health-insurance Capital Market Authority Resolution 78/2019\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "definition",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence makes an empirical claim about a specific system in Oman, which requires citation.",
+          "search_query": "Dhamani platform Oman digital health-insurance Capital Market Authority Resolution 78/2019",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 6598,
+      "tokens": 77,
+      "promptTokens": 390,
+      "prefillMs": 2610,
+      "decodeMs": 3940,
+      "decodeTokensPerSec": 19.543147208121827,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-016",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about a future event (full national rollout) and the need for evidence, which is high severity as it could be considered a new finding.\",\"search_query\":\"Full national rollout 2025 employer-readiness evidence\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about a future event (full national rollout) and the need for evidence, which is high severity as it could be considered a new finding.",
+          "search_query": "Full national rollout 2025 employer-readiness evidence",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 29 words; the limit is 25"
+      ],
+      "elapsedMs": 6746,
+      "tokens": 84,
+      "promptTokens": 381,
+      "prefillMs": 2412,
+      "decodeMs": 4287,
+      "decodeTokensPerSec": 19.59412176347096,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-017",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about employer health-insurance provision rates in Omani private-sector firms, which requires citation.\",\"search_query\":\"formal employer health-insurance provision rates Oman private-sector firms\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about employer health-insurance provision rates in Omani private-sector firms, which requires citation.",
+          "search_query": "formal employer health-insurance provision rates Oman private-sector firms",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6474,
+      "tokens": 74,
+      "promptTokens": 403,
+      "prefillMs": 2624,
+      "decodeMs": 3801,
+      "decodeTokensPerSec": 19.468560905024994,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-018",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Cross-sectional employer survey conducted prior to full Dhamani enforcement is an empirical claim about the world.\",\"search_query\":\"Cross-sectional employer survey Dhamani enforcement\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Cross-sectional employer survey conducted prior to full Dhamani enforcement is an empirical claim about the world.",
+          "search_query": "Cross-sectional employer survey Dhamani enforcement",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 6071,
+      "tokens": 67,
+      "promptTokens": 392,
+      "prefillMs": 2606,
+      "decodeMs": 3425,
+      "decodeTokensPerSec": 19.56204379562044,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-019",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"method_borrowed\",\"severity\":\"high\",\"reason\":\"The sentence describes statistical methods and analyses used in the study, which are considered empirical claims and require citation.\",\"search_query\":\"multivariable logistic regression Hosmer–Lemeshow calibration ROC AUC discrimination VIF multicollinearity checks Box–Tidwell linearity test Firth penalized sensitivity analysis bootstrapped mediation analysis 5000 resamples bias-corrected 95 CI\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "method_borrowed",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence describes statistical methods and analyses used in the study, which are considered empirical claims and require citation.",
+          "search_query": "multivariable logistic regression Hosmer–Lemeshow calibration ROC AUC discrimination VIF multicollinearity checks Box–Tidwell linearity test Firth penalized sensitivity analysis bootstrapped mediation analysis 5000 resamples bias-corrected 95 CI",
+          "sentence_type": "method_borrowed",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 26 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 9383,
+      "tokens": 119,
+      "promptTokens": 435,
+      "prefillMs": 2870,
+      "decodeMs": 6440,
+      "decodeTokensPerSec": 18.478260869565215,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-020",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about a statistical result which requires citation.\",\"search_query\":\"Formal provision 36.5% micro-enterprises large firms Cramér’s V 0.573 p < 0.001\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about a statistical result which requires citation.",
+          "search_query": "Formal provision 36.5% micro-enterprises large firms Cramér’s V 0.573 p < 0.001",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7468,
+      "tokens": 85,
+      "promptTokens": 431,
+      "prefillMs": 2855,
+      "decodeMs": 4558,
+      "decodeTokensPerSec": 18.648530057042564,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-021",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about a statistical relationship with a p-value indicating significance.\",\"search_query\":\"Organisational resource capacity AOR 31.51 95% CI 11.82 84.01 p < 0.001\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about a statistical relationship with a p-value indicating significance.",
+          "search_query": "Organisational resource capacity AOR 31.51 95% CI 11.82 84.01 p < 0.001",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7507,
+      "tokens": 93,
+      "promptTokens": 406,
+      "prefillMs": 2636,
+      "decodeMs": 4814,
+      "decodeTokensPerSec": 19.318653926049024,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-022",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"The sentence contains a statistical result that is already cited in the previous sentence, which is in the Abstract section.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence contains a statistical result that is already cited in the previous sentence, which is in the Abstract section.",
+          "search_query": null,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 5815,
+      "tokens": 60,
+      "promptTokens": 413,
+      "prefillMs": 2689,
+      "decodeMs": 3086,
+      "decodeTokensPerSec": 19.44264419961115,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-023",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence is an empirical claim about the functions of insurance mandates, which are employer-based. It is in the Introduction section and thus carries high severity.\",\"search_query\":\"Insurance mandates employer-based functions\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence is an empirical claim about the functions of insurance mandates, which are employer-based. It is in the Introduction section and thus carries high severity.",
+          "search_query": "Insurance mandates employer-based functions",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 26 words; the limit is 25",
+        "search_query: is 4 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 6250,
+      "tokens": 74,
+      "promptTokens": 379,
+      "prefillMs": 2403,
+      "decodeMs": 3798,
+      "decodeTokensPerSec": 19.483938915218538,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-024",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"high\",\"reason\":\"This sentence is a general statement about the relationship between insurance premiums and employment, which is considered common knowledge.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This sentence is a general statement about the relationship between insurance premiums and employment, which is considered common knowledge.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 5535,
+      "tokens": 60,
+      "promptTokens": 379,
+      "prefillMs": 2453,
+      "decodeMs": 3045,
+      "decodeTokensPerSec": 19.704433497536947,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-025",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general statement about risk pooling and is considered common knowledge in the field of health economics.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general statement about risk pooling and is considered common knowledge in the field of health economics.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 5450,
+      "tokens": 59,
+      "promptTokens": 376,
+      "prefillMs": 2426,
+      "decodeMs": 2987,
+      "decodeTokensPerSec": 19.75225979243388,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-026",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence is an empirical claim linking purchasing with benefits package, which is likely to be an original finding or a new insight.\",\"search_query\":\"Universal Health Coverage Employer Mandates purchasing benefits package\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence is an empirical claim linking purchasing with benefits package, which is likely to be an original finding or a new insight.",
+          "search_query": "Universal Health Coverage Employer Mandates purchasing benefits package",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6187,
+      "tokens": 73,
+      "promptTokens": 378,
+      "prefillMs": 2419,
+      "decodeMs": 3728,
+      "decodeTokensPerSec": 19.581545064377682,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-027",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence makes a claim about compliance falling sharply with firm size, which is an empirical observation.\",\"search_query\":\"Nonetheless mandate compliance falls sharply firm size documented context\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence makes a claim about compliance falling sharply with firm size, which is an empirical observation.",
+          "search_query": "Nonetheless mandate compliance falls sharply firm size documented context",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 6134,
+      "tokens": 68,
+      "promptTokens": 387,
+      "prefillMs": 2604,
+      "decodeMs": 3481,
+      "decodeTokensPerSec": 19.53461648951451,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-028",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence presents a claim about relative burdens on different types of firms, which is an empirical claim about the world.\",\"search_query\":\"fixed compliance costs micro and small enterprises\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence presents a claim about relative burdens on different types of firms, which is an empirical claim about the world.",
+          "search_query": "fixed compliance costs micro and small enterprises",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 6243,
+      "tokens": 69,
+      "promptTokens": 404,
+      "prefillMs": 2639,
+      "decodeMs": 3569,
+      "decodeTokensPerSec": 19.33314653964696,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-029",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about a specific program and its outcomes in Saudi Arabia, which requires citation.\",\"search_query\":\"CEBHI programme Saudi Arabia coverage gaps\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about a specific program and its outcomes in Saudi Arabia, which requires citation.",
+          "search_query": "CEBHI programme Saudi Arabia coverage gaps",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 6151,
+      "tokens": 67,
+      "promptTokens": 402,
+      "prefillMs": 2650,
+      "decodeMs": 3457,
+      "decodeTokensPerSec": 19.380966155626265,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-030",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"The sentence is a general statement about structural problems and does not require citation as it is common knowledge.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "hedged_speculation"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a general statement about structural problems and does not require citation as it is common knowledge.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 5509,
+      "tokens": 59,
+      "promptTokens": 383,
+      "prefillMs": 2450,
+      "decodeMs": 3027,
+      "decodeTokensPerSec": 19.49124545754873,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-031",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"This is a general statement about the Omani Health System and does not require citation.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "This is a general statement about the Omani Health System and does not require citation.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 5574,
+      "tokens": 56,
+      "promptTokens": 399,
+      "prefillMs": 2654,
+      "decodeMs": 2887,
+      "decodeTokensPerSec": 19.39729823346034,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-032",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence is an empirical claim about the Omani Health System and provides a statistic (44% of the labour force are non-nationals workers). This is a high severity claim as it is a specific number related to the labour force in the Omani Health System.\",\"search_query\":\"44% Oman labour force non-nationals\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence is an empirical claim about the Omani Health System and provides a statistic (44% of the labour force are non-nationals workers). This is a high severity claim as it is a specific number related to the labour force in the Omani Health System.",
+          "search_query": "44% Oman labour force non-nationals",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 45 words; the limit is 25",
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 8185,
+      "tokens": 104,
+      "promptTokens": 393,
+      "prefillMs": 2677,
+      "decodeMs": 5443,
+      "decodeTokensPerSec": 19.107110049604998,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-033",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": false,\n  \"sentence_type\": \"definition\",\n  \"severity\": \"high\",\n  \"reason\": \"The sentence defines a term (Dhamani) that is introduced in the context of the Omani Health System and the Dhamani Scheme. It is an empirical claim about the system and its platform, which is high severity.\",\n  \"search_query\": \"Dhamani Oman national digital health-insurance platform\"\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "elapsedMs": 12232,
+      "tokens": 93,
+      "promptTokens": 1008,
+      "prefillMs": 7123,
+      "decodeMs": 5048,
+      "decodeTokensPerSec": 18.423137876386686,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "fatalErrors": [
+        "search_query: must be null when needs_citation is false"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-034",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence describes a requirement of a scheme, which is likely an empirical claim about the Omani Health System.\",\"search_query\":\"Omani Health System Dhamani Scheme private-sector businesses insurance\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence describes a requirement of a scheme, which is likely an empirical claim about the Omani Health System.",
+          "search_query": "Omani Health System Dhamani Scheme private-sector businesses insurance",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 6468,
+      "tokens": 73,
+      "promptTokens": 396,
+      "prefillMs": 2642,
+      "decodeMs": 3777,
+      "decodeTokensPerSec": 19.327508604712733,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-035",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"The statistics are provided in the previous sentence and are common knowledge in the context of health schemes.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The statistics are provided in the previous sentence and are common knowledge in the context of health schemes.",
+          "search_query": null,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 6264,
+      "tokens": 57,
+      "promptTokens": 441,
+      "prefillMs": 2987,
+      "decodeMs": 3234,
+      "decodeTokensPerSec": 17.625231910946198,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-036",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence describes a digital architecture developed by Dhamani, which is an empirical claim about the world.\",\"search_query\":\"Dhamani digital architecture Omani Health System\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence describes a digital architecture developed by Dhamani, which is an empirical claim about the world.",
+          "search_query": "Dhamani digital architecture Omani Health System",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 7046,
+      "tokens": 69,
+      "promptTokens": 413,
+      "prefillMs": 3008,
+      "decodeMs": 3993,
+      "decodeTokensPerSec": 17.280240420736288,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-037",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"The sentence is a general statement about the scheme's limitations and does not require citation as it is common knowledge.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a general statement about the scheme's limitations and does not require citation as it is common knowledge.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 6363,
+      "tokens": 61,
+      "promptTokens": 382,
+      "prefillMs": 2745,
+      "decodeMs": 3578,
+      "decodeTokensPerSec": 17.04863051984349,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-038",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence presents findings from a study or analysis, indicating that phased implementation, digital infrastructure, and targeted SME support are necessary for broad employer compliance but not individually sufficient. This is an empirical claim about the world.\",\"search_query\":\"GCC Regional Comparators phased implementation digital infrastructure targeted SME support employer compliance\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "interpretation"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence presents findings from a study or analysis, indicating that phased implementation, digital infrastructure, and targeted SME support are necessary for broad employer compliance but not individually sufficient. This is an empirical claim about the world.",
+          "search_query": "GCC Regional Comparators phased implementation digital infrastructure targeted SME support employer compliance",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 37 words; the limit is 25"
+      ],
+      "elapsedMs": 8833,
+      "tokens": 94,
+      "promptTokens": 395,
+      "prefillMs": 3137,
+      "decodeMs": 5636,
+      "decodeTokensPerSec": 16.67849538679915,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-039",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about health-insurance provision rates and associated firm characteristics, which requires citation.\",\"search_query\":\"Omani private-sector firms health insurance provision rates characteristics\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about health-insurance provision rates and associated firm characteristics, which requires citation.",
+          "search_query": "Omani private-sector firms health insurance provision rates characteristics",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7694,
+      "tokens": 69,
+      "promptTokens": 392,
+      "prefillMs": 3403,
+      "decodeMs": 4252,
+      "decodeTokensPerSec": 16.227657572906868,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-040",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Identifying structural factors associated with health insurance provision is an empirical claim that requires citation as it is a new finding.\",\"search_query\":\"firm structural factors health insurance provision\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Identifying structural factors associated with health insurance provision is an empirical claim that requires citation as it is a new finding.",
+          "search_query": "firm structural factors health insurance provision",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7683,
+      "tokens": 68,
+      "promptTokens": 388,
+      "prefillMs": 3431,
+      "decodeMs": 4209,
+      "decodeTokensPerSec": 16.15585649798052,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-041",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about a study design and method, which is high severity as it introduces a new research objective.\",\"search_query\":\"organisational resource capacity mediates firm size formal provision bootstrapped indirect effect\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about a study design and method, which is high severity as it introduces a new research objective.",
+          "search_query": "organisational resource capacity mediates firm size formal provision bootstrapped indirect effect",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8692,
+      "tokens": 79,
+      "promptTokens": 398,
+      "prefillMs": 3516,
+      "decodeMs": 5126,
+      "decodeTokensPerSec": 15.411626999609831,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-042",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"This is an empirical claim about associations between firm structural factors and health-insurance provision, which requires citation.\",\"search_query\":\"H1 Firm structural factors independently associated with formal health-insurance provision\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "This is an empirical claim about associations between firm structural factors and health-insurance provision, which requires citation.",
+          "search_query": "H1 Firm structural factors independently associated with formal health-insurance provision",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8853,
+      "tokens": 73,
+      "promptTokens": 396,
+      "prefillMs": 4082,
+      "decodeMs": 4726,
+      "decodeTokensPerSec": 15.446466356326704,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    }
+  ]
+}
