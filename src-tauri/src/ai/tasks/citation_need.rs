@@ -38,7 +38,13 @@ const PROMPT_VERSION_V3: &str = "citation_need-v3";
 /// the boolean as a description rather than before it as a determinant (D78).
 pub const PROMPT_VERSION_V4: &str = "citation_need-v4";
 /// What a caller gets if it does not choose.
-pub const PROMPT_VERSION: &str = PROMPT_VERSION_V3;
+/// §11 D78 ships v4 as the ADVISORY variant, so it is what `new()` builds.
+///
+/// This was v3 for one commit while the report already printed v4's measured
+/// 82%/43% — the engine would have produced 0% recall while the page claimed
+/// 82%. `advisory_figures_match_a_real_eval_of_the_shipped_prompt` now binds the
+/// two, so the default and the printed numbers cannot drift apart again.
+pub const PROMPT_VERSION: &str = PROMPT_VERSION_V4;
 
 /// Which INPUT layout to use. The SPEC RULES are byte-identical across both;
 /// only the arrangement of the input differs.
@@ -279,9 +285,10 @@ impl CitationNeedTask {
     /// Default to v2 — the variant measured to be less prone to classifying the
     /// wrong sentence.
     pub fn new(input: CitationNeedInput) -> Self {
-        // v3 by default: v2's layout, plus the own-work rule and the
-        // search_query constraint the first real audit proved were needed.
-        Self { input, variant: PromptVariant::V3 }
+        // v4 by default (§11 D78). v3 measured 0% recall on 41 cold labelled
+        // cases — it answered "no citation needed" to every one — so it cannot
+        // be what ships behind an advisory the report describes as catching 82%.
+        Self { input, variant: PromptVariant::V4 }
     }
     pub fn with_variant(input: CitationNeedInput, variant: PromptVariant) -> Self {
         Self { input, variant }
@@ -1045,8 +1052,21 @@ mod tests {
         assert_eq!(PromptVariant::parse("v3"), Some(PromptVariant::V3));
         assert_eq!(PromptVariant::parse("v4"), Some(PromptVariant::V4));
         assert_eq!(PromptVariant::parse("v5"), None);
-        // the default must be a real variant, not a third string. v4 is an
-        // EXPERIMENT (§11 D78) and is not the default until it is measured.
-        assert_eq!(PROMPT_VERSION, PROMPT_VERSION_V3);
+        // The default must be a real variant, not a third string — and it is
+        // now v4 (§11 D78/D79): v3 measured 0% recall on 41 cold labelled
+        // cases, so it cannot be what ships behind an advisory the report
+        // describes as catching 82%.
+        assert_eq!(PROMPT_VERSION, PROMPT_VERSION_V4);
+        assert_eq!(
+            CitationNeedTask::new(CitationNeedInput {
+                sentence: "S".into(),
+                preceding_sentence: String::new(),
+                following_sentence: String::new(),
+                section: String::new(),
+            })
+            .prompt_version(),
+            PROMPT_VERSION,
+            "new() builds a different variant than PROMPT_VERSION names"
+        );
     }
 }

@@ -180,3 +180,101 @@ fn labelled_cases_record_how_they_were_produced() {
         }
     }
 }
+
+/// §11 D79. The advisory figures printed to researchers must match a REAL eval
+/// of the prompt that actually ships.
+///
+/// `audit_report` prints `ADVISORY_RECALL_PCT` / `ADVISORY_PRECISION_PCT` in the
+/// report so the advisory claim is checkable (§11 D78). Nothing stopped those
+/// constants drifting from the engine: for one commit the default was v3 —
+/// measured at **0% recall** — while the report already advertised v4's 82%.
+///
+/// So this does not check that a report EXISTS. It finds the report for the
+/// SHIPPED prompt version, recomputes recall and precision from its per-case
+/// results against the cold labels, and asserts the constants match. Changing
+/// the prompt, the default variant, or either number without a matching eval run
+/// fails here — which is the only way a number printed to a user stays true.
+#[test]
+fn advisory_figures_match_a_real_eval_of_the_shipped_prompt() {
+    use app_lib::ai::tasks::citation_need::PROMPT_VERSION;
+    let shipped = PROMPT_VERSION;
+
+    let cases: std::collections::HashMap<String, serde_json::Value> =
+        std::fs::read_to_string("evals/citation_need.jsonl")
+            .expect("case file")
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).expect("case json");
+                (v["id"].as_str().unwrap_or_default().to_string(), v)
+            })
+            .collect();
+
+    // The report for the shipped prompt, whatever it is called.
+    let mut report = None;
+    for e in std::fs::read_dir("evals/reports").expect("reports dir").flatten() {
+        let raw = match std::fs::read_to_string(e.path()) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let v: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if v["promptVersion"].as_str() == Some(shipped) && v.get("results").is_some() {
+            report = Some(v);
+            break;
+        }
+    }
+    let report = report.unwrap_or_else(|| {
+        panic!(
+            "no eval report found for the SHIPPED prompt {shipped}. The report prints \
+             ADVISORY_RECALL_PCT/ADVISORY_PRECISION_PCT to researchers; they may not \
+             describe a prompt nobody has measured. Run: cargo run --release --bin \
+             ai-eval -- --task citation_need --cases evals/citation_need.jsonl --prompt \
+             <variant>"
+        )
+    });
+
+    // Recompute from the per-case results, over COLD labels only (§11 D75):
+    // a suggested-accepted label carries the model's own answer and cannot
+    // score it.
+    let (mut tp, mut fp, mut fn_) = (0u32, 0u32, 0u32);
+    for r in report["results"].as_array().expect("results") {
+        let id = r["id"].as_str().unwrap_or_default();
+        let Some(case) = cases.get(id) else { continue };
+        let Some(lab) = case.get("labelling") else { continue };
+        if lab["provenance"].as_str() != Some("cold") {
+            continue;
+        }
+        let want = case["expected"]["needs_citation"].as_bool();
+        let got = r["scored"]["got"]["needs_citation"].as_bool();
+        match (want, got) {
+            (Some(true), Some(true)) => tp += 1,
+            (Some(true), Some(false)) => fn_ += 1,
+            (Some(false), Some(true)) => fp += 1,
+            _ => {}
+        }
+    }
+    assert!(tp + fn_ > 0, "no cold true cases scored — the set cannot support a recall figure");
+
+    let recall = tp * 100 / (tp + fn_);
+    let precision = if tp + fp == 0 { 0 } else { tp * 100 / (tp + fp) };
+
+    // Integer division and rounding can differ by a point; more than that means
+    // the constants describe a different run.
+    let recall_const = gaply_core::audit_report::ADVISORY_RECALL_PCT;
+    let precision_const = gaply_core::audit_report::ADVISORY_PRECISION_PCT;
+    assert!(
+        recall.abs_diff(recall_const) <= 1,
+        "the report tells researchers recall is {recall_const}%, but the eval of the \
+         SHIPPED prompt {shipped} measures {recall}% (tp {tp}, fn {fn_}). Re-measure or \
+         correct the constant — this number is printed to users."
+    );
+    assert!(
+        precision.abs_diff(precision_const) <= 1,
+        "the report tells researchers precision is {precision_const}%, but the eval of the \
+         SHIPPED prompt {shipped} measures {precision}% (tp {tp}, fp {fp}). Re-measure or \
+         correct the constant — this number is printed to users."
+    );
+}

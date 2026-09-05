@@ -4116,3 +4116,59 @@ v2 and v4; no variant exceeds ~50% accuracy; type agreement is 25-31% throughout
 
 Re-measure `ADVISORY_RECALL_PCT` / `ADVISORY_PRECISION_PCT` before changing the
 model or the prompt — they are printed to users and they expire.
+
+### D79 — a guard that looks flaky gets ignored; and a printed number nothing enforced
+
+Two cleanups, and a bug found while doing the second.
+
+#### `verify-clean-checkout.sh` no longer builds in `$TMPDIR`
+
+macOS cleans `/var/folders/**/T` periodically, and it does so PARTIALLY: cargo's
+fingerprints survive while a build script's generated output does not. The guard
+then fails with
+
+```
+error: couldn't read .../libsqlite3-sys-*/out/bindgen.rs: No such file
+```
+
+which reads as a defect in a dependency and is nothing of the kind.
+
+**That is the third time in one session that temp-cleaning produced a false
+signal** — after `~/gaply-dev.log` and the eval logs — and it is the worst of the
+three, because **a guard that looks flaky gets ignored, and a guard that is
+ignored is not a guard.** The worktree and target now live under
+`$HOME/.cache/gaply` (override with `GAPLY_CLEAN_ROOT` / `GAPLY_CLEAN_TARGET`),
+the same reasoning CLAUDE.md already applies to the dev log: keep the thing you
+need after something went wrong out of the directories that are cleaned exactly
+when something goes wrong.
+
+#### The advisory figures were describing a prompt that did not ship
+
+D78 decided `citation_need` ships as v4 and the report prints its measured
+`82%` recall / `43%` precision so the claim is checkable. **The presentation was
+wired; the engine was not.** `PROMPT_VERSION` and `CitationNeedTask::new()` still
+built **v3 — measured at 0% recall** — so for one commit the report advertised
+catching 82% of uncited claims while the engine answered "no citation needed" to
+every one.
+
+Fixed: v4 is the default. **And the class of error is now enforced rather than
+remembered.**
+
+`advisory_figures_match_a_real_eval_of_the_shipped_prompt` does not check that a
+report EXISTS. It finds the report whose `promptVersion` matches the SHIPPED
+constant, recomputes recall and precision from its per-case results against the
+COLD labels only (§11 D75 — a suggested-accepted label carries the model's own
+answer and cannot score it), and asserts the printed constants match within a
+point.
+
+Verified against both drift modes rather than assumed:
+
+- constant edited 43 -> 60: *"the report tells researchers precision is 60%, but
+  the eval of the SHIPPED prompt citation_need-v4 measures 43% (tp 14, fp 18)"*
+- default reverted to v3: *"the report tells researchers recall is 82%, but the
+  eval of the SHIPPED prompt citation_need-v3 measures 0% (tp 0, fn 17)"* —
+  which is exactly the bug that had shipped
+
+Changing the prompt, the default variant, or either number without a matching
+eval run now fails in the test rather than in a researcher's report. **That is
+the only way a number printed to a user stays true.**

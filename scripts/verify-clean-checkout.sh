@@ -34,8 +34,27 @@ set -euo pipefail
 
 REF="${1:-HEAD}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORKTREE="$(mktemp -d "${TMPDIR:-/tmp}/gaply-clean-XXXXXX")"
-TARGET_DIR="${GAPLY_CLEAN_TARGET:-${TMPDIR:-/tmp}/gaply-clean-target}"
+# NEITHER OF THESE MAY LIVE IN $TMPDIR (§11 D79).
+#
+# macOS periodically cleans /var/folders/**/T, and it does so PARTIALLY: cargo's
+# fingerprints survive while a build script's generated output does not. The
+# result is a guard that fails with
+#
+#   error: couldn't read .../libsqlite3-sys-*/out/bindgen.rs: No such file
+#
+# which reads as a code defect in a dependency and is nothing of the kind. That
+# is the third time in one session that temp-cleaning produced a false signal
+# here — after ~/gaply-dev.log and the eval logs — and it is the worst of the
+# three, because a GUARD that looks flaky gets ignored, and a guard that gets
+# ignored is not a guard.
+#
+# $HOME is the same reasoning CLAUDE.md already applies to the dev log: keep the
+# thing you need after something went wrong outside the directories that are
+# cleaned exactly when something goes wrong.
+CACHE_ROOT="${GAPLY_CLEAN_ROOT:-$HOME/.cache/gaply}"
+mkdir -p "$CACHE_ROOT"
+WORKTREE="$(mktemp -d "$CACHE_ROOT/clean-XXXXXX")"
+TARGET_DIR="${GAPLY_CLEAN_TARGET:-$CACHE_ROOT/clean-target}"
 
 cleanup() {
   if [[ -n "${KEEP:-}" ]]; then
