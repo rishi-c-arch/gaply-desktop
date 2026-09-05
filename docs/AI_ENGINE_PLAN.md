@@ -4480,3 +4480,19 @@ because it still reads as one. Now: collect every matching report, sort by
 newest — with the chosen report's filename in every failure message, so the
 assertion says which measurement it is speaking for.
 
+### D84 — FOLLOW-UP, NOT DONE: `ai_index_document` has no D80 guard
+
+D80 refuses our own report at the audit pre-pass. `ai_index_document` parses a
+PDF on a different path — `parse_path_paged` straight into `ai_chunks` — and has
+no such check.
+
+**This is worse than the mis-audit it is adjacent to.** Indexing an audit report
+as a source document makes it retrievable evidence, so `citation_support` can
+quote Gaply's own prose back as the source a claim was checked against. D18's
+whole premise is that a finding is trustworthy because the evidence beside it
+came from a real document; this would satisfy the letter of that and violate its
+point, and the resulting card would look exactly like a genuine one.
+
+Not fixed here: it is a different path with a different refusal decision to make
+(refuse outright, or index but exclude from retrieval), and the detector is
+already in `gaply_core` and callable from both.
