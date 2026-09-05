@@ -4780,3 +4780,50 @@ written.
 So the refusal text becomes one shared constant, and the Manager gains the
 fetch/attach action the Audit already offers. Same condition, same message, same
 next step.
+
+### D91 — the PDF was never the problem; the delivery was
+
+"Exported PDFs download as .txt". Both PDF generators were checked first, on
+REAL FILES rather than on bytes in memory:
+
+| path | mechanism | the file on disk |
+|---|---|---|
+| Thesis audit export | Tauri `save()` + `writeFile` | `PDF document, version 1.4, 18 pages`, `com.adobe.pdf` — **correct** |
+| `miniPdf` (PublishReady) | — | `PDF document, version 1.4, 1 pages` — **bytes correct** |
+
+Both produce a valid `%PDF-1.4` … `%%EOF`. **Neither generator is broken**, and
+the one export that reaches disk through the native dialog has been landing as a
+real PDF all along.
+
+The difference is the delivery. `downloadReportPdf` builds a Blob and clicks an
+`<a download>` — the browser pattern — **in the desktop app**, where the webview
+handles the download rather than the OS, and the name and extension it was given
+are not what it saves.
+
+**This repo already knew.** `saveTextFile` exists precisely because of it, and
+says so in its own header:
+
+> The native Tauri save dialog + writeTextFile in the desktop app; a Blob
+> download in the browser. **The native dialog sidesteps the webview's
+> download-scope limits.**
+
+Text got that treatment. Binary never did, so the PDF export kept the pattern the
+text export had already abandoned.
+
+#### `saveBinaryFile`, the sibling that should have existed
+
+Same contract as `saveTextFile` — cancel → `null`, write failure → throws,
+success → the path — over `Uint8Array` instead of `String`, and used by BOTH PDF
+exports so there is one binary save path rather than two.
+
+Two things it adds that neither caller had:
+
+- **A dialog filter.** `save({ defaultPath })` with no `filters` lets the panel
+  decide what the extension means. Naming the type keeps `.pdf` attached.
+- **An extension check on the returned path**, because a filter is a request to
+  the OS and the returned path is the fact. Appended when missing, which is also
+  the half that can be tested without driving a real dialog.
+
+Tested on the FILE, not the bytes: the suite writes the exported PDF to a real
+path and asserts `file`-level truth — the `%PDF-` header, the `%%EOF` trailer,
+and a `.pdf` extension that survived the round trip.

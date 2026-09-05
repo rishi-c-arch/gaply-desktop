@@ -6,6 +6,7 @@
 // tier + provenance, plus the mandatory disclaimer.
 import { AGENT_LABEL, PublishReadyReport, sortFindings } from './reportTypes';
 import { disclosuresFor, PdfLine, renderTextPdf } from './miniPdf';
+import { saveBinaryFile } from '../../utils/saveBinaryFile';
 
 function reportLines(report: PublishReadyReport, title: string): PdfLine[] {
   const lines: PdfLine[] = [];
@@ -57,15 +58,23 @@ export async function reportPdfBlob(report: PublishReadyReport, title = 'Gaply I
   return renderTextPdf(reportLines(report, title));
 }
 
-/** Trigger a local download of the PDF (browser/Tauri webview). */
-export async function downloadReportPdf(report: PublishReadyReport, filename = 'gaply-report.pdf'): Promise<void> {
+/**
+ * Save the report as a PDF (§11 D91).
+ *
+ * This used to click an `<a download>` unconditionally — the browser pattern,
+ * inside the desktop webview, which is exactly what `saveTextFile` was written
+ * to stop doing for text. The bytes were always a valid PDF; the file that
+ * arrived was not one. `saveBinaryFile` takes the native dialog on the desktop
+ * and keeps the anchor for real browsers.
+ *
+ * Returns the saved path on the desktop, or null when the user cancelled or the
+ * browser handled it.
+ */
+export async function downloadReportPdf(
+  report: PublishReadyReport,
+  filename = 'gaply-report.pdf',
+): Promise<string | null> {
   const blob = await reportPdfBlob(report);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return saveBinaryFile(filename, bytes, 'application/pdf');
 }

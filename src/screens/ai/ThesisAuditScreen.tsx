@@ -17,6 +17,7 @@ import { aiBridge, AuditPlan, JobProgressEvent, ThesisAuditPreview, errorText } 
 import { describeOaOutcome } from './oaOutcome';
 import { EvidenceCard, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
+import { saveBinaryFile } from '../../utils/saveBinaryFile';
 
 /**
  * Per-item seconds for the projection BEFORE a run has measured anything,
@@ -335,11 +336,15 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
       setExportNote(null);
       try {
         const r = await bridge.exportAuditReport(jobId, manuscriptLabel, format);
-        const { save } = await import('@tauri-apps/plugin-dialog');
-        const path = await save({ defaultPath: r.suggestedName });
+        // §11 D91. One binary save path, shared with the PublishReady export —
+        // this one already used the native dialog, but with no filter, so the
+        // panel was left to decide what the extension meant.
+        const path = await saveBinaryFile(
+          r.suggestedName,
+          new Uint8Array(r.bytes),
+          format === 'pdf' ? 'application/pdf' : 'text/html',
+        );
         if (!path) return;
-        const { writeFile } = await import('@tauri-apps/plugin-fs');
-        await writeFile(path, new Uint8Array(r.bytes));
         setExportNote(`Saved to ${path}`);
       } catch (e) {
         setExportNote(errorText(e));
