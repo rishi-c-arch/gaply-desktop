@@ -31,7 +31,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         m.needs_citation.len(),
         m.unverifiable.len(),
         m.failed.len(),
-        gaply_core::audit_report::health_score(&m)
+        match gaply_core::audit_report::health_score(&m) {
+            Some(h) => format!("{h}"),
+            None => "(too few checked to score)".into(),
+        }
     );
 
     // §11 D72: how many items carry a locator. A .docx has no pages, so this

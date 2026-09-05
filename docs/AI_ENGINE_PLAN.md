@@ -4040,3 +4040,79 @@ why", with the type emitted afterwards as description, or not at all) tests that
 directly, and tests D59 item 1 from a different angle: if the boolean improves
 once it stops being derived from a misclassification, the coupling was
 STRUCTURAL rather than a wording problem.
+
+### D78 — `citation_need` ships ADVISORY; `citation_support` is the feature
+
+Three prompt variants, the same 41 cold labelled cases, the same device:
+
+| arm | TP | FN | FP | TN | accuracy | **recall** | **precision** | type agree |
+|---|---|---|---|---|---|---|---|---|
+| v3 (own-work addendum) | 0 | 17 | 0 | 24 | 58% | **0%** | — | 31% |
+| v2 (pre-D58) | 11 | 5 | 15 | 9 | 50% | 68% | 42% | 25% |
+| **v4 (type demoted)** | 14 | 3 | **18** | 6 | 48% | **82%** | **43%** | 29% |
+
+#### v4 answers D59 item 1: the coupling was NOT structural
+
+v4 emits `needs_citation` and `reason` BEFORE `sentence_type`, so the boolean is
+no longer generated downstream of a classification — the hypothesis being that
+D77's 25-37% type agreement was causing the answer.
+
+**Recall moved 0% -> 82%. Precision moved 42% -> 43%.** Type agreement stayed
+flat (29% vs v3's 31%). Breaking the structural dependency changed the DIRECTION
+of the errors and not their rate: all three variants are thresholds on the same
+undiscriminating signal, and accuracy falls monotonically as recall rises
+(58% -> 50% -> 48%), which is what trading one error for another looks like.
+
+**So the reason/verdict coupling was a symptom, not a cause.** Removing it does
+not recover judgement, and no further wording is worth measuring: three variants
+spanning the full behavioural range all land at <=50% accuracy, and D64 already
+established that rules compete rather than accumulate on this model.
+
+**The 3B cannot make this call.** That is the finding.
+
+#### DECISION 1 — advisory, never a verdict
+
+At 82% recall / 43% precision, "here are sentences worth a glance" is honest and
+useful; "these need citations" is not — fewer than half are real. Wired end to
+end, and if a researcher can read it as a verdict anywhere, it is not done:
+
+- **The health score excludes it entirely.** The score now covers only claims
+  checked against a real source. `advisory_suggestions_do_not_move_the_score`
+  asserts fifty advisory items shift it by zero.
+- **No score below `MIN_SCOREABLE` (10) checked claims.** "0/100" from n=2 is as
+  misleading as the 97/100 it replaces, so the report says *"a percentage from
+  that few would be noise rather than a measurement"* instead.
+- **The measured precision is IN the report**, so the claim is checkable — the
+  same rule the score follows: *"it flagged 82% of the sentences that genuinely
+  needed a citation — but only 43% of what it flagged actually did."*
+- **The section is "Worth a second look — suggestions, not findings"** and opens
+  with the caveat, not the list.
+- **The attention list is evidence-backed only.** A 43%-precision suggestion
+  cannot appear under "most need your attention".
+- **The breakdown keeps separate bars.** Summing an advisory item with a checked
+  finding is the conflation the score just removed.
+
+**And the section lists only sentences actually FLAGGED.** `needs_citation`
+carries every judged uncited sentence; on the real manuscript 65 of 65 came back
+"no citation needed", and the section was listing all 65 — presenting 65
+non-suggestions as a review list. Filtered, the report drops from 783 rendered
+lines to 296 and the section honestly reads "None found."
+
+#### DECISION 2 — `citation_support` leads
+
+It checks prose against a real fetched source, and this session it caught a
+genuine miscitation (the paper attributes ISEAR to `[22]`, which is SemEval-2018,
+a tweet corpus). That is the half worth trusting, so the structure says so:
+**evidence-backed findings lead, advisory suggestions follow.**
+
+Order: the counts -> claims checked against their source -> cited but not
+checkable -> worth a second look -> not judged.
+
+#### What 41 cold cases supports
+
+**Supported** (large effects): v4 recovers recall; precision is ~42-43% for both
+v2 and v4; no variant exceeds ~50% accuracy; type agreement is 25-31% throughout.
+**NOT supported**: v4 vs v2 on precision (one case), or any ranking between them.
+
+Re-measure `ADVISORY_RECALL_PCT` / `ADVISORY_PRECISION_PCT` before changing the
+model or the prompt — they are printed to users and they expire.

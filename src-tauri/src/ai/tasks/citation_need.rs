@@ -33,7 +33,10 @@ pub const PROMPT_VERSION_V1: &str = "citation_need-v1";
 pub const PROMPT_VERSION_V2: &str = "citation_need-v2";
 /// v3 — the own-work rule stated explicitly, with worked examples, and the
 /// validator's `search_query` constraint written into the prompt.
-pub const PROMPT_VERSION_V3: &str = "citation_need-v3";
+const PROMPT_VERSION_V3: &str = "citation_need-v3";
+/// v4 — the decision made on its own terms, with `sentence_type` emitted AFTER
+/// the boolean as a description rather than before it as a determinant (D78).
+pub const PROMPT_VERSION_V4: &str = "citation_need-v4";
 /// What a caller gets if it does not choose.
 pub const PROMPT_VERSION: &str = PROMPT_VERSION_V3;
 
@@ -46,6 +49,10 @@ pub enum PromptVariant {
     /// Context first and subordinate, then the target sentence LAST, labelled,
     /// immediately before the output instruction.
     V2,
+    /// The decision made on its own terms, with `sentence_type` emitted AFTER
+    /// the boolean as a description rather than before it as a determinant
+    /// (§11 D78).
+    V4,
     /// V2's layout with [`RULES_V3_ADDENDUM`]: the own-work rule stated
     /// explicitly with worked examples, and the validator's `search_query`
     /// constraint written into the prompt rather than left to be discovered.
@@ -58,6 +65,7 @@ impl PromptVariant {
             PromptVariant::V1 => PROMPT_VERSION_V1,
             PromptVariant::V2 => PROMPT_VERSION_V2,
             PromptVariant::V3 => PROMPT_VERSION_V3,
+            PromptVariant::V4 => PROMPT_VERSION_V4,
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -65,6 +73,7 @@ impl PromptVariant {
             "v1" | PROMPT_VERSION_V1 => Some(PromptVariant::V1),
             "v2" | PROMPT_VERSION_V2 => Some(PromptVariant::V2),
             "v3" | PROMPT_VERSION_V3 => Some(PromptVariant::V3),
+            "v4" | PROMPT_VERSION_V4 => Some(PromptVariant::V4),
             _ => None,
         }
     }
@@ -177,6 +186,58 @@ const RULES: &str = r#"- needs_citation = true for: empirical claims about the w
 /// the variants that were measured — a version that silently changed its rules
 /// would make every earlier eval number a claim about a prompt that no longer
 /// exists.
+/// v4's schema. THE FIELD ORDER IS THE EXPERIMENT (§11 D78).
+///
+/// Generation is left to right, so a schema that emits `sentence_type` before
+/// `needs_citation` makes the boolean a FUNCTION of the type — and D77 measured
+/// type agreement at 25-37%, with v2 and v3 failing as exact mirror images
+/// (`empirical_claim` over-used 12x / under-used 12x). The boolean was downstream
+/// of a misclassification in both.
+///
+/// Here the decision and its reason come FIRST, on their own terms. The type is
+/// emitted afterwards as a DESCRIPTION of a decision already made, so it can no
+/// longer cause the answer.
+const OUTPUT_SCHEMA_V4: &str = r#"{
+  "needs_citation": true|false,
+  "reason": string,
+  "search_query": string|null,
+  "sentence_type": "empirical_claim|statistic|definition|prior_work|method_borrowed|
+                    common_knowledge|author_own_result|transition|interpretation|hedged_speculation",
+  "severity": "high|medium|low"
+}"#;
+
+/// v4's rules. The SAME judgements as v1-v3, asked as one question rather than
+/// routed through a taxonomy.
+///
+/// v3's own-work content is kept — D58 measured it working (18 own-work false
+/// positives -> 2) — but stated as a fact about the SENTENCE rather than as a
+/// type to assign. D77 showed v3 overshot into blanket suppression; the wording
+/// here removes the "classify, then decide" step without removing the rule.
+const RULES_V4: &str = r#"ONE QUESTION: would a reader need a source to check this sentence?
+
+Answer it directly. Do not classify the sentence first.
+
+Say TRUE when the sentence asserts something a reader could look up and verify
+in someone else's work: a fact about the world, a number taken from elsewhere,
+someone else's finding, method or definition, or a claim about what is known in
+the field.
+
+Say FALSE when there is nothing external to check against: the authors' own
+results, numbers they measured themselves, their own method, algorithm or
+experimental setup, their own hardware, a pointer to their own figure or table,
+a transition, or a statement so ordinary that no source would be offered for it.
+
+A NUMBER IS NOT A REASON TO SAY TRUE. A number the authors measured is theirs;
+only a number taken FROM someone else needs a source.
+
+BEING IN THE INTRODUCTION IS NOT A REASON TO SAY TRUE, and being in Results is
+not a reason to say false. Ask what the sentence asserts, not where it sits.
+
+- reason: <= 25 words, and it must state WHAT would be checked and against whom.
+- search_query: 6-12 keywords, only when needs_citation is true; otherwise null.
+- sentence_type and severity DESCRIBE the answer you have already given. They do
+  not decide it. Severity may be omitted when needs_citation is false."#;
+
 const RULES_V3_ADDENDUM: &str = r#"
 
 THE TWO RULES THAT ARE MOST OFTEN GOT WRONG. Apply these last, and let them
@@ -259,6 +320,35 @@ impl CitationNeedTask {
     /// NOT to be classified, then puts the target LAST under its own heading,
     /// immediately before the output instruction — the position a decoder
     /// weights most heavily.
+    /// v4: the question asked once, the type demoted to a description.
+    ///
+    /// Deliberately keeps v2's LAYOUT — context first, target last — so the only
+    /// difference from the measured variants is the schema order and the rules,
+    /// not where the sentence sits. "SENTENCE TO JUDGE", not "CLASSIFY".
+    fn build_v4(&self) -> String {
+        format!(
+            "<|im_start|>system\n{SYSTEM}\n<|im_end|>\n\
+             <|im_start|>user\n\
+             OUTPUT SCHEMA\n{OUTPUT_SCHEMA_V4}\n\n\
+             {RULES_V4}\n\n\
+             CONTEXT (background only — do NOT judge these)\n\
+             section: {section}\n\
+             previous sentence: {prev}\n\
+             next sentence: {next}\n\n\
+             SENTENCE TO JUDGE\n\
+             {target}\n\n\
+             Judge ONLY the sentence above. Decide needs_citation FIRST, then \
+             write the reason that justifies it. \
+             Output the JSON object now, beginning with {{\n\
+             <|im_end|>\n\
+             <|im_start|>assistant\n",
+            prev = self.input.preceding_sentence,
+            target = self.input.sentence,
+            next = self.input.following_sentence,
+            section = self.input.section,
+        )
+    }
+
     fn build_v2(&self) -> String {
         format!(
             "<|im_start|>system\n{SYSTEM}\n<|im_end|>\n\
@@ -329,6 +419,7 @@ impl AiTask for CitationNeedTask {
                 &format!("RULES\n{RULES}\n"),
                 &format!("RULES\n{RULES}{RULES_V3_ADDENDUM}\n"),
             ),
+            PromptVariant::V4 => self.build_v4(),
         }
     }
 
@@ -904,13 +995,58 @@ mod tests {
         assert!(v3.contains("TARGET SENTENCE") == v2.contains("TARGET SENTENCE"));
     }
 
+    /// §11 D78. The field ORDER is the experiment: the boolean and its reason
+    /// must precede `sentence_type`, because generation is left to right and a
+    /// type emitted first makes the answer a function of a classification that
+    /// D77 measured at 25-37% agreement.
+    #[test]
+    fn v4_decides_before_it_classifies() {
+        let t = CitationNeedTask::with_variant(
+            CitationNeedInput {
+                sentence: "S".into(),
+                preceding_sentence: String::new(),
+                following_sentence: String::new(),
+                section: "Introduction".into(),
+            },
+            PromptVariant::V4,
+        );
+        let p = t.build_prompt();
+        let needs = p.find("\"needs_citation\"").expect("no needs_citation in schema");
+        let reason = p.find("\"reason\"").expect("no reason in schema");
+        let stype = p.find("\"sentence_type\"").expect("no sentence_type in schema");
+        assert!(needs < reason, "the reason must follow the decision it justifies");
+        assert!(
+            reason < stype,
+            "sentence_type precedes the boolean — the answer is a function of the \
+             classification again, which is the defect D78 exists to remove"
+        );
+        // And it must not ask the model to classify first.
+        assert!(!p.contains("SENTENCE TO CLASSIFY"), "still framed as classification");
+        assert!(p.contains("SENTENCE TO JUDGE"));
+        assert!(p.contains("Do not classify the sentence first"));
+        // v3 is untouched — its measured numbers must stay claims about it.
+        let v3 = CitationNeedTask::with_variant(
+            CitationNeedInput {
+                sentence: "S".into(),
+                preceding_sentence: String::new(),
+                following_sentence: String::new(),
+                section: "Introduction".into(),
+            },
+            PromptVariant::V3,
+        )
+        .build_prompt();
+        assert!(v3.contains("SENTENCE TO CLASSIFY"), "v3 drifted");
+    }
+
     #[test]
     fn variant_parsing_accepts_short_and_full_names() {
         assert_eq!(PromptVariant::parse("v1"), Some(PromptVariant::V1));
         assert_eq!(PromptVariant::parse("citation_need-v2"), Some(PromptVariant::V2));
         assert_eq!(PromptVariant::parse("v3"), Some(PromptVariant::V3));
-        assert_eq!(PromptVariant::parse("v4"), None);
-        // the default must be a real variant, not a third string
+        assert_eq!(PromptVariant::parse("v4"), Some(PromptVariant::V4));
+        assert_eq!(PromptVariant::parse("v5"), None);
+        // the default must be a real variant, not a third string. v4 is an
+        // EXPERIMENT (§11 D78) and is not the default until it is measured.
         assert_eq!(PROMPT_VERSION, PROMPT_VERSION_V3);
     }
 }

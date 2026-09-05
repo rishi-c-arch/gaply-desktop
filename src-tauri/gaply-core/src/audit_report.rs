@@ -178,15 +178,28 @@ fn attention_rank(item: &ReportItem) -> u8 {
 /// be checked counts nothing either but is reported separately so the score is
 /// never mistaken for a clean bill. A score with a hidden formula is worse than
 /// no score, so the denominator is printed beside it.
-pub fn health_score(m: &AuditReportModel) -> u32 {
-    let attention = m.supported.iter().filter(|i| attention_rank(i) < 9).count()
-        + m.needs_citation.iter().filter(|i| attention_rank(i) < 9).count();
-    let judged = m.supported.len() + m.needs_citation.len();
-    if judged == 0 {
-        return 0;
+pub fn health_score(m: &AuditReportModel) -> Option<u32> {
+    let attention = m.supported.iter().filter(|i| attention_rank(i) < 9).count();
+    let judged = m.supported.len();
+    // Fewer than this and a percentage is noise dressed as a measurement: with
+    // two checked claims, one weak verdict is "50%".
+    if judged < MIN_SCOREABLE {
+        return None;
     }
-    (((judged - attention) as f64 / judged as f64) * 100.0).round() as u32
+    Some((((judged - attention) as f64 / judged as f64) * 100.0).round() as u32)
 }
+
+/// The fewest evidence-backed findings a /100 score may be computed from.
+pub const MIN_SCOREABLE: usize = 10;
+
+/// `citation_need`'s MEASURED precision, stated in the report so the advisory
+/// claim is checkable (§11 D78).
+///
+/// 41 cold labelled cases, `citation_need-v4`, 3B on Metal: recall 82%,
+/// precision 43% — 14 of 32 flagged sentences actually needed a citation. These
+/// are numbers about a MODEL and they expire; re-measure before changing them.
+pub const ADVISORY_RECALL_PCT: u32 = 82;
+pub const ADVISORY_PRECISION_PCT: u32 = 43;
 
 /// Emit ONE judged item, D18-safe.
 ///
@@ -377,10 +390,12 @@ fn bar(n: usize, total: usize) -> String {
 /// and buried the one contradiction on page 9. Severity decides the order here;
 /// document position only breaks ties.
 fn attention_list(m: &AuditReportModel) -> Vec<&ReportItem> {
+    // EVIDENCE-BACKED ONLY (§11 D78). An advisory suggestion at 43% precision
+    // must not appear in a list headed "most need your attention" — that is a
+    // verdict's framing, and fewer than half of them are real.
     let mut v: Vec<&ReportItem> = m
         .supported
         .iter()
-        .chain(m.needs_citation.iter())
         .filter(|i| attention_rank(i) < 9)
         .collect();
     v.sort_by_key(|i| (attention_rank(i), i.seq));
@@ -412,76 +427,99 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     let score = health_score(m);
 
     out.push(heading("At a glance", 1));
-    out.push(Block::Badge {
-        text: format!("health {score} / 100"),
-        tone: match score {
-            80..=100 => Tone::Good,
-            50..=79 => Tone::Warn,
-            _ => Tone::Bad,
-        },
-    });
-    // §11 D74. The score's BASIS, not just its value. On a real manuscript 65
-    // of 67 "clean" items were the model answering "no citation needed" — a
-    // correct answer for a methods-and-results paper, but "97/100" alone reads
-    // as "almost nothing to fix". A researcher must be able to see that the
-    // number rests overwhelmingly on judgements DECLINED rather than issues
-    // ruled out.
-    let declined = m
-        .needs_citation
-        .iter()
-        .filter(|i| i.verdict.as_deref() == Some("no_citation_needed"))
-        .count();
-    out.push(para(format!(
-        "{score}/100 — {} of {} items were judged not to need a citation; {} raised {}.",
-        judged.saturating_sub(attention.len()),
-        judged,
-        attention.len(),
-        if attention.len() == 1 { "an issue" } else { "issues" },
-    )));
-    out.push(para(format!(
-        "The score is that fraction and nothing else — it counts no opinion Gaply did not form. \
-         {} of those {} the model deciding a sentence needs no citation, which is not the same as \
-         confirming the sentence is sound. The {} sentence{} Gaply could not check at all {} \
-         excluded from the score and listed separately.",
-        if declined == 0 { "None".to_string() } else { format!("{declined}") },
-        if declined == 1 { "is" } else { "are" },
-        m.unverifiable.len(),
-        if m.unverifiable.len() == 1 { "" } else { "s" },
-        if m.unverifiable.len() == 1 { "is" } else { "are" },
-    )));
 
-    // The breakdown, as proportions rather than a list of numbers to hold in
-    // your head.
-    let total_bar = judged + m.unverifiable.len() + m.failed.len();
+    // THE SCORE IS ABOUT EVIDENCE-BACKED FINDINGS ONLY (§11 D78).
+    //
+    // It used to average in `citation_need`, whose measured precision is 43% —
+    // fewer than half its flags are real. Folding an advisory signal into a
+    // health number makes the number advisory too, and it was not labelled that
+    // way: 65 declinations produced "97/100" on a paper with a real miscitation.
+    let checked = m.supported.len();
+    let failing = m.supported.iter().filter(|i| attention_rank(i) < 9).count();
+    match health_score(m) {
+        Some(score) => {
+            out.push(Block::Badge {
+                text: format!("health {score} / 100"),
+                tone: match score {
+                    80..=100 => Tone::Good,
+                    50..=79 => Tone::Warn,
+                    _ => Tone::Bad,
+                },
+            });
+            out.push(para(format!(
+                "{score}/100 — of {checked} claims checked against their cited source, {} held up \
+                 and {failing} did not. The score covers ONLY claims Gaply could check against real \
+                 evidence.",
+                checked - failing,
+            )));
+        }
+        None if checked == 0 => {
+            out.push(Block::Badge { text: "no score".into(), tone: Tone::Neutral });
+            out.push(para(
+                "No score: not one claim could be checked against its cited source, so there is \
+                 nothing to score. The sections below say why, and what would make a check \
+                 possible.",
+            ));
+        }
+        None => {
+            out.push(Block::Badge { text: "too few to score".into(), tone: Tone::Neutral });
+            out.push(para(format!(
+                "No score: only {checked} claim{} could be checked against a cited source, and a \
+                 percentage from that few would be noise rather than a measurement. {} held up, \
+                 {failing} did not — the findings themselves are below.",
+                if checked == 1 { "" } else { "s" },
+                checked - failing,
+            )));
+        }
+    }
+    out.push(Block::Note {
+        text: format!(
+            "The score does NOT include the “worth a second look” suggestions. Those come from a \
+             language model reading each sentence on its own, and on a labelled test set it \
+             flagged {ADVISORY_RECALL_PCT}% of the sentences that genuinely needed a citation — \
+             but only {ADVISORY_PRECISION_PCT}% of what it flagged actually did. They are a prompt \
+             to look, not a finding, and averaging them into a score would make the score a guess."
+        ),
+    });
+
+    // The breakdown. Evidence-backed and advisory are SEPARATE BARS, never
+    // summed — a chart that adds a 43%-precision suggestion to a checked
+    // finding is the same conflation the score just removed (§11 D78).
+    let total_bar = checked + m.unverifiable.len() + m.failed.len() + m.needs_citation.len();
     out.push(para("The whole manuscript, proportionally:"));
     out.push(bullet(
-        format!("needs your attention   {}", bar(attention.len(), total_bar)),
+        format!("checked, did not hold up  {}", bar(failing, total_bar)),
         0,
     ));
     out.push(bullet(
-        format!("clean                  {}", bar(judged - attention.len(), total_bar)),
+        format!("checked, held up          {}", bar(checked - failing, total_bar)),
         0,
     ));
     out.push(bullet(
-        format!("not checkable          {}", bar(m.unverifiable.len(), total_bar)),
+        format!("could not be checked      {}", bar(m.unverifiable.len(), total_bar)),
+        0,
+    ));
+    out.push(bullet(
+        format!("suggestions only          {}", bar(m.needs_citation.len(), total_bar)),
         0,
     ));
     if !m.failed.is_empty() {
-        out.push(bullet(format!("not judged             {}", bar(m.failed.len(), total_bar)), 0));
+        out.push(bullet(format!("not judged                {}", bar(m.failed.len(), total_bar)), 0));
     }
 
     if !attention.is_empty() {
         const TOP: usize = 10;
         out.push(heading(
             format!(
-                "The {} item{} that most need your attention",
+                "The {} checked claim{} that most need your attention",
                 attention.len().min(TOP),
                 if attention.len().min(TOP) == 1 { "" } else { "s" }
             ),
             2,
         ));
         out.push(para(
-            "Most serious first. Each is repeated in full, with its evidence, in the sections              that follow.",
+            "Most serious first, and EVIDENCE-BACKED — every one was checked against the source \
+             it cites. The suggestions are listed separately and are not ranked here.",
         ));
         for it in attention.iter().take(TOP) {
             out.push(bullet(
@@ -552,26 +590,40 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     // Order of the detail sections follows what the reader can act on: the
     // library gap is one batch action away from being fixed, so it comes before
     // the per-sentence reading.
-    out.push(Block::PageBreak);
-    emit_blocked_sources(&mut out, &m.unverifiable, m.has_pages);
-
-    out.push(Block::PageBreak);
-    emit_section(
-        &mut out,
-        "Sentences that may need a citation",
-        "These sentences carry no citation. Whether they need one is a judgement, not a fact, and \
-         it is the model's.",
-        &m.needs_citation,
-        m.has_pages,
-    );
-
+    // ORDER (§11 D78): evidence-backed findings LEAD. `citation_support` checks
+    // prose against a real source and is the half worth trusting; the advisory
+    // list follows it rather than competing with it for the reader's attention.
     out.push(Block::PageBreak);
     emit_section(
         &mut out,
         "Claims checked against their source",
         "Each sentence below cites a source Gaply could read. The quoted passage is what the \
-         verdict rests on — read it before the verdict.",
+         verdict rests on — read it before the verdict. THIS IS THE EVIDENCE-BACKED SECTION.",
         &m.supported,
+        m.has_pages,
+    );
+
+    out.push(Block::PageBreak);
+    emit_blocked_sources(&mut out, &m.unverifiable, m.has_pages);
+
+    // ONLY the sentences actually flagged. `needs_citation` carries every
+    // judged uncited sentence, and on a real manuscript 65 of 65 came back
+    // "no citation needed" — listing those under "worth a second look" would
+    // present 65 non-suggestions as a list of things to review (§11 D78).
+    let flagged: Vec<ReportItem> = m
+        .needs_citation
+        .iter()
+        .filter(|i| i.verdict.as_deref() == Some("needs_citation"))
+        .cloned()
+        .collect();
+    out.push(Block::PageBreak);
+    emit_section(
+        &mut out,
+        "Worth a second look — suggestions, not findings",
+        "SUGGESTIONS. These sentences carry no citation and a language model thought they might \
+         need one. It is right slightly under half the time, so treat this as a list to skim, not \
+         a list of problems. Nothing here was checked against any source.",
+        &flagged,
         m.has_pages,
     );
 
@@ -860,55 +912,107 @@ mod tests {
         assert!(text.contains("not a defect in the writing"), "{text}");
     }
 
-    /// §11 D74. A high score built on DECLINED judgements must say so.
+    /// §11 D78. The score covers EVIDENCE-BACKED findings only.
     ///
-    /// The real shape from job 10 on `R PAPER .docx`: 65 of 67 judged items
-    /// came back "no citation needed" — correct for a methods-and-results
-    /// paper — and the report said "health 97 / 100" with nothing to indicate
-    /// the number rested on the model declining to flag rather than on issues
-    /// ruled out. Arithmetically right, and read as "almost nothing to fix".
+    /// `citation_need` measures 43% precision — fewer than half its flags are
+    /// real — so averaging it into a health number makes the number advisory
+    /// too. Before this, 65 declinations produced "97/100" on a paper with a
+    /// genuine miscitation.
     #[test]
-    fn a_score_resting_on_declined_judgements_says_so() {
+    fn advisory_suggestions_do_not_move_the_score() {
         let mut m = model();
-        m.supported = vec![ReportItem {
-            seq: 1,
-            sentence: "A weak claim.".into(),
-            verdict: Some("weak".into()),
-            ..Default::default()
-        }];
-        // 9 declinations against 1 issue — the job-10 ratio in miniature.
-        m.needs_citation = (0..9)
+        // 10 checked claims, 2 of which failed -> 80.
+        m.supported = (0..10)
             .map(|i| ReportItem {
-                seq: 10 + i,
-                sentence: format!("Own-work sentence {i}."),
-                verdict: Some("no_citation_needed".into()),
+                seq: i,
+                sentence: format!("Checked claim {i}."),
+                verdict: Some(if i < 2 { "weak" } else { "strong" }.into()),
                 ..Default::default()
             })
             .collect();
-        let text = all_text(&compose_audit(&m));
+        let without = health_score(&m);
+        assert_eq!(without, Some(80));
 
-        // The score is still one number.
-        assert!(text.contains("90/100"), "the score changed shape:\n{text}");
-        // And its BASIS is stated in words a reader parses correctly.
+        // Fifty advisory suggestions must not shift it by a point.
+        m.needs_citation = (0..50)
+            .map(|i| ReportItem {
+                seq: 100 + i,
+                sentence: format!("Suggestion {i}."),
+                verdict: Some("needs_citation".into()),
+                ..Default::default()
+            })
+            .collect();
+        assert_eq!(health_score(&m), without, "advisory items moved the score");
+
+        let text = all_text(&compose_audit(&m));
+        // The score says what it covers.
+        assert!(text.contains("checked against their cited source"), "{text}");
+        // The advisory list is labelled as suggestions, never as findings.
+        assert!(text.contains("suggestions, not findings"), "{text}");
+        assert!(!text.contains("Sentences that may need a citation"), "old verdict heading:\n{text}");
+        // And the measured precision is stated, so the claim is checkable.
+        assert!(text.contains("43%"), "precision not disclosed:\n{text}");
+        assert!(text.contains("82%"), "recall not disclosed:\n{text}");
+    }
+
+    /// §11 D78. The advisory section lists only what was actually FLAGGED.
+    ///
+    /// `needs_citation` carries every judged uncited sentence, and on a real
+    /// manuscript 65 of 65 came back "no citation needed". Listing those under
+    /// "worth a second look" presents 65 non-suggestions as a review list — the
+    /// exact over-claim this section exists to avoid.
+    #[test]
+    fn the_advisory_section_lists_only_flagged_sentences() {
+        let mut m = model();
+        m.needs_citation = vec![
+            ReportItem {
+                seq: 1,
+                sentence: "The model flagged this one.".into(),
+                verdict: Some("needs_citation".into()),
+                ..Default::default()
+            },
+            ReportItem {
+                seq: 2,
+                sentence: "The model said this needs nothing.".into(),
+                verdict: Some("no_citation_needed".into()),
+                ..Default::default()
+            },
+        ];
+        let text = all_text(&compose_audit(&m));
+        assert!(text.contains("The model flagged this one."), "flagged item missing:\n{text}");
         assert!(
-            text.contains("judged not to need a citation"),
-            "the declination basis is not stated:\n{text}"
+            !text.contains("The model said this needs nothing."),
+            "a NOT-flagged sentence appears under 'worth a second look':\n{text}"
         );
-        assert!(text.contains("raised an issue"), "the issue count is not stated:\n{text}");
-        // The load-bearing sentence: a declination is not a clearance.
-        assert!(
-            text.contains("not the same as confirming"),
-            "nothing warns that a declination is not a clean bill:\n{text}"
-        );
-        // The cover must not say "checked" for an item the model merely answered.
-        assert!(text.contains("Sentences answered"), "cover still claims 'checked':\n{text}");
-        assert!(!text.contains("Sentences checked"), "cover still claims 'checked':\n{text}");
+    }
+
+    /// Too few checked claims to score is SAID, not rendered as 0 or 100.
+    #[test]
+    fn too_few_checked_claims_yields_no_score_rather_than_a_misleading_one() {
+        let mut m = model();
+        m.supported = vec![ReportItem {
+            seq: 1,
+            sentence: "The only checked claim.".into(),
+            verdict: Some("weak".into()),
+            ..Default::default()
+        }];
+        assert_eq!(health_score(&m), None, "a percentage from n=1 is noise");
+        let text = all_text(&compose_audit(&m));
+        assert!(text.contains("would be noise rather than a measurement"), "{text}");
+        assert!(!text.contains("0 / 100"), "rendered a score anyway:\n{text}");
+
+        // And with nothing checked at all, it says so.
+        m.supported.clear();
+        let text = all_text(&compose_audit(&m));
+        assert!(text.contains("not one claim could be checked"), "{text}");
     }
 
     #[test]
-    fn the_summary_leads_with_a_score_and_the_worst_items_first() {
-        // The old report opened with sentence 0 in document order, which put a
-        // contradiction on page 9 below thirty routine items.
+    fn the_summary_leads_with_the_worst_CHECKED_items_first() {
+        // The old report opened at sentence 0 in document order, which put a
+        // contradiction on page 9 below thirty routine items. §11 D78 adds the
+        // second property: the list is EVIDENCE-BACKED, so a 43%-precision
+        // suggestion cannot appear under "most need your attention".
         let mut m = model();
         m.supported = vec![
             ReportItem {
@@ -923,6 +1027,12 @@ mod tests {
                 verdict: Some("contradicts".into()),
                 ..Default::default()
             },
+            ReportItem {
+                seq: 41,
+                sentence: "The weak claim.".into(),
+                verdict: Some("weak".into()),
+                ..Default::default()
+            },
         ];
         m.needs_citation = vec![ReportItem {
             seq: 9,
@@ -930,25 +1040,33 @@ mod tests {
             verdict: Some("needs_citation".into()),
             ..Default::default()
         }];
-        let blocks = compose_audit(&m);
-        let text = all_text(&blocks);
+        let text = all_text(&compose_audit(&m));
 
-        // 1 of 3 judged sentences is clean.
-        assert_eq!(health_score(&m), 33, "{text}");
-        assert!(text.contains("health 33 / 100"), "{text}");
-
-        // Most severe first, and both ahead of the detail sections.
+        // Most severe first among the CHECKED items.
         let worst = text.find("The contradicted claim.").expect("worst item absent");
-        let next = text.find("An uncited assertion.").expect("second item absent");
-        let detail = text.find("Claims checked against their source").expect("no detail section");
+        let next = text.find("The weak claim.").expect("second item absent");
         assert!(worst < next, "severity order not respected:\n{text}");
-        assert!(next < detail, "attention list did not lead the report:\n{text}");
 
-        // A clean item is NOT in the attention list.
+        // The advisory item is NOT in the attention list — it appears only in
+        // its own section, after the evidence-backed one.
+        let attention_hdr = text.find("most need your attention").expect("no attention list");
+        let advisory_hdr = text.find("suggestions, not findings").expect("no advisory section");
+        let uncited = text.find("An uncited assertion.").expect("advisory item absent");
+        assert!(
+            uncited > advisory_hdr,
+            "an advisory suggestion appeared before its own section — it is being \
+             presented as a finding:\n{text}"
+        );
+        assert!(attention_hdr < advisory_hdr, "advisory section preceded the attention list");
+
+        // A clean checked item is not promoted into the attention list.
+        let detail = text.find("Claims checked against their source").expect("no detail section");
         assert!(
             text.find("An ordinary supported claim.").unwrap() > detail,
             "a clean item was promoted into the attention list:\n{text}"
         );
+        // Evidence-backed findings LEAD the advisory ones (§11 D78).
+        assert!(detail < advisory_hdr, "the advisory section preceded the checked findings");
     }
 
     #[test]
