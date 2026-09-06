@@ -5299,3 +5299,44 @@ That is now four checks in a row — the caption regex, the author-year path, an
 this — whose first run against a real manuscript was wrong. **The step that
 catches them is running them on real papers before trusting them**, and it has
 never once failed to find something.
+
+### D98 — four checks in a row were wrong on their first real document
+
+Not a defect. A pattern, recorded because it has now repeated four times without
+a single exception, and because two of the four failed in the way that is
+hardest to notice.
+
+| check | first run against a real paper | what it cost |
+|---|---|---|
+| §11 D94 caption duplicates | fired twice on a paper for **describing its own tables** — `"Table 2 presents…"` read as a second caption | a false finding on a clean paper |
+| §11 D96 author-year | **six** false orphans of eight structural findings — organisational authors, co-authors cited alone, an abbreviation read as a surname | six false *"this citation doesn't exist"* |
+| §11 D97 metric agreement (a) | a trailing `\b` ate the prime in `Path C′`, collapsing the total and direct effects of a mediation model | a contradiction **manufactured in a paper that had none** |
+| §11 D97 metric agreement (b) | sentences split on `'.'`, cutting `MCC of 0.945` into `MCC of 0` and `945` | **missed the exact defect it was written for** |
+
+#### The two that matter most are the two that were silent
+
+D97(b) and, earlier, §11 D92's anchoring at 82.9%, both **failed by finding
+nothing**. A check that produces a false finding announces itself; a check that
+misses its own target reports a clean paper and is indistinguishable from
+success. Of the four, the two silent failures were caught only because the
+number was compared against a prototype that had already worked.
+
+#### THE RULE
+
+**Fixtures verify the shape. Real papers verify the rule.**
+
+A validation check is not to be trusted until it has been run against a real
+document and its output read line by line. Every one of these had passing unit
+tests when it was wrong — the tests were correct about the shape of the answer
+and silent about whether the rule was right.
+
+This is D69 and D70 again, one layer up: a token budget sized on fixtures, a
+fold table built from self-written examples, and now four checks tuned on
+inputs their author invented. The failure mode does not care which layer it is
+at.
+
+#### And it has never come back empty
+
+Four runs, four defects, zero occasions where the real-paper step found nothing.
+That is the argument for making it a step rather than a courtesy: it is not
+insurance against an unlikely event.
