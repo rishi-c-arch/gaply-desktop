@@ -76,7 +76,14 @@ fn caption_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     // "Table II.", "Fig. 3:", "Figure 12 —" at the start of a block.
     RE.get_or_init(|| {
-        Regex::new(r"(?i)^\s*(table|fig\.?|figure)\s+([ivxlcdm]+|\d{1,3})\b")
+        // The number must be FOLLOWED BY punctuation or the end of the line.
+        //
+        // Without that, "Table 2 presents mediation pathway coefficients." — a
+        // cross-reference in prose — was read as a caption, and a paper that
+        // discusses each of its tables was reported as numbering every one of
+        // them twice. A caption is "Table 2." or "Table 2:"; prose is
+        // "Table 2 presents".
+        Regex::new(r"(?i)^\s*(table|fig\.?|figure)\s+([ivxlcdm]+|\d{1,3})\s*([.:—–-]|$)")
             .expect("caption regex")
     })
 }
@@ -516,6 +523,35 @@ mod tests {
         assert!(m.contains("COMPARATIVE"), "both captions must be named: {m}");
         // Cosmetic: a duplicate number invalidates no verdict.
         assert!(!r.blocks_audit());
+    }
+
+    /// FOUND ON A REAL PAPER (§11 D94). "Revised Health Economics Paper" was
+    /// reported as numbering Table 2 and Table 3 twice — because it DISCUSSES
+    /// each of its tables, and "Table 2 presents…" is a cross-reference in
+    /// prose, not a caption. A check that fires on a paper for describing its
+    /// own tables is worse than no check.
+    #[test]
+    fn a_prose_cross_reference_is_not_a_caption() {
+        let r = run(&[
+            "Table 2 presents mediation pathway coefficients. In Path A, each one-log-unit rise \
+             in out-of-pocket spending was associated with a decrease in the index.",
+            "Table 2. Mediation Pathway Coefficients and Primary Bootstrapped Indirect Effects",
+        ]);
+        assert!(
+            !kinds(&r).iter().any(|k| k == "duplicate-caption-number"),
+            "a sentence discussing Table 2 was counted as a second caption: {:?}",
+            r.findings
+        );
+    }
+
+    /// And the real duplicate is still caught — the fix must not disarm it.
+    #[test]
+    fn two_real_captions_with_the_same_number_are_still_caught() {
+        let r = run(&[
+            "Table 2. Mediation Pathway Coefficients and Primary Bootstrapped Indirect Effects",
+            "Table 2: Multivariable Logistic Regression Adjusted Odds Ratios",
+        ]);
+        assert!(kinds(&r).iter().any(|k| k == "duplicate-caption-number"), "{:?}", r.findings);
     }
 
     #[test]

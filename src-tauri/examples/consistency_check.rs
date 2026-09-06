@@ -24,11 +24,20 @@ fn main() {
 
     println!("{path}");
     println!(
-        "  {} blocks · {} sentences planned · {} reference entries",
+        "  {} blocks · {} sentences planned · {} citation markers · {} numbered reference entries",
         blocks.len(),
         report.planned.len(),
+        report.markers_found,
         report.bibliography.len()
     );
+    if report.bibliography.is_empty() && report.markers_found > 0 {
+        // Says WHY the gating checks found nothing, rather than leaving a
+        // clean result to be read as a clean paper.
+        println!(
+            "  NOTE: no NUMBERED reference list was parsed, so the structural checks \n\
+             \x20       (off-by-one entries, orphan markers) cannot run on this paper."
+        );
+    }
     println!(
         "  {} structural, {} cosmetic{}\n",
         c.structural,

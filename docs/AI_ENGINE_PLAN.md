@@ -5046,6 +5046,50 @@ and `repeated-paragraph` need paragraph granularity, and `pdf-extract` returns
 nothing. They are unit-tested and correct; they have never met a real `.docx`,
 which is one block per `<w:p>` and is where they should work.
 
+#### Run against a real `.docx`, and what it showed
+
+`Revised Health Economics Paper FINAL (1).docx` — 313 blocks, 266 planned
+sentences, 50 citation markers. **The granularity is confirmed**: a `.docx`
+gives one block per paragraph where the PDF gave 25 for six pages.
+
+It also found a false positive and killed it. The paper was reported as
+numbering **Table 2 and Table 3 twice**, because it DISCUSSES each of its
+tables:
+
+```
+"Table 2 presents mediation pathway coefficients. In Path A, …"   <- prose
+"Table 2. Mediation Pathway Coefficients and Primary Bootstrapped …"  <- caption
+```
+
+`caption_re` matched both. A caption is `Table 2.` or `Table 2:` — the number
+followed by punctuation — while a cross-reference is `Table 2 presents`. The
+regex now requires the terminator. **A check that fires on a paper for
+describing its own tables is worse than no check**, and this one fired twice on
+the first real manuscript it met.
+
+#### AND THE GATING CHECKS CANNOT RUN ON AN APA PAPER
+
+This paper cites author-year — `(Alkenbrack et al., 2015)` — with a reference
+list to match, so `parse_numbered_bibliography` correctly parses **zero**
+entries. Every structural check keys on a NUMBERED list, so with 50 markers in
+the document, **not one of them can be checked against anything.**
+
+The result is a clean report, and a clean report on an unexaminable paper reads
+exactly like a clean report on a sound one. The CLI now says so rather than
+leaving it to be inferred:
+
+> `NOTE: no NUMBERED reference list was parsed, so the structural checks
+> (off-by-one entries, orphan markers) cannot run on this paper.`
+
+**This is what the deferred author-year check is for**, and this paper is the
+argument for taking it: half the field cites this way, and for all of them the
+pre-flight currently has nothing to gate on.
+
+Section letters and repeated paragraphs stayed silent here too — the paper
+numbers its sections (`1. Background`, `2. Research Objectives`) rather than
+lettering them, and repeats no paragraph. So both remain **unexercised**, not
+validated.
+
 ### D95 — the page number is derived, and the stored one is demoted to a hint
 
 §11 D92 measured it: **6 of 74 locatable sentences (8%) carry the wrong page**,
