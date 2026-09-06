@@ -5383,3 +5383,60 @@ evidence the labeller saw — the set measures JUDGEMENT over fixed evidence
 rather than retrieval, which is what "measuring judgement, not coverage" means.
 It also means the set is replayable on a machine that has never held the user's
 library.
+
+### D100 — GAP, NOT BUILT: the OA fetch needs a DOI, and a whole citation style has none
+
+`gaply-core/src/oa_fetch.rs` refuses before it looks anything up:
+
+```rust
+if reference.doi.as_deref().map(str::trim).unwrap_or("").is_empty() {
+    return OaResolution::NoOaCopy {
+        detail: "no DOI on this citation — nothing to look up".to_string(),
+    };
+}
+```
+
+**The title is already there and is never used.** `oa_fetch::fetch_one` builds a
+full `Reference { raw, authors, year, title, doi }` and passes it to `resolve`,
+which reads only the DOI.
+
+#### The evidence, measured
+
+`R PAPER .pdf`, counted through the pre-pass's own bibliography parser:
+
+| | |
+|---|---|
+| numbered reference entries | **25** |
+| entries carrying a DOI | **0** |
+
+That is not a defect in this paper. **IEEE-style reference lists routinely omit
+DOIs**, and they are the house style across large parts of engineering and
+computer science — so for that whole class of manuscript, the open-access batch
+fetch reports "no DOI on this citation" for every entry and can never link a
+single source. The citation the researcher most wants checked is the one the
+fetch cannot even attempt.
+
+It compounds: §11 D88's confirmation card offers "Fetch open-access copies" on
+the blocked sources, and on an IEEE paper that button is guaranteed to return
+nothing. The affordance is real and the outcome is empty.
+
+#### What would close it
+
+A title+author lookup against OpenAlex or Crossref when the DOI is absent —
+both accept a bibliographic query and return a DOI, which is then the existing
+path. The connectors already exist in `refverify`.
+
+**Not built.** It needs its own decision about confidence: a title lookup can
+return the wrong work, and linking a citation to the wrong paper is the failure
+§11 D94's whole design fights — so it would need the same treatment as D96's
+uncertain matches, where a near-match is reported as near rather than asserted.
+That is a different piece of work from "use the field we already carry".
+
+#### And it changes what a labelled set costs
+
+§11 D99 measured `citation_support`'s labelling ceiling at ~20 candidates from
+the two library sources. Extending it means indexing more of R PAPER's cited
+works — GloVe (+8 candidates), Crow Search (+6), SMOTE (+5), ISEAR (+4) — and
+**none of them can be reached by the OA fetch**, because none has a DOI in the
+list. Each has to be added by hand, DOI first. The gap is not only a missing
+convenience; it is the reason the eval set is expensive to grow.
