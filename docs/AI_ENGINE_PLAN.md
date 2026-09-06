@@ -4827,3 +4827,82 @@ Two things it adds that neither caller had:
 Tested on the FILE, not the bytes: the suite writes the exported PDF to a real
 path and asserts `file`-level truth — the `%PDF-` header, the `%%EOF` trailer,
 and a `.pdf` extension that survived the round trip.
+
+### D92 — the annotated manuscript: highlights on the real page, PDF only
+
+The report describes a manuscript the reader cannot see. This shows the paper as
+it is, with every judged sentence highlighted in place.
+
+#### `.docx` is refused, and the refusal is the honest half
+
+A `.docx` is not paginated until Word paginates it: page breaks depend on the
+reader's fonts, printer and margins, so **the geometry is not in the file** and
+no parser can recover it. §11 D65 already substitutes paragraph ordinals for
+page numbers for exactly this reason.
+
+A reconstruction that looks subtly wrong to the person who wrote the paper is
+worse than no reconstruction, so there is none. The screen says the annotated
+view needs a PDF, says WHY in one line, and points at the paragraph anchors the
+existing report already carries.
+
+#### Anchoring: proven before it was built
+
+Measured on `R PAPER .pdf` against the real pre-pass output, 82 planned
+sentences:
+
+| | first attempt | shipped approach |
+|---|---|---|
+| located confidently | 82.9% | **97.6% (80/82)** |
+| ambiguous | 6 | **0** |
+| unplaceable | 8 | 2 |
+
+Two corrections got it there, and neither is an approximation:
+
+- **Search every page, not the stored one.** The text is the identity; the
+  stored page is a claim. This alone took 82.9% -> 90.2%.
+- **Order-aware duplicates.** This paper repeats three sentences between its
+  Discussion and Conclusion, and the pre-pass plans each twice. Both lists are
+  in document order, so the k-th planned copy takes the k-th occurrence. That
+  is exact.
+
+**The 2 that remain are omitted, not approximated.** One is two figure captions
+glued together by extraction and exists as contiguous text on no page; the other
+spans a column break. Both appear in the detail list with a note saying the
+sentence was judged but could not be located. A highlight on the wrong sentence
+is worse than a missing one.
+
+#### AND IT FOUND A LIVE BUG IN THE SHIPPED REPORT
+
+Locating by text exposed that **6 of 74 locatable sentences (8%) carry the wrong
+page number**, every one off by one — `pdf-extract`'s page splitting disagrees
+with the real page boundaries:
+
+```
+pre-pass p.3 -> "The highest F1-scores are for joy (97.0%)…"  is on page 4
+pre-pass p.4 -> "Using only FA or only CSA…"                  is on page 5
+```
+
+The audit's whole value is "go and look at this sentence", and for roughly one
+in twelve it sends the reader to the wrong page. **Not fixed here** — it is a
+separate defect with its own decision (correct the page assignment, or derive
+pages from anchoring and demote the stored value to a hint), and this change is
+scoped to the annotated view. Recorded so it is not rediscovered.
+
+Inside the annotated view it cannot bite: anchoring never trusts the stored page.
+
+#### Colour is never the only signal
+
+Four statuses, and each carries **three** cues — fill colour, a left-edge
+treatment, and a word in the legend and in every detail entry:
+
+| status | fill | edge | weight |
+|---|---|---|---|
+| verified with evidence | green | solid | full |
+| weak or contradicted | red | solid | full |
+| cited but not checkable | grey | solid | full |
+| **suggestion** | amber | **dashed** | **lightest** |
+
+The last row inherits §11 D89 rather than inventing its own: a 43%-precision
+suggestion is visually subordinate to an evidence-backed finding here too, and
+the dashed edge keeps it distinguishable in greyscale and to a colour-blind
+reader. `no_citation_needed` gets no highlight at all — it is not a finding.

@@ -304,3 +304,22 @@
   border-top: 1px solid var(--g-border);
   padding: var(--g-space-1) 0;
 }
+
+/* --- Annotated manuscript (§11 D92) ------------------------------------- */
+.gds-annot__legend {
+  display: flex; flex-wrap: wrap; gap: 1rem;
+  list-style: none; padding: 0; margin: 0 0 .5rem;
+  font-size: .82rem; color: var(--g-text-muted, #555);
+}
+.gds-annot__legend li { display: flex; align-items: center; gap: .4rem; }
+/* The swatch carries the SECOND cue: a solid or dashed left edge, so the four
+   statuses stay distinguishable in greyscale and to a colour-blind reader. */
+.gds-annot__swatch {
+  display: inline-block; width: 14px; height: 14px; border-radius: 2px; opacity: .55;
+}
+.gds-annot__swatch--solid { border-left: 3px solid currentColor; }
+.gds-annot__swatch--dashed { border-left: 3px dashed currentColor; opacity: .35; }
+.gds-annot__page { margin: 0 auto 1.25rem; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
+.gds-annot__entry { padding: .6rem 0; border-top: 1px solid var(--g-border, #e3e3e3); }
+.gds-annot__entry-head { display: flex; align-items: center; gap: .45rem; margin: 0 0 .25rem; }
+.gds-annot__sentence { margin: .2rem 0; font-style: italic; }

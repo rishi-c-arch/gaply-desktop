@@ -332,6 +332,17 @@ class AiBridge {
    * "start?" card — by the time the card renders the model is already
    * generating. This creates nothing.
    */
+  /**
+   * The manuscript's own bytes, for the annotated view (§11 D92).
+   *
+   * PDF only — a .docx records no page geometry, so the backend refuses it with
+   * that reason rather than a generic error.
+   */
+  async manuscriptBytes(path: string): Promise<Uint8Array> {
+    const raw = await this.invoke<ArrayBuffer | number[]>('ai_manuscript_bytes', { path });
+    return raw instanceof ArrayBuffer ? new Uint8Array(raw) : new Uint8Array(raw);
+  }
+
   async previewThesisAudit(path: string): Promise<ThesisAuditPreview> {
     return this.invoke<ThesisAuditPreview>('ai_thesis_audit_preview', { path });
   }

@@ -18,6 +18,7 @@ import { describeOaOutcome } from './oaOutcome';
 import { EvidenceCard, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
 import { saveBinaryFile } from '../../utils/saveBinaryFile';
+import { AnnotatedManuscript, AnnotatedUnavailable } from './AnnotatedManuscript';
 
 /**
  * Per-item seconds for the projection BEFORE a run has measured anything,
@@ -160,6 +161,8 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
    *  sentences and flags a handful; leading with all hundred buries the report
    *  under the material it was computed from. */
   const [dumpOpen, setDumpOpen] = useState(false);
+  /** §11 D92. The annotated manuscript, closed by default — it renders pages. */
+  const [annotOpen, setAnnotOpen] = useState(false);
   /** Per-source fetch results from the report's own actions, by citation id. */
   const [fetchNotes, setFetchNotes] = useState<Record<string, string>>({});
   /** Citations whose source became checkable, so a re-check is worth offering. */
@@ -805,6 +808,27 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
             ? 'Hide every sentence the audit read'
             : `Show every sentence the audit read (${items.length})`}
         </button>
+      )}
+
+      {/* §11 D92. The manuscript itself, with each judgement drawn where it
+          happened. PDF only — a .docx has no page geometry to annotate. */}
+      {stage === 'done' && items.length > 0 && path && (
+        <div data-testid="annot-section">
+          <button
+            type="button"
+            className="gds-link"
+            onClick={() => setAnnotOpen((v) => !v)}
+            data-testid="annot-toggle"
+          >
+            {annotOpen ? 'Hide the annotated manuscript' : 'Show the annotated manuscript'}
+          </button>
+          {annotOpen &&
+            (path.toLowerCase().endsWith('.pdf') ? (
+              <AnnotatedManuscript path={path} items={items as any} />
+            ) : (
+              <AnnotatedUnavailable onOpenReport={() => setAnnotOpen(false)} />
+            ))}
+        </div>
       )}
 
       {items.length > 0 && dumpOpen && (

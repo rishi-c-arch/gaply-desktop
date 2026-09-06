@@ -2908,6 +2908,50 @@ pub struct JobProgressEvent {
 /// runs for hours, and a command that blocked for that long would be unusable.
 /// The plan itself is the immediate, useful answer: how many items, of which
 /// kinds, before any time is spent.
+/// The manuscript's own bytes, for the annotated view (§11 D92).
+///
+/// PDF ONLY, and that is the feature's boundary rather than a limitation of
+/// this command: a `.docx` records no page geometry, so there is no page to
+/// annotate. Guarded the same way `read_import_file` is — extension and size,
+/// checked before the read — because this takes a path from the caller.
+#[tauri::command]
+pub async fn ai_manuscript_bytes(path: String) -> Result<tauri::ipc::Response, GaplyError> {
+    // A thesis PDF is large; a 200 MB one is not a manuscript and must not be
+    // pulled through the IPC boundary into a webview.
+    const MAX_BYTES: u64 = 128 * 1024 * 1024;
+    let bytes = tokio::task::spawn_blocking(move || {
+        let p = std::path::Path::new(&path);
+        let ext = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        if ext != "pdf" {
+            return Err(GaplyError::Validation(format!(
+                "the annotated view needs a PDF; this manuscript is a .{ext}. A Word file does \
+                 not record where its pages break, so there is no page layout to annotate."
+            )));
+        }
+        if !p.is_file() {
+            return Err(GaplyError::Validation(format!(
+                "the manuscript is no longer at {} — it was moved, renamed or deleted",
+                p.display()
+            )));
+        }
+        let meta = std::fs::metadata(p)?;
+        if meta.len() > MAX_BYTES {
+            return Err(GaplyError::Validation(format!(
+                "this PDF is {} bytes; the annotated view handles up to {MAX_BYTES}",
+                meta.len()
+            )));
+        }
+        std::fs::read(p).map_err(GaplyError::from)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("manuscript read task panicked: {e}")))??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 /// What an audit WOULD do — no job, no model, no side effect (§11 D88).
 ///
 /// `ai_job_start_thesis_audit` plans AND spawns the runner, so it cannot be the
