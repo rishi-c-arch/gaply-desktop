@@ -5217,3 +5217,85 @@ manuscripts and fired on neither, because neither has the defect: `R PAPER .pdf`
 lacks the granularity and the health-economics paper numbers its sections and
 repeats no paragraph. They remain **unexercised, not validated** — the `.docx`
 that would settle them is not currently on disk.
+
+### D97 — same metric, same subject, two values
+
+The target: `R PAPER` reports **MCC 0.945 in the abstract and 0.545 in the
+conclusion**, for the same dataset. A metric-name-plus-number scan finds it —
+and finds a great deal else, so the rule was written against the real numbers in
+BOTH papers before any code.
+
+#### What a naive scan actually meets
+
+Dumped from both manuscripts first:
+
+| shape | why it is not a contradiction |
+|---|---|
+| `internationally owned **or** subsidiary 37` | the English conjunction, not an odds ratio |
+| `ROC AUC with **95%** CI` | a confidence LEVEL, not the metric |
+| `p < 0.001` | a p-value |
+| `OR / Estimate (95% CI)` | a column header |
+| `96.42% accuracy` | the number comes BEFORE the metric |
+| Table II: accuracy for nine methods | same metric, nine subjects |
+| `OR = 3.90` / `33.60` / `2.58` | three different mediation paths |
+
+So: `OR` and `MCC` are matched case-SENSITIVELY (`or` is a conjunction), a
+confidence level is stripped before the value is read, both number orders are
+accepted, and `95` and `95.00` are compared as numbers rather than as strings.
+
+#### The prime is load-bearing, and a regex ate it
+
+`Path C` is the TOTAL effect and `Path C′` the DIRECT effect — different
+quantities by construction, and the health-economics paper reports different
+odds ratios for them, correctly.
+
+The first prototype reported that as a contradiction. The cause was a trailing
+`\b` in the subject pattern: `C′` has no word boundary after the prime, so the
+regex backtracked and matched `Path C`, collapsing the two subjects into one.
+**A manufactured contradiction in a real paper that had none**, from one
+character of regex.
+
+#### The discriminator
+
+- same metric, **same confidently-extracted subject**, different values ->
+  **contradiction, structural**;
+- same metric, different subjects -> nothing;
+- same metric, differing values, **subject not establishable** -> ONE uncertain
+  finding for that metric, cosmetic, listing the values.
+
+One per metric, not one per pair: three values produce three pairs and a reader
+needs to know one thing, not three.
+
+#### Measured on both papers
+
+| | contradictions | uncertain |
+|---|---|---|
+| `R PAPER` | **MCC 0.945 vs 0.545, subject SemEval-2018** | F1 (46 vs 95 — related work vs this paper) |
+| health economics | **none** | OR (2.58 / 3.90 / 33.60 — three paths, unlabelled in the table rows) |
+
+The health-economics paper has no contradiction and is reported as having none:
+its AUC is 0.88 in all five places it appears, and its three odds ratios belong
+to three different paths.
+
+#### THREE DEFECTS, EACH FOUND ONLY BY RUNNING IT
+
+The rule was wrong three times, and every time on real input rather than in a
+fixture:
+
+1. **The prime**, above — a manufactured contradiction in a clean paper.
+2. **The decimal.** The first Rust port split sentences on `'.'`, which cuts
+   `MCC of 0.945` into `MCC of 0` and `945` — reading the value as zero and
+   losing the subject to the next fragment. **It therefore missed the exact
+   case it was written for**, while the Python prototype had caught it. Fixed by
+   using the repo's own `extract::sentence::sentences_in` instead of a naive
+   split.
+3. **The comparison.** *"GoEmotions … reached only 46% macro-F1 … substantially
+   lower than the 95% macro-F1 of the present study"* names both figures on
+   purpose in ONE sentence, and the subject scan attributed both to GoEmotions.
+   A contradiction needs two separate statements; a single sentence reporting
+   two values is a comparison.
+
+That is now four checks in a row — the caption regex, the author-year path, and
+this — whose first run against a real manuscript was wrong. **The step that
+catches them is running them on real papers before trusting them**, and it has
+never once failed to find something.

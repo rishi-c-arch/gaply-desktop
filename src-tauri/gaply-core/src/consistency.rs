@@ -417,6 +417,260 @@ fn check_author_year(out: &mut ConsistencyReport, blocks: &[PagedBlock], report:
     }
 }
 
+/* ------------------ same metric, same subject (§11 D97) ------------------ */
+
+/// Metrics whose NAME is unambiguous only in capitals.
+///
+/// `or` is the English conjunction — "internationally owned or subsidiary 37"
+/// is not an odds ratio — and lower-casing it produced a value on every second
+/// sentence of a real paper.
+const UPPER_METRICS: &[&str] = &["MCC", "AUC", "OR", "R²", "R2"];
+/// Metrics safe to match case-insensitively.
+const WORD_METRICS: &[&str] = &[
+    "macro-F1", "F1-score", "F1 score", "F1", "accuracy", "precision", "recall",
+    "kappa", "cross-entropy", "sensitivity", "specificity",
+];
+
+fn subject_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    // NOTE the absence of a trailing \b. `C′` has no word boundary after the
+    // prime, so a trailing \b makes the regex backtrack to `Path C` — which
+    // collapses the TOTAL and DIRECT effects of a mediation model into one
+    // subject and manufactures a contradiction in a paper that has none.
+    RE.get_or_init(|| {
+        Regex::new(
+            r"\b(Path\s+[A-Z]['’′]?|SemEval[-\s]?\d{4}|SemEval|ISEAR|GoEmotions|HEFCSO|[A-Z][A-Za-z]*-?(?:BiLSTM|LSTM|BERT|SVM|CNN))",
+        )
+        .expect("subject regex")
+    })
+}
+
+/// One reading of a metric: its value, what it was about, and where it was said.
+struct MetricUse {
+    metric: String,
+    value: f64,
+    subjects: Vec<String>,
+    sentence: String,
+}
+
+/// The subject key. The prime SURVIVES — `path c` and `path c'` are different
+/// quantities.
+fn subject_key(raw: &str) -> String {
+    raw.to_lowercase()
+        .replace(['’', '′'], "'")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '\'')
+        .collect()
+}
+
+fn subjects_of(sentence: &str) -> Vec<String> {
+    let mut v: Vec<String> =
+        subject_re().find_iter(sentence).map(|m| subject_key(m.as_str())).collect();
+    v.sort();
+    v.dedup();
+    v
+}
+
+/// The value a metric mention carries, or `None` when the text does not give one.
+fn value_near(sentence: &str, at: usize, end: usize) -> Option<f64> {
+    let after_raw: String = sentence.chars().skip(end).take(40).collect();
+    let before_raw: String = {
+        let start = at.saturating_sub(18);
+        sentence.get(start..at).unwrap_or("").to_string()
+    };
+    // A confidence LEVEL is not the metric's value: "ROC AUC with 95% CI".
+    let strip_ci = |s: &str| {
+        static RE: OnceLock<Regex> = OnceLock::new();
+        RE.get_or_init(|| Regex::new(r"(?:9\d|100)\s*%\s*CI").expect("ci regex"))
+            .replace_all(s, " ")
+            .to_string()
+    };
+    let after = strip_ci(&after_raw);
+    let before = strip_ci(&before_raw);
+
+    // A p-value is not a metric value.
+    static P_RE: OnceLock<Regex> = OnceLock::new();
+    let p_re = P_RE.get_or_init(|| Regex::new(r"\bp\s*[<>=]\s*$").expect("p regex"));
+    if p_re.is_match(before.trim_end()) {
+        return None;
+    }
+
+    // "MCC of 0.945", "AUC = 0.88", "F1-score: 0.9"
+    static AFTER_RE: OnceLock<Regex> = OnceLock::new();
+    let a_re = AFTER_RE.get_or_init(|| {
+        Regex::new(r"^\s*(?:score\s+)?(?:of|=|was|is|:|reaches|reached)?\s*(\d+(?:\.\d+)?)")
+            .expect("after regex")
+    });
+    if let Some(c) = a_re.captures(&after) {
+        return c[1].parse().ok();
+    }
+    // "96.42% accuracy" — the number comes first.
+    static BEFORE_RE: OnceLock<Regex> = OnceLock::new();
+    let b_re = BEFORE_RE
+        .get_or_init(|| Regex::new(r"(\d+(?:\.\d+)?)\s*%?\s*$").expect("before regex"));
+    b_re.captures(&before).and_then(|c| c[1].parse().ok())
+}
+
+fn canonical_metric(name: &str) -> String {
+    let l = name.to_lowercase().replace(['-', ' '], "");
+    match l.as_str() {
+        "f1score" | "macrof1" | "f1" => "F1".to_string(),
+        "r2" | "r²" => "R²".to_string(),
+        other => {
+            if UPPER_METRICS.iter().any(|m| m.eq_ignore_ascii_case(name)) {
+                name.to_uppercase()
+            } else {
+                other.to_string()
+            }
+        }
+    }
+}
+
+fn collect_metric_uses(blocks: &[PagedBlock]) -> Vec<MetricUse> {
+    let mut out = Vec::new();
+    for b in blocks {
+        // The repo's own splitter, NOT `split('.')` — a naive split cuts
+        // "MCC of 0.945" into "MCC of 0" and "945", which reads the metric's
+        // value as zero and loses the subject to the next fragment. That is
+        // why the first Rust port missed a contradiction the prototype caught.
+        for sentence in crate::extract::sentence::sentences_in(&b.text) {
+            let sentence = sentence.trim();
+            if sentence.is_empty() {
+                continue;
+            }
+            let subjects = subjects_of(sentence);
+            // Capitals-only metrics.
+            for m in UPPER_METRICS {
+                let mut from = 0usize;
+                while let Some(rel) = sentence[from..].find(m) {
+                    let at = from + rel;
+                    let end = at + m.len();
+                    let boundary_l = at == 0
+                        || !sentence[..at].chars().next_back().is_some_and(|c| c.is_alphanumeric());
+                    let boundary_r = !sentence[end..].chars().next().is_some_and(|c| c.is_alphanumeric());
+                    if boundary_l && boundary_r {
+                        if let Some(v) = value_near(sentence, at, end) {
+                            out.push(MetricUse {
+                                metric: canonical_metric(m),
+                                value: v,
+                                subjects: subjects.clone(),
+                                sentence: sentence.to_string(),
+                            });
+                        }
+                    }
+                    from = end;
+                }
+            }
+            // Case-insensitive metrics.
+            let lower = sentence.to_lowercase();
+            for m in WORD_METRICS {
+                let needle = m.to_lowercase();
+                let mut from = 0usize;
+                while let Some(rel) = lower[from..].find(&needle) {
+                    let at = from + rel;
+                    let end = at + needle.len();
+                    let boundary_r = !lower[end..].chars().next().is_some_and(|c| c.is_alphanumeric());
+                    if boundary_r {
+                        if let Some(v) = value_near(sentence, at, end) {
+                            out.push(MetricUse {
+                                metric: canonical_metric(m),
+                                value: v,
+                                subjects: subjects.clone(),
+                                sentence: sentence.to_string(),
+                            });
+                        }
+                    }
+                    from = end;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Same metric, same subject, two values (§11 D97).
+fn check_metric_agreement(out: &mut ConsistencyReport, blocks: &[PagedBlock]) {
+    let uses = collect_metric_uses(blocks);
+    let mut by_metric: BTreeMap<String, Vec<&MetricUse>> = BTreeMap::new();
+    for u in &uses {
+        by_metric.entry(u.metric.clone()).or_default().push(u);
+    }
+
+    for (metric, list) in by_metric {
+        // Numeric comparison: 95 and 95.00 are one value.
+        let distinct: Vec<f64> = {
+            let mut v: Vec<f64> = list.iter().map(|u| u.value).collect();
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            v.dedup_by(|a, b| (*a - *b).abs() < f64::EPSILON);
+            v
+        };
+        if distinct.len() < 2 {
+            continue;
+        }
+        let mut asserted = false;
+        for i in 0..list.len() {
+            for j in (i + 1)..list.len() {
+                let (a, b) = (list[i], list[j]);
+                if (a.value - b.value).abs() < f64::EPSILON {
+                    continue;
+                }
+                // ONE SENTENCE REPORTING TWO VALUES IS A COMPARISON, not a
+                // contradiction: "GoEmotions … reached only 46% macro-F1 …
+                // substantially lower than the 95% of the present study" names
+                // both figures on purpose, and the subject scan attributes both
+                // to GoEmotions. A contradiction needs two separate statements.
+                if a.sentence == b.sentence {
+                    continue;
+                }
+                let shared: Vec<&String> =
+                    a.subjects.iter().filter(|s| b.subjects.contains(s)).collect();
+                if shared.is_empty() {
+                    continue;
+                }
+                asserted = true;
+                out.push(
+                    "metric-contradiction",
+                    Severity::Structural,
+                    format!(
+                        "{metric} is reported as {} and as {} for the same subject ({}). \
+                         “{}” versus “{}”",
+                        a.value,
+                        b.value,
+                        shared.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+                        snippet(&a.sentence, 70),
+                        snippet(&b.sentence, 70)
+                    ),
+                    Some("One of them is wrong. Check which, and correct it everywhere.".to_string()),
+                );
+            }
+        }
+        if asserted {
+            continue;
+        }
+        // Values differ and no shared subject was established anywhere. ONE
+        // finding for the metric — three values make three pairs, and a reader
+        // needs to know one thing rather than three.
+        if list.iter().all(|u| u.subjects.is_empty()) {
+            out.push(
+                "metric-values-unattributed",
+                Severity::Cosmetic,
+                format!(
+                    "{metric} appears with {} different values ({}), and Gaply could not \
+                     establish whether they describe the same thing. They may be different \
+                     datasets, models or subgroups.",
+                    distinct.len(),
+                    distinct
+                        .iter()
+                        .map(|v| format!("{v}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                None,
+            );
+        }
+    }
+}
+
 /// Run every check. Pure: same inputs, same findings, no clock and no I/O.
 pub fn check_consistency(blocks: &[PagedBlock], report: &PrepassReport) -> ConsistencyReport {
     let mut out = ConsistencyReport::default();
@@ -427,6 +681,7 @@ pub fn check_consistency(blocks: &[PagedBlock], report: &PrepassReport) -> Consi
     check_repeated_paragraphs(&mut out, blocks);
     check_mixed_styles(&mut out, report);
     check_author_year(&mut out, blocks, report);
+    check_metric_agreement(&mut out, blocks);
     out
 }
 
@@ -1103,6 +1358,137 @@ mod tests {
         assert!(within_one_edit("kutzin", "kutzin"));
         assert!(!within_one_edit("kutzin", "kutzinsky"));
         assert!(!within_one_edit("smith", "jones"));
+    }
+
+    /* ---------------- metric agreement (§11 D97) ---------------- */
+
+    /// THE TARGET, verbatim from `R PAPER`: MCC 0.945 in the abstract, 0.545 in
+    /// the conclusion, for the same dataset.
+    #[test]
+    fn the_same_metric_with_two_values_for_one_subject_is_a_contradiction() {
+        let r = run(&[
+            "In the combined data set, the results achieved 96.42% accuracy, 95.00% F1-score, \
+             and an MCC of 0.945 for SemEval 2018, with 10 percentage points better than the best baseline.",
+            "The paper discussed the development of HEFCSO-BiLSTM, achieving an MCC of 0.545 on \
+             SemEval2018 with complete relative improvements over the baselines.",
+        ]);
+        let m = message(&r, "metric-contradiction");
+        assert!(m.contains("0.945") && m.contains("0.545"), "{m}");
+        assert!(m.contains("semeval2018"), "must name the shared subject: {m}");
+        assert!(r.blocks_audit(), "a contradiction must gate the audit");
+    }
+
+    /// THE PRIME IS LOAD-BEARING. `Path C` is the total effect and `Path C′` the
+    /// direct effect: different quantities, correctly reported with different
+    /// odds ratios. A trailing `\b` in the subject pattern made the regex
+    /// backtrack past the prime and manufacture a contradiction in a real paper
+    /// that had none.
+    #[test]
+    fn path_c_and_path_c_prime_are_different_subjects() {
+        let r = run(&[
+            "The total association of firm size with formal provision (Path C) was OR = 3.90, \
+             with a confidence interval that excludes unity for the pooled sample.",
+            "The direct association of size with provision net of capacity (Path C′: OR = 2.58) \
+             remains after controlling for the mediator in the same model.",
+        ]);
+        assert!(
+            !kinds(&r).iter().any(|k| k == "metric-contradiction"),
+            "the total and direct effects were called a contradiction: {:?}",
+            r.findings
+        );
+    }
+
+    /// One sentence naming two values is a COMPARISON. "GoEmotions reached only
+    /// 46% … substantially lower than the 95% of the present study" states both
+    /// on purpose, and the subject scan attributes both to GoEmotions.
+    #[test]
+    fn two_values_in_one_sentence_are_a_comparison_not_a_contradiction() {
+        let r = run(&[
+            "In contrast, GoEmotions by Demszky et al. reached only 46% macro-F1 over 27 \
+             categories, which is substantially lower than the 95% macro-F1 of the present study.",
+        ]);
+        assert!(
+            !kinds(&r).iter().any(|k| k == "metric-contradiction"),
+            "a within-sentence comparison was read as a contradiction: {:?}",
+            r.findings
+        );
+    }
+
+    /// "or" is the English conjunction. Lower-casing the metric list put an
+    /// odds ratio on every second sentence of a real paper.
+    #[test]
+    fn the_word_or_is_not_an_odds_ratio() {
+        let r = run(&[
+            "Firms were locally owned 182 (82.0%), internationally owned or subsidiary 37 (16.7%), \
+             and not specified in the remaining three cases.",
+            "Coverage was recorded as one for a licensed product or 0 otherwise across the sample.",
+        ]);
+        assert!(
+            !r.findings.iter().any(|f| f.kind.starts_with("metric-")),
+            "the conjunction was read as a metric: {:?}",
+            r.findings
+        );
+    }
+
+    /// A confidence LEVEL is not the metric's value, and a p-value is not either.
+    #[test]
+    fn confidence_levels_and_p_values_are_not_metric_values() {
+        let r = run(&[
+            "Model discrimination was assessed with ROC AUC with 95% CI as the primary criterion.",
+            "The coefficient was significant at p < 0.001 across every specification tested here.",
+        ]);
+        assert!(
+            !r.findings.iter().any(|f| f.kind.starts_with("metric-")),
+            "a CI level or a p-value became a metric value: {:?}",
+            r.findings
+        );
+    }
+
+    /// "96.42% accuracy" puts the number FIRST, and 95 and 95.00 are one value.
+    #[test]
+    fn a_value_before_the_metric_is_read_and_compared_numerically() {
+        let r = run(&[
+            "On SemEval-2018 the model achieved 95% accuracy across the held-out evaluation split.",
+            "The same SemEval-2018 configuration achieved 95.00% accuracy when the run was repeated.",
+        ]);
+        assert!(
+            !kinds(&r).iter().any(|k| k == "metric-contradiction"),
+            "95 and 95.00 were compared as text: {:?}",
+            r.findings
+        );
+    }
+
+    /// Values differ, no subject anywhere: say so once, not once per pair.
+    #[test]
+    fn unattributed_values_produce_one_uncertain_finding_per_metric() {
+        let r = run(&[
+            "The reported kappa was 0.71 for the first annotation round of the corpus.",
+            "A later round reported a kappa of 0.83 under the revised guidelines document.",
+            "A third round reported a kappa of 0.90 after the adjudication step was added.",
+        ]);
+        let uncertain: Vec<&ConsistencyFinding> =
+            r.findings.iter().filter(|f| f.kind == "metric-values-unattributed").collect();
+        assert_eq!(uncertain.len(), 1, "three values gave three findings: {:?}", r.findings);
+        assert_eq!(uncertain[0].severity, Severity::Cosmetic);
+        let m = &uncertain[0].message;
+        assert!(m.contains("0.71") && m.contains("0.83") && m.contains("0.9"), "{m}");
+        assert!(m.contains("could not establish"), "{m}");
+        assert!(!r.blocks_audit(), "an unattributed spread must not gate");
+    }
+
+    /// Table II lists accuracy for nine methods — nine subjects, not nine
+    /// contradictions.
+    #[test]
+    fn the_same_metric_for_different_subjects_is_not_a_contradiction() {
+        let r = run(&[
+            "The HEFCSO-BiLSTM model reached 96.42% accuracy on the combined evaluation corpus.",
+            "The baseline SVM reached 88.70% accuracy on the same combined evaluation corpus.",
+        ]);
+        assert!(
+            !kinds(&r).iter().any(|k| k == "metric-contradiction"),
+            "two models' scores were called a contradiction: {:?}",
+            r.findings
+        );
     }
 
     /// A clean manuscript must produce NOTHING. A check that fires on everything
