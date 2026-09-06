@@ -35,6 +35,17 @@ pub fn escape(s: &str) -> String {
 
 /// Print styles live in the document so the file is self-contained: a report
 /// mailed to a supervisor must not depend on a stylesheet it cannot reach.
+/// One tone -> class mapping, shared by the badge and the bar (§11 D93).
+fn tone_class(tone: crate::report_compose::Tone) -> &'static str {
+    use crate::report_compose::Tone;
+    match tone {
+        Tone::Good => "good",
+        Tone::Warn => "warn",
+        Tone::Bad => "bad",
+        Tone::Neutral => "neutral",
+    }
+}
+
 const STYLE: &str = "\
 body{font:14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;\
 max-width:46rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}\
@@ -57,6 +68,13 @@ text-transform:uppercase;padding:.12rem .45rem;border-radius:3px;border:1px soli
 .badge.bad{color:#b32121;border-color:#b32121;background:#fbeded}\
 .badge.neutral{color:#555;border-color:#bbb;background:#f4f4f4}\
 .pagebreak{page-break-after:always;height:0}\
+.bar{display:flex;align-items:center;gap:.6rem;margin:.28rem 0;font-size:.92rem}\
+.bar-label{flex:0 0 210px;color:#2e2e2e}\
+.bar-track{flex:1;height:8px;background:#efefed;border-radius:2px;overflow:hidden}\
+.bar-fill{display:block;height:100%}\
+.bar-fill.tone-good{background:#1c7340}.bar-fill.tone-warn{background:#b56b0d}\
+.bar-fill.tone-bad{background:#b32121}.bar-fill.tone-neutral{background:#6b6b6b}\
+.bar-count{flex:0 0 78px;text-align:right;color:#6b6b6b;font-size:.85rem}\
 @media print{body{margin:0;max-width:none}}";
 
 /// Render blocks to a standalone HTML document.
@@ -89,10 +107,33 @@ pub fn render_html(blocks: &[Block], document_title: &str) -> String {
             other => {
                 close_list(&mut s, &mut in_list);
                 match other {
-                    Block::Cover { title, subtitle, meta } => {
+                    // §11 D93. A real bar here too — the HTML renderer had the
+                    // same "=".repeat(n) string arriving as a bullet.
+                    Block::Bar { label, value, total, tone } => {
+                        let pct = if *total == 0 {
+                            0
+                        } else {
+                            ((*value as f64 / *total as f64) * 100.0).round() as u32
+                        };
+                        s.push_str(&format!(
+                            "<div class=\"bar\"><span class=\"bar-label\">{}</span>\
+                             <span class=\"bar-track\"><i class=\"bar-fill tone-{}\" \
+                             style=\"width:{}%\"></i></span>\
+                             <span class=\"bar-count\">{} ({}%)</span></div>\n",
+                            escape(label),
+                            tone_class(*tone),
+                            pct,
+                            value,
+                            pct
+                        ));
+                    }
+                    Block::Cover { title, subtitle, meta, headline } => {
                         s.push_str("<header class=\"cover\">\n");
                         s.push_str(&format!("<h1>{}</h1>\n", escape(title)));
                         s.push_str(&format!("<div class=\"sub\">{}</div>\n", escape(subtitle)));
+                        if let Some((h, tone)) = headline {
+                            s.push_str(&format!("<p class=\"cover-headline tone-{}\">{}</p>\n", tone_class(*tone), escape(h)));
+                        }
                         s.push_str("<dl>\n");
                         for (k, v) in meta {
                             s.push_str(&format!(
@@ -121,12 +162,8 @@ pub fn render_html(blocks: &[Block], document_title: &str) -> String {
                     }
                     Block::Badge { text, tone } => {
                         use crate::report_compose::Tone;
-                        let cls = match tone {
-                            Tone::Good => "good",
-                            Tone::Warn => "warn",
-                            Tone::Bad => "bad",
-                            Tone::Neutral => "neutral",
-                        };
+                        let _ = |t: Tone| t; // keep the import meaningful
+                        let cls = tone_class(*tone);
                         s.push_str(&format!(
                             "<span class=\"badge {cls}\">{}</span>\n",
                             escape(text)
@@ -159,6 +196,7 @@ mod tests {
                 title: hostile.into(),
                 subtitle: hostile.into(),
                 meta: vec![(hostile.into(), hostile.into())],
+                            headline: None,
             },
             Block::Heading { text: hostile.into(), level: 1 },
             Block::Paragraph { text: hostile.into() },
@@ -208,7 +246,7 @@ mod tests {
     fn heading_levels_map_below_the_covers_h1() {
         // Two competing <h1>s is a document with no outline.
         let blocks = vec![
-            Block::Cover { title: "T".into(), subtitle: "S".into(), meta: vec![] },
+            Block::Cover { title: "T".into(), subtitle: "S".into(), meta: vec![], headline: None },
             Block::Heading { text: "Section".into(), level: 1 },
             Block::Heading { text: "Finding".into(), level: 3 },
         ];

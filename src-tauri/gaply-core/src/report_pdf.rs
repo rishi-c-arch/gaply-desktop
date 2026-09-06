@@ -27,6 +27,10 @@ const PAGE_H: f64 = 841.89;
 const MARGIN_X: f64 = 70.87;
 const MARGIN_Y: f64 = 68.03;
 const TEXT_W: f64 = PAGE_W - 2.0 * MARGIN_X;
+/// §11 D93. The bar row's three columns: label, drawn track, count.
+const BAR_LABEL_W: f64 = 190.0;
+const BAR_COUNT_W: f64 = 78.0;
+const BAR_TRACK_H: f64 = 7.0;
 /// Space reserved for the running header and footer inside the margins.
 const HEADER_H: f64 = 22.0;
 const FOOTER_H: f64 = 18.0;
@@ -453,6 +457,9 @@ enum Decor {
     /// A section heading followed by a rule of the given weight and colour.
     /// That single rule is what creates the hierarchy.
     RuleUnder(f64, Rgb),
+    /// A drawn proportion (§11 D93): a track, a filled portion, and the count
+    /// right-aligned in its own column. `f64` is value/total, already clamped.
+    Bar(f64, Rgb),
     /// A verdict pill: a tinted fill sized to the TEXT, not to the column.
     ///
     /// Full-column is what `Panel` is for, and a verdict drawn that way reads
@@ -486,6 +493,7 @@ impl Elem {
             Decor::Quote => 20.0 + 16.0,
             Decor::RuleUnder(..) => 11.0 + 6.0,
             Decor::Pill(_) => 3.0 + 5.0,
+            Decor::Bar(..) => 6.0,
             Decor::None => 0.0,
         }
     }
@@ -575,11 +583,26 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
 
     for block in blocks {
         match block {
-            Block::Cover { title, subtitle, meta } => {
+            Block::Cover { title, subtitle, meta, headline } => {
                 // 2.2pt INK rule flush across the top margin, then 34mm.
                 let mut lines = Vec::new();
-                lines.extend(lay(&mut outcome, subtitle, scale::COVER_BRAND, Face::Bold, 0.0, INK, 96.4, TEXT_W));
+                // §11 D93. Was 96.4pt, which marooned the cover block in the middle
+                // of an otherwise empty A4 page — the reader's first impression
+                // of the report was four-fifths white.
+                lines.extend(lay(&mut outcome, subtitle, scale::COVER_BRAND, Face::Bold, 0.0, INK, 34.0, TEXT_W));
                 lines.extend(lay(&mut outcome, title, scale::COVER_SUBTITLE, Face::Regular, 0.0, BODY, 2.0, TEXT_W));
+                // §11 D93. The ANSWER, set large — page 1 used to carry five
+                // metadata pairs and four-fifths white paper.
+                if let Some((h, tone)) = headline {
+                    use crate::report_compose::Tone;
+                    let ink = match tone {
+                        Tone::Good => rgb(0x1C, 0x73, 0x40),
+                        Tone::Warn => rgb(0xB5, 0x6B, 0x0D),
+                        Tone::Bad => rgb(0xB3, 0x21, 0x21),
+                        Tone::Neutral => BODY,
+                    };
+                    lines.extend(lay(&mut outcome, h, scale::H1, Face::Bold, 0.0, ink, 26.0, TEXT_W));
+                }
                 elems.push(Elem { lines, decor: Decor::RuleUnder(0.9, INK), soft_break: false, hard_break: false });
 
                 // Metadata as label/value pairs, 10pt between pairs.
@@ -624,6 +647,36 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
             Block::Note { text } => {
                 let lines = lay(&mut outcome, text, scale::SMALL, Face::Regular, 11.0, MUTED, 12.0, TEXT_W - 22.0);
                 elems.push(Elem { lines, decor: Decor::Panel, soft_break: false, hard_break: false });
+            }
+            // §11 D93. Label on the left, a DRAWN track in the middle, the
+            // count and percent right-aligned — three columns that cannot
+            // collide, where "=".repeat(n) plus two numbers always did.
+            Block::Bar { label, value, total, tone } => {
+                use crate::report_compose::Tone;
+                let ink = match tone {
+                    Tone::Good => rgb(0x1C, 0x73, 0x40),
+                    Tone::Warn => rgb(0xB5, 0x6B, 0x0D),
+                    Tone::Bad => rgb(0xB3, 0x21, 0x21),
+                    Tone::Neutral => rgb(0x6B, 0x6B, 0x6B),
+                };
+                let frac = if *total == 0 { 0.0 } else { (*value as f64 / *total as f64).clamp(0.0, 1.0) };
+                let pct = (frac * 100.0).round() as u32;
+                // Two separate lines in ONE element: the label, and the count
+                // placed at a measured offset. Neither is padded with spaces.
+                let mut lines = lay(&mut outcome, label, scale::BODY, Face::Regular, 0.0, BODY, 0.0, BAR_LABEL_W);
+                lines.truncate(1); // a label that wraps would break the row
+                let count = format!("{value}  ({pct}%)");
+                let mut right = lay(&mut outcome, &count, scale::SMALL, Face::Regular, 0.0, MUTED, 0.0, TEXT_W);
+                if let Some(r) = right.first_mut() {
+                    // Right-align by MEASURING, not by padding with spaces.
+                    let w = text_width_in(&r.bytes, r.size, r.face);
+                    r.indent = TEXT_W - w;
+                    // Sits on the SAME row as the label: no vertical advance.
+                    r.leading = 0.0;
+                    r.lead = 0.0;
+                }
+                lines.append(&mut right);
+                elems.push(Elem { lines, decor: Decor::Bar(frac, ink), soft_break: false, hard_break: false });
             }
             Block::Badge { text, tone } => {
                 use crate::report_compose::Tone;
@@ -691,13 +744,22 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
 
     let mut pages: Vec<Vec<u8>> = Vec::new();
     let mut stream: Vec<u8> = Vec::new();
+    // The page's TEXT, kept apart from its decoration until the page is closed
+    // (§11 D93).
+    let mut text_stream: Vec<u8> = Vec::new();
     let mut y = top;
     #[allow(unused_assignments)]
     let mut page_empty = true;
 
     macro_rules! new_page {
         () => {{
-            pages.push(std::mem::take(&mut stream));
+            // §11 D93. Decoration for the WHOLE page first, then all its
+            // text. Drawing them interleaved meant block N+1's panel fill
+            // painted over block N's descenders — the letters were not clipped
+            // by a box, they were covered by the next one.
+            let mut page = std::mem::take(&mut stream);
+            page.extend_from_slice(&std::mem::take(&mut text_stream));
+            pages.push(page);
             y = top;
             page_empty = true;
         }};
@@ -775,6 +837,20 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
                 stream.extend_from_slice(&fill_rect(MARGIN_X, y, TEXT_W, w, c));
                 y -= 6.0;
             }
+            // §11 D93. The track, then the filled proportion. Drawn on the
+            // row's own baseline so the label, the bar and the count line up.
+            Decor::Bar(frac, ink) => {
+                let track_x = MARGIN_X + BAR_LABEL_W;
+                let track_w = TEXT_W - BAR_LABEL_W - BAR_COUNT_W;
+                // 2pt under the baseline puts the bar optically on the line
+                // rather than floating above it.
+                let by = text_bottom - 2.0;
+                stream.extend_from_slice(&fill_rect(track_x, by, track_w, BAR_TRACK_H, PANEL));
+                let filled = track_w * frac;
+                if filled > 0.0 {
+                    stream.extend_from_slice(&fill_rect(track_x, by, filled.max(1.5), BAR_TRACK_H, ink));
+                }
+            }
             Decor::Pill(tint) => {
                 // Widest line, so a two-word verdict is not clipped. Padded 6pt
                 // each side; the extra 2pt of height sits under the baseline so
@@ -795,11 +871,13 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
             }
             Decor::None => {}
         }
-        stream.extend_from_slice(&body);
+        text_stream.extend_from_slice(&body);
         page_empty = false;
     }
     if !page_empty {
-        pages.push(stream);
+        let mut page = stream;
+        page.extend_from_slice(&text_stream);
+        pages.push(page);
     }
     if pages.is_empty() {
         pages.push(Vec::new());
@@ -1468,7 +1546,7 @@ mod layout_tests {
     #[test]
     fn the_cover_always_stands_alone() {
         let blocks = vec![
-            Block::Cover { title: "T".into(), subtitle: "S".into(), meta: vec![] },
+            Block::Cover { title: "T".into(), subtitle: "S".into(), meta: vec![], headline: None },
             Block::Heading { text: "One".into(), level: 1 },
         ];
         let pdf = render_pdf(&blocks);

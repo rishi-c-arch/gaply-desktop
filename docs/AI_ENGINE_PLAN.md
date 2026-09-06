@@ -4906,3 +4906,65 @@ The last row inherits §11 D89 rather than inventing its own: a 43%-precision
 suggestion is visually subordinate to an evidence-backed finding here too, and
 the dashed edge keeps it distinguishable in greyscale and to a colour-blind
 reader. `no_citation_needed` gets no highlight at all — it is not a finding.
+
+### D93 — six defects in the exported report, found by looking at it
+
+Reported from the PDF itself, not from preferences. Each was reproduced by
+regenerating a real job's report and reading it, and each fix was verified the
+same way.
+
+#### The bars were a terminal's bars
+
+```
+- could not be checked ===== 16 19%
+- suggestions only ================== 65 77%
+- not judged = 1 1%
+```
+
+`"=".repeat(n)` inside a bullet is a chart in a monospaced terminal and a run of
+punctuation anywhere else. Worse, the `{:<24}` and `{:>4}` padding that was
+meant to align the count is **spaces in a proportional font**, so it aligned
+nothing and the two numbers collided: `16 19%`, `1 1%`, `0 0%`.
+
+`Block::Bar { label, value, total, tone }` replaces it. The composer supplies
+the facts and each renderer draws them — the layering the `Badge` comment
+already described. Three columns that cannot collide: label, a drawn track, and
+the count right-aligned **by measuring its width**, never by padding.
+
+**There were TWO ASCII-bar sites.** The verdict breakdown used the same trick
+with `{:<26}`; converting only the visible one would have left the defect
+alive one section further down.
+
+#### The findings were not clipped — they were painted over
+
+Descenders vanished on the last line before a shaded panel. The cause is one
+line:
+
+```rust
+let block_top = y;   // y is the PREVIOUS element's final baseline
+...
+fill_rect(MARGIN_X, y, TEXT_W, block_top - y, PANEL);
+```
+
+Decoration is drawn before text *within* an element, and the comment says so —
+but across elements the order is emission order, so block N+1's panel fill
+covered block N's descenders, which hang below the baseline `block_top` sits on.
+
+Fixed structurally rather than by nudging a constant: a page now accumulates
+**decoration and text in separate buffers** and emits all decoration first. A
+fill can no longer cover earlier text, whatever the block order.
+
+#### And three more
+
+- **Grammar.** "The 1 checked claim that most **need** your attention" — the
+  noun agreed and the verb did not.
+- **Page 1 was four-fifths white**, carrying five metadata pairs and nothing a
+  reader came for. `Cover` gains an optional `headline`: the report's ANSWER,
+  set large — *"80 / 100 — 8 of 10 checked claims held up"*, or *"Only 2 claims
+  could be checked — too few to score"*.
+- **No colour anywhere**, though `Tone` existed and the badge already used it.
+  Bars and the cover headline now carry it.
+
+Four tests, including two that hold the shape rather than the wording: one
+asserts no `====` survives anywhere in a composed report, and one scans every
+line for the `<digits> <digits>%` collision that shipped.

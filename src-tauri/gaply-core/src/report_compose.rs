@@ -31,7 +31,16 @@ use crate::vocabulary::{claim_label, severity_label, tier_label};
 #[derive(Debug, Clone, PartialEq)]
 pub enum Block {
     /// Document title page. `meta` is label/value pairs.
-    Cover { title: String, subtitle: String, meta: Vec<(String, String)> },
+    /// `headline` is the report's ANSWER, shown large on the cover (§11 D93).
+    /// Optional because not every report has one — the cover used to carry
+    /// metadata alone, which left page 1 four-fifths white and told the reader
+    /// nothing they had come for.
+    Cover {
+        title: String,
+        subtitle: String,
+        meta: Vec<(String, String)>,
+        headline: Option<(String, Tone)>,
+    },
     /// `level` 1 = section, 2 = subsection, 3 = finding title.
     Heading { text: String, level: u8 },
     Paragraph { text: String },
@@ -39,6 +48,17 @@ pub enum Block {
     Bullet { text: String, indent: u8 },
     /// A caveat, disclosure or limitation. Rendered de-emphasised.
     Note { text: String },
+    /// A proportion, drawn — not typed (§11 D93).
+    ///
+    /// This was `"=".repeat(n)` inside a bullet, which is a bar chart only in a
+    /// monospaced terminal. In a proportional font the padding that was meant
+    /// to align the count collapses, so the label, the run of `=` and the two
+    /// numbers ran together as "16 19%".
+    ///
+    /// The composer supplies the FACTS — label, value, total, tone — and each
+    /// renderer decides what a bar looks like in its medium. The same layering
+    /// the `Badge` comment describes.
+    Bar { label: String, value: usize, total: usize, tone: Tone },
     /// A verdict, as a label with a SEMANTIC tone rather than a colour.
     ///
     /// The tone is the composer's (it knows what "contradicts" means); the
@@ -251,6 +271,7 @@ fn cover(model: &LocalReportModel, out: &mut Vec<Block>) {
         title: model.manuscript.title.clone().unwrap_or_else(|| "Untitled manuscript".into()),
         subtitle: "Gaply PublishReady report".into(),
         meta,
+        headline: None,
     });
 }
 

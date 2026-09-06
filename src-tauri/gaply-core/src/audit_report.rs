@@ -406,23 +406,6 @@ fn emit_blocked_sources(out: &mut Vec<Block>, items: &[ReportItem], has_pages: b
     }
 }
 
-/// A one-line proportional bar.
-///
-/// Deliberately built from a repeated ASCII character rather than block-drawing
-/// glyphs: the PDF renderer encodes WinAnsi, and a bar that folds to `?` in one
-/// of the two output formats is worse than a plain one that survives both.
-fn bar(n: usize, total: usize) -> String {
-    if total == 0 {
-        return String::new();
-    }
-    let width = ((n as f64 / total as f64) * 24.0).round() as usize;
-    format!(
-        "{:<24} {n:>4}  {:>3}%",
-        "=".repeat(width.max(usize::from(n > 0))),
-        (n as f64 * 100.0 / total as f64).round() as u32
-    )
-}
-
 /// The items a reader should look at first, across every category.
 ///
 /// Ordering by document position put sentence 0 at the top of a 65-item report
@@ -445,7 +428,25 @@ fn attention_list(m: &AuditReportModel) -> Vec<&ReportItem> {
 pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     let mut out = Vec::new();
 
+    // §11 D93. The cover now ANSWERS, rather than only describing the run.
+    let cover_checked = m.supported.len();
+    let cover_failing = m.supported.iter().filter(|i| attention_rank(i) < 9).count();
+    let cover_headline = match health_score(m) {
+        Some(score) => Some((
+            format!("{score} / 100 — {} of {} checked claims held up", cover_checked - cover_failing, cover_checked),
+            match score { 80..=100 => Tone::Good, 50..=79 => Tone::Warn, _ => Tone::Bad },
+        )),
+        None if cover_checked == 0 => Some((
+            "No claim could be checked against its cited source".to_string(),
+            Tone::Neutral,
+        )),
+        None => Some((
+            format!("Only {cover_checked} claims could be checked — too few to score"),
+            Tone::Neutral,
+        )),
+    };
     out.push(Block::Cover {
+        headline: cover_headline,
         title: "Thesis citation audit".to_string(),
         subtitle: m.manuscript_name.clone(),
         meta: vec![
@@ -526,34 +527,39 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     // finding is the same conflation the score just removed (§11 D78).
     let total_bar = checked + m.unverifiable.len() + m.failed.len() + m.needs_citation.len();
     out.push(para("The whole manuscript, proportionally:"));
-    out.push(bullet(
-        format!("checked, did not hold up  {}", bar(failing, total_bar)),
-        0,
-    ));
-    out.push(bullet(
-        format!("checked, held up          {}", bar(checked - failing, total_bar)),
-        0,
-    ));
-    out.push(bullet(
-        format!("could not be checked      {}", bar(m.unverifiable.len(), total_bar)),
-        0,
-    ));
-    out.push(bullet(
-        format!("suggestions only          {}", bar(m.needs_citation.len(), total_bar)),
-        0,
-    ));
+    // §11 D93. DRAWN bars, and a tone each — the renderer decides the pixels.
+    // These were `"=".repeat(n)` inside a bullet, which is a chart only in a
+    // terminal; in a proportional font the alignment padding collapsed and the
+    // count ran into the percent ("16 19%").
+    let mut prop = |label: &str, n: usize, tone: Tone| {
+        out.push(Block::Bar {
+            label: label.to_string(),
+            value: n,
+            total: total_bar,
+            tone,
+        });
+    };
+    prop("checked, did not hold up", failing, Tone::Bad);
+    prop("checked, held up", checked - failing, Tone::Good);
+    prop("could not be checked", m.unverifiable.len(), Tone::Neutral);
+    prop("suggestions only", m.needs_citation.len(), Tone::Warn);
     if !m.failed.is_empty() {
-        out.push(bullet(format!("not judged                {}", bar(m.failed.len(), total_bar)), 0));
+        prop("not judged", m.failed.len(), Tone::Neutral);
     }
 
     if !attention.is_empty() {
         const TOP: usize = 10;
         out.push(heading(
-            format!(
-                "The {} checked claim{} that most need your attention",
-                attention.len().min(TOP),
-                if attention.len().min(TOP) == 1 { "" } else { "s" }
-            ),
+            // §11 D93. The noun agreed; the verb did not — "The 1 checked
+            // claim that most NEED your attention".
+            {
+                let n = attention.len().min(TOP);
+                if n == 1 {
+                    "The checked claim that most needs your attention".to_string()
+                } else {
+                    format!("The {n} checked claims that most need your attention")
+                }
+            },
             2,
         ));
         out.push(para(
@@ -616,7 +622,15 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     if !m.verdict_counts.is_empty() {
         out.push(para("What the model concluded:"));
         for (v, n) in &m.verdict_counts {
-            out.push(bullet(format!("{:<26} {}", v.replace('_', " "), bar(*n, judged.max(1))), 0));
+            // §11 D93. The second ASCII-bar site. `{:<26}` padded with spaces
+            // that a proportional font does not align, so the label and the
+            // count collided exactly as they did above.
+            out.push(Block::Bar {
+                label: v.replace('_', " "),
+                value: *n,
+                total: judged.max(1),
+                tone: tone_of(Some(v)),
+            });
         }
     }
     if !m.skipped_reasons.is_empty() {
@@ -687,8 +701,9 @@ mod tests {
 
     fn text_of(b: &Block) -> String {
         match b {
-            Block::Cover { title, subtitle, meta } => format!(
-                "{title} {subtitle} {}",
+            Block::Cover { title, subtitle, meta, headline } => format!(
+                "{title} {subtitle} {} {}",
+                headline.as_ref().map(|(h, _)| h.as_str()).unwrap_or(""),
                 meta.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(" ")
             ),
             Block::Heading { text, .. } => text.clone(),
@@ -696,6 +711,13 @@ mod tests {
             Block::Bullet { text, .. } => text.clone(),
             Block::Note { text } => text.clone(),
             Block::Badge { text, .. } => text.clone(),
+            // §11 D93. The bar's TEXT is its label and its numbers — what a
+            // reader would see — so assertions about the report's wording keep
+            // working across the ASCII-to-drawn change.
+            Block::Bar { label, value, total, .. } => {
+                let pct = if *total == 0 { 0 } else { ((*value as f64 / *total as f64) * 100.0).round() as u32 };
+                format!("{label} {value} ({pct}%)")
+            }
             Block::PageBreak => String::new(),
         }
     }
@@ -925,7 +947,7 @@ mod tests {
         let blocks = compose_audit(&model());
         let cover = blocks.first().expect("a cover");
         match cover {
-            Block::Cover { title, subtitle, meta } => {
+            Block::Cover { title, subtitle, meta, .. } => {
                 assert_eq!(title, "Thesis citation audit");
                 assert_eq!(subtitle, "R PAPER .pdf");
                 let keys: Vec<&str> = meta.iter().map(|(k, _)| k.as_str()).collect();
@@ -1040,6 +1062,110 @@ mod tests {
         // And the measured precision is stated, so the claim is checkable.
         assert!(text.contains("43%"), "precision not disclosed:\n{text}");
         assert!(text.contains("82%"), "recall not disclosed:\n{text}");
+    }
+
+    /// §11 D93. The proportions are DRAWN, not typed.
+    ///
+    /// `"=".repeat(n)` is a bar chart in a terminal and a run of punctuation in
+    /// a PDF, and the `{:<24}` padding meant to align the count does nothing in
+    /// a proportional font — so "16" and "19%" arrived as "16 19%".
+    #[test]
+    fn proportions_are_bar_blocks_not_ascii() {
+        let mut m = model();
+        m.supported = (0..10)
+            .map(|i| ReportItem { seq: i, verdict: Some("strong".into()), ..Default::default() })
+            .collect();
+        let blocks = compose_audit(&m);
+
+        let bars: Vec<&Block> = blocks.iter().filter(|b| matches!(b, Block::Bar { .. })).collect();
+        assert!(bars.len() >= 4, "the At-a-glance proportions are not Bar blocks: {}", bars.len());
+
+        // And no ASCII bar survives anywhere in the document.
+        let text = all_text(&blocks);
+        assert!(!text.contains("===="), "an ASCII bar is still being emitted:\n{text}");
+    }
+
+    /// §11 D93. The count and the percent are separated, and stay separated.
+    #[test]
+    fn a_count_never_collides_with_its_percent() {
+        let mut m = model();
+        m.supported = (0..10)
+            .map(|i| ReportItem { seq: i, verdict: Some("strong".into()), ..Default::default() })
+            .collect();
+        let text = all_text(&compose_audit(&m));
+        // The shape that shipped: "1 1%", "0 0%", "16 19%".
+        let bad = regex_like_collision(&text);
+        assert!(bad.is_none(), "count and percent collide: {bad:?}\n{text}");
+        // The shape that replaced it.
+        assert!(text.contains("(0%)") || text.contains("(100%)"), "no parenthesised percent:\n{text}");
+    }
+
+    /// Crude but exact: "<digits> <digits>%" with a single space is the defect.
+    fn regex_like_collision(text: &str) -> Option<String> {
+        for line in text.lines() {
+            let toks: Vec<&str> = line.split_whitespace().collect();
+            for w in toks.windows(2) {
+                let (a, b) = (w[0], w[1]);
+                if a.chars().all(|c| c.is_ascii_digit())
+                    && b.ends_with('%')
+                    && b[..b.len() - 1].chars().all(|c| c.is_ascii_digit())
+                {
+                    return Some(line.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// §11 D93. "The 1 checked claim that most NEED your attention".
+    #[test]
+    fn the_attention_heading_agrees_in_number() {
+        let mut m = model();
+        m.supported = vec![ReportItem {
+            seq: 1,
+            sentence: "One weak claim.".into(),
+            verdict: Some("weak".into()),
+            ..Default::default()
+        }];
+        let one = all_text(&compose_audit(&m));
+        assert!(one.contains("The checked claim that most needs your attention"), "{one}");
+        assert!(!one.contains("that most need your attention"), "verb still plural:\n{one}");
+
+        m.supported.push(ReportItem {
+            seq: 2,
+            sentence: "Another weak claim.".into(),
+            verdict: Some("weak".into()),
+            ..Default::default()
+        });
+        let two = all_text(&compose_audit(&m));
+        assert!(two.contains("The 2 checked claims that most need your attention"), "{two}");
+    }
+
+    /// §11 D93. Page 1 answers "how did it go?", not only "what was run".
+    #[test]
+    fn the_cover_carries_the_answer() {
+        let mut m = model();
+        m.supported = (0..10)
+            .map(|i| ReportItem {
+                seq: i,
+                verdict: Some(if i < 2 { "weak" } else { "strong" }.into()),
+                ..Default::default()
+            })
+            .collect();
+        let blocks = compose_audit(&m);
+        let Some(Block::Cover { headline, .. }) = blocks.first() else {
+            panic!("no cover block");
+        };
+        let (text, _) = headline.as_ref().expect("the cover has no headline");
+        assert!(text.contains("80 / 100"), "{text}");
+        assert!(text.contains("8 of 10 checked claims held up"), "{text}");
+
+        // With nothing checkable it says so rather than showing a bare score.
+        let empty_blocks = compose_audit(&model());
+        let Some(Block::Cover { headline, .. }) = empty_blocks.first() else {
+            panic!("no cover")
+        };
+        assert!(headline.as_ref().unwrap().0.contains("could be checked"), "{headline:?}");
     }
 
     /// §11 D89. A suggestion must not arrive dressed as a finding.
