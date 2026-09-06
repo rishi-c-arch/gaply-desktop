@@ -5126,3 +5126,94 @@ to know which they were given.
 Duplicates are resolved the way §11 D92 resolves them: both lists are in
 document order, so the k-th planned copy takes the k-th printed occurrence.
 Exact, not a guess.
+
+### D96 — the author-year path, designed against a real APA paper first
+
+§11 D94 recorded the gap: `Revised Health Economics Paper` carries **50 citation
+markers and zero checkable ones**, because every structural check keys on a
+NUMBERED reference list. A large share of the field cites author-year, and for
+all of them the pre-flight offered silence.
+
+#### What the real markers look like, and what that forces
+
+Dumped from that paper before a line was written. Four shapes decide the design:
+
+```
+(Alkenbrack et al., 2015; AlJohani & Bugis, 2024)   TWO works, one marker
+Authority (2025)                                     a false surname
+(Dubai 2013, Abu Dhabi 2006)                         lead "dubai", year 2006
+Kutzins (2013)     vs entry   Kutzin, J. (2013)      near-miss surname
+```
+
+- **Multi-work markers** carry only the FIRST work through `markers_in`, so the
+  second is invisible. Split on `;` and recover it, or every co-cited work reads
+  as never cited.
+- **`Authority (2025)`** is the tail of an organisation's name. A surname the
+  list has never heard of is not automatically an orphan.
+- **`(Dubai 2013, Abu Dhabi 2006)`** pairs one work's author with another's
+  year. Any year comparison on it is meaningless, so a year check runs ONLY
+  when the marker contains exactly one year.
+- **`Kutzins` vs `Kutzin`** is a possessive or a typo, not a missing reference.
+
+#### So uncertainty is a verdict, not a silence
+
+> A false "this citation doesn't exist" is worse than a missed one.
+
+Exact surname match → cited. **Near match** (edit distance 1, or a prefix within
+two characters) → treated as cited AND reported separately as an uncertain
+match. **No match of either kind** → orphan. The middle case is the whole
+difference between this being usable and being noise.
+
+#### Severity, by the D94 principle rather than by category
+
+The question is the same one the numbered path asks: *does this make the audit's
+output untrustworthy?*
+
+| check | severity | why |
+|---|---|---|
+| marker with no entry at all | **structural** | the citation resolves to nothing |
+| entry that is not author+year | **structural** | markers cannot resolve against it |
+| year disagrees, one year in the marker | **structural** | it may resolve to the wrong work |
+| entry never cited | cosmetic | the paper lists a work it does not use; no verdict moves |
+| uncertain surname match | cosmetic | it was matched; the reader is told it was close, not exact |
+
+#### And it says when it cannot run
+
+The numbered checks stay silent on an APA paper and the author-year checks stay
+silent on a numbered one. Each says which, because a clean report on an
+unexaminable paper reads exactly like a clean report on a sound one:
+
+> `reference style: AUTHOR-YEAR — the numbered checks (off-by-one entries,`
+> `orphan [n] markers) do not apply to this paper.`
+
+#### Measured on the paper it was designed against
+
+`Revised Health Economics Paper` went from **50 markers and nothing checkable**
+to 1 structural finding and 12 cosmetic ones. The first pass produced **8
+structural**, and six of them were false:
+
+| what fired | why it was wrong | fix |
+|---|---|---|
+| `P4H Network. (2024).` unreadable | organisational authors have no comma, and a digit sits inside the name | accept both APA shapes |
+| `The Financial Services Authority. (2025).` unreadable | same | same |
+| `Authority (2025)` orphan | the tail of an organisation's name | appears-in-an-entry -> uncertain |
+| `Valletta (2011)` orphan | a third author cited alone | same |
+| `Saksena and Kutzin (2019)` orphan | same | same |
+| `(RBV; Barney, 1991)` orphan | an abbreviation being introduced | short all-caps is not a surname |
+
+**Six false "this citation doesn't exist" in the first run of a check whose
+whole justification is not producing them.** That is the measurement the brief
+asked for, and the reason the conservative rules are rules rather than
+preferences.
+
+What survives is worth reading: `Kutzins (2013)` matched to `Kutzin, J. (2013)`
+as uncertain, three co-authors cited alone flagged as uncertain rather than
+missing, three listed-but-never-cited entries, and one genuine orphan.
+
+#### STILL UNEXERCISED
+
+`section-letters-out-of-sequence` and `repeated-paragraph` have now met two real
+manuscripts and fired on neither, because neither has the defect: `R PAPER .pdf`
+lacks the granularity and the health-economics paper numbers its sections and
+repeats no paragraph. They remain **unexercised, not validated** — the `.docx`
+that would settle them is not currently on disk.

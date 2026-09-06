@@ -133,6 +133,290 @@ fn snippet(s: &str, n: usize) -> String {
     format!("{cut}…")
 }
 
+/// One entry from an author-year reference list (§11 D96).
+#[derive(Debug, Clone)]
+struct AuthorYearEntry {
+    /// Lower-cased leading surname, as `markers_in` reports a marker's.
+    surname: String,
+    year: Option<i32>,
+    raw: String,
+}
+
+/// The leading surname of one work inside a co-citation.
+fn co_cite_lead_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^([A-Z][\p{L}'’\-]+)").expect("co-cite lead regex"))
+}
+
+fn ay_entry_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    // "Alkenbrack, S., Hanson, K., & Lindelow, M. (2015). Title…"
+    // "AlRuthia, Y., Aldallal, S., … et al. (2025). Title…"
+    RE.get_or_init(|| {
+        // Two shapes, both valid APA:
+        //   "Alkenbrack, S., Hanson, K., & Lindelow, M. (2015)."  personal
+        //   "P4H Network. (2024)."                                 organisation
+        // Requiring the comma reported both organisational entries in a real
+        // paper as unreadable, which is the check calling correct APA wrong.
+        // Digits belong in a name: "P4H Network" is an organisation, and
+        // requiring a letter after the capital called it unreadable.
+        Regex::new(r"^\s*(?P<surname>[A-Z][\p{L}\p{N}'’\-]*)[^()]{0,300}?\((?P<year>(?:1[6-9]|20)\d{2})[a-z]?\)")
+            .expect("author-year entry regex")
+    })
+}
+
+fn year_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?:1[6-9]|20)\d{2}").expect("year regex"))
+}
+
+/// The reference list, when it is author-year rather than numbered.
+///
+/// Everything after the references heading; each block is one entry. Returns
+/// `(parsed, malformed_raws)` — an entry that yields no surname+year is not
+/// discarded, it is REPORTED, because markers cannot resolve against it.
+fn parse_author_year_entries(blocks: &[PagedBlock]) -> (Vec<AuthorYearEntry>, Vec<String>) {
+    let start = blocks
+        .iter()
+        .position(|b| crate::ai_engine::audit_prepass::is_references_heading(&b.text));
+    let Some(start) = start else { return (Vec::new(), Vec::new()) };
+
+    let mut ok = Vec::new();
+    let mut bad = Vec::new();
+    for b in blocks.iter().skip(start + 1) {
+        let t = b.text.trim();
+        // Too short to be a reference: a page number, a running header.
+        if t.split_whitespace().count() < 5 {
+            continue;
+        }
+        match ay_entry_re().captures(t) {
+            Some(c) => ok.push(AuthorYearEntry {
+                surname: c["surname"].to_lowercase(),
+                year: c["year"].parse().ok(),
+                raw: t.to_string(),
+            }),
+            None => bad.push(t.to_string()),
+        }
+    }
+    (ok, bad)
+}
+
+/// Levenshtein distance, capped at 1 — the only distance this needs.
+///
+/// `Kutzins` vs `Kutzin` is a possessive or a typo, not a missing reference,
+/// and calling it an orphan is the false "this citation doesn't exist" that
+/// costs a researcher more than a miss.
+/// Strip a trailing possessive: "weiner’s" is Weiner, not a different author.
+fn depossess(s: &str) -> String {
+    for suffix in ["’s", "'s", "s’", "s'"] {
+        if let Some(base) = s.strip_suffix(suffix) {
+            return base.to_string();
+        }
+    }
+    s.to_string()
+}
+
+/// An all-capitals short token is an acronym, not a surname.
+///
+/// `(RBV; Barney, 1991)` introduces an abbreviation; reading `RBV` as an author
+/// and reporting it missing is a false "this citation doesn't exist".
+fn looks_like_acronym(raw: &str, surname: &str) -> bool {
+    let upper: String = surname.to_uppercase();
+    surname.chars().count() <= 5 && raw.contains(&upper)
+}
+
+fn within_one_edit(a: &str, b: &str) -> bool {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let (long, short) = if a.len() >= b.len() { (&a, &b) } else { (&b, &a) };
+    if long.len() - short.len() > 1 {
+        return false;
+    }
+    let mut i = 0usize;
+    let mut j = 0usize;
+    let mut slack = 1usize;
+    while i < long.len() && j < short.len() {
+        if long[i] == short[j] {
+            i += 1;
+            j += 1;
+            continue;
+        }
+        if slack == 0 {
+            return false;
+        }
+        slack -= 1;
+        if long.len() == short.len() {
+            i += 1;
+            j += 1;
+        } else {
+            i += 1;
+        }
+    }
+    // Whatever is left must fit in the remaining slack.
+    (long.len() - i) + (short.len() - j) <= slack
+}
+
+/// Every (surname, year) an in-text marker refers to.
+///
+/// `markers_in` keeps only the FIRST work of `(A et al., 2015; B & C, 2024)`,
+/// so the co-cited work would read as never cited. The raw text is split on
+/// `;` to recover it.
+fn marker_works(raw: &str, lead: Option<&str>, year: Option<i32>) -> Vec<(String, Option<i32>)> {
+    let mut out = Vec::new();
+    if let Some(l) = lead {
+        out.push((l.to_string(), year));
+    }
+    if !raw.contains(';') {
+        return out;
+    }
+    let inner = raw.trim_start_matches('(').trim_end_matches(')');
+    for part in inner.split(';').skip(1) {
+        let part = part.trim();
+        let Some(c) = co_cite_lead_re().captures(part) else {
+            continue;
+        };
+        let y = year_re().find(part).and_then(|m| m.as_str().parse::<i32>().ok());
+        out.push((c[1].to_lowercase(), y));
+    }
+    out
+}
+
+/// The author-year equivalents of the numbered path's structural guarantees
+/// (§11 D96). Silent — and says so — when the list is numbered instead.
+fn check_author_year(out: &mut ConsistencyReport, blocks: &[PagedBlock], report: &PrepassReport) {
+    if !report.bibliography.is_empty() {
+        return; // numbered paper: the numeric checks own it
+    }
+    let (entries, malformed) = parse_author_year_entries(blocks);
+    if entries.is_empty() && malformed.is_empty() {
+        return; // no reference list found at all — not this check's business
+    }
+
+    for raw in &malformed {
+        out.push(
+            "reference-entry-unparseable",
+            Severity::Structural,
+            format!(
+                "A reference entry could not be read as an author and a year, so no citation can \
+                 resolve against it: “{}”",
+                snippet(raw, 100)
+            ),
+            Some("Give it an author surname and a (year), or remove it.".to_string()),
+        );
+    }
+
+    // Every work every marker refers to.
+    let mut cited: BTreeMap<String, Vec<(Option<i32>, String)>> = BTreeMap::new();
+    for p in &report.planned {
+        for m in &p.markers {
+            if m.style != MarkerStyle::AuthorYear {
+                continue;
+            }
+            for (surname, year) in marker_works(&m.raw, m.lead_author.as_deref(), m.year) {
+                cited.entry(depossess(&surname)).or_default().push((year, m.raw.clone()));
+            }
+        }
+    }
+
+    let mut matched_entries: std::collections::BTreeSet<String> = Default::default();
+    for (surname, uses) in &cited {
+        let exact: Vec<&AuthorYearEntry> = entries.iter().filter(|e| &e.surname == surname).collect();
+        if !exact.is_empty() {
+            matched_entries.insert(surname.clone());
+            // A year check is meaningful ONLY when the marker names one year:
+            // "(Dubai 2013, Abu Dhabi 2006)" pairs one work's author with
+            // another's year, and comparing them says nothing.
+            for (year, raw) in uses {
+                let (Some(y), true) = (year, year_re().find_iter(raw).count() == 1) else { continue };
+                if exact.iter().any(|e| e.year == Some(*y)) {
+                    continue;
+                }
+                let listed: Vec<String> =
+                    exact.iter().filter_map(|e| e.year).map(|y| y.to_string()).collect();
+                out.push(
+                    "marker-year-mismatch",
+                    Severity::Structural,
+                    format!(
+                        "“{}” cites {y}, but the reference list has {} under that name with {}.",
+                        snippet(raw, 60),
+                        if exact.len() == 1 { "the entry" } else { "entries" },
+                        if listed.is_empty() { "no year".to_string() } else { listed.join(" and ") }
+                    ),
+                    Some("Correct the year, or cite the edition you mean.".to_string()),
+                );
+            }
+            continue;
+        }
+
+        // NEAR match: matched, and said to be near rather than asserted exact.
+        if let Some(near) = entries.iter().find(|e| within_one_edit(&e.surname, surname)) {
+            matched_entries.insert(near.surname.clone());
+            out.push(
+                "uncertain-reference-match",
+                Severity::Cosmetic,
+                format!(
+                    "“{}” was matched to the entry beginning “{}” — the surnames differ by one \
+                     character, so this may be a typo rather than a different work.",
+                    snippet(&uses[0].1, 50),
+                    snippet(&near.raw, 50)
+                ),
+                None,
+            );
+            continue;
+        }
+
+        // Appears in SOME entry, just not as its leading surname: a third
+        // author cited alone, or a word inside an organisation's name. Matched
+        // loosely and SAID to be loose — never asserted missing.
+        if let Some(e) = entries.iter().find(|e| {
+            e.raw.to_lowercase().split(|c: char| !c.is_alphanumeric() && c != '-').any(|w| w == surname)
+        }) {
+            matched_entries.insert(e.surname.clone());
+            out.push(
+                "uncertain-reference-match",
+                Severity::Cosmetic,
+                format!(
+                    "“{}” names “{surname}”, which appears in the entry beginning “{}” but is not \
+                     the name it is listed under. It may be a co-author cited alone.",
+                    snippet(&uses[0].1, 50),
+                    snippet(&e.raw, 50)
+                ),
+                None,
+            );
+            continue;
+        }
+
+        // An acronym introduced in the text is not a missing reference.
+        if uses.iter().any(|(_, raw)| looks_like_acronym(raw, surname)) {
+            continue;
+        }
+
+        out.push(
+            "orphan-author-year-marker",
+            Severity::Structural,
+            format!(
+                "“{}” cites a work the reference list does not contain — no entry begins with \
+                 “{surname}”. It is cited {} time{}.",
+                snippet(&uses[0].1, 60),
+                uses.len(),
+                if uses.len() == 1 { "" } else { "s" }
+            ),
+            Some("Add the reference, or correct the citation.".to_string()),
+        );
+    }
+
+    for e in &entries {
+        if matched_entries.contains(&e.surname) {
+            continue;
+        }
+        out.push(
+            "reference-never-cited",
+            Severity::Cosmetic,
+            format!("Listed but never cited in the text: “{}”", snippet(&e.raw, 90)),
+            Some("Cite it, or remove it from the list.".to_string()),
+        );
+    }
+}
+
 /// Run every check. Pure: same inputs, same findings, no clock and no I/O.
 pub fn check_consistency(blocks: &[PagedBlock], report: &PrepassReport) -> ConsistencyReport {
     let mut out = ConsistencyReport::default();
@@ -142,6 +426,7 @@ pub fn check_consistency(blocks: &[PagedBlock], report: &PrepassReport) -> Consi
     check_section_letters(&mut out, blocks);
     check_repeated_paragraphs(&mut out, blocks);
     check_mixed_styles(&mut out, report);
+    check_author_year(&mut out, blocks, report);
     out
 }
 
@@ -640,6 +925,184 @@ mod tests {
             "The BiLSTM architecture [7] handles the long-range dependencies of informal text.",
         ]);
         assert!(!kinds(&r).iter().any(|x| x == "mixed-citation-style"), "{:?}", kinds(&r));
+    }
+
+    /* ------------------- author-year (§11 D96) ------------------- */
+
+    /// The list this paper actually has, trimmed. Two personal entries, one
+    /// organisational, one with a digit in the name.
+    fn ay_paper(extra: &[&str]) -> Vec<String> {
+        let mut v: Vec<String> = vec![
+            "Kutzin, J. (2013). Health financing for universal coverage and health system performance.".into(),
+            "Mathauer, I., Saksena, P., & Kutzin, J. (2019). Pooling arrangements in health financing systems.".into(),
+            "Buchmueller, T. C., DiNardo, J., & Valletta, R. G. (2011). The effect of an employer mandate.".into(),
+            "P4H Network. (2024). Oman updates compulsory health insurance policy for the private sector.".into(),
+            "The Financial Services Authority. (2025). Dhamani platform statistics for the first quarter.".into(),
+            "References".into(),
+        ];
+        v.rotate_right(1); // put "References" first
+        v.extend(extra.iter().map(|s| s.to_string()));
+        v
+    }
+    fn run_ay(body: &[&str], refs: &[&str]) -> ConsistencyReport {
+        let mut all: Vec<String> = body.iter().map(|s| s.to_string()).collect();
+        all.extend(ay_paper(refs));
+        let owned: Vec<&str> = all.iter().map(String::as_str).collect();
+        run(&owned)
+    }
+
+    /// A citation to a work that appears NOWHERE in the list. The only shape
+    /// that may be asserted missing.
+    #[test]
+    fn a_marker_with_no_trace_in_the_list_is_an_orphan() {
+        let r = run_ay(
+            &["Coverage expanded rapidly across the region in the following decade (Nakamura, 2018)."],
+            &[],
+        );
+        let m = message(&r, "orphan-author-year-marker");
+        assert!(m.contains("Nakamura"), "{m}");
+        assert!(r.blocks_audit(), "an orphan citation must gate");
+    }
+
+    /// A FALSE "this citation doesn't exist" is worse than a missed one, so a
+    /// co-author cited alone is matched loosely and SAID to be loose.
+    #[test]
+    fn a_co_author_cited_alone_is_uncertain_not_an_orphan() {
+        let r = run_ay(
+            &["The employer mandate reduced uninsurance among affected workers (Valletta, 2011)."],
+            &[],
+        );
+        assert!(
+            !kinds(&r).iter().any(|k| k == "orphan-author-year-marker"),
+            "a third author cited alone was asserted missing: {:?}",
+            r.findings
+        );
+        let m = message(&r, "uncertain-reference-match");
+        assert!(m.contains("valletta"), "{m}");
+        assert!(m.contains("co-author cited alone"), "{m}");
+        assert!(!r.blocks_audit(), "an uncertain match must not gate");
+    }
+
+    /// "Kutzins (2013)" against "Kutzin, J. (2013)" — a possessive or a typo.
+    #[test]
+    fn a_surname_one_character_out_is_uncertain_not_an_orphan() {
+        let r = run_ay(&["Kutzins (2013) sets out the financing functions in detail for policymakers."], &[]);
+        assert!(!kinds(&r).iter().any(|k| k == "orphan-author-year-marker"), "{:?}", r.findings);
+        let m = message(&r, "uncertain-reference-match");
+        assert!(m.contains("differ by one character"), "{m}");
+    }
+
+    #[test]
+    fn a_possessive_marker_matches_its_entry() {
+        let r = run_ay(&["Kutzin’s (2013) framework separates revenue raising from purchasing entirely."], &[]);
+        assert!(!kinds(&r).iter().any(|k| k == "orphan-author-year-marker"), "{:?}", r.findings);
+    }
+
+    /// "(RBV; Barney, 1991)" introduces an abbreviation, and RBV is not an author.
+    #[test]
+    fn an_acronym_is_not_reported_as_a_missing_reference() {
+        let r = run_ay(
+            &["The resource-based view (RBV; Kutzin, 2013) explains persistent differences between firms."],
+            &[],
+        );
+        assert!(
+            !r.findings.iter().any(|f| f.message.to_lowercase().contains("rbv")),
+            "an acronym was read as an author: {:?}",
+            r.findings
+        );
+    }
+
+    /// Organisational authors are valid APA and must not be called unreadable.
+    #[test]
+    fn organisational_entries_parse() {
+        let r = run_ay(&["Compulsory cover was extended to the private sector in that year (P4H Network, 2024)."], &[]);
+        assert!(
+            !kinds(&r).iter().any(|k| k == "reference-entry-unparseable"),
+            "a valid organisational entry was called unreadable: {:?}",
+            r.findings
+        );
+    }
+
+    #[test]
+    fn an_entry_that_is_not_author_and_year_is_structural() {
+        let r = run_ay(&["Coverage rose steadily over the period under review by the regulator."],
+                       &["see the appendix for the full methodology and the survey instrument used"]);
+        let m = message(&r, "reference-entry-unparseable");
+        assert!(m.contains("appendix"), "{m}");
+        assert!(r.blocks_audit());
+    }
+
+    /// A year check is meaningful only when the marker names ONE year.
+    #[test]
+    fn a_year_that_disagrees_is_structural() {
+        let r = run_ay(&["Health financing functions were set out at the time (Kutzin, 2011)."], &[]);
+        let m = message(&r, "marker-year-mismatch");
+        assert!(m.contains("2011"), "{m}");
+        assert!(m.contains("2013"), "must name the year the list carries: {m}");
+        assert!(r.blocks_audit());
+    }
+
+    /// "(Dubai 2013, Abu Dhabi 2006)" pairs one work's author with another's
+    /// year, so comparing them says nothing.
+    #[test]
+    fn a_marker_naming_two_years_is_not_year_checked() {
+        let r = run_ay(&["Both emirates legislated early (Kutzin 2013, Abu Dhabi 2006)."], &[]);
+        assert!(
+            !kinds(&r).iter().any(|k| k == "marker-year-mismatch"),
+            "a two-year marker was year-checked: {:?}",
+            r.findings
+        );
+    }
+
+    /// `markers_in` keeps only the FIRST work of a co-citation, so the second
+    /// would read as never cited unless it is recovered.
+    #[test]
+    fn the_second_work_of_a_co_citation_counts_as_cited() {
+        let r = run_ay(
+            &["Pooling reduces fragmentation across schemes (Kutzin, 2013; Mathauer et al., 2019)."],
+            &[],
+        );
+        let never: Vec<String> = r
+            .findings
+            .iter()
+            .filter(|f| f.kind == "reference-never-cited")
+            .map(|f| f.message.clone())
+            .collect();
+        assert!(
+            !never.iter().any(|m| m.contains("Mathauer")),
+            "the co-cited work was reported as never cited: {never:?}"
+        );
+    }
+
+    #[test]
+    fn an_entry_nobody_cites_is_cosmetic() {
+        let r = run_ay(&["Coverage rose steadily over the period under review by the regulator."], &[]);
+        let m = message(&r, "reference-never-cited");
+        assert!(m.contains("Kutzin"), "{m}");
+        let f = r.findings.iter().find(|f| f.kind == "reference-never-cited").unwrap();
+        assert_eq!(f.severity, Severity::Cosmetic, "an unused entry moves no verdict");
+    }
+
+    /// Each family stays out of the other's paper.
+    #[test]
+    fn the_author_year_checks_are_silent_on_a_numbered_paper() {
+        let r = run(&[
+            "Classical lexical approaches [5] suffer from a lack of reasoning about vocabulary.",
+            "References",
+            "[5] S. Mohammad and P. Turney, \"Crowdsourcing a word-emotion lexicon,\" 2013.",
+        ]);
+        for k in ["orphan-author-year-marker", "reference-never-cited", "marker-year-mismatch"] {
+            assert!(!kinds(&r).iter().any(|x| x == k), "{k} fired on a numbered paper: {:?}", r.findings);
+        }
+    }
+
+    #[test]
+    fn within_one_edit_is_exactly_one() {
+        assert!(within_one_edit("kutzin", "kutzins"));
+        assert!(within_one_edit("kutzin", "kutzon"));
+        assert!(within_one_edit("kutzin", "kutzin"));
+        assert!(!within_one_edit("kutzin", "kutzinsky"));
+        assert!(!within_one_edit("smith", "jones"));
     }
 
     /// A clean manuscript must produce NOTHING. A check that fires on everything

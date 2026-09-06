@@ -30,13 +30,20 @@ fn main() {
         report.markers_found,
         report.bibliography.len()
     );
-    if report.bibliography.is_empty() && report.markers_found > 0 {
-        // Says WHY the gating checks found nothing, rather than leaving a
-        // clean result to be read as a clean paper.
-        println!(
-            "  NOTE: no NUMBERED reference list was parsed, so the structural checks \n\
-             \x20       (off-by-one entries, orphan markers) cannot run on this paper."
-        );
+    // WHICH family of checks applied. A clean report on an unexaminable paper
+    // reads exactly like a clean report on a sound one (§11 D96).
+    if report.markers_found > 0 {
+        if report.bibliography.is_empty() {
+            println!(
+                "  reference style: AUTHOR-YEAR — the numbered checks (off-by-one entries,\n\
+                 \x20                 orphan [n] markers) do not apply to this paper."
+            );
+        } else {
+            println!(
+                "  reference style: NUMBERED — the author-year checks (orphan (Author, Year),\n\
+                 \x20                 uncited entries, year mismatches) do not apply to this paper."
+            );
+        }
     }
     println!(
         "  {} structural, {} cosmetic{}\n",
