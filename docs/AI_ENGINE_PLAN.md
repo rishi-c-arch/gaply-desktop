@@ -5340,3 +5340,46 @@ at.
 Four runs, four defects, zero occasions where the real-paper step found nothing.
 That is the argument for making it a step rather than a courtesy: it is not
 insurance against an unlikely event.
+
+### D99 — `label-cs`: the cold set `citation_support` never had
+
+`citation_support` leads the report — §11 D78 calls it "the half worth trusting"
+— and its entire eval is **6 synthetic seeds written in-house**, scoring 20-25%
+verdict agreement. `citation_need`, the half demoted to advisory, has 42 cold
+labels from real papers. That is the wrong way round, and §11 D98 is the reason
+it matters: a rule validated only on inputs its author invented has been wrong
+four times out of four.
+
+#### The population was measured BEFORE the tool was written
+
+| source | what it offers |
+|---|---|
+| audit jobs already in the DB | **4 distinct claims**, one of them a Gaply-report artefact from the D80 mis-run |
+| `R PAPER` sentences mentioning a library source | **22** — SemEval 16, GoEmotions 5, ISEAR 4 |
+| health-economics paper | **0** — its sources are not in the library |
+
+So a tool driven by RESOLVED MARKERS would offer three cases and stop. Candidates
+come from source MENTIONS instead, which is the difference between a set that
+reaches useful size and one that does not.
+
+**And 22 is a ceiling, not a yield.** Many of those sentences report the paper's
+own numbers *on* SemEval rather than claims *about* it; those are
+`insufficient_evidence` at best and are skipped. The honest expectation is a set
+in the teens from this manuscript, and what it can support is stated at whatever
+size it reaches rather than assumed.
+
+#### Cold only, and enforced
+
+`--suggest` is refused until 20 cold labels exist. §11 D75 records why the three
+provenances are not interchangeable: a suggested-accepted label carries the
+model's own answer and cannot score it, and a confident proposal moves the
+labeller's judgement rather than merely their keystroke.
+
+#### Self-contained, so the set outlives this machine
+
+Each case is written with a FIXTURE holding the exact passages retrieved for it.
+`ai-eval` indexes that fixture and retrieves from it, so the model sees the
+evidence the labeller saw — the set measures JUDGEMENT over fixed evidence
+rather than retrieval, which is what "measuring judgement, not coverage" means.
+It also means the set is replayable on a machine that has never held the user's
+library.

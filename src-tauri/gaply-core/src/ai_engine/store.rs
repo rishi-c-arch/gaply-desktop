@@ -70,6 +70,47 @@ pub struct IndexStatus {
     pub sections: Vec<String>,
 }
 
+/// One indexed document, as a tool listing the library needs it (§11 D99).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSummary {
+    pub id: i64,
+    pub title: String,
+    pub chunk_count: i64,
+    /// Chunks that also have a vector. Retrieval needs BOTH, so a document with
+    /// chunks and no embeddings can be checked against nothing.
+    pub embedded_count: i64,
+}
+
+/// Every document that has been chunked, newest id last.
+///
+/// Exists because `Database::conn` is `pub(crate)` — the app crate cannot
+/// execute SQL (plan §7) — and a labelling tool has to be able to ask which
+/// sources are available without reaching around that.
+pub fn list_documents(db: &Database) -> Result<Vec<DocumentSummary>, GaplyError> {
+    let conn = db.conn()?;
+    let mut stmt = conn.prepare(
+        "SELECT d.id, d.title,
+                (SELECT COUNT(*) FROM ai_chunks c WHERE c.document_id = d.id),
+                (SELECT COUNT(*) FROM ai_chunks c
+                   JOIN ai_chunk_embeddings e ON e.chunk_id = c.id
+                  WHERE c.document_id = d.id)
+           FROM documents d
+          ORDER BY d.id",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(DocumentSummary {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                chunk_count: r.get(2)?,
+                embedded_count: r.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows.into_iter().filter(|d| d.chunk_count > 0).collect())
+}
+
 /// sha256 of the chunk text — the idempotency key.
 pub fn content_hash(content: &str) -> String {
     let mut h = Sha256::new();
