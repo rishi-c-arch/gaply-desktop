@@ -4968,3 +4968,65 @@ fill can no longer cover earlier text, whatever the block order.
 Four tests, including two that hold the shape rather than the wording: one
 asserts no `====` survives anywhere in a composed report, and one scans every
 line for the `<digits> <digits>%` collision that shipped.
+
+### D94 — the consistency pre-flight: deterministic, and BEFORE the audit
+
+Twenty real defects were found in `R PAPER` by hand. **None needed a model.**
+Seven of them are computable from what the pre-pass already parses, and they run
+as a gate before any item is queued.
+
+#### Why a gate and not a report section
+
+The reference list is off by one from `[6]` — a page-range continuation numbered
+as its own entry — so most in-text markers resolve one paper too far: `BiLSTM [7]`
+lands on an SVM paper, `ISEAR [22]` on SemEval-2018, `GloVe [24]` on SMOTE.
+
+**That silently invalidates most of the audit's own resolutions.** Every
+`citation_support` verdict would be checking a claim against the wrong paper,
+and the reader could not tell which findings survived. Reporting it in a section
+at the end means three hours were spent producing verdicts nobody can use.
+
+So it runs before queueing, and it says what it found and what it costs:
+
+> The reference list has a structural problem — `[6]` does not look like a
+> reference entry, so markers above it may resolve one entry too far. Fix this
+> before auditing, or proceed knowing resolutions may be wrong.
+
+#### NOT an AI feature
+
+No model, no embedder, no network, and **not gated on AI being installed**. It is
+arithmetic over text the parser already produced, so it must work for a user who
+has never downloaded a model.
+
+#### The seven, and what each names as evidence
+
+Every finding carries the marker, the entry or the numbers. "Possible
+inconsistency detected" is not a finding.
+
+| check | severity | evidence it names |
+|---|---|---|
+| reference entry that is not a reference | **structural** | the ordinal, the entry text, what it implies for markers above it |
+| orphan marker | **structural** | the marker, and the range the list actually covers |
+| marker resolving to a malformed entry | **structural** | the marker, the ordinal, the entry text |
+| duplicate table/figure number | cosmetic | the label and both captions |
+| figure cited but never captioned | cosmetic | the reference, and the labels that do exist |
+| out-of-sequence section letters | cosmetic | the run, e.g. `A, A, B, C` |
+| repeated paragraph | cosmetic | both locations and the opening words |
+| mixed citation styles | cosmetic | the section, its style, and the document's |
+
+**Structural findings are acknowledged, not merely shown** — they are the ones
+that make the audit's output untrustworthy. Cosmetic ones are listed and gate
+nothing: a duplicate figure number is worth fixing and does not invalidate a
+single verdict.
+
+#### Deferred deliberately
+
+- **author-year works absent from the reference list** — needs surname+year
+  matching against a numeric-only list; noisier, and worth seeing the seven on
+  real papers first.
+- **same metric, two values** (MCC 0.945 vs 0.545) — detectable, deferred with
+  the above.
+- **text vs table** (joy 97.0 claimed, 94.92 tabulated) — **out of reach**: it
+  needs table structure we do not keep. `parse_docx_blocks` flattens `<w:tbl>`
+  into paragraphs and PDF extraction gives no cell topology, so ~5 days of table
+  recovery is a prerequisite before the check is even meaningful.

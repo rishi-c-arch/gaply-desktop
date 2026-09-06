@@ -151,6 +151,8 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
   const [preview, setPreview] = useState<ThesisAuditPreview | null>(null);
   const [fixing, setFixing] = useState(false);
   const [fixNote, setFixNote] = useState<string | null>(null);
+  /** §11 D94. Structural findings must be acknowledged before starting. */
+  const [ackStructural, setAckStructural] = useState(false);
   const [path, setPath] = useState<string | null>(null);
   const [progress, setProgress] = useState<JobProgressEvent | null>(null);
   /** When this run's items started landing, for the measured rate. */
@@ -226,6 +228,7 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
     // generating and "Not now" abandoned a run in progress.
     try {
       setPreview(await bridge.previewThesisAudit(p));
+      setAckStructural(false);
       setStage('planned');
     } catch (e) {
       setError(errorText(e));
@@ -503,6 +506,59 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
             </div>
           )}
 
+          {/* §11 D94. Deterministic checks, shown where the decision is made.
+              A structural finding means the audit's resolutions may be wrong,
+              so it is acknowledged rather than merely displayed. */}
+          {preview.consistency && preview.consistency.findings.length > 0 && (
+            <div data-testid="audit-consistency">
+              {preview.consistency.structural > 0 && (
+                <div data-testid="audit-consistency-structural">
+                  <p className="gds-ai__value" style={{ color: 'var(--g-flagged)' }}>
+                    The manuscript's structure has {preview.consistency.structural} problem
+                    {preview.consistency.structural === 1 ? '' : 's'} that affect what the audit can
+                    resolve.
+                  </p>
+                  <ul className="gds-audit__counts">
+                    {preview.consistency.findings
+                      .filter((f) => f.severity === 'structural')
+                      .map((f, i) => (
+                        <li key={i} data-testid={`audit-structural-${i}`}>
+                          {f.message}
+                          {f.action && <><br /><b>What to do:</b> {f.action}</>}
+                        </li>
+                      ))}
+                  </ul>
+                  <label className="gds-ai__hint" data-testid="audit-ack-label">
+                    <input
+                      type="checkbox"
+                      checked={ackStructural}
+                      onChange={(e) => setAckStructural(e.target.checked)}
+                      data-testid="audit-ack"
+                    />{' '}
+                    I understand the audit may resolve citations to the wrong sources, and want to
+                    run it anyway.
+                  </label>
+                </div>
+              )}
+              {preview.consistency.cosmetic > 0 && (
+                <details data-testid="audit-consistency-cosmetic">
+                  <summary>
+                    {preview.consistency.cosmetic} other consistency issue
+                    {preview.consistency.cosmetic === 1 ? '' : 's'} — worth fixing, but they change
+                    no verdict
+                  </summary>
+                  <ul className="gds-audit__counts">
+                    {preview.consistency.findings
+                      .filter((f) => f.severity === 'cosmetic')
+                      .map((f, i) => (
+                        <li key={i} data-testid={`audit-cosmetic-${i}`}>{f.message}</li>
+                      ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+
           <p className="gds-ai__hint" data-testid="audit-projection">
             {preview.wouldCheck + preview.wouldSuggest + preview.wouldBeUnverifiable} items;{' '}
             {preview.wouldCheck + preview.wouldSuggest} need the model. Estimated{' '}
@@ -518,7 +574,12 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
             {waitAdvice(preview.wouldCheck + preview.wouldSuggest, activeDevice)}
           </p>
           <div className="gds-audit__actions">
-            <Button variant="primary" onClick={start} data-testid="audit-confirm-start">
+            <Button
+              variant="primary"
+              onClick={start}
+              disabled={(preview.consistency?.structural ?? 0) > 0 && !ackStructural}
+              data-testid="audit-confirm-start"
+            >
               Start the audit
             </Button>
             <Button

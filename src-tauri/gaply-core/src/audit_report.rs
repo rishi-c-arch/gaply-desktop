@@ -102,6 +102,10 @@ pub struct AuditReportModel {
     pub unverifiable: Vec<ReportItem>,
     /// Items whose model answer failed validation twice.
     pub failed: Vec<ReportItem>,
+    /// §11 D94. Deterministic consistency findings, so a researcher has the
+    /// list to work from rather than only the gate's warning.
+    #[serde(default)]
+    pub consistency: Vec<crate::consistency::ConsistencyFinding>,
 }
 
 fn para(text: impl Into<String>) -> Block {
@@ -646,6 +650,39 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     // ORDER (§11 D78): evidence-backed findings LEAD. `citation_support` checks
     // prose against a real source and is the half worth trusting; the advisory
     // list follows it rather than competing with it for the reader's attention.
+    // §11 D94. Deterministic — no model touched any of these, and that is
+    // worth saying next to a report whose other half is a 3B's judgement.
+    if !m.consistency.is_empty() {
+        out.push(Block::PageBreak);
+        out.push(heading("Consistency checks", 1));
+        out.push(para(
+            "Found by reading the manuscript's own structure — its reference list, markers, \
+             captions and headings. No language model was involved, so unlike the sections \
+             below these are not judgements and carry no error rate.",
+        ));
+        let structural: Vec<_> = m.consistency.iter().filter(|f| f.severity == crate::consistency::Severity::Structural).collect();
+        let cosmetic: Vec<_> = m.consistency.iter().filter(|f| f.severity == crate::consistency::Severity::Cosmetic).collect();
+        if !structural.is_empty() {
+            out.push(heading("These affect whether the audit above can be trusted", 2));
+            for f in structural {
+                out.push(Block::Badge { text: "resolution".into(), tone: Tone::Bad });
+                out.push(para(f.message.clone()));
+                if let Some(a) = &f.action {
+                    out.push(bullet(format!("What to do: {a}"), 0));
+                }
+            }
+        }
+        if !cosmetic.is_empty() {
+            out.push(heading("Worth fixing; they change no verdict above", 2));
+            for f in cosmetic {
+                out.push(para(f.message.clone()));
+                if let Some(a) = &f.action {
+                    out.push(bullet(format!("What to do: {a}"), 0));
+                }
+            }
+        }
+    }
+
     out.push(Block::PageBreak);
     emit_section(
         &mut out,
@@ -770,6 +807,7 @@ mod tests {
             needs_citation: vec![],
             unverifiable: vec![],
             failed: vec![],
+            consistency: vec![],
         }
     }
 

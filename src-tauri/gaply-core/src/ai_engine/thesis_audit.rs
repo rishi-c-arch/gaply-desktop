@@ -138,6 +138,11 @@ pub struct ThesisAuditPreview {
     pub sources: Vec<CitedSourceStatus>,
     pub checkable_sources: usize,
     pub blocked_sources: usize,
+    /// Deterministic consistency findings (§11 D94). No model, and NOT gated on
+    /// AI being installed — the user sees these at the moment they decide
+    /// whether to spend three hours, because a structural one means the audit's
+    /// resolutions cannot be trusted.
+    pub consistency: crate::consistency::ConsistencyReport,
     pub document_types_supported: Vec<&'static str>,
 }
 
@@ -151,7 +156,9 @@ pub fn preview_thesis_audit(
     db: &Database,
     manuscript: &Path,
 ) -> Result<ThesisAuditPreview, GaplyError> {
-    let report = prepass_manuscript(manuscript)?;
+    let (report, blocks) = prepass_manuscript_with_blocks(manuscript)?;
+    // §11 D94. Deterministic, before anything is queued.
+    let consistency = crate::consistency::check_consistency(&blocks, &report);
 
     // Keyed by the resolution's identity, NOT by the marker text: `[12]` and
     // `Smith (2019)` can be the same work, and counting them twice would
@@ -241,6 +248,7 @@ pub fn preview_thesis_audit(
         blocked_sources: sources.len() - checkable_sources,
         checkable_sources,
         sources,
+        consistency,
         document_types_supported: SUPPORTED_DOCUMENT_TYPES.to_vec(),
     })
 }
@@ -299,6 +307,15 @@ fn locator_payload(planned: &super::audit_prepass::PlannedSentence) -> serde_jso
 /// and by the preview, so what the user is shown and what gets queued come from
 /// the same parse rather than two that could drift.
 fn prepass_manuscript(manuscript: &Path) -> Result<PrepassReport, GaplyError> {
+    prepass_manuscript_with_blocks(manuscript).map(|(r, _)| r)
+}
+
+/// The same parse, keeping the BLOCKS — the consistency checks need the
+/// captions and headings the significance filter drops (§11 D94), and parsing
+/// the manuscript twice to get them would double the wait.
+fn prepass_manuscript_with_blocks(
+    manuscript: &Path,
+) -> Result<(PrepassReport, Vec<crate::extract::docparse::PagedBlock>), GaplyError> {
     let blocks = crate::extract::docparse::parse_path_paged(manuscript)?;
     // `prepass_blocks`, NOT the `(page, text)` shim. The shim discards
     // `PagedBlock.style`, and with it every declared heading and table cell
@@ -324,7 +341,8 @@ fn prepass_manuscript(manuscript: &Path) -> Result<PrepassReport, GaplyError> {
         )));
     }
 
-    Ok(prepass_blocks(&blocks))
+    let report = prepass_blocks(&blocks);
+    Ok((report, blocks))
 }
 
 /// Does any of this sentence's markers resolve to `library_id`, and is it
@@ -420,7 +438,7 @@ fn plan_audit(
     prompt_version: &str,
     scope: &AuditScope,
 ) -> Result<AuditPlan, GaplyError> {
-    let report: PrepassReport = prepass_manuscript(manuscript)?;
+    let (report, blocks): (PrepassReport, _) = prepass_manuscript_with_blocks(manuscript)?;
 
     let mut items: Vec<NewItem> = Vec::with_capacity(report.planned.len());
     let (mut need, mut support, mut unver) = (0usize, 0usize, 0usize);
@@ -581,6 +599,16 @@ fn plan_audit(
         AuditScope::Citation { .. } => "citation_audit",
     };
     let job_id = jobs::create_job(db, job_kind, None, prompt_version, &items)?;
+
+    // §11 D94. Persisted WITH the job, because the export has only the
+    // manuscript's NAME — not its path — so it cannot re-read the file to
+    // recompute them, and a researcher wants the list in the report.
+    let consistency = crate::consistency::check_consistency(&blocks, &report);
+    if !consistency.findings.is_empty() {
+        if let Ok(json) = serde_json::to_string(&consistency) {
+            jobs::set_job_summary(db, job_id, &json)?;
+        }
+    }
 
     Ok(AuditPlan {
         job_id,

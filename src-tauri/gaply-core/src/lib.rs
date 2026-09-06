@@ -15,6 +15,7 @@ pub mod chunk;
 pub mod citation_links;
 pub mod citation_library;
 pub mod config;
+pub mod consistency;
 pub mod db;
 pub mod embed;
 pub mod error;

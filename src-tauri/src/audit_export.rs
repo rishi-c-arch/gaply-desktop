@@ -142,6 +142,13 @@ pub fn build_model_with(
 
     let mut m = AuditReportModel {
         manuscript_name: manuscript_name.to_string(),
+        // §11 D94. Read back from the job — computed at plan time, when the
+        // manuscript was still in hand.
+        consistency: gaply_core::ai_engine::jobs::get_job(db, job_id)?
+            .and_then(|j| j.summary_json)
+            .and_then(|j| serde_json::from_str::<gaply_core::consistency::ConsistencyReport>(&j).ok())
+            .map(|c| c.findings)
+            .unwrap_or_default(),
         generated_on: generated_on.to_string(),
         model_id: job.model_id.clone().unwrap_or_else(|| match installed_model_id {
             Some(id) => format!("{id} (not recorded for this run; this is the model installed now)"),

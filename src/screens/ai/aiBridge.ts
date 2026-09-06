@@ -148,6 +148,20 @@ export interface CitedSourceStatus {
   citingSentences: number;
 }
 
+/** A deterministic consistency finding (§11 D94). No model was involved. */
+export interface ConsistencyFinding {
+  kind: string;
+  severity: 'structural' | 'cosmetic';
+  message: string;
+  action: string | null;
+}
+
+export interface ConsistencyReport {
+  findings: ConsistencyFinding[];
+  structural: number;
+  cosmetic: number;
+}
+
 /** What an audit WOULD do — computed with no job and no model (§11 D88). */
 export interface ThesisAuditPreview {
   totalSentences: number;
@@ -160,6 +174,8 @@ export interface ThesisAuditPreview {
   sources: CitedSourceStatus[];
   checkableSources: number;
   blockedSources: number;
+  /** §11 D94. Deterministic checks, run before any queueing. */
+  consistency: ConsistencyReport;
   documentTypesSupported: string[];
 }
 

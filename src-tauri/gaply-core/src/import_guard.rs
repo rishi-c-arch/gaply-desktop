@@ -533,6 +533,7 @@ mod tests {
             needs_citation: vec![],
             unverifiable: vec![],
             failed: vec![],
+            consistency: vec![],
         });
         let pdf = crate::report_pdf::render_pdf(&blocks);
 

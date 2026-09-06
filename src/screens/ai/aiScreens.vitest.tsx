@@ -611,6 +611,7 @@ describe('Thesis audit', () => {
     wouldBeUnverifiable: 18,
     checkableSources: 1,
     blockedSources: 2,
+    consistency: { findings: [], structural: 0, cosmetic: 0 },
     sources: [
       { label: '[1]', libraryId: 'lib-1', documentId: 44, reason: null, citingSentences: 2 },
       { label: '[2]', libraryId: 'lib-2', documentId: null, reason: 'not in your library', citingSentences: 11 },
@@ -768,6 +769,80 @@ describe('Thesis audit', () => {
     // Each blocked source is named, with its own deterministic reason.
     expect(screen.getByTestId('audit-blocked-0').textContent).toContain('not in your library');
     expect(screen.getByTestId('audit-blocked-1').textContent).toContain('no PDF attached');
+  });
+
+  /** §11 D94. A structural finding means the audit's resolutions may be wrong,
+   *  so it is a GATE — shown where the decision is made, and acknowledged. */
+  it('blocks the start until a structural finding is acknowledged', async () => {
+    const withStructural = {
+      ...preview,
+      consistency: {
+        structural: 1,
+        cosmetic: 0,
+        findings: [
+          {
+            kind: 'reference-entry-malformed',
+            severity: 'structural',
+            message:
+              '[6] does not look like a reference entry — it names no author, and reads as a page range: "pp. 436-465, 2013.".',
+            action: 'Renumber the reference list, then re-run.',
+          },
+        ],
+      },
+    };
+    const startThesisAudit = vi.fn(async () => plan);
+    render(
+      <ThesisAuditScreen
+        aiInstalled
+        pickManuscript={async () => '/t.pdf'}
+        bridge={bridgeWith({ startThesisAudit, previewThesisAudit: async () => withStructural }) as any}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(screen.getByTestId('audit-consistency-structural')).toBeTruthy());
+
+    // It NAMES the evidence, not a category.
+    const t = screen.getByTestId('audit-structural-0').textContent ?? '';
+    expect(t).toContain('[6]');
+    expect(t).toContain('pp. 436-465');
+    expect(t).toMatch(/What to do:/);
+
+    // Gated until acknowledged, and starting nothing in the meantime.
+    expect((screen.getByTestId('audit-confirm-start') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('audit-confirm-start'));
+    expect(startThesisAudit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('audit-ack'));
+    expect((screen.getByTestId('audit-confirm-start') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('audit-confirm-start'));
+    await waitFor(() => expect(startThesisAudit).toHaveBeenCalledTimes(1));
+  });
+
+  /** Cosmetic findings are listed and gate NOTHING — a duplicate figure number
+   *  invalidates no verdict. */
+  it('lists cosmetic findings without gating the start', async () => {
+    const withCosmetic = {
+      ...preview,
+      consistency: {
+        structural: 0,
+        cosmetic: 1,
+        findings: [
+          { kind: 'duplicate-caption-number', severity: 'cosmetic', message: 'Table II is used 2 times.', action: null },
+        ],
+      },
+    };
+    render(
+      <ThesisAuditScreen
+        aiInstalled
+        pickManuscript={async () => '/t.pdf'}
+        bridge={bridgeWith({ previewThesisAudit: async () => withCosmetic }) as any}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(screen.getByTestId('audit-consistency-cosmetic')).toBeTruthy());
+    expect(screen.getByTestId('audit-cosmetic-0').textContent).toContain('Table II');
+    expect(screen.queryByTestId('audit-ack')).toBeNull();
+    expect((screen.getByTestId('audit-confirm-start') as HTMLButtonElement).disabled).toBe(false);
   });
 
   /** §11 D88. The fix is offered HERE, not discovered three hours later. */
