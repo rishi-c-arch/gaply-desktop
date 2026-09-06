@@ -48,6 +48,10 @@ pub struct ReportItem {
     /// reader deciding which to trust.
     #[serde(default)]
     pub paragraph: Option<u32>,
+    /// §11 D95. The page could not be derived from the text that prints this
+    /// sentence, so `page` is the reflowed block's — a hint, shown as `~p.N`.
+    #[serde(default)]
+    pub page_approximate: bool,
     pub sentence: String,
     /// `strong` | `partial` | … for support; `needs_citation` / `no_citation_needed`
     /// for need; absent when the item was never judged.
@@ -143,6 +147,11 @@ fn page_label(page: Option<u32>, has_pages: bool) -> String {
 /// deciding which to trust, and the page is the one they can act on.
 fn locator(item: &ReportItem, has_pages: bool) -> String {
     match (item.page, item.paragraph) {
+        // §11 D95. `~` is not decoration: it is the difference between "here"
+        // and "somewhere near here". The derived page comes from the text that
+        // PRINTS the sentence; the approximate one is a reflowed block's page,
+        // which is off by one about 8% of the time.
+        (Some(p), _) if item.page_approximate => format!("~p.{p}"),
         (Some(p), _) => format!("p.{p}"),
         (None, Some(par)) => format!("¶{par}"),
         (None, None) => page_label(None, has_pages),
@@ -1100,6 +1109,38 @@ mod tests {
         // And the measured precision is stated, so the claim is checkable.
         assert!(text.contains("43%"), "precision not disclosed:\n{text}");
         assert!(text.contains("82%"), "recall not disclosed:\n{text}");
+    }
+
+    /// §11 D95. A derived page and a guessed one must not look alike.
+    #[test]
+    fn an_approximate_page_is_marked_and_an_exact_one_is_not() {
+        let exact = ReportItem { seq: 1, page: Some(4), page_approximate: false, ..Default::default() };
+        assert_eq!(locator(&exact, true), "p.4");
+
+        let approx = ReportItem { seq: 2, page: Some(3), page_approximate: true, ..Default::default() };
+        assert_eq!(
+            locator(&approx, true),
+            "~p.3",
+            "a reflowed block's page is off by one about 8% of the time and must say so"
+        );
+    }
+
+    /// OMIT RATHER THAN APPROXIMATE. With no page at all, print none — a page
+    /// the reader cannot rely on costs them a search and costs us their trust.
+    #[test]
+    fn no_page_and_no_paragraph_prints_neither() {
+        let none = ReportItem { seq: 3, page: None, paragraph: None, ..Default::default() };
+        let out = locator(&none, true);
+        assert!(!out.contains("p.1"), "a missing page must not become page 1: {out}");
+        assert!(!out.contains('~'), "{out}");
+    }
+
+    /// A Word manuscript has no pages at all, so the paragraph ordinal stands
+    /// and is EXACT — it must never be marked approximate.
+    #[test]
+    fn a_paragraph_locator_is_never_marked_approximate() {
+        let para = ReportItem { seq: 4, page: None, paragraph: Some(27), ..Default::default() };
+        assert_eq!(locator(&para, false), "¶27");
     }
 
     /// §11 D93. The proportions are DRAWN, not typed.

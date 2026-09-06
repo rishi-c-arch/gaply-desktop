@@ -5030,3 +5030,55 @@ single verdict.
   needs table structure we do not keep. `parse_docx_blocks` flattens `<w:tbl>`
   into paragraphs and PDF extraction gives no cell topology, so ~5 days of table
   recovery is a prerequisite before the check is even meaningful.
+
+#### KNOWN, and deliberately not fixed yet
+
+**`mixed-citation-style` false-positives on a one-marker section.** On
+`R PAPER .pdf` it flagged a section headed `TABLE III.` carrying a single
+author-year marker. The fix is a minimum-marker threshold, and picking that
+number from ONE instance is taste rather than evidence — the same mistake §11
+D70 records (a fold table built from examples its author wrote, broken by the
+first real paper). Left until three real manuscripts have been through it.
+
+**Two checks are unvalidated on real input.** `section-letters-out-of-sequence`
+and `repeated-paragraph` need paragraph granularity, and `pdf-extract` returns
+25 blocks for a 6-page PDF with no newlines — so on a PDF they see almost
+nothing. They are unit-tested and correct; they have never met a real `.docx`,
+which is one block per `<w:p>` and is where they should work.
+
+### D95 — the page number is derived, and the stored one is demoted to a hint
+
+§11 D92 measured it: **6 of 74 locatable sentences (8%) carry the wrong page**,
+every one off by one. The audit's whole value is "go and look at this sentence",
+and about one in twelve sent the reader to the wrong page.
+
+#### The cause is reflow, and the true page was never lost
+
+`parse_pdf_paged` tags every LINE with its correct page and then calls
+`reflow_pdf_lines`, which merges lines into paragraphs. **A merged block keeps
+one page number.** A paragraph that starts on page 3 and continues onto page 4
+is one block tagged `3`, and every sentence in it inherits `3`.
+
+So the attribution is lost at reflow, not at extraction — `extract_text_by_pages`
+still has the per-page text, which is exactly what is needed to put a sentence
+back on its own page. No coordinates, no pdf.js: **which page's text contains
+this sentence** is a question Rust can answer from data we already parse.
+
+#### Derived first, stored as a hint, and neither means no page
+
+The same rule the annotated view follows, for the same reason:
+
+| what is known | printed |
+|---|---|
+| the sentence appears on exactly one page (or is the k-th of k copies, in order) | **`p.4`** — derived, exact |
+| not locatable, but the block carried a page | **`≈p.3`** — the stored hint, labelled |
+| neither | **no page** — nothing, rather than something wrong |
+
+A wrong page is worse than a missing one: it costs the reader a search and
+teaches them the locators cannot be trusted. `≈` is not decoration — it is the
+difference between "here" and "somewhere near here", and the reader is entitled
+to know which they were given.
+
+Duplicates are resolved the way §11 D92 resolves them: both lists are in
+document order, so the k-th planned copy takes the k-th printed occurrence.
+Exact, not a guess.

@@ -1381,3 +1381,29 @@ mod reference_convention_tests {
         assert_eq!(refs.paragraphs.len(), 3, "the DOCX path does not call reflow at all");
     }
 }
+
+/// The manuscript's text, ONE STRING PER PAGE (§11 D95).
+///
+/// `parse_path_paged` tags every line with its page and then reflows lines into
+/// paragraphs, and a merged block keeps only one page number — so a paragraph
+/// spanning a page break gives every sentence in it the FIRST page. That is the
+/// 8% off-by-one the audit's locators carried.
+///
+/// The per-page text was never lost; only the attribution was. This returns it,
+/// so a sentence can be put back on the page that actually prints it.
+///
+/// `None` for formats with no pages — a `.docx` has none until something
+/// paginates it (§11 D65), and inventing them is the reconstruction D92 refused.
+pub fn page_texts(path: &Path) -> Result<Option<Vec<String>>, GaplyError> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    if ext != "pdf" {
+        return Ok(None);
+    }
+    let pages = catch_pdf_panic(|| pdf_extract::extract_text_by_pages(path))?
+        .map_err(|e| GaplyError::Internal(format!("pdf parse failed: {e}")))?;
+    Ok(Some(pages))
+}

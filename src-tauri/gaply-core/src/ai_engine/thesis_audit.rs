@@ -432,6 +432,22 @@ pub fn preview_citation_audit(
     })
 }
 
+
+/// The page to record for one sentence, and whether it is exact (§11 D95).
+///
+/// Derived from the page that PRINTS the sentence when that can be identified;
+/// otherwise the reflowed block's page, which is a hint and is labelled as one;
+/// otherwise nothing. Never a page that might be wrong without saying so.
+fn resolve_page(
+    locator: &mut crate::page_locate::PageLocator,
+    planned: &super::audit_prepass::PlannedSentence,
+) -> (Option<u32>, bool) {
+    match locator.locate(&planned.sentence) {
+        Some(p) => (Some(p), true),
+        None => (planned.page, false),
+    }
+}
+
 fn plan_audit(
     db: &Database,
     manuscript: &Path,
@@ -440,10 +456,18 @@ fn plan_audit(
 ) -> Result<AuditPlan, GaplyError> {
     let (report, blocks): (PrepassReport, _) = prepass_manuscript_with_blocks(manuscript)?;
 
+    // §11 D95. The stored page comes from a REFLOWED block, and a block that
+    // spans a page break keeps one page for all of it — 8% of locators were off
+    // by one. Derive the real page from the per-page text; fall back to the
+    // block's page LABELLED approximate; print neither rather than a wrong one.
+    let page_texts = crate::extract::docparse::page_texts(manuscript)?.unwrap_or_default();
+    let mut locator = crate::page_locate::PageLocator::new(&page_texts);
+
     let mut items: Vec<NewItem> = Vec::with_capacity(report.planned.len());
     let (mut need, mut support, mut unver) = (0usize, 0usize, 0usize);
 
     for (seq, planned) in report.planned.iter().enumerate() {
+        let (item_page, page_exact) = resolve_page(&mut locator, planned);
         // SCOPED TO ONE CITATION: keep only the sentences that cite it, and
         // queue them exactly as the whole-manuscript audit would. Uncited
         // sentences are not this source's business.
@@ -463,7 +487,7 @@ fn plan_audit(
                         seq: seq as i64,
                         kind: ItemKind::CitationSupport,
                         chunk_id: None,
-                        page: planned.page,
+                        page: item_page,
                         sentence: planned.sentence.clone(),
                         payload_json: serde_json::json!({
                             "documentId": document_id,
@@ -471,6 +495,7 @@ fn plan_audit(
                             "citedSource": marker,
                             "paragraph": planned.paragraph,
                             "section": planned.section,
+                            "pageApproximate": !page_exact,
                         })
                         .to_string(),
                     });
@@ -481,12 +506,13 @@ fn plan_audit(
                         seq: seq as i64,
                         kind: ItemKind::Unverifiable,
                         chunk_id: None,
-                        page: planned.page,
+                        page: item_page,
                         sentence: planned.sentence.clone(),
                         payload_json: serde_json::json!({
                             "reason": reason,
                             "paragraph": planned.paragraph,
                             "section": planned.section,
+                            "pageApproximate": !page_exact,
                         })
                         .to_string(),
                     });
@@ -503,13 +529,14 @@ fn plan_audit(
                 seq: seq as i64,
                 kind: ItemKind::CitationNeed,
                 chunk_id: None,
-                page: planned.page,
+                page: item_page,
                 sentence: planned.sentence.clone(),
                 // The section the sentence sits under. The prompt has a rule
                 // keyed on it that could never fire while this was empty.
                 payload_json: serde_json::json!({
                     "section": planned.section,
                     "paragraph": planned.paragraph,
+                    "pageApproximate": !page_exact,
                 })
                 .to_string(),
             });
@@ -545,7 +572,7 @@ fn plan_audit(
                     seq: seq as i64,
                     kind: ItemKind::CitationSupport,
                     chunk_id: None,
-                    page: planned.page,
+                    page: item_page,
                     sentence: planned.sentence.clone(),
                     payload_json: serde_json::json!({
                         "documentId": document_id,
@@ -556,6 +583,7 @@ fn plan_audit(
                         // the one a thesis audit actually takes.
                         "paragraph": planned.paragraph,
                         "section": planned.section,
+                        "pageApproximate": !page_exact,
                     })
                     .to_string(),
                 });
@@ -566,7 +594,7 @@ fn plan_audit(
                     seq: seq as i64,
                     kind: ItemKind::Unverifiable,
                     chunk_id: None,
-                    page: planned.page,
+                    page: item_page,
                     sentence: planned.sentence.clone(),
                     payload_json: {
                         let mut o = locator_payload(planned);
@@ -583,7 +611,7 @@ fn plan_audit(
                     seq: seq as i64,
                     kind: ItemKind::CitationNeed,
                     chunk_id: None,
-                    page: planned.page,
+                    page: item_page,
                     sentence: planned.sentence.clone(),
                     payload_json: "{}".to_string(),
                 });

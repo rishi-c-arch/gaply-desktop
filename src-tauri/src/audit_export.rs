@@ -184,6 +184,12 @@ pub fn build_model_with(
                 .get("paragraph")
                 .and_then(|v| v.as_u64())
                 .and_then(|v| u32::try_from(v).ok()),
+            // §11 D95. Whether `page` is the page that PRINTS this sentence, or
+            // the reflowed block's page standing in for it.
+            page_approximate: payload
+                .get("pageApproximate")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             sentence: it.sentence.clone(),
             ..Default::default()
         };
