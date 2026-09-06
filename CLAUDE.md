@@ -163,9 +163,10 @@ time injection.
 
   `windows-build-check.yml` is no longer dispatch-only either — it now runs on
   PRs and on main. Its dispatch-only setting existed to stay clear of a Vercel
-  deploy from the old `origin`, which was deleted in the phase-0 purge and 404s;
-  that constraint is gone. It stays off every-push because it is heavy (npm ci,
-  a full Tauri Windows build); the cheap workflow carries the per-push guard.
+  deploy from `origin`. That reasoning was sound but its premise has changed:
+  the workflows run on `desktop`, which has no deploy job, and `origin` is NOT
+  gone (see "Remotes"). It stays off every-push because it is heavy (npm ci, a
+  full Tauri Windows build); the cheap workflow carries the per-push guard.
 - **`tauri dev` WITHOUT `--release` is a trap for anything touching a model.**
   Always `npm run tauri dev -- --release` when the path under test loads BGE,
   candle, or the generative judge. Candle's CPU kernels are unoptimised in a
@@ -215,10 +216,12 @@ time injection.
 - Commit ONLY when Rishi provides/approves the message; never push unprompted.
 - Canonical remote: `desktop` (`rishi-c-arch/gaply-desktop`); `main` there is
   the backup of local main. Push only when explicitly requested, never forced.
-  The old `origin` (RishiSTARP/gaply-react-frontend, Vercel-deployed) is gone —
-  404s since the phase-0 history purge; its stale local refs don't reflect
-  reality. Feature work rides stacked `feat/*` branches off main (reviewed
-  checkpoint commits kept unsquashed; fast-forward merges to main).
+  **For `origin`, see the "Remotes" section at the top — it is the single
+  source of truth.** This bullet used to say origin "is gone — 404s since the
+  phase-0 history purge"; that was wrong, and it is the exact belief that
+  nearly led to deleting a live remote. Feature work rides stacked `feat/*`
+  branches off main (reviewed checkpoint commits kept unsquashed;
+  fast-forward merges to main).
 - Windows CI (`.github/workflows/windows-build-check.yml`) runs
   `cargo test -p gaply_core` — the app crate's IPC tests are
   `#[cfg_attr(windows, ignore)]` (wry/tao load crash, see comments there).
