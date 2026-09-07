@@ -5659,3 +5659,38 @@ fails the general rule and the pin independently — verified by reintroducing i
 `ai::event_wire_tests` keeps its exact-JSON pins and now carries a note saying it
 is not the whole guard.
 
+### D104 — Unpaywall does not close the D100 gap; measured before building
+
+Recorded as evidence, not as a decision. §11 D100 assumed a second resolver
+would reach the works OpenAlex cannot. Measured against `support@gaply.in`
+before any plumbing was built, that assumption is false for the case that
+motivated it.
+
+| DOI | OpenAlex | Unpaywall |
+|---|---|---|
+| `10.3115/v1/D14-1162` (GloVe) | closed, no PDF | **closed, 0 OA locations** |
+| `10.3115/1118783.1118785` | gold, dl.acm.org | gold, dl.acm.org |
+| `10.3115/991250.991336` | gold, dl.acm.org | gold, dl.acm.org |
+| `10.3115/1626269.1626275` | gold, dl.acm.org | gold, dl.acm.org |
+| `10.18653/v1/2020.acl-main.372` | gold, no pdf url | gold, no pdf url |
+| `10.18653/v1/S18-1001` | gold, aclweb.org | gold, aclweb.org |
+
+**Identical in 6 of 6.** Two corrections to the premise:
+
+* The `10.3115` prefix is **not** the invisible slice. Three older `10.3115`
+  papers are gold OA in both indexes. It is the `10.3115/v1/…` sub-form — the
+  2014–2016 ACL Anthology DOIs — that both indexes record as closed, even though
+  `https://aclanthology.org/D14-1162.pdf` returns 200.
+* Adding Unpaywall would not have fetched GloVe. The resolver is not
+  half-blind here; both indexes are blind in the same place.
+
+So GloVe's abstract-only result is CORRECT given the data both aggregators hold,
+and wrong about the world. Reaching it needs a publisher-specific route (an ACL
+Anthology id is derivable from the DOI suffix), which is a different decision
+with a different risk — a URL heuristic that silently fetches the wrong paper is
+the failure §11 D94 exists to prevent — and is NOT this entry.
+
+What survives independently: `refverify.rs:39` still reads *"mailto set at
+deploy"*, so the **Crossref polite pool is unset** on the path that actually gets
+hammered (retraction sweeps, add-by-DOI). That case never depended on Unpaywall.
+Held for a decision rather than built.
