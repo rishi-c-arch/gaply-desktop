@@ -4,7 +4,31 @@
 // the sentences a user reads to decide what to do next — "there is no free copy"
 // and "the lookup was rate-limited, try again" call for opposite responses — and
 // two copies of that vocabulary is two things to drift.
-import { OaFetchReport } from './aiBridge';
+import { OaFetchPhase, OaFetchReport } from './aiBridge';
+
+/** What to show WHILE a fetch runs (§11 D105).
+ *
+ *  Shared with the outcome vocabulary above for the same reason it exists: the
+ *  single-source row and the batch report must not describe the same fetch two
+ *  different ways. Only `embedding` carries numbers, because it is the only
+ *  phase whose duration scales with the paper — the rest are brief and a
+ *  fake count on them would be decoration. */
+export function describeOaPhase(p: OaFetchPhase): string {
+  switch (p.phase) {
+    case 'resolving':
+      return 'Looking for a free copy…';
+    case 'downloading':
+      return 'Downloading the PDF…';
+    case 'indexing':
+      return 'Reading the PDF and cutting it into passages…';
+    case 'embedding':
+      return p.total > 0
+        ? `Embedding ${p.done} of ${p.total} passages…`
+        : 'Embedding passages…';
+    default:
+      return 'Working…';
+  }
+}
 
 /** Whether this outcome left the citation checkable. */
 export function isFetchSuccess(r: OaFetchReport): boolean {

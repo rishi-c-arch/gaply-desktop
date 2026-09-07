@@ -111,6 +111,29 @@ pub struct FetchReport {
     pub outcome: FetchOutcome,
 }
 
+/// What the fetch is DOING, streamed while it does it (§11 D105).
+///
+/// The outcome arrives at the end; these arrive during. Without them a fetch of
+/// a 37-page paper is ninety seconds of a button reading "Looking for a free
+/// copy…", which is indistinguishable from a stuck one — and was in fact
+/// reported as broken.
+///
+/// `Embedding` carries done/total because it is the long pole and the only
+/// phase whose duration scales with the paper. A phase line that does not move
+/// is a spinner with extra words.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "phase", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum FetchPhase {
+    /// Asking the resolvers whether a free copy exists.
+    Resolving,
+    /// A copy was named; downloading it.
+    Downloading,
+    /// Reading the file and cutting it into passages.
+    Indexing,
+    /// Embedding those passages, in batches.
+    Embedding { done: usize, total: usize },
+}
+
 /// Where fetched sources live. One directory, created on demand.
 pub fn oa_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("oa_papers")
@@ -134,6 +157,9 @@ pub struct FetchDeps<'a> {
     /// Unpaywall requires one; `None` skips Unpaywall rather than sending a
     /// request it will refuse.
     pub contact_email: Option<&'a str>,
+    /// Where phase updates go while this source is being fetched. A no-op
+    /// closure is a valid sink — the batch loop reports outcomes either way.
+    pub on_phase: &'a dyn Fn(FetchPhase),
     pub app_data_dir: &'a Path,
 }
 
@@ -165,6 +191,8 @@ fn index_embed_and_link(
         &space.model_id,
     )?;
     let mut embedded = 0usize;
+    let total = pending.len();
+    (deps.on_phase)(FetchPhase::Embedding { done: 0, total });
     for batch in pending.chunks(crate::ai::EMBED_BATCH_SIZE) {
         let texts: Vec<String> = batch.iter().map(|p| p.content.clone()).collect();
         let vectors = embed(&texts)?;
@@ -172,6 +200,8 @@ fn index_embed_and_link(
             batch.iter().map(|p| p.chunk_id).zip(vectors).collect();
         gaply_core::ai_engine::embeddings::put_embeddings(deps.db, &space, &rows)?;
         embedded += rows.len();
+        // Per BATCH, not per chunk: this is the phase that takes the minutes.
+        (deps.on_phase)(FetchPhase::Embedding { done: embedded, total });
     }
 
     // Linked even when embedding fell short: the link is a true statement about
@@ -227,6 +257,7 @@ fn fetch_one_inner(
         contact_email: deps.contact_email,
     };
 
+    (deps.on_phase)(FetchPhase::Resolving);
     match resolve(&ctx, &reference, now)? {
         OaResolution::Paywalled { detail } => Ok(FetchOutcome::Paywalled { detail }),
         OaResolution::NoOaCopy { detail } => Ok(FetchOutcome::NoOaCopy { detail }),
@@ -236,6 +267,7 @@ fn fetch_one_inner(
         OaResolution::Unavailable { detail } => Ok(FetchOutcome::Failed { detail }),
 
         OaResolution::FullText { pdf_url, license, source } => {
+            (deps.on_phase)(FetchPhase::Downloading);
             let (status, bytes) = deps.bytes.get_capped(&pdf_url, MAX_FETCH_BYTES)?;
             if status != 200 {
                 return Ok(FetchOutcome::Failed {
@@ -275,6 +307,7 @@ fn fetch_one_inner(
             }
             let started = std::time::Instant::now();
 
+            (deps.on_phase)(FetchPhase::Indexing);
             let blocks = gaply_core::extract::docparse::parse_path_paged(&path)?;
             let title = target
                 .title
@@ -503,6 +536,7 @@ mod tests {
             bytes: &bytes,
             limiters: &lim,
             contact_email: Some("ci@gaply.test"),
+            on_phase: &|_| {},
             app_data_dir: &h.dir,
         };
 
@@ -545,6 +579,7 @@ mod tests {
             bytes: &bytes,
             limiters: &lim,
             contact_email: Some("ci@gaply.test"),
+            on_phase: &|_| {},
             app_data_dir: &h.dir,
         };
 
@@ -572,6 +607,7 @@ mod tests {
             bytes: &bytes,
             limiters: &lim,
             contact_email: Some("ci@gaply.test"),
+            on_phase: &|_| {},
             app_data_dir: &h.dir,
         };
 
@@ -593,6 +629,7 @@ mod tests {
             bytes: &bytes,
             limiters: &lim,
             contact_email: Some("ci@gaply.test"),
+            on_phase: &|_| {},
             app_data_dir: &h.dir,
         };
 
@@ -616,6 +653,7 @@ mod tests {
             bytes: &bytes,
             limiters: &lim,
             contact_email: Some("ci@gaply.test"),
+            on_phase: &|_| {},
             app_data_dir: &h.dir,
         };
 
@@ -660,6 +698,7 @@ mod tests {
             bytes: &bytes,
             limiters: &lim,
             contact_email: Some("ci@gaply.test"),
+            on_phase: &|_| {},
             app_data_dir: &h.dir,
         };
 
@@ -700,6 +739,7 @@ mod tests {
             bytes: &bytes,
             limiters: &lim,
             contact_email: Some("ci@gaply.test"),
+            on_phase: &|_| {},
             app_data_dir: &h.dir,
         };
         let report = fetch_one(&deps, &target(), 1, &fake_embed);
@@ -726,6 +766,7 @@ mod tests {
             bytes: &bytes,
             limiters: &lim,
             contact_email: Some("ci@gaply.test"),
+            on_phase: &|_| {},
             app_data_dir: &h.dir,
         };
 
@@ -749,6 +790,7 @@ mod tests {
             bytes: &bytes,
             limiters: &lim,
             contact_email: Some("ci@gaply.test"),
+            on_phase: &|_| {},
             app_data_dir: &h.dir,
         };
 
@@ -782,6 +824,7 @@ mod tests {
             bytes: &bytes,
             limiters: &lim,
             contact_email: Some("ci@gaply.test"),
+            on_phase: &|_| {},
             app_data_dir: &h.dir,
         };
 

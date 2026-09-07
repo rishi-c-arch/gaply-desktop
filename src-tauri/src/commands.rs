@@ -1985,6 +1985,10 @@ pub enum OaFetchEvent {
     Fetching { index: usize, total: usize, title: Option<String> },
     /// One source finished, with its own outcome.
     Done { index: usize, total: usize, report: crate::oa_fetch::FetchReport },
+    /// What the CURRENT source is doing (§11 D105). Fetching a 37-page paper
+    /// spends most of its time between `Fetching` and `Done`; without this the
+    /// surface has nothing to say for the whole of it.
+    Phase { index: usize, total: usize, phase: crate::oa_fetch::FetchPhase },
 }
 
 /// Fetch open-access full text for one or more citations.
@@ -2039,6 +2043,19 @@ pub async fn citation_fetch_oa(
             })
             .collect::<Result<Vec<_>, GaplyError>>()?;
 
+        // Which source the phase updates belong to. `FetchDeps` is built once,
+        // outside the loop, so the index the sink reports has to be read at call
+        // time rather than captured.
+        let current = std::cell::Cell::new(0usize);
+        let total_for_phase = targets.len();
+        let on_phase = |phase: crate::oa_fetch::FetchPhase| {
+            let _ = on_event.send(OaFetchEvent::Phase {
+                index: current.get(),
+                total: total_for_phase,
+                phase,
+            });
+        };
+
         let http = crate::http_fetcher::ReqwestFetcher::new()?;
         let bytes = crate::paper_corpus::ReqwestPaperFetcher::new()?;
         let limiters = gaply_core::refverify::ApiRateLimiters::with_polite_defaults();
@@ -2052,6 +2069,7 @@ pub async fn citation_fetch_oa(
             // OpenAlex answers the same question without one.
             contact_email: None,
             app_data_dir: &app_data_dir,
+            on_phase: &on_phase,
         };
         let embed = |texts: &[String]| slot.with(|e| e.embed_documents(texts));
 
@@ -2060,6 +2078,7 @@ pub async fn citation_fetch_oa(
         let now = gaply_core::now_epoch();
         let mut reports = Vec::with_capacity(total);
         for (i, t) in targets.iter().enumerate() {
+            current.set(i);
             let _ = on_event.send(OaFetchEvent::Fetching {
                 index: i,
                 total,

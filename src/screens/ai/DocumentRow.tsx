@@ -13,7 +13,7 @@ import './ai.css';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Card } from '../../design-system/primitives';
 import { aiBridge, errorText, ImportPreflight, LinkSourceEvent, OaFetchReport } from './aiBridge';
-import { describeOaOutcome, isFetchSuccess } from './oaOutcome';
+import { describeOaOutcome, describeOaPhase, isFetchSuccess } from './oaOutcome';
 import { pickManuscriptPath } from '../common/pickFile';
 import { mayUseCloud } from '../settings/settingsStore';
 
@@ -83,6 +83,11 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
   const [justLinked, setJustLinked] = useState<number | null>(null);
   /** Non-null while an open-access fetch is running. */
   const [fetching, setFetching] = useState(false);
+  /** §11 D105. What the fetch is doing right now. A 37-page paper spends ~90
+   *  seconds between the press and the outcome, and a button that says
+   *  "Looking for a free copy…" for all of it is indistinguishable from a stuck
+   *  one — which is how this feature came to be reported as broken. */
+  const [phase, setPhase] = useState<string | null>(null);
   const [fetchNote, setFetchNote] = useState<string | null>(null);
   /** Set when the import guard wants an answer before spending the time. */
   const [pendingConfirm, setPendingConfirm] = useState<{ path: string; pre: ImportPreflight } | null>(
@@ -217,8 +222,11 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
       return;
     }
     setFetching(true);
+    setPhase('Looking for a free copy…');
     try {
-      const [report] = await bridge.fetchOpenAccess([citationId]);
+      const [report] = await bridge.fetchOpenAccess([citationId], (ev) => {
+        if (ev.kind === 'phase') setPhase(describeOaPhase(ev.phase));
+      });
       if (!report) {
         setFetchNote('The fetch returned no result.');
         return;
@@ -240,6 +248,7 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
       setFetchNote(errorText(e));
     } finally {
       setFetching(false);
+      setPhase(null);
     }
   }, [bridge, citationId, onLinked]);
 
@@ -281,7 +290,7 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
                 disabled={fetching || linking !== null}
                 data-testid="document-fetch-oa"
               >
-                {fetching ? 'Looking for a free copy…' : 'Fetch open-access PDF'}
+                {fetching ? 'Looking…' : 'Fetch open-access PDF'}
               </Button>
             )}
           </div>
@@ -325,6 +334,14 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
             </Button>
           </div>
         </div>
+      )}
+
+      {/* §11 D105. Same shape as the `linking` line below, for the same
+          reason: the button says a state, this says what is happening in it. */}
+      {fetching && phase && (
+        <p className="gds-ai__hint" data-testid="document-fetching">
+          {phase}
+        </p>
       )}
 
       {linking && (

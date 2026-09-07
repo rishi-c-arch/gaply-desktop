@@ -87,6 +87,47 @@ describe('Fetch open-access PDF — the action', () => {
     expect(note).toMatch(/nothing else leaves your machine/i);
   });
 
+  /** §11 D105. Fetching a 37-page paper spends ~90 seconds between the press
+   *  and the outcome. Nothing was subscribed to the phase channel, so the row
+   *  said "Looking for a free copy…" for all of it — reported, reasonably, as
+   *  the feature doing nothing. */
+  it('reports what the fetch is DOING while it runs, not just at the end', async () => {
+    let emit: ((ev: any) => void) | undefined;
+    let finish: ((r: any[]) => void) | undefined;
+    const fetchOpenAccess = vi.fn(
+      (_ids: string[], onEvent?: (ev: any) => void) =>
+        new Promise<any[]>((resolve) => {
+          emit = onEvent;
+          finish = resolve;
+        }),
+    );
+    render(
+      <DocumentRow citationId="c1" doi="10.1/a" bridge={bridge({ fetchOpenAccess })} />,
+    );
+    await waitFor(() => expect(screen.getByTestId('document-fetch-oa')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('document-fetch-oa'));
+    await waitFor(() => expect(emit).toBeTruthy());
+
+    // The phase channel is SUBSCRIBED — the bug was that it was not.
+    expect(fetchOpenAccess.mock.calls[0][1]).toBeTypeOf('function');
+
+    emit!({ kind: 'phase', index: 0, total: 1, phase: { phase: 'downloading' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('document-fetching').textContent).toMatch(/Downloading/i),
+    );
+
+    // Embedding is the long pole and the only phase that MOVES. A line that
+    // sits still for ninety seconds is a spinner with extra words.
+    emit!({ kind: 'phase', index: 0, total: 1, phase: { phase: 'embedding', done: 32, total: 113 } });
+    await waitFor(() =>
+      expect(screen.getByTestId('document-fetching').textContent).toMatch(/32 of 113 passages/),
+    );
+
+    finish!([report({ outcome: 'fetched', documentId: 12, chunksIndexed: 113, chunksEmbedded: 113, checkable: true })]);
+    // And it goes away when there is an outcome to read instead.
+    await waitFor(() => expect(screen.queryByTestId('document-fetching')).toBeNull());
+  });
+
   it('fetched: flips the row to linked and offers the re-check', async () => {
     const onLinked = vi.fn();
     const fetchOpenAccess = vi.fn(async (_ids: string[]) => [

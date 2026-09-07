@@ -248,10 +248,20 @@ export interface ImportPreflight {
   summary: string;
 }
 
+/** What the CURRENT source is doing (§11 D105). Most of a fetch's wall clock is
+ *  spent between `fetching` and `done`, so these are what a surface has to show
+ *  in that window. `embedding` is the long pole and the only one that moves. */
+export type OaFetchPhase =
+  | { phase: 'resolving' }
+  | { phase: 'downloading' }
+  | { phase: 'indexing' }
+  | { phase: 'embedding'; done: number; total: number };
+
 /** Stages a batch fetch streams. */
 export type OaFetchEvent =
   | { kind: 'started'; total: number }
   | { kind: 'fetching'; index: number; total: number; title: string | null }
+  | { kind: 'phase'; index: number; total: number; phase: OaFetchPhase }
   | { kind: 'done'; index: number; total: number; report: OaFetchReport };
 
 export interface LinkSourceResult {
