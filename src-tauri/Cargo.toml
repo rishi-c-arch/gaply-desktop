@@ -103,6 +103,12 @@ candle-transformers = { version = "0.11", features = ["metal"] }
 objc2 = "0.6"
 
 [dev-dependencies]
+# §11 D103. The wire-contract guard parses this crate's own source to enumerate
+# every type a #[tauri::command] returns or streams. syn is already in the lock
+# file (transitively, via proc macros), so this adds no download — and a guard
+# that exists BECAUSE a guard failed must not itself be held together by regex.
+syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
+quote = "1"
 # Reads the rendered report back OUT of the PDF bytes for the render-path
 # end-to-end test (ONTOLOGY §4.20). Already a gaply-core dependency; declared
 # here because a dependency of a dependency is not in scope for this crate.

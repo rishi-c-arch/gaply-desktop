@@ -200,7 +200,7 @@ pub enum Attempt {
 
 /// Why a task failed, with everything needed to diagnose it.
 #[derive(Debug, Serialize)]
-#[serde(tag = "error", rename_all = "camelCase")]
+#[serde(tag = "error", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum TaskError {
     /// Both attempts failed. Carries BOTH raw outputs — never a summary,
     /// because the raw text is the only evidence of what actually happened.

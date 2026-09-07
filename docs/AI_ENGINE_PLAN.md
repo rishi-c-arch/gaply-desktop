@@ -5528,3 +5528,134 @@ sweep cannot produce, but a partial write could — still reads RETRACTED.
 Migration 19 is additive and defaulted, the same shape as 11 and 18: both
 columns are nullable, no backfill, no rewrite, and existing rows read back
 `NULL` = 'unchecked', which is exactly what they honestly are.
+
+### D103 — the fourth serde drift, and the first to walk past D53's guard
+
+`rename_all` on an enum renames VARIANTS, not fields. §11 D53 recorded exactly
+this and built a test for it. `FetchReport` was written anyway, and shipped
+broken.
+
+Counted honestly, this is the **fourth**: D53 called itself the third (after
+`kind`/`state` in D46's neighbourhood), and this is one more. What makes it
+worth its own entry is not the repeat — it is that the guard D53 built to end
+the class did not see this type at all.
+
+#### The exact bytes, printed rather than assumed
+
+```
+{"citationId":"cite-x","title":"SMOTE","outcome":"fetched",
+ "document_id":13,"chunks_indexed":113,"chunks_embedded":113,"checkable":true}
+```
+
+`FetchOutcome` carries `#[serde(tag = "outcome", rename_all = "camelCase")]` and
+no `rename_all_fields`. `OaFetchEvent`, its streamed sibling in the same command,
+has both. One type in the pair was fixed by D53's lesson and the other was not.
+
+Four consequences, none of which threw:
+
+* `documentId` → `undefined`, so `DocumentRow`'s `report.documentId != null` is
+  false and the Document card **never leaves "No document linked"** after a
+  successful fetch. The paper is on disk, indexed, embedded and linked; the
+  screen says nothing happened.
+* `chunksIndexed` → the success sentence reads *"indexed — 0 passages"*.
+* `injectionFlagged` → permanently false, so the warning that a fetched abstract
+  contained text aimed at the model **can never render**. That one is a safety
+  sentence, and it was silently unreachable.
+* `retryAfterSecs` → every rate-limit message says "about 60s" regardless.
+
+Single-word fields (`checkable`, `title`, `detail`) crossed intact, which is why
+the damage looked partial rather than total — the same shape as D53.
+
+#### Why the guard missed it, which is the actual finding
+
+`ai::event_wire_tests` asserts *"no field of any streamed event may reach the
+webview containing an underscore"*, and D53 described that as a general rule so a
+new field would fail even if nobody added a case. It is general over FIELDS. It
+is not general over TYPES: the rule iterates a hand-written list of eight
+constructed values from three enums, and a type absent from that list is not
+checked by anything.
+
+Its title scopes it further — *streamed events*. `FetchReport` is a command's
+RETURN value. It crosses the identical boundary into the identical kind of
+hand-written TypeScript reader, and by the file's own framing it was never in
+scope. **The boundary is not "events". It is everything a `#[tauri::command]`
+returns or streams.**
+
+#### The fix is the contract test, not the attribute
+
+Adding `rename_all_fields` to `FetchOutcome` repairs this instance and leaves
+the class exactly as open as D53 left it — which is how we got here. What has to
+change is the guard:
+
+- enumerate the wire types from the command surface rather than from a list
+  someone remembers to extend, so a NEW command is covered by default;
+- cover return types, not only streamed events;
+- keep the underscore rule as the cheap general net, and pin the exact JSON for
+  the types whose fields the UI actually branches on.
+
+#### And why neither test suite caught it
+
+`oaFetch.vitest.tsx` builds its report fixtures by hand in camelCase, so it
+verifies the TypeScript layer against a shape Rust has never produced — the
+suite and the bug agree with each other. Every field in the `OaFetchReport`
+interface is optional (`documentId?`), so `undefined` is legal and `tsc` had
+nothing to say.
+
+That is §11 D98's finding again, at a different boundary: a check validated only
+against fixtures written by the same hand that wrote the code has now been wrong
+five times out of five. Fixtures verify the shape; only the real producer
+verifies the contract.
+
+#### What was built, and what it found
+
+`src-tauri/src/wire_contract_tests.rs` — three tests, parsing this crate's own
+source with `syn` (already in the lock file transitively; a guard that exists
+because a guard failed should not itself rest on regex).
+
+**The rule is NOT "no underscore may cross".** That was tried first and is wrong
+for this codebase: applied to the types reachable from the command surface it
+flags **248 fields across 174 types**, because much of the app is snake_case on
+BOTH sides and the two agree perfectly — `ReferenceVerification` and its
+`UntrustedText { safe_text }` among them, which the frontend reads in snake_case
+today and correctly. A guard reporting 248 non-bugs is a guard someone switches
+off, and it would have "found" the real one by accident.
+
+The defect is never that an underscore crossed. It is **the Rust type and the
+TypeScript reader disagreeing**, and the zero-false-positive form of that is
+internal coherence: *if a type DECLARES `rename_all = "camelCase"`, its fields
+must actually come out camelCase.* A type asking for camelCase while emitting
+`document_id` is incoherent whether or not anyone reads that field — so this
+needs no exemption list, and an exemption list is the thing that just failed.
+
+It found **six** offending enums, five of which nobody was looking for:
+
+| type | fields | live? |
+|---|---|---|
+| `FetchOutcome` | `document_id`, `chunks_indexed`, `chunks_embedded`, `injection_flagged`, `retry_after_secs` | **yes — D103** |
+| `EngineState` | `model_id`, `preprocessing_version` | latent |
+| `GenState` | `idle_ms` | latent |
+| `OaResolution` | `pdf_url`, `safe_text`, `injection_flagged`, `retry_after_secs` | not on the wire |
+| `TaskError` | `first_raw`, `retry_raw`, `stop_reasons` | not on the wire |
+
+`EngineState` and `GenState` ARE on the wire — nested in `AiModelStatus`, a
+command return type — and were saved only by `EngineStateWire` being typed as
+`{ state: string; [k: string]: unknown }`, so the TypeScript reads the tag and
+nothing else. Latent, not harmless: one reader of `.modelId` away from D103
+again. None of the six derives `Deserialize`, so no stored JSON is read back
+into them and the spelling change breaks nothing.
+
+The second test enumerates every type a `#[tauri::command]` returns or streams
+from the signatures themselves and asserts each RESOLVES to a definition the
+guard can see — failing closed, because failing open is how `FetchReport` went
+unchecked. It immediately caught one it could not see, `StatsVerificationReport`,
+which is a `use ... as ...` alias; the guard now resolves aliases rather than
+allowlisting the name, since allowlisting a name it cannot see is exactly how a
+guard comes to be trusted while checking nothing.
+
+The third pins `FetchReport`'s exact JSON, because no general rule catches a
+renamed tag or a dropped field. Removing `rename_all_fields` from `FetchOutcome`
+fails the general rule and the pin independently — verified by reintroducing it.
+
+`ai::event_wire_tests` keeps its exact-JSON pins and now carries a note saying it
+is not the whole guard.
+

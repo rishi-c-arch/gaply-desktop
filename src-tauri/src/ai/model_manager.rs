@@ -91,7 +91,7 @@ impl BackendLoader for NullLoader {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "state", rename_all = "camelCase")]
+#[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum GenState {
     /// No generative model is registered/resolvable. Not an error: every
     /// deterministic feature works, and generation reports this rather than

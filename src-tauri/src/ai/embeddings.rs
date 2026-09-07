@@ -36,7 +36,7 @@ use crate::ai::{
 
 /// What the engine can honestly say about itself.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(tag = "state", rename_all = "camelCase")]
+#[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum EngineState {
     /// No model installed. Not an error — the app runs, semantic search does not.
     NotInstalled,

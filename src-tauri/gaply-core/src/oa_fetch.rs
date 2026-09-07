@@ -62,7 +62,7 @@ impl OaSource {
 /// no free copy of this paper" is a true and useful answer, and reporting it as
 /// a failure would train a reader to ignore the ones that are failures.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum OaResolution {
     /// A PDF that may be downloaded.
     FullText { pdf_url: String, license: Option<String>, source: OaSource },

@@ -21,6 +21,23 @@
 //!
 //! Adding a field to any of these enums SHOULD fail a test here. Update the
 //! expectation and the TypeScript type in the same commit.
+//!
+//! # This file is NOT the whole guard (§11 D103)
+//!
+//! It was believed to be. The underscore rule below is general over FIELDS but
+//! not over TYPES — it iterates the hand-written list of samples in
+//! `no_streamed_event_field_carries_an_underscore`, so a type absent from that
+//! list is checked by nothing. `FetchReport` was absent, drifted exactly as
+//! described above, and shipped.
+//!
+//! Its scope is also narrower than the boundary: *streamed events*, when a
+//! command's RETURN value crosses the identical boundary into the identical
+//! kind of hand-written TypeScript reader.
+//!
+//! `crate::wire_contract_tests` covers the real boundary — every type a
+//! `#[tauri::command]` returns or streams, enumerated from the signatures
+//! themselves. Keep the exact-JSON pins here; they are the half that catches a
+//! renamed tag or a dropped field, which no general rule can.
 
 use serde_json::{json, Value};
 

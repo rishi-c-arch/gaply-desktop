@@ -16,6 +16,11 @@ pub mod journal_verify;
 pub mod oa_fetch;
 pub mod paper_corpus;
 pub mod pipeline;
+// §11 D103. The IPC wire contract, enumerated from the command signatures
+// rather than a hand-maintained list. See the module docs for why the sibling
+// guard in `ai::event_wire_tests` did not catch `FetchReport`.
+#[cfg(test)]
+mod wire_contract_tests;
 pub mod report_build;
 pub mod reviewer_synthesis;
 pub mod state;

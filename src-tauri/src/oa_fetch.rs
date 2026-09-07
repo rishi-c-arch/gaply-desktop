@@ -48,7 +48,7 @@ use crate::paper_corpus::{PaperFetch, MAX_FETCH_BYTES};
 /// will not have one answer, and collapsing twelve outcomes into "8 succeeded"
 /// throws away the four sentences the user actually needs to read.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(tag = "outcome", rename_all = "camelCase")]
+#[serde(tag = "outcome", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum FetchOutcome {
     /// Full text downloaded, indexed, embedded and linked.
     Fetched {
