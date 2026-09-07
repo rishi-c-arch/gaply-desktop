@@ -5756,3 +5756,172 @@ decoration. It is emitted per embedding BATCH, so the line actually moves.
 The button keeps a short label and the detail goes on its own line — the shape
 the sibling `linking` flow already uses on the same card, so the two do not
 present the same kind of progress two different ways.
+
+### D106 — what a `citation_support` label can measure, and what it cannot
+
+Six cold labels in (3 weak, 1 contradicts, 1 strong, 1 partial), and the act of
+labelling produced two findings about the SET rather than about the model. Both
+are recorded before the eval runs, because they bear on what any number off that
+eval is allowed to mean.
+
+#### 1. Non-claims in the candidate pool — and the filter IS already applied
+
+The reported symptom is right: figure captions, cross-references and table
+pointers were offered as candidates, and on those the retrieval returned
+bibliography lines because there was nothing to match on.
+
+The proposed cause is not. `label-cs` selects from `pre.planned`, which is the
+prepass output AFTER `skip_reason` — the audit's significance filter is already
+applied to candidate selection. Applying it again would change nothing, and
+fixing this only in `label-cs` would have left the AUDIT queueing the same
+sentences for real model work.
+
+Measured on R PAPER, the filter catches a caption whose label LEADS
+(`Table II shows…` → `TableOrFigure`) and misses one whose label TRAILS, which
+is how PDF reflow usually leaves them:
+
+```
+skip_reason("Table II shows comparative performance of the proposed …") → TableOrFigure
+skip_reason("Accuracy and F1-Score Comparison on SemEval-2018 Fig. 3.") → None
+```
+
+Of the 82 sentences the prepass plans for R PAPER, five end in a figure/table
+label. Four are prose that legitimately cites a figure — *"The complete-flow
+architecture is depicted in Fig. 1."* — and exactly one is a caption whose label
+migrated to the end. The discriminator that separates them on the real data is
+the token BEFORE the label: prose reaches a figure through a preposition (`in`,
+`see`, `from`), a caption abuts it. So the rule is a trailing label not preceded
+by a connective — which drops 1 of 5 here, the right one.
+
+**Left unbuilt, deliberately: the pointer sentences.** Three of the four kept
+above are cross-references — *"…are presented in Table III."* — and the finding
+that they are "nothing a source could adjudicate" is correct. They are still
+poor `citation_support` candidates. But *"As shown in Table II, the proposed
+model outperforms the baselines"* is a real claim in the same syntactic shape,
+and a rule that cannot tell those apart would drop evidence rather than noise.
+That needs its own discriminator designed against more than one paper (§11 D98),
+so it is recorded rather than guessed at.
+
+#### 2. The claim TYPE sets the ceiling — the larger finding
+
+All three SMOTE candidates were **method attribution** (*"our pipeline uses
+SMOTE-Text class balancing"*) or the authors' **own ablation numbers**. No source
+can support either: the source describes SMOTE, it does not witness that THIS
+pipeline used it, and it certainly does not contain their ablation results.
+`weak` was the only honest verdict on all three, and **retrieval worked perfectly
+every time**. The number those cases produce is a property of the claim type, not
+of the model.
+
+The spread came entirely from **descriptive claims about a source**:
+
+| claim | verdict | why |
+|---|---|---|
+| GoEmotions: "46% macro-F1 over 27 categories" | `strong` | the source states it |
+| GoEmotions: "58,009 comments, 27 emotions, remapped into eight" | `partial` | the eight-category remapping is theirs, not the source's |
+| SemEval: "10,983 tweets, eight Plutchik emotions" | `contradicts` | the source says 22,000+ and eleven |
+
+So **`citation_support`'s measurable population is descriptive claims about a
+cited source** — not the method-attribution citations that make up much of real
+citing. A labelled set drawn from the wrong population measures nothing, and a
+set drawn mostly from method attribution would report a model that agrees with
+`weak` every time as accurate.
+
+**And the verdict scale has no honest slot for it.** The five verdicts are
+`strong` / `partial` / `weak` / `contradicts` / `insufficient_evidence`.
+"Correctly credits a method they did use" is not weak — weak means *only
+topically related*, and a correct attribution is a great deal more than topical.
+It is not `strong` either, because the passages do not support the sentence as
+written. The scale answers "does the evidence support this claim", and
+attribution asks "is this the right work to point at", which is a different
+question that needs its own verdict — or its own task — rather than being folded
+into a verdict that misdescribes it.
+
+Consequence for selection: candidates should be drawn preferentially from
+descriptive claims, and the population a given eval was drawn from must be stated
+alongside its accuracy, or the number is unreadable.
+
+#### 3. The prompt asked the wrong question on a `contradicts` verdict
+
+`label-cs` asked **"WHICH PASSAGES SUPPORT IT?"** after every verdict including
+`contradicts`, where the passages being marked are the ones that REFUTE the
+claim. The stored field is the same either way — the passages that settle it —
+so the question now follows the verdict.
+
+#### 4. The default eval invocation measures nothing, and says so
+
+`ai-eval --task citation_support` with no other flags ran the **0.5B** bundled
+model against a **mocked** embedder and produced a full report. The harness is
+honest about it — the header prints `model : qwen2.5-0.5b-instruct-q4km` and
+`*** MOCKED - not a valid bake-off (§11 D29) ***`, and the JSON carries
+`embedderIsReal: false` — so this is a trap rather than a defect, and §11 D29
+already built the stamp that catches it.
+
+Recorded because the trap was walked into anyway. The numbers that run produced
+(1/12 valid, 92% validation failure) describe the 0.5B against lexical mock
+retrieval and say nothing about the product, which uses the 3B and bge-small.
+Any `citation_support` figure quoted without the model id AND `embedderIsReal`
+beside it is unreadable. A valid run needs:
+
+```
+--model qwen2.5-3b-instruct-q4km --model-dir <dir> --embedder-dir <dir>
+```
+
+#### 5. The eval, and exactly what 6 cold labels support
+
+Run on the 3B with the real embedder (`citation_support-v1.6-2026-09-07-3b-real-embed.json`):
+
+```
+valid outputs           : 7/12        verdict agreement : 33%
+validation failure rate : 42%         cited planted     : 50%
+verdictDistribution     : { "weak": 6 }
+```
+
+**That last line is the result.** Every valid output was `weak` — six for six.
+
+| case | gold | model |
+|---|---|---|
+| cs-seed-01 | strong | weak |
+| cs-seed-02 | partial | weak |
+| cs-seed-03 | weak | **weak** ✓ |
+| cs-seed-04 | contradicts | weak |
+| cs-seed-05 | insufficient_evidence | weak |
+| cs-label-002 | weak | **weak** ✓ |
+| cs-label-001/003/004/005/006 | weak, weak, contradicts, strong, partial | *validation failure* |
+
+**The 33% is not a skill estimate — it is the prevalence of `weak` among the
+scoreable cases.** A model that always answers `weak` scores exactly the same,
+and on this run the model WAS that model. The eval currently cannot distinguish
+`citation_support-v1.6` from a constant. Wilson 95% CI on 2/6 is **[10%, 70%]**,
+which is another way of saying the same thing.
+
+##### What the size does support
+
+Not accuracy, and not the direction of any prompt change. It does support one
+claim, because the split is clean and the failure modes are mechanical:
+
+**Validation collapses on real manuscripts and holds on fixtures.** 5 of 5 cold
+cases failed schema validation; 1 of 6 synthetic seeds did. Two reproducible
+shapes, neither of them a judgement:
+
+* `supporting_chunks` emitted as STRINGS rather than objects — the model echoes
+  the evidence header back verbatim: `invalid type: string "CHUNK_ID=c14 PAGE=1
+  SECTION=-", expected struct SupportingChunk`, and once with an entire 60-word
+  passage inside the string;
+* `missing field 'why'`, twice.
+
+Both are the §11 D66/D81 shape — a schema the model trips over — and both are
+fixable without a single further label. The fixtures never provoke them because
+their evidence blocks are short and clean; the real ones carry the header format
+the model then imitates.
+
+##### What it would take to measure accuracy
+
+The population must be **descriptive claims about a source** (§11 D106 §2), and
+the model must clear validation often enough to have verdicts to score. On this
+evidence the order is forced: **fix the two schema failures first**, then label —
+labelling more method-attribution claims would add cases that are `weak` by
+construction, scored against a model that answers `weak` regardless, and the
+agreement figure would climb while nothing improved.
+
+Also recorded: mean latency **189 s/case**, prefill 81 s, decode 6.2 tok/s, 2 of
+12 truncated at the 1024 ceiling. A 12-case run took ~35 minutes.

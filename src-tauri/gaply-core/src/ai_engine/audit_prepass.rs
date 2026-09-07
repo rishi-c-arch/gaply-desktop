@@ -467,6 +467,19 @@ pub fn skip_reason(sentence: &str) -> Option<SkipReason> {
     if lower.starts_with("table ") || lower.starts_with("fig.") || lower.starts_with("figure ") {
         return Some(SkipReason::TableOrFigure);
     }
+    // §11 D106. The label does not always LEAD. PDF reflow routinely leaves it
+    // at the end — "Accuracy and F1-Score Comparison on SemEval-2018 Fig. 3."
+    // — and that sentence was surviving as a claim and being offered for
+    // labelling, where nothing in the source could ever adjudicate it.
+    //
+    // Prose that legitimately cites a figure reaches it through a preposition
+    // ("depicted in Fig. 1", "shown in Table III"); a caption abuts its label.
+    // That is the discriminator, measured on R PAPER: of the five planned
+    // sentences ending in a label, it drops the one caption and keeps the four
+    // real cross-references.
+    if ends_with_bare_figure_label(&flat) {
+        return Some(SkipReason::TableOrFigure);
+    }
     // A row of mostly numbers, with no verb-bearing prose to speak of.
     if numeric_token_ratio(&flat) >= 0.4 {
         return Some(SkipReason::TableOrFigure);
@@ -583,6 +596,66 @@ fn leading_bib_marker(text: &str) -> Option<u32> {
 }
 
 /// Is this sentence worth a model call at all?
+/// Does this end in a figure/table label that labels rather than refers?
+///
+/// "…depicted in Fig. 1." is prose about a figure and stays. "…Comparison on
+/// SemEval-2018 Fig. 3." is a caption whose label migrated to the end and goes.
+///
+/// TWO signals must agree before anything is dropped, because the directions
+/// are not symmetric: keeping a caption costs a noisy labelling candidate,
+/// while dropping a claim costs a check the audit exists to perform. The first
+/// draft of this dropped whenever the word before the label was not a known
+/// connective — i.e. it dropped BY DEFAULT on unfamiliar phrasing, which is the
+/// wrong way round and is what its own test caught (§11 D106).
+///
+/// So: the label must not be introduced by a connective, AND the sentence must
+/// carry no finite verb. A caption is a noun phrase; prose about a figure says
+/// that something *is depicted*, *are presented*, *shows*.
+fn ends_with_bare_figure_label(flat: &str) -> bool {
+    /// Words that introduce a reference TO a figure, rather than label one.
+    const CONNECTIVES: &[&str] = &[
+        "in", "see", "from", "of", "to", "on", "at", "by", "and", "with", "per", "cf", "cf.",
+        "versus", "vs", "vs.", "into", "within", "under", "above", "below", "via",
+    ];
+    /// Enough of a finite verb to say this is a sentence, not a label.
+    const VERBS: &[&str] = &[
+        "is", "are", "was", "were", "be", "been", "has", "have", "had", "can", "may", "will",
+        "shows", "show", "presents", "present", "presented", "depicts", "depicted", "shown",
+        "illustrates", "illustrated", "summarises", "summarizes", "summarised", "summarized",
+        "compares", "compared", "reports", "reported", "gives", "given", "demonstrates",
+        "uses", "used", "lists", "listed", "provides", "provided", "indicates", "indicated",
+        "displays", "displayed", "describes", "described", "contains", "highlights",
+    ];
+    let w: Vec<&str> = flat.split_whitespace().collect();
+    // A finite verb anywhere means this reads as a sentence, whatever it ends
+    // with. Checked first because it is the signal that protects real claims.
+    if w.iter().any(|t| {
+        let t = t.to_lowercase();
+        VERBS.contains(&t.trim_matches(|c: char| !c.is_alphanumeric()))
+    }) {
+        return false;
+    }
+    // A bare "Fig. 3." is already caught by the leading rule and by TooShort;
+    // this needs a word before the label to judge.
+    if w.len() < 3 {
+        return false;
+    }
+    let number = w[w.len() - 1].trim_end_matches(['.', ':', ')']);
+    let looks_numbered = !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit() || "IVXLCDM".contains(c.to_ascii_uppercase()));
+    if !looks_numbered {
+        return false;
+    }
+    let label = w[w.len() - 2].to_lowercase();
+    let label = label.trim_end_matches('.');
+    if !matches!(label, "fig" | "figure" | "table") {
+        return false;
+    }
+    let before = w[w.len() - 3].to_lowercase();
+    let before = before.trim_end_matches([',', ';']);
+    !CONNECTIVES.contains(&before)
+}
+
 pub fn is_significant(sentence: &str) -> bool {
     skip_reason(sentence).is_none()
 }
@@ -1388,6 +1461,41 @@ mod tests {
         }
     }
 
+    /// §11 D106. Designed against R PAPER's real sentences, not invented ones:
+    /// of the five planned sentences ending in a figure/table label, exactly one
+    /// is a caption. A rule that drops the other four would cost real claims.
+    #[test]
+    fn a_caption_whose_label_trails_is_still_a_caption() {
+        // THE one this was built for — the label migrated to the end, and the
+        // sentence was being offered as a claim about SemEval-2018.
+        assert_eq!(
+            skip_reason("Accuracy and F1-Score Comparison on SemEval-2018 Fig. 3."),
+            Some(SkipReason::TableOrFigure)
+        );
+        assert_eq!(
+            skip_reason("Ablation Study Accuracy and MCC per Component Table 4"),
+            Some(SkipReason::TableOrFigure)
+        );
+
+        // And the four it must NOT touch — prose reaches a figure through a
+        // preposition. Each of these is a real R PAPER sentence.
+        for keep in [
+            "The complete-flow architecture is depicted in Fig. 1.",
+            "Accuracy and F1-score comparisons across all methods are depicted in Fig. 2.",
+            "Per-emotion precision, recall, and F1-score for SemEval-2018 are presented in Table III.",
+            "The attention example for a representative sad-labelled tweet is shown in Fig. 8.",
+        ] {
+            assert_eq!(skip_reason(keep), None, "wrongly dropped a cross-reference: {keep:?}");
+        }
+
+        // An unfamiliar connective must err towards KEEPING the claim.
+        assert_eq!(
+            skip_reason("The distribution of emotions is summarised throughout Table 9."),
+            None
+        );
+    }
+
+    #[test]
     fn the_significance_filter_drops_headings_and_stubs() {
         assert!(!is_significant("3.2 Methods"));
         assert!(!is_significant("Introduction"));

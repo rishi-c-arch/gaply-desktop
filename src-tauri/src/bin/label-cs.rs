@@ -382,12 +382,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        // WHICH passages support it — the second half of the label, and what
+        // WHICH passages settle it — the second half of the label, and what
         // makes `citedPlantedChunk` scoreable.
+        //
+        // §11 D106. The question follows the VERDICT. On `contradicts` the
+        // passages being marked are the ones that refute the claim, and asking
+        // which of them "support it" invites the wrong selection — or an empty
+        // one, which would score as no evidence rather than as refuting
+        // evidence. The stored field is the same either way: the passages that
+        // settle it.
         let mut supporting: Vec<usize> = Vec::new();
         if verdict != "insufficient_evidence" {
+            let question = if verdict == "contradicts" {
+                "WHICH PASSAGES CONTRADICT IT?"
+            } else {
+                "WHICH PASSAGES SUPPORT IT?"
+            };
             println!(
-                "\n\x1b[1mWHICH PASSAGES SUPPORT IT?\x1b[0m \x1b[2m1-{} to toggle, \
+                "\n\x1b[1m{question}\x1b[0m \x1b[2m1-{} to toggle, \
                  Enter when done, x for none\x1b[0m",
                 passages.len().min(9)
             );
