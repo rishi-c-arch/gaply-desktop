@@ -5694,3 +5694,65 @@ What survives independently: `refverify.rs:39` still reads *"mailto set at
 deploy"*, so the **Crossref polite pool is unset** on the path that actually gets
 hammered (retraction sweeps, add-by-DOI). That case never depended on Unpaywall.
 Held for a decision rather than built.
+
+### D105 — the Crossref mailto that was never set, and the ninety silent seconds
+
+Two things, both of which had been sitting in a comment or a symptom rather than
+in the code.
+
+#### The polite pool
+
+`refverify.rs:39` read `"gaply/1.0 (reference verification; mailto set at
+deploy)"`. It never was. Every Crossref request — add-by-DOI, the verify pass,
+and the retraction sweep — went to the ANONYMOUS pool, whose rate limits are
+lower and, more to the point, unpredictable: the pool that gets shed first under
+load is the one carrying a sweep across a whole library.
+
+The address is a **constant**, `CONTACT_EMAIL = "support@gaply.in"`, with
+`GAPLY_CONTACT_EMAIL` overriding it for development and CI. It is not a
+credential: it travels in plaintext on every request and is a readable string in
+the shipped binary either way, so hiding it buys nothing — while a constant
+cannot silently go missing the way an unset build-time variable can, which would
+put us back in the anonymous pool with nothing failing to say so.
+
+An EMPTY override yields `gaply/1.0 (reference verification)` rather than a
+dangling `mailto:`. A malformed mailto reads to Crossref as abuse of the polite
+pool rather than politeness, which is worse than staying anonymous.
+
+**Unpaywall stays unset** (§11 D104 measured that it adds no coverage OpenAlex
+lacks), so `email=` is still absent and that connector is still skipped. The two
+are separate switches and only one is thrown here.
+
+#### Which copy had to change, and which did not
+
+`CROSSREF_UA` rides on exactly three requests, all to crossref.org. The
+open-access fetch uses the generic `ReqwestFetcher` UA, so:
+
+- **`DocumentRow`'s note is unchanged.** *"Sends this source's DOI to Unpaywall
+  and OpenAlex — nothing else leaves your machine"* stays true of that path, and
+  its test still passes. It was tempting to update it for consistency; it would
+  have been a false disclosure of something that surface does not do.
+- **`AiCheckPage`'s opt-in did change.** It promised *"Sends **only** citation
+  details…"*, and `only` is load-bearing. It now reads *"Sends citation details
+  (author, year, title, DOI) and Gaply's contact address to CrossRef/OpenAlex,
+  never your manuscript."*
+- **`CLOUD_SUITES`' one-liner did too**, for the same reason: it enumerates what
+  the suite sends.
+
+#### The ninety seconds
+
+§11 D103 explained why the fetch reported nothing at the end. This is why it
+reported nothing during: `citation_fetch_oa` emitted `Started` / `Fetching` /
+`Done`, and everything expensive happens BETWEEN the last two. `DocumentRow`
+subscribed to none of it, so a 37-page paper showed a button reading "Looking
+for a free copy…" for a minute and a half — which is indistinguishable from a
+stuck one, and was reported as the feature doing nothing.
+
+`FetchPhase` now streams `resolving` → `downloading` → `indexing` →
+`embedding { done, total }`. Only the last carries numbers, because it is the
+only phase whose duration scales with the paper; a count on the others would be
+decoration. It is emitted per embedding BATCH, so the line actually moves.
+
+The button keeps a short label and the detail goes on its own line — the shape
+the sibling `linking` flow already uses on the same card, so the two do not
+present the same kind of progress two different ways.

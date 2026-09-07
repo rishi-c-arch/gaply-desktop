@@ -388,8 +388,9 @@ const AiCheckPage: React.FC<AiCheckPageProps> = ({ bridge }) => {
                     <span>
                       Verify references online
                       <span className="aic-optin__help">
-                        Sends only citation details (author, year, title, DOI) to CrossRef/OpenAlex, never your
-                        manuscript. Off by default. You can turn this off anytime.
+                        Sends citation details (author, year, title, DOI) and Gaply's contact address to
+                        CrossRef/OpenAlex, never your manuscript. Off by default. You can turn this off
+                        anytime.
                       </span>
                     </span>
                   </label>

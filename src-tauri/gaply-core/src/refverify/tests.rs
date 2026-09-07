@@ -486,3 +486,26 @@ fn verify_reference_flags_the_wakefield_failure_mode_end_to_end() {
     let report = verify_reference(&ctx(&db, &http, &lim), &doi_ref(DOI), NOW).unwrap();
     assert!(report.is_retracted(), "the Wakefield failure mode must now flag retracted");
 }
+
+/* ------------------------- the Crossref polite pool ---------------------- */
+
+/// §11 D105. `CROSSREF_UA` read "mailto set at deploy" and never was, so every
+/// Crossref lookup went to the anonymous pool. The mailto is what moves it.
+#[test]
+fn the_crossref_user_agent_carries_a_mailto() {
+    let ua = crate::refverify::build_crossref_ua(crate::refverify::CONTACT_EMAIL);
+    assert!(ua.contains("mailto:support@gaply.in"), "no mailto in the UA: {ua}");
+    assert!(ua.starts_with("gaply/1.0"), "the UA no longer identifies the client: {ua}");
+
+    // The override exists for development and CI, so requests made while
+    // testing are not attributed to the shipped address.
+    let dev = crate::refverify::build_crossref_ua("ci@gaply.test");
+    assert!(dev.contains("mailto:ci@gaply.test"));
+
+    // An EMPTY override must not produce `mailto:` with nothing after it —
+    // Crossref reads a malformed mailto as abuse of the polite pool rather than
+    // politeness, which is worse than staying anonymous.
+    let blank = crate::refverify::build_crossref_ua("   ");
+    assert!(!blank.contains("mailto"), "an empty address produced a mailto: {blank}");
+    assert!(blank.starts_with("gaply/1.0"));
+}

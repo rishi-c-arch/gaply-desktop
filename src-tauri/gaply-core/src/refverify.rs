@@ -36,7 +36,46 @@ const TTL_RETRACTION: i64 = 7 * 86_400; // status can change -> shorter
 const TTL_OA: i64 = 7 * 86_400;
 const TTL_ENRICH: i64 = 14 * 86_400;
 
-const CROSSREF_UA: &str = "gaply/1.0 (reference verification; mailto set at deploy)";
+/// The contact address Crossref's polite pool identifies us by (§11 D105).
+///
+/// A CONSTANT, deliberately. It is not a credential: it travels in plaintext on
+/// every request and is a readable string in the shipped binary either way, so
+/// hiding it buys nothing — and a constant cannot silently go missing the way an
+/// unset build-time variable can, which would put us straight back in the
+/// anonymous pool without anything failing.
+///
+/// `GAPLY_CONTACT_EMAIL` overrides it for development and CI, where requests
+/// should not be attributed to the shipped address.
+pub const CONTACT_EMAIL: &str = "support@gaply.in";
+
+/// Crossref asks for a mailto so it can route requests to the polite pool and
+/// reach someone about abuse. The comment this replaces said "mailto set at
+/// deploy" — it never was, so every lookup went to the anonymous pool with its
+/// lower and less predictable rate limits (§11 D105).
+///
+/// This carries ONLY to the three api.crossref.org requests below. Unpaywall's
+/// `email=` parameter is a separate switch and stays unset: §11 D104 measured
+/// that it adds no coverage OpenAlex lacks.
+fn build_crossref_ua(email: &str) -> String {
+    let email = email.trim();
+    if email.is_empty() {
+        // Better an honest anonymous UA than a malformed mailto, which Crossref
+        // would treat as abuse of the polite pool rather than politeness.
+        return "gaply/1.0 (reference verification)".to_string();
+    }
+    format!("gaply/1.0 (reference verification; mailto:{email})")
+}
+
+fn crossref_ua() -> &'static str {
+    static UA: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    UA.get_or_init(|| {
+        let email = std::env::var("GAPLY_CONTACT_EMAIL")
+            .ok()
+            .filter(|e| !e.trim().is_empty())
+            .unwrap_or_else(|| CONTACT_EMAIL.to_string());
+        build_crossref_ua(&email)
+    })
+}
 
 /// Placeholder substituted for any fetched free-text that trips the injection
 /// scanner, so attacker-controlled instructions can never reach a prompt.
@@ -438,7 +477,7 @@ pub fn citation_metadata_lookup(
         return Ok(ConnectorOutcome::NotFound);
     };
 
-    let req = HttpRequest::get(url).header("User-Agent", CROSSREF_UA);
+    let req = HttpRequest::get(url).header("User-Agent", crossref_ua());
     match cached_fetch(ctx, "crossref", &cache_key, TTL_EXISTENCE, req, now)? {
         Fetched::RateLimited { retry_after_secs } => {
             Ok(ConnectorOutcome::RateLimited { retry_after_secs })
@@ -661,7 +700,7 @@ pub fn crossref_lookup(
         return Ok(ConnectorOutcome::NotFound);
     };
 
-    let req = HttpRequest::get(url).header("User-Agent", CROSSREF_UA);
+    let req = HttpRequest::get(url).header("User-Agent", crossref_ua());
     match cached_fetch(ctx, "crossref", &cache_key, TTL_EXISTENCE, req, now)? {
         Fetched::RateLimited { retry_after_secs } => Ok(ConnectorOutcome::RateLimited { retry_after_secs }),
         Fetched::HttpStatus { status: 404 } => Ok(ConnectorOutcome::NotFound),
@@ -859,7 +898,7 @@ pub fn retraction_watch_check(
     };
     let cache_key = format!("refverify:retraction_watch:doi:{doi}");
     let url = format!("https://api.labs.crossref.org/works/{}", pct(&doi));
-    let req = HttpRequest::get(url).header("User-Agent", CROSSREF_UA);
+    let req = HttpRequest::get(url).header("User-Agent", crossref_ua());
 
     match cached_fetch(ctx, "retraction_watch", &cache_key, TTL_RETRACTION, req, now)? {
         Fetched::RateLimited { retry_after_secs } => Ok(ConnectorOutcome::RateLimited { retry_after_secs }),
