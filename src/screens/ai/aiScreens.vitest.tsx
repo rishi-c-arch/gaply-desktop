@@ -613,10 +613,12 @@ describe('Thesis audit', () => {
     blockedSources: 2,
     consistency: { findings: [], structural: 0, cosmetic: 0 },
     sources: [
-      { label: '[1]', libraryId: 'lib-1', documentId: 44, reason: null, citingSentences: 2 },
-      { label: '[2]', libraryId: 'lib-2', documentId: null, reason: 'not in your library', citingSentences: 11 },
-      { label: '(Smith, 2019)', libraryId: 'lib-3', documentId: null, reason: 'in your library, no PDF attached', citingSentences: 7 },
+      { label: '[1]', libraryId: 'lib-1', documentId: 44, reason: null, citingSentences: 2, hasDoi: true },
+      { label: '[2]', libraryId: 'lib-2', documentId: null, reason: 'not in your library', citingSentences: 11, hasDoi: true },
+      { label: '(Smith, 2019)', libraryId: 'lib-3', documentId: null, reason: 'in your library, no PDF attached', citingSentences: 7, hasDoi: true },
     ],
+    referenceEntries: 25,
+    referenceEntriesWithDoi: 12,
     documentTypesSupported: ['pdf'],
   };
 
@@ -868,6 +870,74 @@ describe('Thesis audit', () => {
     // this screen must not grow a second file-picker for the same job.
     fireEvent.click(screen.getByTestId('audit-attach-sources'));
     expect(onOpenCitation).toHaveBeenCalledWith('lib-2');
+  });
+
+  /** §11 D101. `oa_fetch` looks up a DOI and refuses without one, so on an
+   *  IEEE-style list — R PAPER: 25 entries, zero DOIs — the button was an
+   *  affordance guaranteed to return nothing for every source. */
+  it('does not offer the open-access fetch when no blocked source records a DOI', async () => {
+    const noDoi = {
+      ...preview,
+      sources: preview.sources.map((src) => ({ ...src, hasDoi: false })),
+      referenceEntries: 25,
+      referenceEntriesWithDoi: 0,
+    };
+    const fetchOpenAccess = vi.fn(async () => []);
+    const onOpenCitation = vi.fn();
+    render(
+      <ThesisAuditScreen
+        aiInstalled
+        pickManuscript={async () => '/t.pdf'}
+        onOpenCitation={onOpenCitation}
+        bridge={bridgeWith({ previewThesisAudit: async () => noDoi, fetchOpenAccess }) as any}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(screen.getByTestId('audit-fetch-unavailable')).toBeTruthy());
+
+    // The button is GONE, not merely disabled — and nothing was looked up.
+    expect(screen.queryByTestId('audit-fetch-sources')).toBeNull();
+    expect(fetchOpenAccess).not.toHaveBeenCalled();
+
+    // It says WHY, with this manuscript's own count as the evidence.
+    const note = screen.getByTestId('audit-fetch-unavailable').textContent ?? '';
+    expect(note).toMatch(/DOI/);
+    expect(note).toContain('25');
+    expect(note).toMatch(/Citation Manager/);
+
+    // Attaching still works — it is the thing that CAN resolve these.
+    fireEvent.click(screen.getByTestId('audit-attach-sources'));
+    expect(onOpenCitation).toHaveBeenCalledWith('lib-2');
+  });
+
+  /** The other direction: a DOI-bearing entry keeps the fetch, and only the
+   *  sources that can actually be looked up are sent. */
+  it('still offers the fetch when SOME blocked source records a DOI', async () => {
+    const mixed = {
+      ...preview,
+      sources: [
+        preview.sources[0],
+        { ...preview.sources[1], hasDoi: false },
+        { ...preview.sources[2], hasDoi: true },
+      ],
+      referenceEntries: 25,
+      referenceEntriesWithDoi: 1,
+    };
+    const fetchOpenAccess = vi.fn(async () => []);
+    render(
+      <ThesisAuditScreen
+        aiInstalled
+        pickManuscript={async () => '/t.pdf'}
+        bridge={bridgeWith({ previewThesisAudit: async () => mixed, fetchOpenAccess }) as any}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(screen.getByTestId('audit-fetch-sources')).toBeTruthy());
+    expect(screen.queryByTestId('audit-fetch-unavailable')).toBeNull();
+
+    // lib-2 has no DOI: sending it would spend a lookup to be told so.
+    fireEvent.click(screen.getByTestId('audit-fetch-sources'));
+    await waitFor(() => expect(fetchOpenAccess).toHaveBeenCalledWith(['lib-3']));
   });
 
   it('fills the results list from streamed progress events', async () => {

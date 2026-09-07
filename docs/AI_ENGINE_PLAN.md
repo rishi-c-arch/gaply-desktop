@@ -5440,3 +5440,50 @@ works — GloVe (+8 candidates), Crow Search (+6), SMOTE (+5), ISEAR (+4) — an
 **none of them can be reached by the OA fetch**, because none has a DOI in the
 list. Each has to be added by hand, DOI first. The gap is not only a missing
 convenience; it is the reason the eval set is expensive to grow.
+
+### D101 — the fetch button that could not work, and now says so
+
+§11 D100's compounding half, fixed. The title-lookup work it describes is
+untouched; this is the honesty half.
+
+D88's confirmation card offers **"Fetch open-access copies"** on the blocked
+sources. `oa_fetch` refuses without a DOI, and an IEEE-style reference list
+carries none — R PAPER has **25 entries and 0 DOIs** — so on that whole class of
+manuscript the button is guaranteed to look up nothing, for every source, every
+time.
+
+A feature that cannot apply must say so. That rule already exists in the CLI —
+*"no NUMBERED reference list was parsed, so the structural checks cannot run on
+this paper"* (§11 D96) — and the card was the surface that had not learned it.
+
+#### Two different facts, and only one drives the button
+
+- **The MANUSCRIPT's reference list** carries DOIs, or does not. That explains
+  *why* nothing can be fetched and is worth telling the reader.
+- **The LIBRARY entry** for a blocked source carries a DOI, or does not. That is
+  what `oa_fetch` actually reads, so it is what decides whether the button can
+  do anything.
+
+Both are reported: `ThesisAuditPreview` gains the manuscript's entry/DOI counts,
+and `CitedSourceStatus` gains `has_doi` for the library entry. The button is
+offered only when at least one blocked source has a DOI to look up.
+
+#### What it says instead
+
+> None of the blocked sources records a DOI, and the open-access fetch looks up
+> a DOI — so it cannot resolve any of them. This manuscript's reference list has
+> 25 entries and none records a DOI, which is normal for IEEE-style lists. Add
+> the DOI in the Citation Manager, or attach the PDF there.
+
+The second sentence is conditional on the manuscript's own counts, so it appears
+only when they say something: a mixed list keeps the first sentence and drops the
+generalisation.
+
+**"Attach a PDF in the Citation Manager" stays.** It is the one action that still
+works when there is no DOI, so the gate is on the fetch button alone, not on the
+actions row. The failure to avoid was replacing a useless affordance with none.
+
+Both directions are tested: a list where some blocked source has a DOI still
+offers the fetch — and sends only the DOI-bearing ids, not all of them — while a
+list with none never offers it.
+

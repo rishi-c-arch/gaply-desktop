@@ -118,6 +118,12 @@ pub struct CitedSourceStatus {
     pub reason: Option<String>,
     /// How many sentences in this manuscript cite it.
     pub citing_sentences: usize,
+    /// Does the LIBRARY entry record a DOI (§11 D101)?
+    ///
+    /// This is what decides whether the open-access fetch can do anything —
+    /// `oa_fetch` refuses without one — so it is what the card's button keys
+    /// on, rather than on the manuscript's list.
+    pub has_doi: bool,
 }
 
 /// What an audit WOULD do, computed without creating a job or loading a model
@@ -138,6 +144,12 @@ pub struct ThesisAuditPreview {
     pub sources: Vec<CitedSourceStatus>,
     pub checkable_sources: usize,
     pub blocked_sources: usize,
+    /// The MANUSCRIPT's numbered reference list, and how many of its entries
+    /// record a DOI (§11 D101). Explains WHY nothing can be fetched: an
+    /// IEEE-style list routinely carries none, and R PAPER has 25 entries and
+    /// zero DOIs.
+    pub reference_entries: usize,
+    pub reference_entries_with_doi: usize,
     /// Deterministic consistency findings (§11 D94). No model, and NOT gated on
     /// AI being installed — the user sees these at the moment they decide
     /// whether to spend three hours, because a structural one means the audit's
@@ -164,6 +176,17 @@ pub fn preview_thesis_audit(
     // `Smith (2019)` can be the same work, and counting them twice would
     // overstate the gap the card exists to describe. Falls back to the marker
     // when nothing resolved, which is the only identity available then.
+    // §11 D101. `oa_fetch` reads the LIBRARY entry's DOI, so that is what the
+    // card's fetch button must key on.
+    let has_doi = |library_id: &Option<String>| -> bool {
+        library_id
+            .as_deref()
+            .and_then(|id| crate::citation_library::get(db, id).ok().flatten())
+            .and_then(|r| r.doi)
+            .map(|d| !d.trim().is_empty())
+            .unwrap_or(false)
+    };
+
     let mut order: Vec<String> = Vec::new();
     let mut by_key: BTreeMap<String, CitedSourceStatus> = BTreeMap::new();
     let (mut would_check, mut would_suggest, mut would_be_unverifiable) = (0usize, 0usize, 0usize);
@@ -196,6 +219,7 @@ pub fn preview_thesis_audit(
                 (
                     format!("lib:{library_id}"),
                     CitedSourceStatus {
+                        has_doi: has_doi(&Some(library_id.clone())),
                         label: marker.clone(),
                         library_id: Some(library_id.clone()),
                         document_id: Some(*document_id),
@@ -209,6 +233,7 @@ pub fn preview_thesis_audit(
                 (
                     library_id.clone().map(|l| format!("lib:{l}")).unwrap_or(format!("mark:{marker}")),
                     CitedSourceStatus {
+                        has_doi: has_doi(library_id),
                         label: marker.clone(),
                         library_id: library_id.clone(),
                         document_id: None,
@@ -247,6 +272,12 @@ pub fn preview_thesis_audit(
         would_be_unverifiable,
         blocked_sources: sources.len() - checkable_sources,
         checkable_sources,
+        reference_entries: report.bibliography.len(),
+        reference_entries_with_doi: report
+            .bibliography
+            .values()
+            .filter(|e| e.doi.as_deref().map(|d| !d.trim().is_empty()).unwrap_or(false))
+            .count(),
         sources,
         consistency,
         document_types_supported: SUPPORTED_DOCUMENT_TYPES.to_vec(),

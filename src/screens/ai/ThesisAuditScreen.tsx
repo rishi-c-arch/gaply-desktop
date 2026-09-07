@@ -451,14 +451,32 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
                     </li>
                   ))}
               </ul>
+              {/* §11 D101. `oa_fetch` looks up a DOI and refuses without one.
+                  An IEEE-style reference list carries none — R PAPER has 25
+                  entries and zero — so offering the fetch there is an
+                  affordance guaranteed to return nothing for every source. A
+                  feature that cannot apply says so instead.
+                  ATTACHING stays available: it is the thing that DOES work. */}
+              {!preview.sources.some((src) => src.documentId === null && src.hasDoi) && (
+                <p className="gds-ai__hint" data-testid="audit-fetch-unavailable">
+                  None of the blocked sources records a DOI, and the open-access fetch looks up a
+                  DOI — so it cannot resolve any of them.
+                  {preview.referenceEntries > 0 && preview.referenceEntriesWithDoi === 0 && (
+                    <> This manuscript’s reference list has {preview.referenceEntries} entries and
+                    none records a DOI, which is normal for IEEE-style lists.</>
+                  )}{' '}
+                  Add the DOI in the Citation Manager, or attach the PDF there.
+                </p>
+              )}
               <div className="gds-audit__actions">
+                {preview.sources.some((src) => src.documentId === null && src.hasDoi) && (
                 <Button
                   variant="secondary"
                   disabled={fixing}
                   data-testid="audit-fetch-sources"
                   onClick={async () => {
                     const ids = preview.sources
-                      .filter((src) => src.documentId === null && src.libraryId)
+                      .filter((src) => src.documentId === null && src.libraryId && src.hasDoi)
                       .map((src) => src.libraryId as string);
                     if (ids.length === 0) {
                       setFixNote(
@@ -480,6 +498,7 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
                 >
                   {fixing ? 'Looking…' : 'Fetch open-access copies'}
                 </Button>
+                )}
                 {/* Attaching by hand belongs in the Manager's Document card —
                     this screen must not grow a second file-picker for the same
                     job (the prop's own contract). */}
