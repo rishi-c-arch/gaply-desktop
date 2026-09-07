@@ -78,6 +78,38 @@ fn an_unknown_support_variant_is_refused() {
     assert!(out.contains("v1, v2 or v1c"), "{out}");
 }
 
+/// §11 D107. The bare invocation ran the bundled 0.5B against a lexical mock
+/// embedder and printed a complete, plausible report. D29's stamp said so and
+/// was walked past anyway, so the default now refuses.
+#[test]
+fn citation_support_refuses_to_run_against_the_mock_by_default() {
+    let (ok, out) = run(&["--task", "citation_support"]);
+    assert!(!ok, "a mocked citation_support run must not be produced by default: {out}");
+    // It must name BOTH substitutions, because either alone invalidates it.
+    assert!(out.contains("0.5B"), "the error must say what model would have run: {out}");
+    assert!(out.contains("mock"), "the error must say retrieval would be mocked: {out}");
+    assert!(out.contains("--embedder-dir"), "{out}");
+    assert!(out.contains("--model-dir"), "{out}");
+    // And it must offer the way through, or it is a wall.
+    assert!(out.contains("--smoke"), "the error must name the escape hatch: {out}");
+}
+
+/// The refusal must not swallow a MISTYPED flag — that is the user's slip and
+/// is more useful to hear about than a policy default.
+#[test]
+fn a_wrong_argument_is_reported_before_the_missing_ones() {
+    let (ok, out) = run(&["--task", "citation_support", "--model", "llama-3-8b"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("unknown --model"), "the typo must win over the policy refusal: {out}");
+}
+
+/// Other tasks are untouched: citation_need has no embedder in its pipeline.
+#[test]
+fn the_refusal_is_scoped_to_citation_support() {
+    let (_, out) = run(&["--task", "citation_need", "--model", "llama-3-8b"]);
+    assert!(!out.contains("--embedder-dir"), "citation_need was caught by D107's guard: {out}");
+}
+
 #[test]
 fn the_bakeoff_summary_refuses_to_invent_a_document_from_nothing() {
     // An empty comparison document would read as "the bake-off found nothing",

@@ -5925,3 +5925,125 @@ agreement figure would climb while nothing improved.
 
 Also recorded: mean latency **189 s/case**, prefill 81 s, decode 6.2 tok/s, 2 of
 12 truncated at the 1024 ceiling. A 12-case run took ~35 minutes.
+
+### D107 — the citation that arrived in four shapes, and an eval that now refuses
+
+§11 D106 §5 left the order forced: fix validation before labelling. The raw
+outputs were read first, per D66's rule, and they indict the schema rather than
+the model.
+
+#### What the model actually sent
+
+All five failures on the cold cases were ONE thing wearing three costumes. The
+chunk ids were right every time (`chunkIdFormatFailures: 0`); only the wrapper
+varied:
+
+```jsonc
+[{"chunk_id":"c1","page":8,"why":"…"}]        // as specified
+[{"chunk_id":"c32"}]                           // cs-label-005 — no `why`
+["c20","c22"]                                  // cs-label-003 — the id alone
+["CHUNK_ID=c14 PAGE=1 SECTION=-"]              // cs-label-001 — the header echoed
+```
+
+Every one of these was a **serde failure**, so the analysis was discarded before
+any validator ran. `cs-label-005` is the case that settles the argument: gold
+`strong`, and the model's own decomposition had found *"46%"*, *"27 categories"*
+and marked *"95%"* absent — the substantively correct answer — thrown away for
+a missing per-chunk prose field.
+
+#### The layer the evidence indicts
+
+Three facts, none of them about the model's judgement:
+
+* the consumer already tolerates it — `CitationAiPanel`, `ThesisAuditScreen` and
+  `findingFromResult` all read `quote ?? why ?? ''`;
+* `why`'s only existing rule is ADVISORY ("longer than 20 words"), so a 50-word
+  `why` was accepted with a note while an ABSENT one destroyed the output — the
+  schema was stricter about the field being missing than about it being wrong;
+* the degradation preserves the meaning every time. The id is what
+  `citedPlantedChunk` scores and what the card links to; `why` is commentary.
+
+So the PARSE widens: a citation may arrive as a bare string or as an object
+without `why`. **Widening the parse is not widening the rules.** The echoed
+header still lands in `chunk_id` and is still FATAL there — §11 D26 ruled that
+composite ids are fixed in what the model is SHOWN, never in what it may say,
+and that stands. The difference is it now fails as a nameable chunk_id defect
+instead of an unparseable blob. A missing `why` becomes the fourth ADVISORY,
+reported so a run cannot quietly fill with citations that justify nothing.
+
+#### The invalid-run trap, closed at the default
+
+`ai-eval --task citation_support` with no other flags ran the **bundled 0.5B**
+against a **lexical mock** embedder and printed a complete, plausible report
+(1/12 valid, 92% failure). §11 D29's stamp was present and honest — the header
+said `*** MOCKED ***` and the JSON said `embedderIsReal: false` — and it was
+walked past anyway.
+
+A report nobody should quote should not be produced by default. The task now
+REFUSES without `--model`/`--model-dir` and `--embedder-dir`, before the model
+loads so the refusal is free, naming what each omission would have silently
+substituted. `--smoke` still runs it for a pipeline check, by name.
+
+#### The re-run, and the finding it confirms
+
+Same 12 cases, 3B, real embedder, after the parse fix:
+
+| | before | after |
+|---|---|---|
+| valid outputs | 7/12 | **9/12** |
+| validation failure rate | 42% | **25%** |
+| chunk_id format failures | 0 | **2** |
+| cited the planted chunk | 50% | 60% |
+| verdict agreement | 33% | 38% |
+| **verdictDistribution** | `{weak: 6}` | **`{weak: 8}`** |
+
+`chunkIdFormatFailures` rising from 0 to 2 is the fix working, not regressing:
+those two were previously unparseable blobs and are now counted as what they
+are. §11 D26 holds — the echoed header is still fatal.
+
+**Every valid verdict, in both runs, was `weak`. Fourteen for fourteen.**
+
+| case | gold | model |
+|---|---|---|
+| cs-seed-01 | strong | weak |
+| cs-seed-02 | partial | weak |
+| cs-seed-03 | weak | weak ✓ |
+| cs-seed-04 | contradicts | weak |
+| cs-seed-05 | insufficient_evidence | weak |
+| cs-label-002 | weak | weak ✓ |
+| cs-label-003 | weak | weak ✓ |
+| cs-label-005 | **strong** | weak |
+| cs-label-001 / 004 / 006 | weak, contradicts, partial | *validation failed* |
+
+**`cs-label-005` is the case that settles it.** Validation now clears, its
+decomposition finds *"46%"*, *"27 categories"* and *"fine-tuned BERT"* present
+and marks *"95%"* absent — the correct reading, which is the gold `strong`
+case's whole content — and the verdict it attaches to that analysis is still
+`weak`. The evidence is understood and the verdict does not follow from it.
+
+The 38% agreement is 3 of 8, and all three are cases whose gold is `weak`. **A
+constant `weak` predictor scores exactly 38% on this set.** Wilson 95% CI
+[14%, 69%]. The output distribution has zero entropy across fourteen verdicts.
+
+##### What this changes
+
+This is §11 D67's `citation_need` 0/65 again, and the consequence is the same
+kind: **it is not a labelling-volume problem, and more labels cannot fix it.**
+`citation_support` currently leads the audit report while behaving like a
+constant, so what the feature may honestly claim has to change before anything
+else does. Adding cases would raise the agreement figure whenever the added
+golds are `weak` — which, per §11 D106 §2, is exactly what method-attribution
+candidates are — while the model got no better.
+
+The three remaining failures are all model behaviour that D26 and D32 keep fatal
+on purpose: two echoed headers, two over the 4-chunk cap (`cs-label-004` did
+both). None is a schema question.
+
+##### Unexplained, and recorded as such
+
+A middle run — killed before it finished — had `cs-seed-01` fail with *"no JSON
+object or array found"* at 298 s, where both clean runs return `weak` in ~35 s.
+There is no wall-clock cap on generation, so truncation-by-timeout is NOT the
+mechanism, and greedy decoding should be reproducible. It happened once, under
+5–10× latency, in the run that later died. No conclusion rests on it and none
+should until it recurs.

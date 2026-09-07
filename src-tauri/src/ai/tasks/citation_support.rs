@@ -142,7 +142,53 @@ pub enum ElementStatus {
     Different,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// How a citation may ARRIVE, as against how it is stored (§11 D107).
+///
+/// Measured on the six real-manuscript cases: the model always names the right
+/// chunk and degrades only in how it wraps it — a full object, an object
+/// without `why`, a bare id string, or the evidence header echoed back. All
+/// four were serde failures, so a complete and substantively correct analysis
+/// was discarded before any validator saw it.
+///
+/// Widening the PARSE is not widening the rules. A composite echoed header
+/// still lands in `chunk_id` and is still fatal there (§11 D26 — the fix for
+/// that belongs in what the model is shown, never in what it may say); the
+/// difference is that it now fails as a nameable defect instead of an
+/// unparseable blob.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SupportingChunkWire {
+    /// `"c20"` — the id alone, which is the part that carries the meaning.
+    Id(String),
+    Full {
+        chunk_id: String,
+        #[serde(default)]
+        page: Option<u32>,
+        /// Absent in 2 of 6 real cases. The UI already reads
+        /// `quote ?? why ?? ''`, and the only existing rule about `why` is
+        /// ADVISORY (too long) — so absence destroying the output was stricter
+        /// than both the consumer and the tier system.
+        #[serde(default)]
+        why: String,
+        #[serde(default)]
+        quote: Option<String>,
+    },
+}
+
+impl<'de> Deserialize<'de> for SupportingChunk {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(match SupportingChunkWire::deserialize(d)? {
+            SupportingChunkWire::Id(chunk_id) => {
+                SupportingChunk { chunk_id, page: None, why: String::new(), quote: None }
+            }
+            SupportingChunkWire::Full { chunk_id, page, why, quote } => {
+                SupportingChunk { chunk_id, page, why, quote }
+            }
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SupportingChunk {
     pub chunk_id: String,
     /// Echoed back by the model and checked against the STORE (plan §11 D16).
@@ -298,6 +344,9 @@ pub const FATAL_RULES: &[&str] = &[
 /// Violations that make an output untidy. Accepted; reported as advisories.
 pub const ADVISORY_RULES: &[&str] = &[
     "a 'why' longer than 20 words",
+    // §11 D107. Absence was a PARSE failure while length was merely untidy —
+    // stricter about the field being missing than about it being wrong.
+    "a supporting_chunk with no 'why'",
     "an explanation longer than 120 words",
     "claim_elements count outside 1-8",
 ];
@@ -408,6 +457,18 @@ fn validate_support(
                         _ => {}
                     }
                 }
+            }
+            // §11 D107. Absent, not merely long. Advisory for the same reason
+            // the length rule is: it makes the evidence card poorer, it does
+            // not make the VERDICT wrong — and the card already renders
+            // `quote ?? why ?? ''`. Reported so a run cannot quietly fill with
+            // citations carrying no justification.
+            if sc.why.trim().is_empty() {
+                errors.push(ValidationError::advisory(
+                    format!("supporting_chunks[{i}].why"),
+                    "is missing — the citation names a chunk but not what in it carries the point"
+                        .to_string(),
+                ));
             }
             let why_words = sc.why.split_whitespace().count();
             if why_words > MAX_WHY_WORDS {
@@ -844,6 +905,64 @@ mod tests {
         assert!(e.problem.contains("c99") && e.problem.contains("c1, c2"), "{e}");
     }
 
+    /// §11 D107. The four shapes a citation actually ARRIVED in, taken
+    /// verbatim from the six real-manuscript cases. All four used to be serde
+    /// failures, so a complete and correct analysis was thrown away before any
+    /// validator ran.
+    #[test]
+    fn the_four_shapes_a_citation_arrives_in_all_parse() {
+        // 1. The full object, as specified.
+        let full: SupportingChunk =
+            serde_json::from_str(r#"{"chunk_id":"c1","page":8,"why":"it says so"}"#).unwrap();
+        assert_eq!((full.chunk_id.as_str(), full.page, full.why.as_str()), ("c1", Some(8), "it says so"));
+
+        // 2. The object WITHOUT `why` — cs-label-005, whose analysis was
+        //    substantively right and was discarded for this alone.
+        let no_why: SupportingChunk = serde_json::from_str(r#"{"chunk_id":"c32"}"#).unwrap();
+        assert_eq!(no_why.chunk_id, "c32");
+        assert!(no_why.why.is_empty());
+
+        // 3. The bare id — cs-label-003 sent ["c20","c22"].
+        let bare: SupportingChunk = serde_json::from_str(r#""c20""#).unwrap();
+        assert_eq!(bare.chunk_id, "c20");
+        assert_eq!(bare.page, None);
+
+        // 4. The echoed evidence header — cs-label-001.
+        let echoed: SupportingChunk =
+            serde_json::from_str(r#""CHUNK_ID=c14 PAGE=1 SECTION=-""#).unwrap();
+        assert_eq!(echoed.chunk_id, "CHUNK_ID=c14 PAGE=1 SECTION=-");
+    }
+
+    /// And parsing it is NOT permitting it. §11 D26 stands: the echoed header
+    /// is still fatal, now as a nameable chunk_id defect rather than an
+    /// unparseable blob. Widening the parse must never widen the rules.
+    #[test]
+    fn parsing_the_echoed_header_does_not_make_it_legal() {
+        let mut o = strong();
+        o.supporting_chunks = vec![serde_json::from_str(r#""CHUNK_ID=c1 PAGE=8 SECTION=Results""#).unwrap()];
+        let errors = CitationSupportTask::validate(&o, &ctx()).expect_err("accepted the header echo");
+        let e = errors.iter().find(|e| e.field.contains("chunk_id")).expect("flagged the id");
+        assert!(e.is_fatal(), "the echoed header must stay fatal: {e}");
+    }
+
+    /// A missing `why` is reported, not swallowed — otherwise a run could fill
+    /// with citations that name a chunk and justify nothing.
+    #[test]
+    fn a_missing_why_is_advisory_and_is_reported() {
+        let mut o = strong();
+        o.supporting_chunks[0].why = String::new();
+        let errors = match CitationSupportTask::validate(&o, &ctx()) {
+            Ok(()) => panic!("a missing why was not reported at all"),
+            Err(e) => e,
+        };
+        let e = errors
+            .iter()
+            .find(|e| e.field.contains("why"))
+            .expect("the missing why was not flagged");
+        assert!(!e.is_fatal(), "a missing why must not discard the verdict: {e}");
+        assert!(e.problem.contains("missing"), "{e}");
+    }
+
     /// §11 D26. The 3B's actual Phase 6 failure, pinned so the rendering fix
     /// can never be "helped along" by loosening the validator instead. Both
     /// the old display form and the new labelled form are composites, and both
@@ -1178,8 +1297,15 @@ mod tests {
         o.supporting_chunks = vec![one.clone(), one.clone(), one.clone(), one.clone(), one];
         assert_eq!(tier_of(&o, "supporting_chunks"), Some(Tier::Fatal));
 
+        // §11 D107 — a missing `why` is ADVISORY, proved the same way: a
+        // verdict is not made wrong by a citation that justifies itself
+        // poorly, and discarding the analysis over it measured nothing.
+        let mut o = strong();
+        o.supporting_chunks[0].why = String::new();
+        assert_eq!(tier_of(&o, "supporting_chunks[0].why"), Some(Tier::Advisory));
+
         assert_eq!(FATAL_RULES.len(), 11);
-        assert_eq!(ADVISORY_RULES.len(), 3);
+        assert_eq!(ADVISORY_RULES.len(), 4);
     }
 
     #[test]

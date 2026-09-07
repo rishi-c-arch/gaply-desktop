@@ -1,0 +1,755 @@
+{
+  "advisoryRate": 0.4166666666666667,
+  "binaryHash": "082f3e5b0433d638434f8cc15e8b096cec099452f2a6a2d64530d6e9bdbec850",
+  "casesFile": "evals/citation_support.jsonl",
+  "chunkIdFormatCases": [
+    "cs-label-001",
+    "cs-label-004"
+  ],
+  "chunkIdFormatFailures": 2,
+  "citedPlantedChunk": 0.6,
+  "date": "2026-09-07",
+  "diagnosticFaithfulnessCases": [],
+  "diagnosticFaithfulnessFailures": 0,
+  "embedder": "bge-small-en-v1.5",
+  "embedderIsReal": true,
+  "evidenceBudgetTokens": 1200,
+  "faithfulnessCheckedCases": 2,
+  "faithfulnessViolationCases": [],
+  "faithfulnessViolations": 0,
+  "loadContext": {
+    "loadAvg1mEnd": 1.86083984375,
+    "loadAvg1mStart": 5.509765625,
+    "ranIsolated": false
+  },
+  "maxTokensCeiling": 1024,
+  "meanDecodeMs": 70818.5,
+  "meanDecodeTokensPerSec": 6.97963183874308,
+  "meanLatencyMs": 108898.41666666667,
+  "meanPrefillMs": 37774.25,
+  "meanPromptTokens": 2304.5833333333335,
+  "modelId": "qwen2.5-3b-instruct-q4km",
+  "modelLoadMs": 2492,
+  "nCtx": 5120,
+  "os": "macOS 26.6.2 (Darwin 25.6.0)",
+  "prefillShare": 0.34687602589875427,
+  "preprocessingVersion": "bge-v1.5-p2",
+  "promptVersion": "citation_support-v1.6",
+  "ramTotalMb": 2367,
+  "results": [
+    {
+      "advisories": [
+        "supporting_chunks[0].why: is 22 words; the limit is 20",
+        "supporting_chunks[1].why: is 23 words; the limit is 20"
+      ],
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 22670,
+      "decodeTokensPerSec": 9.92501102779003,
+      "elapsedMs": 35132,
+      "evidenceWords": 439,
+      "id": "cs-seed-01",
+      "outcome": "ok",
+      "prefillMs": 12301,
+      "promptTokens": 1373,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.4,\"supporting_chunks\":[{\"chunk_id\":\"c13\",\"page\":5,\"why\":\"Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent.\"},{\"chunk_id\":\"c7\",\"page\":3,\"why\":\"Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01).\"}],\"claim_elements\":[{\"element\":\"Organic management increased soil invertebrate species richness\",\"status\":\"found\"},{\"element\":\"by about 31 percent\",\"status\":\"absent\"}],\"explanation\":\"The evidence shows that organic management increased invertebrate species richness by 31 percent, but the claim specifies 'about 31 percent' which is not explicitly stated.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": true,
+        "expected": {
+          "planted_chunk_contains": "richness rose 31 percent",
+          "verdict": "strong"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Organic management increased soil invertebrate species richness",
+              "status": "found"
+            },
+            {
+              "element": "by about 31 percent",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.4,
+          "explanation": "The evidence shows that organic management increased invertebrate species richness by 31 percent, but the claim specifies 'about 31 percent' which is not explicitly stated.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c13",
+              "page": 5,
+              "why": "Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent."
+            },
+            {
+              "chunk_id": "c7",
+              "page": 3,
+              "why": "Species richness rose 31 percent under organic management relative to paired conventional fields, and this difference was statistically significant (p less than 0.01)."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": false,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 225,
+      "truncated": false
+    },
+    {
+      "advisories": [
+        "supporting_chunks[1].why: is 21 words; the limit is 20",
+        "supporting_chunks[2].why: is 27 words; the limit is 20",
+        "supporting_chunks[3].why: is 24 words; the limit is 20"
+      ],
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 34721,
+      "decodeTokensPerSec": 9.38913049739351,
+      "elapsedMs": 49638,
+      "evidenceWords": 440,
+      "id": "cs-seed-02",
+      "outcome": "ok",
+      "prefillMs": 14686,
+      "promptTokens": 1372,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.4,\"supporting_chunks\":[{\"chunk_id\":\"c13\",\"page\":5,\"why\":\"Organic management associated with higher invertebrate species richness, but effects on microbial biomass and earthworm abundance were not detectable.\"},{\"chunk_id\":\"c2\",\"page\":1,\"why\":\"Organic management associated with higher invertebrate species richness, but effects on microbial biomass and on soil fauna abundance were less consistent.\"},{\"chunk_id\":\"c4\",\"page\":2,\"why\":\"Several reviews have examined organic versus conventional systems and generally report positive but heterogeneous effects, with substantial variation between crops, climates and the duration of organic management.\"},{\"chunk_id\":\"c5\",\"page\":2,\"why\":\"Twelve paired fields were sampled in each of three seasons and invertebrate richness was estimated from pitfall trapping and hand sorting of soil cores.\"}],\"claim_elements\":[{\"element\":\"Organic management\",\"status\":\"found\"},{\"element\":\"soil invertebrate species richness\",\"status\":\"found\"},{\"element\":\"doubled\",\"status\":\"absent\"}],\"explanation\":\"The evidence shows organic management associated with higher invertebrate species richness, but the magnitude of the effect is not specified. The claim of doubling the richness is not supported by the evidence.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": false,
+        "expected": {
+          "planted_chunk_contains": "richness rose 31 percent",
+          "verdict": "partial"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Organic management",
+              "status": "found"
+            },
+            {
+              "element": "soil invertebrate species richness",
+              "status": "found"
+            },
+            {
+              "element": "doubled",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.4,
+          "explanation": "The evidence shows organic management associated with higher invertebrate species richness, but the magnitude of the effect is not specified. The claim of doubling the richness is not supported by the evidence.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c13",
+              "page": 5,
+              "why": "Organic management associated with higher invertebrate species richness, but effects on microbial biomass and earthworm abundance were not detectable."
+            },
+            {
+              "chunk_id": "c2",
+              "page": 1,
+              "why": "Organic management associated with higher invertebrate species richness, but effects on microbial biomass and on soil fauna abundance were less consistent."
+            },
+            {
+              "chunk_id": "c4",
+              "page": 2,
+              "why": "Several reviews have examined organic versus conventional systems and generally report positive but heterogeneous effects, with substantial variation between crops, climates and the duration of organic management."
+            },
+            {
+              "chunk_id": "c5",
+              "page": 2,
+              "why": "Twelve paired fields were sampled in each of three seasons and invertebrate richness was estimated from pitfall trapping and hand sorting of soil cores."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": false,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 326,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 27711,
+      "decodeTokensPerSec": 7.830825304030891,
+      "elapsedMs": 49572,
+      "evidenceWords": 429,
+      "id": "cs-seed-03",
+      "outcome": "ok",
+      "prefillMs": 21696,
+      "promptTokens": 1357,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.4,\"supporting_chunks\":[{\"chunk_id\":\"c11\",\"page\":4,\"why\":\"The absence of nitrogen leaching measurement contradicts the claim of organic management reducing nitrogen leaching.\"},{\"chunk_id\":\"c10\",\"page\":4,\"why\":\"Nitrogen leaching was not measured, making it impossible to infer water quality from the data.\"}],\"claim_elements\":[{\"element\":\"Organic management\",\"status\":\"found\"},{\"element\":\"reduced nitrogen leaching\",\"status\":\"absent\"},{\"element\":\"into groundwater\",\"status\":\"absent\"}],\"explanation\":\"The evidence shows that nitrogen leaching was not measured, making it impossible to infer any effect on groundwater. The absence of nitrogen leaching measurement contradicts the claim of organic management reducing nitrogen leaching.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": true,
+        "expected": {
+          "faithfulness": {
+            "forbidden_language": [
+              "supports the claim",
+              "support the claim",
+              "supports this claim",
+              "increase",
+              "increased",
+              "increases",
+              "rose",
+              "higher",
+              "reduced",
+              "reduction",
+              "decreased",
+              "confirms",
+              "demonstrates",
+              "shows a significant",
+              "significant increase",
+              "significant reduction"
+            ],
+            "note": "planted passage reports no finding; asserting one is a faithfulness violation",
+            "planted_chunk_contains": "Nitrogen leaching was not measured"
+          },
+          "planted_chunk_contains": "Nitrogen leaching was not measured",
+          "verdict": "weak"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Organic management",
+              "status": "found"
+            },
+            {
+              "element": "reduced nitrogen leaching",
+              "status": "absent"
+            },
+            {
+              "element": "into groundwater",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.4,
+          "explanation": "The evidence shows that nitrogen leaching was not measured, making it impossible to infer any effect on groundwater. The absence of nitrogen leaching measurement contradicts the claim of organic management reducing nitrogen leaching.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c11",
+              "page": 4,
+              "why": "The absence of nitrogen leaching measurement contradicts the claim of organic management reducing nitrogen leaching."
+            },
+            {
+              "chunk_id": "c10",
+              "page": 4,
+              "why": "Nitrogen leaching was not measured, making it impossible to infer water quality from the data."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": true,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 217,
+      "truncated": false
+    },
+    {
+      "advisories": [
+        "supporting_chunks[0].why: is 22 words; the limit is 20",
+        "supporting_chunks[1].why: is 33 words; the limit is 20"
+      ],
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 32804,
+      "decodeTokensPerSec": 6.340690159736617,
+      "elapsedMs": 64081,
+      "evidenceWords": 440,
+      "id": "cs-seed-04",
+      "outcome": "ok",
+      "prefillMs": 31100,
+      "promptTokens": 1370,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.4,\"supporting_chunks\":[{\"chunk_id\":\"c13\",\"page\":5,\"why\":\"Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent.\"},{\"chunk_id\":\"c8\",\"page\":3,\"why\":\"Microbial biomass carbon did not differ significantly between systems in this dataset. The point estimate favoured organic fields but the confidence interval included zero, so we do not interpret this as an effect.\"}],\"claim_elements\":[{\"element\":\"Organic management\",\"status\":\"found\"},{\"element\":\"significantly increased earthworm abundance\",\"status\":\"absent\"}],\"explanation\":\"The evidence shows organic management increased invertebrate species richness but did not significantly affect earthworm abundance.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": false,
+        "expected": {
+          "faithfulness": {
+            "forbidden_language": [
+              "supports the claim",
+              "support the claim",
+              "supports this claim",
+              "increase",
+              "increased",
+              "increases",
+              "rose",
+              "higher",
+              "reduced",
+              "reduction",
+              "decreased",
+              "confirms",
+              "demonstrates",
+              "shows a significant",
+              "significant increase",
+              "significant reduction"
+            ],
+            "note": "planted passage reports no finding; asserting one is a faithfulness violation",
+            "planted_chunk_contains": "No significant effect"
+          },
+          "planted_chunk_contains": "No significant effect",
+          "verdict": "contradicts"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Organic management",
+              "status": "found"
+            },
+            {
+              "element": "significantly increased earthworm abundance",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.4,
+          "explanation": "The evidence shows organic management increased invertebrate species richness but did not significantly affect earthworm abundance.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c13",
+              "page": 5,
+              "why": "Organic management was associated with higher invertebrate species richness, while effects on microbial biomass and on soil fauna abundance were less consistent."
+            },
+            {
+              "chunk_id": "c8",
+              "page": 3,
+              "why": "Microbial biomass carbon did not differ significantly between systems in this dataset. The point estimate favoured organic fields but the confidence interval included zero, so we do not interpret this as an effect."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": false,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 208,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 12,
+      "decodeMs": 50609,
+      "decodeTokensPerSec": 6.145152048054694,
+      "elapsedMs": 77128,
+      "evidenceWords": 440,
+      "id": "cs-seed-05",
+      "outcome": "ok",
+      "prefillMs": 26252,
+      "promptTokens": 1377,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.4,\"supporting_chunks\":[{\"chunk_id\":\"c13\",\"page\":5,\"why\":\"Organic management associated with higher invertebrate species richness, but no effect on microbial biomass or earthworm abundance.\"},{\"chunk_id\":\"c2\",\"page\":1,\"why\":\"Organic management associated with higher invertebrate species richness, but effects on microbial biomass and soil fauna abundance were less consistent.\"},{\"chunk_id\":\"c4\",\"page\":2,\"why\":\"Reviews generally report positive but heterogeneous effects of organic versus conventional systems on soil invertebrate communities.\"},{\"chunk_id\":\"c5\",\"page\":2,\"why\":\"Twelve paired fields sampled in each of three seasons, showing organic management associated with higher invertebrate species richness.\"}],\"claim_elements\":[{\"element\":\"Hedgerow planting\",\"status\":\"absent\"},{\"element\":\"wild bee visitation rates\",\"status\":\"absent\"},{\"element\":\"adjacent orchards\",\"status\":\"absent\"}],\"explanation\":\"The evidence discusses soil invertebrate species richness under organic management but does not mention wild bee visitation rates or hedgerow planting. The claim is about a specific effect not covered by the evidence.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": null,
+        "expected": {
+          "verdict": "insufficient_evidence"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "Hedgerow planting",
+              "status": "absent"
+            },
+            {
+              "element": "wild bee visitation rates",
+              "status": "absent"
+            },
+            {
+              "element": "adjacent orchards",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.4,
+          "explanation": "The evidence discusses soil invertebrate species richness under organic management but does not mention wild bee visitation rates or hedgerow planting. The claim is about a specific effect not covered by the evidence.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c13",
+              "page": 5,
+              "why": "Organic management associated with higher invertebrate species richness, but no effect on microbial biomass or earthworm abundance."
+            },
+            {
+              "chunk_id": "c2",
+              "page": 1,
+              "why": "Organic management associated with higher invertebrate species richness, but effects on microbial biomass and soil fauna abundance were less consistent."
+            },
+            {
+              "chunk_id": "c4",
+              "page": 2,
+              "why": "Reviews generally report positive but heterogeneous effects of organic versus conventional systems on soil invertebrate communities."
+            },
+            {
+              "chunk_id": "c5",
+              "page": 2,
+              "why": "Twelve paired fields sampled in each of three seasons, showing organic management associated with higher invertebrate species richness."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": false,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 311,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 0,
+      "decodeMs": 0,
+      "decodeTokensPerSec": 0.0,
+      "elapsedMs": 28,
+      "evidenceWords": 0,
+      "id": "cs-seed-06",
+      "outcome": "ok",
+      "prefillMs": 0,
+      "promptTokens": 0,
+      "raw": "NoEvidence: no chunks retrieved for document 2",
+      "retried": false,
+      "scored": {
+        "expectedNoEvidence": true,
+        "noEvidence": true
+      },
+      "stopReasons": [],
+      "tokens": 0,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 2,
+      "decodeMs": 29374,
+      "decodeTokensPerSec": 6.9449172737795335,
+      "elapsedMs": 118308,
+      "evidenceWords": 860,
+      "fatalErrors": [
+        "supporting_chunks[0].chunk_id: references chunk_id \"CHUNK_ID=c14 PAGE=1 SECTION=-\", which was not in the evidence provided (given: c14, c15)"
+      ],
+      "id": "cs-label-001",
+      "outcome": "validationFailed",
+      "prefillMs": 88688,
+      "promptTokens": 4334,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [\n    \"CHUNK_ID=c14 PAGE=1 SECTION=-\"\n  ],\n  \"claim_elements\": [\n    {\"element\": \"Combining domain-specific preprocessing, 200-dimensional GloVe tweet embeddings, and SMOTE-Text class balancing for end-to-end text processing\", \"status\": \"absent\"},\n    {\"element\": \"extensively analyzed for this study\", \"status\": \"absent\"},\n    {\"element\": \"three curated datasets crescent up to old benchmark corpora of SemEval-2018, ISEAR, and GoEmotions\", \"status\": \"absent\"}\n  ],\n  \"explanation\": \"The evidence discusses SMOTE for class balancing in text processing but does not mention domain-specific preprocessing, 200-dimensional GloVe tweet embeddings, or the specific datasets mentioned in the claim.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 204,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 4,
+      "decodeMs": 42649,
+      "decodeTokensPerSec": 8.089286970386175,
+      "elapsedMs": 72905,
+      "evidenceWords": 597,
+      "id": "cs-label-002",
+      "outcome": "ok",
+      "prefillMs": 29847,
+      "promptTokens": 1814,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.7,\"supporting_chunks\":[{\"chunk_id\":\"c16\",\"page\":1,\"why\":\"SMOTE is compared to methods that handle misclassification costs, but no specific AUC or ROC results are provided.\"},{\"chunk_id\":\"c17\",\"page\":1,\"why\":\"SMOTE-NC is compared to under-sampling, but no AUC or ROC results are provided.\"},{\"chunk_id\":\"c18\",\"page\":1,\"why\":\"Additional comparison to one-sided selection and SHRINK is mentioned, but no AUC or ROC results are provided.\"},{\"chunk_id\":\"c19\",\"page\":2,\"why\":\"ROC's generated for SMOTE, Undersampling and Loss Ratio comparisons are mentioned, but no AUC or ROC results are provided.\"}],\"claim_elements\":[{\"element\":\"the proposal of HEFCSO algorithm\",\"status\":\"absent\"},{\"element\":\"a unified emotion detection pipeline\",\"status\":\"absent\"},{\"element\":\"a thorough evaluation and benchmarking across multiple datasets and metrics\",\"status\":\"absent\"},{\"element\":\"eight baselines\",\"status\":\"absent\"},{\"element\":\"three publicly available datasets\",\"status\":\"absent\"}],\"explanation\":\"The evidence discusses SMOTE and its variants but does not provide AUC or ROC results for the HEFCSO-BiLSTM system architecture or any of the proposed contributions.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": null,
+        "expected": {
+          "supporting_count": 0,
+          "verdict": "weak"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "the proposal of HEFCSO algorithm",
+              "status": "absent"
+            },
+            {
+              "element": "a unified emotion detection pipeline",
+              "status": "absent"
+            },
+            {
+              "element": "a thorough evaluation and benchmarking across multiple datasets and metrics",
+              "status": "absent"
+            },
+            {
+              "element": "eight baselines",
+              "status": "absent"
+            },
+            {
+              "element": "three publicly available datasets",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.7,
+          "explanation": "The evidence discusses SMOTE and its variants but does not provide AUC or ROC results for the HEFCSO-BiLSTM system architecture or any of the proposed contributions.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c16",
+              "page": 1,
+              "why": "SMOTE is compared to methods that handle misclassification costs, but no specific AUC or ROC results are provided."
+            },
+            {
+              "chunk_id": "c17",
+              "page": 1,
+              "why": "SMOTE-NC is compared to under-sampling, but no AUC or ROC results are provided."
+            },
+            {
+              "chunk_id": "c18",
+              "page": 1,
+              "why": "Additional comparison to one-sided selection and SHRINK is mentioned, but no AUC or ROC results are provided."
+            },
+            {
+              "chunk_id": "c19",
+              "page": 2,
+              "why": "ROC's generated for SMOTE, Undersampling and Loss Ratio comparisons are mentioned, but no AUC or ROC results are provided."
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": true,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 345,
+      "truncated": false
+    },
+    {
+      "advisories": [
+        "supporting_chunks[0].why: is missing — the citation names a chunk but not what in it carries the point",
+        "supporting_chunks[1].why: is missing — the citation names a chunk but not what in it carries the point"
+      ],
+      "chunksDropped": 0,
+      "chunksSent": 4,
+      "decodeMs": 19235,
+      "decodeTokensPerSec": 8.214192877566935,
+      "elapsedMs": 52703,
+      "evidenceWords": 861,
+      "id": "cs-label-003",
+      "outcome": "ok",
+      "prefillMs": 33309,
+      "promptTokens": 2062,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.0,\"supporting_chunks\":[{\"chunk_id\":\"c20\",\"page\":null,\"why\":\"\"},{\"chunk_id\":\"c22\",\"page\":null,\"why\":\"\"}],\"claim_elements\":[{\"element\":\"If the attention layer is removed it costs 2.1 points\",\"status\":\"absent\"},{\"element\":\"GloVe costs 3.3 points\",\"status\":\"absent\"},{\"element\":\"SMOTE-Text costs 2.3 points\",\"status\":\"absent\"}],\"explanation\":\"The evidence discusses SMOTE-NC and SMOTE, but does not mention attention layers, GloVe, or any costs.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": null,
+        "expected": {
+          "supporting_count": 0,
+          "verdict": "weak"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "If the attention layer is removed it costs 2.1 points",
+              "status": "absent"
+            },
+            {
+              "element": "GloVe costs 3.3 points",
+              "status": "absent"
+            },
+            {
+              "element": "SMOTE-Text costs 2.3 points",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.0,
+          "explanation": "The evidence discusses SMOTE-NC and SMOTE, but does not mention attention layers, GloVe, or any costs.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c20",
+              "page": null,
+              "why": ""
+            },
+            {
+              "chunk_id": "c22",
+              "page": null,
+              "why": ""
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": true,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 158,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 7,
+      "decodeMs": 430813,
+      "decodeTokensPerSec": 3.8508587252473814,
+      "elapsedMs": 467672,
+      "evidenceWords": 826,
+      "fatalErrors": [
+        "supporting_chunks: has 5 entries; at most 4 may be cited. Cite the chunks that carry the point, not every chunk that was sent",
+        "supporting_chunks[0].chunk_id: references chunk_id \"CHUNK_ID=c24 PAGE=1 SECTION=- We organized the SemEval-2018 Task 1: Affect in Tweets, which included ﬁve subtasks on infer- ring the affectual state of a person from their tweet. For each task, we provided training, development, and test datasets for English, Arabic, and Spanish tweets. This involved creating a new Affect in Tweets dataset of more than 22,000 tweets such that subsets are annotated for a number of emotion dimensions.\", which was not in the evidence provided (given: c24, c25, c26, c27, c28, c29, c30)",
+        "supporting_chunks[1].chunk_id: references chunk_id \"CHUNK_ID=c25 PAGE=1 SECTION=- In total, we used 550 Arabic query terms and emoji to poll the Twitter API to collect around 17 million tweets between March and July 2017. For each of the four emotions, we randomly se- lected 1,400 tweets to form the EI-reg datasets. The same tweets were used for building the EI- oc datasets.\", which was not in the evidence provided (given: c24, c25, c26, c27, c28, c29, c30)",
+        "supporting_chunks[2].chunk_id: references chunk_id \"CHUNK_ID=c26 PAGE=1 SECTION=- We present the SemEval-2018 Task 1: Affect in Tweets, which includes an array of subtasks on inferring the affectual state of a person from their tweet. For each task, we created labeled data from English, Arabic, and Spanish tweets. The individual tasks are: 1. emotion intensity regression, 2. emotion intensity ordinal classi- ﬁcation, 3. valence (sentiment) regression, 4. valence ordinal classiﬁcation, and 5. emotion classiﬁcation.\", which was not in the evidence provided (given: c24, c25, c26, c27, c28, c29, c30)",
+        "supporting_chunks[3].chunk_id: references chunk_id \"CHUNK_ID=c27 PAGE=2 SECTION=- We collected about 1.2 million tweets between July and September 2017. We annotated close to 2,000 tweets for each emotion. The sets of tweets for the negative emotions included ∼1,500 tweets unique to the focus emotion and ∼500 tweets common to the two remaining negative emotions.\", which was not in the evidence provided (given: c24, c25, c26, c27, c28, c29, c30)",
+        "supporting_chunks[4].chunk_id: references chunk_id \"CHUNK_ID=c28 PAGE=2 SECTION=- Finally, the full Tweets-2016 and Tweets-2017 datasets are annotated for the presence of eleven emotions: anger, anticipation, disgust, fear, joy, love, optimism, pessimism, sadness, surprise, and trust.\", which was not in the evidence provided (given: c24, c25, c26, c27, c28, c29, c30)"
+      ],
+      "id": "cs-label-004",
+      "outcome": "validationFailed",
+      "prefillMs": 35713,
+      "promptTokens": 5769,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [\n    \"CHUNK_ID=c24 PAGE=1 SECTION=- We organized the SemEval-2018 Task 1: Affect in Tweets, which included ﬁve subtasks on infer- ring the affectual state of a person from their tweet. For each task, we provided training, development, and test datasets for English, Arabic, and Spanish tweets. This involved creating a new Affect in Tweets dataset of more than 22,000 tweets such that subsets are annotated for a number of emotion dimensions.\",\n    \"CHUNK_ID=c25 PAGE=1 SECTION=- In total, we used 550 Arabic query terms and emoji to poll the Twitter API to collect around 17 million tweets between March and July 2017. For each of the four emotions, we randomly se- lected 1,400 tweets to form the EI-reg datasets. The same tweets were used for building the EI- oc datasets.\",\n    \"CHUNK_ID=c26 PAGE=1 SECTION=- We present the SemEval-2018 Task 1: Affect in Tweets, which includes an array of subtasks on inferring the affectual state of a person from their tweet. For each task, we created labeled data from English, Arabic, and Spanish tweets. The individual tasks are: 1. emotion intensity regression, 2. emotion intensity ordinal classi- ﬁcation, 3. valence (sentiment) regression, 4. valence ordinal classiﬁcation, and 5. emotion classiﬁcation.\",\n    \"CHUNK_ID=c27 PAGE=2 SECTION=- We collected about 1.2 million tweets between July and September 2017. We annotated close to 2,000 tweets for each emotion. The sets of tweets for the negative emotions included ∼1,500 tweets unique to the focus emotion and ∼500 tweets common to the two remaining negative emotions.\",\n    \"CHUNK_ID=c28 PAGE=2 SECTION=- Finally, the full Tweets-2016 and Tweets-2017 datasets are annotated for the presence of eleven emotions: anger, anticipation, disgust, fear, joy, love, optimism, pessimism, sadness, surprise, and trust.\"\n  ],\n  \"claim_elements\": [\n    {\"element\": \"the SemEval-2018 Task 1 dataset\", \"status\": \"found\"},\n    {\"element\": \"consists of 10,983 English tweets\", \"status\": \"absent\"},\n    {\"element\": \"labeled with eight Plutchik emotions\", \"status\": \"absent\"}\n  ],\n  \"explanation\": \"The evidence mentions the SemEval-2018 Task 1 dataset but does not specify the number of tweets or the emotions they are labeled with. The dataset size and emotion labels are not covered.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n1VAle. 17.0.0.999914.17.0100. Hence G1.1, 2013.1000.1.196.1.1.00-100.01.1.1.1.1.1.1.1.1.99.100.1.01.1.02.1.1.1.00.1.1.1.1.1.1.1.1.081.1.1.1.13.2.0542.00.1.1000.1.1.1.1.100.1.1.1,947.1.11.1.1.1.1.1.1.1.1.1 in the.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.109.1.1.0000.1.1.1.1.1.1.1.1.1.1.1.1.1.1.0.1.0.1.000000000000001.1.00: 1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.00000000000000.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1...............ascript/coliloreres()“/”lstat\nC. 111.11191. 1121.31. \nA. 2.51. 2.51. 2.51. 2.51. ， A. 2. 2. 2. 2. 2. 2. ， A. 2. 2. ,\nA. 2. ,\nA. 2. ,\r\nA. 2. ,\r\nA. 2. ,\r\nA. 2. ,\r\nA. 2. ,\r\nA. 2. ,\r\nA. 2. ,\r\nA. 2. ,\r\nA. 2. ,\r\nA. 2. ,\r\nA. 2. ,\r\nA. 2. ,\r\nA. 2. ,\r\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. ，\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. 2. ,\nA. ，\nA.  ，\nA. 2\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "maxTokens"
+      ],
+      "tokens": 1659,
+      "truncated": true
+    },
+    {
+      "advisories": [
+        "supporting_chunks[0].why: is missing — the citation names a chunk but not what in it carries the point",
+        "supporting_chunks[1].why: is missing — the citation names a chunk but not what in it carries the point",
+        "supporting_chunks[2].why: is missing — the citation names a chunk but not what in it carries the point"
+      ],
+      "chunksDropped": 0,
+      "chunksSent": 6,
+      "decodeMs": 46398,
+      "decodeTokensPerSec": 5.366610629768524,
+      "elapsedMs": 95413,
+      "evidenceWords": 856,
+      "id": "cs-label-005",
+      "outcome": "ok",
+      "prefillMs": 48749,
+      "promptTokens": 2144,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.7,\"supporting_chunks\":[{\"chunk_id\":\"c32\",\"page\":null,\"why\":\"\"},{\"chunk_id\":\"c35\",\"page\":null,\"why\":\"\"},{\"chunk_id\":\"c36\",\"page\":null,\"why\":\"\"}],\"claim_elements\":[{\"element\":\"fine-tuned BERT\",\"status\":\"found\"},{\"element\":\"average F1-score\",\"status\":\"found\"},{\"element\":\"over 27 categories\",\"status\":\"found\"},{\"element\":\"46%\",\"status\":\"found\"},{\"element\":\"95%\",\"status\":\"absent\"}],\"explanation\":\"The evidence shows that GoEmotions fine-tuned BERT and achieved an average F1-score of 46% over 27 categories. However, the claim states a 95% macro-F1 score, which is not supported by the evidence.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": true,
+        "expected": {
+          "planted_chunk_contains": "Table 4 summarizes the performance of our best",
+          "supporting_count": 2,
+          "verdict": "strong"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "fine-tuned BERT",
+              "status": "found"
+            },
+            {
+              "element": "average F1-score",
+              "status": "found"
+            },
+            {
+              "element": "over 27 categories",
+              "status": "found"
+            },
+            {
+              "element": "46%",
+              "status": "found"
+            },
+            {
+              "element": "95%",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.7,
+          "explanation": "The evidence shows that GoEmotions fine-tuned BERT and achieved an average F1-score of 46% over 27 categories. However, the claim states a 95% macro-F1 score, which is not supported by the evidence.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c32",
+              "page": null,
+              "why": ""
+            },
+            {
+              "chunk_id": "c35",
+              "page": null,
+              "why": ""
+            },
+            {
+              "chunk_id": "c36",
+              "page": null,
+              "why": ""
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": false,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 249,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 6,
+      "decodeMs": 112838,
+      "decodeTokensPerSec": 4.679274712419575,
+      "elapsedMs": 224201,
+      "evidenceWords": 897,
+      "fatalErrors": [
+        "supporting_chunks: has 6 entries; at most 4 may be cited. Cite the chunks that carry the point, not every chunk that was sent"
+      ],
+      "id": "cs-label-006",
+      "outcome": "validationFailed",
+      "prefillMs": 110950,
+      "promptTokens": 4683,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.7,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c37\"\n    },\n    {\n      \"chunk_id\": \"c38\"\n    },\n    {\n      \"chunk_id\": \"c39\"\n    },\n    {\n      \"chunk_id\": \"c40\"\n    },\n    {\n      \"chunk_id\": \"c41\"\n    },\n    {\n      \"chunk_id\": \"c42\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"the GoEmotions dataset consists of 58,009 English Reddit comments\",\n      \"status\": \"found\"\n    },\n    {\n      \"element\": \"labeled with 27 fine-grained emotions\",\n      \"status\": \"found\"\n    },\n    {\n      \"element\": \"were remapped into eight categories\",\n      \"status\": \"absent\"\n    }\n  ],\n  \"explanation\": \"The evidence confirms the dataset size and the number of emotions, but does not mention remapping into eight categories.\",\n  \"suggested_rewrite\": \"The GoEmotions dataset [18] consists of 58,009 English Reddit comments labeled with 27 fine-grained emotions, which were not remapped into eight categories.\"\n}\n--- retry ---\nYour JSON should look like this:\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.7,\n  \"supporting_chunks\": [\n    {\n      \"chunk_id\": \"c37\"\n    },\n    {\n      \"chunk_id\": \"c38\"\n    },\n    {\n      \"chunk_id\": \"c39\"\n    },\n    {\n      \"chunk_id\": \"c40\"\n    },\n    {\n      \"chunk_id\": \"c41\"\n    },\n    {\n      \"chunk_id\": \"c42\"\n    }\n  ],\n  \"claim_elements\": [\n    {\n      \"element\": \"the GoEmotions dataset consists of 58,009 English Reddit comments\",\n      \"status\": \"found\"\n    },\n    {\n      \"element\": \"labeled with 27 fine-grained emotions\",\n      \"status\": \"found\"\n    },\n    {\n      \"element\": \"were remapped into eight categories\",\n      \"status\": \"absent\"\n    }\n  ],\n  \"explanation\": \"The evidence confirms the dataset size and the number of emotions, but does not mention remapping into eight categories.\",\n  \"suggested_rewrite\": null\n}\n--- primary: Retry ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 528,
+      "truncated": false
+    }
+  ],
+  "retryRate": 0.25,
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "task": "citation_support",
+  "totalCases": 12,
+  "truncationCases": [
+    "cs-label-004"
+  ],
+  "truncationCount": 1,
+  "validOutputs": 9,
+  "validationFailureRate": 0.25,
+  "verdictAgreement": 0.375,
+  "verdictDistribution": {
+    "weak": 8
+  }
+}

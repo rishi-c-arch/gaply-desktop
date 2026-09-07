@@ -530,6 +530,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(PromptVariant::V2);
     let out_dir = arg("--out").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("evals/reports"));
 
+    // Argument validation belongs together and BEFORE any policy refusal: a
+    // mistyped flag is the user's slip and should be named first, while a
+    // missing one is a decision this harness is making for them (§11 D107).
+    let support_variant = match arg("--support-variant").as_deref() {
+        None | Some("v1") => SupportVariant::V1,
+        Some("v2") => SupportVariant::V2,
+        Some("v1c") => SupportVariant::V1ChunkBound,
+        Some(o) => return Err(format!("unknown --support-variant {o:?}; use v1, v2 or v1c").into()),
+    };
+
 
     let text = std::fs::read_to_string(&cases_path)
         .map_err(|e| format!("reading {}: {e}", cases_path.display()))?;
@@ -581,6 +591,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // §11 D29 stamped a mocked run `embedderIsReal: false`; §11 D107 makes it
+    // REFUSE. The stamp is honest and was still walked past: a bare
+    // `--task citation_support` ran the 0.5B against lexical mock retrieval and
+    // printed a complete, plausible report, and the header warning did not stop
+    // it being read as a result. A report nobody should quote should not be
+    // produced by default.
+    //
+    // Checked BEFORE the model loads, so a refusal costs no time — and
+    // `--smoke` still runs it, because a pipeline check is a real use that just
+    // has to be asked for by name.
+    if task_name == "citation_support" && !std::env::args().any(|a| a == "--smoke") {
+        let mut missing = Vec::new();
+        if arg("--model").is_none() {
+            missing.push("  --model <id> --model-dir <dir>   (absent: the BUNDLED 0.5B runs)");
+        }
+        if arg("--embedder-dir").is_none() {
+            missing.push("  --embedder-dir <dir>            (absent: retrieval is lexical mock)");
+        }
+        if !missing.is_empty() {
+            eprintln!("citation_support needs the real model AND the real embedder,");
+            eprintln!("or the run measures nothing (§11 D107). Missing:\n");
+            for m in &missing {
+                eprintln!("{m}");
+            }
+            eprintln!("\nAdd --smoke to run it anyway as a pipeline check. That report is");
+            eprintln!("stamped embedderIsReal:false and must not be quoted as a result.");
+            std::process::exit(2);
+        }
+    }
+
     let manager = ModelManager::new(loader);
     let ram = manager.ram_estimate().ok();
     let ram_mb = ram.as_ref().map(|r| r.total_bytes / (1024 * 1024));
@@ -616,15 +656,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     if task_name == "citation_support" {
-        let sv = match arg("--support-variant").as_deref() {
-            None | Some("v1") => SupportVariant::V1,
-            Some("v2") => SupportVariant::V2,
-            Some("v1c") => SupportVariant::V1ChunkBound,
-            Some(o) => return Err(format!("unknown --support-variant {o:?}; use v1, v2 or v1c").into()),
-        };
-        // §11 D29. `--embedder-dir` selects the REAL embedder. Absent, the
-        // mock runs and the report is stamped `embedderIsReal: false` — a
-        // number produced that way is a pipeline smoke test, not a bake-off.
         let embedder = match arg("--embedder-dir") {
             Some(dir) => {
                 let dir = PathBuf::from(dir);
@@ -635,7 +666,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             None => EvalEmbedder::Mock,
         };
         return run_citation_support(
-            cases, cases_path, date, out_dir, model_id, manager, sv, load_ms, ram_mb, embedder,
+            cases, cases_path, date, out_dir, model_id, manager, support_variant, load_ms,
+            ram_mb, embedder,
         )
         .await;
     }
