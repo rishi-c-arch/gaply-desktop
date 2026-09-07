@@ -1,7 +1,7 @@
 // Gaply — what colour a judged sentence gets, and what it MEANS (§11 D92).
 // Separated from the view so the mapping is testable and stated once.
 
-export type AnnotationStatus = 'checked' | 'weak' | 'blocked' | 'advisory';
+export type AnnotationStatus = 'evidence' | 'blocked' | 'advisory';
 
 export interface StatusStyle {
   /** The word. Colour is never the only signal, so this appears in the legend
@@ -21,24 +21,26 @@ export interface StatusStyle {
 }
 
 export const STATUS_STYLE: Record<AnnotationStatus, StatusStyle> = {
-  checked: {
-    label: 'verified with evidence',
-    fill: '#2e7d32',
+  // §11 D108. Was TWO statuses — green 'verified with evidence' for a `strong`
+  // verdict and red 'weak or contradicted' for everything else. The verdict
+  // measured as a constant `weak` (14 of 14 valid outputs across two runs), so
+  // in practice every citation_support sentence was drawn RED, labelled
+  // "weak or contradicted", and the green legend entry was unreachable — a
+  // legend describing a distinction the page could not make.
+  //
+  // One status now, and it is NEUTRAL on purpose. Blue, not green and not red:
+  // this marks where the evidence is, and asserts nothing about whether the
+  // sentence is well supported. That judgement is the reader's, and the
+  // passages are printed so they can make it.
+  evidence: {
+    label: 'source passages found',
+    fill: '#1565c0',
     edge: 'solid',
     weight: 'full',
     meaning:
-      'Gaply read the source this sentence cites and found a passage that supports it.',
-    action: 'Read the quoted passage in the detail below and confirm you agree with it.',
-  },
-  weak: {
-    label: 'weak or contradicted',
-    fill: '#c62828',
-    edge: 'solid',
-    weight: 'full',
-    meaning:
-      'Gaply read the cited source, and the passage it found does not fully support this sentence — or contradicts it.',
+      'Gaply read the source this sentence cites and found the passages it rests on. It does NOT grade how well they support the sentence — its grader returned the same grade for every case on a labelled set, so that grade is not shown.',
     action:
-      'Check the quoted passage. If it does not say what the sentence claims, soften the claim or cite a different source.',
+      'Read the quoted passages in the detail below and decide for yourself whether they say what the sentence claims.',
   },
   blocked: {
     label: 'cited but not checkable',
@@ -68,25 +70,25 @@ export const STATUS_STYLE: Record<AnnotationStatus, StatusStyle> = {
  * finding, and colouring it would turn 65 non-events into a page of marks
  * (§11 D78, the same reason the report's advisory section filters).
  */
-export function statusOf(kind: string, verdict?: string | null): AnnotationStatus | null {
+export function statusOf(
+  kind: string,
+  verdict?: string | null,
+  /** How many source passages were recorded for this item (§11 D108). */
+  passageCount = 0,
+): AnnotationStatus | null {
   if (kind === 'unverifiable') return 'blocked';
   if (kind === 'citation_need') return verdict === 'needs_citation' ? 'advisory' : null;
   if (kind === 'citation_support') {
-    switch (verdict) {
-      case 'strong':
-        return 'checked';
-      case 'partial':
-      case 'weak':
-      case 'contradicts':
-      case 'insufficient_evidence':
-        return 'weak';
-      // Judged but with no recorded verdict — not evidence of anything.
-      default:
-        return null;
-    }
+    // §11 D108. The VERDICT no longer decides anything here — it is a constant.
+    // What decides is whether there are passages to show, because that is what
+    // the highlight now claims. A mark saying "source passages found" over a
+    // sentence with none would be the same lie in a new colour, and there is no
+    // honest label for "read, nothing recorded" that does not collide with
+    // `blocked` (whose action is to go and fetch the source).
+    return passageCount > 0 ? 'evidence' : null;
   }
   return null;
 }
 
-/** The four, in the order the legend and the detail list present them. */
-export const STATUS_ORDER: AnnotationStatus[] = ['checked', 'weak', 'blocked', 'advisory'];
+/** The three, in the order the legend and the detail list present them. */
+export const STATUS_ORDER: AnnotationStatus[] = ['evidence', 'blocked', 'advisory'];

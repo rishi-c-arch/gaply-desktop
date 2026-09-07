@@ -6138,3 +6138,43 @@ Two surfaces still render it and are NOT touched here: the on-screen
 `CitationAiPanel` and the annotated manuscript's colouring (`annotationStatus`).
 Both are the same defect and need the same treatment; they are recorded rather
 than changed, because this entry is scoped to the report.
+
+#### The two remaining surfaces, closed
+
+D108 recorded that `CitationAiPanel` and the annotated manuscript still rendered
+the withdrawn verdict. Both are now closed on the same terms.
+
+**The annotated manuscript was the worse of the two.** `statusOf` mapped
+`strong` to a GREEN highlight labelled *"verified with evidence"* and every
+other verdict to a RED one labelled *"weak or contradicted"*. With a constant
+`weak`, every `citation_support` sentence was drawn red, and the green legend
+entry was unreachable — a legend naming a distinction the page could not draw,
+which is worse than no legend.
+
+The two collapse into one NEUTRAL status, `evidence` (blue, solid, full
+weight): *"source passages found"*. Neither green nor red on purpose — it marks
+where the evidence is and asserts nothing about whether the sentence is well
+supported.
+
+**And the highlight now depends on there being passages, not on the verdict.**
+`statusOf` takes the passage count and returns `null` at zero, defaulting to
+zero so a caller that forgets cannot mark a sentence it has no evidence for. A
+mark reading "source passages found" over a sentence with none would be the same
+lie in a new colour. A test asserts every status in the legend is reachable.
+
+**`EvidenceCard`** badged *"✓ Supported"*, *"≈ Partially supported"*,
+*"! Weak support"*, *"✕ Contradicted"* — a five-class grade, of which only
+"Weak support" was ever actually shown. All four now read *"Source passages
+found"* with a neutral tone and no tick or cross; the card carries the same
+one-line statement the report does, and renders the decomposition beneath it.
+
+Two distinctions are KEPT because neither is a grade:
+
+* `no_evidence` — deterministic; the engine retrieved nothing and no model ran.
+* `insufficient_evidence` — reads **"No supporting passage cited"**, not "found".
+  It is the one verdict the validator lets cite nothing, so the card is showing
+  what was EXAMINED rather than what was cited (§11 D52); labelling it "found"
+  would be false in exactly the case it names.
+
+The health score stays gone. If a score returns it returns on something
+measured, deliberately, not as a restoration.

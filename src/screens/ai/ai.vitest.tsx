@@ -94,7 +94,11 @@ describe('D18 — AI prose never renders without its evidence', () => {
       />,
     );
     expect(screen.queryByTestId('evidence-ungrounded-notice')).toBeNull();
-    expect(screen.getByTestId('evidence-verdict').textContent).toContain('Insufficient evidence');
+    // §11 D108. Was "Insufficient evidence" — a grade. It is now the FACT:
+    // the model cited no passage, which is why what was examined is shown.
+    expect(screen.getByTestId('evidence-verdict').textContent).toContain(
+      'No supporting passage cited',
+    );
     expect(screen.getByTestId('evidence-searched').textContent).toBe(
       'Checked 12 retrieved passages from this source; none support the claim.',
     );
@@ -170,13 +174,50 @@ describe('D18 — AI prose never renders without its evidence', () => {
     expect(screen.getByTestId('evidence-advisories').textContent).toContain('22 words');
   });
 
-  it('distinguishes verdicts by glyph as well as colour', () => {
-    const { unmount } = render(<EvidenceCard finding={finding({ verdict: 'contradicts' })} loadBytes={bytes} />);
-    expect(screen.getByTestId('evidence-verdict').textContent).toContain('Contradicted');
-    expect(screen.getByTestId('evidence-verdict').textContent).toContain('✕');
-    unmount();
-    render(<EvidenceCard finding={finding({ verdict: 'strong' })} loadBytes={bytes} />);
-    expect(screen.getByTestId('evidence-verdict').textContent).toContain('✓');
+  /** §11 D108. The card no longer grades. It used to badge "✓ Supported" and
+   *  "✕ Contradicted"; the verdict behind those measured as a constant `weak`
+   *  (14 of 14 valid outputs across two runs), so "Weak support" was the only
+   *  badge a reader ever actually saw — and it was not a reading of their
+   *  sentence. */
+  it('does not grade the sentence, whatever verdict the model returned', () => {
+    for (const v of ['strong', 'partial', 'weak', 'contradicts'] as const) {
+      const { unmount } = render(<EvidenceCard finding={finding({ verdict: v })} loadBytes={bytes} />);
+      const badge = screen.getByTestId('evidence-verdict').textContent ?? '';
+      expect(badge).toContain('Source passages found');
+      // None of the grading vocabulary, and neither tick nor cross.
+      expect(badge).not.toMatch(/Supported|Contradicted|Weak support|Partially/);
+      expect(badge).not.toContain('✓');
+      expect(badge).not.toContain('✕');
+      // And it says so in words, not only by omission.
+      expect(screen.getByTestId('evidence-no-grade').textContent).toMatch(/does not grade/i);
+      unmount();
+    }
+  });
+
+  /** The one distinction that survives is DETERMINISTIC: nothing was retrieved
+   *  and no model ran. That is a fact about the engine, not a judgement. */
+  it('still distinguishes "no evidence retrieved", which no model produced', () => {
+    render(<EvidenceCard finding={finding({ verdict: 'no_evidence', evidence: [] })} loadBytes={bytes} />);
+    expect(screen.getByTestId('evidence-verdict').textContent).toContain('No evidence retrieved');
+  });
+
+  /** §11 D108. The decomposition is what measured correct, so it is shown. */
+  it('shows the claim decomposition, marked as the model\u2019s reading', () => {
+    render(
+      <EvidenceCard
+        finding={finding({
+          claimElements: [
+            { element: '46% macro-F1', status: 'found' },
+            { element: '95% accuracy', status: 'absent' },
+          ],
+        })}
+        loadBytes={bytes}
+      />,
+    );
+    const el = screen.getByTestId('evidence-claim-elements').textContent ?? '';
+    expect(el).toContain('46% macro-F1 — in the source');
+    expect(el).toContain('95% accuracy — NOT in the passages read');
+    expect(el).toMatch(/not Gaply\u2019s conclusion/);
   });
 });
 

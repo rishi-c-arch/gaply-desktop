@@ -41,5 +41,12 @@ export function resultToFinding(raw: any, ctx: FindingContext): GroundedFinding 
     // against something real rather than refused (§11 D52).
     examined: rows(raw?.examinedPassages ?? []),
     chunksSent: typeof raw?.chunksSent === 'number' ? raw.chunksSent : undefined,
+    // §11 D108. Carried through with the evidence, for the same reason: it is
+    // what the model got right while the verdict did not.
+    claimElements: Array.isArray(out.claim_elements)
+      ? out.claim_elements
+          .filter((e: any) => typeof e?.element === 'string')
+          .map((e: any) => ({ element: String(e.element), status: String(e.status ?? 'unmarked') }))
+      : undefined,
   };
 }

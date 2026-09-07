@@ -18,7 +18,15 @@ export interface JudgedItem {
   kind: string;
   page: number | null;
   sentence: string;
-  result?: { output?: { verdict?: string }; category?: string } | null;
+  result?: {
+    output?: {
+      verdict?: string;
+      /** §11 D108. What the highlight now claims: that there are passages to
+       *  read. The verdict beside it is a constant and decides nothing. */
+      supporting_chunks?: unknown[];
+    };
+    category?: string;
+  } | null;
 }
 
 export interface AnnotatedManuscriptProps {
@@ -33,11 +41,13 @@ export interface AnnotatedManuscriptProps {
 }
 
 const verdictOf = (it: JudgedItem) => it.result?.output?.verdict ?? null;
+/** §11 D108. How many source passages this item recorded. */
+const passagesOf = (it: JudgedItem) => it.result?.output?.supporting_chunks?.length ?? 0;
 
 /** Only what can be drawn: a status, and a sentence long enough to locate. */
 export function annotatable(items: JudgedItem[]) {
   return items
-    .map((it) => ({ it, status: statusOf(it.kind, verdictOf(it)) }))
+    .map((it) => ({ it, status: statusOf(it.kind, verdictOf(it), passagesOf(it)) }))
     .filter((x): x is { it: JudgedItem; status: AnnotationStatus } => x.status !== null);
 }
 

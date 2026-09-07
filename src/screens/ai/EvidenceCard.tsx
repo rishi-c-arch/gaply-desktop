@@ -40,30 +40,49 @@ export type Verdict =
  * colours elsewhere does not have to learn a second vocabulary here.
  */
 const VERDICT_STATUS: Record<Verdict, BadgeStatus> = {
-  strong: 'assessed',
-  partial: 'assessed',
-  weak: 'assessed',
-  contradicts: 'flagged',
+  // §11 D108. All neutral. `flagged` on `contradicts` was the strongest signal
+  // this card could send, driven by a verdict that never varies.
+  strong: 'neutral',
+  partial: 'neutral',
+  weak: 'neutral',
+  contradicts: 'neutral',
   insufficient_evidence: 'neutral',
   no_evidence: 'neutral',
 };
 
 /** Never colour alone: each verdict carries a distinct glyph and wording. */
 const VERDICT_GLYPH: Record<Verdict, string> = {
-  strong: '✓',
-  partial: '≈',
-  weak: '!',
-  contradicts: '✕',
-  insufficient_evidence: '?',
+  // §11 D108. ✓ and ✕ are verdicts drawn in one character. The card marks
+  // where the evidence is; it does not tick or cross the reader's sentence.
+  strong: '¶',
+  partial: '¶',
+  weak: '¶',
+  contradicts: '¶',
+  insufficient_evidence: '¶',
   no_evidence: '—',
 };
 
+/**
+ * §11 D108. The four GRADED verdicts collapse to one neutral statement.
+ *
+ * They read "Supported" / "Partially supported" / "Weak support" /
+ * "Contradicted", which is a five-class judgement of how well a source backs a
+ * sentence. Measured on a labelled set, the model returned `weak` for every
+ * case — 14 of 14 valid outputs across two runs — so "Weak support" was the
+ * only badge a reader ever saw, and it was not a reading of their sentence.
+ *
+ * `no_evidence` survives because it is DETERMINISTIC: the engine retrieved
+ * nothing and no model ran. That distinction is real and is kept.
+ */
 const VERDICT_LABEL: Record<Verdict, string> = {
-  strong: 'Supported',
-  partial: 'Partially supported',
-  weak: 'Weak support',
-  contradicts: 'Contradicted',
-  insufficient_evidence: 'Insufficient evidence',
+  strong: 'Source passages found',
+  partial: 'Source passages found',
+  weak: 'Source passages found',
+  contradicts: 'Source passages found',
+  // NOT "found": this is the one verdict the validator lets cite nothing, so
+  // the card is showing what was EXAMINED rather than what was cited (§11 D52).
+  // Saying "found" here would be false in exactly the case it names.
+  insufficient_evidence: 'No supporting passage cited',
   no_evidence: 'No evidence retrieved',
 };
 
@@ -105,6 +124,13 @@ export interface GroundedFinding {
   examined?: EvidenceRow[];
   /** How many passages went to the model, of which `examined` shows the top. */
   chunksSent?: number;
+  /**
+   * §11 D108. The claim broken into parts, each marked against the source.
+   * PROMOTED as the verdict was withdrawn: on the labelled set the model marked
+   * these correctly and then returned `weak` regardless, so this is the part
+   * that measured useful.
+   */
+  claimElements?: { element: string; status: string }[];
 }
 
 /**
@@ -279,6 +305,36 @@ export const EvidenceCard: React.FC<EvidenceCardProps> = ({ finding, loadBytes }
           </span>
         )}
       </header>
+
+      {/* §11 D108. Said once, plainly, next to the badge that used to grade. */}
+      <p className="gds-ai__hint" data-testid="evidence-no-grade">
+        Gaply located these passages. It does not grade how well they support your sentence —
+        its grader returned the same answer for every case on a labelled set, so that answer is
+        not shown. Read the passages and judge.
+      </p>
+
+      {finding.claimElements && finding.claimElements.length > 0 && (
+        <div data-testid="evidence-claim-elements">
+          <p className="gds-evidence__label">What this sentence claims, part by part:</p>
+          <ul>
+            {finding.claimElements.map((el, i) => (
+              <li key={i} data-testid={`evidence-element-${i}`}>
+                {el.element} —{' '}
+                {el.status === 'found'
+                  ? 'in the source'
+                  : el.status === 'absent'
+                    ? 'NOT in the passages read'
+                    : el.status === 'different'
+                      ? 'the source says otherwise'
+                      : el.status}
+              </li>
+            ))}
+          </ul>
+          <p className="gds-ai__hint">
+            These marks are the model’s reading of the passages below, not Gaply’s conclusion.
+          </p>
+        </div>
+      )}
 
       <p className="gds-evidence__explanation" data-testid="evidence-explanation">
         {finding.explanation}
