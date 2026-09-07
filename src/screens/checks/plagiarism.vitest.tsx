@@ -37,6 +37,8 @@ function citationRef(id: string, title: string, authors = '', year: number | nul
     // an existing row (not retracted, unverified). verify_provenance is [] not
     // null because the type is string[] (Rust serializes a NULL column as []).
     retracted: false, source: null, verify_provenance: [], verify_outcome: null, verified_at: null,
+  retraction_outcome: null,
+  retraction_checked_at: null,
     sync_status: 'local_only', created_at: 0, updated_at: 0,
   };
 }

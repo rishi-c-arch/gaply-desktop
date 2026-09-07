@@ -15,6 +15,7 @@ import {
   computeStatus,
   parseDoi,
   RETRACTION_LABEL,
+  retractionDetail,
   retractionState,
   retractionUnsettled,
   STATUS_LABEL,
@@ -805,6 +806,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
       const settled = await Promise.allSettled(
         citations.map(async (c) => (c.doi ? rv.verify({ raw: c.csl.title, doi: c.doi }) : null))
       );
+      // §11 D102. One stamp for the whole pass: every outcome below was
+      // established now, and a persisted 'clear' has to carry the date it was
+      // established or it is a claim with an invisible expiry.
+      const checkedAt = Date.now();
       let clear = 0;
       let found = 0;
       let failed = 0;
@@ -815,7 +820,11 @@ const Inner: React.FC<CitationManagerPageProps> = ({
         if (r.status === 'rejected') {
           // Transport failure — retriable, and NOT evidence of being clean.
           failed += 1;
-          const next: Citation = { ...c, retractionOutcome: 'check_failed' };
+          const next: Citation = {
+            ...c,
+            retractionOutcome: 'check_failed',
+            retractionCheckedAt: checkedAt,
+          };
           changed.push(next);
           return next;
         }
@@ -824,9 +833,13 @@ const Inner: React.FC<CitationManagerPageProps> = ({
           // it indistinguishable from a checked-clean entry; now it stays
           // honestly unchecked and says so on the card.
           noDoi += 1;
-          return c.retractionOutcome === undefined ? c : { ...c, retractionOutcome: undefined };
+          // The stamp goes with the outcome: clearing one without the other
+          // would date a check that no longer exists.
+          return c.retractionOutcome === undefined
+            ? c
+            : { ...c, retractionOutcome: undefined, retractionCheckedAt: undefined };
         }
-        let next = applyVerification(c, r.value);
+        let next = { ...applyVerification(c, r.value), retractionCheckedAt: checkedAt };
         if (next.retracted) {
           found += 1;
         } else if (next.retractionOutcome === 'clear') {
@@ -838,15 +851,17 @@ const Inner: React.FC<CitationManagerPageProps> = ({
           // — otherwise the summary would say "check failed" while the card said
           // "not checked", and the two must agree.
           failed += 1;
-          next = { ...next, retractionOutcome: 'check_failed' };
+          next = { ...next, retractionOutcome: 'check_failed', retractionCheckedAt: checkedAt };
         }
         changed.push(next);
         return next;
       });
       setCitations(updated);
-      // `retracted` is a durable column, so a confirmed retraction must survive
-      // a reload rather than living only in React state. (The local-write
-      // failure is still swallowed here — that is D11, fixed in its own group.)
+      // `retracted`, the outcome and its date are all durable columns now
+      // (§11 D102), so a confirmed retraction survives a reload AND a
+      // checked-clear entry no longer reverts to 'unchecked' on restart. (The
+      // local-write failure is still swallowed here — that is D11, fixed in its
+      // own group.)
       for (const c of changed) {
         try {
           await local.upsert(c, c.tags ?? []);
@@ -1675,7 +1690,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
               <div className="text-xs text-on-surface-variant space-y-1">
                 <div data-testid="detail-metadata">Metadata: {STATUS_LABEL[computeStatus(selected)]}</div>
                 <div data-testid="detail-verification">Verification: {VERIFY_LABEL[verificationState(selected)]}</div>
-                <div data-testid="detail-retraction">Retraction: {RETRACTION_LABEL[retractionState(selected)]}</div>
+                <div data-testid="detail-retraction">Retraction: {retractionDetail(selected)}</div>
                 {selected.provenance && selected.provenance.length > 0 && (
                   <div className="font-mono mt-1.5" data-testid="detail-provenance">
                     {selected.provenance.slice(0, 3).join('  ·  ')}

@@ -11,7 +11,13 @@ import { GaplySessionProvider } from '../session/SessionProvider';
 import type { AuthService } from '../../services/supabase';
 import CitationManagerPage from './CitationManagerPage';
 import { makeMockLocalLibrary, StoredReference, storedToCitation } from './localLibrary';
-import { Citation, verificationState } from './citationTypes';
+import {
+  Citation,
+  retractionDetail,
+  retractionState,
+  retractionUnsettled,
+  verificationState,
+} from './citationTypes';
 
 vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
@@ -201,5 +207,51 @@ describe('Scope B — verification + retraction survive a reload', () => {
     const reloaded = await roundTrip(mk({ id: 'nf', source: 'imported', verifyOutcome: 'not_found' }));
     expect(verificationState(reloaded)).toBe('not_found');
     expect(reloaded.source).toBe('imported'); // no longer hardcoded to 'manual'
+  });
+
+  /* ---- §11 D102: the OUTCOME of a retraction check persists too ---- */
+
+  it('CHECKED-AND-CLEAR survives: it no longer reverts to "not checked" on restart', async () => {
+    const reloaded = await roundTrip(
+      mk({ id: 'clr', retractionOutcome: 'clear', retractionCheckedAt: 1_757_030_400_000 }),
+    );
+    expect(retractionState(reloaded)).toBe('clear');
+    expect(reloaded.retractionCheckedAt).toBe(1_757_030_400_000);
+  });
+
+  it('a FAILED check survives as failed — never as clear, never as unchecked', async () => {
+    const reloaded = await roundTrip(mk({ id: 'cf', retractionOutcome: 'check_failed' }));
+    expect(retractionState(reloaded)).toBe('check_failed');
+    expect(retractionUnsettled(reloaded)).toBe(true); // still needs re-checking
+  });
+
+  it('NEVER CHECKED stays unchecked across the reload — absence is not clean', async () => {
+    // THE pessimism this axis exists for: a row with no stored outcome must not
+    // read 'clear' just because it also reads not-retracted.
+    const reloaded = await roundTrip(mk({ id: 'nev' }));
+    expect(reloaded.retractionOutcome).toBeUndefined();
+    expect(retractionState(reloaded)).toBe('unchecked');
+  });
+
+  it('a RETRACTED entry outranks any stored outcome after the reload', async () => {
+    // A partial write could leave both set; the retraction has to win.
+    const reloaded = await roundTrip(mk({ id: 'both', retracted: true, retractionOutcome: 'clear' }));
+    expect(retractionState(reloaded)).toBe('retracted');
+  });
+
+  /* The date is shown so a researcher can judge staleness themselves — a
+     'clear' with no date is a claim with an invisible expiry. */
+  it('dates an established outcome, and dates nothing it cannot', () => {
+    const at = new Date('2026-09-05T00:00:00Z').getTime();
+    expect(retractionDetail(mk({ retractionOutcome: 'clear', retractionCheckedAt: at }))).toMatch(
+      /no retraction found · checked .*2026/,
+    );
+    expect(
+      retractionDetail(mk({ retractionOutcome: 'check_failed', retractionCheckedAt: at })),
+    ).toMatch(/last tried .*2026/);
+    // Never checked: nothing to date. Retracted: does not go stale in the
+    // direction that matters.
+    expect(retractionDetail(mk({}))).toBe('not checked for retraction');
+    expect(retractionDetail(mk({ retracted: true, retractionCheckedAt: at }))).toBe('RETRACTED');
   });
 });

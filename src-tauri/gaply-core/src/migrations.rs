@@ -740,6 +740,39 @@ pub const MIGRATIONS: &[Migration] = &[
             ALTER TABLE documents DROP COLUMN abstract_only;
         ",
     },
+    Migration {
+        version: 19,
+        name: "citation_library_retraction_outcome",
+        // Axis C, completed (§11 D102). Migration 11 persisted `retracted` but
+        // not the OUTCOME of a check, so an entry the sweep had found clean
+        // reverted to "not checked for retraction" on every restart — safe, but
+        // it made the sweep unrepeatable and re-prompted over finished work.
+        //
+        // The CHECK holds the vocabulary at the schema: 'clear' and
+        // 'check_failed' are the only outcomes, NULL means never attempted, and
+        // a typo cannot quietly become a fourth state that renders as neither.
+        // A confirmed retraction is the separate `retracted` column and keeps
+        // its priority in the frontend's retractionState.
+        //
+        // `retraction_checked_at` exists because a persisted 'clear' is a claim
+        // with an invisible expiry — retractions happen after a check. Storing
+        // when it was established lets the detail row date it. No expiry policy
+        // is implied by the column.
+        //
+        // ADDITIVE + SAFE, the same shape as 11 and 18: both columns nullable,
+        // no backfill, no rewrite. Existing rows read back NULL = 'unchecked',
+        // which is what they honestly are.
+        up: "
+            ALTER TABLE citation_library ADD COLUMN retraction_outcome TEXT
+                CHECK (retraction_outcome IS NULL
+                       OR retraction_outcome IN ('clear', 'check_failed'));
+            ALTER TABLE citation_library ADD COLUMN retraction_checked_at INTEGER;
+        ",
+        down: "
+            ALTER TABLE citation_library DROP COLUMN retraction_checked_at;
+            ALTER TABLE citation_library DROP COLUMN retraction_outcome;
+        ",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -883,6 +916,7 @@ mod tests {
         assert_eq!(
             reverted,
             vec![
+                "citation_library_retraction_outcome",
                 "documents_abstract_only",
                 "citation_document_links",
                 "ai_engine_phase8_jobs",
@@ -972,10 +1006,11 @@ mod tests {
                 "ai_engine_phase2",
                 "ai_engine_phase8_jobs",
                 "citation_document_links",
-                "documents_abstract_only"
+                "documents_abstract_only",
+                "citation_library_retraction_outcome"
             ]
         );
-        assert_eq!(current_version(&conn).unwrap(), 18);
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
 
         // the column + index now exist; the pre-existing row is intact, NULL id
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -1020,7 +1055,8 @@ mod tests {
                 "ai_engine_phase2",
                 "ai_engine_phase8_jobs",
                 "citation_document_links",
-                "documents_abstract_only"
+                "documents_abstract_only",
+                "citation_library_retraction_outcome"
             ]
         );
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -1047,8 +1083,8 @@ mod tests {
 
         // apply v11 (+ v12 rides along; it does not touch citation_library)
         let applied = migrate_up(&mut conn).unwrap();
-        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only"]);
-        assert_eq!(current_version(&conn).unwrap(), 18);
+        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only", "citation_library_retraction_outcome"]);
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(column_names(&conn, "citation_library").iter().any(|n| n == c), "missing column {c}");
         }
@@ -1077,7 +1113,7 @@ mod tests {
 
         // down to v10 peels v12 (evidence_store) then v11 (the subject here).
         let reverted = migrate_down(&mut conn, 10).unwrap();
-        assert_eq!(reverted, vec!["documents_abstract_only", "citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1", "evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
+        assert_eq!(reverted, vec!["citation_library_retraction_outcome", "documents_abstract_only", "citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1", "evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(!column_names(&conn, "citation_library").iter().any(|n| n == c), "{c} should be dropped");
         }
@@ -1085,7 +1121,7 @@ mod tests {
 
         // re-applies cleanly (idempotent up after a partial down): v11 + v12
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only"]);
+        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only", "citation_library_retraction_outcome"]);
     }
 
     /* ------------------------- v14: AI engine, Phase 1 --------------------- */
@@ -1104,7 +1140,7 @@ mod tests {
     fn v14_round_trips_and_touches_no_existing_table() {
         let mut conn = test_connection();
         migrate_up(&mut conn).unwrap();
-        assert_eq!(current_version(&conn).unwrap(), 18);
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "missing {t}");
         }
@@ -1118,7 +1154,7 @@ mod tests {
 
         // down → every ai_ table is gone, everything else survives
         let reverted = migrate_down(&mut conn, 13).unwrap();
-        assert_eq!(reverted, vec!["documents_abstract_only", "citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1"]);
+        assert_eq!(reverted, vec!["citation_library_retraction_outcome", "documents_abstract_only", "citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1"]);
         assert_eq!(current_version(&conn).unwrap(), 13);
         for t in AI_TABLES {
             assert!(!table_names(&conn).iter().any(|n| n == t), "{t} survived the down migration");
@@ -1128,7 +1164,7 @@ mod tests {
 
         // and re-applies cleanly
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only"]);
+        assert_eq!(reapplied, vec!["ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only", "citation_library_retraction_outcome"]);
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "{t} missing after re-apply");
         }
@@ -1222,14 +1258,14 @@ mod tests {
         assert!(table_names(&conn).iter().any(|t| t == "ai_chunks_fts"));
 
         let reverted = migrate_down(&mut conn, 14).unwrap();
-        assert_eq!(reverted, vec!["documents_abstract_only", "citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2"]);
+        assert_eq!(reverted, vec!["citation_library_retraction_outcome", "documents_abstract_only", "citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2"]);
         assert!(!table_names(&conn).iter().any(|t| t == "ai_chunks_fts"), "fts survived the down");
         assert!(!column_names(&conn, "ai_chunk_embeddings").iter().any(|c| c == "preprocessing_version"));
         // v14's tables are all still there — the down is scoped to v15.
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "{t} lost by the v15 down");
         }
-        assert_eq!(migrate_up(&mut conn).unwrap(), vec!["ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only"]);
+        assert_eq!(migrate_up(&mut conn).unwrap(), vec!["ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only", "citation_library_retraction_outcome"]);
     }
 
     #[test]
@@ -1346,7 +1382,7 @@ mod tests {
         .unwrap();
 
         let applied = migrate_up(&mut conn).unwrap();
-        assert_eq!(applied, vec!["documents_abstract_only"]);
+        assert_eq!(applied, vec!["documents_abstract_only", "citation_library_retraction_outcome"]);
         assert!(column_names(&conn, "documents").iter().any(|c| c == "abstract_only"));
         assert!(index_exists(&conn, "idx_documents_abstract_only"));
 
@@ -1368,7 +1404,7 @@ mod tests {
         assert!(column_names(&conn, "documents").iter().any(|c| c == "abstract_only"));
 
         let reverted = migrate_down(&mut conn, 17).unwrap();
-        assert_eq!(reverted, vec!["documents_abstract_only"]);
+        assert_eq!(reverted, vec!["citation_library_retraction_outcome", "documents_abstract_only"]);
         assert!(!column_names(&conn, "documents").iter().any(|c| c == "abstract_only"));
         assert!(!index_exists(&conn, "idx_documents_abstract_only"));
         // The table itself is untouched by the rollback.

@@ -105,6 +105,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             verify_provenance: vec![],
             verify_outcome: None,
             verified_at: None,
+            // Indexing a local file checks no retraction registry, so the
+            // outcome stays absent — which reads as 'not checked', not 'clear'.
+            ..Default::default()
         },
     )?;
     println!("citation : id={cite_id} title={title:?}");

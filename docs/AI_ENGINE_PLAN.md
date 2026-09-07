@@ -5487,3 +5487,44 @@ Both directions are tested: a list where some blocked source has a DOI still
 offers the fetch — and sends only the DOI-bearing ids, not all of them — while a
 list with none never offers it.
 
+### D102 — `retractionOutcome` persists, and "clear" now carries its date
+
+The staged gap `citationTypes.ts` has been describing since Scope B, closed as
+the file's own note specified: *"add a `retraction_outcome` column beside the
+existing Scope B ones in gaply_core::citation_library, thread it through
+citation_lib_upsert / StoredReference / storedToCitation, and the axis is
+complete."*
+
+Before this, `retracted` was durable but the OUTCOME was not, so an entry the
+sweep had checked and found clean reverted to **"not checked for retraction"**
+on restart. That direction was safe — under-claiming never lets a retracted
+paper read clean — but it made the sweep unrepeatable in practice: every restart
+re-presented a fully-checked library as fully unchecked, and the sidebar's
+"N of M have not been checked" prompt fired again over work already done.
+
+#### The second column, and why it is not scope creep
+
+A persisted `'clear'` is a claim with an expiry nobody can see. Retractions
+happen *after* a check; an entry cleared eighteen months ago and one cleared
+this morning would render identically as "no retraction found". Axis C exists
+precisely to stop a stale or absent fact reading as a current one, so the
+outcome persists **with the time it was established**:
+
+- `retraction_outcome` — `'clear'` / `'check_failed'`, NULL = never attempted.
+  A CHECK constraint holds the vocabulary at the schema, so a typo cannot
+  become a fourth silent state.
+- `retraction_checked_at` — epoch seconds, stamped by the sweep.
+
+The detail row reads **"no retraction found · checked 5 Sep 2026"**. No expiry
+policy is implemented and none is implied: the date is shown so a researcher can
+judge staleness themselves, which is the smallest honest thing to do. Deciding
+when "clear" goes stale needs a real answer about registry lag, and inventing a
+threshold here would repeat the mistake §11 D98 recorded.
+
+`retracted` keeps its priority in `retractionState`: a confirmed retraction
+outranks any outcome, so a row that is both retracted and 'clear' — which the
+sweep cannot produce, but a partial write could — still reads RETRACTED.
+
+Migration 19 is additive and defaulted, the same shape as 11 and 18: both
+columns are nullable, no backfill, no rewrite, and existing rows read back
+`NULL` = 'unchecked', which is exactly what they honestly are.

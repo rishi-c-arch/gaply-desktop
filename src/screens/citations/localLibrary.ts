@@ -22,6 +22,9 @@ export interface StoredReference {
   verify_provenance: string[];
   verify_outcome: string | null;
   verified_at: number | null;
+  // §11 D102: the retraction CHECK's outcome, and when it was established.
+  retraction_outcome: string | null;
+  retraction_checked_at: number | null;
   sync_status: SyncStatus;
   created_at: number;
   updated_at: number;
@@ -71,6 +74,10 @@ export function storedToCitation(r: StoredReference): Citation {
     provenance: r.verify_provenance ?? [],
     verifyOutcome: (r.verify_outcome as 'not_found' | 'check_failed' | null) ?? undefined,
     verifiedAt: r.verified_at ?? undefined,
+    // §11 D102. NULL stays undefined → retractionState reads 'unchecked'. It is
+    // never coerced to 'clear': absence of a check is not a clean result.
+    retractionOutcome: (r.retraction_outcome as 'clear' | 'check_failed' | null) ?? undefined,
+    retractionCheckedAt: r.retraction_checked_at ?? undefined,
     tags: r.tags,
     syncStatus: r.sync_status,
   };
@@ -119,6 +126,8 @@ export class TauriLocalLibrary implements LocalLibrary {
       verifyProvenance: c.provenance ?? [],
       verifyOutcome: c.verifyOutcome ?? null,
       verifiedAt,
+      retractionOutcome: c.retractionOutcome ?? null,
+      retractionCheckedAt: c.retractionCheckedAt ?? null,
     });
   }
   list() {
@@ -158,6 +167,8 @@ export function makeMockLocalLibrary(): LocalLibrary & { rows: Map<string, Store
       verify_provenance: c.provenance ?? [],
       verify_outcome: c.verifyOutcome ?? null,
       verified_at: c.verifiedAt ?? null,
+      retraction_outcome: c.retractionOutcome ?? null,
+      retraction_checked_at: c.retractionCheckedAt ?? null,
       sync_status: 'local_only',
       created_at: prev?.created_at ?? 1,
       updated_at: (prev?.updated_at ?? 0) + 1,

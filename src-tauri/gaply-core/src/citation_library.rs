@@ -44,6 +44,13 @@ pub struct StoredReference {
     pub verify_provenance: Vec<String>,
     pub verify_outcome: Option<String>,
     pub verified_at: Option<i64>,
+    /// §11 D102. The OUTCOME of a retraction check — 'clear' / 'check_failed',
+    /// NULL when one was never attempted. `retracted` above is the separate
+    /// confirmed-retraction fact and outranks this.
+    pub retraction_outcome: Option<String>,
+    /// When that outcome was established. A persisted 'clear' is a claim with
+    /// an invisible expiry without it.
+    pub retraction_checked_at: Option<i64>,
     pub sync_status: String,
     pub created_at: i64,
     pub updated_at: i64,
@@ -59,6 +66,9 @@ pub struct VerificationWrite {
     pub verify_provenance: Vec<String>,
     pub verify_outcome: Option<String>,
     pub verified_at: Option<i64>,
+    /// §11 D102. 'clear' | 'check_failed' | None (never attempted).
+    pub retraction_outcome: Option<String>,
+    pub retraction_checked_at: Option<i64>,
 }
 
 fn row_to_reference(row: &rusqlite::Row) -> rusqlite::Result<StoredReference> {
@@ -81,12 +91,16 @@ fn row_to_reference(row: &rusqlite::Row) -> rusqlite::Result<StoredReference> {
         verify_provenance: prov_json.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
         verify_outcome: row.get(13)?,
         verified_at: row.get(14)?,
+        // Migration 19 columns (15..16). NULL → never checked.
+        retraction_outcome: row.get(15)?,
+        retraction_checked_at: row.get(16)?,
     })
 }
 
 const COLS: &str =
     "id, csl_json, doi, title, authors, year, tags, sync_status, created_at, updated_at, \
-     retracted, source, verify_provenance, verify_outcome, verified_at";
+     retracted, source, verify_provenance, verify_outcome, verified_at, \
+     retraction_outcome, retraction_checked_at";
 
 /// Derive the search columns from the verified CSL-JSON. Absent → empty/None
 /// (parsed, never invented).
@@ -141,8 +155,9 @@ pub fn upsert(
     db.conn()?.execute(
         "INSERT INTO citation_library
              (id, csl_json, doi, title, authors, year, tags, sync_status, created_at, updated_at,
-              retracted, source, verify_provenance, verify_outcome, verified_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'local_only', ?8, ?8, ?9, ?10, ?11, ?12, ?13)
+              retracted, source, verify_provenance, verify_outcome, verified_at,
+              retraction_outcome, retraction_checked_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'local_only', ?8, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
          ON CONFLICT(id) DO UPDATE SET
              csl_json = excluded.csl_json,
              doi = excluded.doi,
@@ -156,10 +171,13 @@ pub fn upsert(
              source = excluded.source,
              verify_provenance = excluded.verify_provenance,
              verify_outcome = excluded.verify_outcome,
-             verified_at = excluded.verified_at",
+             verified_at = excluded.verified_at,
+             retraction_outcome = excluded.retraction_outcome,
+             retraction_checked_at = excluded.retraction_checked_at",
         params![
             id, csl_json, doi, title, authors, year, tags_json, now,
-            verify.retracted as i64, verify.source, prov_json, verify.verify_outcome, verify.verified_at
+            verify.retracted as i64, verify.source, prov_json, verify.verify_outcome, verify.verified_at,
+            verify.retraction_outcome, verify.retraction_checked_at
         ],
     )?;
     get(db, id)?.ok_or_else(|| GaplyError::Internal("upsert lost the row".into()))
@@ -359,6 +377,8 @@ mod tests {
             verify_provenance: vec!["crossref:https://api.crossref.org/works/x".into()],
             verify_outcome: None,
             verified_at: Some(1234),
+            retraction_outcome: None,
+            retraction_checked_at: None,
         };
         upsert(&d, "wc1953", WATSON_CSL, None, &[], &verify).unwrap();
 
@@ -380,5 +400,66 @@ mod tests {
         assert!(!plain.retracted);
         assert!(plain.verify_provenance.is_empty());
         assert_eq!((plain.verify_outcome, plain.verified_at), (None, None));
+        // Never checked reads as never checked — NOT as clear (§11 D102).
+        assert_eq!((plain.retraction_outcome, plain.retraction_checked_at), (None, None));
+    }
+
+    /// §11 D102. Before this, a checked-and-clean entry reverted to "not
+    /// checked for retraction" on every restart: `retracted` was durable but
+    /// the OUTCOME was not.
+    #[test]
+    fn retraction_outcome_survives_the_round_trip() {
+        let d = db();
+        let checked = VerificationWrite {
+            retraction_outcome: Some("clear".into()),
+            retraction_checked_at: Some(1_757_030_400),
+            ..Default::default()
+        };
+        upsert(&d, "wc1953", WATSON_CSL, None, &[], &checked).unwrap();
+        let r = get(&d, "wc1953").unwrap().unwrap();
+        assert_eq!(r.retraction_outcome.as_deref(), Some("clear"));
+        assert_eq!(r.retraction_checked_at, Some(1_757_030_400));
+        assert!(!r.retracted, "a clear check is not a retraction");
+
+        // list() reads the same columns — the page loads through it.
+        let from_list = list(&d).unwrap().into_iter().find(|x| x.id == "wc1953").unwrap();
+        assert_eq!(from_list.retraction_outcome.as_deref(), Some("clear"));
+        assert_eq!(from_list.retraction_checked_at, Some(1_757_030_400));
+
+        // A failed check is a THIRD state, distinct from clear and from never.
+        upsert(
+            &d,
+            "wc1953",
+            WATSON_CSL,
+            None,
+            &[],
+            &VerificationWrite {
+                retraction_outcome: Some("check_failed".into()),
+                retraction_checked_at: Some(1_757_116_800),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let r = get(&d, "wc1953").unwrap().unwrap();
+        assert_eq!(r.retraction_outcome.as_deref(), Some("check_failed"));
+
+        // The vocabulary is held at the SCHEMA: a typo cannot become a fourth
+        // silent state that renders as neither checked nor unchecked.
+        let bad = upsert(
+            &d,
+            "wc1953",
+            WATSON_CSL,
+            None,
+            &[],
+            &VerificationWrite {
+                retraction_outcome: Some("cleared".into()),
+                ..Default::default()
+            },
+        );
+        assert!(bad.is_err(), "an unknown retraction outcome was accepted");
+
+        // And that refusal did not corrupt the row it failed on.
+        let after = get(&d, "wc1953").unwrap().unwrap();
+        assert_eq!(after.retraction_outcome.as_deref(), Some("check_failed"));
     }
 }

@@ -930,6 +930,10 @@ pub fn citation_lib_upsert(
     verify_provenance: Option<Vec<String>>,
     verify_outcome: Option<String>,
     verified_at: Option<i64>,
+    // §11 D102: the outcome of a retraction check, and when it was established.
+    // Absent → never checked, which is NOT the same as clear.
+    retraction_outcome: Option<String>,
+    retraction_checked_at: Option<i64>,
 ) -> Result<gaply_core::citation_library::StoredReference, GaplyError> {
     let verify = gaply_core::citation_library::VerificationWrite {
         retracted: retracted.unwrap_or(false),
@@ -937,6 +941,8 @@ pub fn citation_lib_upsert(
         verify_provenance: verify_provenance.unwrap_or_default(),
         verify_outcome,
         verified_at,
+        retraction_outcome,
+        retraction_checked_at,
     };
     gaply_core::citation_library::upsert(
         &state.db,

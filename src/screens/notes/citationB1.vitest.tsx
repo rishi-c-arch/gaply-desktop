@@ -28,7 +28,9 @@ const scaffoldById = (id: string) => CATALOG.scaffolds.find((s) => s.id === id)!
 const ref = (id: string, family: string, given: string, year: number, title: string): StoredReference => ({
   id, csl_json: JSON.stringify({ id, type: 'article-journal', title, author: [{ family, given }], issued: { 'date-parts': [[year]] }, 'container-title': 'J' }),
   doi: null, title, authors: `${family}, ${given}`, year, tags: [], retracted: false, source: null,
-  verify_provenance: [], verify_outcome: null, verified_at: null, sync_status: 'local_only', created_at: 1, updated_at: 1,
+  verify_provenance: [], verify_outcome: null, verified_at: null,
+  retraction_outcome: null,
+  retraction_checked_at: null, sync_status: 'local_only', created_at: 1, updated_at: 1,
 });
 const REFS = [ref('refA', 'He', 'K', 2016, 'Deep residual learning'), ref('refB', 'Vaswani', 'A', 2017, 'Attention is all you need')];
 const cslById = new Map<string, CslItem>(REFS.map((r) => [r.id, { id: r.id, type: 'article-journal', title: r.title, author: [{ family: r.authors.split(',')[0] }], issued: { year: r.year! } }]));

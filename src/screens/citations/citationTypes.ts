@@ -48,6 +48,10 @@ export interface Citation {
    *  'clear'. See the Axis C block below for why that distinction is the whole
    *  point. Never write 'clear' from a default or a falsy coercion. */
   retractionOutcome?: 'clear' | 'check_failed';
+  /** §11 D102: epoch (ms) when that outcome was established, persisted with it.
+   *  A stored 'clear' is a claim with an invisible expiry otherwise —
+   *  retractions happen AFTER a check — so the detail row dates it. */
+  retractionCheckedAt?: number | null;
   /** Local-first (Set 4): tags on this reference. */
   tags?: string[];
   /** Local-first (Set 4): honest sync marker (local sqlite is the truth). */
@@ -140,21 +144,17 @@ export const VERIFY_LABEL: Record<VerificationState, string> = {
  * Completeness (computeStatus) and verification (Axis B) are separate facts and
  * still must not share a word with this one.
  *
- * DURABILITY: `retracted` IS persisted (localLibrary Scope B), so a confirmed
- * retraction survives a reload. `retractionOutcome` is NOT persisted yet — the
- * store's column set lives in gaply_core and is a separate workstream — so
- * after a reload a checked-and-clear entry honestly reverts to 'unchecked'
- * until re-swept. That is the safe direction, and the same Scope-A/Scope-B
- * staging Axis B went through: under-claiming is safe, over-claiming is not.
+ * DURABILITY: COMPLETE as of §11 D102. `retracted`, `retractionOutcome` and
+ * `retractionCheckedAt` all persist (migration 19 columns, read back by
+ * storedToCitation), so a confirmed retraction survives a reload AND a
+ * checked-and-clear entry no longer reverts to 'unchecked' on every restart —
+ * which had made the sweep unrepeatable and re-prompted over finished work.
  *
- * THAT REVERT IS EXPECTED, NOT A BUG. It is a KNOWN, STAGED gap with a known
- * completion step: add a `retraction_outcome` column beside the existing Scope
- * B ones in gaply_core::citation_library, thread it through
- * citation_lib_upsert / StoredReference / storedToCitation, and the axis is
- * complete. Do that when the gaply_core workstream is next open — it is
- * deliberately not done from here. Until then, do NOT "fix" the revert by
- * defaulting a reloaded row to 'clear'; that reinstates the exact defect this
- * axis exists to remove. */
+ * The pessimism is unchanged and load-bearing: a row with NO stored outcome
+ * reads 'unchecked'. Do NOT "improve" that by defaulting a reloaded row to
+ * 'clear'; that reinstates the exact defect this axis exists to remove. The
+ * store holds the vocabulary at the schema (a CHECK on 'clear'/'check_failed')
+ * so a typo cannot arrive here as a fourth state that renders as neither. */
 export type RetractionState = 'retracted' | 'clear' | 'unchecked' | 'check_failed';
 
 /** An entry is 'clear' ONLY when a retraction registry actually answered "no".
@@ -173,6 +173,27 @@ export const retractionUnsettled = (c: Citation): boolean => {
   const s = retractionState(c);
   return s === 'unchecked' || s === 'check_failed';
 };
+
+/** The detail row's retraction line (§11 D102). A stored 'clear' is a claim
+ *  with an invisible expiry — retractions happen AFTER a check — so where an
+ *  outcome was established, it is DATED and the reader judges staleness. No
+ *  expiry threshold is applied: inventing one needs a real answer about
+ *  registry lag, and a wrong threshold would age a good check into a warning.
+ *
+ *  'retracted' is not dated: it does not go stale in the direction that
+ *  matters. 'unchecked' is not dated because there is nothing to date. */
+export function retractionDetail(c: Citation): string {
+  const state = retractionState(c);
+  const base = RETRACTION_LABEL[state];
+  const at = c.retractionCheckedAt;
+  if (!at || state === 'unchecked' || state === 'retracted') return base;
+  const when = new Date(at).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+  return state === 'check_failed' ? `${base} · last tried ${when}` : `${base} · checked ${when}`;
+}
 
 export const RETRACTION_LABEL: Record<RetractionState, string> = {
   retracted: 'RETRACTED',
