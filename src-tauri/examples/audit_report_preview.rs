@@ -25,16 +25,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "job {job}: {} items, {} checked, has_pages={}, model={:?}",
         m.total_sentences, m.checked, m.has_pages, m.model_id
     );
+    // §11 D108. `health_score` is gone: every input came from the support
+    // verdict, which measured as a constant. The counts below are what remain
+    // true, and the count of items carrying a QUOTED passage replaces it —
+    // that is what the report now leads with.
     println!(
-        "  supported={} needs={} unverifiable={} failed={} health={}",
+        "  supported={} needs={} unverifiable={} failed={} with_passages={}",
         m.supported.len(),
         m.needs_citation.len(),
         m.unverifiable.len(),
         m.failed.len(),
-        match gaply_core::audit_report::health_score(&m) {
-            Some(h) => format!("{h}"),
-            None => "(too few checked to score)".into(),
-        }
+        m.supported.iter().filter(|i| !i.evidence.is_empty()).count()
     );
 
     // §11 D72: how many items carry a locator. A .docx has no pages, so this

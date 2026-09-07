@@ -6047,3 +6047,94 @@ There is no wall-clock cap on generation, so truncation-by-timeout is NOT the
 mechanism, and greedy decoding should be reproducible. It happened once, under
 5–10× latency, in the run that later died. No conclusion rests on it and none
 should until it recurs.
+
+### D108 — `citation_support` is a constant, so the report stops claiming otherwise
+
+§11 D107 measured it twice. Fourteen valid outputs across two runs, every one
+`weak`. §11 D59 named the defect — the reason and the verdict only weakly
+coupled — and this is that defect on the half that LED the report.
+
+The claim changes, the way `citation_need`'s did in §11 D78: demoted to what it
+demonstrably does, with the measurement stated beside it.
+
+#### The case that distinguishes "cannot read" from "reads correctly, answers regardless"
+
+`cs-label-005`, gold `strong`. After D107's parse fix it clears validation, and
+the model's own decomposition reads:
+
+```jsonc
+"claim_elements": [
+  {"element":"fine-tuned BERT",  "status":"found"},
+  {"element":"average F1-score", "status":"found"},
+  {"element":"over 27 categories","status":"found"},
+  {"element":"46%",              "status":"found"},
+  {"element":"95%",              "status":"absent"}
+],
+"explanation": "The evidence shows that GoEmotions fine-tuned BERT and achieved
+   an average F1-score of 46% over 27 categories. However, the claim states a
+   95% macro-F1 score, which is not supported by the evidence.",
+"verdict": "weak"
+```
+
+Every element is marked correctly. The explanation is correct. **The verdict does
+not follow from either.** Retrieval worked, comprehension worked, and the grade
+was produced independently of both — which is why more labels cannot help and
+why the decomposition is worth keeping while the verdict is not.
+
+#### The arithmetic
+
+3 of 8 agreement, and all three are cases whose gold is `weak`. **A constant
+`weak` predictor scores exactly 38% on this set.** Wilson 95% CI [14%, 69%]. The
+output distribution has zero entropy across fourteen verdicts.
+
+#### What was removed, and it was more than a badge
+
+The verdict was not only a label on each item. It was the report's entire
+severity spine, through `attention_rank`:
+
+| rendering | what it did with a constant `weak` |
+|---|---|
+| item badge | every item badged `weak` |
+| **cover headline** | `attention_rank("weak") < 9`, so every claim "failed" → **`0 / 100 — 0 of N checked claims held up`, on every manuscript** |
+| "At a glance" score | the same 0/100, badged red |
+| proportional bars | 100% "checked, did not hold up" |
+| attention list | every checked claim, in document order, each bullet printing `[weak]` |
+| summary bars | `support: weak 8 (67%)` |
+
+A fabricated failing grade on every paper is worse than no grade. §11 D85
+settled the principle already — *a number that cannot respond to the thing it
+names is worse than absent* — so `health_score`, `attention_list` and
+`attention_rank` are **deleted**, not disabled, with a note in their place
+saying not to rebuild either from the support verdict.
+
+#### What replaced it
+
+The passages, which are what measured correct. Each item now carries the source
+quotes with their page, the model's reading of them (D18's rule is unchanged —
+prose only where there is a quote to check it against), and the decomposition
+rendered as *"46% macro-F1 — in the source"* / *"95% accuracy — NOT in the
+passages read"*, explicitly marked as the model's reading rather than Gaply's
+conclusion.
+
+The section is renamed from *"Claims checked against their source"* — which told
+the reader to read the passage "before the verdict" — to **"The source passages
+behind each cited claim"**, and its blurb states the measurement: the grade was
+identical on 14 of 14 outputs, so it carries no information and is not shown.
+Ordering is document order, because sorting by a withdrawn signal would put it
+back as a ranking.
+
+`GAPLY_REPORT_MARKERS` keeps the OLD heading alongside the new one: reports
+exported before this change are still Gaply reports and the self-audit guard
+(§11 D80) must still recognise them.
+
+#### What is NOT changed
+
+The verdict is still **recorded** — in `result_json`, in `verdict_counts`, and
+in the JSON export. Withdrawing it from the record would make the measurement
+unrepeatable and would hide the defect rather than disclose it. It is the
+REPORT that stops presenting it as a finding.
+
+Two surfaces still render it and are NOT touched here: the on-screen
+`CitationAiPanel` and the annotated manuscript's colouring (`annotationStatus`).
+Both are the same defect and need the same treatment; they are recorded rather
+than changed, because this entry is scoped to the report.

@@ -214,9 +214,31 @@ pub fn build_model_with(
                     if let Some(v) = &v {
                         *verdicts.entry(format!("support: {v}")).or_insert(0) += 1;
                     }
+                    // §11 D108. The verdict is still RECORDED — the counts
+                    // below and the JSON export keep it, and withdrawing it
+                    // from the record would make the measurement unrepeatable.
+                    // It is the REPORT that stops presenting it as a finding.
                     item.verdict = v;
                     item.explanation = str_field(out, "explanation");
                     item.evidence = evidence_for(db, out);
+                    item.claim_elements = out
+                        .get("claim_elements")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|e| {
+                                    Some(gaply_core::audit_report::ClaimElement {
+                                        element: e.get("element")?.as_str()?.to_string(),
+                                        status: e
+                                            .get("status")
+                                            .and_then(|s| s.as_str())
+                                            .unwrap_or("unmarked")
+                                            .to_string(),
+                                    })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
                 }
                 m.supported.push(item);
             }

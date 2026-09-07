@@ -37,6 +37,22 @@ pub struct ReportEvidence {
     pub quote: String,
 }
 
+/// One element of a decomposed claim, and whether the source carried it
+/// (§11 D108).
+///
+/// This is the part of `citation_support` that MEASURED correct while the
+/// verdict did not: on `cs-label-005` the model found "46%", "27 categories"
+/// and "fine-tuned BERT" present and marked "95%" absent — the right reading —
+/// and then answered `weak` anyway. So the decomposition is promoted to the
+/// report and the verdict is withdrawn from it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimElement {
+    pub element: String,
+    /// `found` | `absent` | `different`, as the model reported it.
+    pub status: String,
+}
+
 /// A judged item: one manuscript sentence and what the audit concluded.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,6 +82,10 @@ pub struct ReportItem {
     pub reference_entry: Option<String>,
     /// What the reader can do about it. Composed by the caller, printed here.
     pub next_step: Option<String>,
+    /// §11 D108. The claim broken into parts, each marked against the source.
+    /// Printed for `citation_support` INSTEAD of the verdict.
+    #[serde(default)]
+    pub claim_elements: Vec<ClaimElement>,
 }
 
 /// Everything the report states. Assembled by the caller from the job rows.
@@ -171,36 +191,16 @@ fn tone_of(verdict: Option<&str>) -> Tone {
     }
 }
 
-/// Lower sorts first: the reader meets what most needs them at the top, not
-/// sentence 0 in document order.
-fn attention_rank(item: &ReportItem) -> u8 {
-    match item.verdict.as_deref().unwrap_or("") {
-        "contradicts" => 0,
-        "weak" => 1,
-        "insufficient_evidence" => 2,
-        "partial" => 3,
-        "needs_citation" => 4,
-        _ => 9,
-    }
-}
-
-/// A single number for "how much of this needs work", 0-100.
-///
-/// Deliberately simple and stated in the report: checked-and-supported counts
-/// full, an item needing attention counts nothing, and an item that could not
-/// be checked counts nothing either but is reported separately so the score is
-/// never mistaken for a clean bill. A score with a hidden formula is worse than
-/// no score, so the denominator is printed beside it.
-pub fn health_score(m: &AuditReportModel) -> Option<u32> {
-    let attention = m.supported.iter().filter(|i| attention_rank(i) < 9).count();
-    let judged = m.supported.len();
-    // Fewer than this and a percentage is noise dressed as a measurement: with
-    // two checked claims, one weak verdict is "50%".
-    if judged < MIN_SCOREABLE {
-        return None;
-    }
-    Some((((judged - attention) as f64 / judged as f64) * 100.0).round() as u32)
-}
+// §11 D108. `health_score` and `attention_list` lived here and are GONE.
+//
+// Both read `attention_rank`, which reads the support verdict. That verdict is
+// a constant — 14 of 14 valid outputs across two runs were `weak` — so the
+// score was 0/100 on every manuscript and the "needs your attention" list was
+// every checked claim in document order. Neither described a manuscript.
+//
+// Do not reinstate either from the support verdict. A score needs an input that
+// can come out differently for a good paper and a bad one; §11 D85 is the rule
+// (a number that cannot respond to the thing it names is worse than absent).
 
 /// The fewest evidence-backed findings a /100 score may be computed from.
 pub const MIN_SCOREABLE: usize = 10;
@@ -295,6 +295,103 @@ fn emit_suggestion(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
     }
 }
 
+/// Emit ONE EVIDENCE ITEM for `citation_support` (§11 D108).
+///
+/// Deliberately not `emit_finding`, for the reason D89 split suggestions out:
+/// the badge is the report's verdict vocabulary, and this verdict is not
+/// earned. Measured across two runs on the 6-case cold set, every one of
+/// FOURTEEN valid outputs was `weak` — a constant `weak` predictor scores the
+/// same 38% agreement the model does. The verdict carries no information.
+///
+/// What IS earned stays and is promoted: the passages the claim rests on, with
+/// their page links, and the model's own decomposition of the claim. On
+/// `cs-label-005` that decomposition was exactly right while the verdict was
+/// wrong, which is what distinguishes "cannot read the source" from "reads it
+/// correctly and answers regardless".
+///
+/// The caveat rides with the ITEM, not only the section: a reader who lands on
+/// item 19 never saw the heading.
+fn emit_evidence_item(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
+    out.push(heading(format!("Sentence {} · {}", item.seq, locator(item, has_pages)), 3));
+    // NO Block::Badge. The five-class verdict is withheld from the report.
+    out.push(para(
+        "passages located · the source text below is the finding · Gaply does not grade          how well it supports the sentence",
+    ));
+    out.push(para(format!("\u{201c}{}\u{201d}", item.sentence.trim())));
+
+    if let Some(entry) = &item.reference_entry {
+        out.push(bullet(format!("Reference list entry: {entry}"), 0));
+    }
+
+    if item.evidence.is_empty() {
+        // THE D18 RULE, unchanged: with nothing to check the prose against, the
+        // prose is not printed.
+        if item.explanation.is_some() {
+            out.push(Block::Note {
+                text: "The model's explanation is withheld: no source passage was recorded for \
+                       this item, so there is nothing to check it against."
+                    .to_string(),
+            });
+        }
+    } else {
+        out.push(para("From the cited source — read this and judge it yourself:"));
+        for e in &item.evidence {
+            out.push(bullet(
+                format!("{} · {} — \u{201c}{}\u{201d}", e.chunk_id, page_label(e.page, has_pages), e.quote.trim()),
+                1,
+            ));
+        }
+        // The prose stays, AFTER the evidence it rests on — D18's rule is that
+        // a model's reading may be printed when there is a quote to check it
+        // against, and that is satisfied here. It is the five-class VERDICT
+        // that is withdrawn, not everything the model said.
+        if let Some(x) = &item.explanation {
+            out.push(para(format!("The model's reading of that evidence: {}", x.trim())));
+        }
+    }
+
+    // The decomposition, which is the half that measured correct.
+    if !item.claim_elements.is_empty() {
+        out.push(para("What the sentence claims, part by part:"));
+        for el in &item.claim_elements {
+            let mark = match el.status.as_str() {
+                "found" => "in the source",
+                "absent" => "NOT in the passages read",
+                "different" => "the source says otherwise",
+                other => other,
+            };
+            out.push(bullet(format!("{} — {mark}", el.element.trim()), 1));
+        }
+        out.push(Block::Note {
+            text: "These marks are the model's reading of the passages above, not Gaply's \
+                   conclusion. Check them against the quoted text."
+                .to_string(),
+        });
+    }
+
+    if let Some(step) = &item.next_step {
+        out.push(bullet(format!("What to do: {step}"), 0));
+    }
+}
+
+/// The evidence list, emitted with `emit_evidence_item` (§11 D108).
+fn emit_evidence_items(out: &mut Vec<Block>, title: &str, blurb: &str, items: &[ReportItem], has_pages: bool) {
+    out.push(heading(title, 1));
+    if items.is_empty() {
+        out.push(para(format!("{blurb} None found.")));
+        return;
+    }
+    out.push(para(blurb));
+    // Document order. The previous sort was by `attention_rank`, which reads
+    // the VERDICT — ordering by a signal we have just withdrawn would put the
+    // verdict back into the report as a ranking (§11 D108).
+    let mut sorted: Vec<&ReportItem> = items.iter().collect();
+    sorted.sort_by_key(|i| i.seq);
+    for item in sorted {
+        emit_evidence_item(out, item, has_pages);
+    }
+}
+
 /// The advisory list, emitted with `emit_suggestion` (§11 D89).
 fn emit_suggestions(out: &mut Vec<Block>, title: &str, blurb: &str, items: &[ReportItem], has_pages: bool) {
     out.push(heading(title, 1));
@@ -326,7 +423,10 @@ fn emit_section(
     // Most severe first, then document order within a severity — so the reader
     // meets what most needs them at the top of each section.
     let mut sorted: Vec<&ReportItem> = items.iter().collect();
-    sorted.sort_by_key(|i| (attention_rank(i), i.seq));
+    // §11 D108. Was `(attention_rank(i), i.seq)`. `attention_rank` read the
+    // support verdict; the sections still using this emitter carry no verdict
+    // at all, so document order is the honest one.
+    sorted.sort_by_key(|i| i.seq);
     for item in sorted {
         emit_finding(out, item, has_pages);
     }
@@ -419,45 +519,44 @@ fn emit_blocked_sources(out: &mut Vec<Block>, items: &[ReportItem], has_pages: b
     }
 }
 
-/// The items a reader should look at first, across every category.
-///
-/// Ordering by document position put sentence 0 at the top of a 65-item report
-/// and buried the one contradiction on page 9. Severity decides the order here;
-/// document position only breaks ties.
-fn attention_list(m: &AuditReportModel) -> Vec<&ReportItem> {
-    // EVIDENCE-BACKED ONLY (§11 D78). An advisory suggestion at 43% precision
-    // must not appear in a list headed "most need your attention" — that is a
-    // verdict's framing, and fewer than half of them are real.
-    let mut v: Vec<&ReportItem> = m
-        .supported
-        .iter()
-        .filter(|i| attention_rank(i) < 9)
-        .collect();
-    v.sort_by_key(|i| (attention_rank(i), i.seq));
-    v
-}
-
 /// Compose the whole report.
 pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     let mut out = Vec::new();
 
-    // §11 D93. The cover now ANSWERS, rather than only describing the run.
+    // §11 D93 made the cover ANSWER rather than describe. §11 D108 changes
+    // what it may honestly answer WITH.
+    //
+    // The old headline was "{score} / 100 — N of M checked claims held up",
+    // and every input to it came from the support verdict. That verdict is a
+    // constant: fourteen valid outputs across two runs were all `weak`, and
+    // `attention_rank("weak") < 9`, so EVERY checked claim counted as failing
+    // and the cover read "0 / 100 — 0 of N held up" on any manuscript
+    // whatsoever. A fabricated failing grade is worse than no grade, and §11
+    // D85 already settled the principle: a number that cannot respond to the
+    // thing it names is worse than absent.
     let cover_checked = m.supported.len();
-    let cover_failing = m.supported.iter().filter(|i| attention_rank(i) < 9).count();
-    let cover_headline = match health_score(m) {
-        Some(score) => Some((
-            format!("{score} / 100 — {} of {} checked claims held up", cover_checked - cover_failing, cover_checked),
-            match score { 80..=100 => Tone::Good, 50..=79 => Tone::Warn, _ => Tone::Bad },
-        )),
-        None if cover_checked == 0 => Some((
+    let cover_headline = Some(if cover_checked == 0 {
+        (
             "No claim could be checked against its cited source".to_string(),
             Tone::Neutral,
-        )),
-        None => Some((
-            format!("Only {cover_checked} claims could be checked — too few to score"),
+        )
+    } else {
+        (
+            {
+                // The number of claims whose passages were actually quoted is
+                // the honest second figure — not the count of claims, and not
+                // a `.max(1)` floor, which would have reported "1 source" for
+                // a report that quoted none.
+                let with_passages =
+                    m.supported.iter().filter(|i| !i.evidence.is_empty()).count();
+                format!(
+                    "{cover_checked} cited claim{} — source passages quoted for {with_passages}",
+                    if cover_checked == 1 { "" } else { "s" },
+                )
+            },
             Tone::Neutral,
-        )),
-    };
+        )
+    });
     out.push(Block::Cover {
         headline: cover_headline,
         title: "Thesis citation audit".to_string(),
@@ -476,62 +575,44 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     // The first page answers "how bad is it, and what do I do first". The
     // per-item detail is reference material behind it.
     let judged = m.supported.len() + m.needs_citation.len();
-    let attention = attention_list(m);
-    let score = health_score(m);
 
     out.push(heading("At a glance", 1));
 
-    // THE SCORE IS ABOUT EVIDENCE-BACKED FINDINGS ONLY (§11 D78).
+    // §11 D108. THE SCORE IS WITHDRAWN.
     //
-    // It used to average in `citation_need`, whose measured precision is 43% —
-    // fewer than half its flags are real. Folding an advisory signal into a
-    // health number makes the number advisory too, and it was not labelled that
-    // way: 65 declinations produced "97/100" on a paper with a real miscitation.
+    // It was the fraction of checked claims whose verdict was not one of
+    // contradicts/weak/insufficient/partial. The model answers `weak` to
+    // everything — 14 of 14 valid outputs across two runs — so the numerator
+    // was always zero and the score always 0/100, on every manuscript, whatever
+    // the sources said. That is not a low score; it is not a measurement at
+    // all. §11 D85: a number that cannot respond to the thing it names is worse
+    // than absent.
     let checked = m.supported.len();
-    let failing = m.supported.iter().filter(|i| attention_rank(i) < 9).count();
-    match health_score(m) {
-        Some(score) => {
-            out.push(Block::Badge {
-                text: format!("health {score} / 100"),
-                tone: match score {
-                    80..=100 => Tone::Good,
-                    50..=79 => Tone::Warn,
-                    _ => Tone::Bad,
-                },
-            });
-            out.push(para(format!(
-                "{score}/100 — of {checked} claims checked against their cited source, {} held up \
-                 and {failing} did not. The score covers ONLY claims Gaply could check against real \
-                 evidence.",
-                checked - failing,
-            )));
-        }
-        None if checked == 0 => {
-            out.push(Block::Badge { text: "no score".into(), tone: Tone::Neutral });
-            out.push(para(
-                "No score: not one claim could be checked against its cited source, so there is \
-                 nothing to score. The sections below say why, and what would make a check \
-                 possible.",
-            ));
-        }
-        None => {
-            out.push(Block::Badge { text: "too few to score".into(), tone: Tone::Neutral });
-            out.push(para(format!(
-                "No score: only {checked} claim{} could be checked against a cited source, and a \
-                 percentage from that few would be noise rather than a measurement. {} held up, \
-                 {failing} did not — the findings themselves are below.",
-                if checked == 1 { "" } else { "s" },
-                checked - failing,
-            )));
-        }
+    out.push(Block::Badge { text: "no score".into(), tone: Tone::Neutral });
+    if checked == 0 {
+        out.push(para(
+            "No claim could be checked against its cited source, so there is nothing to report \
+             here. The sections below say why, and what would make a check possible.",
+        ));
+    } else {
+        out.push(para(format!(
+            "Gaply does not score how well your sources support your claims, and this report \
+             gives no /100. It located the source passages behind {checked} cited claim{} and \
+             quotes them below with their page — reading those is the check. The grader that \
+             used to produce a score was measured on a labelled set and returned the SAME grade \
+             for every case (14 of 14 outputs across two runs), so any number built from it \
+             described the grader rather than your manuscript.",
+            if checked == 1 { "" } else { "s" },
+        )));
     }
+
     out.push(Block::Note {
         text: format!(
-            "The score does NOT include the “worth a second look” suggestions. Those come from a \
-             language model reading each sentence on its own, and on a labelled test set it \
-             flagged {ADVISORY_RECALL_PCT}% of the sentences that genuinely needed a citation — \
-             but only {ADVISORY_PRECISION_PCT}% of what it flagged actually did. They are a prompt \
-             to look, not a finding, and averaging them into a score would make the score a guess."
+            "The “worth a second look” suggestions below are a SEPARATE and weaker signal. \
+             They come from a language model reading each sentence on its own, and on a labelled \
+             test set it flagged {ADVISORY_RECALL_PCT}% of the sentences that genuinely needed a \
+             citation — but only {ADVISORY_PRECISION_PCT}% of what it flagged actually did. They \
+             are a prompt to look, not a finding."
         ),
     });
 
@@ -552,63 +633,35 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
             tone,
         });
     };
-    prop("checked, did not hold up", failing, Tone::Bad);
-    prop("checked, held up", checked - failing, Tone::Good);
+    // §11 D108. Was "checked, held up" / "checked, did not hold up" — the
+    // withdrawn verdict, split into two bars and coloured. One bar now, saying
+    // only what is true: the passages were found.
+    prop("source passages located", checked, Tone::Good);
     prop("could not be checked", m.unverifiable.len(), Tone::Neutral);
     prop("suggestions only", m.needs_citation.len(), Tone::Warn);
     if !m.failed.is_empty() {
         prop("not judged", m.failed.len(), Tone::Neutral);
     }
 
-    if !attention.is_empty() {
-        const TOP: usize = 10;
-        out.push(heading(
-            // §11 D93. The noun agreed; the verb did not — "The 1 checked
-            // claim that most NEED your attention".
-            {
-                let n = attention.len().min(TOP);
-                if n == 1 {
-                    "The checked claim that most needs your attention".to_string()
-                } else {
-                    format!("The {n} checked claims that most need your attention")
-                }
-            },
-            2,
-        ));
-        out.push(para(
-            "Most serious first, and EVIDENCE-BACKED — every one was checked against the source \
-             it cites. The suggestions are listed separately and are not ranked here.",
-        ));
-        for it in attention.iter().take(TOP) {
-            out.push(bullet(
-                format!(
-                    "[{}] {} · sentence {} — “{}”",
-                    it.verdict.as_deref().unwrap_or("?").replace('_', " "),
-                    locator(it, m.has_pages),
-                    it.seq,
-                    it.sentence.trim().chars().take(96).collect::<String>()
-                ),
-                0,
-            ));
-        }
-        if attention.len() > TOP {
-            out.push(para(format!(
-                "…and {} more in the sections below.",
-                attention.len() - TOP
-            )));
-        }
-    } else if judged > 0 {
-        out.push(para(
-            "Nothing was flagged for attention. That is a statement about the sentences Gaply              could judge — read the not-checkable section before treating it as a clean bill.",
-        ));
-    }
+    // §11 D108. THE ATTENTION LIST IS WITHDRAWN.
+    //
+    // "The N checked claims that most need your attention" was ordered by
+    // `attention_rank`, which reads the support verdict, and each bullet
+    // printed that verdict in brackets. With a constant `weak` it listed EVERY
+    // checked claim, in document order, each tagged `[weak]` — a ranking with
+    // nothing ranking it, under a heading asserting these are the worst.
+    //
+    // Nothing replaces it. Ordering the reader's attention needs a signal that
+    // discriminates, and this engine does not currently have one for support.
+    // The deterministic consistency checks (§11 D94) lead instead: they carry
+    // no error rate because no model produced them.
 
     // The provenance line is not decoration. A reader months from now needs to
-    // know which model produced these verdicts and that it ran locally.
+    // know which model produced this and that it ran locally.
     out.push(Block::Note {
         text: format!(
-            "Every verdict in this report was produced on this machine by {} ({}). \
-             No manuscript text was sent anywhere.",
+            "Everything a language model contributed to this report was produced on this \
+             machine by {} ({}). No manuscript text was sent anywhere.",
             m.model_id, m.prompt_version
         ),
     });
@@ -632,9 +685,14 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     for (kind, n) in &m.counts_by_category {
         out.push(bullet(format!("{n} {}", kind.replace('_', " ")), 0));
     }
-    if !m.verdict_counts.is_empty() {
+    // §11 D108. The support VERDICTS are recorded but no longer summarised as
+    // bars. "support: weak 8 (67%)" is the same withdrawn grade wearing a
+    // headline, and a bar is the most emphatic thing on the page.
+    let (support_counts, other_counts): (Vec<_>, Vec<_>) =
+        m.verdict_counts.iter().partition(|(v, _)| v.starts_with("support:"));
+    if !other_counts.is_empty() {
         out.push(para("What the model concluded:"));
-        for (v, n) in &m.verdict_counts {
+        for (v, n) in &other_counts {
             // §11 D93. The second ASCII-bar site. `{:<26}` padded with spaces
             // that a proportional font does not align, so the label and the
             // count collided exactly as they did above.
@@ -645,6 +703,16 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
                 tone: tone_of(Some(v)),
             });
         }
+    }
+    if !support_counts.is_empty() {
+        let located: usize = support_counts.iter().map(|(_, n)| *n).sum();
+        out.push(para(format!(
+            "{located} cited sentence{} had its source passages located and quoted in this \
+             report. Gaply does not grade how well a passage supports a sentence: on a 6-case \
+             labelled set its grade was identical on all 14 outputs across two runs, so the \
+             grade carries no information and is not reported. The passages are.",
+            if located == 1 { "" } else { "s" }
+        )));
     }
     if !m.skipped_reasons.is_empty() {
         out.push(para("Not judged, and why:"));
@@ -693,11 +761,20 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     }
 
     out.push(Block::PageBreak);
-    emit_section(
+    // §11 D108. Was "Claims checked against their source", led with a verdict
+    // badge, and told the reader to read the passage "before the verdict".
+    // There is no verdict here any more: fourteen valid outputs across two runs
+    // were all `weak`, and a constant scores the same. The passages stay,
+    // because those are what measured correct.
+    emit_evidence_items(
         &mut out,
-        "Claims checked against their source",
-        "Each sentence below cites a source Gaply could read. The quoted passage is what the \
-         verdict rests on — read it before the verdict. THIS IS THE EVIDENCE-BACKED SECTION.",
+        "The source passages behind each cited claim",
+        "Each sentence below cites a source Gaply could read, and the passages it rests on are \
+         quoted underneath it with their page. THIS IS THE EVIDENCE-BACKED SECTION — and the \
+         evidence is the finding. Gaply does NOT grade how well a passage supports a sentence: \
+         measured on a 6-case labelled set, its grade was the same one every time (14 of 14 \
+         outputs across two runs), so the grade carries no information and is not shown. \
+         Reading the quoted passage is the check.",
         &m.supported,
         m.has_pages,
     );
@@ -841,10 +918,17 @@ mod tests {
         // `compose_audit`, so it is the one marker this composer cannot show.
         // Named explicitly rather than skipped by count, so that if it ever
         // starts being emitted here the exemption is revisited.
+        // §11 D108. "Claims checked against their source" is the RETIRED
+        // heading, kept in the marker list so reports exported before the
+        // rename are still recognised. A current report cannot emit it.
         let missing: Vec<&str> = GAPLY_REPORT_MARKERS
             .iter()
             .copied()
-            .filter(|m| *m != "PublishReady" && !found.contains(m))
+            .filter(|m| {
+                *m != "PublishReady"
+                    && *m != "Claims checked against their source"
+                    && !found.contains(m)
+            })
             .collect();
         assert!(
             missing.is_empty(),
@@ -884,10 +968,11 @@ mod tests {
             "ungrounded model prose was printed:\n{text}"
         );
         assert!(text.contains("no source passage was recorded"), "{text}");
-        // The sentence and the verdict are still reported — withholding the
-        // prose is not the same as hiding the item.
+        // The SENTENCE is still reported — withholding the prose is not the
+        // same as hiding the item. §11 D108: the verdict is no longer printed
+        // beside it, so this no longer asserts one.
         assert!(text.contains("Reporting rates are uneven"), "{text}");
-        assert!(text.contains("insufficient evidence"), "{text}");
+        assert!(!text.contains("insufficient evidence"), "a verdict was printed:\n{text}");
     }
 
     #[test]
@@ -1086,8 +1171,11 @@ mod tests {
                 ..Default::default()
             })
             .collect();
-        let without = health_score(&m);
-        assert_eq!(without, Some(80));
+        // §11 D108. There is no score to move any more, so the property is
+        // stated where it now lives: the evidence section counts ONLY claims
+        // checked against a source, and no /100 is rendered at all.
+        let before = all_text(&compose_audit(&m));
+        assert!(!before.contains("/ 100"), "a /100 survived the withdrawal:\n{before}");
 
         // Fifty advisory suggestions must not shift it by a point.
         m.needs_citation = (0..50)
@@ -1098,11 +1186,13 @@ mod tests {
                 ..Default::default()
             })
             .collect();
-        assert_eq!(health_score(&m), without, "advisory items moved the score");
-
         let text = all_text(&compose_audit(&m));
-        // The score says what it covers.
-        assert!(text.contains("checked against their cited source"), "{text}");
+        assert!(!text.contains("/ 100"), "fifty suggestions produced a score:\n{text}");
+        // The count of located claims is unmoved by advisory items.
+        assert!(
+            text.contains("10 cited claims"),
+            "advisory items changed what the cover counts:\n{text}"
+        );
         // The advisory list is labelled as suggestions, never as findings.
         assert!(text.contains("suggestions, not findings"), "{text}");
         assert!(!text.contains("Sentences that may need a citation"), "old verdict heading:\n{text}");
@@ -1196,28 +1286,90 @@ mod tests {
         None
     }
 
-    /// §11 D93. "The 1 checked claim that most NEED your attention".
+    /// §11 D108. The whole contract, in one place: the support verdict is
+    /// recorded but never rendered, the decomposition and the passages are, and
+    /// the report states the measurement that justifies the withdrawal.
     #[test]
-    fn the_attention_heading_agrees_in_number() {
+    fn the_support_verdict_is_withheld_and_the_evidence_is_promoted() {
         let mut m = model();
         m.supported = vec![ReportItem {
-            seq: 1,
-            sentence: "One weak claim.".into(),
+            seq: 7,
+            page: Some(3),
+            sentence: "GoEmotions reports 46% macro-F1 over 27 categories.".into(),
+            // Recorded — the export and the counts keep it.
             verdict: Some("weak".into()),
+            explanation: Some("The source states 46% over 27 categories.".into()),
+            evidence: vec![ReportEvidence {
+                chunk_id: "c32".into(),
+                page: Some(1),
+                quote: "we achieve an average F1-score of 46% over 27 emotion categories".into(),
+            }],
+            claim_elements: vec![
+                ClaimElement { element: "46% macro-F1".into(), status: "found".into() },
+                ClaimElement { element: "27 categories".into(), status: "found".into() },
+                ClaimElement { element: "95% accuracy".into(), status: "absent".into() },
+            ],
             ..Default::default()
         }];
-        let one = all_text(&compose_audit(&m));
-        assert!(one.contains("The checked claim that most needs your attention"), "{one}");
-        assert!(!one.contains("that most need your attention"), "verb still plural:\n{one}");
+        let blocks = compose_audit(&m);
+        let text = all_text(&blocks);
 
-        m.supported.push(ReportItem {
-            seq: 2,
-            sentence: "Another weak claim.".into(),
-            verdict: Some("weak".into()),
-            ..Default::default()
-        });
-        let two = all_text(&compose_audit(&m));
-        assert!(two.contains("The 2 checked claims that most need your attention"), "{two}");
+        // NOT rendered: the five-class verdict, in any of its forms.
+        assert!(
+            !blocks.iter().any(|b| matches!(b, Block::Badge { text, .. } if text == "weak")),
+            "the verdict is still a badge:\n{text}"
+        );
+        assert!(!text.contains("/ 100"), "a score returned:\n{text}");
+        assert!(!text.contains("held up"), "verdict language returned:\n{text}");
+
+        // RENDERED: the passage, its page, and the decomposition.
+        assert!(text.contains("46% over 27 emotion categories"), "the passage is missing:\n{text}");
+        assert!(text.contains("p.1"), "the page link is missing:\n{text}");
+        assert!(text.contains("What the sentence claims, part by part"), "{text}");
+        assert!(text.contains("46% macro-F1 — in the source"), "{text}");
+        assert!(text.contains("95% accuracy — NOT in the passages read"), "{text}");
+        // The marks are the model's, and the report says so.
+        assert!(text.contains("not Gaply's conclusion"), "{text}");
+
+        // And the measurement that justifies all of the above is STATED.
+        assert!(text.contains("14 of 14"), "the measurement is not disclosed:\n{text}");
+        assert!(text.contains("does not grade"), "{text}");
+
+        // The verdict survives in the MODEL, so the measurement stays repeatable.
+        assert_eq!(m.supported[0].verdict.as_deref(), Some("weak"));
+    }
+
+    /// §11 D108. The attention list is GONE, and this asserts its absence.
+    ///
+    /// It was "The N checked claims that most need your attention", ordered by
+    /// `attention_rank`, which read the support verdict. With a constant `weak`
+    /// it listed every checked claim, each bullet printing `[weak]` — a ranking
+    /// with nothing ranking it, under a heading asserting these were the worst.
+    #[test]
+    fn no_attention_ranking_is_rendered_from_the_support_verdict() {
+        let mut m = model();
+        m.supported = vec![
+            ReportItem {
+                seq: 1,
+                sentence: "One weak claim.".into(),
+                verdict: Some("weak".into()),
+                ..Default::default()
+            },
+            ReportItem {
+                seq: 2,
+                sentence: "Another weak claim.".into(),
+                verdict: Some("contradicts".into()),
+                ..Default::default()
+            },
+        ];
+        let text = all_text(&compose_audit(&m));
+        assert!(!text.contains("your attention"), "the attention list came back:\n{text}");
+        // And no bullet prints the verdict in brackets, which is how that list
+        // put the withdrawn grade in front of the reader.
+        assert!(!text.contains("[weak]"), "a bracketed verdict survived:\n{text}");
+        assert!(!text.contains("[contradicts]"), "a bracketed verdict survived:\n{text}");
+        // The sentences themselves are still reported.
+        assert!(text.contains("One weak claim."), "{text}");
     }
 
     /// §11 D93. Page 1 answers "how did it go?", not only "what was run".
@@ -1236,15 +1388,25 @@ mod tests {
             panic!("no cover block");
         };
         let (text, _) = headline.as_ref().expect("the cover has no headline");
-        assert!(text.contains("80 / 100"), "{text}");
-        assert!(text.contains("8 of 10 checked claims held up"), "{text}");
+        // §11 D108. The cover used to read "80 / 100 — 8 of 10 checked claims
+        // held up". Every input to that came from the support verdict, which
+        // is a constant, so it said 0/100 for every real manuscript. It now
+        // states what was actually done.
+        assert!(!text.contains("/ 100"), "the cover still carries a score: {text}");
+        assert!(!text.contains("held up"), "the cover still grades: {text}");
+        assert!(text.contains("10 cited claims"), "{text}");
 
-        // With nothing checkable it says so rather than showing a bare score.
-        let empty_blocks = compose_audit(&model());
+        // With nothing checkable it says so. (The old test used `model()`,
+        // which has one supported item and used to fall through to "too few to
+        // score" — a branch that no longer exists, so it must now actually be
+        // empty to exercise this.)
+        let mut none = model();
+        none.supported.clear();
+        let empty_blocks = compose_audit(&none);
         let Some(Block::Cover { headline, .. }) = empty_blocks.first() else {
             panic!("no cover")
         };
-        assert!(headline.as_ref().unwrap().0.contains("could be checked"), "{headline:?}");
+        assert!(headline.as_ref().unwrap().0.contains("No claim could be checked"), "{headline:?}");
     }
 
     /// §11 D89. A suggestion must not arrive dressed as a finding.
@@ -1260,6 +1422,14 @@ mod tests {
             .map(|i| ReportItem {
                 seq: i,
                 sentence: format!("Checked claim {i}."),
+                // §11 D108. The evidence side is distinguished by QUOTING the
+                // source, so these must carry a passage for the distinction to
+                // be the thing under test.
+                evidence: vec![ReportEvidence {
+                    chunk_id: format!("c{i}"),
+                    page: Some(2),
+                    quote: "A passage from the cited source.".into(),
+                }],
                 verdict: Some("strong".into()),
                 ..Default::default()
             })
@@ -1274,19 +1444,28 @@ mod tests {
 
         let blocks = compose_audit(&m);
 
-        // The evidence-backed side KEEPS its badge — the fix must not flatten
-        // both into the same undifferentiated grey.
+        // §11 D108. NEITHER side carries a verdict badge now: the support
+        // verdict was withdrawn after measuring as a constant. D89's original
+        // worry — that the fix would flatten both into the same
+        // undifferentiated grey — is answered below, not by a badge.
         assert!(
-            blocks.iter().any(|b| matches!(b, Block::Badge { text, .. } if text == "strong")),
-            "the checked findings lost their verdict badge"
+            !blocks.iter().any(|b| matches!(b, Block::Badge { text, .. } if text == "strong")),
+            "the withdrawn verdict is still rendered as a badge"
         );
-        // The advisory side has none.
         assert!(
             !blocks
                 .iter()
                 .any(|b| matches!(b, Block::Badge { text, .. } if text.contains("needs citation"))),
             "a suggestion is still wearing a verdict badge"
         );
+
+        // THE DISTINCTION THAT MATTERS, and it is stronger than a badge: the
+        // evidence side quotes source text and says the passage IS the finding;
+        // the advisory side says nothing was checked against any source.
+        let text = all_text(&blocks);
+        assert!(text.contains("read this and judge it yourself"), "{text}");
+        assert!(text.contains("not checked against any source"), "{text}");
+        assert!(text.contains("does not grade"), "the withdrawal is not stated:\n{text}");
     }
 
     /// §11 D89. The rate must ride with the ITEM, not only sit in the intro.
@@ -1356,9 +1535,12 @@ mod tests {
         );
     }
 
-    /// Too few checked claims to score is SAID, not rendered as 0 or 100.
+    /// §11 D108. NO score is rendered, at any n. The old rule was "too few to
+    /// score is said rather than rendered as 0"; the rule now is that the
+    /// support verdict cannot produce a score at any sample size, because it
+    /// returns the same value every time.
     #[test]
-    fn too_few_checked_claims_yields_no_score_rather_than_a_misleading_one() {
+    fn no_health_score_is_rendered_at_any_size() {
         let mut m = model();
         m.supported = vec![ReportItem {
             seq: 1,
@@ -1366,15 +1548,28 @@ mod tests {
             verdict: Some("weak".into()),
             ..Default::default()
         }];
-        assert_eq!(health_score(&m), None, "a percentage from n=1 is noise");
         let text = all_text(&compose_audit(&m));
-        assert!(text.contains("would be noise rather than a measurement"), "{text}");
-        assert!(!text.contains("0 / 100"), "rendered a score anyway:\n{text}");
+        assert!(!text.contains("/ 100"), "rendered a score anyway:\n{text}");
+        assert!(text.contains("does not score"), "the withdrawal is not explained:\n{text}");
+
+        // And with plenty of checked claims it is STILL absent — this is the
+        // half the old test could not express, because 20 items used to score.
+        m.supported = (0..20)
+            .map(|i| ReportItem {
+                seq: i,
+                sentence: format!("Checked claim {i}."),
+                verdict: Some("strong".into()),
+                ..Default::default()
+            })
+            .collect();
+        let text = all_text(&compose_audit(&m));
+        assert!(!text.contains("/ 100"), "twenty items brought the score back:\n{text}");
+        assert!(!text.contains("held up"), "the verdict language returned:\n{text}");
 
         // And with nothing checked at all, it says so.
         m.supported.clear();
         let text = all_text(&compose_audit(&m));
-        assert!(text.contains("not one claim could be checked"), "{text}");
+        assert!(text.contains("No claim could be checked against its cited source"), "{text}");
     }
 
     #[test]
@@ -1419,7 +1614,12 @@ mod tests {
 
         // The advisory item is NOT in the attention list — it appears only in
         // its own section, after the evidence-backed one.
-        let attention_hdr = text.find("most need your attention").expect("no attention list");
+        //
+        // §11 D108. The attention list is gone with the verdict that ordered
+        // it, so the ranking half of this test is gone too. What survives is
+        // D78's property, which never depended on the verdict: evidence-backed
+        // material LEADS, and an advisory suggestion appears only inside its
+        // own clearly-labelled section.
         let advisory_hdr = text.find("suggestions, not findings").expect("no advisory section");
         let uncited = text.find("An uncited assertion.").expect("advisory item absent");
         assert!(
@@ -1427,13 +1627,13 @@ mod tests {
             "an advisory suggestion appeared before its own section — it is being \
              presented as a finding:\n{text}"
         );
-        assert!(attention_hdr < advisory_hdr, "advisory section preceded the attention list");
 
-        // A clean checked item is not promoted into the attention list.
-        let detail = text.find("Claims checked against their source").expect("no detail section");
+        let detail = text
+            .find("The source passages behind each cited claim")
+            .expect("no evidence section");
         assert!(
             text.find("An ordinary supported claim.").unwrap() > detail,
-            "a clean item was promoted into the attention list:\n{text}"
+            "a checked item appeared before its own section:\n{text}"
         );
         // Evidence-backed findings LEAD the advisory ones (§11 D78).
         assert!(detail < advisory_hdr, "the advisory section preceded the checked findings");

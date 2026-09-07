@@ -680,7 +680,11 @@ pub const GAPLY_REPORT_MARKERS: &[&str] = &[
     "PublishReady",
     "At a glance",
     "The counts",
+    // §11 D108 renamed this section. The OLD heading stays in the list: reports
+    // exported before that change are still Gaply reports, and the guard exists
+    // to recognise them.
     "Claims checked against their source",
+    "The source passages behind each cited claim",
     "Cited, but not checkable",
     "Worth a second look",
     "Not judged",
