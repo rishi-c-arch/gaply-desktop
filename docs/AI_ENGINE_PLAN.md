@@ -6178,3 +6178,138 @@ Two distinctions are KEPT because neither is a grade:
 
 The health score stays gone. If a score returns it returns on something
 measured, deliberately, not as a restoration.
+
+### D109 — the fifth wire drift, and the first hidden by a cast
+
+The annotated manuscript could only ever draw ONE of its highlight colours, and
+had shipped that way.
+
+`ThesisAuditScreen` fills its `items` from `ai_job_results`, whose per-item wire
+shape is `gaply_core::ai_engine::jobs::JobItem` — `#[serde(rename_all =
+"camelCase")]` over `result_json: Option<String>`, so the field is **`resultJson`
+and its value is a JSON string**. `AnnotatedManuscript` was written against the
+PARSED shape that `health.flagged` carries (`FlaggedItem.result` is a real
+`serde_json::Value`) and read `it.result?.output?.verdict`.
+
+Always `undefined`. So:
+
+| kind | `statusOf` | drawn |
+|---|---|---|
+| `unverifiable` | `blocked` — ignores the verdict | ✅ |
+| `citation_support` | `null` | ❌ never |
+| `citation_need` | `null` | ❌ never |
+
+The view showed only grey "cited but not checkable" marks under a legend
+advertising statuses the page could not produce, and its counter — *"N of M
+judged sentences shown"* — computed `M` from the already-empty drawable set, so
+it read as correct rather than broken.
+
+#### What is new about this one
+
+The four before it (§11 D46, D53, D103) were all a NAME drifting between Rust
+and a hand-written TypeScript reader. This is the first where the mismatch was
+**silenced at the call site by a cast**: `items={items as any}`. The types were
+right on both sides and the compiler was told not to look.
+
+`as any` is a wire-contract defeat, and it is invisible to every guard we have.
+
+#### Why §11 D103's guard could not have caught it
+
+Two independent reasons, and the second is the more important:
+
+1. **The shape never enters the guard's world.** `ai_job_results` is declared
+   `-> Result<serde_json::Value, GaplyError>`. The surface scan reads types off
+   the signature, and `Value` is in `NOT_A_WIRE_TYPE`. **Fourteen commands
+   return `serde_json::Value`** — including `ai_job_results`, `ai_job_status`,
+   `ai_job_start_thesis_audit`, `ai_citation_support`, `ai_link_source_document`
+   — so the app's busiest surface is entirely untyped at the boundary and
+   entirely invisible to the guard.
+2. **Even a fully-typed shape would not help**, because the defect is not that
+   Rust emitted the wrong key. Rust emitted `resultJson` correctly. The reader
+   asked for a different one, and the cast stopped anyone finding out. No
+   Rust-side test can see that.
+
+So the honest answer to "can the guard catch this shape too" is **no, not as
+built** — and two things would move it:
+
+- make the guard flag a command returning bare `serde_json::Value` as *shape not
+  declared, therefore not checked*. That does not verify anything, but it turns
+  fourteen silent holes into a visible list;
+- a lint against `as any` on a component prop boundary. Cheaper and narrower:
+  the cast is what defeated the type system here, and there is exactly one of
+  them on this path.
+
+Neither is built here.
+
+#### The fix, and the test that had to change with it
+
+`outputOf(item)` reads BOTH shapes — the parsed `result.output` and the
+`resultJson` string — in one place, so a third call site cannot pick the wrong
+field again. An unreadable `resultJson` yields `{}` and therefore no highlight,
+never a mark built on a parse failure. The `as any` is gone, so the compiler now
+checks the assignment.
+
+**The test lesson is the point of the entry.** §11 D108 added *"every status in
+the legend is reachable"*, which calls `statusOf` directly — it passed happily
+while no support sentence could be highlighted at all. A guard over the VALUE
+proves nothing about the PATH. The new tests render the component from a payload
+built to the exact `ai_job_results` wire shape (camelCase keys, `resultJson` as a
+string, `kind` snake_case) and assert a highlight appears, the counter is not
+silently short, an empty passage list still draws nothing, and unreadable JSON
+draws nothing. Reintroducing the bug fails three of them; the `statusOf` tests
+stay green throughout, which is exactly how it shipped.
+
+### D110 — a retracted source is not a model finding, and must not be filed as one
+
+`grep -i retract` across `audit_report.rs`, `audit_export.rs` and
+`thesis_audit.rs` returned **nothing**. A researcher could audit a manuscript
+citing a retracted paper, read its passages quoted neutrally in the evidence
+section, and never be told — while the Citation Manager held `retracted = true`
+for that very entry, durably, since Scope B.
+
+The two features had the fact and did not share it. This is the failure the
+product exists to prevent.
+
+#### Where it surfaces, and why there
+
+**Before the run, on the confirmation card.** *"2 of your cited sources have
+been RETRACTED"*, above the counts, with each work named and its citing-sentence
+count. A retraction is registry-backed and settled; establishing it costs
+nothing and does not need the model. Learning it after three hours of inference
+inverts the cost of finding out, and the card is exactly where §11 D88 put the
+other things worth knowing before spending them.
+
+**At the TOP of the report**, above even the deterministic consistency checks.
+Consistency findings are structural facts about the manuscript; a retraction is
+a fact about the scholarly record, and it is the most serious thing this report
+can carry.
+
+**NOT among the model findings**, and this is the deliberate part. Filing it in
+the evidence section would rank the one settled, registry-backed fact in the
+report alongside — and below — output with an error rate. It is not a verdict,
+it did not come from the 3B, and it does not belong in a section whose blurb
+explains what a language model contributed.
+
+#### NOT a gate, and that is also deliberate
+
+Structural consistency findings block the run until acknowledged (§11 D94)
+because they mean the audit's own resolutions cannot be trusted. Retraction is
+different: **citing a retracted work is often correct.** A paper about research
+integrity must cite the papers it discusses; a literature review may cite one
+precisely to note its withdrawal. Blocking would be wrong. It reports loudly and
+proceeds.
+
+#### What it must never say
+
+There is no "0 retracted" line. Absence of a confirmed retraction is not a clean
+bill, because `retracted` is only true when a registry actually answered — an
+entry nobody checked is UNCHECKED, and §11 D102 exists precisely to keep those
+two apart. Both surfaces say so in as many words: *"Only works that were
+actually checked appear here; an unchecked entry is not a clean one."*
+
+#### The lookup was one call away
+
+`libraryId` has been in the support item's `payload_json` since planning
+(`thesis_audit.rs:525`), and `build_model` already holds `db`. Counting is over
+DISTINCT works, like every other source figure on the card — five sentences
+citing one retracted paper is one problem to fix, not five.

@@ -408,6 +408,39 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
       {preview && stage === 'planned' && (
         <Card title="Before you start" data-testid="audit-plan">
           <p className="gds-ai__hint">{path}</p>
+
+          {/* §11 D110. FIRST on the card, above the counts.
+              A retracted source is registry-backed, deterministic and more
+              serious than anything this audit can conclude — and it costs
+              nothing to establish. Learning it after three hours of model time
+              inverts the cost of finding out.
+              NOT a gate: citing a retracted work is legitimate when the
+              retraction is the point. It reports; it does not block. */}
+          {preview.retractedSources > 0 && (
+            <div className="gds-audit__alert" data-testid="audit-retracted">
+              <p className="gds-ai__value" style={{ color: 'var(--g-flagged)' }}>
+                {preview.retractedSources} of your cited source
+                {preview.retractedSources === 1 ? ' has' : 's have'} been RETRACTED
+              </p>
+              <ul className="gds-audit__counts">
+                {preview.sources
+                  .filter((src) => src.retracted)
+                  .map((src, i) => (
+                    <li key={i} data-testid={`audit-retracted-${i}`}>
+                      <b>{src.label}</b> — cited by {src.citingSentences} sentence
+                      {src.citingSentences === 1 ? '' : 's'}
+                    </li>
+                  ))}
+              </ul>
+              <p className="gds-ai__hint">
+                A retraction registry was asked and answered — no language model was involved,
+                and this does not depend on the audit running. Citing a retracted work is fine
+                when the retraction is your point; otherwise the citation needs replacing. Only
+                works that were actually checked appear here; an unchecked entry is not a clean
+                one, and the Citation Manager says which is which.
+              </p>
+            </div>
+          )}
           <div className="gds-audit__stats">
             <div className="gds-audit__stat"><b>{preview.totalSentences}</b><span>sentences</span></div>
             <div className="gds-audit__stat"><b>{preview.cited}</b><span>cited</span></div>
@@ -904,7 +937,10 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
           </button>
           {annotOpen &&
             (path.toLowerCase().endsWith('.pdf') ? (
-              <AnnotatedManuscript path={path} items={items as any} />
+              // §11 D109. The `as any` here is what let the shape mismatch
+              // ship: AuditItem carries `resultJson`, the component read
+              // `result.output`. No cast now, so the compiler checks it.
+              <AnnotatedManuscript path={path} items={items} />
             ) : (
               <AnnotatedUnavailable onOpenReport={() => setAnnotOpen(false)} />
             ))}

@@ -18,6 +18,7 @@ export interface JudgedItem {
   kind: string;
   page: number | null;
   sentence: string;
+  /** A PARSED result, as `health.flagged` carries it (`FlaggedItem.result`). */
   result?: {
     output?: {
       verdict?: string;
@@ -27,6 +28,17 @@ export interface JudgedItem {
     };
     category?: string;
   } | null;
+  /**
+   * The UNPARSED result, as `ai_job_results` carries it (§11 D109).
+   *
+   * `JobItem.result_json` is a String on the wire, camelCased to `resultJson`.
+   * This component was written against the parsed shape and given the unparsed
+   * one through an `as any` cast, so `result?.output` was always undefined and
+   * NO citation_support or citation_need sentence could ever be highlighted —
+   * only `unverifiable`, which ignores the verdict. Both shapes are accepted
+   * here now, and the cast at the call site is gone so the compiler checks it.
+   */
+  resultJson?: string | null;
 }
 
 export interface AnnotatedManuscriptProps {
@@ -40,9 +52,32 @@ export interface AnnotatedManuscriptProps {
   pageWidth?: number;
 }
 
-const verdictOf = (it: JudgedItem) => it.result?.output?.verdict ?? null;
+/**
+ * The item's model output, from whichever shape the caller has (§11 D109).
+ *
+ * ONE reader for both, so a third call site cannot pick the wrong field again.
+ */
+export function outputOf(it: JudgedItem): {
+  verdict?: string;
+  supporting_chunks?: unknown[];
+} {
+  if (it.result?.output) return it.result.output;
+  if (typeof it.resultJson === 'string' && it.resultJson.trim() !== '') {
+    try {
+      return JSON.parse(it.resultJson)?.output ?? {};
+    } catch {
+      // A result we cannot read is not a result. Falling through to {} draws
+      // nothing, which is the honest outcome — never a highlight built on a
+      // parse failure.
+      return {};
+    }
+  }
+  return {};
+}
+
+const verdictOf = (it: JudgedItem) => outputOf(it).verdict ?? null;
 /** §11 D108. How many source passages this item recorded. */
-const passagesOf = (it: JudgedItem) => it.result?.output?.supporting_chunks?.length ?? 0;
+const passagesOf = (it: JudgedItem) => outputOf(it).supporting_chunks?.length ?? 0;
 
 /** Only what can be drawn: a status, and a sentence long enough to locate. */
 export function annotatable(items: JudgedItem[]) {

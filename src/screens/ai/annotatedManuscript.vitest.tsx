@@ -18,7 +18,7 @@ vi.mock('react-pdf', () => ({
 vi.mock('./pdfWorker', () => ({ configurePdfWorker: () => {} }));
 vi.mock('react-pdf/dist/esm/Page/TextLayer.css', () => ({}));
 
-import { AnnotatedManuscript, AnnotatedUnavailable, annotatable } from './AnnotatedManuscript';
+import { AnnotatedManuscript, AnnotatedUnavailable, annotatable, outputOf } from './AnnotatedManuscript';
 import { statusOf, STATUS_ORDER, STATUS_STYLE } from './annotationStatus';
 import { PageText } from './anchorSentences';
 
@@ -114,6 +114,93 @@ const items = [
   { seq: 2, kind: 'citation_need', page: 1, sentence: 'A sentence that is printed nowhere on this page at all.', result: { output: { verdict: 'needs_citation' } } },
   { seq: 3, kind: 'citation_need', page: 1, sentence: 'Another uncited line entirely absent from the page text.', result: { output: { verdict: 'no_citation_needed' } } },
 ];
+
+/* ------------------------------------------------------------------ *
+ *  §11 D109 — THE BOUNDARY, not the vocabulary.
+ * ------------------------------------------------------------------ */
+
+/**
+ * One item EXACTLY as `ai_job_results` delivers it.
+ *
+ * `gaply_core::ai_engine::jobs::JobItem` is `#[serde(rename_all = "camelCase")]`
+ * over `result_json: Option<String>` — so the field is `resultJson` and its
+ * value is a JSON STRING, not an object. `ItemKind` is `snake_case`.
+ *
+ * This shape is the whole point of the test. `AnnotatedManuscript` was written
+ * against the PARSED shape that `health.flagged` carries, and the screen handed
+ * it this one through `as any`, so every citation_support and citation_need
+ * sentence silently failed to highlight and only `unverifiable` — which ignores
+ * the verdict — ever drew. A test on `statusOf` alone passes throughout.
+ */
+const wireItem = (over: Partial<Record<string, unknown>> = {}) => ({
+  id: 11,
+  jobId: 7,
+  seq: 1,
+  kind: 'citation_support',
+  chunkId: null,
+  page: 1,
+  sentence: 'Organic farming increases soil microbial biomass by a third here.',
+  payloadJson: JSON.stringify({ documentId: 3, libraryId: 'lib-1', citedSource: '[1]' }),
+  status: 'done',
+  attempts: 1,
+  resultJson: JSON.stringify({
+    output: { verdict: 'weak', supporting_chunks: [{ chunk_id: 'c1', page: 2, why: 'it says so' }] },
+  }),
+  error: null,
+  ...over,
+});
+
+describe('the ai_job_results boundary (§11 D109)', () => {
+  const load = {
+    loadBytes: async () => new Uint8Array([1]),
+    loadPages: async () => [PAGE],
+  };
+
+  it('highlights a support sentence delivered in the WIRE shape, not the parsed one', async () => {
+    render(<AnnotatedManuscript path="/t.pdf" items={[wireItem()]} {...load} />);
+    await waitFor(() => expect(screen.getAllByTestId('annot-hl-1').length).toBeGreaterThan(0));
+    expect(screen.getAllByTestId('annot-hl-1')[0].getAttribute('data-status')).toBe('evidence');
+  });
+
+  it('counts it as drawable, so the "N of M shown" line is not silently short', async () => {
+    render(<AnnotatedManuscript path="/t.pdf" items={[wireItem()]} {...load} />);
+    // Wait for the ANCHORED state, not merely for the element: the counter
+    // renders before anchoring finishes, so asserting on first paint measured
+    // the render clock rather than the fix (it read "0 of 1" under load).
+    await waitFor(() =>
+      expect(screen.getByTestId('annot-counts').textContent).toMatch(/1 of 1/),
+    );
+    // The denominator is the half that was broken: `drawable` was empty, so
+    // this line read "0 of 0" — which looks correct rather than broken.
+    expect(screen.getByTestId('annot-counts').textContent).toMatch(/of 1 judged sentence/);
+  });
+
+  it('still draws nothing when the wire result records no passage', async () => {
+    const noPassage = wireItem({
+      resultJson: JSON.stringify({ output: { verdict: 'strong', supporting_chunks: [] } }),
+    });
+    render(<AnnotatedManuscript path="/t.pdf" items={[noPassage]} {...load} />);
+    await waitFor(() => expect(screen.getByTestId('annot-counts')).toBeTruthy());
+    expect(screen.queryByTestId('annot-hl-1')).toBeNull();
+  });
+
+  it('treats an unreadable resultJson as no result, never as a highlight', async () => {
+    const broken = wireItem({ resultJson: '{not json' });
+    render(<AnnotatedManuscript path="/t.pdf" items={[broken]} {...load} />);
+    await waitFor(() => expect(screen.getByTestId('annot-counts')).toBeTruthy());
+    expect(screen.queryByTestId('annot-hl-1')).toBeNull();
+  });
+
+  it('reads BOTH shapes, so the flagged-list path keeps working', () => {
+    // `health.flagged` carries FlaggedItem.result — already parsed.
+    expect(
+      outputOf({ seq: 1, kind: 'citation_support', page: 1, sentence: 'x',
+        result: { output: { verdict: 'strong', supporting_chunks: [{}] } } }).verdict,
+    ).toBe('strong');
+    // `ai_job_results` carries the string.
+    expect(outputOf(wireItem() as any).verdict).toBe('weak');
+  });
+});
 
 describe('AnnotatedManuscript', () => {
   const load = {
