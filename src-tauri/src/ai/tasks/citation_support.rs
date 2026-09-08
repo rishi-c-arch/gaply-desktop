@@ -657,6 +657,80 @@ pub const PROMPT_VERSION_V17: &str = "citation_support-v1.7-chunkbound";
 const CHUNK_BOUND_RULE: &str =
     "3. supporting_chunks MUST contain AT MOST 4 entries.";
 
+pub const PROMPT_VERSION_V18: &str = "citation_support-v1.8-ownwork";
+
+/// §11 D117. §11 D58's own-work rule, ported to the DECOMPOSITION.
+///
+/// Measured cause, not a guess: on `cs-label-005` the model decomposed
+///
+///   "GoEmotions … reached only 46% macro-F1, over 27 categories, which is
+///    substantially lower than the 95% macro-F1 of the present study."
+///
+/// into five elements and marked `95%` ABSENT — correctly, since the cited
+/// source cannot contain the citing paper's own result. Its verdict then
+/// followed from its own decomposition and was `weak`, where the gold is
+/// `strong`. The verdict was not disconnected from the elements; the
+/// decomposition was wrong in a way that looks right element by element.
+///
+/// citation_need has had this rule since D58; citation_support never had one.
+///
+/// The worked example below is DELIBERATELY not cs-label-005's sentence, or in
+/// its domain. Teaching to the measured case is how a fix scores well and
+/// generalises to nothing (§11 D98).
+const OWN_WORK_RULE: &str = r#"
+- DECOMPOSE ONLY WHAT THE SENTENCE ATTRIBUTES TO THE CITED SOURCE. A citing
+  sentence often compares the source to the authors' own work. The authors' own
+  numbers, methods and results are NOT part of the claim being checked: the
+  source could not contain them, and marking them absent makes an accurate
+  citation look unsupported. Leave them out of claim_elements entirely.
+
+  Sentence: "Ng et al. (2019) trained on 12,000 labelled scans and reported an
+  AUC of 0.82, well below the 0.94 our pipeline achieves."
+  -> claim_elements decomposes ONLY: "trained on 12,000 labelled scans",
+     "reported an AUC of 0.82". The 0.94 is the authors' own result and is not
+     an element."#;
+
+/// v1.6's task with the own-work decomposition rule appended (§11 D117).
+#[derive(Debug, Clone)]
+pub struct CitationSupportV18Task {
+    pub claim: String,
+    pub cited_source: String,
+    pub evidence: String,
+}
+
+impl AiTask for CitationSupportV18Task {
+    type Output = CitationSupportOutput;
+
+    fn prompt_version(&self) -> &'static str {
+        PROMPT_VERSION_V18
+    }
+
+    fn max_tokens() -> usize {
+        MAX_TOKENS
+    }
+
+    fn build_prompt(&self) -> String {
+        // v1.6's prompt with ONE rule added, the same discipline V17 used, so
+        // any difference measured is attributable to that rule and nothing else.
+        let base = CitationSupportTask {
+            claim: self.claim.clone(),
+            cited_source: self.cited_source.clone(),
+            evidence: self.evidence.clone(),
+        }
+        .build_prompt();
+        base.replace(
+            "- At most 5 claim_elements.",
+            &format!("{OWN_WORK_RULE}\n- At most 5 claim_elements."),
+        )
+    }
+
+    fn validate(out: &Self::Output, ctx: &TaskContext) -> Result<(), Vec<ValidationError>> {
+        // IDENTICAL validation. The question is what the model PRODUCES, and a
+        // changed validator would confound that (§11 D64).
+        validate_support(out, ctx, false)
+    }
+}
+
 /// v1.6's task with the chunk bound appended to the fatal-rule block.
 #[derive(Debug, Clone)]
 pub struct CitationSupportV17Task {
@@ -909,6 +983,35 @@ mod tests {
     /// verbatim from the six real-manuscript cases. All four used to be serde
     /// failures, so a complete and correct analysis was thrown away before any
     /// validator ran.
+    /// §11 D117. v1.8 must be v1.6 plus the own-work rule and NOTHING else —
+    /// the same discipline v1.7 used, so a measured difference is attributable.
+    #[test]
+    fn v18_is_v16_plus_the_own_work_rule_and_nothing_else() {
+        let base = CitationSupportTask {
+            claim: "A claim.".into(),
+            cited_source: "Someone (2020) — A Paper".into(),
+            evidence: "<evidence>\n[CHUNK_ID=c1 PAGE=1 SECTION=-] text\n</evidence>".into(),
+        }
+        .build_prompt();
+        let v18 = CitationSupportV18Task {
+            claim: "A claim.".into(),
+            cited_source: "Someone (2020) — A Paper".into(),
+            evidence: "<evidence>\n[CHUNK_ID=c1 PAGE=1 SECTION=-] text\n</evidence>".into(),
+        }
+        .build_prompt();
+
+        assert_ne!(v18, base, "the rule was not added at all");
+        assert!(v18.contains("DECOMPOSE ONLY WHAT THE SENTENCE ATTRIBUTES"), "{v18}");
+        // Removing the addendum must give back v1.6 EXACTLY.
+        assert_eq!(v18.replace(OWN_WORK_RULE, "").replace("\n\n- At most 5", "\n- At most 5"), base);
+        assert_ne!(PROMPT_VERSION_V18, PROMPT_VERSION);
+
+        // The worked example must NOT be the case it was designed from, or the
+        // measurement is teaching to the test (§11 D98).
+        assert!(!v18.contains("GoEmotions"), "the prompt names the measured case");
+        assert!(!v18.contains("95%"), "the prompt names the measured case's numbers");
+    }
+
     #[test]
     fn the_four_shapes_a_citation_arrives_in_all_parse() {
         // 1. The full object, as specified.

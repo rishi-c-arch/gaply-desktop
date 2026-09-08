@@ -6731,3 +6731,71 @@ Reverting to single-path routing fails two of them.
 **This is the argument for typing the surface.** Two of fourteen were wrong,
 both on the busiest command in the app, and neither was detectable by any guard
 we have. The list in §11 D112 is the work; this is the reason to do it.
+
+### D117 — `different` was never defined, so `contradicts` was unreachable
+
+The disqualifying question first: **why is `different` dead?** 0 in 108 outputs
+from the shipped 3B is not a preference. The answer is the prompt, and it is
+narrow enough to quote in full.
+
+#### Everything the model is told about `different`
+
+Two places. That is the whole set, across EVERY version of this prompt in the
+project's history (checked with `git log -p`):
+
+1. `OUTPUT_SCHEMA` — `{"element": string, "status": "found|absent|different"}`.
+   A bare enum token.
+2. `FATAL_RULES_STATED` rule 2 — *"verdict 'contradicts' REQUIRES at least one
+   claim_element with status 'different'. If nothing in the decomposition
+   differs, the verdict is 'weak', not 'contradicts'."*
+
+**`different` is never defined.** Nothing anywhere says what makes an element
+`different` rather than `absent`. The single sentence that names the value ends
+by telling the model the default is `weak`.
+
+Meanwhile `weak` is pushed three times:
+
+* SYSTEM: *"You are deliberately conservative. Partial topical overlap is NOT
+  support."*
+* SYSTEM: *"A source that discusses the same topic but does not report the
+  claimed finding is \"weak\"."*
+* the tail of the one rule that mentions `different`.
+
+The `RULES` block defines the VERDICT `contradicts` ("evidence states the
+opposite direction or a null result") but never the element STATUS that the
+validator requires before that verdict is legal. The two vocabularies were never
+connected.
+
+#### It is not the model, and not the schema
+
+The 1.5B produced `different` once — the only instance in 218 outputs — so the
+token is reachable. What it produced is the more useful evidence:
+
+```
+elements: [absent  "wild bee visitation rates"]
+          [found   "organic management"]
+          [different "wild bee visitation rates"]     <- the SAME element, twice
+verdict : contradicts        (gold: insufficient_evidence)
+```
+
+The same element appears twice with contradicting statuses, and the verdict is
+wrong. That is not the vocabulary working; it reads as the model reaching for
+the token the fatal rule demands in order to make its chosen verdict legal —
+the rule taught it to fabricate the element post-hoc rather than to decompose.
+
+#### The fitness verdict, stated carefully
+
+`contradicts` is **structurally unreachable in practice**, and a citation that
+says the opposite of its source is the failure this feature exists to catch. On
+current evidence the task cannot report it.
+
+But this is NOT yet a verdict on the task or the model class, and the difference
+matters: **the value has never actually been asked for.** Concluding "beyond a
+local model" from a prompt that never defines the term would be the §11 D74
+mistake — generalising from one manuscript — in a new form. What is established
+is narrower and firmer: *as posed*, the task cannot emit `contradicts`, and no
+amount of model capacity fixes an undefined term.
+
+Defining `different` is the obvious next experiment and is NOT bundled into
+D117's own-work change below — two prompt edits measured together are one
+uninterpretable result (§11 D64).

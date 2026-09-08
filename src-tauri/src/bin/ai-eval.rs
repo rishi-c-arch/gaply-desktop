@@ -537,7 +537,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None | Some("v1") => SupportVariant::V1,
         Some("v2") => SupportVariant::V2,
         Some("v1c") => SupportVariant::V1ChunkBound,
-        Some(o) => return Err(format!("unknown --support-variant {o:?}; use v1, v2 or v1c").into()),
+        // §11 D117. v1.6 + the own-work decomposition rule, nothing else.
+        Some("v1o") => SupportVariant::V1OwnWork,
+        Some(o) => return Err(format!("unknown --support-variant {o:?}; use v1, v2, v1c or v1o").into()),
     };
 
 
@@ -1059,6 +1061,9 @@ enum SupportVariant {
     /// §11 D64 EXPERIMENT: v1.6 plus the chunk bound, stated plainly. Not a
     /// shipped configuration — reachable only from this harness.
     V1ChunkBound,
+    /// §11 D117 EXPERIMENT: v1.6 plus D58's own-work rule applied to the
+    /// DECOMPOSITION. Not a shipped configuration — reachable only from here.
+    V1OwnWork,
 }
 
 impl SupportVariant {
@@ -1072,6 +1077,9 @@ impl SupportVariant {
             SupportVariant::V2 => app_lib::ai::tasks::citation_support::PROMPT_VERSION_V2,
             SupportVariant::V1ChunkBound => {
                 app_lib::ai::tasks::citation_support::PROMPT_VERSION_V17
+            }
+            SupportVariant::V1OwnWork => {
+                app_lib::ai::tasks::citation_support::PROMPT_VERSION_V18
             }
         }
     }
@@ -1089,6 +1097,9 @@ impl SupportVariant {
             }
             SupportVariant::V1ChunkBound => {
                 <app_lib::ai::tasks::citation_support::CitationSupportV17Task as AiTask>::max_tokens()
+            }
+            SupportVariant::V1OwnWork => {
+                <app_lib::ai::tasks::citation_support::CitationSupportV18Task as AiTask>::max_tokens()
             }
         }
     }
@@ -1368,6 +1379,14 @@ async fn run_citation_support(
             }
             SupportVariant::V1ChunkBound => {
                 let task = app_lib::ai::tasks::citation_support::CitationSupportV17Task {
+                    claim: claim.clone(),
+                    cited_source: source,
+                    evidence: bundle.rendered.clone(),
+                };
+                run_task(&manager, &task, &bundle.ctx, cancel, None).await
+            }
+            SupportVariant::V1OwnWork => {
+                let task = app_lib::ai::tasks::citation_support::CitationSupportV18Task {
                     claim: claim.clone(),
                     cited_source: source,
                     evidence: bundle.rendered.clone(),
