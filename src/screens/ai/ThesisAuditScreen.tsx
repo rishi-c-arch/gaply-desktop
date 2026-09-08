@@ -709,7 +709,23 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
         <Card title="Thesis health" data-testid="audit-health">
           <div className="gds-audit__stats">
             <div className="gds-audit__stat"><b>{health.completedItems}</b><span>checked</span></div>
-            <div className="gds-audit__stat"><b>{(health.flagged ?? []).length}</b><span>need review</span></div>
+            {/* §11 D116. Was `flagged.length` under one label, "need review".
+                On a real job that is 46 suggestions at ~43% precision, 16
+                blocked sources and 3 checked claims summed into one number —
+                three different things, only one of which is a finding. Split,
+                because the actions differ. */}
+            <div className="gds-audit__stat" data-testid="audit-stat-suggestions">
+              <b>{(health.flagged ?? []).filter((f: any) => f.kind === 'citation_need').length}</b>
+              <span>to skim</span>
+            </div>
+            <div className="gds-audit__stat" data-testid="audit-stat-blocked">
+              <b>{(health.flagged ?? []).filter((f: any) => f.kind === 'unverifiable').length}</b>
+              <span>not checkable</span>
+            </div>
+            <div className="gds-audit__stat" data-testid="audit-stat-checked-claims">
+              <b>{(health.flagged ?? []).filter((f: any) => f.kind === 'citation_support').length}</b>
+              <span>with passages</span>
+            </div>
           </div>
 
           {/* COUNTS BY CATEGORY. The backend has computed these all along —
@@ -788,32 +804,76 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
               .
             </p>
           )}
-          {(health.flagged ?? []).map((f: any, i: number) => (
-            <div className="gds-audit__item" key={i} data-testid={`audit-flagged-${i}`}>
-              <p className="gds-audit__sentence">{f.sentence}</p>
-              <Button
-                variant="ghost"
-                data-testid={`audit-drill-${i}`}
-                onClick={() =>
-                  setDrill({
-                    verdict: (f.result?.output?.verdict as Verdict) ?? 'no_evidence',
-                    confidence: f.result?.output?.confidence ?? null,
-                    explanation: String(f.result?.output?.explanation ?? f.result?.reason ?? ''),
-                    evidence: (f.result?.output?.supporting_chunks ?? []).map((c: any) => ({
-                      chunkId: String(c.chunk_id ?? ''),
-                      documentId: f.documentId ?? 0,
-                      page: typeof c.page === 'number' ? c.page : null,
-                      sourceLabel: f.sourceLabel ?? 'Cited source',
-                      quote: String(c.quote ?? c.why ?? ''),
-                      fileAvailable: f.fileAvailable ?? true,
-                    })),
-                  })
-                }
+          {/* §11 D116. THREE KINDS land in `flagged`, and only `citation_support`
+              carries a verdict or any evidence. Every one of them used to get a
+              "Show evidence" button into the support EvidenceCard, so on a real
+              job — 65 flagged items: 46 citation_need, 16 unverifiable, 3
+              support, of which ONE had a verdict — 64 of 65 drill-downs read
+              "No evidence retrieved" over an empty explanation.
+              And the explanation was empty for a second reason: a
+              `citation_need` result puts its prose at `result.output.reason`,
+              while this read `result.reason`, which is where only an
+              UNVERIFIABLE item keeps it. The field existed and was never read.
+
+              Each kind now renders through the surface that fits it. */}
+          {(health.flagged ?? []).map((f: any, i: number) => {
+            const out = f.result?.output ?? {};
+            return (
+              <div
+                className="gds-audit__item"
+                key={i}
+                data-testid={`audit-flagged-${i}`}
+                data-kind={f.kind}
               >
-                Show evidence
-              </Button>
-            </div>
-          ))}
+                <p className="gds-audit__sentence">{f.sentence}</p>
+
+                {f.kind === 'citation_need' ? (
+                  /* §11 D89's treatment: a suggestion is not a finding, wears
+                     no verdict vocabulary, and states its own hit rate. */
+                  <>
+                    <p className="gds-ai__hint" data-testid={`audit-flagged-suggestion-${i}`}>
+                      suggestion · not checked against any source · about 4 in 10 are real
+                    </p>
+                    {out.reason && (
+                      <p className="gds-ai__hint" data-testid={`audit-flagged-reason-${i}`}>
+                        {String(out.reason)}
+                      </p>
+                    )}
+                  </>
+                ) : f.kind === 'unverifiable' ? (
+                  /* A blocked source is a gap in the library, not a judgement.
+                     Its reason IS at `result.reason` — deterministic text, not
+                     a model's assertion — and the fix loop is below. */
+                  <p className="gds-ai__hint" data-testid={`audit-flagged-blocked-${i}`}>
+                    Cited, but not checkable — {String(f.result?.reason ?? 'no source available')}.
+                    Nothing was checked either way; the actions are below.
+                  </p>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    data-testid={`audit-drill-${i}`}
+                    onClick={() =>
+                      setDrill({
+                        verdict: (out.verdict as Verdict) ?? 'no_evidence',
+                        confidence: out.confidence ?? null,
+                        explanation: String(out.explanation ?? f.result?.reason ?? ''),
+                        evidence: (out.supporting_chunks ?? []).map((c: any) => ({
+                          chunkId: String(c.chunk_id ?? ''),
+                          documentId: f.documentId ?? 0,
+                          page: typeof c.page === 'number' ? c.page : null,
+                          sourceLabel: f.sourceLabel ?? 'Cited source',
+                          quote: String(c.quote ?? c.why ?? ''),
+                          fileAvailable: f.fileAvailable ?? true,
+                        })),
+                      })
+                    }
+                  >
+                    Show the passages
+                  </Button>
+                )}
+              </div>
+            );
+          })}
           {drill && <EvidenceCard finding={drill} />}
 
           {/* ---- The loop that turns a report with no evidence into one with

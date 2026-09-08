@@ -923,6 +923,133 @@ describe('Thesis audit', () => {
     expect(screen.queryByTestId('audit-retracted')).toBeNull();
   });
 
+  /* ------------------------------------------------------------------ *
+   *  §11 D116 — the ai_job_status BOUNDARY, not the vocabulary.
+   * ------------------------------------------------------------------ */
+
+  /**
+   * One `flagged` entry EXACTLY as `ai_job_status` delivers it.
+   *
+   * `FlaggedItem` is `#[serde(rename_all = "camelCase")]` over
+   * `result: Option<serde_json::Value>` — the item's stored `result_json`,
+   * PARSED, verbatim. So the shape under `result` differs per kind, and that
+   * is the whole point:
+   *
+   *   citation_need    → result.output.{needs_citation, reason, severity, …}
+   *   unverifiable     → result.reason           (top level, deterministic)
+   *   citation_support → result.output.{verdict, explanation, supporting_chunks}
+   *
+   * Sampled from a real completed job: 65 flagged items — 46 citation_need,
+   * 16 unverifiable, 3 citation_support of which ONE carried a verdict. All 65
+   * were routed through the support EvidenceCard, so 64 read "No evidence
+   * retrieved", and the 46 need-items rendered an EMPTY explanation because
+   * the screen read `result.reason` while their prose sits at
+   * `result.output.reason`.
+   */
+  const flaggedNeed = {
+    seq: 12,
+    kind: 'citation_need',
+    page: 3,
+    sentence: 'Emotion recognition accuracy has improved substantially in recent years.',
+    evidenceChunkIds: [],
+    result: {
+      retried: false,
+      stopReasons: ['stop'],
+      output: {
+        needs_citation: true,
+        reason: 'States an empirical trend a reader would want to check.',
+        sentence_type: 'empirical_claim',
+        severity: 'high',
+        search_query: 'emotion recognition accuracy improvement',
+      },
+    },
+  };
+  const flaggedBlocked = {
+    seq: 30,
+    kind: 'unverifiable',
+    page: 5,
+    sentence: 'Prior work established the baseline [7].',
+    evidenceChunkIds: [],
+    result: { reason: 'cited work not in library: [7] Cortes and V. Vapnik' },
+  };
+  const flaggedSupport = {
+    seq: 44,
+    kind: 'citation_support',
+    page: 7,
+    sentence: 'GoEmotions reports 46% macro-F1 over 27 categories.',
+    evidenceChunkIds: [32],
+    result: {
+      output: {
+        verdict: 'weak',
+        confidence: 0.7,
+        explanation: 'The source states 46% over 27 categories.',
+        supporting_chunks: [{ chunk_id: 'c32', page: 1, why: 'reports the F1 figure' }],
+      },
+    },
+  };
+
+  async function renderWithFlagged(flagged: unknown[]) {
+    let emit: ((e: JobProgressEvent) => void) | undefined;
+    const bridge = bridgeWith({
+      startThesisAudit: async (_p: string, cb: any) => {
+        emit = cb;
+        return plan;
+      },
+      jobStatus: async () => ({
+        health: { jobId: 7, totalItems: 3, completedItems: 3, flagged },
+      }),
+      jobResults: async () => ({ items: [] }),
+    });
+    render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(screen.getByTestId('audit-confirm-start')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('audit-confirm-start'));
+    await waitFor(() => expect(emit).toBeTruthy());
+    emit!({ jobId: 7, completed: 3, total: 3, currentCategory: 'citation_need', latestItemSummary: '' });
+    await waitFor(() => expect(screen.getByTestId('audit-health')).toBeTruthy());
+  }
+
+  it('renders a citation_need flag as a SUGGESTION, with the reason it actually carries', async () => {
+    await renderWithFlagged([flaggedNeed]);
+    // D89's vocabulary, not a verdict — and no route into the evidence card.
+    expect(screen.getByTestId('audit-flagged-suggestion-0').textContent).toMatch(
+      /suggestion · not checked against any source/,
+    );
+    expect(screen.queryByTestId('audit-drill-0')).toBeNull();
+    // THE FIELD THAT WAS NEVER READ: result.output.reason.
+    expect(screen.getByTestId('audit-flagged-reason-0').textContent).toMatch(
+      /States an empirical trend/,
+    );
+  });
+
+  it('renders an unverifiable flag as a blocked source, from result.reason', async () => {
+    await renderWithFlagged([flaggedBlocked]);
+    const t = screen.getByTestId('audit-flagged-blocked-0').textContent ?? '';
+    expect(t).toMatch(/not checkable/i);
+    expect(t).toMatch(/Cortes and V. Vapnik/);
+    expect(screen.queryByTestId('audit-drill-0')).toBeNull();
+  });
+
+  it('gives ONLY a citation_support flag the evidence card, with its real passage', async () => {
+    await renderWithFlagged([flaggedSupport]);
+    fireEvent.click(screen.getByTestId('audit-drill-0'));
+    await waitFor(() => expect(screen.getByTestId('evidence-card')).toBeTruthy());
+    // The passage and the prose, both from result.output.
+    expect(screen.getByTestId('evidence-quote-0').textContent).toMatch(/reports the F1 figure/);
+    expect(screen.getByTestId('evidence-explanation').textContent).toMatch(/46% over 27 categories/);
+    // §11 D108: located, never graded.
+    expect(screen.getByTestId('evidence-verdict').textContent).toMatch(/Source passages found/);
+  });
+
+  it('counts the three kinds separately, because the actions differ', async () => {
+    await renderWithFlagged([flaggedNeed, flaggedNeed, flaggedBlocked, flaggedSupport]);
+    expect(screen.getByTestId('audit-stat-suggestions').textContent).toMatch(/2/);
+    expect(screen.getByTestId('audit-stat-blocked').textContent).toMatch(/1/);
+    expect(screen.getByTestId('audit-stat-checked-claims').textContent).toMatch(/1/);
+    // The old single "N need review" summed all three into one number.
+    expect(screen.queryByText('need review')).toBeNull();
+  });
+
   /** §11 D101. `oa_fetch` looks up a DOI and refuses without one, so on an
    *  IEEE-style list — R PAPER: 25 entries, zero DOIs — the button was an
    *  affordance guaranteed to return nothing for every source. */

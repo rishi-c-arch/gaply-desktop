@@ -6642,3 +6642,92 @@ recorded rather than built: `cited` is a property of a (citation, manuscript)
 pair, and `Citation` has nowhere to put it. Storing a bare boolean would make an
 entry "not an orphan" forever after one audit of one paper — a stale fact
 presented as current, which is §11 D85's failure again.
+
+### D116 — measuring the untyped surface: 2 of 14 readers were already wrong
+
+§11 D112 listed fourteen commands returning bare `serde_json::Value` and left
+the decision open. The question that settles it is not how many are untyped but
+**how many already disagree with what the frontend reads** — §11 D109 was a
+reader asking for a field that never existed on exactly this surface, and it
+survived because nothing could check it.
+
+Measured by sampling REAL payloads from the live database (a completed
+thesis-audit job) and diffing them against every TypeScript reader.
+
+#### The split
+
+**Five are not really untyped.** `ai_citation_audit_preview`,
+`ai_citation_audit_start`, `ai_job_start_thesis_audit`, `ai_link_citations`,
+`get_report` all `serde_json::to_value(&typed_struct)` — serde attributes still
+govern the names; only the signature erases it. **Nine assemble JSON by hand.**
+
+#### The count
+
+**2 of 14 had a reader asking for fields the payload does not carry.**
+
+* `ai_job_results` — §11 D109, already fixed: `resultJson` (a string) read as
+  `result.output`.
+* `ai_job_status` — **live until this entry**, and the numbers are the argument.
+
+Everything else verified clean against real keys: `health.*` (6 reads, all
+present), `ai_link_source_document` (the `& { outcome?, preflight? }`
+intersection declares exactly the two fields the retry path needs),
+`ai_citation_support` (10 reads), `ai_citation_need`, `ai_job_export_report`,
+`ai_job_recheck_items`. `ai_job_resume`'s return value is never read;
+`ai_link_citations` has no TypeScript caller at all.
+
+#### What `ai_job_status` was doing, on a real job
+
+`FlaggedItem.result` is the item's stored `result_json`, parsed, verbatim — so
+**the shape under `result` differs per kind**, and three kinds land in
+`flagged`:
+
+```
+65 flagged items
+  citation_need    46    prose at result.output.reason
+  unverifiable     16    prose at result.reason
+  citation_support  3    only ONE carried output.verdict
+```
+
+Every one of them got a "Show evidence" button into the support `EvidenceCard`,
+which reads `output.verdict`, `output.explanation` and
+`output.supporting_chunks`. So **64 of 65 drill-downs rendered "No evidence
+retrieved"** — and the 46 need-items rendered an EMPTY explanation, because the
+screen read `result.reason` while their prose sits one level down at
+`result.output.reason`. The field existed and was never read.
+
+#### The fix is routing, not a field name
+
+Reading the right field would still have shown a suggestion inside an evidence
+card. Each kind now renders through the surface that fits it:
+
+* `citation_need` → §11 D89's suggestion treatment: no verdict vocabulary, its
+  own hit rate stated, no route into the evidence card;
+* `unverifiable` → a blocked source, from the deterministic `result.reason`,
+  pointing at the fix loop below;
+* `citation_support` → the evidence card, which is the only kind that has one.
+
+**And the summary stat was the same conflation.** `flagged.length` under one
+label, *"need review"*, summed 46 suggestions at ~43% precision, 16 library gaps
+and 3 checked claims into a single number. Split into three, because the actions
+differ.
+
+#### The spelling split, fixed while nothing branched on it
+
+`thesis_audit.rs` emitted `need:no_citation_required` — the only occurrence of
+that spelling, against nine uses of `no_citation_needed` (the report, the
+export, the annotated view). Nothing branched on either string, which is exactly
+why it was worth fixing now: a one-line change today, a stored-data migration
+later.
+
+#### The test lesson, again
+
+The existing unit tests passed throughout, while 71% of drill-downs were empty
+on real data. They exercised the vocabulary; nothing exercised the PATH. The new
+tests build `flagged` entries to the exact `ai_job_status` wire shape — per-kind
+`result` layouts included — and assert each kind renders its own content.
+Reverting to single-path routing fails two of them.
+
+**This is the argument for typing the surface.** Two of fourteen were wrong,
+both on the busiest command in the app, and neither was detectable by any guard
+we have. The list in §11 D112 is the work; this is the reason to do it.

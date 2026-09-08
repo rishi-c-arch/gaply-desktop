@@ -823,7 +823,13 @@ pub fn thesis_health(db: &Database, job_id: i64) -> Result<ThesisHealth, GaplyEr
                         .and_then(|v| v.as_bool());
                     let key = match needs {
                         Some(true) => "need:needs_citation",
-                        Some(false) => "need:no_citation_required",
+                        // §11 D116. Was `no_citation_required` — the ONE place
+                        // that spelling appeared, against nine uses of
+                        // `no_citation_needed` (the report, the export, the
+                        // annotated view). Nothing branched on either string
+                        // yet, which is why this is a one-line fix today and a
+                        // stored-data migration later.
+                        Some(false) => "need:no_citation_needed",
                         None => "need:unknown",
                     };
                     *verdicts.entry(key.to_string()).or_insert(0) += 1;
