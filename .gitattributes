@@ -28,3 +28,17 @@
 *.ico   binary
 *.woff  binary
 *.woff2 binary
+
+# §11 D113. Import-corpus fixtures whose LINE ENDINGS ARE THE TEST.
+#
+# `* text=auto eol=lf` above normalised these on commit, and the damage was
+# exactly the shape this file was written to prevent: `edge-crlf.bib` exists to
+# be byte-for-byte `edge.bib` with CRLF, so normalising it made the two
+# identical and the comparison proved nothing, while `endnote.ris` asserts a
+# CRLF is present and would have FAILED on a fresh clone while passing in the
+# working copy that created it.
+#
+# Same reasoning as the PDF exemption: these are test DATA whose bytes carry the
+# meaning, not source to be tidied.
+src/screens/citations/fixtures/edge-crlf.bib -text
+src/screens/citations/fixtures/endnote.ris   -text
