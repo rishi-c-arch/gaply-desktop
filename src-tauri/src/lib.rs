@@ -96,11 +96,17 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             // Reserved backend infra — no frontend `invoke` caller today, but kept
-            // deliberately: each is exercised end-to-end through real Tauri IPC by
-            // `tests/commands_test.rs` (project CRUD roundtrip, db lifecycle/health,
-            // rag provenance search, extract-and-store). They back the project-scoped
-            // notes concept, DB diagnostics, the RAG agent, and standalone extraction,
-            // and are the seam a future settings/diagnostics UI plugs into. Not dead.
+            // deliberately. They back the project-scoped notes concept, DB
+            // diagnostics, the RAG agent, and standalone extraction, and are the
+            // seam a future settings/diagnostics UI plugs into. Not dead.
+            //
+            // §11 D115 corrects this comment. It used to claim EACH is
+            // "exercised end-to-end through real Tauri IPC by
+            // `tests/commands_test.rs`". Seven are: create_project,
+            // list_projects, db_init, db_migrate, db_health, rag_search,
+            // extract_manuscript. TWO ARE NOT — `get_project` and
+            // `health_check` appear only in that test's handler registration
+            // and are never invoked, so they have no end-to-end coverage.
             commands::create_project,
             commands::list_projects,
             commands::get_project,
@@ -165,11 +171,23 @@ pub fn run() {
             commands::ai_generative_candidates,
             commands::ai_model_install_cancel,
             commands::ai_model_status,
-            commands::ai_embed_document,
+            // §11 D115. `ai_embed_cancel` stays on the boundary because the UI
+            // now calls it: `ai_link_source_document` reads the shared cancel
+            // flag, and this is the only command that sets it.
             commands::ai_embed_cancel,
-            commands::ai_semantic_search,
-            commands::ai_index_document,
-            commands::ai_index_status,
+            // OFF THE BOUNDARY, functions kept (§11 D115):
+            //   ai_index_document, ai_embed_document, ai_index_status,
+            //   ai_semantic_search
+            // The first three are the steps `ai_link_source_document` composes,
+            // and its own doc says why they must not be called separately — "a
+            // citation whose document is created and indexed and NOT embedded
+            // is exactly the `unverifiable` state the user was trying to leave,
+            // and a half-linked source is worse than an unlinked one because it
+            // looks done". A future UI should call the composed command, so
+            // exposing the pieces only offers a way to get that wrong.
+            // `ai_semantic_search` wrapped retrieval that no surface uses; the
+            // retrieval FUNCTION is live inside the audit.
+            // The Rust fns remain — they are the blocks the composition uses.
             commands::note_create,
             commands::note_update,
             commands::note_get,

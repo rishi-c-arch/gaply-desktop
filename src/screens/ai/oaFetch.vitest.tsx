@@ -50,6 +50,7 @@ function bridge(over: Record<string, any> = {}) {
       throw new Error('not used here');
     },
     fetchOpenAccess: async () => [report({})],
+    cancelEmbedding: async () => {},
     importPreflight: async () => ({
       pages: 38,
       pageEquivalents: 38,
@@ -251,6 +252,79 @@ describe('Fetch open-access PDF — the action', () => {
     const text = screen.getByTestId('document-fetch-result').textContent ?? '';
     expect(text).toBe('http client build failed');
     expect(text).not.toContain('[object Object]');
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  §11 D115 — a multi-minute run must be stoppable.
+ * ------------------------------------------------------------------ */
+
+describe('stopping a link in progress', () => {
+  /** Indexing and embedding a thesis streams "Embedding 32 of 113 passages…"
+   *  for minutes. `ai_link_source_document` reads the shared cancel flag, but
+   *  the command that SETS it was not on the IPC surface and no surface offered
+   *  the action — a live progress indicator with no way to stop it. */
+  it('offers Stop while linking, and calls the cancel command', async () => {
+    const cancelEmbedding = vi.fn(async () => {});
+    let emit: ((e: any) => void) | undefined;
+    let finish: ((r: any) => void) | undefined;
+    const linkSourceDocument = vi.fn(
+      (_id: string, _p: string, _t: string, onEvent?: (e: any) => void) =>
+        new Promise((resolve) => {
+          emit = onEvent;
+          finish = resolve;
+        }),
+    );
+    render(
+      <DocumentRow
+        citationId="c1"
+        bridge={bridge({ linkSourceDocument, cancelEmbedding }) as any}
+        pickSource={async () => '/thesis.pdf'}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('document-link')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('document-link'));
+    await waitFor(() => expect(emit).toBeTruthy());
+
+    emit!({ kind: 'embedding', done: 32, total: 113 });
+    await waitFor(() =>
+      expect(screen.getByTestId('document-linking').textContent).toMatch(/32 of 113/),
+    );
+
+    // THE AFFORDANCE, beside the progress line it belongs to.
+    const stop = screen.getByTestId('document-link-cancel');
+    fireEvent.click(stop);
+    await waitFor(() => expect(cancelEmbedding).toHaveBeenCalledTimes(1));
+
+    // The flag is read BETWEEN batches, so the current one finishes. Saying
+    // "Stopping…" is the honest report of that, and the note says what is kept.
+    expect(screen.getByTestId('document-link-cancel').textContent).toMatch(/Stopping/);
+    expect(screen.getByTestId('document-stopping-note').textContent).toMatch(/stays linked/i);
+
+    finish!({ documentId: 12, chunksIndexed: 113, chunksEmbedded: 32, chunksPending: 81, checkable: false });
+    await waitFor(() => expect(screen.queryByTestId('document-linking')).toBeNull());
+  });
+
+  it('does NOT offer Stop during a fetch, whose loop cannot honour it', async () => {
+    // §11 D101. `oa_fetch`'s embedding loop never reads the cancel flag, so a
+    // Stop button there would be one that cannot succeed.
+    let emit: ((ev: any) => void) | undefined;
+    const fetchOpenAccess = vi.fn(
+      (_ids: string[], onEvent?: (ev: any) => void) =>
+        new Promise<any[]>(() => {
+          emit = onEvent;
+        }),
+    );
+    render(<DocumentRow citationId="c1" doi="10.1/a" bridge={bridge({ fetchOpenAccess }) as any} />);
+    await waitFor(() => expect(screen.getByTestId('document-fetch-oa')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('document-fetch-oa'));
+    await waitFor(() => expect(emit).toBeTruthy());
+
+    emit!({ kind: 'phase', index: 0, total: 1, phase: { phase: 'embedding', done: 5, total: 60 } });
+    await waitFor(() =>
+      expect(screen.getByTestId('document-fetching').textContent).toMatch(/5 of 60/),
+    );
+    expect(screen.queryByTestId('document-link-cancel')).toBeNull();
   });
 });
 

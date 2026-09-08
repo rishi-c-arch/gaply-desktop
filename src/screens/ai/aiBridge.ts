@@ -360,6 +360,21 @@ class AiBridge {
     return this.invoke<void>('ai_generate_cancel', {});
   }
 
+  /**
+   * Stop an embedding run in progress (§11 D115).
+   *
+   * Applies to `linkSourceDocument`, which checks the shared flag between
+   * batches. It does NOT apply to `fetchOpenAccess`, whose embedding loop does
+   * not read it — so a surface must not offer cancel during a fetch.
+   *
+   * Cancelling mid-run is safe by construction: the link is still recorded,
+   * and `checkable` is computed from the vectors that actually exist, so the
+   * result reports itself honestly as linked-but-not-checkable.
+   */
+  async cancelEmbedding(): Promise<void> {
+    return this.invoke<void>('ai_embed_cancel', {});
+  }
+
   /* ------------------------------- jobs --------------------------------- */
 
   /**

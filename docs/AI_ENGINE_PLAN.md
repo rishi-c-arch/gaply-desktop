@@ -6553,3 +6553,92 @@ for BOTH a cancelled Tauri dialog and a SUCCESSFUL browser download, so treating
 null as failure would silence every browser export. Only in Tauri does null mean
 cancelled, which is what `wasSaved()` encodes. A cancelled save now says nothing
 at all — the honest report of an action the user chose not to take.
+
+### D115 — triaging the unreferenced commands, and the stop button that was missing
+
+§11's investigation reported 19 registered Tauri commands with no frontend
+caller. Triaged; three of the four resulting notes are corrections to the
+investigation rather than to the code.
+
+#### The investigation had already been done, in `lib.rs`
+
+**Twelve of the nineteen were already classified, with reasons, in the
+registration list itself** — *"Reserved backend infra… Not dead"* over the
+project/DB/RAG/extraction nine, and *"Reserved keychain-write seam… Kept
+intentionally"* over the three secrets commands. They are left exactly as they
+are.
+
+**This is the second time this session a finding restated a decision the code
+had already recorded** (the first was §11 D90, where the Manager and the Audit
+turned out to use the identical condition the entry claimed differed). Both
+times the comment was right and the sweep was mechanical: grep found the
+absence of a caller and did not read the paragraph sitting directly above the
+symbol. *Read the decision beside the code, not only the code.*
+
+#### One claim in that comment WAS stale
+
+It asserted each reserved command is *"exercised end-to-end through real Tauri
+IPC by `tests/commands_test.rs`"*. True for seven. **`get_project` and
+`health_check` appear only in that test's handler registration and are never
+invoked** — they have no end-to-end coverage. Comment corrected rather than
+tests added; adding coverage is a separate decision.
+
+#### Four off the IPC boundary, functions kept
+
+`ai_index_document`, `ai_embed_document`, `ai_index_status`,
+`ai_semantic_search`. The first three are the steps `ai_link_source_document`
+composes, and its own doc says why they must not be called separately: *"a
+citation whose document is created and indexed and NOT embedded is exactly the
+`unverifiable` state the user was trying to leave, and a half-linked source is
+worse than an unlinked one because it looks done."* Exposing the pieces only
+offers a way to get that wrong. `ai_semantic_search` wrapped retrieval no
+surface uses; the retrieval FUNCTION is live inside the audit.
+
+The Rust functions stay — they are the blocks the composition is built from.
+Verified safe: `ai_link_source_document` calls
+`gaply_core::ai_engine::embeddings` directly, not these commands.
+
+#### `ai_embed_cancel` was not a dead command, it was a missing button
+
+Indexing and embedding a thesis runs for minutes and streams *"Embedding 32 of
+113 passages…"* the whole time. `ai_link_source_document` reads the shared
+cancel flag between batches — **and the only command that SETS that flag was
+unreachable from the frontend, while no surface offered the action.** A
+multi-minute operation with a live progress indicator and no way to stop it.
+
+A Stop button now sits beside that progress line. The flag is read BETWEEN
+batches, so the current one finishes and the button says *"Stopping…"* rather
+than "Stopped" — and a note says what survives: already-embedded passages are
+kept and the source stays linked, it is just not checkable until the rest is
+embedded. That is not a consolation, it is what the backend actually does:
+`link_manually` runs even on a cancelled embed, because the link is true either
+way, and `checkable` is computed from the vectors that exist.
+
+**Offered for LINKING only.** The open-access fetch embeds too, but
+`oa_fetch`'s loop never reads the flag, so a Stop there would be a button that
+cannot succeed (§11 D101). A test asserts its absence during a fetch.
+
+#### The orphan-detection correction — for when the Orphans nav returns
+
+§11 D111 removed the "Orphans" collection because nothing sets `Citation.cited`,
+and said it should return "when something matches library entries against a
+manuscript's markers". **`ai_link_citations` is NOT that something**, which was
+the natural guess.
+
+`citation_links::link_citations` matches `citation_library` against
+**`documents`** — which cited works have a readable indexed copy. It answers
+"can this be checked", not "is this cited anywhere in my manuscript", and it
+cannot set `cited`.
+
+**The seam is `ai_thesis_audit_preview`, which the UI already calls.**
+`preview.sources` is one entry per DISTINCT cited work, carrying `libraryId`
+and `citingSentences` — computed by the pre-pass's marker resolution against
+the manuscript text. A library entry appearing there with `citingSentences > 0`
+is cited; one absent from a preview of the manuscript the user is working on is
+an orphan of that manuscript.
+
+The word *"of that manuscript"* is the whole difficulty, and why this is
+recorded rather than built: `cited` is a property of a (citation, manuscript)
+pair, and `Citation` has nowhere to put it. Storing a bare boolean would make an
+entry "not an orphan" forever after one audit of one paper — a stale fact
+presented as current, which is §11 D85's failure again.

@@ -43,6 +43,8 @@ export interface DocumentRowProps {
     | 'linkSourceDocument'
     | 'fetchOpenAccess'
     | 'importPreflight'
+    // §11 D115. Stops an embed already running under `linkSourceDocument`.
+    | 'cancelEmbedding'
   >;
   /** The citation's DOI. Without one there is nothing to look up, and the
    *  open-access action is not offered rather than offered and refused. */
@@ -81,6 +83,10 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
   const [linking, setLinking] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [justLinked, setJustLinked] = useState<number | null>(null);
+  /** §11 D115. Set once the user has asked to stop an embed. The flag is
+   *  read between batches, so the current one finishes — saying "Stopping…"
+   *  rather than "Stopped" is the honest report of that. */
+  const [stopping, setStopping] = useState(false);
   /** Non-null while an open-access fetch is running. */
   const [fetching, setFetching] = useState(false);
   /** §11 D105. What the fetch is doing right now. A 37-page paper spends ~90
@@ -133,6 +139,7 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
     async (path: string, confirmed: boolean) => {
     setLinkError(null);
     setPendingConfirm(null);
+    setStopping(false);
     setLinking('Reading the file…');
     try {
       const r = await bridge.linkSourceDocument(citationId, path, citedSource, (ev: LinkSourceEvent) => {
@@ -176,6 +183,7 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
       setLinkError(errorText(e));
     } finally {
       setLinking(null);
+      setStopping(false);
     }
     },
     [bridge, citationId, citedSource, onLinked],
@@ -344,9 +352,45 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
         </p>
       )}
 
+      {/* §11 D115. Indexing and embedding a thesis runs for minutes and streams
+          "Embedding 32 of 113 passages…" the whole time. There was no way to
+          stop it: `ai_link_source_document` reads the shared cancel flag, but
+          the only command that SETS it was not on the IPC surface and no
+          surface offered the action. A live progress indicator with no stop is
+          the defect; the unreferenced command was the symptom.
+
+          Offered for LINKING only. The open-access fetch embeds too, but its
+          loop never reads the flag, so a cancel there would be a button that
+          cannot succeed (§11 D101). */}
       {linking && (
-        <p className="gds-ai__hint" data-testid="document-linking">
-          {linking}
+        <div className="gds-ai__row" data-testid="document-linking-row">
+          <p className="gds-ai__hint" data-testid="document-linking">
+            {linking}
+          </p>
+          <Button
+            variant="ghost"
+            disabled={stopping}
+            data-testid="document-link-cancel"
+            onClick={async () => {
+              setStopping(true);
+              try {
+                await bridge.cancelEmbedding();
+              } catch (e) {
+                // Failing to STOP is worth saying: the run continues.
+                setStopping(false);
+                setLinkError(`Could not stop the run: ${errorText(e)}`);
+              }
+            }}
+          >
+            {stopping ? 'Stopping…' : 'Stop'}
+          </Button>
+        </div>
+      )}
+      {stopping && (
+        <p className="gds-ai__hint" data-testid="document-stopping-note">
+          Finishing the batch in progress, then stopping. What has already been
+          embedded is kept, and the source stays linked — it just will not be
+          checkable until the rest is embedded.
         </p>
       )}
 
