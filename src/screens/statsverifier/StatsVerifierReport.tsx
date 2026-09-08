@@ -8,7 +8,7 @@
 // The lane disclosure renders from the report's REQUIRED `disclosure` field
 // (like AiCheckReport's disclaimer) — always present, never strippable.
 import React from 'react';
-import { Badge } from '../../design-system';
+import { Badge, BadgeStatus } from '../../design-system';
 import { AdvisoryNote, VerificationReport, VerifiedResult } from './statsVerifierTypes';
 
 const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(4));
@@ -24,7 +24,11 @@ const LANE_DISCLOSURE_FALLBACK =
 /** The verified lane — the engine's ground truth, match or mismatch. */
 const VerifiedCard: React.FC<{ v: VerifiedResult }> = ({ v }) => {
   const isMatch = v.verdict === 'match';
-  const status = isMatch ? 'certain' : 'flagged'; // 🟢 vs 🔴 — by verdict, not tier
+  // §11 D109. Annotated rather than cast at the call site: `BadgeStatus` is a
+  // union of literals and this ternary already produces two of them, so the
+  // `as any` was never buying anything — it was only stopping the checker from
+  // confirming that.
+  const status: BadgeStatus = isMatch ? 'certain' : 'flagged'; // 🟢 vs 🔴 — by verdict, not tier
   const name = v.recomputed.statistic_name;
   return (
     <div
@@ -38,7 +42,7 @@ const VerifiedCard: React.FC<{ v: VerifiedResult }> = ({ v }) => {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Badge status={status as any}>{isMatch ? '🟢 VERIFIED — match' : '🔴 VERIFIED — mismatch'}</Badge>
+        <Badge status={status}>{isMatch ? '🟢 VERIFIED — match' : '🔴 VERIFIED — mismatch'}</Badge>
         <strong data-testid="sv-verdict">{v.verdict.toUpperCase()}</strong>
         <span className="gds-mono" style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--g-text-3)' }}>
           {v.recomputed.test_kind}
