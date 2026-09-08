@@ -163,7 +163,24 @@ describe('add ways', () => {
     const lib = renderCM({ extractedCitations: extracted });
     fireEvent.click(await screen.findByTestId('import-extracted'));
     await waitFor(() => expect(lib.add).toHaveBeenCalledTimes(2));
+    // §11 D111. The nav entry appears BECAUSE there are now extracted
+    // citations to show. It is hidden when there are none, rather than
+    // standing there empty — an empty "From manuscript" reads as "your
+    // manuscript cited nothing", which is a claim nothing computed.
     expect(screen.getByTestId('collection-manuscript')).toBeTruthy();
+  });
+
+  it('hides the manuscript and orphan collections when nothing can fill them', async () => {
+    // The shipped mount site passes no `extractedCitations`, and NOTHING in the
+    // app assigns `Citation.cited` — so both filters are empty by construction
+    // and an empty nav item would read as a clean bill (§11 D85, D111).
+    renderCM({ initialCitations: [seed()] });
+    await screen.findByTestId('citation-list');
+    expect(screen.queryByTestId('collection-manuscript')).toBeNull();
+    expect(screen.queryByTestId('collection-orphans')).toBeNull();
+    // The two that ARE backed stay.
+    expect(screen.getByTestId('collection-all')).toBeTruthy();
+    expect(screen.getByTestId('collection-retracted')).toBeTruthy();
   });
 
   it('manual entry adds a citation', async () => {

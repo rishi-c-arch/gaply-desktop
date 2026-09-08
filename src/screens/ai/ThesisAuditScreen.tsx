@@ -733,16 +733,41 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
             })}
           </ul>
 
-          {Object.keys(health.verdictBreakdown ?? {}).length > 0 && (
-            <ul className="gds-audit__counts" data-testid="audit-verdicts">
-              {Object.entries(health.verdictBreakdown ?? {}).map(([v, n]) => (
-                <li key={v} data-testid={`audit-verdict-${v}`}>
-                  <b>{String(n)}</b> {v.replace(/^support:/, 'support — ').replace(/^need:/, '')
-                    .replace(/_/g, ' ')}
-                </li>
-              ))}
-            </ul>
-          )}
+          {/* §11 D108, completed here. The report withdrew the support verdict
+              and this screen kept rendering it as a count — "8 support — weak"
+              — which is the same withdrawn grade wearing a summary. It is a
+              constant (14 of 14 valid outputs across two runs), so the line
+              said the same thing about every manuscript.
+              The `need:` breakdown stays: citation_need's figures are measured
+              and it genuinely answers both ways. */}
+          {(() => {
+            const breakdown = Object.entries(health.verdictBreakdown ?? {});
+            const needs = breakdown.filter(([v]) => !v.startsWith('support:'));
+            const located = breakdown
+              .filter(([v]) => v.startsWith('support:'))
+              .reduce((n, [, c]) => n + Number(c), 0);
+            return (
+              <>
+                {needs.length > 0 && (
+                  <ul className="gds-audit__counts" data-testid="audit-verdicts">
+                    {needs.map(([v, n]) => (
+                      <li key={v} data-testid={`audit-verdict-${v}`}>
+                        <b>{String(n)}</b> {v.replace(/^need:/, '').replace(/_/g, ' ')}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {located > 0 && (
+                  <p className="gds-ai__hint" data-testid="audit-support-located">
+                    <b>{located}</b> cited sentence{located === 1 ? '' : 's'} had their source
+                    passages located. Gaply does not grade how well a passage supports a
+                    sentence — its grader returned the same answer for every case on a labelled
+                    set, so that answer is not shown. The passages are, in the report.
+                  </p>
+                )}
+              </>
+            );
+          })()}
 
           {Object.keys(health.unverifiableReasons ?? {}).length > 0 && (
             <ul className="gds-audit__counts" data-testid="audit-unverifiable-reasons">

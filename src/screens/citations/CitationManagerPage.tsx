@@ -926,10 +926,45 @@ const Inner: React.FC<CitationManagerPageProps> = ({
   //   Shared      — sync is push-only; there is no sharing model
   //   Archive     — no archive flag on Citation
   //   Trash (footer) — removeCitations is a hard delete with no tombstone
+  //
+  // §11 D111. TWO OF THOSE FOUR WERE NOT REAL FILTERS, and the claim above was
+  // wrong about them. Both are removed rather than left showing nothing:
+  //
+  //   From manuscript — filters `source === 'extracted'`. Nothing in the
+  //     shipped app ever sets that value: it arrives only via the
+  //     `extractedCitations` prop, and the one mount site
+  //     (GaplyScreens: `<CitationManagerPage aiInstalled={…} />`) does not pass
+  //     it. Permanently empty, and "Import from manuscript (0)" permanently
+  //     disabled beside it.
+  //   Orphans — needs `computeStatus() === 'orphan'`, which needs
+  //     `c.cited === false`. NOTHING assigns `Citation.cited` anywhere in the
+  //     app. Permanently empty.
+  //
+  // An empty "Orphans" does not read as "this cannot run" — it reads as "you
+  // have none", which is a clean bill nothing computed. That is the same defect
+  // as a constant verdict (§11 D85), in a nav item.
+  //
+  // Each is CONDITIONAL rather than deleted, so the nav describes the library
+  // in front of you: the entry appears exactly when it has something to show,
+  // and comes back on its own the day the capability lands — `manuscript` when
+  // an analysed manuscript actually feeds `extractedCitations`, `orphans` when
+  // something matches library entries against a manuscript's markers and sets
+  // `cited`. The audit already does that matching; it is where the capability
+  // would come from.
+  const extractedCount = citations.filter((c) => c.source === 'extracted').length;
+  const orphanCount = citations.filter((c) => computeStatus(c) === 'orphan').length;
   const collectionNav: Array<[CollectionId, string, string]> = [
     ['all', `Library (${citations.length})`, 'book_2'],
-    ['manuscript', 'From manuscript', 'description'],
-    ['orphans', 'Orphans', 'link_off'],
+    ...(extractedCount > 0
+      ? ([['manuscript', `From manuscript (${extractedCount})`, 'description']] as Array<
+          [CollectionId, string, string]
+        >)
+      : []),
+    ...(orphanCount > 0
+      ? ([['orphans', `Orphans (${orphanCount})`, 'link_off']] as Array<
+          [CollectionId, string, string]
+        >)
+      : []),
     // The unchecked tail is part of the label, not a footnote: the count alone
     // reads as a verdict on the whole library.
     ['retracted', `Retracted Items (${retractedCount})${uncheckedCount ? ` · ${uncheckedCount} unchecked` : ''}`, 'warning'],

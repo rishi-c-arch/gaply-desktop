@@ -6313,3 +6313,108 @@ actually checked appear here; an unchecked entry is not a clean one."*
 (`thesis_audit.rs:525`), and `build_model` already holds `db`. Counting is over
 DISTINCT works, like every other source figure on the card — five sentences
 citing one retracted paper is one problem to fix, not five.
+
+### D111 — finishing the demotion: two nav items that could never fill, one count that never varied
+
+Two small things the §11 D108–D110 investigation turned up, both misleading as
+displayed rather than wrong in code.
+
+#### The support verdict was still on screen
+
+`ThesisAuditScreen` rendered `health.verdictBreakdown` verbatim — *"8 support —
+weak"* — while the report had stopped showing it. Same withdrawn grade, wearing
+a summary. It is a constant, so the line said the same thing about every
+manuscript.
+
+The `need:` half stays: `citation_need` genuinely answers both ways and its
+figures are measured (§11 D78). The `support:` half becomes a count of what was
+LOCATED, with the same one-line disclosure the report and the evidence card
+carry.
+
+#### Two of four sidebar collections could never be non-empty
+
+The nav comment ratified in August claimed *"every one is a real filter over
+real state, so every nav click changes what you see."* That was wrong about half
+of them:
+
+- **From manuscript** filters `source === 'extracted'`. Nothing in the shipped
+  app ever sets that value — it arrives only through the `extractedCitations`
+  prop, and the single mount site (`GaplyScreens`:
+  `<CitationManagerPage aiInstalled={…} />`) does not pass it. The
+  *"Import from manuscript (0)"* button beside it is permanently disabled for
+  the same reason.
+- **Orphans** needs `computeStatus() === 'orphan'`, which needs
+  `c.cited === false`. **Nothing anywhere assigns `Citation.cited`.** (The
+  `'unused'` status has no branch at all — it exists in the type, the icon map
+  and the label map, and is unreachable from any input.)
+
+An empty "Orphans" does not read as *this cannot run*; it reads as *you have
+none*. That is a clean bill nothing computed — §11 D85's test, failed by a nav
+item.
+
+**Both are CONDITIONAL now, not deleted.** Each appears exactly when it has
+something to show, so the nav describes the library in front of you and the
+entry returns on its own the day the capability lands — `manuscript` when an
+analysed manuscript actually feeds `extractedCitations`, `orphans` when
+something matches library entries against a manuscript's markers and sets
+`cited`. The audit already does that matching; it is where the capability would
+come from. The filter arms in `visible` are untouched.
+
+### D112 — fourteen commands cross the IPC boundary untyped
+
+Recorded as its own entry because it is a decision to take, not a defect to
+patch, and §11 D109 should not be where it is buried.
+
+`ai_job_results` is declared `-> Result<serde_json::Value, GaplyError>`. So is
+every other command in this list. D103's guard reads wire types off the command
+signatures, and `serde_json::Value` is in its `NOT_A_WIRE_TYPE` list — so the
+app's busiest surface is invisible to it, and D109's bug lived there.
+
+```
+ai_citation_audit_preview    ai_job_recheck_items
+ai_citation_audit_start      ai_job_results
+ai_citation_need             ai_job_resume
+ai_citation_support          ai_job_start_thesis_audit
+ai_generate_test             ai_job_status
+ai_job_export_report         ai_link_citations
+get_report                   ai_link_source_document
+```
+
+Every AI job command is here. The TypeScript readers for these are hand-written
+against shapes assembled inline with `serde_json::json!({…})`, so there is no
+type on either side of the boundary to compare — only a convention nobody
+checks.
+
+#### The option considered and NOT taken
+
+Making the guard report *"shape not declared, therefore not checked"* for each
+of them. It verifies nothing; it converts fourteen silent holes into a visible
+list, and then reports the same fourteen failures forever until someone does the
+real work. A guard that always fails is a guard people learn to ignore — the
+same reason §11 D108 rejected the 248-hit underscore rule.
+
+The real work is giving these commands declared return types, which is a typing
+decision with its own scope: some assemble their JSON from several sources, and
+`ai_job_status` in particular returns a shape the frontend reads a dozen fields
+from. **That deserves its own investigation, not a red guard.** Recorded here so
+the list exists when it is taken up.
+
+#### What WAS taken, from §11 D109
+
+The narrower half: an ESLint rule, `no-any-cast-on-props`, forbidding
+`as any` / `as unknown` on a JSX prop value. That is what actually defeated the
+type system in D109 — both types were correct and the compiler was told not to
+look.
+
+Scoped deliberately. It does NOT flag `x!`: a non-null assertion erases
+nullability, not shape, so the checker still compares every field and it cannot
+produce D109's bug. Including it fired on two already-narrowed branches in
+`PlagiarismCheckPage` that are fully type-checked, and a rule that reports
+non-bugs is one someone switches off. Test files are exempt — with a note in the
+rule that a test which casts is exercising the vocabulary rather than the path,
+which is precisely how D109 stayed invisible.
+
+It found one real cast outside the audit (`StatsVerifierReport`, a `BadgeStatus`
+union that was already assignable — the cast bought nothing and only stopped the
+checker confirming it), now annotated instead. Reintroducing D109's own
+`items={items as any}` fails the rule.
