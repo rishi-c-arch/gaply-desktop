@@ -6512,3 +6512,44 @@ are pinned so a fix cannot quietly break them (line endings, no trailing
 newline, re-import, BOM, RIS). The rule they encode: **an entry that cannot be
 parsed must be REPORTED, never silently dropped — and the importer must never
 produce a citation the user did not have.**
+
+### D114 — the export button did not say what it exports
+
+Three honesty defects in one pair of handlers, found in §11 D113's sweep.
+
+#### The scope was silent
+
+Every export serialises `visible` — the current collection filter and search —
+not the library. Standing in "Retracted Items" and pressing **Export BibTeX**
+wrote only the retracted entries, under a label that said nothing about it.
+
+Exporting a filtered view is a legitimate thing to want, so the SCOPE stays and
+the LABEL changes: **"Export BibTeX — 1 of 3"**, with a note beside the row
+reading *"exports this view, not the whole library"*. Both appear only when the
+view is actually narrowed — an unfiltered library shows the plain label, because
+a count that never differs from the total is noise.
+
+#### An empty export reported success, confidently
+
+Zero visible citations wrote an empty file and toasted *"Bibliography exported"*
+with tone **`certain`** — the most confident tone the vocabulary has, over a file
+containing nothing. It now writes nothing and says which of the two situations
+it is in, because they need different actions:
+
+- *"Your library is empty, so there is nothing to export."*
+- *"This view has no citations — the filter or search matched nothing. Clear it
+  to export the library."*
+
+Blaming a filter when the library is empty, or the library when a filter is on,
+sends the reader to the wrong place.
+
+#### Cancelling the save dialog reported success too
+
+The same toast fired when the user pressed Cancel: `saveExportToFile` returned
+and nothing checked the result.
+
+**The check is not simply `=== null`.** `saveTextFile`'s contract returns null
+for BOTH a cancelled Tauri dialog and a SUCCESSFUL browser download, so treating
+null as failure would silence every browser export. Only in Tauri does null mean
+cancelled, which is what `wasSaved()` encodes. A cancelled save now says nothing
+at all — the honest report of an action the user chose not to take.

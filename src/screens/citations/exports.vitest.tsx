@@ -16,6 +16,7 @@ import CitationManagerPage from './CitationManagerPage';
 import { exportSerialized } from './exporters';
 import { registerStyleXml, formatWithCsl } from './cslEngine';
 import { makeMockLocalLibrary } from './localLibrary';
+import { Citation } from './citationTypes';
 import { makeMockResolve, VerifiedMetadata } from './metadataBridge';
 import { CslItem } from './citationTypes';
 
@@ -124,6 +125,79 @@ function auth(session: any): AuthService {
     onAuthStateChange: (cb: any) => { cb(session); return () => {}; },
   } as any;
 }
+
+/* ------------------------------------------------------------------ *
+ *  §11 D114 — what the export button actually exports.
+ * ------------------------------------------------------------------ */
+
+describe('export scope and the empty case', () => {
+  const seed = (id: string, title: string, over: Partial<Citation> = {}): Citation => ({
+    id,
+    csl: { id, type: 'article-journal', title, author: [{ family: 'Doe', given: 'J' }], issued: { year: 2020 } },
+    doi: `10.1/${id}`,
+    retracted: false,
+    source: 'manual',
+    ...over,
+  });
+
+  const renderWith = (initial: Citation[]) =>
+    render(
+      <MemoryRouter>
+        <GaplySessionProvider authService={auth(null)}>
+          <CitationManagerPage
+            localLibrary={makeMockLocalLibrary()}
+            initialCitations={initial}
+            citationService={{ add: vi.fn(), list: vi.fn(), remove: vi.fn() } as any}
+          />
+        </GaplySessionProvider>
+      </MemoryRouter>,
+    );
+
+  it('says nothing about scope when the whole library is exported', async () => {
+    renderWith([seed('a', 'Alpha'), seed('b', 'Beta')]);
+    await screen.findByTestId('citation-list');
+    expect(screen.getByTestId('export-bibtex').textContent).toBe('Export BibTeX');
+    expect(screen.queryByTestId('export-scope-note')).toBeNull();
+  });
+
+  it('names the scope when a filter narrows what will be written', async () => {
+    // Every export serialises `visible`, so standing in a filtered collection
+    // and pressing "Export BibTeX" wrote only those — with a label that said
+    // nothing about it.
+    renderWith([seed('a', 'Alpha'), seed('b', 'Beta'), seed('c', 'Gamma', { retracted: true })]);
+    await screen.findByTestId('citation-list');
+    fireEvent.click(screen.getByTestId('collection-retracted'));
+    await waitFor(() => expect(screen.getByTestId('export-scope-note')).toBeTruthy());
+
+    expect(screen.getByTestId('export-bibtex').textContent).toBe('Export BibTeX — 1 of 3');
+    expect(screen.getByTestId('export-ris').textContent).toBe('Export RIS — 1 of 3');
+    expect(screen.getByTestId('export-biblio').textContent).toContain('— 1 of 3');
+    expect(screen.getByTestId('export-scope-note').textContent).toMatch(/not the whole library/i);
+  });
+
+  it('an empty view exports nothing and does NOT report success', async () => {
+    // Was: an empty file written, and "Bibliography exported" toasted with tone
+    // `certain` — the most confident thing the toast vocabulary has.
+    renderWith([seed('a', 'Alpha')]);
+    await screen.findByTestId('citation-list');
+    fireEvent.click(screen.getByTestId('collection-retracted')); // matches nothing
+    fireEvent.click(screen.getByTestId('export-bibtex'));
+
+    const viewport = await screen.findByTestId('gds-toast-viewport');
+    await waitFor(() => expect(viewport.textContent).toMatch(/no citations|nothing to export/i));
+    expect(viewport.textContent).not.toMatch(/exported/i);
+    // And it must not wear `certain`, the most confident tone available.
+    expect(viewport.querySelector('.gds-toast--certain')).toBeNull();
+  });
+
+  it('an empty LIBRARY says so, rather than blaming a filter', async () => {
+    renderWith([]);
+    await screen.findByTestId('citation-list');
+    fireEvent.click(screen.getByTestId('export-ris'));
+    const viewport = await screen.findByTestId('gds-toast-viewport');
+    await waitFor(() => expect(viewport.textContent).toMatch(/library is empty/i));
+  });
+});
 
 describe('the connected flow: paper file → verified metadata → library → format → export', () => {
   it('runs end to end with every stage wired', async () => {

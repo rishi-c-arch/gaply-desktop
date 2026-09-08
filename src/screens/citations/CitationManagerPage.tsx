@@ -905,7 +905,36 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     }
   };
 
+  // §11 D114. Every export serialises `visible` — the current collection and
+  // search — not the library. That is a legitimate thing to want, so the scope
+  // stays and the LABEL says it instead.
+  const exportScoped = visible.length !== citations.length;
+  const exportSuffix = exportScoped ? ` — ${visible.length} of ${citations.length}` : '';
+
+  /**
+   * Did the save actually happen?
+   *
+   * `saveTextFile` returns null for BOTH a cancelled Tauri dialog and a
+   * successful browser download (its contract says so), so `null` alone cannot
+   * be read as failure — suppressing the toast on it would silence every
+   * browser export. Only in Tauri does null mean cancelled.
+   */
+  const wasSaved = (path: string | null) => !isTauri || path !== null;
+
+  /** Nothing selected is a no-op, not a success (§11 D114). */
+  const nothingToExport = () => {
+    if (visible.length > 0) return false;
+    toast(
+      citations.length === 0
+        ? 'Your library is empty, so there is nothing to export.'
+        : 'This view has no citations — the filter or search matched nothing. Clear it to export the library.',
+      'assessed',
+    );
+    return true;
+  };
+
   const exportBibliography = async () => {
+    if (nothingToExport()) return;
     // Full-CSL when the style is prepared (Set 3), legacy formatter otherwise
     // — identical seam as the preview.
     let text: string;
@@ -914,15 +943,24 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     } catch {
       text = formatBibliography(visible.map((c) => c.csl), style);
     }
-    await saveExportToFile(`bibliography-${style}.txt`, text);
-    toast('Bibliography exported', 'certain');
+    const saved = await saveExportToFile(`bibliography-${style}.txt`, text);
+    if (!wasSaved(saved)) return; // cancelled — say nothing, nothing happened
+    toast(`Bibliography exported — ${visible.length} of ${citations.length}`, 'certain');
   };
 
   const exportAs = async (format: 'bibtex' | 'ris') => {
+    if (nothingToExport()) return;
     try {
       const text = await exportSerialized(visible.map((c) => c.csl), format);
-      await saveExportToFile(format === 'bibtex' ? 'library.bib' : 'library.ris', text);
-      toast(`${format === 'bibtex' ? 'BibTeX' : 'RIS'} exported`, 'certain');
+      const saved = await saveExportToFile(
+        format === 'bibtex' ? 'library.bib' : 'library.ris',
+        text,
+      );
+      if (!wasSaved(saved)) return;
+      toast(
+        `${format === 'bibtex' ? 'BibTeX' : 'RIS'} exported — ${visible.length} of ${citations.length}`,
+        'certain',
+      );
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       toast(`Export failed: ${msg}`, 'flagged');
@@ -1092,7 +1130,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                   className="px-3 py-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/30"
                 >
                   <span className="material-symbols-outlined text-base" aria-hidden="true">download</span>
-                  Export bibliography
+                  Export bibliography{exportSuffix}
                 </button>
                 <button
                   type="button"
@@ -1100,7 +1138,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                   data-testid="export-bibtex"
                   className="px-3 py-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors border border-outline-variant/30"
                 >
-                  Export BibTeX
+                  Export BibTeX{exportSuffix}
                 </button>
                 <button
                   type="button"
@@ -1108,8 +1146,13 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                   data-testid="export-ris"
                   className="px-3 py-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors border border-outline-variant/30"
                 >
-                  Export RIS
+                  Export RIS{exportSuffix}
                 </button>
+                {exportScoped && (
+                  <span className="cm-export-scope" data-testid="export-scope-note">
+                    exports this view, not the whole library
+                  </span>
+                )}
                 <div className="hidden md:block w-px h-4 bg-outline-variant/50 mx-1" />
                 <button
                   type="button"

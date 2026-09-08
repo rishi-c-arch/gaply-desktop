@@ -413,3 +413,13 @@
 .cm-editor__preview p { margin: 0; font-size: 13px; line-height: 1.5; }
 .cm-editor__hint { opacity: 0.6; font-style: italic; }
 .cm-editor__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+/* §11 D114. The export-scope note: present when the buttons export a filtered
+   view rather than the library, absent otherwise. Subordinate to the buttons
+   it qualifies — it is a clarification, not a warning. */
+.cm-export-scope {
+  font-size: 11px;
+  opacity: 0.75;
+  white-space: nowrap;
+  align-self: center;
+}
