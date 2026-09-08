@@ -269,6 +269,34 @@ pub fn build_model_with(
 
     m.counts_by_category = by_kind.into_iter().collect();
     m.verdict_counts = verdicts.into_iter().collect();
+
+    // §11 D110. The audit knew which library entry each cited sentence resolved
+    // to — `libraryId` has been in the item payload since planning — and said
+    // nothing about retraction. A researcher could audit a manuscript citing a
+    // retracted paper, read its passages quoted neutrally, and never be told.
+    //
+    // Counted over DISTINCT works: five sentences citing one retracted paper is
+    // one problem to fix. Only CONFIRMED retractions appear; an entry nobody
+    // checked is unchecked, not clean, and must not be listed as either.
+    let mut retracted: std::collections::BTreeMap<String, usize> = Default::default();
+    for it in &items {
+        let payload: serde_json::Value =
+            serde_json::from_str(&it.payload_json).unwrap_or(serde_json::Value::Null);
+        let Some(library_id) = str_field(&payload, "libraryId") else { continue };
+        let Ok(Some(row)) = gaply_core::citation_library::get(db, &library_id) else { continue };
+        if !row.retracted {
+            continue;
+        }
+        // Name the work the way the reader will recognise it: the reference
+        // list entry when the pre-pass parsed one, else the stored title, else
+        // the marker.
+        let label = str_field(&payload, "referenceEntry")
+            .or_else(|| Some(row.title.clone()).filter(|t| !t.trim().is_empty()))
+            .or_else(|| str_field(&payload, "citedSource"))
+            .unwrap_or_else(|| library_id.clone());
+        *retracted.entry(label).or_insert(0) += 1;
+    }
+    m.retracted_sources = retracted.into_iter().collect();
     Ok(m)
 }
 

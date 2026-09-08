@@ -149,6 +149,8 @@ export interface CitedSourceStatus {
   /** §11 D101. Does the LIBRARY entry record a DOI? The open-access fetch looks
    *  one up, so without it the fetch can do nothing for this source. */
   hasDoi: boolean;
+  /** §11 D110. Registry-confirmed retraction of this cited work. */
+  retracted: boolean;
 }
 
 /** A deterministic consistency finding (§11 D94). No model was involved. */
@@ -181,6 +183,8 @@ export interface ThesisAuditPreview {
    *  DOI — the explanation for why nothing can be fetched (§11 D101). */
   referenceEntries: number;
   referenceEntriesWithDoi: number;
+  /** §11 D110. Distinct cited works a registry has CONFIRMED retracted. */
+  retractedSources: number;
   /** §11 D94. Deterministic checks, run before any queueing. */
   consistency: ConsistencyReport;
   documentTypesSupported: string[];

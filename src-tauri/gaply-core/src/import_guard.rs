@@ -528,6 +528,7 @@ mod tests {
             checked: 84,
             counts_by_category: vec![("citation_need".into(), 65)],
             verdict_counts: vec![("needs_citation".into(), 52)],
+            retracted_sources: vec![],
             skipped_reasons: vec![],
             supported: vec![],
             needs_citation: vec![],

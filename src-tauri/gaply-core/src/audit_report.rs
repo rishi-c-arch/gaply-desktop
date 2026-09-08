@@ -119,6 +119,15 @@ pub struct AuditReportModel {
     pub counts_by_category: Vec<(String, usize)>,
     /// What the model actually SAID, e.g. `needs_citation` → 52.
     pub verdict_counts: Vec<(String, usize)>,
+    /// §11 D110. Cited works a retraction registry has CONFIRMED retracted, as
+    /// `(reference entry or marker, sentences citing it)`.
+    ///
+    /// Deterministic and registry-backed. Kept out of `supported` and out of
+    /// every verdict tally on purpose: this is not something the model decided,
+    /// and filing it among model findings would rank the most serious fact in
+    /// the report below things with an error rate.
+    #[serde(default)]
+    pub retracted_sources: Vec<(String, usize)>,
     /// Why items could not be judged, and how many.
     pub skipped_reasons: Vec<(String, usize)>,
     pub supported: Vec<ReportItem>,
@@ -721,6 +730,42 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         }
     }
 
+    // §11 D110. RETRACTION LEADS. Two reasons it sits above even the
+    // deterministic consistency checks:
+    //
+    //   * it is the most serious fact this report can carry — a cited work has
+    //     been withdrawn by its own publisher — and it is settled, not judged;
+    //   * it is registry-backed and costs nothing to establish, so burying it
+    //     under three hours of model output inverts the cost of finding out.
+    //
+    // NOT a gate, and NOT filed among findings. Citing a retracted paper can be
+    // entirely correct — a paper ABOUT the retraction must cite it — so this
+    // reports and does not block. What it must never do is stay quiet.
+    if !m.retracted_sources.is_empty() {
+        out.push(heading("Retracted sources", 1));
+        out.push(Block::Badge { text: "retracted".into(), tone: Tone::Bad });
+        out.push(para(format!(
+            "{} of the works this manuscript cites {} been RETRACTED by the publisher. This is \
+             not a judgement of your writing and no language model was involved — a retraction \
+             registry was asked and answered. Citing a retracted work can be legitimate when the \
+             retraction is the point; otherwise the citation needs replacing.",
+            m.retracted_sources.len(),
+            if m.retracted_sources.len() == 1 { "has" } else { "have" },
+        )));
+        for (entry, citing) in &m.retracted_sources {
+            out.push(bullet(
+                format!("{entry} — cited by {citing} sentence{}", if *citing == 1 { "" } else { "s" }),
+                0,
+            ));
+        }
+        out.push(Block::Note {
+            text: "Only works a registry actually answered about appear here. An entry that was \
+                   never checked is not listed and is not clean — the Citation Manager says which \
+                   is which."
+                .to_string(),
+        });
+    }
+
     // Order of the detail sections follows what the reader can act on: the
     // library gap is one batch action away from being fixed, so it comes before
     // the per-sentence reading.
@@ -888,6 +933,7 @@ mod tests {
             checked: 84,
             counts_by_category: vec![("citation_need".into(), 65), ("unverifiable".into(), 19)],
             verdict_counts: vec![("needs_citation".into(), 52), ("no_citation_needed".into(), 27)],
+            retracted_sources: vec![],
             skipped_reasons: vec![("a table row or a figure caption".into(), 5)],
             supported: vec![item_with_evidence()],
             needs_citation: vec![],
@@ -1284,6 +1330,47 @@ mod tests {
             }
         }
         None
+    }
+
+    /// §11 D110. A retracted cited source is the most serious thing this
+    /// report can carry, it is registry-backed rather than judged, and it used
+    /// to be absent entirely — `grep -i retract` over the whole report path
+    /// returned nothing while the Citation Manager held the fact.
+    #[test]
+    fn a_retracted_source_leads_the_report_and_is_not_a_model_finding() {
+        let mut m = model();
+        m.retracted_sources = vec![
+            ("Wakefield et al., Ileal-lymphoid-nodular hyperplasia, Lancet 1998".into(), 3),
+            ("Some Other Withdrawn Paper (2016)".into(), 1),
+        ];
+        let blocks = compose_audit(&m);
+        let text = all_text(&blocks);
+
+        assert!(text.contains("Retracted sources"), "no retraction section:\n{text}");
+        assert!(text.contains("Wakefield"), "the work is not named:\n{text}");
+        assert!(text.contains("cited by 3 sentences"), "{text}");
+        assert!(text.contains("cited by 1 sentence"), "singular not agreed:\n{text}");
+
+        // It LEADS: above the deterministic consistency checks, and far above
+        // anything the model produced.
+        let retr = text.find("Retracted sources").expect("section");
+        let evidence = text
+            .find("The source passages behind each cited claim")
+            .expect("evidence section");
+        assert!(retr < evidence, "a model finding preceded a retraction:\n{text}");
+        if let Some(cons) = text.find("Consistency checks") {
+            assert!(retr < cons, "retraction sat below the consistency checks:\n{text}");
+        }
+
+        // It says it is NOT a model judgement, and it does not claim the rest
+        // are clean.
+        assert!(text.contains("no language model was involved"), "{text}");
+        assert!(text.contains("never checked is not listed and is not clean"), "{text}");
+
+        // And it is absent when there are none — no "0 retracted" reassurance,
+        // which would read as a clean bill the check cannot give.
+        let none = compose_audit(&model());
+        assert!(!all_text(&none).contains("Retracted sources"), "empty section rendered");
     }
 
     /// §11 D108. The whole contract, in one place: the support verdict is

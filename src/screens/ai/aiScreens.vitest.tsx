@@ -613,12 +613,13 @@ describe('Thesis audit', () => {
     blockedSources: 2,
     consistency: { findings: [], structural: 0, cosmetic: 0 },
     sources: [
-      { label: '[1]', libraryId: 'lib-1', documentId: 44, reason: null, citingSentences: 2, hasDoi: true },
-      { label: '[2]', libraryId: 'lib-2', documentId: null, reason: 'not in your library', citingSentences: 11, hasDoi: true },
-      { label: '(Smith, 2019)', libraryId: 'lib-3', documentId: null, reason: 'in your library, no PDF attached', citingSentences: 7, hasDoi: true },
+      { label: '[1]', libraryId: 'lib-1', documentId: 44, reason: null, citingSentences: 2, hasDoi: true, retracted: false },
+      { label: '[2]', libraryId: 'lib-2', documentId: null, reason: 'not in your library', citingSentences: 11, hasDoi: true, retracted: false },
+      { label: '(Smith, 2019)', libraryId: 'lib-3', documentId: null, reason: 'in your library, no PDF attached', citingSentences: 7, hasDoi: true, retracted: false },
     ],
     referenceEntries: 25,
     referenceEntriesWithDoi: 12,
+    retractedSources: 0,
     documentTypesSupported: ['pdf'],
   };
 
@@ -870,6 +871,56 @@ describe('Thesis audit', () => {
     // this screen must not grow a second file-picker for the same job.
     fireEvent.click(screen.getByTestId('audit-attach-sources'));
     expect(onOpenCitation).toHaveBeenCalledWith('lib-2');
+  });
+
+  /** §11 D110. A retracted cited source is registry-backed, deterministic and
+   *  more serious than anything the audit concludes — and it costs nothing to
+   *  establish. Learning it after three hours of model time inverts the cost of
+   *  finding out, so it is on the card BEFORE the run. */
+  it('names retracted cited sources on the card, before any model runs', async () => {
+    const withRetracted = {
+      ...preview,
+      retractedSources: 1,
+      sources: [
+        preview.sources[0],
+        { ...preview.sources[1], label: '[7]', retracted: true, citingSentences: 3 },
+        preview.sources[2],
+      ],
+    };
+    const startThesisAudit = vi.fn(async () => plan);
+    render(
+      <ThesisAuditScreen
+        aiInstalled
+        pickManuscript={async () => '/t.pdf'}
+        bridge={bridgeWith({ previewThesisAudit: async () => withRetracted, startThesisAudit }) as any}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(screen.getByTestId('audit-retracted')).toBeTruthy());
+
+    const t = screen.getByTestId('audit-retracted').textContent ?? '';
+    expect(t).toMatch(/1 of your cited source has been RETRACTED/);
+    expect(screen.getByTestId('audit-retracted-0').textContent).toContain('[7]');
+    expect(screen.getByTestId('audit-retracted-0').textContent).toContain('3 sentences');
+    // It must say it is not a model judgement.
+    expect(t).toMatch(/no language model was involved/i);
+
+    // NOT a gate. Citing a retracted work is legitimate when the retraction is
+    // the point, so it reports and does not block.
+    expect((screen.getByTestId('audit-confirm-start') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('audit-confirm-start'));
+    await waitFor(() => expect(startThesisAudit).toHaveBeenCalledTimes(1));
+  });
+
+  /** No "0 retracted" reassurance: a count of zero would read as a clean bill
+   *  that the check cannot give, since unchecked entries are not clean. */
+  it('says nothing about retraction when none was confirmed', async () => {
+    render(
+      <ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridgeWith() as any} />,
+    );
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(screen.getByTestId('audit-plan')).toBeTruthy());
+    expect(screen.queryByTestId('audit-retracted')).toBeNull();
   });
 
   /** §11 D101. `oa_fetch` looks up a DOI and refuses without one, so on an

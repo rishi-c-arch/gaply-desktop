@@ -124,6 +124,14 @@ pub struct CitedSourceStatus {
     /// `oa_fetch` refuses without one — so it is what the card's button keys
     /// on, rather than on the manuscript's list.
     pub has_doi: bool,
+    /// Has a retraction registry said this cited work is RETRACTED (§11 D110)?
+    ///
+    /// Deterministic and registry-backed — Retraction Watch via refverify,
+    /// recorded on the library entry, not a model judgement. It is reported
+    /// BEFORE the audit runs and at the TOP of the report, because it is more
+    /// serious than anything the audit itself can find and it is settled
+    /// without spending three hours.
+    pub retracted: bool,
 }
 
 /// What an audit WOULD do, computed without creating a job or loading a model
@@ -150,6 +158,10 @@ pub struct ThesisAuditPreview {
     /// zero DOIs.
     pub reference_entries: usize,
     pub reference_entries_with_doi: usize,
+    /// §11 D110. How many DISTINCT cited works a registry has confirmed
+    /// retracted. Surfaced on the confirmation card so it is seen BEFORE the
+    /// three hours are spent, not in the report afterwards.
+    pub retracted_sources: usize,
     /// Deterministic consistency findings (§11 D94). No model, and NOT gated on
     /// AI being installed — the user sees these at the moment they decide
     /// whether to spend three hours, because a structural one means the audit's
@@ -186,6 +198,17 @@ pub fn preview_thesis_audit(
             .map(|d| !d.trim().is_empty())
             .unwrap_or(false)
     };
+    // §11 D110. `retracted` is a durable column (Scope B), set only when a
+    // registry actually answered. Absence is NOT "clean" — it is unchecked —
+    // so this reports only confirmed retractions and never implies the rest
+    // were cleared.
+    let is_retracted = |library_id: &Option<String>| -> bool {
+        library_id
+            .as_deref()
+            .and_then(|id| crate::citation_library::get(db, id).ok().flatten())
+            .map(|r| r.retracted)
+            .unwrap_or(false)
+    };
 
     let mut order: Vec<String> = Vec::new();
     let mut by_key: BTreeMap<String, CitedSourceStatus> = BTreeMap::new();
@@ -220,6 +243,7 @@ pub fn preview_thesis_audit(
                     format!("lib:{library_id}"),
                     CitedSourceStatus {
                         has_doi: has_doi(&Some(library_id.clone())),
+                        retracted: is_retracted(&Some(library_id.clone())),
                         label: marker.clone(),
                         library_id: Some(library_id.clone()),
                         document_id: Some(*document_id),
@@ -234,6 +258,7 @@ pub fn preview_thesis_audit(
                     library_id.clone().map(|l| format!("lib:{l}")).unwrap_or(format!("mark:{marker}")),
                     CitedSourceStatus {
                         has_doi: has_doi(library_id),
+                        retracted: is_retracted(library_id),
                         label: marker.clone(),
                         library_id: library_id.clone(),
                         document_id: None,
@@ -261,6 +286,9 @@ pub fn preview_thesis_audit(
     let sources: Vec<CitedSourceStatus> =
         order.into_iter().filter_map(|k| by_key.remove(&k)).collect();
     let checkable_sources = sources.iter().filter(|s| s.document_id.is_some()).count();
+    // §11 D110. Counted over DISTINCT works, like every other source figure on
+    // this card — five sentences citing one retracted paper is one problem.
+    let retracted_sources = sources.iter().filter(|s| s.retracted).count();
 
     Ok(ThesisAuditPreview {
         total_sentences: report.total_sentences,
@@ -278,6 +306,7 @@ pub fn preview_thesis_audit(
             .values()
             .filter(|e| e.doi.as_deref().map(|d| !d.trim().is_empty()).unwrap_or(false))
             .count(),
+        retracted_sources,
         sources,
         consistency,
         document_types_supported: SUPPORTED_DOCUMENT_TYPES.to_vec(),
