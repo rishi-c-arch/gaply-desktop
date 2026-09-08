@@ -6800,6 +6800,55 @@ Defining `different` is the obvious next experiment and is NOT bundled into
 D117's own-work change below — two prompt edits measured together are one
 uninterpretable result (§11 D64).
 
+### D118 — the harness refuses a contended run rather than labelling one
+
+`ai-eval` used to print `NOT declared isolated, 1m avg 2.97` and run anyway. **A
+note in a header is not a control**: the report is still written, the numbers
+still land in `evals/reports/`, and weeks later nobody reading the JSON knows the
+machine was busy. §11 D33 already says timing figures from different load
+contexts are not comparable — that is a RULE, and a rule the tool declines to
+enforce is a suggestion.
+
+A 1-minute load average above **2.0** now STOPS the run. `--isolated` is the
+operator declaring the machine quiet; `--allow-contended` accepts that the
+numbers are not comparable and records that fact in the report
+(`allowedContended`) rather than leaving it to memory. Passing `--isolated` while
+the load says otherwise is refused outright with its own message — that
+combination would stamp `ranIsolated: true` onto a contended run, which is worse
+than an unlabelled one.
+
+Verified against all three flag combinations, not assumed.
+
+### D119 — the entry shape: what the model actually emits, read from the bytes
+
+`cs-label-004` and `006` failed with
+`supporting_chunks[0].chunk_id: references chunk_id "CHUNK_ID=c11 PAGE=1 SECTION=-…"`,
+which reads as a chunk-id defect. **It is not.** Reading the raw output:
+
+```text
+cs-label-006:  ["CHUNK_ID=c24 PAGE=1 SECTION=-", … six of them]
+cs-label-004:  ["CHUNK_ID=c11 PAGE=1 SECTION=- We organized the SemEval-2018 …"]
+```
+
+`supporting_chunks` arrives as an array of **bare strings**. The object is never
+built, and `require_known_chunk` reports the string as a bad `chunk_id`.
+
+**The model is not confused about the id's boundary.** cs-label-006's strings
+stop EXACTLY at the end of the header, before the text — it perceives the header
+as a unit and knows where it ends. **A rendering change isolating or quoting the
+id would have measured nothing**, and that was the change about to be built from
+the error message. Reading the bytes is what stopped it — the same save as D81
+and D107, and now the reliable move rather than a lucky one.
+
+Enumeration and the missing `why` are ONE behaviour: cs-label-006 cited all six
+chunks it was sent, one string each. With no justification to write there is
+nothing to select on, so everything gets listed.
+
+v1.9 acted on this with `why` first in the entry (D78's ordering finding: a field
+generated first conditions what follows) and one entry shown filled in. **The
+shape fix worked** — every case producing JSON emitted objects. What it cost is
+D121.
+
 ### D120 — isolation is a claim about the whole run; and the guard that only watched the start
 
 D118 made the harness refuse a contended run. It checked the load average at
