@@ -60,11 +60,211 @@ export function detectFormat(filename: string): ImportFormat | null {
  *  @preamble meta entries. Splitting BEFORE parsing is what makes parsing
  *  per-entry defensive — one bad @article can't kill the batch. */
 export function splitBibtex(text: string): string[] {
-  return text
-    .split(/(?=@\w+\s*\{)/)
-    .map((s) => s.trim())
-    .filter((s) => /^@\w+\s*\{/.test(s))
-    .filter((s) => !/^@(comment|string|preamble)\b/i.test(s));
+  const units = splitBibtexUnits(text);
+  const macros = collectStringMacros(units);
+  const entries = units
+    .filter((u) => !/^@(comment|string|preamble)\b/i.test(u.text))
+    .map((u) => ({ ...u, text: expandMacros(u.text, macros) }));
+  return entries.map((u) => inheritCrossref(u, entries));
+}
+
+/** `field = {value}` pairs at the top level of one entry. */
+function fieldsOf(entry: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const body = entry.replace(/^@[A-Za-z]\w*\s*[{(]/, '');
+  const re = /(^|,)\s*([A-Za-z]\w*)\s*=\s*/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body))) {
+    // Read the value by depth from just after the `=`, so a braced value
+    // containing commas is one value rather than several fields.
+    let i = m.index + m[0].length;
+    let depth = 0;
+    const start = i;
+    for (; i < body.length; i += 1) {
+      const ch = body[i];
+      if (ch === '\\') {
+        i += 1;
+        continue;
+      }
+      if (ch === '{') depth += 1;
+      else if (ch === '}') {
+        if (depth === 0) break; // the entry's own closing brace
+        depth -= 1;
+      } else if (ch === ',' && depth === 0) break;
+    }
+    out.set(m[2].toLowerCase(), body.slice(start, i).trim());
+    re.lastIndex = i;
+  }
+  return out;
+}
+
+/**
+ * Apply BibTeX `crossref` inheritance (§11 D113).
+ *
+ * A child inherits every field it does not define itself. Without this a
+ * chapter written `crossref = {parent}` imports with no year, and
+ * `computeStatus` then labels a perfectly well-formed reference "malformed
+ * metadata" — the tool calling the user's library wrong.
+ *
+ * The one special case that matters in practice is real BibTeX semantics: a
+ * child in a collection takes the parent's `title` as its `booktitle`, because
+ * the parent's title IS the book. Deliberately NOT a full implementation of
+ * crossref (inheritance chains, `@string` scoping inside parents); one level,
+ * which is what emitters produce.
+ */
+function inheritCrossref(unit: BibUnit, all: BibUnit[]): string {
+  const own = fieldsOf(unit.text);
+  const parentKey = own.get('crossref')?.replace(/^[{"]|[}"]$/g, '').trim();
+  if (!parentKey) return unit.text;
+  const parent = all.find((u) => u.key === parentKey);
+  if (!parent) return unit.text; // dangling crossref: leave it, do not invent
+  const theirs = fieldsOf(parent.text);
+
+  const add: string[] = [];
+  // `Array.from` rather than iterating the Map directly: this project's
+  // tsconfig target predates downlevelIteration.
+  for (const [k, v] of Array.from(theirs.entries())) {
+    if (k === 'crossref' || own.has(k)) continue;
+    add.push(`  ${k} = ${v}`);
+  }
+  if (!own.has('booktitle') && theirs.has('title') && !theirs.has('booktitle')) {
+    add.push(`  booktitle = ${theirs.get('title')}`);
+  }
+  if (add.length === 0) return unit.text;
+
+  // Splice before the entry's closing delimiter.
+  const close = unit.text.lastIndexOf(unit.text.trimEnd().endsWith(')') ? ')' : '}');
+  const head = unit.text.slice(0, close).replace(/,\s*$/, '');
+  return `${head},\n${add.join(',\n')}\n${unit.text.slice(close)}`;
+}
+
+/**
+ * `@string{jml = {Journal of Machine Learning Research}}` → the map (§11 D113).
+ *
+ * These definitions were being FILTERED OUT before parsing, so a field written
+ * `journal = jml` could never resolve: citation-js saw a bare token, dropped
+ * it, and the entry imported looking complete with no journal and no error.
+ * Silent loss of the one field every bibliography style prints.
+ *
+ * Default Zotero and Mendeley do not emit `@string`; JabRef and hand-maintained
+ * files do (see `fixtures/README.md`).
+ */
+function collectStringMacros(units: BibUnit[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const u of units) {
+    if (u.type !== 'string') continue;
+    // `@string{name = {value}}` or `@string{name = "value"}`
+    const m = /^@string\s*[{(]\s*([A-Za-z]\w*)\s*=\s*([\s\S]*[^\s])\s*[})]\s*$/i.exec(u.text);
+    if (!m) continue;
+    const value = m[2].trim().replace(/^[{"]/, '').replace(/[}"]$/, '').trim();
+    if (value) out.set(m[1], value);
+  }
+  return out;
+}
+
+/**
+ * Replace bare macro references in field values with their definition.
+ *
+ * ONLY a bare identifier is substituted — `journal = jml,`. A braced or quoted
+ * value is already a literal and is left alone, and an UNDEFINED identifier is
+ * also left alone: `month = oct` is a built-in BibTeX macro that no file
+ * defines, and rewriting it to nothing would lose data to fix a different
+ * problem. Unknown stays unknown.
+ */
+function expandMacros(entry: string, macros: Map<string, string>): string {
+  if (macros.size === 0) return entry;
+  return entry.replace(
+    /(^|[,{(]\s*)([A-Za-z]\w*)(\s*=\s*)([A-Za-z]\w*)(\s*)(?=[,})])/g,
+    (whole, lead, field, eq, value, tail) =>
+      macros.has(value) ? `${lead}${field}${eq}{${macros.get(value)}}${tail}` : whole,
+  );
+}
+
+/** One top-level `@…{…}` block, with its type and citation key. */
+interface BibUnit {
+  type: string;
+  key: string;
+  text: string;
+}
+
+/**
+ * Scan out every top-level `@type{…}` block by BRACE DEPTH (§11 D113).
+ *
+ * The previous splitter was `text.split(/(?=@\w+\s*\{)/)`, which matches
+ * anywhere — including inside a field value. Two real shapes broke it, and the
+ * first is the worst defect this importer has had:
+ *
+ *   • an abstract quoting BibTeX (`…write @article{foo, title={bar}}…`) was cut
+ *     in two. The real half failed to parse and was reported; the trailing half
+ *     parsed CLEAN and was added to the library as a paper titled "bar". A
+ *     citation the researcher never had, arriving silently.
+ *   • `note = {Corresponding author: nora@lab {group site}}` — `@lab {` matched
+ *     because the pattern allowed whitespace before the brace. Both halves
+ *     failed and the entry was simply lost.
+ *
+ * Depth counting is the fix: an `@` only starts an entry at depth 0. A
+ * backslash escapes the next character, so `\{` in a LaTeX field does not
+ * shift the depth. An entry left unterminated at EOF is returned as-is rather
+ * than dropped — a truncated file should FAIL LOUDLY at the parser, not
+ * disappear here.
+ */
+function splitBibtexUnits(text: string): BibUnit[] {
+  const out: BibUnit[] = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    if (text[i] !== '@') {
+      i += 1;
+      continue;
+    }
+    const head = /^@([A-Za-z]\w*)\s*([{(])/.exec(text.slice(i));
+    if (!head) {
+      i += 1;
+      continue;
+    }
+    const open = head[2];
+    const close = open === '{' ? '}' : ')';
+    let j = i + head[0].length - 1; // sits on the opening delimiter
+    let depth = 0;
+    for (; j < n; j += 1) {
+      const ch = text[j];
+      if (ch === '\\') {
+        j += 1; // skip the escaped character
+        continue;
+      }
+      if (ch === open) depth += 1;
+      else if (ch === close) {
+        depth -= 1;
+        if (depth === 0) {
+          j += 1;
+          break;
+        }
+      }
+    }
+    // RECOVERY (§11 D113). If the scan ran to EOF without closing, the entry is
+    // unterminated — and swallowing the rest of the file with it would undo the
+    // per-entry resilience this splitter exists for: `good / broken / good`
+    // must still yield two good entries and one reported failure, not one.
+    //
+    // The cut point is the next `@type{` AT THE START OF A LINE. That is the
+    // discriminator between a real entry and the hazards above: every emitter
+    // writes entries at column 0, while an `@` inside a field value is
+    // mid-line. So recovery cannot reintroduce the split it just fixed.
+    let end = j;
+    if (depth !== 0) {
+      const rest = text.slice(i + 1);
+      const nextLineStart = /(?:^|\r?\n)[ \t]*@[A-Za-z]\w*\s*[{(]/.exec(rest);
+      if (nextLineStart) {
+        const at = nextLineStart.index + nextLineStart[0].search(/@/);
+        end = i + 1 + at;
+      }
+    }
+    const raw = text.slice(i, end).trim();
+    const key = /^@[A-Za-z]\w*\s*[{(]\s*([^,\s}]*)/.exec(raw)?.[1] ?? '';
+    out.push({ type: head[1].toLowerCase(), key, text: raw });
+    i = end;
+  }
+  return out;
 }
 
 /** Split a .ris file into raw records (each TY…ER block, terminator included). */
@@ -100,7 +300,21 @@ export function normalizeToCitation(raw: any, index: number): Citation {
         ? raw.issued.year
         : undefined;
   const author = Array.isArray(raw?.author)
-    ? raw.author.map((a: any) => ({ family: String(a?.family ?? ''), given: a?.given ? String(a.given) : undefined }))
+    ? raw.author
+        .map((a: any) => ({
+          family: String(a?.family ?? ''),
+          given: a?.given ? String(a.given) : undefined,
+        }))
+        // §11 D113. BibTeX's `author = {Nested, Nora and others}` means "et al".
+        // citation-js renders the marker as a person whose family name is
+        // literally "others", and every bibliography style then prints it as a
+        // real co-author. Dropped rather than kept: CSL-JSON has no et-al
+        // marker, and an invented collaborator is worse than a short list.
+        // (The consequence, stated rather than hidden: the entry no longer
+        // records that further authors exist. Recovering that needs a field
+        // Citation does not have.)
+        .filter((a: { family: string; given?: string }) =>
+          !(a.family.toLowerCase() === 'others' && !a.given))
     : [];
   const csl: CslItem = {
     id: doi ?? `imported-${index}`,

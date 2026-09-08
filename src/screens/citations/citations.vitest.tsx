@@ -183,6 +183,33 @@ describe('add ways', () => {
     expect(screen.getByTestId('collection-retracted')).toBeTruthy();
   });
 
+  /** §11 D113 defect 5. Re-importing your own library showed every DOI-less
+   *  entry twice — colliding React keys, and a list that silently collapsed
+   *  back on reload. The STORE was always correct (upsert is keyed by id); the
+   *  view double-counted. */
+  it('re-importing the same file does not duplicate the visible list', async () => {
+    const bib = `@article{a2020, title={Alpha Study}, author={Doe, Jane}, year={2020}}
+@article{b2021, title={Beta Study}, author={Roe, Ann}, year={2021}, doi={10.1/beta}}`;
+    const file = new File([bib], 'lib.bib', { type: 'text/plain' });
+    renderCM();
+    await screen.findByTestId('citation-list');
+
+    const importOnce = async () => {
+      const input = screen.getByTestId('import-input') as HTMLInputElement;
+      Object.defineProperty(input, 'files', { value: [file], configurable: true });
+      fireEvent.change(input);
+      await waitFor(() => expect(screen.queryByTestId('import-report')).toBeTruthy());
+    };
+
+    await importOnce();
+    const after1 = within(screen.getByTestId('citation-list')).getAllByText(/Alpha Study/).length;
+    expect(after1).toBe(1);
+
+    await importOnce();
+    const after2 = within(screen.getByTestId('citation-list')).getAllByText(/Alpha Study/).length;
+    expect(after2).toBe(1); // was 2 — the same entry prepended a second time
+  });
+
   it('manual entry adds a citation', async () => {
     const lib = renderCM();
     fireEvent.click(await screen.findByTestId('add-manual'));

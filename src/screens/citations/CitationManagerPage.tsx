@@ -535,7 +535,23 @@ const Inner: React.FC<CitationManagerPageProps> = ({
       }
     }
     if (cites.length) {
-      setCitations((xs) => [...cites.map((c) => ({ ...c, syncStatus: 'local_only' as const })), ...xs]);
+      // §11 D113. Was an unconditional prepend, so re-importing your own file
+      // showed every DOI-less entry twice — with colliding React keys, which
+      // was the tell — until a reload, when the list silently collapsed back.
+      //
+      // The STORE was already right: `local.upsert` is keyed by `Citation.id`
+      // and `normalizeToCitation` derives that id deterministically from the
+      // DOI, else title+year, so the same entry re-imported writes the same
+      // row. Only the in-memory view double-counted, so only the view is
+      // fixed here — an entry already present is REPLACED in place rather than
+      // prepended, which also keeps its position in the list stable.
+      setCitations((xs) => {
+        const incoming = cites.map((c) => ({ ...c, syncStatus: 'local_only' as const }));
+        const byId = new Map(incoming.map((c) => [c.id, c]));
+        const replaced = xs.map((c) => byId.get(c.id) ?? c);
+        const seen = new Set(xs.map((c) => c.id));
+        return [...incoming.filter((c) => !seen.has(c.id)), ...replaced];
+      });
     }
   };
 

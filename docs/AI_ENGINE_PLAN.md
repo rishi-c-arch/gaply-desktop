@@ -6418,3 +6418,97 @@ It found one real cast outside the audit (`StatsVerifierReport`, a `BadgeStatus`
 union that was already assignable — the cast bought nothing and only stopped the
 checker confirming it), now annotated instead. Reintroducing D109's own
 `items={items as any}` fails the rule.
+
+### D113 — the importer invented a citation, and four other things it lost
+
+A researcher's first act is importing their library. `importCitations` had 13
+tests and **every fixture in them was a hand-written one-line string** —
+`@article{a2020, title={Alpha Study}, ...}`. §11 D98's pattern exactly: input we
+wrote, written to be easy. It passed while the splitter was cutting real entries
+in half.
+
+Corpus built to be hard (`src/screens/citations/fixtures/`), run through the
+REAL importer. **Nine of nine entries survived the three main files with zero
+failures** — BOM, CRLF, LaTeX accents (`Fern{\'a}ndez` → Fernández), multiline
+abstracts, bare `month = oct`, nested case-protection braces, a missing trailing
+newline. The defects were all in the edge files.
+
+**Provenance, stated in the fixture README and in each file:** these are
+reconstructions of what Zotero/Mendeley/EndNote emit, not exports from a real
+install. In particular **default Zotero and Mendeley do not emit `@string`** —
+JabRef and hand-maintained files do — so defect 3 is real but narrower than
+"Zotero users".
+
+#### 1. An `@` inside a field value split the entry — and fabricated a citation
+
+The worst defect found in this project. `splitBibtex` was
+`text.split(/(?=@\w+\s*\{)/)`, which matches anywhere, including inside a value:
+
+- an abstract quoting BibTeX (`…write @article{foo, title={bar}}…`) was cut in
+  two. The real half failed to parse and was reported; **the trailing half
+  parsed CLEAN and was added to the library as a paper titled "bar"**;
+- `note = {Corresponding author: nora@lab {group site}}` — `@lab {` matched
+  because the pattern allowed whitespace before the brace. Both halves failed
+  and the entry was lost.
+
+A fabricated citation is worse than a wrong verdict: the researcher never sees
+it arrive. It also inflated the tally — a 2-entry file reported `total=3`.
+
+Replaced with a brace-depth scan: an `@` only starts an entry at depth 0, and a
+backslash escapes the next character so `\{` in a LaTeX field does not shift it.
+
+**The regression this caused, and the fix for it.** An unterminated entry now
+swallowed the rest of the file, and a pre-existing test — *"one malformed entry
+never kills the batch: good/bad/good → 2 added, 1 failed"* — caught it
+immediately. Recovery cuts at the next `@type{` **at the start of a line**, which
+is precisely the discriminator between a real entry (column 0 in every emitter)
+and the hazards above (mid-line). So the recovery cannot reintroduce the split it
+just fixed.
+
+#### 2. `crossref` was not inherited
+
+A child with `crossref = {parent}` and no year of its own imported with
+`year: undefined`, and `computeStatus` then labelled a perfectly well-formed
+reference **"malformed metadata"** — the tool calling the user's library wrong.
+One level of inheritance now, plus BibTeX's real special case (a child in a
+collection takes the parent's `title` as its `booktitle`). A dangling `crossref`
+is left alone rather than invented.
+
+#### 3. `@string` macros silently dropped the field
+
+`@string` definitions were filtered out BEFORE parsing, so `journal = jml` could
+never resolve: citation-js saw a bare token, dropped it, and the entry imported
+looking complete with no journal and no error — losing the one field every
+bibliography style prints. Macros are now collected first and expanded into the
+entries.
+
+Only a BARE identifier is substituted, and an UNDEFINED one is left alone:
+`month = oct` is a built-in macro no file defines, and rewriting it to nothing
+would lose data to fix a different problem.
+
+#### 4. `and others` became an author called "others"
+
+`author = {Nested, Nora and others}` produced a person whose family name was
+literally `others`, printed as a real co-author by every style. Dropped — CSL-JSON
+has no et-al marker and an invented collaborator is worse than a short list.
+**Stated rather than hidden:** the entry no longer records that further authors
+exist, and recovering that needs a field `Citation` does not have.
+
+#### 5. Re-importing duplicated the VIEW, not the data
+
+`added=0, skipped=2, review=3` on a re-import — the DOI-less entries go to
+`review`, which the page applies under keep-both. The **store was already
+correct**: `local.upsert` is keyed by `Citation.id`, which
+`normalizeToCitation` derives deterministically from DOI, else title+year. Only
+`setCitations` double-counted, prepending unconditionally — colliding React keys
+were the tell, and the list silently collapsed back on reload. Fixed in the view
+alone: an entry already present is replaced in place, which also keeps its
+position stable.
+
+#### What the corpus now guards
+
+Ten cases, five of which failed before these fixes and five of which passed and
+are pinned so a fix cannot quietly break them (line endings, no trailing
+newline, re-import, BOM, RIS). The rule they encode: **an entry that cannot be
+parsed must be REPORTED, never silently dropped — and the importer must never
+produce a citation the user did not have.**
