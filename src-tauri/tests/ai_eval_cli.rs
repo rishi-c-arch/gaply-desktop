@@ -75,7 +75,7 @@ fn an_unknown_support_variant_is_refused() {
     // The message must NAME the legal variants, including the D64 experiment
     // one — an error that lists two of three options sends the reader looking
     // for a flag that exists.
-    assert!(out.contains("v1, v2, v1c or v1o"), "{out}");
+    assert!(out.contains("v1, v2, v1c, v1o, v1e or v1n"), "{out}");
 }
 
 /// §11 D107. The bare invocation ran the bundled 0.5B against a lexical mock

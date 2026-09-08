@@ -6799,3 +6799,79 @@ amount of model capacity fixes an undefined term.
 Defining `different` is the obvious next experiment and is NOT bundled into
 D117's own-work change below — two prompt edits measured together are one
 uninterpretable result (§11 D64).
+
+### D120 — isolation is a claim about the whole run; and the guard that only watched the start
+
+D118 made the harness refuse a contended run. It checked the load average at
+START and then stopped watching. The v1.9 cell went **1.77 -> 4.31** and was
+still stamped `ranIsolated: true`.
+
+**A guard that verifies an opening condition and then looks away is the same
+shape as a check that measures something other than the product** — the failure
+this project has now recorded seven times.
+
+`ranIsolated` is therefore the declaration as HONOURED, not as passed: it is
+false when the machine got busy mid-run, alongside `isolationDeclared` and
+`isolationHeldToEnd` so a downgrade is visible rather than silent. **Downgraded
+rather than fatal**: the run has already happened and its verdicts are still
+valid under greedy decoding — it is the TIMINGS that are not comparable, and
+destroying the report would lose the verdicts to protect a number nobody should
+have used. It fired on its first real use (v1.10, 1.74 -> 4.68).
+
+*One correction for the record: `--isolated` was NOT failing to persist. It was
+recorded under `loadContext`, and the check that reported it missing looked at
+the top level. A defect was reported that did not exist; only the end-of-run gap
+was real.*
+
+### D121 — a worked example is imitated as a template, not read as an illustration
+
+Two hazards, both measured on the cold-6, and they generalise past this feature.
+
+**1. LITERAL LEAKAGE.** The v1.10 example was
+`{"why": "reports 21 of 56 doctors, the 37.5% the claim states", "chunk_id": "c7", "page": 4}`.
+On `cs-label-004` the model emitted `chunk_id: "c7"` — **the example's own id**,
+against evidence containing `c11`-`c17`. Under v1.9, whose example was identical,
+it invented `c1`. And `cs-label-005` produced
+*"reports 46 of 58 macro-F1, the 77.9% the claim states"* — the example's
+sentence frame with the numbers swapped.
+
+**2. SIBLING-FIELD NEGLECT.** The example showed ONE `supporting_chunks` entry,
+not the whole object. Three of six v1.10 failures were **`missing field
+'confidence'`** — a field neither variant mentions, in an object that was
+otherwise well-formed with correct shape, `why` first and real element statuses.
+**Demonstrating a sub-object pulls attention to it and away from its siblings.**
+
+**Worked examples are a HAZARD on this model class, not a default technique.**
+§11 D98 already said an example must not teach to the measured case; that was
+about the example's CONTENT. This is stronger and about its FORM: the model
+reproduces the example's structure and values rather than generalising from
+them, so an example can break fields it never mentions.
+
+**The grounding check earned its keep.** D18's identifier guarantee caught both
+invented ids — `c1` and `c7` — the first time it has caught a real fabrication in
+a cell rather than in a test. A well-formed object with a plausible id that is
+not in the evidence is indistinguishable from a real citation to everything
+downstream.
+
+#### The aggregate, which is the honest summary of this line of work
+
+| cell | change | result vs baseline |
+|---|---|---|
+| v1.7-chunkbound | state the 4-chunk bound | **harmful** — planted-chunk 75% -> 25%, and Metal validity 6/6 -> 5/6 |
+| v1.8-ownwork | own-work decomposition rule | **null** — not one of 6 cases changed |
+| v1.9-entryshape | entry example + `why` first + exclusion line | **worse** — 3/6 -> 2/6 |
+| v1.10-…-noexcl | v1.9 minus the exclusion line | **worst** — 3/6 -> **0/6** |
+
+With `citation_need`'s v2/v3/v4 (D77, D78: recall 0% / 68% / 82%, all <=50%
+accuracy), that is **five prompt variants across two tasks, none above baseline.**
+
+**The prompt is not the lever on this model.** D64 established that rules compete
+rather than accumulate; D78 that reordering changes the direction of errors and
+not their rate; D121 that examples are imitated rather than generalised. Three
+different mechanisms, one conclusion. **The whole-object variant was NOT run** —
+four cells at increasing cost with no gain is enough evidence about the
+technique, and a fifth would measure the same thing again.
+
+**v1.6 stands as the shipped prompt.** v1.7, v1.8, v1.9 and v1.10 are kept in the
+harness (`--support-variant v1c / v1o / v1e / v1n`) so their reports stay
+reproducible; none is reachable from the app.

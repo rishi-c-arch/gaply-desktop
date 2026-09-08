@@ -1,0 +1,284 @@
+{
+  "advisoryRate": 0.0,
+  "binaryHash": "7ba98e97354a9824f9f99402302e67bc70da144120fa2254145b054a440cc9aa",
+  "casesFile": "evals/cs-cold6.jsonl",
+  "chunkIdFormatCases": [
+    "cs-label-004"
+  ],
+  "chunkIdFormatFailures": 1,
+  "citedPlantedChunk": 1.0,
+  "date": "cold6-v19",
+  "diagnosticFaithfulnessCases": [
+    {
+      "findings": [
+        "claim_element \"the SemEval-2018 Task 1 dataset\" is marked found, but \"2018\" appears in none of the cited evidence",
+        "claim_element \"the SemEval-2018 Task 1 dataset\" is marked found, but \"1\" appears in none of the cited evidence"
+      ],
+      "id": "cs-label-004",
+      "outcome": "validationFailed"
+    }
+  ],
+  "diagnosticFaithfulnessFailures": 1,
+  "embedder": "bge-small-en-v1.5",
+  "embedderIsReal": true,
+  "evidenceBudgetTokens": 1200,
+  "faithfulnessCheckedCases": 0,
+  "faithfulnessViolationCases": [],
+  "faithfulnessViolations": 0,
+  "loadContext": {
+    "allowedContended": false,
+    "loadAvg1mEnd": 4.30908203125,
+    "loadAvg1mStart": 1.765625,
+    "ranIsolated": true
+  },
+  "maxTokensCeiling": 1024,
+  "meanDecodeMs": 66066.0,
+  "meanDecodeTokensPerSec": 8.262373596509498,
+  "meanLatencyMs": 113037.5,
+  "meanPrefillMs": 46563.833333333336,
+  "meanPromptTokens": 3964.3333333333335,
+  "modelId": "qwen2.5-3b-instruct-q4km",
+  "modelLoadMs": 2193,
+  "nCtx": 5120,
+  "os": "macOS 26.6.2 (Darwin 25.6.0)",
+  "prefillShare": 0.41193261823141286,
+  "preprocessingVersion": "bge-v1.5-p2",
+  "promptVersion": "citation_support-v1.9-entryshape",
+  "ramTotalMb": 2367,
+  "results": [
+    {
+      "chunksDropped": 0,
+      "chunksSent": 2,
+      "decodeMs": 292379,
+      "decodeTokensPerSec": 7.004607034020911,
+      "elapsedMs": 309706,
+      "evidenceWords": 860,
+      "fatalErrors": [
+        "<output>: no JSON object or array found in the reply"
+      ],
+      "id": "cs-label-001",
+      "outcome": "validationFailed",
+      "prefillMs": 15972,
+      "promptTokens": 5444,
+      "raw": "--- attempt 1 ---\nactly to the same questions. The questions were, and the answers were. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the answers were the same. The questions were the same, and the\n--- retry ---\n to. SERIOUS DEATH\n    1147 SIM\nD 17 SUB 300. THIS A NINE THEO 1/230, 1000 KAT 2700 DIONNE 3/236s, and NTRS A, 100KAT300. THIS AND\n    2/2300s and 36300 and 300 and 2/2300s and 2000, 300000000 and 200 and 700 and 70003606 and a 23600000, and a SITERS AND 4000 and a, and 2/5000, and a 7000 and 7000 and a 7000 and a 3600 and a D3600 and a DUNGED TO 70000 and a and a 700000 and a 7000, and a DUM, and a and 50000700 and a 250000. 7000003600 and a DUM AND 3000036007003600036000 and a, and how to learn how to be and a36007000000700036000000360700 and 7000360360036003600000360703603607, 700360036036070360030003003603603607, and a 2300003603600360360360360603603603603603600360036003600360036003603603677036036036036036036036036036036036036036036036036036036036036036036036036036036036036036036036036036036036036036036036036036 and a 236036036 and a 23603606036036036036 and a 236036 and 320036036 and 3236 and 56 and 236 and a 2326 and36036 and 3236 and a 2323603236 and a 23236 and 20323236 and 203236032326 and stegan16 and HISTICA and 2326 and 5236 and a 23236 and 5232360326 and 5236 and HOLLERATHA6 and HOMIE 5236032333333333333333---- A. ( ) _\\士7-      ( )\\效果{|\n4 (     \n____\n|( )\\\n\n[ 0%u0_\\u00'_' 0\\\"$\\\\( )_\\u20 0\\\"_\\u0\n2\\\"_\\u2\\\"_\\1'\n100%001$ 08$\n\n\\boxed{20\\\"_\\效果 0\"@\\\n(_: )_\\uffs4200160\"28.0140\\\"_0140\\\"014003450\\\"01400000000000000000000000000000000000000000000000000\n--- primary: Retry ---",
+      "retried": true,
+      "stopReasons": [
+        "maxTokens",
+        "maxTokens"
+      ],
+      "tokens": 2048,
+      "truncated": true
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 4,
+      "decodeMs": 12552,
+      "decodeTokensPerSec": 10.516252390057362,
+      "elapsedMs": 54672,
+      "evidenceWords": 597,
+      "fatalErrors": [
+        "supporting_chunks: is empty for verdict 'weak' — a judgement about the evidence must say WHICH evidence; only insufficient_evidence may cite nothing"
+      ],
+      "id": "cs-label-002",
+      "outcome": "validationFailed",
+      "prefillMs": 41933,
+      "promptTokens": 4157,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [],\n  \"claim_elements\": [\n    {\"element\": \"the proposal of HEFCSO algorithm\", \"status\": \"absent\"},\n    {\"element\": \"a unified emotion detection pipeline\", \"status\": \"absent\"},\n    {\"element\": \"a thorough evaluation and benchmarking\", \"status\": \"absent\"}\n  ],\n  \"explanation\": \"No evidence found for the claim elements: HEFCSO algorithm, unified emotion detection pipeline, or thorough evaluation and benchmarking.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 132,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 4,
+      "decodeMs": 13409,
+      "decodeTokensPerSec": 9.545827429338503,
+      "elapsedMs": 65606,
+      "evidenceWords": 861,
+      "fatalErrors": [
+        "<output>: not valid JSON: trailing characters at line 1 column 494"
+      ],
+      "id": "cs-label-003",
+      "outcome": "validationFailed",
+      "prefillMs": 52046,
+      "promptTokens": 4641,
+      "raw": "--- attempt 1 ---\n{\"verdict\":\"weak\",\"confidence\":0.0,\"supporting_chunks\":[{\"why\":\"reports 21 of 56 doctors, the 37.5% the claim states\",\"chunk_id\":\"c7\",\"page\":4}],\"claim_elements\":[{\"element\":\"points lost by removing attention layer\",\"status\":\"absent\"},{\"element\":\"points lost by using GloVe\",\"status\":\"absent\"},{\"element\":\"points lost by using SMOTE-Text\",\"status\":\"absent\"}],\"explanation\":\"The evidence does not discuss points lost by removing attention layer, GloVe, or SMOTE-Text.\",\"suggested_rewrite\":null}}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 128,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 7,
+      "decodeMs": 18991,
+      "decodeTokensPerSec": 9.162234742772892,
+      "diagnosticFaithfulness": [
+        "claim_element \"the SemEval-2018 Task 1 dataset\" is marked found, but \"2018\" appears in none of the cited evidence",
+        "claim_element \"the SemEval-2018 Task 1 dataset\" is marked found, but \"1\" appears in none of the cited evidence"
+      ],
+      "elapsedMs": 96463,
+      "evidenceWords": 826,
+      "fatalErrors": [
+        "supporting_chunks[0].chunk_id: references chunk_id \"c1\", which was not in the evidence provided (given: c11, c12, c13, c14, c15, c16, c17)"
+      ],
+      "id": "cs-label-004",
+      "outcome": "validationFailed",
+      "prefillMs": 77267,
+      "promptTokens": 4927,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [\n    {\"why\": \"describes the dataset size and languages, but not emotion labels\", \"chunk_id\": \"c1\", \"page\": 1}\n  ],\n  \"claim_elements\": [\n    {\"element\": \"the SemEval-2018 Task 1 dataset\", \"status\": \"found\"},\n    {\"element\": \"consists of 10,983 English tweets\", \"status\": \"absent\"},\n    {\"element\": \"labeled with eight Plutchik emotions\", \"status\": \"absent\"}\n  ],\n  \"explanation\": \"The evidence describes the dataset size and languages but does not mention the number of tweets or the specific emotion labels.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 174,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 6,
+      "decodeMs": 35580,
+      "decodeTokensPerSec": 6.745362563237775,
+      "elapsedMs": 84614,
+      "evidenceWords": 856,
+      "id": "cs-label-005",
+      "outcome": "ok",
+      "prefillMs": 48679,
+      "promptTokens": 2305,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.0,\"supporting_chunks\":[{\"chunk_id\":\"c19\",\"page\":1,\"why\":\"achieves an average F1-score of .46 (std=.19)\"}],\"claim_elements\":[{\"element\":\"fine-tuned BERT\",\"status\":\"found\"},{\"element\":\"average F1-score\",\"status\":\"found\"},{\"element\":\"46%\",\"status\":\"found\"},{\"element\":\"over 27 categories\",\"status\":\"found\"},{\"element\":\"substantially lower than 95%\",\"status\":\"absent\"}],\"explanation\":\"The evidence shows that GoEmotions achieved an average F1-score of 46% (std=.19) on the test set, but does not provide the 95% macro-F1 score claimed in the present study. The claim is weak because the evidence does not support the comparison of the two F1-scores.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": true,
+        "expected": {
+          "planted_chunk_contains": "Table 4 summarizes the performance of our best",
+          "supporting_count": 2,
+          "verdict": "strong"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "fine-tuned BERT",
+              "status": "found"
+            },
+            {
+              "element": "average F1-score",
+              "status": "found"
+            },
+            {
+              "element": "46%",
+              "status": "found"
+            },
+            {
+              "element": "over 27 categories",
+              "status": "found"
+            },
+            {
+              "element": "substantially lower than 95%",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.0,
+          "explanation": "The evidence shows that GoEmotions achieved an average F1-score of 46% (std=.19) on the test set, but does not provide the 95% macro-F1 score claimed in the present study. The claim is weak because the evidence does not support the comparison of the two F1-scores.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c19",
+              "page": 1,
+              "why": "achieves an average F1-score of .46 (std=.19)"
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": false,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 240,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 6,
+      "decodeMs": 23485,
+      "decodeTokensPerSec": 6.5999574196295505,
+      "elapsedMs": 67164,
+      "evidenceWords": 897,
+      "id": "cs-label-006",
+      "outcome": "ok",
+      "prefillMs": 43486,
+      "promptTokens": 2312,
+      "raw": "{\"verdict\":\"weak\",\"confidence\":0.0,\"supporting_chunks\":[{\"chunk_id\":\"c24\",\"page\":1,\"why\":\"reports 58,009 comments, 27 emotions, remapping to 8 categories\"}],\"claim_elements\":[{\"element\":\"dataset size\",\"status\":\"found\"},{\"element\":\"emotion categories\",\"status\":\"found\"},{\"element\":\"remapping\",\"status\":\"absent\"}],\"explanation\":\"The evidence states the dataset size and emotion categories, but does not mention remapping to eight categories.\",\"suggested_rewrite\":null}",
+      "retried": false,
+      "scored": {
+        "citedPlantedChunk": true,
+        "expected": {
+          "planted_chunk_contains": "3 GoEmotions Our dataset is composed of 58K",
+          "supporting_count": 2,
+          "verdict": "partial"
+        },
+        "faithfulnessViolation": null,
+        "got": {
+          "claim_elements": [
+            {
+              "element": "dataset size",
+              "status": "found"
+            },
+            {
+              "element": "emotion categories",
+              "status": "found"
+            },
+            {
+              "element": "remapping",
+              "status": "absent"
+            }
+          ],
+          "confidence": 0.0,
+          "explanation": "The evidence states the dataset size and emotion categories, but does not mention remapping to eight categories.",
+          "suggested_rewrite": null,
+          "supporting_chunks": [
+            {
+              "chunk_id": "c24",
+              "page": 1,
+              "why": "reports 58,009 comments, 27 emotions, remapping to 8 categories"
+            }
+          ],
+          "verdict": "weak"
+        },
+        "quotesPresent": 0,
+        "verdict": false,
+        "verdictGiven": "weak"
+      },
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "tokens": 155,
+      "truncated": false
+    }
+  ],
+  "retryRate": 0.6666666666666666,
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "task": "citation_support",
+  "totalCases": 6,
+  "truncationCases": [
+    "cs-label-001"
+  ],
+  "truncationCount": 1,
+  "validOutputs": 2,
+  "validationFailureRate": 0.6666666666666666,
+  "verdictAgreement": 0.0,
+  "verdictDistribution": {
+    "weak": 2
+  }
+}

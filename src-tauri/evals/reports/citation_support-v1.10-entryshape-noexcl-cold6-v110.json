@@ -1,0 +1,193 @@
+{
+  "advisoryRate": 0.0,
+  "binaryHash": "fa03db8f82aa338c59c3c07732553fba13da93ba313b5c2d894f07f34c8777ae",
+  "casesFile": "evals/cs-cold6.jsonl",
+  "chunkIdFormatCases": [
+    "cs-label-004"
+  ],
+  "chunkIdFormatFailures": 1,
+  "citedPlantedChunk": null,
+  "date": "cold6-v110",
+  "diagnosticFaithfulnessCases": [],
+  "diagnosticFaithfulnessFailures": 0,
+  "embedder": "bge-small-en-v1.5",
+  "embedderIsReal": true,
+  "evidenceBudgetTokens": 1200,
+  "faithfulnessCheckedCases": 0,
+  "faithfulnessViolationCases": [],
+  "faithfulnessViolations": 0,
+  "loadContext": {
+    "allowedContended": false,
+    "isolationDeclared": true,
+    "isolationHeldToEnd": false,
+    "loadAvg1mEnd": 4.68212890625,
+    "loadAvg1mStart": 1.740234375,
+    "ranIsolated": false
+  },
+  "maxTokensCeiling": 1024,
+  "meanDecodeMs": 94784.66666666667,
+  "meanDecodeTokensPerSec": 4.631464594040423,
+  "meanLatencyMs": 208261.83333333334,
+  "meanPrefillMs": 113060.66666666667,
+  "meanPromptTokens": 4760.166666666667,
+  "modelId": "qwen2.5-3b-instruct-q4km",
+  "modelLoadMs": 2206,
+  "nCtx": 5120,
+  "os": "macOS 26.6.2 (Darwin 25.6.0)",
+  "prefillShare": 0.5428775155633413,
+  "preprocessingVersion": "bge-v1.5-p2",
+  "promptVersion": "citation_support-v1.10-entryshape-noexcl",
+  "ramTotalMb": 2367,
+  "results": [
+    {
+      "chunksDropped": 0,
+      "chunksSent": 2,
+      "decodeMs": 379093,
+      "decodeTokensPerSec": 5.402368284299631,
+      "elapsedMs": 403866,
+      "evidenceWords": 860,
+      "fatalErrors": [
+        "<output>: no JSON object or array found in the reply"
+      ],
+      "id": "cs-label-001",
+      "outcome": "validationFailed",
+      "prefillMs": 23376,
+      "promptTokens": 5382,
+      "raw": "--- attempt 1 ---\nactly. We can provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is being followed. We can also provide you with the necessary information to ensure that the regulation is being followed.\nWe can also provide you with the necessary information to ensure that the regulation is\n--- retry ---\nHARDOSNOSHOODS!，但不知道BUTSWhy!HOUSES OF：725657277.3920081558andSONICHOUSES of. THE72borsAPOSTHORSIPOBRAIN SINGA SITUATION A5001DAY ANDS:HOLOURS AND DOINGTHEMISATION ANDS AND THEMANY ANDS AND THE72DOPTIONS ANDS AND OTHERS AND THEMANY AND PLANSTHENASHO WHATS ANDS ANDS AND OTHERHOMETERS ANDS ANDS ANDS AND OTHERSCAPE ANDS ANDSONHO WHAT IS ANDS AND OTHERSMAS AND OTHERDAYAS ANDS ANDS ANDS ANDS ANDS ANDS ANDS AND OTHERSCAPESMARKS AND WHAT ISSTHOMARIS AND BEHOMAROTICS ANDS ANDS AND WHAT ISSTHOMARISES ANDS ANDS ANDS AND OTHERHAMOUNTHOMARIS ANDS AND WHATS AND OTHERDAYS AND WHATS AND WHAT ISSTHOMARIS AND WHATS AND WHATS ANDS AND WHAT ISSTHOMARISSTHOMARHOUMAN BECARTS AND WHATS AND WHATS ANDS ANDS AND WHATS ANDS ANDS AND WHATS ANDS AND WHATS AND WHAT ISSTHOMARIS AND WHATS ANDS ANDS AND WHATS AND WHATS AND WHATS ANDS AND WHATS ANDSANTHOMARIS ANDS ANDS AND WHATS AND ALLS ANDS ANDS AND WHATS ANDS ANDS ANDS ANDOBTIMES ANDS ANDS ANDS ANDS AND WHATS AND WHATS ANDS ANDS ANDS ANDS AND WHATS ANDS ANDS AND WHATS ANDS ANDS ANDS ANDS AND WHATS ANDS ANDS AND WHATS ANDS ANDS AND ALL AND WHATS ANDS ANDS ANDS ANDS ANDS AND WHATS ANDS AND WHAT IS AND ALL AND WHAT IS ALL AND WHATS ANDS AND ALL ANDS AND ALL ANDS ANDS ANDS ANDS AND ALL ANDS ANDS AND ALL ANDS AND ALL ANDS ANDS AND ALL ANDS ANDS AND ALL ANDS ANDS ANDS AND ALL ANDS ANDS ANDS ANDS AND ALL ANDS ANDS AND AND ALL ANDS AND ALL ANDS AND WHAT ISSTHOMARSWASSTHOMARIS AND ALL ANDS ANDS AND ALL AND WHAT ISSTHOMARIS AND ALL AND WHATS ANDS AND WHATS ANDS AND WHAT IS ALL ANDS AND ALL ANDS AND ALL AND WHATSCAS AND ALL ANDS AND WHATS AND ALL AND WHATS AND ALL ANDS ANDS AND ALL AND WHATSCAS ANDS AND ALL AND WHAT ISSTADS AND ALL AND WHATSCAS ANDS AND ALL ANDS ANDS AND ALL AND WHATSCAS AND ALL ANDS ANDS AND ALL ANDS ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS ANDS AND ALL ANDS ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS ANDS AND ALL ANDS AND ALL ANDS ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS AND ALL AND ALL ANDS AND ALL ANDS AND ALL ANDS ANDS AND ALL ANDS AND ALL AND ALL ANDS AND ALL AND ALL ANDS AND ALL AND ALL AND ALL AND ALL ANDS AND ALL ANDS AND ALL ANDS AND ALL ANDS AND ALL AND ALL AND ALL ANDS AND ALL AND ALL ANDS AND ALL ANDS AND ALL AND AND ALL AND ALL ANDS AND ALL ANDS AND ALL AND AND ALL AND AND ALL ANDS AND ALL AND WHATSSSSSSSSSSSSSSS made()23 2.41111241111124111111111111110877 \\\"41188118811881188118811881188 07838080808\n4088038\n078880\n07088028808\n0702880288\n988808\n0702888\n0328888\n0888888\n--- primary: Retry ---",
+      "retried": true,
+      "stopReasons": [
+        "maxTokens",
+        "maxTokens"
+      ],
+      "tokens": 2048,
+      "truncated": true
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 4,
+      "decodeMs": 23001,
+      "decodeTokensPerSec": 6.260597365331941,
+      "elapsedMs": 109028,
+      "evidenceWords": 597,
+      "fatalErrors": [
+        "supporting_chunks: is empty for verdict 'weak' — a judgement about the evidence must say WHICH evidence; only insufficient_evidence may cite nothing"
+      ],
+      "id": "cs-label-002",
+      "outcome": "validationFailed",
+      "prefillMs": 85759,
+      "promptTokens": 4107,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [],\n  \"claim_elements\": [\n    {\"element\": \"proposed HEFCSO algorithm\", \"status\": \"absent\"},\n    {\"element\": \"unified emotion detection pipeline\", \"status\": \"absent\"},\n    {\"element\": \"thorough evaluation and benchmarking\", \"status\": \"absent\"}\n  ],\n  \"explanation\": \"The evidence does not mention HEFCSO, the unified emotion detection pipeline, or any evaluation against baselines. The evidence discusses SMOTE and ROC curves but does not support the claim elements.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 144,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 4,
+      "decodeMs": 32007,
+      "decodeTokensPerSec": 3.9053956946917863,
+      "elapsedMs": 166472,
+      "evidenceWords": 861,
+      "fatalErrors": [
+        "<output>: not valid JSON: missing field `confidence` at line 1 column 500"
+      ],
+      "id": "cs-label-003",
+      "outcome": "validationFailed",
+      "prefillMs": 134301,
+      "promptTokens": 4579,
+      "raw": "--- attempt 1 ---\n{\"verdict\":\"weak\",\"supporting_chunks\":[{\"why\":\"reports 21 of 56 doctors, the 37.5% the claim states\",\"chunk_id\":\"c7\",\"page\":4}],\"claim_elements\":[{\"element\":\"points lost by removing attention layer\",\"status\":\"absent\"},{\"element\":\"points lost by using GloVe\",\"status\":\"absent\"},{\"element\":\"points lost by using SMOTE-Text\",\"status\":\"absent\"}],\"explanation\":\"The evidence discusses SMOTE-Text and its impact on a dataset, but does not mention attention layers or points lost.\",\"suggested_rewrite\":null}}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 125,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 7,
+      "decodeMs": 43879,
+      "decodeTokensPerSec": 4.4212493447890795,
+      "elapsedMs": 187703,
+      "evidenceWords": 826,
+      "fatalErrors": [
+        "supporting_chunks[0].chunk_id: references chunk_id \"c7\", which was not in the evidence provided (given: c11, c12, c13, c14, c15, c16, c17)"
+      ],
+      "id": "cs-label-004",
+      "outcome": "validationFailed",
+      "prefillMs": 143609,
+      "promptTokens": 4885,
+      "raw": "--- attempt 1 ---\n{\n  \"verdict\": \"weak\",\n  \"confidence\": 0.0,\n  \"supporting_chunks\": [\n    {\"why\": \"reports 21 of 56 doctors, the 37.5% the claim states\", \"chunk_id\": \"c7\", \"page\": 4}\n  ],\n  \"claim_elements\": [\n    {\"element\": \"the SemEval-2018 Task 1 dataset\", \"status\": \"absent\"},\n    {\"element\": \"10,983 English tweets\", \"status\": \"absent\"},\n    {\"element\": \"labeled with eight Plutchik emotions\", \"status\": \"absent\"}\n  ],\n  \"explanation\": \"The evidence does not mention the SemEval-2018 Task 1 dataset, nor does it provide any information about the number of tweets or the emotions they are labeled with.\",\n  \"suggested_rewrite\": null\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 194,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 6,
+      "decodeMs": 35240,
+      "decodeTokensPerSec": 4.284903518728717,
+      "elapsedMs": 168709,
+      "evidenceWords": 856,
+      "fatalErrors": [
+        "<output>: not valid JSON: missing field `confidence` at line 1 column 535"
+      ],
+      "id": "cs-label-005",
+      "outcome": "validationFailed",
+      "prefillMs": 133226,
+      "promptTokens": 4775,
+      "raw": "--- attempt 1 ---\n{\"verdict\":\"weak\",\"supporting_chunks\":[{\"why\":\"reports 46 of 58 macro-F1, the 77.9% the claim states\",\"chunk_id\":\"c23\",\"page\":2}],\"claim_elements\":[{\"element\":\"fine-tuned model\",\"status\":\"found\"},{\"element\":\"macro-F1 score\",\"status\":\"found\"},{\"element\":\"number of categories\",\"status\":\"found\"}],\"explanation\":\"The claim states a macro-F1 score of 95% for 27 categories, but the evidence shows a macro-F1 score of 77.9% for 58 categories. The evidence does not provide the claimed 95% score for 27 categories.\",\"suggested_rewrite\":null}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 151,
+      "truncated": false
+    },
+    {
+      "chunksDropped": 0,
+      "chunksSent": 6,
+      "decodeMs": 55488,
+      "decodeTokensPerSec": 3.514273356401384,
+      "elapsedMs": 213793,
+      "evidenceWords": 897,
+      "fatalErrors": [
+        "<output>: not valid JSON: missing field `confidence` at line 1 column 734"
+      ],
+      "id": "cs-label-006",
+      "outcome": "validationFailed",
+      "prefillMs": 158093,
+      "promptTokens": 4833,
+      "raw": "--- attempt 1 ---\n{\"verdict\":\"weak\",\"supporting_chunks\":[{\"why\":\"reports 58,009 comments, not 58,009 English Reddit comments\",\"chunk_id\":\"c24\",\"page\":1},{\"why\":\"reports 27 emotion categories, not 27 fine-grained emotions\",\"chunk_id\":\"c24\",\"page\":1},{\"why\":\"reports 8 categories, not 8 fine-grained emotions\",\"chunk_id\":\"c24\",\"page\":1}],\"claim_elements\":[{\"element\":\"number of comments\",\"status\":\"absent\"},{\"element\":\"emotion categories\",\"status\":\"different\"}],\"explanation\":\"The evidence states the dataset contains 58,009 comments and 27 emotion categories, not 58,009 English Reddit comments and 27 fine-grained emotions as claimed. The number of categories differs, and the claim of fine-grained emotions is not supported.\",\"suggested_rewrite\":null}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "tokens": 195,
+      "truncated": false
+    }
+  ],
+  "retryRate": 1.0,
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "task": "citation_support",
+  "totalCases": 6,
+  "truncationCases": [
+    "cs-label-001"
+  ],
+  "truncationCount": 1,
+  "validOutputs": 0,
+  "validationFailureRate": 1.0,
+  "verdictAgreement": null,
+  "verdictDistribution": {}
+}

@@ -690,6 +690,194 @@ const OWN_WORK_RULE: &str = r#"
      "reported an AUC of 0.82". The 0.94 is the authors' own result and is not
      an element."#;
 
+pub const PROMPT_VERSION_V19: &str = "citation_support-v1.9-entryshape";
+
+/// §11 D119. The ENTRY, shown filled in — with `why` as its purpose.
+///
+/// # What the model actually emits, read from the bytes
+///
+/// Not the chunk-id confusion the validator's message suggests. On the v1.8
+/// cold-6 run, `supporting_chunks` came back as an array of BARE STRINGS:
+///
+/// ```text
+/// cs-label-006:  ["CHUNK_ID=c24 PAGE=1 SECTION=-", … six of them]
+/// cs-label-004:  ["CHUNK_ID=c11 PAGE=1 SECTION=- We organized the SemEval-2018
+///                  Task 1… 22,000 tweets…", …]
+/// ```
+///
+/// The object is never built. `require_known_chunk` then reports it as
+/// `supporting_chunks[0].chunk_id: references chunk_id "CHUNK_ID=c11 …"`, which
+/// reads as a field problem and is not one.
+///
+/// **The model is not confused about the id's boundary.** cs-label-006's strings
+/// stop EXACTLY at the end of the header, before the text — it perceives the
+/// header as a unit and knows where it ends. A rendering change that isolated or
+/// quoted the id would have measured nothing.
+///
+/// # Two changes, both from that reading
+///
+/// 1. **`why` comes FIRST in the entry.** Generation is left to right (§11 D78
+///    measured this for `citation_need`: a field emitted first conditions what
+///    follows). With `why` first, the entry begins with the justification and
+///    the id follows from it, rather than the id being copied and a `why`
+///    trailing after as a slot to fill.
+/// 2. **One entry shown filled in**, so the shape is demonstrated rather than
+///    only declared. The schema already says `[{...}]` and the model emits
+///    `[...]`; a declaration it does not follow is not made truer by repeating
+///    it louder (§11 D64).
+///
+/// The exclusion criterion is the point of the example, not decoration.
+/// cs-label-006 cited ALL SIX chunks it was sent — one string each, mechanically
+/// enumerated. Enumeration and the missing `why` are ONE behaviour: with no
+/// justification to write, there is nothing to select on, so everything gets
+/// listed. Giving a test for when NOT to cite is what makes selection possible.
+///
+/// The example is deliberately in an unrelated domain — teaching to the measured
+/// case is how a fix scores well and generalises to nothing (§11 D98).
+const ENTRY_SHAPE_EXAMPLE: &str = r#"
+- EVERY supporting_chunks entry is an OBJECT, never a string, and its purpose is
+  the "why". Each entry answers one question: what does this passage contribute
+  to the claim? Write that first, then say which chunk it came from.
+
+  One entry, filled in:
+    {"why": "reports 21 of 56 doctors, the 37.5% the claim states",
+     "chunk_id": "c7", "page": 4}
+
+  "chunk_id" is the BARE id from the header — `c7`, not `CHUNK_ID=c7 PAGE=4 …`.
+  If you cannot say what a chunk contributes, do not cite it: a list of every
+  passage you were sent is not evidence for anything."#;
+
+pub const PROMPT_VERSION_V110: &str = "citation_support-v1.10-entryshape-noexcl";
+
+/// §11 D120. v1.9 MINUS the exclusion line — the cell v1.9 should have been.
+///
+/// v1.9 changed three things at once and two of them worked. Measured on the
+/// same 6 cold cases:
+///
+/// - **The shape fix WORKED.** Every case producing JSON emitted objects;
+///   `cs-label-004` went from `["CHUNK_ID=c11 PAGE=1 SECTION=- We organized…"]`
+///   to `[{… "chunk_id": "c1" …}]`.
+/// - **Selection WORKED.** `cs-label-006` went from citing 6 of 6 chunks —
+///   mechanical enumeration — to citing 1, and became valid.
+/// - **The exclusion line OVER-CORRECTED.** `cs-label-002`, valid under both
+///   v1.6 and v1.8, came back with `supporting_chunks` EMPTY on a `weak`
+///   verdict: cite-everything became cite-nothing. Validity fell 3/6 -> 2/6.
+///
+/// That is D58's shape exactly — a rule that fixes the failure it names and
+/// keeps going past it. So this variant keeps the two changes that worked and
+/// drops the one line that did not:
+///
+/// > *If you cannot say what a chunk contributes, do not cite it: a list of
+/// > every passage you were sent is not evidence for anything.*
+///
+/// THE QUESTION THIS CELL ANSWERS: does selection survive without it? If
+/// `cs-label-006` still cites 1 of 6, then **`why`-first ordering did the work**
+/// and the criterion was never needed — an entry that must justify itself first
+/// cannot be filled in for a chunk with nothing to say. If 006 returns to 6 of
+/// 6, the criterion is doing something real and needs a gentler form, which is
+/// its own cell after this one (§11 D64).
+const ENTRY_SHAPE_EXAMPLE_NOEXCL: &str = r#"
+- EVERY supporting_chunks entry is an OBJECT, never a string, and its purpose is
+  the "why". Each entry answers one question: what does this passage contribute
+  to the claim? Write that first, then say which chunk it came from.
+
+  One entry, filled in:
+    {"why": "reports 21 of 56 doctors, the 37.5% the claim states",
+     "chunk_id": "c7", "page": 4}
+
+  "chunk_id" is the BARE id from the header — `c7`, not `CHUNK_ID=c7 PAGE=4 …`."#;
+
+/// v1.6 plus the entry shape, WITHOUT the exclusion line (§11 D120).
+#[derive(Debug, Clone)]
+pub struct CitationSupportV110Task {
+    pub claim: String,
+    pub cited_source: String,
+    pub evidence: String,
+}
+
+impl AiTask for CitationSupportV110Task {
+    type Output = CitationSupportOutput;
+
+    fn prompt_version(&self) -> &'static str {
+        PROMPT_VERSION_V110
+    }
+
+    fn max_tokens() -> usize {
+        MAX_TOKENS
+    }
+
+    fn build_prompt(&self) -> String {
+        let base = CitationSupportTask {
+            claim: self.claim.clone(),
+            cited_source: self.cited_source.clone(),
+            evidence: self.evidence.clone(),
+        }
+        .build_prompt();
+        base.replace(OUTPUT_SCHEMA, OUTPUT_SCHEMA_V19).replace(
+            "- At most 5 claim_elements.",
+            &format!("{ENTRY_SHAPE_EXAMPLE_NOEXCL}\n- At most 5 claim_elements."),
+        )
+    }
+
+    fn validate(out: &Self::Output, ctx: &TaskContext) -> Result<(), Vec<ValidationError>> {
+        validate_support(out, ctx, false)
+    }
+}
+
+/// v1.9's schema. `why` leads the entry; the fields are otherwise v1.6's.
+const OUTPUT_SCHEMA_V19: &str = r#"{
+  "verdict": "strong|partial|weak|contradicts|insufficient_evidence",
+  "confidence": 0.0-1.0,
+  "supporting_chunks": [{"why": string, "chunk_id": string, "page": integer}],
+  "claim_elements": [
+    {"element": string, "status": "found|absent|different"}
+  ],
+  "explanation": string,
+  "suggested_rewrite": string|null
+}"#;
+
+/// v1.6's task with the entry shape shown (§11 D119). Nothing else changes.
+#[derive(Debug, Clone)]
+pub struct CitationSupportV19Task {
+    pub claim: String,
+    pub cited_source: String,
+    pub evidence: String,
+}
+
+impl AiTask for CitationSupportV19Task {
+    type Output = CitationSupportOutput;
+
+    fn prompt_version(&self) -> &'static str {
+        PROMPT_VERSION_V19
+    }
+
+    fn max_tokens() -> usize {
+        MAX_TOKENS
+    }
+
+    fn build_prompt(&self) -> String {
+        let base = CitationSupportTask {
+            claim: self.claim.clone(),
+            cited_source: self.cited_source.clone(),
+            evidence: self.evidence.clone(),
+        }
+        .build_prompt();
+        // The schema swap and the example, and nothing else — the D64
+        // discipline that a variant differing in two ways measures neither.
+        base.replace(OUTPUT_SCHEMA, OUTPUT_SCHEMA_V19).replace(
+            "- At most 5 claim_elements.",
+            &format!("{ENTRY_SHAPE_EXAMPLE}
+- At most 5 claim_elements."),
+        )
+    }
+
+    fn validate(out: &Self::Output, ctx: &TaskContext) -> Result<(), Vec<ValidationError>> {
+        // IDENTICAL validation (§11 D64). The question is what the model
+        // PRODUCES; a changed validator would confound it.
+        validate_support(out, ctx, false)
+    }
+}
+
 /// v1.6's task with the own-work decomposition rule appended (§11 D117).
 #[derive(Debug, Clone)]
 pub struct CitationSupportV18Task {
@@ -985,6 +1173,109 @@ mod tests {
     /// validator ran.
     /// §11 D117. v1.8 must be v1.6 plus the own-work rule and NOTHING else —
     /// the same discipline v1.7 used, so a measured difference is attributable.
+    #[test]
+    /// §11 D120. v1.10 must be v1.9 with EXACTLY the exclusion line removed —
+    /// the isolation that v1.9 failed to provide by changing three things at
+    /// once.
+    #[test]
+    fn v110_is_v19_minus_the_exclusion_line_and_nothing_else() {
+        let mk9 = CitationSupportV19Task {
+            claim: "C".into(),
+            cited_source: "S".into(),
+            evidence: ctx().render_evidence(),
+        }
+        .build_prompt();
+        let mk10 = CitationSupportV110Task {
+            claim: "C".into(),
+            cited_source: "S".into(),
+            evidence: ctx().render_evidence(),
+        }
+        .build_prompt();
+
+        // The two changes that WORKED are both still present.
+        assert!(mk10.contains("is an OBJECT, never a string"), "shape rule lost:\n{mk10}");
+        assert!(mk10.contains(r#"{"why": "reports 21 of 56 doctors"#), "worked entry lost");
+        let why = mk10.find("\"why\": string").expect("why missing");
+        let cid = mk10.find("\"chunk_id\": string").expect("chunk_id missing");
+        assert!(why < cid, "why-first ordering lost — that is the change under test");
+
+        // The line that OVER-CORRECTED is gone, and only that.
+        assert!(mk9.contains("do not cite it"), "v1.9 fixture no longer has the line");
+        assert!(!mk10.contains("do not cite it"), "exclusion line still present:\n{mk10}");
+        assert!(!mk10.contains("is not evidence for anything"), "exclusion clause remains");
+
+        // Everything else is byte-identical: only the excluded sentence differs.
+        let gone: Vec<&str> =
+            mk9.lines().filter(|l| !mk10.contains(*l) && !l.trim().is_empty()).collect();
+        assert!(
+            gone.len() <= 2,
+            "v1.10 dropped more of v1.9 than the exclusion line: {gone:?}"
+        );
+        assert_ne!(PROMPT_VERSION_V110, PROMPT_VERSION_V19);
+    }
+
+    /// §11 D119. v1.9 must be v1.6 plus the entry example and the schema's
+    /// field order — and nothing else. A variant differing in two ways measures
+    /// neither (§11 D64).
+    #[test]
+    fn v19_shows_the_entry_shape_with_why_first_and_changes_nothing_else() {
+        let mk = |t: &str| -> String {
+            match t {
+                "v16" => CitationSupportTask {
+                    claim: "C".into(),
+                    cited_source: "S".into(),
+                    evidence: ctx().render_evidence(),
+                }
+                .build_prompt(),
+                _ => CitationSupportV19Task {
+                    claim: "C".into(),
+                    cited_source: "S".into(),
+                    evidence: ctx().render_evidence(),
+                }
+                .build_prompt(),
+            }
+        };
+        let base = mk("v16");
+        let v19 = mk("v19");
+
+        // `why` LEADS the entry — the D78 ordering finding applied here: a field
+        // generated first conditions what follows, so the justification comes
+        // before the id rather than trailing it as a slot.
+        let why = v19.find("\"why\": string").expect("why missing from schema");
+        let cid = v19.find("\"chunk_id\": string").expect("chunk_id missing from schema");
+        assert!(why < cid, "chunk_id precedes why — the id would condition the reason:\n{v19}");
+        assert!(
+            base.find("\"chunk_id\": string").unwrap() < base.find("\"why\": string").unwrap(),
+            "v1.6 baseline is not in the order this cell is changing FROM"
+        );
+
+        // The entry is SHOWN filled in, not only declared.
+        assert!(v19.contains(r#"{"why": "reports 21 of 56 doctors"#), "no worked entry:\n{v19}");
+        assert!(v19.contains("is an OBJECT, never a string"), "shape not stated:\n{v19}");
+        // And the exclusion criterion, which is what makes selection possible.
+        assert!(v19.contains("do not cite it"), "no criterion for NOT citing:\n{v19}");
+
+        // The example must not teach to the measured cases (§11 D98).
+        for leak in ["GoEmotions", "SemEval", "macro-F1", "Reddit"] {
+            assert!(!ENTRY_SHAPE_EXAMPLE.contains(leak), "example leaks the measured case: {leak}");
+        }
+
+        // Reports from the two cells can never be conflated.
+        assert_ne!(PROMPT_VERSION_V19, PROMPT_VERSION);
+        assert_ne!(PROMPT_VERSION_V19, PROMPT_VERSION_V18);
+
+        // NOTHING ELSE changed: every v1.6 line survives except the schema line
+        // the field order rewrites.
+        let changed: Vec<&str> = base
+            .lines()
+            .filter(|l| !v19.contains(*l) && !l.trim().is_empty())
+            .collect();
+        assert!(
+            changed.len() <= 1,
+            "v1.9 dropped more of v1.6 than the schema line: {changed:?}"
+        );
+    }
+
     #[test]
     fn v18_is_v16_plus_the_own_work_rule_and_nothing_else() {
         let base = CitationSupportTask {

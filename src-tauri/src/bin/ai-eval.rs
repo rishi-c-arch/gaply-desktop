@@ -539,7 +539,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("v1c") => SupportVariant::V1ChunkBound,
         // §11 D117. v1.6 + the own-work decomposition rule, nothing else.
         Some("v1o") => SupportVariant::V1OwnWork,
-        Some(o) => return Err(format!("unknown --support-variant {o:?}; use v1, v2, v1c or v1o").into()),
+        Some("v1e") => SupportVariant::V1EntryShape,
+        Some("v1n") => SupportVariant::V1EntryShapeNoExcl,
+        Some(o) => return Err(format!("unknown --support-variant {o:?}; use v1, v2, v1c, v1o, v1e or v1n").into()),
     };
 
 
@@ -1064,6 +1066,11 @@ enum SupportVariant {
     /// §11 D117 EXPERIMENT: v1.6 plus D58's own-work rule applied to the
     /// DECOMPOSITION. Not a shipped configuration — reachable only from here.
     V1OwnWork,
+    /// §11 D119 EXPERIMENT: v1.6 with the supporting_chunks entry shown filled
+    /// in and `why` leading it. Not a shipped configuration.
+    V1EntryShape,
+    /// §11 D120 EXPERIMENT: v1.9 minus the exclusion line.
+    V1EntryShapeNoExcl,
 }
 
 impl SupportVariant {
@@ -1077,6 +1084,12 @@ impl SupportVariant {
             SupportVariant::V2 => app_lib::ai::tasks::citation_support::PROMPT_VERSION_V2,
             SupportVariant::V1ChunkBound => {
                 app_lib::ai::tasks::citation_support::PROMPT_VERSION_V17
+            }
+            SupportVariant::V1EntryShape => {
+                app_lib::ai::tasks::citation_support::PROMPT_VERSION_V19
+            }
+            SupportVariant::V1EntryShapeNoExcl => {
+                app_lib::ai::tasks::citation_support::PROMPT_VERSION_V110
             }
             SupportVariant::V1OwnWork => {
                 app_lib::ai::tasks::citation_support::PROMPT_VERSION_V18
@@ -1097,6 +1110,12 @@ impl SupportVariant {
             }
             SupportVariant::V1ChunkBound => {
                 <app_lib::ai::tasks::citation_support::CitationSupportV17Task as AiTask>::max_tokens()
+            }
+            SupportVariant::V1EntryShape => {
+                <app_lib::ai::tasks::citation_support::CitationSupportV19Task as AiTask>::max_tokens()
+            }
+            SupportVariant::V1EntryShapeNoExcl => {
+                <app_lib::ai::tasks::citation_support::CitationSupportV110Task as AiTask>::max_tokens()
             }
             SupportVariant::V1OwnWork => {
                 <app_lib::ai::tasks::citation_support::CitationSupportV18Task as AiTask>::max_tokens()
@@ -1282,6 +1301,52 @@ async fn run_citation_support(
     let db = Database::in_memory()?;
     let load_start = load_avg_1m();
     let ran_isolated = std::env::args().any(|a| a == "--isolated");
+    let allow_contended = std::env::args().any(|a| a == "--allow-contended");
+
+    // §11 D118. REFUSE a contended run rather than labelling one.
+    //
+    // The harness used to print "NOT declared isolated, 1m avg 2.97" and run
+    // anyway. A note in a header is not a control: the report is still written,
+    // the numbers still land in `evals/reports/`, and six weeks later nobody
+    // reading the JSON knows the machine was busy. §11 D33 already says timing
+    // figures from different load contexts are not comparable — that is a RULE,
+    // and a rule the tool declines to enforce is a suggestion.
+    //
+    // So a load average above the threshold now stops the run. `--isolated` is
+    // the operator DECLARING the machine quiet; `--allow-contended` is the
+    // operator accepting the numbers are not comparable and saying so on the
+    // record, which is written into the report rather than remembered.
+    const CONTENDED_LOAD: f64 = 2.0;
+    // Checked FIRST so it always wins: declaring isolation while the load says
+    // otherwise is the one combination that produces a report nobody can trust,
+    // and it deserves the pointed message rather than the generic one.
+    if ran_isolated {
+        if let Some(load) = load_start {
+            if load > CONTENDED_LOAD {
+                return Err(format!(
+                    "--isolated was passed but the 1-minute load average is {load:.2} \
+                     (threshold {CONTENDED_LOAD:.1}). The flag would stamp `ranIsolated: true` \
+                     onto a contended run, which is worse than an unlabelled one. Quiet the \
+                     machine, or drop --isolated and use --allow-contended."
+                )
+                .into());
+            }
+        }
+    }
+    if let Some(load) = load_start {
+        if load > CONTENDED_LOAD && !allow_contended {
+            return Err(format!(
+                "1-minute load average is {load:.2} (threshold {CONTENDED_LOAD:.1}) — this \
+                 machine is busy, and a run started here produces timings that are not \
+                 comparable to any other cell (§11 D33).\n\
+                 \n\
+                 Quiet the machine and retry, or pass --allow-contended to record the run \
+                 WITH that fact in the report. Do not pass --isolated to silence this: that \
+                 flag asserts the opposite of what the load average says."
+            )
+            .into());
+        }
+    }
     let ceiling = variant.ceiling();
     println!("prompt  : {}", variant.version());
     println!("ceiling : {ceiling} max_tokens (§11 D27)");
@@ -1387,6 +1452,22 @@ async fn run_citation_support(
             }
             SupportVariant::V1OwnWork => {
                 let task = app_lib::ai::tasks::citation_support::CitationSupportV18Task {
+                    claim: claim.clone(),
+                    cited_source: source,
+                    evidence: bundle.rendered.clone(),
+                };
+                run_task(&manager, &task, &bundle.ctx, cancel, None).await
+            }
+            SupportVariant::V1EntryShape => {
+                let task = app_lib::ai::tasks::citation_support::CitationSupportV19Task {
+                    claim: claim.clone(),
+                    cited_source: source,
+                    evidence: bundle.rendered.clone(),
+                };
+                run_task(&manager, &task, &bundle.ctx, cancel, None).await
+            }
+            SupportVariant::V1EntryShapeNoExcl => {
+                let task = app_lib::ai::tasks::citation_support::CitationSupportV110Task {
                     claim: claim.clone(),
                     cited_source: source,
                     evidence: bundle.rendered.clone(),
@@ -1593,6 +1674,47 @@ async fn run_citation_support(
         .collect();
 
     let load_end = load_avg_1m();
+
+    // §11 D120. ISOLATION IS A CLAIM ABOUT THE WHOLE RUN, NOT ITS FIRST INSTANT.
+    //
+    // D118 checked the load at START and then stopped watching. The v1.9 cell
+    // went 1.77 -> 4.31 and was still stamped `ranIsolated: true` — a guard that
+    // verifies an opening condition and then looks away is the same shape as a
+    // check that measures something other than the product.
+    //
+    // So the declaration is only KEPT if the machine was quiet at both ends.
+    // Downgraded rather than fatal: the run has already happened and its
+    // verdicts are still valid under greedy decoding — it is the TIMINGS that
+    // are not comparable, and destroying the report would lose the verdicts to
+    // protect a number nobody should have used.
+    let isolation_held = match (ran_isolated, load_end) {
+        (true, Some(end)) if end > CONTENDED_LOAD => {
+            eprintln!(
+                "\nWARNING: --isolated was declared, but the 1m load average ended at {end:.2} \
+                 (threshold {CONTENDED_LOAD:.1}). Something ran during this cell.\n\
+                 `ranIsolated` is recorded as FALSE and the timings in this report are not \
+                 comparable to another cell (§11 D33). The verdicts are unaffected."
+            );
+            false
+        }
+        (declared, _) => declared,
+    };
+
+    // Built separately: nesting it inline pushed `json!` past its recursion
+    // limit, and raising the limit to fit one more field is the wrong repair.
+    let load_context = serde_json::json!({
+        "loadAvg1mStart": load_start,
+        "loadAvg1mEnd": load_end,
+        // The DECLARATION as HONOURED, not as passed (§11 D120): false when the
+        // machine got busy mid-run even though --isolated was given.
+        "ranIsolated": isolation_held,
+        "isolationDeclared": ran_isolated,
+        "isolationHeldToEnd": isolation_held,
+        // Recorded, not remembered (§11 D118): a contended cell says so in its
+        // own JSON, so a later reader cannot mistake it for a clean one.
+        "allowedContended": allow_contended,
+    });
+
     let binary_hash = self_hash();
     // Collapse check: a model that answers everything the same way can score
     // respectably on agreement while having learned nothing.
@@ -1685,11 +1807,7 @@ async fn run_citation_support(
         // not comparable — that is a rule, not a caveat. `ranIsolated` is a
         // DECLARATION by the operator, not a measurement: it says nothing else
         // was scheduled, and the load averages are the evidence for or against.
-        "loadContext": {
-            "loadAvg1mStart": load_start,
-            "loadAvg1mEnd": load_end,
-            "ranIsolated": ran_isolated,
-        },
+        "loadContext": load_context,
         "verdictDistribution": verdict_distribution,
         "meanDecodeTokensPerSec": mean_decode_tps,
         "prefillShare": prefill_share,
