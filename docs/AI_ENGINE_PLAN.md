@@ -7201,3 +7201,139 @@ other misled us about our own gate.
 The figure is corrected and dated. The general lesson is D79's, arriving for the
 third time in this line of work: a printed number needs something that fails when
 it stops being true, and prose is not that thing.
+
+### D125 — both sides of a comparison must be measured the same way, or it measures the instruments
+
+D123 removed a printed rate because its labelled set covered a third of one
+document. The replacement guard checked a floor — ten cold cases per half — and a
+floor is a proxy. If a paper's judged sentences are ~45% prior-work / ~55%
+own-work and the labelled set is 78/22, ten of each clears every floor and the
+number still over-claims: it is weighted toward the half where "does this need a
+citation?" is a real question and away from the half that is mostly the authors'
+own work and mostly needs none.
+
+So the guard now compares SHARES within a tolerance (10pp), and its failure
+message names the population's mix, the set's mix, and **how many more own-work
+cases to label** — because "you cannot print a rate" tells the next person
+nothing they can act on.
+
+#### The first design had two instruments, which is the same bug in miniature
+
+The population's mix is summed from SECTIONS. The sample's half was, at first, a
+`--population` flag declared per labelling session and written onto each case.
+Those look equivalent and are not: the moment a per-sentence override exists —
+and it must, because a prior-work claim can sit inside a Results section — the
+sample becomes sentence-level while the population stays section-level.
+**A comparison between two differently-measured sides measures the instruments,
+not the thing.**
+
+That is D123's lesson recurring one layer down, and it was caught by asking the
+question the guard exists to ask: *what property does the number depend on, and
+is that the property being checked?*
+
+**Resolution: ONE instrument.** `population_mix.json` maps
+`(document, section) -> prior_work | own_work`, and BOTH sides read it. A case's
+half is looked up from its own `(document, section)`, never stored on the case,
+so the two cannot drift. `labelling.population` was added and then removed for
+exactly this reason; only `labelling.document` remains, because the section was
+already recorded.
+
+The cost is real, bounded, and symmetric: a prior-work claim inside a Results
+section counts as own-work on BOTH sides. The stratum is *"sentences in sections
+of this kind"*, and the population carries the same contamination as the sample
+drawn from it — which is what makes the comparison valid. A per-sentence
+override may still be recorded for analysis, but it may never feed the mix.
+
+A side effect worth having: the declaration surface shrank from **42 cases to 11
+sections**. Declaring a section is also the more defensible act — a labeller can
+say what a section is for; asking them to re-declare it once per sentence invites
+the drift the single map removes.
+
+#### What is measured, and what is declared
+
+- **Measured** by `label-cn` from a real pre-pass, per document, at labelling
+  time: how many judged sentences each section contributes
+  (`planned_total`, `sections[].planned`). Never typed by hand.
+- **Declared** by the labeller, per section, via
+  `label-cn <doc> --section <name> --population <half>`: which half that section
+  belongs to. Never inferred from the section's NAME — matching
+  "result"/"introduction" against real titles classified **0 of 42** cases,
+  because papers name their sections whatever they like
+  (`"HEFCSO-BILSTM: A HYBRID"`, `"1.1 Universal Health Coverage and Employer
+  Mandates"`).
+- Sections nobody has declared are counted as UNKNOWN and reported as a share.
+  Above 25% the guard refuses to compare at all, because the population it would
+  compare against is not known well enough to be a population.
+
+`--section <substring>` was added alongside: reaching R PAPER's Results half
+meant pressing through 30 already-covered front-half candidates first, and a tool
+that makes the representative thing expensive gets the unrepresentative set.
+
+### D126 — a stratified estimate reported unweighted is the same over-claim, and it passes every floor
+
+D125 required the labelled set's MIX to match the population's. On the real
+numbers that meant **44 more own-work cases** on top of 6 — because the audit's
+population is 68% own-work and the set was 14% — to earn one number.
+
+Stratification earns it from ~15 instead: sample each half deliberately, then
+re-weight to the population.
+
+```text
+f_h  = N_h / n_h              (population / sample, per stratum)
+TP   = Σ f_h·tp_h             FP = Σ f_h·fp_h        FN = Σ f_h·fn_h
+precision = TP/(TP+FP)        recall = TP/(TP+FN)
+```
+
+`ai::eval_strata` is the whole of it — pure, no I/O, unit-tested. **The mix
+requirement is dropped, because re-weighting is precisely what removes it.**
+Demanding a matched mix *and* correct weights would ask the stratification to do
+nothing.
+
+#### What replaces it, and why a floor is not enough
+
+> **A stratified estimate that is COMPUTED and then REPORTED UNWEIGHTED looks
+> rigorous, keeps every stratum populated, clears every floor — and publishes
+> the pooled number.**
+
+That is D123 wearing better clothes, and a per-stratum floor cannot see it: the
+strata *are* populated and the counts *are* real. So the guard recomputes the
+printed figure from the per-stratum counts and the MEASURED population weights,
+and asserts they match. Its failure names both, plus the pooled figure it would
+have been mistaken for:
+
+```
+THE PRINTED RATE DOES NOT CARRY ITS WEIGHTS. printed 38%, recomputed 33%
+from 6 own-work at 25% and 35 prior-work at 46% weighted prior_work 32%,
+own_work 68% (pooled would read 44%).
+```
+
+**That message is not a mock-up — it is the guard's real output**, produced by
+arming it with a placeholder constant and dropping the floor so execution
+reached the assertion. An armed branch that has never run is the same latent
+trap as the stub it replaced: both look like a check and neither has ever
+decided anything. It was run, then both edits were reverted.
+
+#### The run also answered a question left open by D123
+
+Recomputed over the EXISTING 41 cold cases: **pooled 44%, weighted 33%.**
+
+The rate this project printed for months was **43%**. So the shipped figure was,
+within a point, the pooled number — and the same data re-weighted to the
+population it is supposed to describe reads 11 points lower, *before* any
+own-work sampling has been done. When the 15 own-work cases land the weighted
+figure should fall further, because own-work is the half the model is worst on
+(25% vs 46% here) and the half that carries 68% of the weight.
+
+#### Three properties, each checked where it lives
+
+- **Population known** — every judged sentence's section declared; above 25%
+  unknown the guard refuses to compare at all.
+- **Floor per stratum** — 10 cold cases each, so a per-stratum proportion is not
+  noise. A floor, never a certificate.
+- **Weights applied** — the printed rate recomputed from per-stratum counts and
+  measured weights, and matched.
+
+Same rule as D124 and D125, a third time: **the check has to be on the property
+the number depends on, not on a proxy that is easier to count.** A floor counts
+cases. A mix comparison counts sections. Only recomputation checks the
+arithmetic that produced the figure a researcher reads.

@@ -1,0 +1,226 @@
+{
+  "R PAPER .docx": {
+    "measured_at": 1788977929,
+    "planned_total": 81,
+    "sections": {
+      "ACKNOWLEDGEMENT": {
+        "planned": 1,
+        "population": "own_work"
+      },
+      "Attention Weight Visualization": {
+        "planned": 3,
+        "population": "own_work"
+      },
+      "Comparative Performance Analysis": {
+        "planned": 3,
+        "population": "own_work"
+      },
+      "Confusion Matrix Analysis": {
+        "planned": 6,
+        "population": "own_work"
+      },
+      "DISCUSSION": {
+        "planned": 9,
+        "population": "own_work"
+      },
+      "Dataset Acquisition": {
+        "planned": 4,
+        "population": "own_work"
+      },
+      "Deep Learning and BiLSTM Architectures": {
+        "planned": 5,
+        "population": "prior_work"
+      },
+      "Experimental Configuration": {
+        "planned": 3,
+        "population": "own_work"
+      },
+      "GloVe Embeddings and BiLSTM Architecture": {
+        "planned": 2,
+        "population": "own_work"
+      },
+      "HEFCSO-BILSTM: A HYBRID": {
+        "planned": 19,
+        "population": "prior_work"
+      },
+      "Multi-Metric Radar Analysis": {
+        "planned": 1,
+        "population": "own_work"
+      },
+      "Nature-Inspired Hyperparameter Optimisation": {
+        "planned": 5,
+        "population": "prior_work"
+      },
+      "Per-Emotion F1-Score Analysis": {
+        "planned": 3,
+        "population": "own_work"
+      },
+      "Proposed HEFCSO Algorithm": {
+        "planned": 6,
+        "population": "own_work"
+      },
+      "Statistical Significance Testing": {
+        "planned": 2,
+        "population": "own_work"
+      },
+      "Text Pre-Processing Pipeline": {
+        "planned": 1,
+        "population": "own_work"
+      },
+      "Traditional and Lexicon-Based Approaches": {
+        "planned": 2,
+        "population": "prior_work"
+      },
+      "Training Loss Convergence": {
+        "planned": 3,
+        "population": "own_work"
+      },
+      "VI.CONCLUSION": {
+        "planned": 3,
+        "population": "own_work"
+      }
+    }
+  },
+  "Revised Health Economics Paper FINAL (1).docx": {
+    "measured_at": 1788977946,
+    "planned_total": 266,
+    "sections": {
+      "": {
+        "planned": 3,
+        "population": "own_work"
+      },
+      "1.1 Universal Health Coverage and Employer Mandates": {
+        "planned": 11,
+        "population": "prior_work"
+      },
+      "1.2 The Omani Health System and the Dhamani Scheme": {
+        "planned": 11,
+        "population": "prior_work"
+      },
+      "1.3 GCC Regional Comparators": {
+        "planned": 7,
+        "population": "prior_work"
+      },
+      "2. Research Objectives and Hypotheses": {
+        "planned": 8,
+        "population": "prior_work"
+      },
+      "3.1 Health Financing Transition Theory": {
+        "planned": 6,
+        "population": "prior_work"
+      },
+      "3.2 Institutional Theory and Employer Compliance": {
+        "planned": 6,
+        "population": "prior_work"
+      },
+      "3.3 Employer-Sponsored Health Insurance: International Evidence": {
+        "planned": 7,
+        "population": "prior_work"
+      },
+      "3.4 Organisational Resource Capacity: RBV and Dynamic Capabilities": {
+        "planned": 6,
+        "population": "prior_work"
+      },
+      "3.5 Perceived Barriers": {
+        "planned": 4,
+        "population": "prior_work"
+      },
+      "4.1 Study Design and Setting": {
+        "planned": 3,
+        "population": "own_work"
+      },
+      "4.2 Sampling Frame and Composition": {
+        "planned": 7,
+        "population": "own_work"
+      },
+      "4.3 Variables and Operationalisation": {
+        "planned": 31,
+        "population": "own_work"
+      },
+      "4.4 Confounder Selection and Model-Building Rationale": {
+        "planned": 13,
+        "population": "own_work"
+      },
+      "4.5 Bootstrapped Mediation Analysis": {
+        "planned": 5,
+        "population": "own_work"
+      },
+      "4.6 Multivariable Logistic Regression and Sensitivity Analysis": {
+        "planned": 6,
+        "population": "own_work"
+      },
+      "5.1 Formal Health-Insurance Provision by Firm Size": {
+        "planned": 6,
+        "population": "own_work"
+      },
+      "5.2 Provision by Sector and Ownership": {
+        "planned": 3,
+        "population": "own_work"
+      },
+      "5.3 Organisational Resource Capacity: Descriptive Statistics": {
+        "planned": 3,
+        "population": "own_work"
+      },
+      "5.4 Mediation Analysis": {
+        "planned": 8,
+        "population": "own_work"
+      },
+      "5.5 Multivariable Logistic Regression": {
+        "planned": 11,
+        "population": "own_work"
+      },
+      "5.6 Reported Barriers Among Non-Insuring Firms": {
+        "planned": 7,
+        "population": "own_work"
+      },
+      "5.7 Coverage Characteristics Among Insuring Firms": {
+        "planned": 4,
+        "population": "own_work"
+      },
+      "5.8 Post-Stratification Weighted Coverage Estimate": {
+        "planned": 7,
+        "population": "own_work"
+      },
+      "5.9 Employer Attitudes Toward Government Support": {
+        "planned": 4,
+        "population": "own_work"
+      },
+      "6.1 Principal Findings and Their Interpretation": {
+        "planned": 11,
+        "population": "own_work"
+      },
+      "6.2 The SME Compliance Gap": {
+        "planned": 7,
+        "population": "own_work"
+      },
+      "6.3 Evidence-Tied Policy Implications": {
+        "planned": 7,
+        "population": "own_work"
+      },
+      "6.4 Limitations": {
+        "planned": 8,
+        "population": "own_work"
+      },
+      "7. Conclusion": {
+        "planned": 13,
+        "population": "own_work"
+      },
+      "AOR": {
+        "planned": 6,
+        "population": "own_work"
+      },
+      "Abstract": {
+        "planned": 14,
+        "population": "prior_work"
+      },
+      "BC 95% CI: 0.189–0.687": {
+        "planned": 3,
+        "population": "own_work"
+      },
+      "Declarations": {
+        "planned": 10,
+        "population": "own_work"
+      }
+    }
+  }
+}

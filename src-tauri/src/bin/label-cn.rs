@@ -51,6 +51,24 @@ const PROVENANCE_COLD: &str = "cold";
 const PROVENANCE_ACCEPTED: &str = "suggested_accepted";
 const PROVENANCE_OVERRIDDEN: &str = "suggested_overridden";
 
+/// WHICH HALF OF THE AUDIT'S POPULATION A CASE WAS DRAWN FROM (§11 D125).
+///
+/// `prior_work` — the sentence makes a claim about the field, where "does this
+/// need a citation?" is a real question. `own_work` — it reports what the
+/// AUTHORS did or found: their hardware, their split, their numbers, their
+/// ablations, their reading of them. Mostly own-work needs no citation, and it
+/// is where the shipped audit does most of its flagging.
+///
+/// The distinction is NOT front-half/back-half. A Methodology sentence
+/// describing the proposed algorithm is own-work; a Methodology sentence naming
+/// the corpus it borrowed is not. That is why a human declares it.
+pub const POPULATION_PRIOR: &str = "prior_work";
+pub const POPULATION_OWN: &str = "own_work";
+
+/// Per-document section counts, measured by this tool so the guard can compare
+/// the labelled set's MIX against the population's (§11 D125).
+const MIX_PATH: &str = "evals/population_mix.json";
+
 /// The ten spec sentence types, with the key that selects each.
 const TYPES: &[(char, &str, &str)] = &[
     ('e', "empirical_claim", "empirical claim"),
@@ -160,11 +178,72 @@ async fn suggest(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
-    let manuscript = args
-        .iter()
-        .skip(1)
-        .find(|a| !a.starts_with("--"))
-        .ok_or("usage: label-cn <manuscript> [--with-neighbours] [--all]")?;
+    // Flags that TAKE A VALUE, so the value is not mistaken for the manuscript.
+    const VALUED: &[&str] = &["--section", "--section-exact", "--population"];
+    let value_of = |flag: &str| -> Option<String> {
+        args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).cloned()
+    };
+    let mut positional: Vec<&String> = Vec::new();
+    let mut skip_next = false;
+    for a in args.iter().skip(1) {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if VALUED.contains(&a.as_str()) {
+            skip_next = true;
+            continue;
+        }
+        if !a.starts_with("--") {
+            positional.push(a);
+        }
+    }
+    let manuscript = positional.first().copied().ok_or(
+        "usage: label-cn <manuscript> [--with-neighbours] [--all] [--suggest] \
+         [--section <substring>] [--population prior_work|own_work]",
+    )?;
+
+    // WHICH HALF OF THE POPULATION THIS SESSION IS LABELLING (§11 D125).
+    //
+    // Declared once per session rather than asked per sentence: a labelling run
+    // is already scoped to a part of a paper, and 40 identical keystrokes is a
+    // worse instrument than one statement. It is the LABELLER's judgement, not
+    // a section-name regex — matching section titles classified 0 of 42 real
+    // cases, because papers name their sections whatever they like.
+    let population = value_of("--population");
+    if let Some(v) = population.as_deref() {
+        if v != POPULATION_PRIOR && v != POPULATION_OWN {
+            return Err(format!(
+                "--population must be {POPULATION_PRIOR} or {POPULATION_OWN}, got {v:?}"
+            )
+            .into());
+        }
+    }
+    // Case-insensitive substring on the section heading. Without it, reaching
+    // the Results half of R PAPER meant pressing through 30 already-covered
+    // front-half candidates first.
+    let section_filter = value_of("--section").map(|s| s.to_lowercase());
+    // Exact match, for a name that is a SUBSTRING OF OTHERS — above all the
+    // UNNAMED section, which `--section ""` would match everywhere and
+    // overwrite every declaration in the document.
+    let section_exact = value_of("--section-exact");
+    let in_scope = |sec: Option<&str>| -> bool {
+        let sec = sec.unwrap_or("");
+        match (&section_exact, &section_filter) {
+            (Some(e), _) => sec == e,
+            (None, Some(f)) => sec.to_lowercase().contains(f),
+            (None, None) => true,
+        }
+    };
+    let doc_name = std::path::Path::new(manuscript)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("manuscript")
+        .to_string();
+    // Record the section->half declaration and STOP. Most sections are never
+    // sampled — the population's mix still needs them classified, and walking
+    // an interactive labelling loop to declare one is friction with no product.
+    let declare_only = args.iter().any(|a| a == "--declare-only");
     let with_neighbours = args.iter().any(|a| a == "--with-neighbours");
     // By default only UNCITED sentences: those are the ones the audit routes to
     // citation_need. A sentence that already carries a marker is a
@@ -209,7 +288,73 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .filter(|p| include_cited || p.markers.is_empty())
         .filter(|p| !done.contains(p.sentence.trim()))
+        .filter(|p| in_scope(p.section.as_deref()))
         .collect();
+
+    // THE POPULATION, MEASURED — not the sample (§11 D125).
+    //
+    // The guard needs the mix of the sentences the AUDIT judges, and only a
+    // pre-pass over the real document knows that. Counting is done here, where
+    // the pre-pass already ran; classifying is the labeller's `--population`
+    // declaration, recorded per section. Sections nobody has declared stay
+    // `null` and the guard reports them as unknown rather than assuming a half.
+    {
+        let mut mix: serde_json::Value = std::fs::read_to_string(MIX_PATH)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        // Every PLANNED section in scope, not merely the unlabelled ones: a
+        // section whose cases are all labelled is still a section that needs a
+        // half, and most sections will never be sampled at all.
+        let declared_here: std::collections::BTreeSet<String> = match &population {
+            None => Default::default(),
+            Some(_) => pre
+                .planned
+                .iter()
+                .filter(|p| in_scope(p.section.as_deref()))
+                .map(|p| p.section.clone().unwrap_or_default())
+                .collect(),
+        };
+        let entry = mix
+            .as_object_mut()
+            .ok_or("population_mix.json is not an object")?
+            .entry(doc_name.clone())
+            .or_insert_with(|| serde_json::json!({"sections": {}}));
+        entry["measured_at"] = serde_json::json!(gaply_core::now_epoch());
+        entry["planned_total"] = serde_json::json!(pre.planned.len());
+        let mut per_section: std::collections::BTreeMap<String, usize> = Default::default();
+        for p in &pre.planned {
+            *per_section.entry(p.section.clone().unwrap_or_default()).or_default() += 1;
+        }
+        for (name, planned) in per_section {
+            let prev = entry["sections"][&name]["population"].clone();
+            let declared = if declared_here.contains(&name) {
+                serde_json::json!(population)
+            } else {
+                // Never silently un-declares: an earlier session's judgement
+                // stands until a later one overwrites that same section.
+                if prev.is_null() { serde_json::Value::Null } else { prev }
+            };
+            entry["sections"][&name] =
+                serde_json::json!({ "planned": planned, "population": declared });
+        }
+        std::fs::write(MIX_PATH, serde_json::to_string_pretty(&mix)? + "\n")?;
+
+        if declare_only {
+            if population.is_none() {
+                return Err("--declare-only needs --population".into());
+            }
+            println!(
+                "declared {} section(s) of {doc_name} as {}:",
+                declared_here.len(),
+                population.as_deref().unwrap_or("?")
+            );
+            for name in &declared_here {
+                println!("  {name}");
+            }
+            return Ok(());
+        }
+    }
 
     println!("\x1b[1m{}\x1b[0m", manuscript);
     println!(
@@ -452,6 +597,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // answer so agreement is computable and contamination stays visible
             // rather than being remembered.
             "labelling": {
+                // WHICH DOCUMENT (§11 D125). The half is NOT stored here: it
+                // is looked up from `population_mix.json` by (document,
+                // section), the SAME map the population's mix is summed from.
+                // Storing a per-case answer would give the two sides of that
+                // comparison two different instruments, and the sample would
+                // drift from the population one override at a time.
+                "document": doc_name,
                 "provenance": match (&proposal, accepted) {
                     (Some(_), true) => PROVENANCE_ACCEPTED,
                     (Some(_), false) => PROVENANCE_OVERRIDDEN,

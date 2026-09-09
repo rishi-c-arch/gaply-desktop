@@ -244,22 +244,48 @@ fn labelled_cases_record_how_they_were_produced() {
 /// named.
 #[test]
 fn a_printed_advisory_rate_needs_a_representative_set() {
-    // Per HALF, not in total. The old floor of 20 was met entirely by one.
-    const MIN_PER_HALF: usize = 10;
-
-    // WHY A DECLARED FIELD AND NOT THE SECTION TITLE.
+    // THE SET'S MIX MUST MATCH THE POPULATION'S, NOT MERELY CLEAR A FLOOR.
     //
-    // The first version of this guard classified cases by matching "result",
-    // "discussion", "introduction" against `input.section`. On the real set it
-    // classified 0 of 42, because papers name their sections whatever they
-    // like: the cold cases carry "HEFCSO-BILSTM: A HYBRID", "1.1 Universal
-    // Health Coverage and Employer Mandates", "Proposed HEFCSO Algorithm". A
-    // keyword proxy standing in for the thing it cannot see is how the 43% was
-    // certified in the first place, so the labeller declares it instead — they
-    // have read the sentence, and the guard has not.
-    const FIELD: &str = "population";
+    // A per-half floor is a proxy, and this test exists because a proxy is what
+    // certified 43%. If a paper's judged sentences are ~45% prior-work / ~55%
+    // own-work and the labelled set is 78/22, ten of each clears every floor and
+    // the printed number still over-claims — it is weighted toward the half
+    // where "does this need a citation?" is a real question, and away from the
+    // half that is mostly the authors' own work and mostly needs none.
+    //
+    // So: compare SHARES, within a tolerance, and say what to label.
+    // A proportion over three cases is noise, so each stratum carries a floor.
+    // This is a FLOOR, never a certificate: clearing it says the estimate can
+    // be computed, not that it was reported weighted (§11 D126).
+    const MIN_PER_STRATUM: usize = 10;
+    // Below this, the population itself is not known well enough to compare
+    // against: too much of the document sits in sections nobody has classified.
+    const MAX_UNDECLARED_SHARE: f64 = 25.0;
+
     const OWN_WORK: &str = "own_work";
     const PRIOR_WORK: &str = "prior_work";
+
+    // ONE INSTRUMENT, BOTH SIDES (§11 D125).
+    //
+    // The population's mix can only ever be section-based — classifying all 347
+    // judged sentences by hand IS the labelling job, so there is no per-sentence
+    // population to compare against. The sample is therefore read the same way:
+    // a case's half is looked up from (document, section) in this map, never
+    // stored on the case. A per-sentence override would make the sample
+    // sentence-level while the population stayed section-level, and a comparison
+    // between two different instruments measures the instruments.
+    //
+    // The cost is honest and bounded: a prior-work claim sitting inside a
+    // Results section counts as own-work on BOTH sides. The stratum is
+    // "sentences in sections of this kind", and the population carries exactly
+    // the same contamination as the sample drawn from it.
+    let mix: serde_json::Value = std::fs::read_to_string("evals/population_mix.json")
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let half_of = |doc: &str, section: &str| -> Option<String> {
+        mix.get(doc)?["sections"][section]["population"].as_str().map(str::to_string)
+    };
 
     let source =
         std::fs::read_to_string("gaply-core/src/audit_report.rs").expect("audit_report.rs");
@@ -267,8 +293,10 @@ fn a_printed_advisory_rate_needs_a_representative_set() {
         .lines()
         .any(|l| l.trim_start().starts_with("pub const ADVISORY_") && l.contains("u32"));
 
+    // ---- the SAMPLE: what was labelled, and from which documents ----
     let (mut own_work, mut prior_work, mut undeclared) = (0usize, 0usize, 0usize);
-    let mut sections: std::collections::BTreeSet<String> = Default::default();
+    let mut documents: std::collections::BTreeSet<String> = Default::default();
+    let mut undeclared_sections: std::collections::BTreeSet<String> = Default::default();
     for line in std::fs::read_to_string("evals/citation_need.jsonl").expect("case file").lines() {
         if line.trim().is_empty() {
             continue;
@@ -277,39 +305,238 @@ fn a_printed_advisory_rate_needs_a_representative_set() {
         if v["labelling"]["provenance"].as_str() != Some("cold") {
             continue;
         }
-        sections.insert(v["input"]["section"].as_str().unwrap_or("(none)").to_string());
-        match v["labelling"][FIELD].as_str() {
+        let Some(doc) = v["labelling"]["document"].as_str() else {
+            undeclared += 1;
+            continue;
+        };
+        documents.insert(doc.to_string());
+        let section = v["input"]["section"].as_str().unwrap_or_default();
+        match half_of(doc, section).as_deref() {
             Some(OWN_WORK) => own_work += 1,
             Some(PRIOR_WORK) => prior_work += 1,
-            _ => undeclared += 1,
+            _ => {
+                undeclared += 1;
+                undeclared_sections.insert(format!("{doc} :: {section}"));
+            }
         }
     }
+    let labelled = own_work + prior_work;
+    let set_own_share = if labelled == 0 { 0.0 } else { 100.0 * own_work as f64 / labelled as f64 };
+
+    // ---- the POPULATION: what the audit actually judges on those documents ----
+    //
+    // Measured by `label-cn` from a real pre-pass and committed as
+    // `evals/population_mix.json`; classified by the labeller's `--population`
+    // declaration, per section. Sections nobody declared are counted as UNKNOWN
+    // rather than folded into a half, because guessing there is the same proxy
+    // this test refuses.
+    let (mut pop_own, mut pop_prior, mut pop_unknown) = (0usize, 0usize, 0usize);
+    let mut missing_docs: Vec<String> = Vec::new();
+    for doc in &documents {
+        let Some(entry) = mix.get(doc) else {
+            missing_docs.push(doc.clone());
+            continue;
+        };
+        for (_name, sec) in entry["sections"].as_object().into_iter().flatten() {
+            let n = sec["planned"].as_u64().unwrap_or(0) as usize;
+            match sec["population"].as_str() {
+                Some(OWN_WORK) => pop_own += n,
+                Some(PRIOR_WORK) => pop_prior += n,
+                _ => pop_unknown += n,
+            }
+        }
+    }
+    let pop_total = pop_own + pop_prior + pop_unknown;
+    let pop_known = pop_own + pop_prior;
+    let pop_own_share = if pop_known == 0 { 0.0 } else { 100.0 * pop_own as f64 / pop_known as f64 };
+    let undeclared_share =
+        if pop_total == 0 { 100.0 } else { 100.0 * pop_unknown as f64 / pop_total as f64 };
+
+    // How many own-work cases would bring the sample's share to the
+    // population's, holding the prior-work cases fixed. This is the number the
+    // next person needs; "you cannot print a rate" is not actionable.
+    // UNDER STRATIFICATION THE SAMPLE NEED NOT MATCH THE POPULATION'S MIX.
+    //
+    // Re-weighting is exactly what removes that requirement — demanding both a
+    // matched mix and correct weights would ask the stratification to do
+    // nothing, and would send the labeller after 44 cases to earn a number that
+    // 15 can support. What must hold instead is a floor per stratum (a
+    // proportion over three cases is noise) and that the weights were applied.
+    let short_own = MIN_PER_STRATUM.saturating_sub(own_work);
+    let short_prior = MIN_PER_STRATUM.saturating_sub(prior_work);
+    let advice = if pop_known == 0 {
+        "the population's mix is not known yet — declare sections with \
+         `label-cn <doc> --section <name> --population <half>`"
+            .to_string()
+    } else if short_own + short_prior > 0 {
+        format!(
+            "label {short_own} more own-work and {short_prior} more prior-work case(s) to reach \
+             the floor of {MIN_PER_STRATUM} per stratum; the mix need NOT match — the weights \
+             carry the population in"
+        )
+    } else {
+        "both strata are above the floor; any printed rate must be the WEIGHTED estimate"
+            .to_string()
+    };
+    let state = format!(
+        "sample: {labelled} cold cases ({prior_work} prior-work, {own_work} own-work; \
+         {undeclared} undeclared). population across {:?}: {pop_prior} prior-work, \
+         {pop_own} own-work = weights {:.0}/{:.0}, {pop_unknown} of {pop_total} judged \
+         sentences unclassified ({undeclared_share:.0}%). {advice}.",
+        documents,
+        100.0 - pop_own_share,
+        pop_own_share,
+    );
 
     if !armed {
-        // DISARMED, and it says so with the numbers that would decide — so a
+        // DISARMED, and it still reports the numbers that would decide, so the
         // reader who reinstates a constant learns the cost before the failure.
-        eprintln!(
-            "no ADVISORY_* rate is printed, so this guard is dormant. Cold cases: {prior_work} \
-             prior-work, {own_work} own-work, {undeclared} with no `labelling.{FIELD}`. Before \
-             any rate may be printed, {MIN_PER_HALF} of EACH are needed. Sections present: {:?}",
-            sections
-        );
+        eprintln!("no ADVISORY_* rate is printed, so this guard is dormant. {state}");
         return;
     }
 
-    assert_eq!(
-        undeclared, 0,
-        "a rate is printed to researchers, but {undeclared} cold cases do not declare \
-         `labelling.{FIELD}` ({OWN_WORK:?} or {PRIOR_WORK:?}). A rate cannot be certified \
-         against a set whose population is unknown — that is §11 D123 exactly. Sections \
-         present: {sections:?}"
+    assert!(
+        undeclared == 0 && missing_docs.is_empty(),
+        "a rate is printed, but {undeclared} cold case(s) sit in sections with no declared \
+         half {undeclared_sections:?}, and {missing} document(s) have no measured population \
+         in evals/population_mix.json ({missing_docs:?}). A rate cannot be certified against a \
+         set whose population is unknown. Declare with \
+         `label-cn <doc> --section <name> --population <half>`. {state}",
+        missing = missing_docs.len(),
     );
     assert!(
-        own_work >= MIN_PER_HALF && prior_work >= MIN_PER_HALF,
-        "a rate is printed to researchers from {prior_work} prior-work and {own_work} own-work \
-         cold cases; {MIN_PER_HALF} of each are needed. The audit judges Results, Discussion and \
-         Conclusion sentences — mostly the authors' own work, mostly needing no citation — and a \
-         set that skips them measures a population the product never sees. Label that half, or \
-         print no rate."
+        undeclared_share <= MAX_UNDECLARED_SHARE,
+        "a rate is printed, but {undeclared_share:.0}% of the judged sentences sit in sections \
+         nobody has classified as prior-work or own-work (limit {MAX_UNDECLARED_SHARE:.0}%), so \
+         the population's mix is not known well enough to compare against. Declare those \
+         sections with `label-cn <doc> --section <name> --population <half>`. {state}"
     );
+    assert!(
+        own_work >= MIN_PER_STRATUM && prior_work >= MIN_PER_STRATUM,
+        "a rate is printed from {prior_work} prior-work and {own_work} own-work cold cases; \
+         {MIN_PER_STRATUM} of each are needed before a per-stratum proportion means \
+         anything. {state}"
+    );
+    // ---- THE WEIGHTING MUST ACTUALLY HAVE BEEN APPLIED (§11 D126) ----
+    //
+    // A per-stratum floor is not enough, and neither is a mix comparison. A
+    // stratified estimate that is COMPUTED and then REPORTED UNWEIGHTED looks
+    // rigorous, keeps every stratum populated, clears every floor — and prints
+    // the pooled number, which is the §11 D123 over-claim wearing better
+    // clothes. So the printed figure is recomputed here from the per-stratum
+    // counts and the MEASURED population weights, and must match.
+    //
+    // The sample no longer has to match the population's mix: re-weighting is
+    // what removes that requirement, and demanding both would be asking the
+    // stratification to do nothing. What replaces it is this identity check.
+    // Score the shipped prompt's eval report PER STRATUM, against cold labels
+    // only (§11 D75) — a suggested-accepted label carries the model's own
+    // answer and cannot score it.
+    let cases: std::collections::HashMap<String, serde_json::Value> =
+        std::fs::read_to_string("evals/citation_need.jsonl")
+            .expect("case file")
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).expect("case json");
+                (v["id"].as_str().unwrap_or_default().to_string(), v)
+            })
+            .collect();
+    let shipped = app_lib::ai::tasks::citation_need::PROMPT_VERSION;
+    let report = std::fs::read_dir("evals/reports")
+        .expect("reports dir")
+        .flatten()
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+        .filter_map(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .filter(|v| v["promptVersion"].as_str() == Some(shipped))
+        .max_by_key(|v| v["results"].as_array().map(|a| a.len()).unwrap_or(0));
+    let report = report.unwrap_or_else(|| {
+        panic!(
+            "a rate is printed but no eval report exists for the SHIPPED prompt {shipped}. \
+             The number cannot be recomputed, so it cannot be checked. {state}"
+        )
+    });
+
+    let mut counts: std::collections::HashMap<&str, (u32, u32, u32, u32)> = Default::default();
+    for r in report["results"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+        let Some(case) = cases.get(r["id"].as_str().unwrap_or_default()) else { continue };
+        if case["labelling"]["provenance"].as_str() != Some("cold") {
+            continue;
+        }
+        let doc = case["labelling"]["document"].as_str().unwrap_or_default();
+        let section = case["input"]["section"].as_str().unwrap_or_default();
+        let Some(half) = half_of(doc, section) else { continue };
+        let key = if half == OWN_WORK { OWN_WORK } else { PRIOR_WORK };
+        let c = counts.entry(key).or_default();
+        match (
+            case["expected"]["needs_citation"].as_bool(),
+            r["scored"]["got"]["needs_citation"].as_bool(),
+        ) {
+            (Some(true), Some(true)) => c.0 += 1,
+            (Some(false), Some(true)) => c.1 += 1,
+            (Some(true), Some(false)) => c.2 += 1,
+            (Some(false), Some(false)) => c.3 += 1,
+            _ => {}
+        }
+    }
+    let build = |name: &str, population: usize| {
+        let (tp, fp, fn_, tn) = counts.get(name).copied().unwrap_or_default();
+        app_lib::ai::eval_strata::Stratum {
+            name: name.to_string(),
+            population,
+            tp,
+            fp,
+            fn_,
+            tn,
+        }
+    };
+    let strata = vec![build(PRIOR_WORK, pop_prior), build(OWN_WORK, pop_own)];
+    let weighted = app_lib::ai::eval_strata::stratified_precision_pct(&strata);
+    let pooled = app_lib::ai::eval_strata::pooled_precision_pct(&strata);
+    let shares = app_lib::ai::eval_strata::population_shares(&strata);
+    // Named, not positional: "68/32" tells the reader nothing about which half
+    // carried which weight, and the whole failure is about which half dominates.
+    let weights =
+        shares.iter().map(|(n, p)| format!("{n} {p}%")).collect::<Vec<_>>().join(", ");
+    let printed = printed_precision_pct(&source);
+
+    let (Some(weighted), Some(printed)) = (weighted, printed) else {
+        panic!(
+            "a rate is printed but it cannot be recomputed: weighted={weighted:?}, \
+             printed={printed:?}. Every stratum with population needs a sample, and the \
+             printed constant must be parseable from audit_report.rs. {state}"
+        )
+    };
+    assert!(
+        printed.abs_diff(weighted) <= 1,
+        "THE PRINTED RATE DOES NOT CARRY ITS WEIGHTS. printed {printed}%, recomputed \
+         {weighted}% from {own} own-work at {own_p}% and {prior} prior-work at {prior_p}% \
+         weighted {weights}{pooled_note}. A stratified estimate reported unweighted passes \
+         every floor and is the same over-claim as the 43% (§11 D123). Publish the weighted \
+         figure, or do not publish one.",
+        own = strata[1].sample(),
+        prior = strata[0].sample(),
+        own_p = per_stratum_precision(&strata[1]),
+        prior_p = per_stratum_precision(&strata[0]),
+        pooled_note = match pooled {
+            Some(p) if p != weighted => format!(" (pooled would read {p}%)"),
+            _ => String::new(),
+        },
+    );
+}
+
+/// The rate `audit_report.rs` actually prints, parsed from the constant.
+fn printed_precision_pct(source: &str) -> Option<u32> {
+    source
+        .lines()
+        .find(|l| l.trim_start().starts_with("pub const ADVISORY_PRECISION_PCT"))
+        .and_then(|l| l.rsplit_once('='))
+        .and_then(|(_, v)| v.trim().trim_end_matches(';').parse().ok())
+}
+
+fn per_stratum_precision(s: &app_lib::ai::eval_strata::Stratum) -> String {
+    match s.tp + s.fp {
+        0 => "n/a".to_string(),
+        d => format!("{}", (100 * s.tp) / d),
+    }
 }

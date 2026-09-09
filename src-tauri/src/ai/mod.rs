@@ -22,6 +22,7 @@ mod event_wire_tests;
 pub mod device;
 pub mod embeddings;
 pub mod job_runner;
+pub mod eval_strata;
 pub mod evidence;
 pub mod generative;
 pub mod model_manager;
