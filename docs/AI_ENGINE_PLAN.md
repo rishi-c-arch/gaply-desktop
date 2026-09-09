@@ -7120,3 +7120,84 @@ Two properties of that guard matter more than the threshold:
   Employer Mandates"`. A keyword proxy standing in for the thing it cannot see is
   how the 43% got certified in the first place, so `labelling.population` is
   stated by whoever read the sentence.
+
+### D124 — the workspace gate had stopped being able to close, and looked slow rather than broken
+
+`cargo test --workspace` — the documented pre-commit check — could not finish
+unattended on a machine that had ever provisioned the App Check signing key.
+Four `pipeline::tests` sat at **0% CPU** inside
+`app_check::TokenSigner::from_keychain` -> `secrets::get_secret`, indefinitely.
+
+**It was never a regression.** It reproduced at HEAD with every local change
+stashed, in the same frame. The gate had been unusable for some time, and the
+failure mode is why nobody noticed: *a hung test is indistinguishable from a slow
+one.* `cargo` prints "has been running for over 60 seconds" and keeps waiting,
+which reads as a heavy test rather than a dead one. The tell is CPU —
+ARCHITECTURE_TRACE's own diagnostic, written for the debug-vs-release model work:
+**high CPU = working, 0% = wedged.**
+
+#### What it actually was
+
+`Entry::get_password()` on macOS does not merely look an item up. It checks the
+CALLING BINARY against the keychain item's ACL, and when the binary is not on it
+the OS asks for authorisation — a decision a headless `cargo test` runner can
+never supply. `cargo test` rebuilds an unsigned binary with a fresh identity on
+every run, so it is never on that ACL.
+
+Measured rather than assumed, and the discriminator is the caller:
+
+| caller | result |
+|---|---|
+| `/usr/bin/security` (Apple-signed, trusted for this item) | returns the value **instantly** |
+| freshly built `app_lib-<hash>` test binary | **blocks at 0% CPU** in the same call |
+
+The item exists (`ai.gaply.app / app_check_signing_key`, created 11 Jul 2026),
+which is precisely why it blocked: an ABSENT item returns `NoEntry` immediately
+and never prompts. **Provisioning the key is what broke the gate** — a developer
+who had never run the app had a working `--workspace` and no way to know the
+difference.
+
+#### The fix is the path the design already documented
+
+The four tests never needed a keychain. `ProxyReqwestClient::from_env` returns
+`Err` when the signing key is absent, and `verify_proxy_with` already routes that
+to local verification ("signing key absent; using local verification"). Under
+`cfg(test)` the read is skipped and that same absent-key error is returned, so
+the tests take a path the product takes in the field. `GAPLY_SKIP_KEYCHAIN`
+covers what `cfg(test)` cannot reach — integration tests, a CI shell, a bisect.
+
+**So none of them are `#[ignore]`d.** "These cannot run headless" would have been
+the honest answer only if the keychain were part of what they test; it is not,
+and marking them ignored would have shrunk the gate to avoid fixing it.
+
+**NOT a production timeout.** In the shipped app the panel is answerable — there
+is a window server and a signed, stable binary — and skipping the cloud tier
+while the user reads the prompt would be the wrong answer.
+
+Pinned by `building_from_env_never_touches_the_keychain_under_test`, which
+asserts both properties that make the gate real: the call RETURNS (under 5s), and
+it returns the absent-key error the fall-through keys on. Restore the
+unconditional read and that test hangs — which is the honest failure, and it
+fails at the seam rather than in whichever suite happens to run next.
+
+Result: `cargo test --workspace` completes unattended — **1302 passed, 0 failed,
+9 ignored across 13 suites**, with all five `pipeline::` tests passing. Warm wall
+time **18s**.
+
+#### A recorded number had drifted from what it describes, again
+
+CLAUDE.md documented the same command as **"~93s, 752 tests"**. It is 1302 tests
+and 18s warm — **stale by 550 tests**, and stale in the direction that flatters:
+a reader budgeting 93 seconds would not question a run that took three minutes
+and was actually wedged.
+
+That is the small version of D123. The 43% precision figure was a real
+measurement that stopped describing its subject; this was a real measurement that
+stopped describing its command. Neither was ever wrong when written, and neither
+announced that it had expired — **a number in prose has no guard.** The
+difference is only in cost: one misled a researcher about their manuscript, the
+other misled us about our own gate.
+
+The figure is corrected and dated. The general lesson is D79's, arriving for the
+third time in this line of work: a printed number needs something that fails when
+it stops being true, and prose is not that thing.

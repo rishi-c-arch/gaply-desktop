@@ -129,7 +129,9 @@ time injection.
 
 - **Standing verification commands (from `src-tauri/`, measured — ARCHITECTURE_TRACE §37):**
   - inner loop — `cargo check --workspace --all-targets` (~7s after a core edit, 0.3s warm)
-  - before a commit — `cargo test --workspace` (~93s, 752 tests)
+  - before a commit — `cargo test --workspace` (~18s warm, 1302 tests,
+    9 ignored — re-measured 9 Sep 2026; the previous figure said 93s/752
+    and had drifted by 550 tests, §11 D124)
 
   **`--workspace` is load-bearing.** Without it, cargo checks the app package's
   targets and `gaply_core` only as a lib dependency, so a broken or failing

@@ -102,8 +102,52 @@ impl ProxyReqwestClient {
     pub fn from_env() -> Result<Self, GaplyError> {
         let base_url =
             std::env::var("GAPLY_PROXY_URL").unwrap_or_else(|_| DEFAULT_PROXY_URL.to_string());
-        let signer = TokenSigner::from_keychain()?;
+        let signer = Self::signer_from_env()?;
         Self::new(&base_url, signer)
+    }
+
+    /// The App Check signing key, or the documented `Err` that routes
+    /// verification to the local tier.
+    ///
+    /// # WHY THIS MAY REFUSE TO READ THE KEYCHAIN AT ALL (§11 D124)
+    ///
+    /// `get_password()` on macOS does not merely look an item up — it checks
+    /// the calling binary against the item's ACL, and when the binary is not on
+    /// it the OS raises an interactive "allow access?" panel and BLOCKS until
+    /// somebody clicks it. `cargo test` rebuilds an unsigned binary with a new
+    /// identity every time, so it is never on that ACL.
+    ///
+    /// The effect was that `cargo test --workspace` could not finish
+    /// unattended on a developer machine that had ever provisioned the key:
+    /// four `pipeline::tests` sat at **0% CPU** inside `get_secret`, forever,
+    /// waiting for a panel that a headless runner never shows. Two whole
+    /// workspace runs were lost to it, and the fault was invisible — a hung
+    /// test looks exactly like a slow one. It reproduced at HEAD with every
+    /// local change stashed, so it was never a regression; it was a gate that
+    /// had quietly stopped being able to close.
+    ///
+    /// **A test that requires an interactive OS prompt cannot gate anything**,
+    /// so under `cfg(test)` the read is skipped and the ABSENT-KEY error is
+    /// returned instead. That is not a special case invented for tests: it is
+    /// the path `verify_proxy_with` already documents and takes ("signing key
+    /// absent; using local verification"), and the four tests are about the
+    /// pipeline's lanes, not about which verification tier answers.
+    ///
+    /// `GAPLY_SKIP_KEYCHAIN` does the same for anything `cfg(test)` cannot
+    /// reach — integration tests, a CI shell, a bisect script.
+    ///
+    /// NOT a production timeout. In the shipped app the panel is answerable
+    /// because there is a window server and a signed, stable binary, and
+    /// silently skipping the cloud tier while the user reads the prompt would
+    /// be the wrong answer.
+    fn signer_from_env() -> Result<TokenSigner, GaplyError> {
+        if cfg!(test) || std::env::var_os("GAPLY_SKIP_KEYCHAIN").is_some() {
+            return Err(GaplyError::NotFound {
+                entity: "secret",
+                id: gaply_core::app_check::SIGNING_KEY_SECRET.to_string(),
+            });
+        }
+        TokenSigner::from_keychain()
     }
 
     /// Build with an explicit endpoint + signer (tests, future tiering).
@@ -297,6 +341,39 @@ mod tests {
     use gaply_core::app_check::{AppCheckVerifier, DEFAULT_APP_ID};
 
     const KEY: &[u8] = b"proxy-test-signing-key-0123456789abcdef";
+
+    /// THE WORKSPACE GATE MUST BE ABLE TO CLOSE UNATTENDED.
+    ///
+    /// `from_env` used to reach the OS keychain, and on macOS that means an ACL
+    /// check against the calling binary — which `cargo test` rebuilds unsigned
+    /// and unrecognised every time. The OS then raises an interactive panel and
+    /// blocks forever in a runner that can never show one, at 0% CPU, which is
+    /// indistinguishable from a slow test.
+    ///
+    /// §11 D124. This asserts the two properties that make
+    /// `cargo test --workspace` finish on its own: the call RETURNS, and it returns the absent-key error
+    /// that `verify_proxy_with` already routes to local verification. If the
+    /// keychain read is ever restored unconditionally, this test hangs — which
+    /// is the honest failure, and it fails here rather than in whichever
+    /// unrelated suite happens to run next.
+    #[test]
+    fn building_from_env_never_touches_the_keychain_under_test() {
+        let started = std::time::Instant::now();
+        let err = ProxyReqwestClient::from_env().err().expect("no signing key may be found");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "from_env took {:?} — it is reaching the OS keychain",
+            started.elapsed()
+        );
+        assert!(
+            matches!(err, GaplyError::NotFound { entity: "secret", .. }),
+            "expected the ABSENT-KEY error the local-tier fall-through keys on, got {err:?}"
+        );
+        // And the tier selector must actually take that fall-through, or the
+        // pipeline tests would still be waiting on a cloud client.
+        let tier = crate::models::verify_proxy_with(ProxyReqwestClient::from_env(), None);
+        let _: &dyn ProxyClient = &*tier;
+    }
 
     #[derive(Clone, Copy)]
     enum Mode {
