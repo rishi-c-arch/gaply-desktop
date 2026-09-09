@@ -587,6 +587,157 @@ pub fn style_is_list(style: Option<&str>) -> bool {
     matches!(style, Some(s) if s.contains("List"))
 }
 
+/// The fewest words a block must have before it may ABSORB the one after it.
+///
+/// Table cells and stray labels are one or two words and sit next to each other
+/// in reading order; without a floor, "Dataset" swallows "Source".
+const MIN_WORDS_TO_JOIN: usize = 4;
+
+/// Does this block stop mid-sentence?
+///
+/// Deliberately NOT abbreviation-aware. `ends_with_abbreviation` would call
+/// "…proposed by Smith et al." open, and in PROSE that is far more often a real
+/// sentence end than a wrap. The three wrapped blocks this exists for
+/// ("(6 GB", "six evaluation", "GloVe costs") end on no punctuation at all, so
+/// the abbreviation clause buys nothing and costs false joins.
+fn ends_open(text: &str) -> bool {
+    let t = text.trim_end();
+    if t.is_empty() {
+        return false;
+    }
+    // A terminator behind a closing quote or bracket still closes.
+    let core = t.trim_end_matches(|c| matches!(c, '"' | '\'' | ')' | ']' | '\u{201d}' | '\u{2019}'));
+    !matches!(core.chars().next_back(), Some('.' | '!' | '?' | ':' | ';'))
+}
+
+/// Does this block read as the CONTINUATION of the one before it?
+fn continues_sentence(text: &str) -> bool {
+    let t = text.trim_start();
+    match t.chars().next() {
+        Some(c) if c.is_lowercase() => true,
+        Some(')' | ']' | ',' | ';') => true,
+        _ => starts_with_numeric_literal(t),
+    }
+}
+
+/// Does `t` open with a bare number followed by a space?
+///
+/// This is the clause that separates "3.3 points; SMOTE-Text…" (the tail of a
+/// wrapped sentence) from "1,3,4Department of Computer Science" (a superscript
+/// affiliation marker) and "1. Introduction" (a numbered heading). Only a
+/// numeric literal that a SPACE closes counts.
+fn starts_with_numeric_literal(t: &str) -> bool {
+    let b = t.as_bytes();
+    let mut i = 0;
+    let mut seen_dot = false;
+    while i < b.len() {
+        if b[i].is_ascii_digit() {
+            i += 1;
+        } else if b[i] == b'.'
+            && !seen_dot
+            && b.get(i + 1).is_some_and(u8::is_ascii_digit)
+        {
+            seen_dot = true;
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    i > 0 && matches!(b.get(i), Some(c) if c.is_ascii_whitespace())
+}
+
+/// An unclosed `(` is a wrap that no punctuation signals.
+fn has_unclosed_paren(text: &str) -> bool {
+    text.matches('(').count() > text.matches(')').count()
+}
+
+/// May block `a` absorb block `b`?
+///
+/// # A BREAK THE READER CAN SEE IS THE DOCUMENT'S; ONE THEY CANNOT IS OURS
+///
+/// This is the whole rule, and it is why `style_is_list` is refused here.
+///
+/// In body prose a paragraph break is INVISIBLE — Word renders the wrap and the
+/// paragraph identically, so a sentence split across two blocks is our problem
+/// to repair, and leaving it produces fragments that reach the model as if they
+/// were claims ("RAM), Python 3.9, TensorFlow 2.10, and NLTK 3.7.").
+///
+/// In an AUTO-NUMBERED LIST the same break is VISIBLE: Word puts a number in
+/// front of it, so the reader's reference [6] really is the page range that
+/// wrapped. Repairing that would delete a true finding — §11 D67 settled this
+/// on the same paper, and §11 D122 records the run that proved the rejoin does
+/// not reach it.
+fn may_absorb(a: &crate::extract::docparse::PagedBlock, b: &crate::extract::docparse::PagedBlock) -> bool {
+    let (at, bt) = (a.text.trim(), b.text.trim());
+    if at.is_empty() || bt.is_empty() {
+        return false;
+    }
+    for s in [a.style.as_deref(), b.style.as_deref()] {
+        if style_is_heading(s) || style_is_table(s) || style_is_list(s) {
+            return false;
+        }
+    }
+    if at.split_whitespace().count() < MIN_WORDS_TO_JOIN || !ends_open(at) {
+        return false;
+    }
+    // The paren clause must name the block that CLOSES the paren, not merely
+    // the next one. Without `bt.contains(')')` the caption
+    // "TABLE III. PER-EMOTION PERFORMANCE (HEFCSO-" absorbed 40 consecutive
+    // table cells — "Emotion", "Precision (%)", "Joy", "96.55" — because the
+    // unclosed paren survived every join and re-armed the rule each time. Those
+    // cells carry NO declared style in this file, so `style_is_table` never saw
+    // them; the word floor caught them only once the caption stopped chaining.
+    continues_sentence(bt) || (has_unclosed_paren(at) && bt.contains(')'))
+}
+
+/// Rejoin blocks that a wrapped line split mid-sentence.
+///
+/// # THE ABSORBED BLOCK IS BLANKED, NEVER REMOVED
+///
+/// `prepass_blocks` counts a paragraph ordinal over EVERY block, skipped ones
+/// included, because that locator has to match what the reader counts in their
+/// own document. Dropping a block would shift every ordinal after it. So the
+/// text moves and the block stays: an empty block yields no sentences and still
+/// takes its number.
+///
+/// Stops at the references heading. Everything past it is a bibliography, which
+/// `prepass_blocks` accumulates whole on a different branch — see `may_absorb`
+/// for why that must stay untouched.
+fn rejoin_wrapped_blocks(
+    blocks: &[crate::extract::docparse::PagedBlock],
+) -> Vec<crate::extract::docparse::PagedBlock> {
+    let mut out = blocks.to_vec();
+    let mut i = 0usize;
+    // Defence in depth behind the `may_absorb` rules: a sentence that wraps
+    // across more than three blocks is not a wrap, it is a rule that has
+    // stopped discriminating. Bounded chaining turns that into three wrong
+    // joins instead of forty.
+    const MAX_CHAIN: usize = 3;
+    let mut chain = 0usize;
+    while i < out.len() {
+        if out[i].text.lines().any(is_references_heading) {
+            break;
+        }
+        let Some(j) = (i + 1..out.len()).find(|k| !out[*k].text.trim().is_empty()) else {
+            break;
+        };
+        if out[j].text.lines().any(is_references_heading) {
+            break;
+        }
+        if chain < MAX_CHAIN && may_absorb(&out[i], &out[j]) {
+            let joined = format!("{} {}", out[i].text.trim_end(), out[j].text.trim_start());
+            out[i].text = joined;
+            out[j].text = String::new();
+            // Do NOT advance: a sentence may wrap across three blocks.
+            chain += 1;
+            continue;
+        }
+        i = j;
+        chain = 0;
+    }
+    out
+}
+
 /// The `[n]` a reference entry already carries, if any.
 fn leading_bib_marker(text: &str) -> Option<u32> {
     let t = text.trim_start();
@@ -755,7 +906,11 @@ pub fn prepass_blocks(blocks: &[crate::extract::docparse::PagedBlock]) -> Prepas
     // that get skipped — a locator has to match what the reader counts in the
     // document, not what survived the filter.
     let mut paragraph: u32 = 0;
-    for block in blocks {
+    // A wrapped line that Word recorded as its own paragraph is repaired FIRST,
+    // so the loop below never sees half a sentence (§11 D122). Ordinals are
+    // preserved: the absorbed block stays, emptied.
+    let rejoined = rejoin_wrapped_blocks(blocks);
+    for block in &rejoined {
         let (page, text, style) = (&block.page, &block.text, block.style.as_deref());
         paragraph += 1;
         // Already past the bibliography: nothing after it is prose, but it IS
@@ -1082,6 +1237,141 @@ pub fn resolve_marker_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn blk(style: Option<&str>, text: &str) -> crate::extract::docparse::PagedBlock {
+        crate::extract::docparse::PagedBlock {
+            page: None,
+            style: style.map(str::to_string),
+            text: text.to_string(),
+        }
+    }
+
+    /// The three wrapped sentences from `R PAPER .docx`, verbatim.
+    ///
+    /// Each reached the model as a fragment that reads like a claim, and two of
+    /// the three were then FLAGGED as needing a citation (§11 D122).
+    #[test]
+    fn a_sentence_wrapped_across_two_blocks_is_rejoined() {
+        let cases = [
+            (
+                "I carried out all the experiments on an Intel Core i7-11800H CPU, 16 GB RAM, NVIDIA GeForce RTX 3060 (6 GB",
+                "RAM), Python 3.9, TensorFlow 2.10, and NLTK 3.7.",
+            ),
+            (
+                "Figure 4 is an exemplary showpiece of a multi-metric radar plot aiding comparisons between HEFCSO-BiLSTM, Std. BiLSTM, and ATAE-LSTM across a total of six evaluation ",
+                "metrics. HEFCSO-BiLSTM not only captures a significantly bigger area.",
+            ),
+            (
+                "If the attention layer is removed it costs 2.1 points; GloVe costs",
+                "3.3 points; SMOTE-Text costs 2.3 points.",
+            ),
+        ];
+        for (a, b) in cases {
+            let out = rejoin_wrapped_blocks(&[blk(None, a), blk(None, b)]);
+            assert_eq!(out.len(), 2, "a block may never be REMOVED — ordinals shift");
+            assert!(
+                out[0].text.contains(a.trim()) && out[0].text.contains(b.trim()),
+                "expected {a:?} + {b:?} to be rejoined, got {:?}",
+                out[0].text
+            );
+            assert!(out[1].text.is_empty(), "the absorbed block is blanked, not dropped");
+        }
+    }
+
+    /// THE CASE THAT MUST NOT BE "FIXED" — §11 D67, §11 D122.
+    ///
+    /// In an auto-numbered list Word renders a number in front of the wrapped
+    /// line, so the reader's reference [6] REALLY IS the page range. Joining it
+    /// would delete a true structural finding.
+    #[test]
+    fn a_wrapped_line_in_an_auto_numbered_list_is_left_alone() {
+        let out = rejoin_wrapped_blocks(&[
+            blk(
+                Some("ListParagraph"),
+                "S. Mohammad and P. Turney, \u{201c}Crowdsourcing a word-emotion association lexicon,\u{201d} Comput. Intell., vol. 29, no. 3,",
+            ),
+            blk(Some("ListParagraph"), "pp. 436\u{2013}465, 2013."),
+        ]);
+        assert_eq!(out[1].text, "pp. 436\u{2013}465, 2013.", "a VISIBLE break belongs to the document");
+    }
+
+    /// Everything after the references heading is a bibliography, and it is
+    /// accumulated whole on another branch. The rejoin stops there even when
+    /// the entries carry no list style.
+    #[test]
+    fn rejoining_stops_at_the_references_heading() {
+        let out = rejoin_wrapped_blocks(&[
+            blk(None, "References"),
+            blk(None, "T. Cover and P. Hart, Nearest neighbor pattern classification, vol. 13, no. 1,"),
+            blk(None, "pp. 21-27, 1967."),
+        ]);
+        assert_eq!(out[2].text, "pp. 21-27, 1967.");
+    }
+
+    /// THE CASCADE THIS RULE ALMOST SHIPPED.
+    ///
+    /// "TABLE III. …(HEFCSO-" holds an unclosed paren, and these cells carry NO
+    /// declared style, so `style_is_table` cannot see them. Before the paren
+    /// clause required the block that CLOSES it, this caption absorbed forty
+    /// consecutive cells and 44 sentences vanished from the pre-pass.
+    #[test]
+    fn an_unclosed_paren_may_not_absorb_a_table_of_undeclared_cells() {
+        let mut blocks = vec![blk(None, "TABLE III. PER-EMOTION PERFORMANCE (HEFCSO-")];
+        for cell in ["Emotion", "Precision (%)", "Joy", "96.55", "93.33", "Sadness", "97.12"] {
+            blocks.push(blk(None, cell));
+        }
+        let out = rejoin_wrapped_blocks(&blocks);
+        assert_eq!(
+            out[0].text, "TABLE III. PER-EMOTION PERFORMANCE (HEFCSO-",
+            "the caption absorbed a table"
+        );
+        for (i, b) in out.iter().enumerate().skip(1) {
+            assert!(!b.text.is_empty(), "cell {i} was absorbed");
+        }
+    }
+
+    /// A superscript affiliation marker is not a wrapped sentence.
+    #[test]
+    fn a_leading_affiliation_digit_does_not_continue_the_line_above() {
+        let out = rejoin_wrapped_blocks(&[
+            blk(None, "Neha Yadav1, Rakhi Sharma2, Poonam Sharma3, Sarika Chaudhary4"),
+            blk(None, "1,3,4Department of Computer Science & Engineering"),
+        ]);
+        assert_eq!(out[1].text, "1,3,4Department of Computer Science & Engineering");
+    }
+
+    #[test]
+    fn a_numeric_literal_continues_but_a_numbered_heading_does_not() {
+        assert!(starts_with_numeric_literal("3.3 points; SMOTE-Text costs 2.3 points."));
+        assert!(!starts_with_numeric_literal("1,3,4Department of Computer Science"));
+        assert!(!starts_with_numeric_literal("1. Introduction"));
+        assert!(!starts_with_numeric_literal("2013."));
+    }
+
+    /// Bounded chaining, so a rule that stops discriminating fails small.
+    ///
+    /// The cap is PER STARTING BLOCK, not per document: eleven runaway blocks
+    /// become several bounded joins rather than one block of eleven. What must
+    /// never happen is the forty-cell cascade — one block swallowing a section.
+    #[test]
+    fn no_block_absorbs_more_than_the_chain_cap() {
+        let blocks: Vec<_> = (0..11)
+            .map(|n| blk(None, &format!("marker{n} the sentence runs onward without stopping")))
+            .collect();
+        let out = rejoin_wrapped_blocks(&blocks);
+        for (i, b) in out.iter().enumerate() {
+            let absorbed = (0..11).filter(|n| b.text.contains(&format!("marker{n}"))).count();
+            assert!(
+                absorbed <= MAX_CHAIN_TEST + 1,
+                "block {i} absorbed {absorbed} blocks: {:?}",
+                b.text
+            );
+        }
+    }
+
+    /// Mirrors `MAX_CHAIN` in `rejoin_wrapped_blocks`; a change there that is
+    /// not reflected here fails the test above rather than passing quietly.
+    const MAX_CHAIN_TEST: usize = 3;
 
     #[test]
     fn author_year_markers_are_found_in_their_common_forms() {

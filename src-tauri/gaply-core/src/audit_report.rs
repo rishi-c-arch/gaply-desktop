@@ -214,14 +214,25 @@ fn tone_of(verdict: Option<&str>) -> Tone {
 /// The fewest evidence-backed findings a /100 score may be computed from.
 pub const MIN_SCOREABLE: usize = 10;
 
-/// `citation_need`'s MEASURED precision, stated in the report so the advisory
-/// claim is checkable (§11 D78).
-///
-/// 41 cold labelled cases, `citation_need-v4`, 3B on Metal: recall 82%,
-/// precision 43% — 14 of 32 flagged sentences actually needed a citation. These
-/// are numbers about a MODEL and they expire; re-measure before changing them.
-pub const ADVISORY_RECALL_PCT: u32 = 82;
-pub const ADVISORY_PRECISION_PCT: u32 = 43;
+// §11 D123. ADVISORY_RECALL_PCT / ADVISORY_PRECISION_PCT LIVED HERE AND ARE GONE.
+//
+// They printed "82% recall, 43% precision" into every report. Both were real
+// measurements of a real eval — of a labelled set drawn almost entirely from
+// one paper's Introduction, Related Work and early Methodology. The shipped
+// audit judges the WHOLE document, and on the paper that exposed this, 31 of
+// the 46 suggestions came from Experimental Configuration onward, where the
+// labelled set has ZERO cases. Restricted to the sentences the audit actually
+// selects, precision measured 25%, not 43%; against the author's own read of
+// the full report it was nearer 9%.
+//
+// The number was not wrong about its sample. It was wrong about its SUBJECT.
+//
+// DO NOT REINSTATE EITHER FROM A RE-RUN OF THE SAME SET. A replacement needs a
+// labelled sample of the population the audit judges — Results, Discussion and
+// Conclusion sentences included, which are mostly the authors' own work and
+// mostly need no citation. `a_printed_advisory_rate_needs_a_representative_set`
+// in `tests/ai_eval_cli.rs` arms itself the moment a constant of this shape
+// comes back.
 
 /// Emit ONE judged item, D18-safe.
 ///
@@ -296,7 +307,7 @@ fn emit_suggestion(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
     // not a verdict. NO severity either — it is a constant (§11 D82) and would
     // read as triage.
     out.push(para(
-        "suggestion · not checked against any source · about 4 in 10 of these are real",
+        "suggestion · not checked against any source · often the authors’ own work",
     ));
     out.push(para(format!("\u{201c}{}\u{201d}", item.sentence.trim())));
     if let Some(r) = &item.reason {
@@ -616,13 +627,14 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     }
 
     out.push(Block::Note {
-        text: format!(
-            "The “worth a second look” suggestions below are a SEPARATE and weaker signal. \
-             They come from a language model reading each sentence on its own, and on a labelled \
-             test set it flagged {ADVISORY_RECALL_PCT}% of the sentences that genuinely needed a \
-             citation — but only {ADVISORY_PRECISION_PCT}% of what it flagged actually did. They \
+        text: "The “worth a second look” suggestions below are a SEPARATE and weaker \
+             signal. They come from a language model reading each sentence on its own, with no \
+             access to your sources and no view of the sentences around it. Nothing below has \
+             been checked against anything. On a paper that reports its own methods and results, \
+             expect most of them to be the authors’ own work — their own hardware, their own \
+             data split, their own numbers, their own ablations — which needs no citation. They \
              are a prompt to look, not a finding."
-        ),
+            .to_string(),
     });
 
     // The breakdown. Evidence-backed and advisory are SEPARATE BARS, never
@@ -1242,9 +1254,18 @@ mod tests {
         // The advisory list is labelled as suggestions, never as findings.
         assert!(text.contains("suggestions, not findings"), "{text}");
         assert!(!text.contains("Sentences that may need a citation"), "old verdict heading:\n{text}");
-        // And the measured precision is stated, so the claim is checkable.
-        assert!(text.contains("43%"), "precision not disclosed:\n{text}");
-        assert!(text.contains("82%"), "recall not disclosed:\n{text}");
+        // §11 D123. NO measured rate is stated. Both figures were real
+        // measurements of a labelled set drawn from one paper's front third,
+        // while the audit judges the whole document — so they described a
+        // population the product never sees. The honest qualifier replaces
+        // them, and nothing here may quietly reintroduce a percentage.
+        for banned in ["43%", "82%", "4 in 10"] {
+            assert!(!text.contains(banned), "{banned:?} is back in the report:\n{text}");
+        }
+        assert!(
+            text.contains("the authors\u{2019} own work"),
+            "the advisory lane must still say what it is:\n{text}"
+        );
     }
 
     /// §11 D95. A derived page and a guessed one must not look alike.
@@ -1580,10 +1601,20 @@ mod tests {
             "the label must appear beside EVERY suggestion:\n{text}"
         );
         assert_eq!(
-            text.matches("about 4 in 10 of these are real").count(),
+            text.matches("often the authors’ own work").count(),
             3,
-            "the measured rate must ride with every item:\n{text}"
+            "the qualifier must ride with every item:\n{text}"
         );
+        // §11 D123. NO measured rate, here or anywhere in the advisory lane.
+        // The 43% this used to print was computed on a labelled set drawn from
+        // the front third of one paper; the audit judges the whole document,
+        // and two thirds of what it flags comes from Results onward.
+        for banned in ["4 in 10", "43%", "82%"] {
+            assert!(
+                !text.contains(banned),
+                "{banned:?} is a performance rate with no representative measurement behind it:\n{text}"
+            );
+        }
         // And no severity anywhere: it is a constant (§11 D82) and would read
         // as triage.
         for banned in ["severity", "HIGH", "MEDIUM"] {

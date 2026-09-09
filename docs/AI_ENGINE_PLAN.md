@@ -6924,3 +6924,199 @@ technique, and a fifth would measure the same thing again.
 **v1.6 stands as the shipped prompt.** v1.7, v1.8, v1.9 and v1.10 are kept in the
 harness (`--support-variant v1c / v1o / v1e / v1n`) so their reports stay
 reproducible; none is reachable from the app.
+
+### D122 — a wrapped line is the document's break or ours, and only the reader can tell which
+
+A full-paper audit produced three "suggestions" that were not sentences:
+
+```
+"RAM), Python 3.9, TensorFlow 2.10, and NLTK 3.7."
+"3.3 points; SMOTE-Text costs 2.3 points."
+"BiLSTM, and ATAE-LSTM across a total of six evaluation"
+```
+
+Two of the three were flagged as needing a citation. The significance filter was
+blamed first and was innocent: `sentences_in` never had a boundary to get wrong,
+because there is no `.!?` between `(6 GB` and `RAM)`. **The blocks arrived
+already cut.** `tt.docx` records those sentences across separate `<w:p>`
+paragraphs — the author pasted from a two-column layout and Word made each
+visual line its own paragraph. The half that ends in a period then looks like a
+complete sentence to any terminal-punctuation check.
+
+`rejoin_wrapped_blocks` repairs them before the pre-pass loop sees them.
+
+**The absorbed block is BLANKED, never removed.** `prepass_blocks` counts a
+paragraph ordinal over every block including skipped ones, because that locator
+has to match what the reader counts in their own document. Dropping a block
+would shift every ordinal after it.
+
+#### The distinction that decides where this may run
+
+> **A break the reader can SEE belongs to the document. A break they cannot see
+> belongs to us.**
+
+In body prose a paragraph break is invisible — Word renders the wrap and the
+paragraph identically — so a sentence split across two blocks is ours to repair.
+In an **auto-numbered list** the same break is visible: Word puts a number in
+front of it. `style_is_list` is therefore refused by `may_absorb`, and the
+rejoin stops at the references heading.
+
+**This was tested against the finding it could have deleted.** The same paper's
+reference list wraps entry 5 across two paragraphs, and the audit reported it:
+
+> "[6] does not look like a reference entry — it names no author, and reads as a
+> page range: *pp. 436–465, 2013.*"
+
+That finding was proposed for removal as an artefact of this same defect. **It is
+not an artefact and it was not removed.** `<w:p>` 356 carries its own `<w:numPr>`
+with `numId=27`, identical to its neighbours, so Word renders **22 numbered
+entries and entry 6 really is the page range** — the reader's reference list is
+genuinely broken, and D67 had already settled this on this very paper. Measured
+before and after: the bibliography holds 25 entries with `[6] = "pp. 436–465,
+2013."` in both. A test pins it.
+
+#### A TRUE FINDING WAS NEARLY RETRACTED ON INFERENCE
+
+This is the part worth remembering, because nothing about it felt like a risk.
+
+The three prose fragments and the reference-list break have the SAME cause — a
+wrapped line Word recorded as its own paragraph. From that shared cause it
+followed naturally that they were the same defect, and the instruction given was
+explicit and confident: confirm the `[6]` finding disappears after the rejoin,
+and record prominently that the audit's highest-severity, most confident, most
+actionable finding was an artefact that told a researcher to renumber a correct
+reference list.
+
+**That inference was wrong, and acting on it would have deleted a true finding
+and published a false confession about the product's own accuracy.**
+
+What stopped it was not judgement about the design. It was reading
+`word/document.xml`:
+
+```xml
+<w:p><w:pPr><w:pStyle w:val="ListParagraph"/>
+  <w:numPr><w:ilvl w:val="0"/><w:numId w:val="27"/></w:numPr>
+  …</w:pPr>…<w:t>pp. 436–465, 2013.</w:t></w:p>
+```
+
+`<w:p>` 356 carries its OWN `<w:numPr>`, identical to 355 and 357. Word renders a
+number in front of it. The reference list the reader sees really does have 22
+entries with `[6] = "pp. 436–465, 2013."`, and the in-text markers run to `[24]`
+against those 22. The finding was correct; so was its instruction to renumber.
+
+Two things generalise:
+
+- **A shared CAUSE is not a shared DEFECT.** The same wrapped line is our bug in
+  prose and the document's bug in a numbered list, because the consequence to the
+  reader differs — which is D67's distinction, already recorded, on this same
+  paper. A plausible causal story reached the opposite conclusion from the one
+  the file supported.
+- **This is the session's own recurring lesson, arriving from the other
+  direction.** Earlier it cost a wrong diagnosis to reason from a truncated error
+  string instead of the raw output (D121's cell), and 1h52m to a monitor grepping
+  for text that could never appear. Here the same discipline — read the bytes,
+  not the story about them — protected a finding rather than corrected one. The
+  cost of skipping it is asymmetric: a fragment that survives is noise, a
+  retracted true finding is the product telling a researcher its correct answer
+  was wrong.
+
+The rejoin is therefore scoped to body prose by construction (`style_is_list`
+refused in `may_absorb`, plus the references-heading stop), and
+`a_wrapped_line_in_an_auto_numbered_list_is_left_alone` fails if that scope ever
+widens.
+
+#### The cascade this rule almost shipped
+
+The first version paired "block A ends open" with "A has an unclosed `(`". On the
+real document that let the caption `TABLE III. PER-EMOTION PERFORMANCE (HEFCSO-`
+absorb **forty consecutive table cells** — `Emotion`, `Precision (%)`, `Joy`,
+`96.55` — because the unclosed paren survived every join and re-armed the rule
+each time. Those cells carry **no declared style**, so `style_is_table` never saw
+them. 44 sentences vanished from the pre-pass and the count looked like a
+successful cleanup.
+
+Two fixes: the paren clause now requires the block that actually **closes** the
+paren (`bt.contains(')')`), and absorption chains are capped at 3 so a rule that
+stops discriminating fails small rather than eating a section. Joins on the real
+document went 43 -> **3, exactly the three wrapped sentences.**
+
+`"Std."` was also missing from `ABBREVIATIONS`, which cut
+`…HEFCSO-BiLSTM, Std. BiLSTM, and ATAE-LSTM…` mid-sentence. It is the only
+multi-letter abbreviation in PROSE that list was missing on this paper; the other
+40-odd `Token.`-before-capital shapes are journal names inside the references
+block, which never reach the prose path, or single-capital author initials, which
+rule (3) already suppresses.
+
+**A second-order effect worth recording:** with the sentence whole, `"Figure 4 is
+an exemplary showpiece…"` is now correctly SKIPPED as a figure cross-reference.
+The fragment had escaped that skip only because the `Figure 4` prefix sat in a
+different block. Repairing the input restored a filter that was already right.
+
+Measured on `tt.docx`: 309 -> 305 sentences, 84 -> 81 planned, bibliography
+unchanged at 25.
+
+### D123 — the number was not wrong about its sample; it was wrong about its subject
+
+Every audit report printed:
+
+> "on a labelled test set it flagged **82%** of the sentences that genuinely
+> needed a citation — but only **43%** of what it flagged actually did"
+
+and every suggestion carried "about 4 in 10 of these are real". Both constants
+were honest measurements of a real eval (D78, D79), and a guard existed to stop
+them drifting from it.
+
+On a full-paper run the author read all 46 suggestions and found roughly **4**
+defensible — nearer 1 in 10 than 4 in 10.
+
+#### What the measurement was actually of
+
+| where in the paper | judged | flagged | **labelled** |
+|---|---|---|---|
+| Title -> Proposed HEFCSO Algorithm | 26 | 15 | **14** |
+| Experimental Configuration -> ACKNOWLEDGEMENT | 39 | 31 | **0** |
+
+All 42 cold cases come from Abstract, Introduction subsections, Objectives and
+early Methodology — the sections where "does this need a citation?" is a real
+question. The shipped audit judges the whole document, and **two thirds of what
+it flags comes from Results onward**, where the answer is structurally *no*: it
+is the authors' own hardware, own split, own numbers, own ablations, and in one
+case the ACKNOWLEDGEMENT paragraph.
+
+Scored against the same labels **restricted to the audit's own selection**:
+precision **25%** (tp 2, fp 6), recall 67% — n=8, too small to publish. Against
+the author's read of the full report: **~9%**.
+
+**Both constants are removed and nothing replaces them.** No re-measurement was
+run: a replacement rate needs a labelled sample of the population the audit
+judges, and that sample does not exist yet. The report now says what is true
+without a number — that these come from a language model reading each sentence
+alone, with no access to sources and no view of neighbouring sentences, and that
+on a methods-and-results paper most will be the authors' own work.
+
+#### The guard counted the labels and never asked where they came from
+
+`advisory_figures_match_a_real_eval_of_the_shipped_prompt` required `>= 20` cold
+cases and recomputed both rates from the eval report. It did both correctly and
+**certified 43% on a set drawn from one paper's front third.** This is the
+session's recurring shape again — D118's contended-run check, D120's isolation
+guard: *a check that measures the start condition and then stops watching.*
+
+Replaced by `a_printed_advisory_rate_needs_a_representative_set`, which asks for
+**coverage, not count**: at least 10 cold cases on each side of the prior-work /
+own-work split. A set of 500 Introduction sentences fails it.
+
+Two properties of that guard matter more than the threshold:
+
+- **It is armed by the thing it guards.** Nothing prints such a rate today, so
+  there is nothing to recompute — and a guard that merely returns while disarmed
+  is the shape that failed here. It reads `audit_report.rs` and arms the moment a
+  `pub const ADVISORY_*` reappears under any name, printing the current coverage
+  either way so the cost is known before the failure.
+- **The population is DECLARED, not inferred.** The first version matched
+  "result"/"discussion"/"introduction" against `input.section` and classified
+  **0 of 42**, because papers name sections whatever they like — the real cases
+  carry `"HEFCSO-BILSTM: A HYBRID"` and `"1.1 Universal Health Coverage and
+  Employer Mandates"`. A keyword proxy standing in for the thing it cannot see is
+  how the 43% got certified in the first place, so `labelling.population` is
+  stated by whoever read the sentence.

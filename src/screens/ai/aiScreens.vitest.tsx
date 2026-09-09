@@ -744,7 +744,10 @@ describe('Thesis audit', () => {
     const label = await screen.findByTestId('audit-suggestion-label-1');
     expect(label.textContent).toMatch(/suggestion/);
     expect(label.textContent).toMatch(/unchecked/);
-    expect(label.textContent).toMatch(/4 in 10/);
+    // §11 D123. No measured rate: it was computed on a population the audit
+    // never judges. The honest qualifier stands in its place.
+    expect(label.textContent).toMatch(/own work/);
+    expect(label.textContent).not.toMatch(/\d+\s*in\s*10|\d+%/);
     // The checked item keeps its badge; the two must stay distinguishable.
     expect(screen.queryByTestId('audit-suggestion-label-2')).toBeNull();
   });

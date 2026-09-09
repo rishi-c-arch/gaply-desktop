@@ -828,11 +828,15 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
                 <p className="gds-audit__sentence">{f.sentence}</p>
 
                 {f.kind === 'citation_need' ? (
-                  /* §11 D89's treatment: a suggestion is not a finding, wears
-                     no verdict vocabulary, and states its own hit rate. */
+                  /* §11 D89's treatment: a suggestion is not a finding and
+                     wears no verdict vocabulary. It used to state a hit rate
+                     too; §11 D123 removed it — 43% was measured on a labelled
+                     set drawn from one paper's front third, and most of what
+                     this flags on a methods-and-results paper is the authors'
+                     own work. The qualifier replaces the number. */
                   <>
                     <p className="gds-ai__hint" data-testid={`audit-flagged-suggestion-${i}`}>
-                      suggestion · not checked against any source · about 4 in 10 are real
+                      suggestion · not checked against any source · often the authors&rsquo; own work
                     </p>
                     {out.reason && (
                       <p className="gds-ai__hint" data-testid={`audit-flagged-reason-${i}`}>
@@ -1049,7 +1053,7 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
                       className="gds-ai__hint"
                       data-testid={`audit-suggestion-label-${it.seq}`}
                     >
-                      suggestion · unchecked · about 4 in 10 are real ·{' '}
+                      suggestion · unchecked · often the authors&rsquo; own work ·{' '}
                       {it.page === null ? 'page unknown' : `p.${it.page}`}
                     </span>
                   ) : (

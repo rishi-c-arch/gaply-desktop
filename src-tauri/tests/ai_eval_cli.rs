@@ -213,171 +213,103 @@ fn labelled_cases_record_how_they_were_produced() {
     }
 }
 
-/// §11 D79. The advisory figures printed to researchers must match a REAL eval
-/// of the prompt that actually ships.
+/// §11 D79, §11 D123. A performance rate printed to a researcher must be
+/// measured on THE POPULATION THE PRODUCT JUDGES.
 ///
-/// `audit_report` prints `ADVISORY_RECALL_PCT` / `ADVISORY_PRECISION_PCT` in the
-/// report so the advisory claim is checkable (§11 D78). Nothing stopped those
-/// constants drifting from the engine: for one commit the default was v3 —
-/// measured at **0% recall** — while the report already advertised v4's 82%.
+/// # WHAT THE OLD GUARD CHECKED, AND WHY IT PASSED ON A NUMBER THAT WAS WRONG
 ///
-/// So this does not check that a report EXISTS. It finds the report for the
-/// SHIPPED prompt version, recomputes recall and precision from its per-case
-/// results against the cold labels, and asserts the constants match. Changing
-/// the prompt, the default variant, or either number without a matching eval run
-/// fails here — which is the only way a number printed to a user stays true.
+/// The version of this test that shipped required `>= 20` cold labelled cases
+/// and recomputed recall/precision from the eval report to confirm the printed
+/// constants had not drifted. It did both correctly, and it certified "43%
+/// precision" on a set drawn almost entirely from ONE PAPER'S FRONT THIRD.
+///
+/// It counted the labels. It never asked where they came from.
+///
+/// Measured on the manuscript that exposed this: of 65 judged sentences, the 14
+/// labelled ones all sit above "Experimental Configuration". The 39 sentences
+/// from there to the ACKNOWLEDGEMENT — Results, ablations, Discussion,
+/// Conclusion — hold ZERO labels and produce 31 of the 46 suggestions.
+/// Restricted to the audit's own selection the same model measured 25%
+/// precision, not 43%.
+///
+/// So this guard is about COVERAGE, not count. A set of 500 Introduction
+/// sentences still fails it.
+///
+/// # IT IS ARMED BY THE THING IT GUARDS
+///
+/// Nothing prints such a rate today (§11 D123 removed both constants), so there
+/// is nothing to recompute — and a guard that merely returns while disarmed is
+/// the shape that failed here before. It therefore reads `audit_report.rs` and
+/// arms itself the moment a constant of that shape reappears, whatever it is
+/// named.
 #[test]
-fn advisory_figures_match_a_real_eval_of_the_shipped_prompt() {
-    use app_lib::ai::tasks::citation_need::PROMPT_VERSION;
-    let shipped = PROMPT_VERSION;
+fn a_printed_advisory_rate_needs_a_representative_set() {
+    // Per HALF, not in total. The old floor of 20 was met entirely by one.
+    const MIN_PER_HALF: usize = 10;
 
-    let cases: std::collections::HashMap<String, serde_json::Value> =
-        std::fs::read_to_string("evals/citation_need.jsonl")
-            .expect("case file")
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| {
-                let v: serde_json::Value = serde_json::from_str(l).expect("case json");
-                (v["id"].as_str().unwrap_or_default().to_string(), v)
-            })
-            .collect();
+    // WHY A DECLARED FIELD AND NOT THE SECTION TITLE.
+    //
+    // The first version of this guard classified cases by matching "result",
+    // "discussion", "introduction" against `input.section`. On the real set it
+    // classified 0 of 42, because papers name their sections whatever they
+    // like: the cold cases carry "HEFCSO-BILSTM: A HYBRID", "1.1 Universal
+    // Health Coverage and Employer Mandates", "Proposed HEFCSO Algorithm". A
+    // keyword proxy standing in for the thing it cannot see is how the 43% was
+    // certified in the first place, so the labeller declares it instead — they
+    // have read the sentence, and the guard has not.
+    const FIELD: &str = "population";
+    const OWN_WORK: &str = "own_work";
+    const PRIOR_WORK: &str = "prior_work";
 
-    // Recompute from a report's per-case results, over COLD labels only
-    // (§11 D75): a suggested-accepted label carries the model's own answer and
-    // cannot score it. Defined before selection so EVERY candidate can be
-    // measured, not only the one that wins.
-    let measure = |v: &serde_json::Value| -> (u32, u32, u32, u32, u32) {
-        let (mut tp, mut fp, mut fn_) = (0u32, 0u32, 0u32);
-        for r in v["results"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
-            let id = r["id"].as_str().unwrap_or_default();
-            let Some(case) = cases.get(id) else { continue };
-            let Some(lab) = case.get("labelling") else { continue };
-            if lab["provenance"].as_str() != Some("cold") {
-                continue;
-            }
-            match (case["expected"]["needs_citation"].as_bool(), r["scored"]["got"]["needs_citation"].as_bool()) {
-                (Some(true), Some(true)) => tp += 1,
-                (Some(true), Some(false)) => fn_ += 1,
-                (Some(false), Some(true)) => fp += 1,
-                _ => {}
-            }
+    let source =
+        std::fs::read_to_string("gaply-core/src/audit_report.rs").expect("audit_report.rs");
+    let armed = source
+        .lines()
+        .any(|l| l.trim_start().starts_with("pub const ADVISORY_") && l.contains("u32"));
+
+    let (mut own_work, mut prior_work, mut undeclared) = (0usize, 0usize, 0usize);
+    let mut sections: std::collections::BTreeSet<String> = Default::default();
+    for line in std::fs::read_to_string("evals/citation_need.jsonl").expect("case file").lines() {
+        if line.trim().is_empty() {
+            continue;
         }
-        let recall = (tp * 100).checked_div(tp + fn_).unwrap_or(0);
-        let precision = (tp * 100).checked_div(tp + fp).unwrap_or(0);
-        (tp, fp, fn_, recall, precision)
-    };
-
-    // WHICH report speaks for the printed numbers (§11 D83).
-    //
-    // This used to take the FIRST `read_dir` entry matching the prompt version.
-    // `read_dir` order is filesystem order, not a decision — so a second report
-    // for the shipped prompt (a diagnostic run, a re-measure, a five-case
-    // reproduction) could silently become the authority for two numbers printed
-    // to researchers, with nothing in the test or the constants changing. A
-    // guard that can quietly change what it validates is worse than none,
-    // because it still reads as one.
-    //
-    // `date` cannot decide it: the field is a caller-supplied TAG, by design
-    // ("reproducible without a clock in the engine"), and the values on disk are
-    // things like `bo-3b` and `labelled-v4`. So recency is not available, and
-    // inventing a clock to get it would override that decision for a tiebreak.
-    //
-    // Instead the order is: **the report that scores the MOST cold labels wins**,
-    // ties broken by filename descending so the order is total. That is not
-    // arbitrary — the fullest measurement is the one entitled to authorise a
-    // published number, and it excludes a narrow diagnostic run by what the run
-    // IS rather than by what it is called.
-    let cold_scored = |v: &serde_json::Value| -> usize {
-        v["results"]
-            .as_array()
-            .map(|rs| {
-                rs.iter()
-                    .filter(|r| {
-                        let id = r["id"].as_str().unwrap_or_default();
-                        cases
-                            .get(id)
-                            .and_then(|c| c.get("labelling"))
-                            .and_then(|l| l["provenance"].as_str())
-                            == Some("cold")
-                            && r["scored"]["got"]["needs_citation"].is_boolean()
-                    })
-                    .count()
-            })
-            .unwrap_or(0)
-    };
-
-    let mut candidates: Vec<(usize, String, serde_json::Value)> = Vec::new();
-    for e in std::fs::read_dir("evals/reports").expect("reports dir").flatten() {
-        let Ok(raw) = std::fs::read_to_string(e.path()) else { continue };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
-        if v["promptVersion"].as_str() == Some(shipped) && v.get("results").is_some() {
-            let name = e.file_name().to_string_lossy().into_owned();
-            candidates.push((cold_scored(&v), name, v));
+        let v: serde_json::Value = serde_json::from_str(line).expect("case json");
+        if v["labelling"]["provenance"].as_str() != Some("cold") {
+            continue;
+        }
+        sections.insert(v["input"]["section"].as_str().unwrap_or("(none)").to_string());
+        match v["labelling"][FIELD].as_str() {
+            Some(OWN_WORK) => own_work += 1,
+            Some(PRIOR_WORK) => prior_work += 1,
+            _ => undeclared += 1,
         }
     }
-    // Descending on both keys, so the winner is the same on every machine.
-    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
 
-    let tied = candidates.clone();
-    let (n_cold, chosen, report) = candidates.into_iter().next().unwrap_or_else(|| {
-        panic!(
-            "no eval report found for the SHIPPED prompt {shipped}. The report prints \
-             ADVISORY_RECALL_PCT/ADVISORY_PRECISION_PCT to researchers; they may not \
-             describe a prompt nobody has measured. Run: cargo run --release --bin \
-             ai-eval -- --task citation_need --cases evals/citation_need.jsonl --prompt \
-             <variant>"
-        )
-    });
+    if !armed {
+        // DISARMED, and it says so with the numbers that would decide — so a
+        // reader who reinstates a constant learns the cost before the failure.
+        eprintln!(
+            "no ADVISORY_* rate is printed, so this guard is dormant. Cold cases: {prior_work} \
+             prior-work, {own_work} own-work, {undeclared} with no `labelling.{FIELD}`. Before \
+             any rate may be printed, {MIN_PER_HALF} of EACH are needed. Sections present: {:?}",
+            sections
+        );
+        return;
+    }
 
-    // A report that scores almost nothing cannot authorise a published number,
-    // and computing a percentage from it would be the failure that looks like a
-    // result. Refuse rather than divide.
-    const MIN_COLD_CASES: usize = 20;
-    assert!(
-        n_cold >= MIN_COLD_CASES,
-        "the fullest report for the SHIPPED prompt {shipped} is {chosen}, which scores only \
-         {n_cold} cold labelled cases (minimum {MIN_COLD_CASES}). ADVISORY_RECALL_PCT / \
-         ADVISORY_PRECISION_PCT are printed to researchers and cannot rest on that few."
-    );
-
-    // A TIE AT THE TOP IS AMBIGUITY, NOT A COIN FLIP (§11 D83).
-    //
-    // Coverage plus filename is a total order, so SOME report always wins — but
-    // if two equally full measurements of the shipped prompt disagree, picking
-    // one by name is exactly the silent rebinding this is meant to end. Two
-    // full runs that disagree (a different model, a changed case file) is a
-    // question for a human, so it fails and names them both.
-    let rivals: Vec<&(usize, String, serde_json::Value)> =
-        tied.iter().filter(|(n, name, v)| *n == n_cold && *name != chosen && measure(v).3 != measure(&report).3).collect();
-    assert!(
-        rivals.is_empty(),
-        "{} other report(s) measure the SHIPPED prompt {shipped} just as fully as {chosen} \
-         and disagree with it on recall: {}. Two equally complete measurements cannot both \
-         authorise the number printed to researchers — reconcile them, or remove the one \
-         that is not the measurement of record.",
-        rivals.len(),
-        rivals.iter().map(|(_, n, v)| format!("{n} (recall {}%)", measure(v).3)).collect::<Vec<_>>().join(", ")
-    );
-
-    let (tp, fp, fn_, recall, precision) = measure(&report);
-    assert!(tp + fn_ > 0, "no cold true cases scored — the set cannot support a recall figure");
-
-    // Integer division and rounding can differ by a point; more than that means
-    // the constants describe a different run.
-    let recall_const = gaply_core::audit_report::ADVISORY_RECALL_PCT;
-    let precision_const = gaply_core::audit_report::ADVISORY_PRECISION_PCT;
-    assert!(
-        recall.abs_diff(recall_const) <= 1,
-        "the report tells researchers recall is {recall_const}%, but the eval of the \
-         SHIPPED prompt {shipped} measures {recall}% (tp {tp}, fn {fn_}) in {chosen}, over \
-         {n_cold} cold cases. Re-measure or correct the constant — this number is printed \
-         to users."
+    assert_eq!(
+        undeclared, 0,
+        "a rate is printed to researchers, but {undeclared} cold cases do not declare \
+         `labelling.{FIELD}` ({OWN_WORK:?} or {PRIOR_WORK:?}). A rate cannot be certified \
+         against a set whose population is unknown — that is §11 D123 exactly. Sections \
+         present: {sections:?}"
     );
     assert!(
-        precision.abs_diff(precision_const) <= 1,
-        "the report tells researchers precision is {precision_const}%, but the eval of the \
-         SHIPPED prompt {shipped} measures {precision}% (tp {tp}, fp {fp}) in {chosen}, over \
-         {n_cold} cold cases. Re-measure or correct the constant — this number is printed \
-         to users."
+        own_work >= MIN_PER_HALF && prior_work >= MIN_PER_HALF,
+        "a rate is printed to researchers from {prior_work} prior-work and {own_work} own-work \
+         cold cases; {MIN_PER_HALF} of each are needed. The audit judges Results, Discussion and \
+         Conclusion sentences — mostly the authors' own work, mostly needing no citation — and a \
+         set that skips them measures a population the product never sees. Label that half, or \
+         print no rate."
     );
 }

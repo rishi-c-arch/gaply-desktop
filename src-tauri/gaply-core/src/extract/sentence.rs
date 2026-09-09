@@ -49,6 +49,15 @@ pub(crate) const ABBREVIATIONS: &[&str] = &[
     "No.", "Dr.", "Prof.", "Mr.", "Mrs.", "Ms.", "St.", "Jr.", "Sr.", "Eq.", "Eqs.", "ref.",
     "refs.", "Ref.", "min.", "max.", "sec.", "wt.", "vol.", "conc.", "temp.", "spp.", "sp.",
     "subsp.", "var.", "p.", "pp.", "ed.", "eds.", "Inc.", "Ltd.", "Co.", "U.S.", "U.K.",
+    // "Std." — measured, not guessed. On R PAPER it is the ONLY multi-letter
+    // abbreviation in PROSE that this list was missing, and it cut
+    // "…comparisons between HEFCSO-BiLSTM, Std. BiLSTM, and ATAE-LSTM across a
+    // total of six evaluation metrics." into a fragment that reached the model
+    // as a claim. The other 40-odd `Token.`-before-capital shapes in that paper
+    // are journal names inside the REFERENCES block, which never reach the
+    // prose path, or single-capital author initials, which rule (3) already
+    // suppresses (§11 D122).
+    "Std.",
 ];
 
 /// True when `tail` ends with an abbreviation **as a whole token** — the
