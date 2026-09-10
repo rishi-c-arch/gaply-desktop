@@ -3224,7 +3224,7 @@ pub async fn ai_job_export_report(
 pub async fn ai_job_recheck_items(
     state: State<'_, AppState>,
     job_id: i64,
-    citation_ids: Vec<String>,
+    subjects: Vec<gaply_core::source_ref::SourceRef>,
     on_event: tauri::ipc::Channel<JobProgressEvent>,
 ) -> Result<serde_json::Value, GaplyError> {
     use gaply_core::ai_engine::{audit_prepass, jobs};
@@ -3234,6 +3234,20 @@ pub async fn ai_job_recheck_items(
         let db = db.clone();
         tokio::task::spawn_blocking(move || -> Result<Vec<serde_json::Value>, GaplyError> {
             let mut out = Vec::new();
+            // THE MANUSCRIPT'S REFERENCE LIST, FROM THE STAGED ROWS (§11 D135).
+            //
+            // Resolution finds a staged document by the DOI its reference entry
+            // prints, and a re-check has a job id but NOT the manuscript's path —
+            // the export's own comment records that. The staged table IS that
+            // list, persisted, so it is read back rather than the manuscript
+            // being re-parsed or a second way to find a staged document being
+            // grown beside the first.
+            let staged_entries = gaply_core::staged_sources::as_author_year_entries(&db, job_id)?;
+            let numbered = std::collections::BTreeMap::new();
+            let bib = audit_prepass::Bibliography {
+                numbered: &numbered,
+                author_year: &staged_entries,
+            };
             // Which unverifiable items now resolve to a checkable document? Asked
             // of the store, not assumed from the fetch's own report: a fetch that
             // succeeded and an item that can now be checked are different facts.
@@ -3249,29 +3263,32 @@ pub async fn ai_job_recheck_items(
                         continue;
                     }
                     for m in audit_prepass::markers_in(&it.sentence) {
-                        // Only the citations the user actually just fetched.
-                        let hit = citation_ids.iter().find(|cid| {
-                            gaply_core::citation_links::checkable_document_for_citation(&db, cid)
-                                .ok()
-                                .flatten()
-                                .is_some()
-                                && audit_prepass::resolve_marker(&db, &m)
-                                    .ok()
-                                    .map(|r| matches!(r, audit_prepass::Resolution::Checkable { via, .. } if via.citation_id() == Some(cid.as_str())))
-                                    .unwrap_or(false)
-                        });
-                        if let Some(cid) = hit {
-                            if let Ok(Some((doc, _))) =
-                                gaply_core::citation_links::checkable_document_for_citation(&db, cid)
-                            {
-                                out.push(serde_json::json!({
-                                    "seq": it.seq,
-                                    "documentId": doc,
-                                    "libraryId": cid,
-                                }));
-                                break;
-                            }
+                        // Does this marker NOW resolve to something checkable,
+                        // and is it one of the sources just fetched?
+                        //
+                        // Asked of the STORE rather than taken from the fetch's
+                        // report: a fetch that succeeded and an item that can now
+                        // be checked are different facts. Narrowed to the
+                        // fetched subjects so an unrelated item already checkable
+                        // is not requeued.
+                        let Ok(audit_prepass::Resolution::Checkable { via, document_id }) =
+                            audit_prepass::resolve_marker_with(&db, &m, &bib)
+                        else {
+                            continue;
+                        };
+                        if !subjects.contains(&via) {
+                            continue;
                         }
+                        out.push(serde_json::json!({
+                            "seq": it.seq,
+                            "documentId": document_id,
+                            // `libraryId` stays for existing readers and is null
+                            // for a staged source; `source` is the complete
+                            // answer (§11 D133).
+                            "libraryId": via.citation_id(),
+                            "source": via,
+                        }));
+                        break;
                     }
                 }
             }

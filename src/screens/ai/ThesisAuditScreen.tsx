@@ -18,6 +18,7 @@ import {
   AuditPlan,
   JobProgressEvent,
   OaFetchReport,
+  OaFetchSubject,
   StagedSource,
   ThesisAuditPreview,
   errorText,
@@ -176,10 +177,16 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
   const [dumpOpen, setDumpOpen] = useState(false);
   /** §11 D92. The annotated manuscript, closed by default — it renders pages. */
   const [annotOpen, setAnnotOpen] = useState(false);
-  /** Per-source fetch results from the report's own actions, by citation id. */
+  /** Per-source fetch results from the report's own actions, by `subjectKey`. */
   const [fetchNotes, setFetchNotes] = useState<Record<string, string>>({});
-  /** Citations whose source became checkable, so a re-check is worth offering. */
-  const [nowCheckable, setNowCheckable] = useState<string[]>([]);
+  /**
+   * Sources whose document became checkable, so a re-check is worth offering.
+   *
+   * SUBJECTS, not ids (§11 D135): a staged manuscript reference has no library
+   * id, and holding ids here is what silently dropped staged sources from the
+   * re-check before.
+   */
+  const [nowCheckable, setNowCheckable] = useState<OaFetchSubject[]>([]);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [exportNote, setExportNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -342,6 +349,17 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
       // PER-SOURCE outcomes, never a count: "8 of 12 succeeded" hides the four
       // the researcher has to do something about.
       setStagedOutcomes(reports);
+      // §11 D135. A press has to LEAD somewhere. Sources that became checkable
+      // join the re-check list, so the sentences citing them can be re-judged
+      // without re-running the whole audit.
+      const gained = reports.filter((r) => r.checkable).map((r) => r.subject);
+      if (gained.length > 0) {
+        setNowCheckable((prev) => {
+          const seen = new Map(prev.map((su) => [subjectKey(su), su]));
+          for (const su of gained) seen.set(subjectKey(su), su);
+          return Array.from(seen.values());
+        });
+      }
       if (jobId) setStaged(await bridge.jobStagedSources(jobId));
     } catch (e) {
       setFixNote(errorText(e));
@@ -358,18 +376,23 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
       try {
         const reports = await bridge.fetchOpenAccess(citationIds.map((citationId) => ({ kind: 'citation' as const, citationId })));
         const notes: Record<string, string> = {};
-        const gained: string[] = [];
+        const gained: OaFetchSubject[] = [];
         for (const r of reports) {
           notes[subjectKey(r.subject)] = describeOaOutcome(r);
-          // Only LIBRARY citations here: `recheckItems` re-runs items keyed by
-          // citation id, and a staged manuscript reference has none (§11 D132).
-          // Staged sources that became checkable still need their own re-check
-          // path — dropped visibly here rather than silently keyed to undefined,
-          // which is what this line did before the subject was a union.
-          if (r.checkable && r.subject.kind === 'citation') gained.push(r.subject.citationId);
+          // §11 D135. BOTH kinds now: `recheckItems` takes the same subject
+          // union the fetch does, so a staged manuscript reference that became
+          // checkable is re-checked like any other source. This used to push
+          // `r.citationId` and therefore `undefined` for a staged subject.
+          if (r.checkable) gained.push(r.subject);
         }
         setFetchNotes((prev) => ({ ...prev, ...notes }));
-        setNowCheckable((prev) => Array.from(new Set([...prev, ...gained])));
+        // Deduped by `subjectKey`, because two reports for one source must not
+        // re-check it twice — a Set of objects would not notice.
+        setNowCheckable((prev) => {
+          const seen = new Map(prev.map((su) => [subjectKey(su), su]));
+          for (const su of gained) seen.set(subjectKey(su), su);
+          return Array.from(seen.values());
+        });
       } catch (e) {
         setExportNote(errorText(e));
       } finally {

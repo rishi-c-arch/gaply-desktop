@@ -8026,3 +8026,84 @@ nothing to fetch — **indistinguishable from working**. That is the same call a
 neighbour): silence is the worst possible response to an instruction that cannot
 be honoured, because it cannot be told apart from the instruction having worked.
 
+
+### D135 — the re-check takes subjects, and reads the reference list back out of the staged rows
+
+§11 D134's button fetches the manuscript's own sources. A press has to LEAD
+somewhere: the sentences citing a newly-fetched source need re-judging, and
+re-running the whole audit would re-judge sentences whose answers have not
+changed and overwrite verdicts already read.
+
+`recheckItems` took `citation_ids: Vec<String>`. A staged manuscript reference has
+no library id, so the screen pushed `r.citationId` — `undefined` for a staged
+subject — and staged sources were **silently dropped from the re-check**. It now
+takes `subjects: Vec<SourceRef>`, the same union the fetch takes, so the two
+cannot disagree about which sources a press was about. `nowCheckable` holds
+subjects rather than ids for the same reason, deduped by `SourceRef::key` because
+a `Set` of objects would not notice a repeat.
+
+#### THE STAGED ROWS *ARE* THE REFERENCE LIST, PERSISTED
+
+Resolution finds a staged document by the DOI its reference entry prints
+(§11 D133). A re-check has a job id and **not the manuscript's path** — the
+export's own comment records that a job does not carry one — so it cannot
+re-parse the bibliography.
+
+It does not need to. `surname`, `year` and `doi` are exactly what an
+`AuthorYearEntry` carries, so `staged_sources::as_author_year_entries` reads the
+list back out of the table and resolution runs through the SAME single path:
+marker → entry → DOI → document.
+
+The alternative was a second lookup — marker → staged row by surname+year within
+the job — which would have worked and would have been the second way to find a
+staged document. One more pair of things to keep agreeing, for no capability that
+the first path lacks. §11 D129 is the standing reason to refuse that trade.
+
+A side benefit worth naming: because the list is persisted, any later consumer
+with a job id can resolve markers without the manuscript file. The audit's own
+export has wanted that for some time.
+
+#### What the re-check now asks
+
+For each unverifiable item, whether its marker resolves to something checkable
+AND whether that source is one of the ones just fetched. Asked of the STORE, not
+taken from the fetch's report: a fetch that succeeded and an item that can now be
+checked are different facts, and the narrowing stops an unrelated item that was
+already checkable from being requeued.
+
+#### THE THREE-STEP SHAPE, and what a zero would mean — WRITTEN BEFORE THE RUN
+
+Resolution is a LOOKUP, not a fetch trigger. At plan time nothing has been
+fetched, so **the first report cannot show a checkable staged source.** The loop
+is:
+
+```text
+1. run the audit      -> stages the reference list; every cited sentence is unverifiable
+2. press the button   -> fetches the staged sources that carry a DOI
+3. press re-check     -> the sentences citing them are re-judged
+```
+
+**The measurement is step 3**, not step 1. Reading step 1 as a failure would be
+misreading the design.
+
+**AND STEP 3 SHOWING `0 requeued` DESPITE SUCCESSFUL FETCHES WOULD BE A REAL
+FINDING, NOT THE EXPECTED SHAPE.** This is recorded before the run precisely so a
+zero cannot be rationalised afterwards. If fetches report `fetched` and the
+re-check requeues nothing, one of these is wrong and the run has found it:
+
+- the DOI in the staged row does not normalise to the DOI resolution looks up;
+- the marker's surname/year does not match the staged entry's, so `doi_for`
+  returns `None` — §11 D131's mis-split extraction doing this on purpose is
+  already known to cost one of the 13 fetchable works;
+- the fetched document has chunks but no embeddings, so `checkable_document_for_doi`
+  correctly refuses it and the UI said "fetched" about something not yet usable;
+- the staged row's `document_id` was never written, i.e. the link step did not run.
+
+Each is a different defect with a different fix, and the honest response to a zero
+is to say which — not to conclude that a quarter of the paper's cited claims were
+never reachable.
+
+The predicted number is **11 of 47 cited sentences**, from 13 fetchable DOIs
+(§11 D133). Anything materially below that, with fetches succeeding, is a defect
+and not a disappointment.
+

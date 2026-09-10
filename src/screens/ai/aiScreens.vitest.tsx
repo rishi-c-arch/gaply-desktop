@@ -1345,8 +1345,12 @@ describe('Thesis audit', () => {
     expect(screen.getByTestId('audit-recheck').textContent).toMatch(/the 1 item that became checkable/);
     fireEvent.click(screen.getByTestId('audit-recheck'));
     await waitFor(() => expect(recheckItems).toHaveBeenCalled());
-    // Only the citation that gained a readable source is re-queued.
-    expect(recheckItems.mock.calls[0][1]).toEqual(['lib-5']);
+    // Only the source that gained a readable document is re-queued — and as a
+    // SUBJECT (§11 D135), so a staged manuscript reference is re-checked the same
+    // way a library citation is.
+    expect(recheckItems.mock.calls[0][1]).toEqual([
+      { kind: 'citation', citationId: 'lib-5' },
+    ]);
   });
 
   it('exports the report and reports where it went', async () => {

@@ -238,6 +238,32 @@ pub fn id_for_doi(db: &Database, doi: &str) -> Result<Option<i64>, GaplyError> {
     .map_err(Into::into)
 }
 
+/// The job's staged rows AS AN AUTHOR-YEAR BIBLIOGRAPHY.
+///
+/// The staged table is the manuscript's reference list, persisted — surname,
+/// year and DOI are exactly what an [`AuthorYearEntry`] carries. So a consumer
+/// that has a job but NOT the manuscript file can still resolve markers through
+/// the same single path (marker -> entry -> DOI -> document, §11 D133) instead of
+/// growing a second way to find a staged document.
+///
+/// `re-check` is that consumer: it runs after a fetch, from a job id, and the
+/// export's own comment records that a job does not carry the manuscript's path.
+pub fn as_author_year_entries(
+    db: &Database,
+    job_id: i64,
+) -> Result<Vec<AuthorYearEntry>, GaplyError> {
+    Ok(list_for_job(db, job_id)?
+        .into_iter()
+        .map(|s| AuthorYearEntry {
+            surname: s.surname,
+            year: s.year,
+            doi: s.doi,
+            title: s.title,
+            raw: String::new(),
+        })
+        .collect())
+}
+
 /// One staged source by id.
 pub fn get(db: &Database, staged_id: i64) -> Result<Option<StagedSource>, GaplyError> {
     let conn = db.conn()?;

@@ -477,10 +477,14 @@ class AiBridge {
    */
   async recheckItems(
     jobId: number,
-    citationIds: string[],
+    subjects: OaFetchSubject[],
     onEvent?: (ev: JobProgressEvent) => void,
   ): Promise<{ requeued: number; items: Array<{ seq: number; documentId: number }> }> {
-    return this.channelInvoke('ai_job_recheck_items', { jobId, citationIds }, onEvent);
+    // SUBJECTS, not citation ids (§11 D135): a staged manuscript reference has
+    // no library id, and the re-check has to narrow by what was actually
+    // fetched. Same union the fetch takes, so the two cannot disagree about
+    // which sources a press was about.
+    return this.channelInvoke('ai_job_recheck_items', { jobId, subjects }, onEvent);
   }
 
   async jobResults(jobId: number, offset: number, limit: number) {
