@@ -13,8 +13,17 @@
 import './ai.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Card } from '../../design-system/primitives';
-import { aiBridge, AuditPlan, JobProgressEvent, ThesisAuditPreview, errorText, subjectKey } from './aiBridge';
-import { describeOaOutcome } from './oaOutcome';
+import {
+  aiBridge,
+  AuditPlan,
+  JobProgressEvent,
+  OaFetchReport,
+  StagedSource,
+  ThesisAuditPreview,
+  errorText,
+  subjectKey,
+} from './aiBridge';
+import { describeOaOutcome, oaFetchDisclosure } from './oaOutcome';
 import { EvidenceCard, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
 import { saveBinaryFile } from '../../utils/saveBinaryFile';
@@ -125,12 +134,14 @@ export interface ThesisAuditScreenProps {
     | 'startThesisAudit'
     | 'previewThesisAudit'
     | 'fetchOpenAccess'
+    | 'jobStagedSources'
     | 'jobStatus'
     | 'pauseJob'
     | 'resumeJob'
     | 'cancelJob'
     | 'jobResults'
     | 'fetchOpenAccess'
+    | 'jobStagedSources'
     | 'modelStatus'
     | 'recheckItems'
     | 'exportAuditReport'
@@ -288,6 +299,56 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
     }
     return out;
   }, [items]);
+
+  /* ---- THE MANUSCRIPT'S OWN SOURCES (§11 D134) ---------------------------- */
+
+  const [staged, setStaged] = useState<StagedSource[]>([]);
+  const [stagedBusy, setStagedBusy] = useState(false);
+  const [stagedOutcomes, setStagedOutcomes] = useState<OaFetchReport[]>([]);
+
+  // Read once the job exists, because staging happens when the audit plans.
+  useEffect(() => {
+    if (!jobId) return;
+    let live = true;
+    void bridge
+      .jobStagedSources(jobId)
+      .then((rows) => {
+        if (live) setStaged(rows);
+      })
+      .catch(() => {
+        // A staged-source read failing must not break the audit view: the
+        // button simply does not appear, which is the honest degradation.
+        if (live) setStaged([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [bridge, jobId]);
+
+  /** With a DOI and no document yet — the only ones a DOI fetch can reach. */
+  const stagedFetchable = useMemo(
+    () => staged.filter((s) => s.doi && s.documentId === null),
+    [staged],
+  );
+
+  const fetchStagedSources = useCallback(async () => {
+    if (stagedFetchable.length === 0) return;
+    setStagedBusy(true);
+    setStagedOutcomes([]);
+    try {
+      const reports = await bridge.fetchOpenAccess(
+        stagedFetchable.map((s) => ({ kind: 'staged' as const, stagedId: s.id })),
+      );
+      // PER-SOURCE outcomes, never a count: "8 of 12 succeeded" hides the four
+      // the researcher has to do something about.
+      setStagedOutcomes(reports);
+      if (jobId) setStaged(await bridge.jobStagedSources(jobId));
+    } catch (e) {
+      setFixNote(errorText(e));
+    } finally {
+      setStagedBusy(false);
+    }
+  }, [bridge, jobId, stagedFetchable]);
 
   /** Fetch open-access copies for the sources this report is blocked on. */
   const fetchForSources = useCallback(
@@ -751,6 +812,44 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
               <span>with passages</span>
             </div>
           </div>
+
+          {/* THE MANUSCRIPT'S OWN SOURCES (§11 D134).
+              Staging happens when the audit plans; FETCHING DOES NOT. An audit
+              that silently reached out for a dozen PDFs because it parsed a
+              reference list would be doing something nobody asked for — so the
+              button says what it is about to do, and a researcher presses it.
+              Only entries with a DOI and no document yet: a button that can only
+              fail is worse than one that is not there. */}
+          {stagedFetchable.length > 0 && (
+            <div className="gds-audit__fix" data-testid="audit-staged-fetch">
+              <Button
+                variant="secondary"
+                disabled={stagedBusy}
+                data-testid="audit-staged-fetch-button"
+                onClick={fetchStagedSources}
+              >
+                {stagedBusy
+                  ? 'Looking…'
+                  : `Fetch ${stagedFetchable.length} source${
+                      stagedFetchable.length === 1 ? '' : 's'
+                    } this manuscript cites`}
+              </Button>
+              <p className="gds-ai__hint" data-testid="audit-staged-fetch-note">
+                {oaFetchDisclosure(stagedFetchable.length)}
+              </p>
+              {stagedOutcomes.length > 0 && (
+                <ul className="gds-audit__counts" data-testid="audit-staged-outcomes">
+                  {stagedOutcomes.map((r) => (
+                    <li key={subjectKey(r.subject)}>
+                      <span className="font-medium">{r.title ?? 'untitled source'}</span>
+                      {' — '}
+                      {describeOaOutcome(r)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* COUNTS BY CATEGORY. The backend has computed these all along —
               `countsPerCategory`, `verdictBreakdown`, `unverifiableReasons` —

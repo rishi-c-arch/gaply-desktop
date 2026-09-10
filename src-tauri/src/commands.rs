@@ -3040,6 +3040,27 @@ pub async fn ai_job_start_thesis_audit(
     Ok(serde_json::to_value(&plan).unwrap_or(serde_json::Value::Null))
 }
 
+/// The reference entries this audit staged from the manuscript (§11 D134).
+///
+/// Read-only and deterministic: no model, no network. The button that fetches
+/// them needs to say HOW MANY it is about to fetch before the researcher presses
+/// it, and it cannot say that from a count alone — it needs the ids to send.
+///
+/// Staging happens when the audit plans; FETCHING DOES NOT. A researcher presses
+/// the button. An audit that silently reached out for a dozen PDFs because it
+/// parsed a reference list would be doing something nobody asked for.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn ai_job_staged_sources(
+    state: State<'_, AppState>,
+    job_id: i64,
+) -> Result<Vec<gaply_core::staged_sources::StagedSource>, GaplyError> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || gaply_core::staged_sources::list_for_job(&db, job_id))
+        .await
+        .map_err(|e| GaplyError::Internal(format!("staged source read panicked: {e}")))?
+}
+
 /// Register a planned job and run it in the background.
 ///
 /// Shared by the whole-manuscript audit and the per-citation slice — they are
@@ -3236,7 +3257,7 @@ pub async fn ai_job_recheck_items(
                                 .is_some()
                                 && audit_prepass::resolve_marker(&db, &m)
                                     .ok()
-                                    .map(|r| matches!(r, audit_prepass::Resolution::Checkable { library_id, .. } if &library_id == *cid))
+                                    .map(|r| matches!(r, audit_prepass::Resolution::Checkable { via, .. } if via.citation_id() == Some(cid.as_str())))
                                     .unwrap_or(false)
                         });
                         if let Some(cid) = hit {

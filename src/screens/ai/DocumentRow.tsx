@@ -13,7 +13,7 @@ import './ai.css';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Card } from '../../design-system/primitives';
 import { aiBridge, errorText, ImportPreflight, LinkSourceEvent, OaFetchReport } from './aiBridge';
-import { describeOaOutcome, describeOaPhase, isFetchSuccess } from './oaOutcome';
+import { describeOaOutcome, describeOaPhase, isFetchSuccess, oaFetchDisclosure } from './oaOutcome';
 import { pickManuscriptPath } from '../common/pickFile';
 import { mayUseCloud } from '../settings/settingsStore';
 
@@ -304,7 +304,7 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
           </div>
           {doi && (
             <p className="gds-ai__hint" data-testid="document-fetch-oa-note">
-              Sends this source's DOI to Unpaywall and OpenAlex — nothing else leaves your machine.
+              {oaFetchDisclosure(1)}
             </p>
           )}
         </>

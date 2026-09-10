@@ -1249,11 +1249,58 @@ pub fn prepass_blocks(blocks: &[crate::extract::docparse::PagedBlock]) -> Prepas
     report
 }
 
+/// The manuscript's reference list, whichever style it is in.
+///
+/// One manuscript has ONE list; the unused side is empty (§11 D132). Passed as a
+/// pair rather than as "the numbered map" because resolution needs the
+/// author-year side too: that is where an author-year marker's DOI lives, and the
+/// DOI is how a fetched source is found (§11 D133).
+#[derive(Debug, Clone, Copy)]
+pub struct Bibliography<'a> {
+    pub numbered: &'a BTreeMap<u32, BibEntry>,
+    pub author_year: &'a [AuthorYearEntry],
+}
+
+impl<'a> Bibliography<'a> {
+    /// A numbered list alone — the shape most callers and every numeric test has.
+    pub fn numbered(numbered: &'a BTreeMap<u32, BibEntry>) -> Self {
+        Self { numbered, author_year: &[] }
+    }
+
+    /// Both sides, as a real pre-pass produces them.
+    pub fn of(report: &'a PrepassReport) -> Self {
+        Self { numbered: &report.bibliography, author_year: &report.author_year_bibliography }
+    }
+
+    /// The DOI this marker's own reference entry prints, if any.
+    ///
+    /// The bridge between a marker and a fetched PDF. An author-year marker
+    /// carries a surname and a year and NOT a DOI; the entry carries the DOI and
+    /// not the marker's spelling. Neither alone can find the file.
+    pub fn doi_for(&self, marker: &Marker) -> Option<&'a str> {
+        if let Some(n) = marker.numbers.first() {
+            return self.numbered.get(n)?.doi.as_deref();
+        }
+        let lead = marker.lead_author.as_deref()?;
+        self.author_year
+            .iter()
+            .find(|e| e.surname == lead && (marker.year.is_none() || e.year == marker.year))
+            .and_then(|e| e.doi.as_deref())
+    }
+}
+
 /// What the library lookup concluded for one planned sentence.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Resolution {
-    /// The cited work is in the library AND its source is indexed + embedded.
-    Checkable { library_id: String, document_id: i64 },
+    /// The cited work has a source that is indexed + embedded.
+    ///
+    /// `via` says WHICH route it came in by (§11 D133): the user's library, or a
+    /// reference staged from the manuscript (§11 D132). This was
+    /// `library_id: String`, which could not express the second — so a staged
+    /// source whose PDF had been fetched and embedded still resolved as
+    /// unverifiable, and the whole staging path produced ZERO checkable
+    /// sentences.
+    Checkable { via: crate::source_ref::SourceRef, document_id: i64 },
     /// Cited, but nothing to check against.
     ///
     /// `library_id` is `Some` when the marker DID resolve to a library entry
@@ -1332,7 +1379,10 @@ fn resolve_bib_entry(
 
     let Some(library_id) = library_id else { return Ok(None) };
     match crate::citation_links::checkable_document_for_citation(db, &library_id)? {
-        Some((document_id, _)) => Ok(Some(Resolution::Checkable { library_id, document_id })),
+        Some((document_id, _)) => Ok(Some(Resolution::Checkable {
+            via: crate::source_ref::SourceRef::Citation { citation_id: library_id },
+            document_id,
+        })),
         None => Ok(Some(Resolution::Unverifiable {
             reason: format!(
                 "[{}] is in your library but its source is not indexed — link the document",
@@ -1347,7 +1397,7 @@ pub fn resolve_marker(
     db: &crate::db::Database,
     marker: &Marker,
 ) -> Result<Resolution, crate::GaplyError> {
-    resolve_marker_with(db, marker, &BTreeMap::new())
+    resolve_marker_with(db, marker, &Bibliography::numbered(&BTreeMap::new()))
 }
 
 /// `resolve_marker`, with the paper's own reference list available.
@@ -1359,9 +1409,11 @@ pub fn resolve_marker(
 pub fn resolve_marker_with(
     db: &crate::db::Database,
     marker: &Marker,
-    bibliography: &BTreeMap<u32, BibEntry>,
+    bib: &Bibliography<'_>,
 ) -> Result<Resolution, crate::GaplyError> {
     use rusqlite::params;
+
+    let bibliography = bib.numbered;
 
     // A numeric marker resolves through the bibliography, when there is one.
     if marker.lead_author.is_none() && !marker.numbers.is_empty() {
@@ -1469,6 +1521,27 @@ pub fn resolve_marker_with(
         //     `uncertain-reference-match` rather than asserting it; this list was
         //     asserting it anyway, with a fetch action attached. Same rule as
         //     §11 D129: an uncertain resolution must not print as a certain one.
+        // A SOURCE STAGED FROM THE MANUSCRIPT AND ALREADY FETCHED (§11 D133).
+        //
+        // Not in the library — staging deliberately never puts it there — but its
+        // PDF may be on disk, indexed and embedded. Found by the DOI the
+        // manuscript's OWN reference entry prints, which is why `Bibliography`
+        // carries the author-year side: the marker has a surname and a year, the
+        // entry has the DOI, and neither alone can find the file.
+        //
+        // Checked AFTER the library, matching the staging rule that the library
+        // wins: the user's curated copy is preferred to the audit's own.
+        if let Some(doi) = bib.doi_for(marker) {
+            if let Some(document_id) = crate::staged_sources::checkable_document_for_doi(db, doi)? {
+                return Ok(Resolution::Checkable {
+                    via: crate::source_ref::SourceRef::Staged {
+                        staged_id: crate::staged_sources::id_for_doi(db, doi)?.unwrap_or(0),
+                    },
+                    document_id,
+                });
+            }
+        }
+
         let surname = marker.lead_display.as_deref().unwrap_or(lead);
         let year = marker.year.map(|y| y.to_string()).unwrap_or_else(|| "no year".into());
         return Ok(Resolution::Unverifiable {
@@ -1483,7 +1556,10 @@ pub fn resolve_marker_with(
 
     match crate::citation_links::checkable_document_for_citation(db, &library_id)? {
         Some((document_id, _matched_by)) => {
-            Ok(Resolution::Checkable { library_id, document_id })
+            Ok(Resolution::Checkable {
+                via: crate::source_ref::SourceRef::Citation { citation_id: library_id },
+                document_id,
+            })
         }
         None => Ok(Resolution::Unverifiable {
             // Two different states, named differently, because they need
@@ -1930,6 +2006,109 @@ mod tests {
         );
     }
 
+    /// §11 D133. THE WHOLE POINT: A FETCHED STAGED SOURCE MAKES A SENTENCE
+    /// CHECKABLE.
+    ///
+    /// Before this, staging and fetching could both succeed and resolution still
+    /// returned `Unverifiable`, because it only ever consulted
+    /// `citation_library`. The staged source's PDF was on disk, indexed and
+    /// embedded, and the sentence citing it was reported as not checkable —
+    /// so the entire staging path produced ZERO checkable sentences.
+    ///
+    /// DOI-KEYED, not job-keyed. The marker carries a surname and a year; the
+    /// manuscript's own reference entry carries the DOI; the staged row carries
+    /// the document. Neither the marker nor the entry alone can find the file,
+    /// and keying on the job would fail at preview time (no job exists), inside
+    /// the planner (resolution runs before the job is created), and on a re-run
+    /// (fresh job, so every PDF re-downloads).
+    #[test]
+    fn a_fetched_staged_source_makes_its_sentence_checkable() {
+        let db = crate::Database::in_memory().unwrap();
+        let doc = {
+            let conn = db.conn().unwrap();
+            conn.execute(
+                "INSERT INTO ai_jobs (kind, status, total_items, prompt_version, created_at)
+                 VALUES ('thesis_audit', 'queued', 0, 'v1', 1)",
+                [],
+            )
+            .unwrap();
+            let job = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO documents (source_type, title, source_url, fetched_at, checksum, status, created_at)
+                 VALUES ('paper', 'Evasion of mandatory SHI', 'u', 1, 'ck', 'ingested', 1)",
+                [],
+            )
+            .unwrap();
+            let doc = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO ai_model_registry (id, kind, display_name, file_path, dim, registered_at)
+                 VALUES ('m', 'embedding', 'm', '/dev/null', 384, 1)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO ai_chunks (document_id, page, section, char_start, char_end, content, token_estimate, content_hash, created_at)
+                 VALUES (?1, 1, NULL, 0, 5, 'text', 1, 'h1', 1)",
+                rusqlite::params![doc],
+            )
+            .unwrap();
+            let chunk = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO ai_chunk_embeddings (chunk_id, model_id, preprocessing_version, dim, vector, created_at)
+                 VALUES (?1, 'm', 'p', 384, X'00', 1)",
+                rusqlite::params![chunk],
+            )
+            .unwrap();
+            drop(conn);
+
+            let entries = [AuthorYearEntry {
+                surname: "alkenbrack".into(),
+                year: Some(2015),
+                doi: Some("https://doi.org/10.1186/s12913-015-1132-5".into()),
+                title: Some("Evasion of mandatory social health insurance".into()),
+                raw: "Alkenbrack, S. (2015). Evasion of mandatory social health insurance. BMC.".into(),
+            }];
+            crate::staged_sources::stage_entries(&db, job, &entries, 1).unwrap();
+            let staged = crate::staged_sources::list_for_job(&db, job).unwrap();
+            crate::staged_sources::link_document(&db, staged[0].id, doc, "doi").unwrap();
+            doc
+        };
+
+        let numbered = BTreeMap::new();
+        let entries = [AuthorYearEntry {
+            surname: "alkenbrack".into(),
+            year: Some(2015),
+            // The reference entry prints the DOI in the prefixed form; the
+            // staged row normalised it. One normaliser, both sides.
+            doi: Some("https://doi.org/10.1186/s12913-015-1132-5".into()),
+            title: None,
+            raw: String::new(),
+        }];
+        let bib = Bibliography { numbered: &numbered, author_year: &entries };
+
+        let m = &markers_in("Coverage rose sharply (Alkenbrack et al., 2015).")[0];
+        match resolve_marker_with(&db, m, &bib).unwrap() {
+            Resolution::Checkable { via, document_id } => {
+                assert_eq!(document_id, doc);
+                assert!(
+                    matches!(via, crate::source_ref::SourceRef::Staged { .. }),
+                    "resolved via the library rather than the staged source: {via:?}"
+                );
+                assert_eq!(via.citation_id(), None, "a staged source has no library id");
+            }
+            other => panic!("a fetched staged source did not make the sentence checkable: {other:?}"),
+        }
+
+        // WITHOUT the author-year side of the bibliography there is no DOI to
+        // key on, so the same marker cannot reach the same document. That is why
+        // `Bibliography` carries both lists.
+        let blind = Bibliography::numbered(&numbered);
+        assert!(
+            matches!(resolve_marker_with(&db, m, &blind).unwrap(), Resolution::Unverifiable { .. }),
+            "resolution found the document without the reference entry that names its DOI"
+        );
+    }
+
     /// §11 D130. INTERVAL NOTATION IS NOT A CITATION.
     ///
     /// `standardised to [0, 1] by (score − 1)/4` was counted as a cited
@@ -1977,7 +2156,7 @@ mod tests {
         .iter()
         .map(|s| {
             let m = &markers_in(s)[0];
-            match resolve_marker_with(&db, m, &bib).unwrap() {
+            match resolve_marker_with(&db, m, &Bibliography::numbered(&bib)).unwrap() {
                 Resolution::Unverifiable { reason, .. } => reason,
                 other => panic!("expected Unverifiable, got {other:?}"),
             }
@@ -2020,7 +2199,7 @@ mod tests {
 
         // BELOW the break the numbering still holds, so the entry is named.
         let below = &markers_in("An early claim [2].")[0];
-        match resolve_marker_with(&db, below, &bib).unwrap() {
+        match resolve_marker_with(&db, below, &Bibliography::numbered(&bib)).unwrap() {
             Resolution::Unverifiable { reason, .. } => assert!(
                 reason.contains("Another real reference"),
                 "an entry below the break must still be named: {reason}"
@@ -2031,7 +2210,7 @@ mod tests {
         // AT or ABOVE it, no work may be named and the reason must say why.
         for sentence in ["The malformed one [3].", "A later claim [4]."] {
             let m = &markers_in(sentence)[0];
-            match resolve_marker_with(&db, m, &bib).unwrap() {
+            match resolve_marker_with(&db, m, &Bibliography::numbered(&bib)).unwrap() {
                 Resolution::Unverifiable { reason, .. } => {
                     assert!(reason.contains("cannot be resolved"), "{reason}");
                     assert!(reason.contains("[3]"), "the break must be named: {reason}");
@@ -2095,7 +2274,7 @@ mod tests {
         );
         assert_eq!(first_unreliable_entry(&bib), Some(2));
         let m = &markers_in("Yang formalized the firefly algorithm [3].")[0];
-        let r = resolve_marker_with(&db, m, &bib).unwrap();
+        let r = resolve_marker_with(&db, m, &Bibliography::numbered(&bib)).unwrap();
         assert!(
             matches!(r, Resolution::Unverifiable { .. }),
             "an unreliable marker resolved to a CHECKABLE source — the audit would have \
@@ -2146,9 +2325,11 @@ mod tests {
             "[1] M. De Choudhury, Mining large-scale social media, 2013, doi:10.1234/abc",
         );
         let m = &markers_in("Emotion detection matters [1].")[0];
-        match resolve_marker_with(&db, m, &bib).unwrap() {
-            Resolution::Checkable { library_id, document_id } => {
-                assert_eq!(library_id, "lib-1");
+        match resolve_marker_with(&db, m, &Bibliography::numbered(&bib)).unwrap() {
+            Resolution::Checkable { via, document_id } => {
+                // §11 D133: a library citation says so, rather than the id being
+                // assumed present on every checkable resolution.
+                assert_eq!(via.citation_id(), Some("lib-1"));
                 assert_eq!(document_id, 1);
             }
             other => panic!("expected Checkable, got {other:?}"),
@@ -2159,7 +2340,7 @@ mod tests {
             "[1] M. De Choudhury, S. Counts, Mining large-scale social media, ICWSM, 2013, pp. 1-10.",
         );
         assert!(matches!(
-            resolve_marker_with(&db, m, &bib2).unwrap(),
+            resolve_marker_with(&db, m, &Bibliography::numbered(&bib2)).unwrap(),
             Resolution::Checkable { .. }
         ));
     }
@@ -2173,7 +2354,7 @@ mod tests {
         let db = crate::Database::in_memory().unwrap();
         let bib = parse_numbered_bibliography("[5] S. Mohammad and P. Turney, Crowdsourcing, 2013.");
         let m = &markers_in("Lexicons help [5].")[0];
-        match resolve_marker_with(&db, m, &bib).unwrap() {
+        match resolve_marker_with(&db, m, &Bibliography::numbered(&bib)).unwrap() {
             Resolution::Unverifiable { reason, library_id } => {
                 assert!(reason.contains("[5]"), "{reason}");
                 assert!(reason.contains("Mohammad"), "{reason}");

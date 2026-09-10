@@ -7872,3 +7872,157 @@ run on the two documents the rule was developed against is not evidence about th
 next document. The number must be reported that way, and the acceptance bar set
 against what 34 tries can actually support — not read as proof because it is a
 zero.
+
+### D133 — a fetched staged source must make a sentence checkable, and the lookup keys on the DOI
+
+§11 D132 staged the manuscript's reference list and let the fetch reach it. That
+produced **zero checkable sentences**, and would have kept producing zero however
+many PDFs were downloaded: `resolve_marker_with` consulted `citation_library` and
+nothing else, so a staged source whose PDF was on disk, indexed and embedded,
+still resolved `Unverifiable`.
+
+The measurement this unblocks, taken live before building:
+
+| | |
+|---|---|
+| health-economics DOIs with a fetchable OA PDF | **13 of 26** |
+| cited sentences those works carry | **11 of 47** (~23%) |
+
+#### `Resolution::Checkable` is subject-shaped, and `SourceRef` MOVED DOWN
+
+`Checkable { library_id: String, .. }` could not express "checkable via a staged
+source". It is now `Checkable { via: SourceRef, .. }`.
+
+`SourceRef` began in the app crate as `oa_fetch::FetchSubject`, for the fetch
+alone. `Resolution` lives in `gaply-core`, which cannot depend on the app crate —
+so the type **moved down to `gaply_core::source_ref` and `FetchSubject` became an
+alias**, rather than a second copy being written upward. §11 D129 again: two
+definitions of "which source is this" would drift, and the wire shape would drift
+with them.
+
+An enum rather than `library_id: Option<String>` beside `staged_id: Option<i64>`,
+for the reason that pair is always wrong: it permits neither and both — two
+states that cannot occur and that every consumer would have to handle or, more
+likely, quietly mishandle.
+
+The ripple was mechanical: preview grouping (where `has_doi` and `retracted` are
+now ASKED of a library citation rather than assumed of every source), the planner
+payload (`libraryId` kept for existing readers, `source` added as the complete
+answer), the citation-scoped matcher, and `recheckItems`' matcher.
+
+#### THE FORK: DOI-KEYED, NOT JOB-KEYED — three independent reasons
+
+Staged rows are job-scoped, so the obvious lookup is "this job's staged sources".
+It does not work, and not marginally:
+
+1. **The preview has no job.** `preview_thesis_audit` runs before anything is
+   created, so `would_check` would undercount every fetched source.
+2. **The planner resolves before its job exists.** `create_job` needs the items,
+   and the items come from resolution — so within one run there is no job id to
+   key on.
+3. **A re-run would re-download every PDF.** A fresh job means fresh staged rows
+   with `document_id = NULL`, the fetch's `AlreadyLinked` short-circuit misses,
+   and the work is done again.
+
+Keying on the DOI answers all three, because it is keyed on the WORK rather than
+on the run: *a fetched PDF is a fact about the paper, not about the audit that
+happened to fetch it.* The same principle makes `stage_entries` inherit
+`document_id` from any earlier staged row with the same `doi_norm`.
+
+#### `Bibliography` carries BOTH lists, and that is load-bearing
+
+The marker carries a surname and a year. The manuscript's own reference entry
+carries the DOI. **Neither alone can find the file**, so resolution now receives
+`Bibliography { numbered, author_year }` and `doi_for(marker)` is the bridge. It
+works for numeric markers too — a numbered entry with a DOI gets the same
+benefit, which R PAPER cannot use (0 DOIs) but a DOI-bearing IEEE paper would.
+
+The test asserts BOTH directions: a fetched staged source makes its sentence
+`Checkable` via `SourceRef::Staged`, **and** the same marker with only the
+numbered side cannot reach the same document. The second assertion is what makes
+the first mean anything — it shows the author-year list is load-bearing rather
+than incidentally present.
+
+Staged sources are checked AFTER the library, matching §11 D132's rule that the
+user's curated copy wins.
+
+#### A consequence worth stating: the first run cannot benefit
+
+Resolution is a LOOKUP, not a fetch trigger. On the first audit of a manuscript
+nothing has been fetched, so every cited sentence is unverifiable; staged sources
+become checkable on a later plan, or via re-check after a fetch. That is inherent
+to DOI-keying and it is why the re-check path matters more than first estimated —
+without it, the only route to a checkable staged sentence is re-running the whole
+audit.
+
+#### Two notes for the record
+
+**The framing was wrong before the work was.** This increment was scoped as
+"reuse `recheckItems` with a subject-shaped argument" — a small wiring job. It is
+a type moved between crates, an enum reshaped across five call sites, a new
+lookup, and a cross-job inheritance rule. Saying so beat half-building it, and
+the correction came from reading what `Checkable` could actually express rather
+than from trusting the estimate.
+
+**§11 D131 is lost coverage, not a cosmetic misprint.** "Saksena and Kutzin
+(2019)", mis-split from "Mathauer, Saksena and Kutzin (2019)", does not merely
+print the wrong name: Mathauer 2019 is `10.1186/s12939-019-1088-x`, **gold OA with
+a PDF**, so the mis-split costs a FETCHABLE source and leaves its sentence
+unchecked. It is the 13th of the 13 fetchable works and the only one that cannot
+be reached. Same defect, strictly worse consequence than the one it was filed as.
+
+### D134 — the button says what it is about to do, and the privacy sentence has one definition
+
+§11 D133 made a fetched staged source resolve as checkable. This is the surface
+that lets a researcher cause the fetch, and it is deliberately a BUTTON rather
+than the full pre-flight card: the measurement comes before the design, same
+order as everything else. A button that produces a number beats a card that
+produces a design review.
+
+```text
+[ Fetch 2 sources this manuscript cites ]
+Sends these 2 sources' DOIs to Unpaywall and OpenAlex — nothing else leaves your machine.
+```
+
+- **The count is from staged entries carrying a DOI and no document yet**, which
+  is exactly what a DOI fetch can reach. Absent otherwise, on the standing rule
+  that a button which can only fail is worse than no button (§11 D101).
+- **Staging happens on plan; FETCHING DOES NOT.** An audit that silently reached
+  out for a dozen PDFs because it parsed a reference list would be doing
+  something nobody asked for. A test asserts `fetchOpenAccess` is not called
+  after planning, and is called with `{kind: "staged", stagedId}` on the press —
+  addressed as a staged subject, never as a library citation, because staging
+  exists precisely so these never enter the user's collection.
+- **Per-source outcomes, never a count.** "1 of 2 succeeded" hides the one the
+  researcher has to do something about.
+
+#### A SECOND COPY OF A PRIVACY CLAIM IS A SECOND THING TO KEEP TRUE
+
+The disclosure already existed on the DocumentRow affordance and was correct
+there. It is now `oaOutcome::oaFetchDisclosure(count)` — ONE definition, both
+surfaces, with `count` changing only the grammar and never the claim.
+
+It was tempting to paste the sentence. **This is the first surface on which Gaply
+fetches works the user never added**, which makes it precisely the wrong sentence
+to have two of: the day one copy is edited and the other is not, the product is
+making two different promises about what leaves the machine, and only one of them
+is being checked.
+
+Same instinct as §11 D129 and §11 D132's shared parser, applied to a claim rather
+than to a parser — and a privacy claim is the one where drift is least
+acceptable.
+
+#### Defending against a missing bridge method would have masked real wiring bugs
+
+The screen's staged-source read threw in every test whose mock predated
+`jobStagedSources`. The cheap fix is a `typeof bridge.jobStagedSources ===
+'function'` guard; the right fix was to add the method to the shared mock
+factory, defaulting to `async () => []` so the button is absent unless a test
+opts in.
+
+A guard there would make a genuinely unwired bridge look like a screen with
+nothing to fetch — **indistinguishable from working**. That is the same call as
+`label-cn` refusing an unknown flag rather than ignoring it (§11 D130's
+neighbour): silence is the worst possible response to an instruction that cannot
+be honoured, because it cannot be told apart from the instruction having worked.
+

@@ -88,3 +88,19 @@ export function summariseOaBatch(reports: OaFetchReport[]): string {
   counts.forEach((n, k) => parts.push(`${n} ${label[k] ?? k}`));
   return `${reports.length} source${reports.length === 1 ? '' : 's'}: ${parts.join(', ')}.`;
 }
+
+/**
+ * WHAT LEAVES THE MACHINE, in one place (§11 D134).
+ *
+ * This sentence existed on the DocumentRow affordance and was correct there.
+ * The manuscript-sources button is the first surface that fetches works the user
+ * never added, so it needs the same disclosure — and a second copy of a privacy
+ * sentence is a second thing to keep true. One definition, both surfaces.
+ *
+ * `count` only changes the grammar. The claim does not vary: the DOI goes, and
+ * nothing else — never a title, never a manuscript sentence.
+ */
+export function oaFetchDisclosure(count: number): string {
+  const subject = count === 1 ? "this source's DOI" : `these ${count} sources' DOIs`;
+  return `Sends ${subject} to Unpaywall and OpenAlex — nothing else leaves your machine.`;
+}

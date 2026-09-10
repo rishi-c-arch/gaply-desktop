@@ -236,6 +236,22 @@ export function subjectKey(s: OaFetchSubject): string {
   return s.kind === 'citation' ? s.citationId : `staged:${s.stagedId}`;
 }
 
+/**
+ * One reference entry the audit staged from the manuscript (§11 D132).
+ *
+ * Never a `citation_library` row: staging keeps the audit's needs separate from
+ * the user's collection. `documentId` is set once a PDF has been fetched for it.
+ */
+export interface StagedSource {
+  id: number;
+  surname: string;
+  year: number | null;
+  title: string | null;
+  doi: string | null;
+  documentId: number | null;
+  matchedBy: string | null;
+}
+
 /** One source's result. `outcome` is the tag; the rest varies by arm. */
 export interface OaFetchReport {
   subject: OaFetchSubject;
@@ -520,6 +536,16 @@ class AiBridge {
     );
   }
 
+
+  /**
+   * The reference entries this audit staged from the manuscript (§11 D134).
+   *
+   * Deterministic, no model, no network. The fetch button needs these to say how
+   * many sources it is about to fetch BEFORE it is pressed.
+   */
+  async jobStagedSources(jobId: number): Promise<StagedSource[]> {
+    return this.invoke<StagedSource[]>('ai_job_staged_sources', { jobId });
+  }
 
   /** Deterministic, no model, no job: which manuscript sentences cite this. */
   async citationAuditPreview(citationId: string, path: string): Promise<CitationAuditPreview> {

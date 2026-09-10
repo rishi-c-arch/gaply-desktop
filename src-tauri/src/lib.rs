@@ -157,6 +157,7 @@ pub fn run() {
             commands::ai_citation_audit_start,
             commands::ai_job_export_report,
             commands::ai_job_recheck_items,
+            commands::ai_job_staged_sources,
             commands::ai_job_status,
             commands::ai_job_pause,
             commands::ai_job_resume,

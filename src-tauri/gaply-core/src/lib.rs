@@ -33,6 +33,7 @@ pub mod orchestrator;
 pub mod perplexity;
 pub mod oa_fetch;
 pub mod plagiarism;
+pub mod source_ref;
 pub mod staged_sources;
 pub mod plagiarism_exact;
 pub mod plagiarism_library;

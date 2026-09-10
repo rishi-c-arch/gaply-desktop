@@ -118,11 +118,38 @@ pub fn stage_entries(
         // RULE 2: unique per job. `INSERT OR IGNORE` leans on the two UNIQUE
         // constraints rather than re-querying, so a concurrent stage cannot
         // produce a duplicate between the check and the write.
+        // A DOCUMENT ALREADY FETCHED FOR THIS DOI CARRIES OVER (§11 D133).
+        //
+        // Staged rows are job-scoped, so a second audit of the same manuscript
+        // creates fresh rows. Without this, every one of them has
+        // `document_id = NULL`, the fetch's AlreadyLinked short-circuit misses,
+        // and EVERY PDF IS DOWNLOADED AGAIN on every run. The `documents` rows
+        // themselves are global; only the staged row pointing at one is not.
+        //
+        // Inherited by DOI rather than by job, which is the same reason
+        // resolution keys on DOI: a fetched PDF is a fact about the work, not
+        // about the run that happened to fetch it.
+        let (inherited_doc, inherited_by): (Option<i64>, Option<String>) = match norm.as_deref() {
+            None => (None, None),
+            Some(n) => conn
+                .query_row(
+                    "SELECT document_id, matched_by FROM audit_staged_sources
+                     WHERE doi_norm = ?1 AND document_id IS NOT NULL
+                     ORDER BY id DESC LIMIT 1",
+                    params![n],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?
+                .unwrap_or((None, None)),
+        };
         let changed = conn.execute(
             "INSERT OR IGNORE INTO audit_staged_sources
-                 (job_id, surname, year, title, doi, doi_norm, raw, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![job_id, e.surname, e.year, e.title, e.doi, norm, e.raw, now],
+                 (job_id, surname, year, title, doi, doi_norm, raw, document_id, matched_by, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                job_id, e.surname, e.year, e.title, e.doi, norm, e.raw, inherited_doc,
+                inherited_by, now
+            ],
         )?;
         if changed == 1 {
             out.staged += 1;
@@ -154,6 +181,61 @@ pub fn list_for_job(db: &Database, job_id: i64) -> Result<Vec<StagedSource>, Gap
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
+}
+
+/// A checkable document already fetched for this DOI, in ANY job.
+///
+/// The lookup resolution uses (§11 D133). Keyed on the DOI rather than the job
+/// because a fetched PDF is a fact about the WORK: it survives re-running the
+/// audit, and it is reachable at preview time, when no job exists at all.
+pub fn checkable_document_for_doi(
+    db: &Database,
+    doi: &str,
+) -> Result<Option<i64>, GaplyError> {
+    let Some(norm) = normalise_doi(doi) else { return Ok(None) };
+    let conn = db.conn()?;
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT document_id FROM audit_staged_sources
+         WHERE doi_norm = ?1 AND document_id IS NOT NULL",
+    )?;
+    let docs = stmt
+        .query_map(params![norm], |r| r.get::<_, i64>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(stmt);
+    for doc in docs {
+        // Indexed AND embedded — the same bar `citation_links` applies. A link
+        // alone says which file backs the work, not that it can be searched.
+        let ready: bool = conn.query_row(
+            "SELECT EXISTS (
+                 SELECT 1 FROM ai_chunks c
+                 JOIN ai_chunk_embeddings e ON e.chunk_id = c.id
+                 WHERE c.document_id = ?1
+             )",
+            params![doc],
+            |r| r.get(0),
+        )?;
+        if ready {
+            return Ok(Some(doc));
+        }
+    }
+    Ok(None)
+}
+
+/// The staged row for a DOI that carries a checkable document.
+///
+/// Paired with [`checkable_document_for_doi`] so a resolution can name WHICH
+/// staged source it used, not merely that one existed.
+pub fn id_for_doi(db: &Database, doi: &str) -> Result<Option<i64>, GaplyError> {
+    let Some(norm) = normalise_doi(doi) else { return Ok(None) };
+    let conn = db.conn()?;
+    conn.query_row(
+        "SELECT id FROM audit_staged_sources
+         WHERE doi_norm = ?1 AND document_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+        params![norm],
+        |r| r.get(0),
+    )
+    .optional()
+    .map_err(Into::into)
 }
 
 /// One staged source by id.

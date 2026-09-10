@@ -90,25 +90,14 @@ pub enum FetchOutcome {
     AlreadyLinked { document_id: i64 },
 }
 
-/// WHAT a fetch is for: a work in the user's library, or a reference staged from
-/// their manuscript (§11 D132).
+/// WHAT a fetch is for — see [`gaply_core::source_ref::SourceRef`].
 ///
-/// An enum rather than two nullable id fields, because exactly one is true of any
-/// fetch and a pair of `Option`s would permit neither and both. The distinction
-/// is load-bearing: a staged source must never acquire a `citation_library` row
-/// as a side effect of being checked.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// `rename_all` on an enum renames the VARIANTS; the fields inside them need
-// `rename_all_fields`. Without it this emitted `citation_id` to TypeScript —
-// §11 D103's exact defect, caught by §11 D103's own guard.
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum FetchSubject {
-    /// A citation the user collected. Links through `citation_documents`.
-    Citation { citation_id: String },
-    /// A reference the audit staged from the manuscript. Links through
-    /// `audit_staged_sources`, and touches the library not at all.
-    Staged { staged_id: i64 },
-}
+/// An ALIAS, not a second definition. This type started here, for the fetch
+/// alone; `Resolution::Checkable` then needed the same distinction and lives in
+/// `gaply-core`, which cannot depend on this crate, so the definition moved down
+/// and this name stayed (§11 D133). §11 D129 is why it is one definition: two
+/// would drift, and the wire shape would drift with them.
+pub use gaply_core::source_ref::SourceRef as FetchSubject;
 
 /// One source's identity, as the fetch needs it. Assembled by the caller so this
 /// module never queries for presentation data.

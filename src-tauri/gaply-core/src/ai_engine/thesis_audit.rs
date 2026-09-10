@@ -247,7 +247,7 @@ pub fn preview_thesis_audit(
         };
         let mut marker = planned.markers[0].raw.clone();
         for m in &planned.markers {
-            let r = super::audit_prepass::resolve_marker_with(db, m, &report.bibliography)?;
+            let r = super::audit_prepass::resolve_marker_with(db, m, &super::audit_prepass::Bibliography::of(&report))?;
             let checkable = matches!(r, Resolution::Checkable { .. });
             resolution = r;
             marker = m.raw.clone();
@@ -257,15 +257,19 @@ pub fn preview_thesis_audit(
         }
 
         let (key, entry) = match &resolution {
-            Resolution::Checkable { library_id, document_id } => {
+            Resolution::Checkable { via, document_id } => {
                 would_check += 1;
+                // `has_doi` and `retracted` are LIBRARY facts — they read
+                // `citation_library` — so they are asked only of a library
+                // citation rather than assumed of every source (§11 D133).
+                let lib = via.citation_id().map(str::to_string);
                 (
-                    format!("lib:{library_id}"),
+                    format!("src:{}", via.key()),
                     CitedSourceStatus {
-                        has_doi: has_doi(&Some(library_id.clone())),
-                        retracted: is_retracted(&Some(library_id.clone())),
+                        has_doi: has_doi(&lib),
+                        retracted: is_retracted(&lib),
                         label: marker.clone(),
-                        library_id: Some(library_id.clone()),
+                        library_id: lib.clone(),
                         document_id: Some(*document_id),
                         reason: None,
                         citing_sentences: 0,
@@ -431,14 +435,17 @@ fn resolve_for_citation(
     db: &Database,
     markers: &[super::audit_prepass::Marker],
     library_id: &str,
-    bibliography: &std::collections::BTreeMap<u32, super::audit_prepass::BibEntry>,
+    bibliography: &super::audit_prepass::Bibliography<'_>,
 ) -> Result<Option<(Resolution, String)>, GaplyError> {
     let mut fallback: Option<(Resolution, String)> = None;
     for m in markers {
         match super::audit_prepass::resolve_marker_with(db, m, bibliography)? {
             // A checkable hit on the right work ends the search immediately.
             r @ Resolution::Checkable { .. } => {
-                if matches!(&r, Resolution::Checkable { library_id: id, .. } if id == library_id) {
+                // The citation-scoped audit is about ONE library entry, so it
+                // compares against the library id — a staged source is never
+                // its subject (§11 D133).
+                if matches!(&r, Resolution::Checkable { via, .. } if via.citation_id() == Some(&library_id[..])) {
                     return Ok(Some((r, m.raw.clone())));
                 }
             }
@@ -475,7 +482,7 @@ pub fn preview_citation_audit(
         if planned.markers.is_empty() {
             continue;
         }
-        let Some((resolution, marker)) = resolve_for_citation(db, &planned.markers, library_id, &report.bibliography)?
+        let Some((resolution, marker)) = resolve_for_citation(db, &planned.markers, library_id, &super::audit_prepass::Bibliography::of(&report))?
         else {
             continue;
         };
@@ -556,12 +563,12 @@ fn plan_audit(
                 continue;
             }
             let Some((resolution, marker)) =
-                resolve_for_citation(db, &planned.markers, library_id, &report.bibliography)?
+                resolve_for_citation(db, &planned.markers, library_id, &super::audit_prepass::Bibliography::of(&report))?
             else {
                 continue;
             };
             match resolution {
-                Resolution::Checkable { library_id, document_id } => {
+                Resolution::Checkable { via, document_id } => {
                     support += 1;
                     items.push(NewItem {
                         seq: seq as i64,
@@ -571,7 +578,12 @@ fn plan_audit(
                         sentence: planned.sentence.clone(),
                         payload_json: serde_json::json!({
                             "documentId": document_id,
-                            "libraryId": library_id,
+                            // `libraryId` stays for a library citation, and is
+                            // null for a staged one — existing readers keep
+                            // working and `source` is the complete answer
+                            // (§11 D133).
+                            "libraryId": via.citation_id(),
+                            "source": via,
                             "citedSource": marker,
                             "paragraph": planned.paragraph,
                             "section": planned.section,
@@ -631,7 +643,7 @@ fn plan_audit(
             library_id: None,
         };
         for m in &planned.markers {
-            let r = super::audit_prepass::resolve_marker_with(db, m, &report.bibliography)?;
+            let r = super::audit_prepass::resolve_marker_with(db, m, &super::audit_prepass::Bibliography::of(&report))?;
             let checkable = matches!(r, Resolution::Checkable { .. });
             resolution = r;
             if checkable {
@@ -640,7 +652,7 @@ fn plan_audit(
         }
 
         match resolution {
-            Resolution::Checkable { library_id, document_id } => {
+            Resolution::Checkable { via, document_id } => {
                 support += 1;
                 let cited_source = planned
                     .markers
@@ -655,7 +667,8 @@ fn plan_audit(
                     sentence: planned.sentence.clone(),
                     payload_json: serde_json::json!({
                         "documentId": document_id,
-                        "libraryId": library_id,
+                        "libraryId": via.citation_id(),
+                        "source": via,
                         "citedSource": cited_source,
                         // D65's locator. This site was MISSED when the other
                         // three payloads got it — the whole-manuscript path is

@@ -633,6 +633,10 @@ describe('Thesis audit', () => {
       resumeJob: async () => ({}),
       cancelJob: async () => true,
       jobResults: async () => ({ items: [] }),
+      // §11 D134. Staged sources: empty by default, so the manuscript-sources
+      // button is absent unless a test opts in. A screen whose bridge cannot
+      // answer must not show a button that can only fail.
+      jobStagedSources: async () => [],
       ...over,
     };
   }
@@ -983,6 +987,88 @@ describe('Thesis audit', () => {
     await waitFor(() => expect(screen.getByTestId('audit-health')).toBeTruthy());
   }
 
+
+  /** §11 D134. The manuscript's own sources: what the button says, and what it
+   *  does not do on its own. */
+  async function renderWithStaged(staged: unknown[], fetchOpenAccess = vi.fn(async () => [])) {
+    let emit: ((e: JobProgressEvent) => void) | undefined;
+    const jobStagedSources = vi.fn(async () => staged);
+    const bridge = bridgeWith({
+      startThesisAudit: async (_p: string, cb: any) => {
+        emit = cb;
+        return plan;
+      },
+      jobStatus: async () => ({
+        health: { jobId: 7, totalItems: 1, completedItems: 1, flagged: [] },
+      }),
+      jobStagedSources,
+      fetchOpenAccess,
+    });
+    render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(screen.getByTestId('audit-confirm-start')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('audit-confirm-start'));
+    await waitFor(() => expect(emit).toBeTruthy());
+    emit!({ jobId: 7, completed: 1, total: 1, currentCategory: 'citation_support', latestItemSummary: '' });
+    await waitFor(() => expect(screen.getByTestId('audit-health')).toBeTruthy());
+    return { fetchOpenAccess, jobStagedSources };
+  }
+
+  const stagedRow = (over: Record<string, unknown> = {}) => ({
+    id: 11,
+    surname: 'alkenbrack',
+    year: 2015,
+    title: 'Evasion of mandatory social health insurance',
+    doi: '10.1186/s12913-015-1132-5',
+    documentId: null,
+    matchedBy: null,
+    ...over,
+  });
+
+  it('says how many sources it is about to fetch, and what leaves the machine', async () => {
+    await renderWithStaged([stagedRow(), stagedRow({ id: 12, doi: '10.1/other' })]);
+    await waitFor(() => expect(screen.getByTestId('audit-staged-fetch')).toBeTruthy());
+    expect(screen.getByTestId('audit-staged-fetch-button').textContent).toMatch(
+      /Fetch 2 sources this manuscript cites/,
+    );
+    // The disclosure is the SAME sentence the DocumentRow affordance uses, from
+    // one definition — a second copy is a second thing to keep true.
+    const note = screen.getByTestId('audit-staged-fetch-note').textContent ?? '';
+    expect(note).toMatch(/Sends these 2 sources' DOIs to Unpaywall and OpenAlex/);
+    expect(note).toMatch(/nothing else leaves your machine/);
+  });
+
+  it('does NOT fetch on plan — a researcher presses the button', async () => {
+    const { fetchOpenAccess } = await renderWithStaged([stagedRow()]);
+    expect(fetchOpenAccess).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('audit-staged-fetch-button'));
+    await waitFor(() =>
+      // Addressed as a STAGED subject, never as a library citation: staging
+      // exists precisely so these never enter the user's collection.
+      expect(fetchOpenAccess).toHaveBeenCalledWith([{ kind: 'staged', stagedId: 11 }]),
+    );
+  });
+
+  it('offers nothing when no staged source has a DOI — a button that can only fail', async () => {
+    await renderWithStaged([stagedRow({ doi: null })]);
+    await waitFor(() => expect(screen.getByTestId('audit-health')).toBeTruthy());
+    expect(screen.queryByTestId('audit-staged-fetch')).toBeNull();
+  });
+
+  it('reports PER-SOURCE outcomes, never just a count', async () => {
+    const reports = vi.fn(async () => [
+      { subject: { kind: 'staged', stagedId: 11 }, title: 'Alkenbrack 2015', outcome: 'fetched', checkable: true, documentId: 5, chunksIndexed: 9, chunksEmbedded: 9 },
+      { subject: { kind: 'staged', stagedId: 12 }, title: 'Barney 1991', outcome: 'paywalled', detail: 'the record says there is no free copy' },
+    ]);
+    await renderWithStaged([stagedRow(), stagedRow({ id: 12, doi: '10.1/b' })], reports as any);
+    fireEvent.click(screen.getByTestId('audit-staged-fetch-button'));
+    await waitFor(() => expect(screen.getByTestId('audit-staged-outcomes')).toBeTruthy());
+    const t = screen.getByTestId('audit-staged-outcomes').textContent ?? '';
+    expect(t).toMatch(/Alkenbrack 2015/);
+    expect(t).toMatch(/Barney 1991/);
+    // Both named: "1 of 2 succeeded" would hide the one needing action.
+    expect(t).toMatch(/paywall/i);
+  });
 
   it('renders an unverifiable flag as a blocked source, from result.reason', async () => {
     await renderWithFlagged([flaggedBlocked]);
