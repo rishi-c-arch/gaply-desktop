@@ -221,9 +221,24 @@ export type OaOutcome =
   | 'failed'
   | 'alreadyLinked';
 
+/**
+ * WHAT a fetch was for (§11 D132). A discriminated union rather than two
+ * nullable ids, because exactly one is true of any fetch: a work in the user's
+ * library, or a reference the audit staged from their manuscript. A staged
+ * source never acquires a library entry as a side effect of being checked.
+ */
+export type OaFetchSubject =
+  | { kind: 'citation'; citationId: string }
+  | { kind: 'staged'; stagedId: number };
+
+/** A stable map key for either kind of subject. */
+export function subjectKey(s: OaFetchSubject): string {
+  return s.kind === 'citation' ? s.citationId : `staged:${s.stagedId}`;
+}
+
 /** One source's result. `outcome` is the tag; the rest varies by arm. */
 export interface OaFetchReport {
-  citationId: string;
+  subject: OaFetchSubject;
   title: string | null;
   outcome: OaOutcome;
   documentId?: number;

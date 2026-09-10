@@ -13,7 +13,7 @@
 import './ai.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Card } from '../../design-system/primitives';
-import { aiBridge, AuditPlan, JobProgressEvent, ThesisAuditPreview, errorText } from './aiBridge';
+import { aiBridge, AuditPlan, JobProgressEvent, ThesisAuditPreview, errorText, subjectKey } from './aiBridge';
 import { describeOaOutcome } from './oaOutcome';
 import { EvidenceCard, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
@@ -299,8 +299,13 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
         const notes: Record<string, string> = {};
         const gained: string[] = [];
         for (const r of reports) {
-          notes[r.citationId] = describeOaOutcome(r);
-          if (r.checkable) gained.push(r.citationId);
+          notes[subjectKey(r.subject)] = describeOaOutcome(r);
+          // Only LIBRARY citations here: `recheckItems` re-runs items keyed by
+          // citation id, and a staged manuscript reference has none (§11 D132).
+          // Staged sources that became checkable still need their own re-check
+          // path — dropped visibly here rather than silently keyed to undefined,
+          // which is what this line did before the subject was a union.
+          if (r.checkable && r.subject.kind === 'citation') gained.push(r.subject.citationId);
         }
         setFetchNotes((prev) => ({ ...prev, ...notes }));
         setNowCheckable((prev) => Array.from(new Set([...prev, ...gained])));

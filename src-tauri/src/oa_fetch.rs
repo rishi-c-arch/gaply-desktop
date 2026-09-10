@@ -90,11 +90,31 @@ pub enum FetchOutcome {
     AlreadyLinked { document_id: i64 },
 }
 
-/// One citation's identity, as the fetch needs it. Assembled by the caller from
-/// `citation_library` so this module never queries for presentation data.
+/// WHAT a fetch is for: a work in the user's library, or a reference staged from
+/// their manuscript (§11 D132).
+///
+/// An enum rather than two nullable id fields, because exactly one is true of any
+/// fetch and a pair of `Option`s would permit neither and both. The distinction
+/// is load-bearing: a staged source must never acquire a `citation_library` row
+/// as a side effect of being checked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// `rename_all` on an enum renames the VARIANTS; the fields inside them need
+// `rename_all_fields`. Without it this emitted `citation_id` to TypeScript —
+// §11 D103's exact defect, caught by §11 D103's own guard.
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum FetchSubject {
+    /// A citation the user collected. Links through `citation_documents`.
+    Citation { citation_id: String },
+    /// A reference the audit staged from the manuscript. Links through
+    /// `audit_staged_sources`, and touches the library not at all.
+    Staged { staged_id: i64 },
+}
+
+/// One source's identity, as the fetch needs it. Assembled by the caller so this
+/// module never queries for presentation data.
 #[derive(Debug, Clone)]
 pub struct FetchTarget {
-    pub citation_id: String,
+    pub subject: FetchSubject,
     pub doi: Option<String>,
     pub title: Option<String>,
 }
@@ -103,7 +123,8 @@ pub struct FetchTarget {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FetchReport {
-    pub citation_id: String,
+    /// Which source this answer is about (§11 D132).
+    pub subject: FetchSubject,
     /// The title as the library holds it — so a batch report reads as a list of
     /// papers rather than a list of opaque ids.
     pub title: Option<String>,
@@ -176,7 +197,7 @@ pub type EmbedFn<'a> = &'a dyn Fn(&[String]) -> Result<Vec<Vec<f32>>, GaplyError
 /// between them is what was written to disk, not what happens afterwards.
 fn index_embed_and_link(
     deps: &FetchDeps,
-    citation_id: &str,
+    subject: &FetchSubject,
     document_id: i64,
     blocks: &[gaply_core::extract::docparse::PagedBlock],
     embed: EmbedFn,
@@ -207,10 +228,20 @@ fn index_embed_and_link(
     // Linked even when embedding fell short: the link is a true statement about
     // which file backs this citation either way, and `checkable` — asked of the
     // store, not inferred here — is what says whether a check can run.
-    gaply_core::citation_links::link_by_doi(deps.db, citation_id, document_id)?;
-    let checkable =
-        gaply_core::citation_links::checkable_document_for_citation(deps.db, citation_id)?
-            .is_some();
+    // Two link tables, one question. A staged source records its document on its
+    // own row and NEVER gains a `citation_library` entry — that is the whole
+    // point of staging (§11 D132).
+    let checkable = match subject {
+        FetchSubject::Citation { citation_id } => {
+            gaply_core::citation_links::link_by_doi(deps.db, citation_id, document_id)?;
+            gaply_core::citation_links::checkable_document_for_citation(deps.db, citation_id)?
+                .is_some()
+        }
+        FetchSubject::Staged { staged_id } => {
+            gaply_core::staged_sources::link_document(deps.db, *staged_id, document_id, "doi")?;
+            gaply_core::staged_sources::checkable_document(deps.db, *staged_id)?.is_some()
+        }
+    };
     Ok((indexed, embedded, checkable))
 }
 
@@ -223,7 +254,7 @@ pub fn fetch_one(deps: &FetchDeps, target: &FetchTarget, now: i64, embed: EmbedF
     let outcome = fetch_one_inner(deps, target, now, embed)
         .unwrap_or_else(|e| FetchOutcome::Failed { detail: e.to_string() });
     FetchReport {
-        citation_id: target.citation_id.clone(),
+        subject: target.subject.clone(),
         title: target.title.clone(),
         outcome,
     }
@@ -236,10 +267,19 @@ fn fetch_one_inner(
     embed: EmbedFn,
 ) -> Result<FetchOutcome, GaplyError> {
     // Already have a usable copy? Then there is nothing to ask anyone. This is
-    // the cheapest possible privacy win: the request that is never made.
-    if let Some((document_id, _)) =
-        gaply_core::citation_links::checkable_document_for_citation(deps.db, &target.citation_id)?
-    {
+    // the cheapest possible privacy win: the request that is never made — and it
+    // has to hold for a staged source too, or re-running an audit re-fetches
+    // every reference it already has.
+    let existing = match &target.subject {
+        FetchSubject::Citation { citation_id } => {
+            gaply_core::citation_links::checkable_document_for_citation(deps.db, citation_id)?
+                .map(|(doc, _)| doc)
+        }
+        FetchSubject::Staged { staged_id } => {
+            gaply_core::staged_sources::checkable_document(deps.db, *staged_id)?
+        }
+    };
+    if let Some(document_id) = existing {
         return Ok(FetchOutcome::AlreadyLinked { document_id });
     }
 
@@ -321,7 +361,7 @@ fn fetch_one_inner(
                 store::create_document(deps.db, &title, &path.display().to_string(), &checksum)?;
 
             let (chunks_indexed, chunks_embedded, checkable) =
-                index_embed_and_link(deps, &target.citation_id, document_id, &blocks, embed)?;
+                index_embed_and_link(deps, &target.subject, document_id, &blocks, embed)?;
             if chunks_embedded == chunks_indexed {
                 let _ = gaply_core::import_guard::record_rate(
                     deps.db,
@@ -369,7 +409,7 @@ fn fetch_one_inner(
                 text: safe_text.clone(),
             }];
             let (chunks_indexed, chunks_embedded, checkable) =
-                index_embed_and_link(deps, &target.citation_id, document_id, &blocks, embed)?;
+                index_embed_and_link(deps, &target.subject, document_id, &blocks, embed)?;
             Ok(FetchOutcome::AbstractOnly {
                 document_id,
                 chunks_indexed,
@@ -476,7 +516,7 @@ mod tests {
 
     fn target() -> FetchTarget {
         FetchTarget {
-            citation_id: "c1".to_string(),
+            subject: FetchSubject::Citation { citation_id: "c1".to_string() },
             doi: Some("10.4103/ijmr.ijmr_892_23".to_string()),
             title: Some("Incidence of needlestick injury".to_string()),
         }
@@ -770,7 +810,7 @@ mod tests {
             app_data_dir: &h.dir,
         };
 
-        let t = FetchTarget { citation_id: "c1".to_string(), doi: None, title: Some("x".into()) };
+        let t = FetchTarget { subject: FetchSubject::Citation { citation_id: "c1".to_string() }, doi: None, title: Some("x".into()) };
         let report = fetch_one(&deps, &t, 1, &fake_embed);
         assert!(matches!(report.outcome, FetchOutcome::NoOaCopy { .. }), "{:?}", report.outcome);
         assert_eq!(http.call_count(), 0, "a DOI-less citation reached the network");
@@ -831,7 +871,7 @@ mod tests {
         // Spend the one token on a different citation, then try ours.
         add_citation(&db, "c2", Some("10.9/other"), "Other");
         let other = FetchTarget {
-            citation_id: "c2".to_string(),
+            subject: FetchSubject::Citation { citation_id: "c2".to_string() },
             doi: Some("10.9/other".to_string()),
             title: Some("Other".to_string()),
         };

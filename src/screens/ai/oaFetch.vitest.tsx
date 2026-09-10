@@ -28,12 +28,15 @@ afterEach(cleanup);
 
 const FETCHED_PATH = '/Users/rishi/Library/Application Support/ai.gaply.app/oa_papers/10-1-a.pdf';
 
-function report(over: Partial<OaFetchReport>): OaFetchReport {
+/** §11 D132: `citationId` is now nested in a `subject` union. The helper takes a
+ *  bare id so the call sites stay readable. */
+function report(over: Partial<OaFetchReport> & { citationId?: string }): OaFetchReport {
+  const { citationId, ...rest } = over;
   return {
-    citationId: 'cite-naidu',
+    subject: { kind: 'citation', citationId: citationId ?? 'cite-naidu' },
     title: 'Incidence of needlestick injury',
     outcome: 'fetched',
-    ...over,
+    ...rest,
   } as OaFetchReport;
 }
 

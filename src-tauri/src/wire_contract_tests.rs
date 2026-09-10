@@ -360,11 +360,11 @@ fn every_command_wire_type_resolves_to_a_definition_this_guard_can_see() {
 /// This is the assertion whose absence let §11 D103 ship.
 #[test]
 fn the_open_access_fetch_report_is_camel_case_key_by_key() {
-    use crate::oa_fetch::{FetchOutcome, FetchReport};
+    use crate::oa_fetch::{FetchOutcome, FetchReport, FetchSubject};
     use gaply_core::oa_fetch::OaSource;
 
     let fetched = FetchReport {
-        citation_id: "cite-x".into(),
+        subject: FetchSubject::Citation { citation_id: "cite-x".into() },
         title: Some("SMOTE".into()),
         outcome: FetchOutcome::Fetched {
             document_id: 13,
@@ -378,7 +378,7 @@ fn the_open_access_fetch_report_is_camel_case_key_by_key() {
     assert_eq!(
         serde_json::to_value(&fetched).unwrap(),
         serde_json::json!({
-            "citationId": "cite-x",
+            "subject": { "kind": "citation", "citationId": "cite-x" },
             "title": "SMOTE",
             "outcome": "fetched",
             "documentId": 13,
@@ -399,7 +399,7 @@ fn the_open_access_fetch_report_is_camel_case_key_by_key() {
     // The abstract arm carries the injection flag, which is a SAFETY sentence:
     // it was silently unreachable for as long as the spelling was wrong.
     let abstract_only = FetchReport {
-        citation_id: "cite-y".into(),
+        subject: FetchSubject::Citation { citation_id: "cite-y".into() },
         title: None,
         outcome: FetchOutcome::AbstractOnly {
             document_id: 12,
@@ -417,7 +417,7 @@ fn the_open_access_fetch_report_is_camel_case_key_by_key() {
 
     // And the arm the retry advice is computed from.
     let limited = FetchReport {
-        citation_id: "cite-z".into(),
+        subject: FetchSubject::Citation { citation_id: "cite-z".into() },
         title: None,
         outcome: FetchOutcome::RateLimited { retry_after_secs: 30 },
     };

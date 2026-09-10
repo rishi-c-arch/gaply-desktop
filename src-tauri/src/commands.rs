@@ -2033,7 +2033,7 @@ pub async fn citation_fetch_oa(
             .map(|id| {
                 let stored = gaply_core::citation_library::get(&db, id)?;
                 Ok(FetchTarget {
-                    citation_id: id.clone(),
+                    subject: crate::oa_fetch::FetchSubject::Citation { citation_id: id.clone() },
                     doi: stored.as_ref().and_then(|r| r.doi.clone()),
                     title: stored
                         .as_ref()

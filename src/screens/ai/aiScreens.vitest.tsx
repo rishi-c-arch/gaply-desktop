@@ -1228,9 +1228,11 @@ describe('Thesis audit', () => {
         ],
       }),
       fetchOpenAccess: async () => [
-        { citationId: 'lib-5', title: 'A', outcome: 'fetched', checkable: true, chunksIndexed: 20, chunksEmbedded: 20 },
+        // §11 D132: the report names its SUBJECT — a library citation here, a
+        // staged manuscript reference in the audit's own fetch.
+        { subject: { kind: 'citation', citationId: 'lib-5' }, title: 'A', outcome: 'fetched', checkable: true, chunksIndexed: 20, chunksEmbedded: 20 },
         // Fetched an abstract: real, useful, and NOT checkable-for-support.
-        { citationId: 'lib-6', title: 'B', outcome: 'abstractOnly', checkable: false },
+        { subject: { kind: 'citation', citationId: 'lib-6' }, title: 'B', outcome: 'abstractOnly', checkable: false },
       ],
       recheckItems,
     });

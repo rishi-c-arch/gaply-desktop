@@ -31,7 +31,7 @@ import { CitationAiPanel } from '../ai/CitationAiPanel';
 import { DocumentRow } from '../ai/DocumentRow';
 import { aiBridge } from '../ai/aiReady';
 import { describeOaOutcome, summariseOaBatch } from '../ai/oaOutcome';
-import { OaFetchReport } from '../ai/aiBridge';
+import { OaFetchReport, subjectKey } from '../ai/aiBridge';
 import {
   applyVerification,
   RefVerifyBridge,
@@ -1193,8 +1193,10 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                     user has to do something about. */}
                 <ul className="flex flex-col gap-1">
                   {oaReports.map((r) => (
-                    <li key={r.citationId} className="text-sm text-on-surface-variant">
-                      <span className="font-medium text-on-surface">{r.title ?? r.citationId}</span>
+                    <li key={subjectKey(r.subject)} className="text-sm text-on-surface-variant">
+                      <span className="font-medium text-on-surface">
+                        {r.title ?? subjectKey(r.subject)}
+                      </span>
                       {' — '}
                       {describeOaOutcome(r)}
                     </li>
