@@ -100,7 +100,13 @@ fn section_letter_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"^\s*([A-H])\.\s+(\S.*)$").expect("section letter regex"))
 }
 
-use crate::ai_engine::audit_prepass::{entry_is_malformed, first_unreliable_entry};
+// §11 D132. The author-year reference parser MOVED to `audit_prepass`, beside
+// `BibEntry` and the DOI regex it now shares, and is imported rather than
+// redefined — §11 D129 is what a second definition of "what this list says"
+// costs.
+use crate::ai_engine::audit_prepass::{
+    entry_is_malformed, parse_author_year_entries, AuthorYearEntry,
+};
 
 
 /// Corroboration for the message, not for the decision: the shape that says
@@ -119,72 +125,15 @@ fn snippet(s: &str, n: usize) -> String {
     format!("{cut}…")
 }
 
-/// One entry from an author-year reference list (§11 D96).
-#[derive(Debug, Clone)]
-struct AuthorYearEntry {
-    /// Lower-cased leading surname, as `markers_in` reports a marker's.
-    surname: String,
-    year: Option<i32>,
-    raw: String,
-}
-
 /// The leading surname of one work inside a co-citation.
 fn co_cite_lead_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"^([A-Z][\p{L}'’\-]+)").expect("co-cite lead regex"))
 }
 
-fn ay_entry_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    // "Alkenbrack, S., Hanson, K., & Lindelow, M. (2015). Title…"
-    // "AlRuthia, Y., Aldallal, S., … et al. (2025). Title…"
-    RE.get_or_init(|| {
-        // Two shapes, both valid APA:
-        //   "Alkenbrack, S., Hanson, K., & Lindelow, M. (2015)."  personal
-        //   "P4H Network. (2024)."                                 organisation
-        // Requiring the comma reported both organisational entries in a real
-        // paper as unreadable, which is the check calling correct APA wrong.
-        // Digits belong in a name: "P4H Network" is an organisation, and
-        // requiring a letter after the capital called it unreadable.
-        Regex::new(r"^\s*(?P<surname>[A-Z][\p{L}\p{N}'’\-]*)[^()]{0,300}?\((?P<year>(?:1[6-9]|20)\d{2})[a-z]?\)")
-            .expect("author-year entry regex")
-    })
-}
-
 fn year_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"(?:1[6-9]|20)\d{2}").expect("year regex"))
-}
-
-/// The reference list, when it is author-year rather than numbered.
-///
-/// Everything after the references heading; each block is one entry. Returns
-/// `(parsed, malformed_raws)` — an entry that yields no surname+year is not
-/// discarded, it is REPORTED, because markers cannot resolve against it.
-fn parse_author_year_entries(blocks: &[PagedBlock]) -> (Vec<AuthorYearEntry>, Vec<String>) {
-    let start = blocks
-        .iter()
-        .position(|b| crate::ai_engine::audit_prepass::is_references_heading(&b.text));
-    let Some(start) = start else { return (Vec::new(), Vec::new()) };
-
-    let mut ok = Vec::new();
-    let mut bad = Vec::new();
-    for b in blocks.iter().skip(start + 1) {
-        let t = b.text.trim();
-        // Too short to be a reference: a page number, a running header.
-        if t.split_whitespace().count() < 5 {
-            continue;
-        }
-        match ay_entry_re().captures(t) {
-            Some(c) => ok.push(AuthorYearEntry {
-                surname: c["surname"].to_lowercase(),
-                year: c["year"].parse().ok(),
-                raw: t.to_string(),
-            }),
-            None => bad.push(t.to_string()),
-        }
-    }
-    (ok, bad)
 }
 
 /// Levenshtein distance, capped at 1 — the only distance this needs.

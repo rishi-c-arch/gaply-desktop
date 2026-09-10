@@ -110,6 +110,13 @@ pub struct PrepassReport {
     /// The paper's own numbered reference list, `[n]` → entry. Empty when the
     /// paper uses author-year, or when no references heading was found.
     pub bibliography: BTreeMap<u32, BibEntry>,
+    /// The AUTHOR-YEAR reference list, when the paper uses that style (§11
+    /// D132). Empty for a numbered paper, and `bibliography` is empty for an
+    /// author-year one — a manuscript has one reference list, in one style.
+    pub author_year_bibliography: Vec<AuthorYearEntry>,
+    /// Entries the author-year parser could not read. Reported, not dropped:
+    /// a marker cannot resolve against an entry nobody could parse.
+    pub author_year_unreadable: Vec<String>,
 }
 
 /// One entry from the paper's own numbered reference list.
@@ -126,6 +133,113 @@ pub struct BibEntry {
     pub doi: Option<String>,
     pub lead_author: Option<String>,
     pub year: Option<i32>,
+}
+
+/// One entry from an AUTHOR-YEAR reference list.
+///
+/// # Why this lives here and not in `consistency`
+///
+/// It began there, serving the orphan-marker checks, which need only a surname
+/// and a year. The fetch path needs the DOI and the title as well, and §11 D129
+/// is the reason this is a MOVE rather than a second parser: two definitions of
+/// "what this reference list says" is exactly how one half of a report came to
+/// contradict the other. `consistency` now calls this.
+///
+/// Deliberately not a full CSL parse, for the same reason [`BibEntry`] is not:
+/// reference formats vary by publisher and a strict grammar fails on most of
+/// them. This takes the parts that are recognisable and leaves `raw`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthorYearEntry {
+    /// Lower-cased leading surname, as `markers_in` reports a marker's — a MATCH
+    /// KEY, never display text (§11 D131).
+    pub surname: String,
+    pub year: Option<i32>,
+    /// The DOI the entry prints, if any. **26 of 35 entries in one real
+    /// author-year paper carry one and none were read**, because this list had no
+    /// parser and the numbered one does not apply (§11 D132).
+    pub doi: Option<String>,
+    /// The work's title, for display and for the title-lookup path that piece 2
+    /// will add. Extracted from between the year and the venue.
+    pub title: Option<String>,
+    pub raw: String,
+}
+
+/// The author-year reference list: everything after the references heading, one
+/// entry per block.
+///
+/// Returns `(parsed, malformed_raws)` — an entry yielding no surname+year is
+/// REPORTED rather than dropped, because markers cannot resolve against it.
+pub fn parse_author_year_entries(
+    blocks: &[crate::extract::docparse::PagedBlock],
+) -> (Vec<AuthorYearEntry>, Vec<String>) {
+    let Some(start) = blocks.iter().position(|b| is_references_heading(&b.text)) else {
+        return (Vec::new(), Vec::new());
+    };
+
+    let mut ok = Vec::new();
+    let mut bad = Vec::new();
+    for b in blocks.iter().skip(start + 1) {
+        let t = b.text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let t = t.trim();
+        // Too short to be a reference: a page number, a running header.
+        if t.split_whitespace().count() < 5 {
+            continue;
+        }
+        match ay_entry_re().captures(t) {
+            Some(c) => ok.push(AuthorYearEntry {
+                surname: c["surname"].to_lowercase(),
+                year: c["year"].parse().ok(),
+                // SHARED with the numbered parser — one definition of what a
+                // DOI looks like.
+                doi: doi_in_re()
+                    .find(t)
+                    .map(|m| m.as_str().trim_end_matches(|c| c == '.' || c == ',').to_string()),
+                title: title_after_year(t, c.get(0).map(|m| m.end()).unwrap_or(0)),
+                raw: t.to_string(),
+            }),
+            None => bad.push(t.to_string()),
+        }
+    }
+    (ok, bad)
+}
+
+/// The title, taken from just after the `(Year)` the entry opens with.
+///
+/// APA puts the title immediately after the year and ends it with a full stop
+/// before the venue:
+///
+/// ```text
+/// Alkenbrack, S., … (2015). Evasion of “mandatory” social health insurance …. BMC Health Serv Res, 15, 473.
+///                           ^------------------- title -----------------^
+/// ```
+///
+/// A title containing ". " would be cut short. That is a visible, bounded
+/// wrongness — a short title — and NOT the kind that matters here: this string
+/// is display text and, later, a search query whose match is scored against the
+/// year and surname too. It is never an identifier on its own.
+fn title_after_year(entry: &str, year_end: usize) -> Option<String> {
+    let rest = entry.get(year_end..)?.trim_start_matches(['.', ' ']);
+    let end = rest.find(". ").unwrap_or(rest.len());
+    let t = rest[..end].trim().trim_end_matches('.').trim();
+    (t.split_whitespace().count() >= 2).then(|| t.to_string())
+}
+
+/// "Alkenbrack, S., Hanson, K., & Lindelow, M. (2015). Title…", and the
+/// organisational form "P4H Network. (2024).".
+///
+/// Requiring the comma reported both organisational entries in a real paper as
+/// unreadable, which is the check calling correct APA wrong. Digits belong in a
+/// name: "P4H Network" is an organisation, and requiring a letter after the
+/// capital called it unreadable.
+fn ay_entry_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"^\s*(?P<surname>[A-Z][\p{L}\p{N}'’\-]*)[^()]{0,300}?\((?P<year>(?:1[6-9]|20)\d{2})[a-z]?\)",
+        )
+        .expect("author-year entry regex")
+    })
 }
 
 fn bib_start_re() -> &'static Regex {
@@ -1122,6 +1236,16 @@ pub fn prepass_blocks(blocks: &[crate::extract::docparse::PagedBlock]) -> Prepas
     // checks nothing" is the wrong trade, and §11 D127's asymmetry is what says
     // so — a missed marker costs one unexamined sentence, a rule like this costs
     // the whole document.
+    // The author-year list, parsed only when the numbered one yielded nothing.
+    // Both are never populated: a manuscript has ONE reference list in one
+    // style, and trying both and keeping whichever is larger would invent a
+    // second source of truth about the same text (§11 D132).
+    if report.bibliography.is_empty() {
+        let (ok, bad) = parse_author_year_entries(blocks);
+        report.author_year_bibliography = ok;
+        report.author_year_unreadable = bad;
+    }
+
     report
 }
 
@@ -1377,6 +1501,10 @@ pub fn resolve_marker_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn blk_ay(text: &str) -> crate::extract::docparse::PagedBlock {
+        crate::extract::docparse::PagedBlock { page: None, style: None, text: text.to_string() }
+    }
 
     fn blk(style: Option<&str>, text: &str) -> crate::extract::docparse::PagedBlock {
         crate::extract::docparse::PagedBlock {
@@ -1710,6 +1838,98 @@ mod tests {
     }
 
     #[test]
+    /// §11 D132. THE AUTHOR-YEAR LIST CARRIES DOIs AND NOBODY READ THEM.
+    ///
+    /// Measured on a real paper: 35 entries, **26 with a DOI**, and the audit
+    /// saw zero of them because `parse_numbered_bibliography` does not apply to
+    /// an author-year list and nothing else looked.
+    #[test]
+    fn an_author_year_entry_yields_its_surname_year_doi_and_title() {
+        let (ok, bad) = parse_author_year_entries(&[
+            blk_ay("References"),
+            blk_ay(
+                "Alkenbrack, S., Hanson, K., & Lindelow, M. (2015). Evasion of \u{201c}mandatory\u{201d} \
+                 social health insurance for the formal sector: Evidence from Lao PDR. BMC Health \
+                 Services Research, 15, 473. https://doi.org/10.1186/s12913-015-1132-5",
+            ),
+        ]);
+        assert!(bad.is_empty(), "{bad:?}");
+        assert_eq!(ok.len(), 1);
+        let e = &ok[0];
+        assert_eq!(e.surname, "alkenbrack", "a MATCH KEY, so lowercased");
+        assert_eq!(e.year, Some(2015));
+        assert_eq!(e.doi.as_deref(), Some("10.1186/s12913-015-1132-5"));
+        assert_eq!(
+            e.title.as_deref(),
+            Some(
+                "Evasion of \u{201c}mandatory\u{201d} social health insurance for the formal \
+                 sector: Evidence from Lao PDR"
+            ),
+            "the title must stop at the venue, not run into it"
+        );
+    }
+
+    /// An entry with no DOI still yields a title — that is what makes it a
+    /// candidate for piece 2's title lookup rather than a dead end.
+    #[test]
+    fn an_entry_without_a_doi_still_yields_a_title() {
+        let (ok, _) = parse_author_year_entries(&[
+            blk_ay("References"),
+            blk_ay(
+                "Cashin, C., Bloom, D., Sparkes, S., & Barroy, H. (2017). Aligning public \
+                 financial management and health financing. World Health Organization.",
+            ),
+        ]);
+        assert_eq!(ok.len(), 1);
+        assert_eq!(ok[0].doi, None);
+        assert_eq!(
+            ok[0].title.as_deref(),
+            Some("Aligning public financial management and health financing")
+        );
+    }
+
+    /// The organisational form. Requiring a comma-separated personal name
+    /// reported correct APA as unreadable on a real paper.
+    #[test]
+    fn an_organisational_entry_is_readable() {
+        let (ok, bad) = parse_author_year_entries(&[
+            blk_ay("References"),
+            blk_ay("P4H Network. (2024). Health financing progress matrix for Oman. P4H."),
+        ]);
+        assert!(bad.is_empty(), "{bad:?}");
+        assert_eq!(ok.len(), 1);
+        assert_eq!(ok[0].surname, "p4h");
+        assert_eq!(ok[0].year, Some(2024));
+    }
+
+    /// An entry nobody can parse is REPORTED, not dropped — a marker cannot
+    /// resolve against it, and silence would make that look like a clean list.
+    #[test]
+    fn an_unreadable_entry_is_reported_rather_than_dropped() {
+        let (ok, bad) = parse_author_year_entries(&[
+            blk_ay("References"),
+            blk_ay("pp. 436-465, 2013, continued from the entry above somehow"),
+        ]);
+        assert!(ok.is_empty());
+        assert_eq!(bad.len(), 1, "the unreadable entry vanished");
+    }
+
+    /// ONE LIST, ONE STYLE. Parsing both and keeping the larger would invent a
+    /// second source of truth about the same text (§11 D132).
+    #[test]
+    fn the_author_year_list_is_parsed_only_when_there_is_no_numbered_one() {
+        let numbered = prepass_blocks(&[
+            blk_ay("Some prose that cites something [1] and says a thing about it."),
+            blk_ay("References"),
+            blk_ay("[1] A. Author, A real reference, 2001. https://doi.org/10.1/x"),
+        ]);
+        assert!(!numbered.bibliography.is_empty(), "numbered list not parsed");
+        assert!(
+            numbered.author_year_bibliography.is_empty(),
+            "both lists were populated for one manuscript"
+        );
+    }
+
     /// §11 D130. INTERVAL NOTATION IS NOT A CITATION.
     ///
     /// `standardised to [0, 1] by (score − 1)/4` was counted as a cited

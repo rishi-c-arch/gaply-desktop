@@ -7757,3 +7757,118 @@ author. Printing that key back at a researcher is its own small defect, so
 The distinction proved itself immediately: a mechanical edit filled
 `lead_display` from `lead_author`'s lowercased value, and the test asserting the
 surname appears **as written** failed on the spot.
+
+### D132 — the author-year reference list carries DOIs, and nothing read them
+
+§11 D100 recorded the OA fetch's gap as "IEEE lists carry no DOIs, so a title
+lookup is needed". That is true of R PAPER and it is NOT the whole gap. Measured
+on the health-economics paper:
+
+| | numbered entries | with DOI | author-year entries | with DOI | with title |
+|---|---|---|---|---|---|
+| R PAPER | 25 | 0 | 0 | 0 | 0 |
+| health-economics | 0 | 0 | **35** | **26** | **35** |
+
+**26 DOIs were sitting in the document and the audit read none of them** — not
+because they were absent, but because `parse_numbered_bibliography` does not
+apply to an author-year list and nothing else looked.
+
+#### D100's framing was HALF right, and the half it missed is what made this cheap
+
+D100 described the gap as "IEEE-style lists carry no DOIs, so a title lookup is
+needed". For R PAPER that is exactly true — 25 entries, 0 DOIs, and nothing but a
+title lookup will reach them.
+
+It is not true of the other style. There the DOIs are present and the gap was a
+**PARSER BLIND SPOT, not an absence** — and that distinction is the whole reason
+this piece was cheap. An absence needs a network lookup, a confidence threshold,
+and a wrong-paper gate. A blind spot needs a parser, which cannot link the wrong
+paper at all. The expensive work was real but it was never the only work, and
+D100 had bundled the two together under the expensive one.
+
+Worth generalising: a gap stated as "the data is missing" deserves a check that
+the data is actually missing. Here it was sitting in the document.
+
+This piece is **0 → 26 fetchable by DOI** on that paper, and it supplies the 35
+titles that piece 2 will need.
+
+#### The parser was MOVED, not copied
+
+`parse_author_year_entries` already existed in `consistency`, serving the
+orphan-marker checks, which need only a surname and a year. It now lives in
+`audit_prepass` beside `BibEntry` and the DOI regex it shares, carries `doi` and
+`title`, and `consistency` imports it.
+
+**§11 D129 is why that is a move.** Two definitions of "what this reference list
+says" is exactly how one half of a report came to contradict the other half, in
+the same module pair.
+
+`report.bibliography` and `report.author_year_bibliography` are never both
+populated: a manuscript has ONE reference list in ONE style, and parsing both and
+keeping whichever is larger would invent a second source of truth about the same
+text. A test pins that.
+
+#### Staging, not the user's library
+
+Entries are staged SCOPED TO THE MANUSCRIPT and never inserted into
+`citation_library`. The reasoning, recorded because the cheaper option is the
+obvious one:
+
+- 35 entries include malformed ones and organisational authors ("P4H Network"),
+  and `citation_library` is shared by every feature.
+- Junk rows are hard to un-import.
+- **The user never asked for those works to be in their collection.** They asked
+  for their manuscript to be checked. Staging keeps the audit's needs separate
+  from the user's library, and "promote to library" can be an explicit action
+  later if anyone wants one.
+
+#### ONE WORK, ONE ROW: the library wins and staging fills the gaps
+
+A staged source and a `citation_library` row can name the same work, and must not
+fetch twice or produce two rows in the report. **The library row is preferred and
+only what is missing is staged**, deduped on NORMALISED DOI — lowercased,
+`https://doi.org/` stripped, trailing punctuation trimmed.
+
+The library row wins rather than the staged one because it is the user's own
+asset: it may already carry a linked, indexed, embedded PDF and a title they
+curated. A staged duplicate would be the poorer copy of something better, and
+`citation_documents` links are keyed to `citation_library.id` anyway, so
+preferring it keeps resolution on ONE path instead of teaching every consumer
+about two.
+
+Two rules, both on the normalised DOI:
+
+1. An entry whose DOI matches a library row is **not staged** — the existing
+   library path already handles it, including the fetch.
+2. Staged rows are unique per `(job_id, normalised DOI)`, so a reference list that
+   prints the same work twice stages it once.
+
+**No title-based dedupe.** Deciding that two differently-spelled entries are one
+work by title similarity is the same judgement as deciding a title lookup found
+the right paper — so it is gated behind piece 2's measurement, not smuggled in as
+a convenience here. An entry with a DOI and a library row without one stays two
+rows until then, which is the honest state: nothing has established they are the
+same work.
+
+#### Only public identifiers leave the machine, and `raw` is not one
+
+The fetch sends a RECONSTRUCTED title+author+year, never `reference.raw`. Raw is
+manuscript text and can carry an author's own annotations;
+`query.bibliographic` invites passing it, which would break the disclosure
+silently rather than loudly. The title extractor exists partly to make that
+reconstruction possible.
+
+#### THE GATE FOR PIECE 2, STATED BEFORE PIECE 2 STARTS
+
+Piece 2 is title-based resolution for the DOI-less remainder, and it is the only
+piece that can link the WRONG paper — §11 D94's failure. Its acceptance number is
+wrong-paper matches, measured on R PAPER's 25 DOI-less entries plus the health
+paper's 9.
+
+> **"0 wrong-paper matches in 34 tries" means NO FAILURE OBSERVED, not safe.**
+
+That is the same in-sample problem as §11 D126's positional classifier: a clean
+run on the two documents the rule was developed against is not evidence about the
+next document. The number must be reported that way, and the acceptance bar set
+against what 34 tries can actually support — not read as proof because it is a
+zero.
