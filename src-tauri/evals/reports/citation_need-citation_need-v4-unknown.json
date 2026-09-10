@@ -1,0 +1,2841 @@
+{
+  "task": "citation_need",
+  "modelId": "qwen2.5-3b-instruct-q4km",
+  "promptVersion": "citation_need-v4",
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "os": "macOS 26.6.2 (Darwin 25.6.0)",
+  "nCtx": 5120,
+  "date": "unknown",
+  "casesFile": "evals/citation_need.jsonl",
+  "totalCases": 84,
+  "needsCitationAccuracy": 0.3373493975903614,
+  "sentenceTypeAgreement": 0.20481927710843373,
+  "severityAgreement": 0.34615384615384615,
+  "severityDistinctValues": 2,
+  "validationFailureRate": 0.011904761904761904,
+  "retryRate": 0.011904761904761904,
+  "advisoryRate": 0.35714285714285715,
+  "meanLatencyMs": 11332.130952380952,
+  "tokensPerSecond": 6.7318066307454885,
+  "meanPromptTokens": 523.797619047619,
+  "meanPrefillMs": 5097.333333333333,
+  "meanDecodeMs": 6184.75,
+  "prefillShare": 0.45180780736418363,
+  "meanDecodeTokensPerSec": 14.532642604223994,
+  "answerDistribution": {
+    "needsCitationTrue": 68,
+    "sentenceType": {
+      "author_own_result": 2,
+      "common_knowledge": 12,
+      "definition": 13,
+      "empirical_claim": 27,
+      "hedged_speculation": 1,
+      "method_borrowed": 4,
+      "prior_work": 3,
+      "statistic": 20,
+      "transition": 1
+    },
+    "severity": {
+      "high": 65,
+      "low": 2
+    },
+    "validOutputs": 83
+  },
+  "results": [
+    {
+      "id": "cn-seed-01",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"A reader would need to verify if organic farming increases soil microbial biomass by roughly a third compared with conventional systems.\",\"search_query\":\"Organic farming soil microbial biomass conventional systems\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A reader would need to verify if organic farming increases soil microbial biomass by roughly a third compared with conventional systems.",
+          "search_query": "Organic farming soil microbial biomass conventional systems",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 6787,
+      "tokens": 69,
+      "promptTokens": 495,
+      "prefillMs": 2992,
+      "decodeMs": 3752,
+      "decodeTokensPerSec": 18.390191897654585,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-02",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"A percentage of global arable land has been degraded since 1960, which would be checked against sources of environmental data.\",\"search_query\":\"global arable land degradation 1960\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A percentage of global arable land has been degraded since 1960, which would be checked against sources of environmental data.",
+          "search_query": "global arable land degradation 1960",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 7094,
+      "tokens": 75,
+      "promptTokens": 501,
+      "prefillMs": 2961,
+      "decodeMs": 4089,
+      "decodeTokensPerSec": 18.341892883345558,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-03",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"A 12% increase in species richness and the p-value of 0.03 would be checked against someone else's work.\",\"search_query\":\"12% increase in species richness p-value 0.03\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A 12% increase in species richness and the p-value of 0.03 would be checked against someone else's work.",
+          "search_query": "12% increase in species richness p-value 0.03",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 7357,
+      "tokens": 80,
+      "promptTokens": 503,
+      "prefillMs": 2960,
+      "decodeMs": 4349,
+      "decodeTokensPerSec": 18.39503334099793,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-04",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"transition\",\"severity\":null,\"reason\":\"The sentence is a general statement about the next section and does not assert anything that would require verification against an external source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a general statement about the next section and does not assert anything that would require verification against an external source.",
+          "search_query": null,
+          "sentence_type": "transition",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 6224,
+      "tokens": 60,
+      "promptTokens": 492,
+      "prefillMs": 2940,
+      "decodeMs": 3251,
+      "decodeTokensPerSec": 18.45585973546601,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-05",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"definition\",\"severity\":null,\"reason\":\"The sentence is a definition and does not assert anything that would require checking against an external source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "definition",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a definition and does not assert anything that would require checking against an external source.",
+          "search_query": null,
+          "sentence_type": "definition",
+          "severity": null
+        },
+        "needsCitation": false,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 5967,
+      "tokens": 55,
+      "promptTokens": 493,
+      "prefillMs": 2919,
+      "decodeMs": 3013,
+      "decodeTokensPerSec": 18.254231662794556,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-06",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"A reader would need to check if the effect weakening at higher latitudes is a known finding or a new discovery.\",\"search_query\":\"effect weakening at higher latitudes\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "prior_work",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A reader would need to check if the effect weakening at higher latitudes is a known finding or a new discovery.",
+          "search_query": "effect weakening at higher latitudes",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 6610,
+      "tokens": 68,
+      "promptTokens": 493,
+      "prefillMs": 2938,
+      "decodeMs": 3630,
+      "decodeTokensPerSec": 18.732782369146005,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-07",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"common_knowledge\",\"severity\":null,\"reason\":\"Plants require light to photosynthesise. This is a fact about the world that can be checked against scientific literature.\",\"search_query\":\"plants require light for photosynthesis\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Plants require light to photosynthesise. This is a fact about the world that can be checked against scientific literature.",
+          "search_query": "plants require light for photosynthesis",
+          "sentence_type": "common_knowledge",
+          "severity": null
+        },
+        "needsCitation": false,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "severity: is absent while needs_citation is true; the prompt excuses it only when needs_citation is false",
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 6338,
+      "tokens": 63,
+      "promptTokens": 489,
+      "prefillMs": 2904,
+      "decodeMs": 3392,
+      "decodeTokensPerSec": 18.57311320754717,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-seed-08",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"It is possible that mycorrhizal networks mediate this response, though we did not measure them.\",\"search_query\":\"mycorrhizal networks mediate response\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "hedged_speculation",
+          "severity": "low"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "It is possible that mycorrhizal networks mediate this response, though we did not measure them.",
+          "search_query": "mycorrhizal networks mediate response",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 4 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 6819,
+      "tokens": 70,
+      "promptTokens": 501,
+      "prefillMs": 2958,
+      "decodeMs": 3818,
+      "decodeTokensPerSec": 18.334206390780512,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-001",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"A drop in performance by more than 10 percentage points is a specific number and claim that would need verification from an external source.\",\"search_query\":\"BiLSTM performance drop 10 percentage points ablation experiments\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A drop in performance by more than 10 percentage points is a specific number and claim that would need verification from an external source.",
+          "search_query": "BiLSTM performance drop 10 percentage points ablation experiments",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7560,
+      "tokens": 78,
+      "promptTokens": 540,
+      "prefillMs": 3172,
+      "decodeMs": 4344,
+      "decodeTokensPerSec": 17.955801104972373,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-002",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":null,\"reason\":\"The sentence is a general statement about the nature of hyperparameter searching, not a claim that can be verified from an external source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "common_knowledge"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a general statement about the nature of hyperparameter searching, not a claim that can be verified from an external source.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6513,
+      "tokens": 64,
+      "promptTokens": 507,
+      "prefillMs": 2988,
+      "decodeMs": 3486,
+      "decodeTokensPerSec": 18.35915088927137,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-003",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":null,\"reason\":\"The sentence describes properties of FA and CSA without asserting any specific findings or numbers that would require external verification.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence describes properties of FA and CSA without asserting any specific findings or numbers that would require external verification.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": null
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 6433,
+      "tokens": 59,
+      "promptTokens": 522,
+      "prefillMs": 3102,
+      "decodeMs": 3298,
+      "decodeTokensPerSec": 17.88963007883566,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-004",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"hedged_speculation\",\"severity\":\"high\",\"reason\":\"A claim about what is known in the field regarding optimization strategies.\",\"search_query\":\"global path exploration local path exploration optimization strategies\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A claim about what is known in the field regarding optimization strategies.",
+          "search_query": "global path exploration local path exploration optimization strategies",
+          "sentence_type": "hedged_speculation",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 6492,
+      "tokens": 61,
+      "promptTokens": 508,
+      "prefillMs": 3077,
+      "decodeMs": 3378,
+      "decodeTokensPerSec": 18.058022498519833,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-005",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":null,\"reason\":\"The sentence describes the introduction of a new algorithm without asserting any specific claim or finding that would require verification from an external source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence describes the introduction of a new algorithm without asserting any specific claim or finding that would require verification from an external source.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6863,
+      "tokens": 63,
+      "promptTokens": 527,
+      "prefillMs": 3325,
+      "decodeMs": 3500,
+      "decodeTokensPerSec": 18.0,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-006",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"author_own_result\",\"severity\":\"high\",\"reason\":\"The sentence asserts the proposal of a novel algorithm (HEFCSO) which would be checked against the authors' own work.\",\"search_query\":\"HEFCSO algorithm metaheuristic hyperparameter tuning deep learning\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence asserts the proposal of a novel algorithm (HEFCSO) which would be checked against the authors' own work.",
+          "search_query": "HEFCSO algorithm metaheuristic hyperparameter tuning deep learning",
+          "sentence_type": "author_own_result",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7759,
+      "tokens": 78,
+      "promptTokens": 526,
+      "prefillMs": 3352,
+      "decodeMs": 4362,
+      "decodeTokensPerSec": 17.881705639614854,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-007",
+      "outcome": "validationFailed",
+      "raw": "--- attempt 1 ---\n{\n  \"needs_citation\": true,\n  \"reason\": \"Statistical tests and interpretability are also illustrated.\",\n  \"search_query\": \"statistical tests interpretability\",\n  \"sentence_type\": \"high\"\n}\n--- retry ---\n\n--- primary: First ---",
+      "retried": true,
+      "elapsedMs": 11589,
+      "tokens": 45,
+      "promptTokens": 1294,
+      "prefillMs": 9005,
+      "decodeMs": 2552,
+      "decodeTokensPerSec": 17.63322884012539,
+      "stopReasons": [
+        "endOfTurn",
+        "endOfTurn"
+      ],
+      "fatalErrors": [
+        "<output>: not valid JSON: unknown variant `high`, expected one of `empirical_claim`, `statistic`, `definition`, `prior_work`, `method_borrowed`, `common_knowledge`, `author_own_result`, `transition`, `interpretation`, `hedged_speculation` at line 5 column 25"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-008",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"prior_work\",\"severity\":\"high\",\"reason\":\"To the best of our knowledge, authors are unaware of any previous work that hybridizes FA with CSA for hyperparameter optimization in BiLSTM emotion classification, making this the key novelty of this paper.\",\"search_query\":\"hybridizing FA with CSA for hyperparameter optimization in BiLSTM emotion classification\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "To the best of our knowledge, authors are unaware of any previous work that hybridizes FA with CSA for hyperparameter optimization in BiLSTM emotion classification, making this the key novelty of this paper.",
+          "search_query": "hybridizing FA with CSA for hyperparameter optimization in BiLSTM emotion classification",
+          "sentence_type": "prior_work",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 33 words; the limit is 25"
+      ],
+      "elapsedMs": 9223,
+      "tokens": 94,
+      "promptTokens": 526,
+      "prefillMs": 3524,
+      "decodeMs": 5636,
+      "decodeTokensPerSec": 16.67849538679915,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-009",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":null,\"reason\":\"The sentence describes the use of corpora, which is common knowledge in the field of natural language processing.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence describes the use of corpora, which is common knowledge in the field of natural language processing.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7021,
+      "tokens": 59,
+      "promptTokens": 497,
+      "prefillMs": 3553,
+      "decodeMs": 3430,
+      "decodeTokensPerSec": 17.201166180758015,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-010",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"definition\",\"severity\":\"high\",\"reason\":\"A particular-purpose six-phase pre-processing pipeline includes: 1) Dispensation of URLs, mentions, and hashtag marks.\",\"search_query\":\"particular-purpose six-phase pre-processing pipeline\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A particular-purpose six-phase pre-processing pipeline includes: 1) Dispensation of URLs, mentions, and hashtag marks.",
+          "search_query": "particular-purpose six-phase pre-processing pipeline",
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 4 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 7880,
+      "tokens": 69,
+      "promptTokens": 507,
+      "prefillMs": 3691,
+      "decodeMs": 4146,
+      "decodeTokensPerSec": 16.642547033285094,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-011",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"method_borrowed\",\"severity\":\"high\",\"reason\":\"Out-of-vocabulary tokens initialized with character-level n-gram neighbour means asserts a specific method or finding.\",\"search_query\":\"GloVe Embeddings initialization out-of-vocabulary tokens character-level n-gram neighbour means\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "method_borrowed",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Out-of-vocabulary tokens initialized with character-level n-gram neighbour means asserts a specific method or finding.",
+          "search_query": "GloVe Embeddings initialization out-of-vocabulary tokens character-level n-gram neighbour means",
+          "sentence_type": "method_borrowed",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 8900,
+      "tokens": 79,
+      "promptTokens": 503,
+      "prefillMs": 3931,
+      "decodeMs": 4921,
+      "decodeTokensPerSec": 16.053647632595,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-012",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"definition\",\"severity\":null,\"reason\":\"The sentence describes the structure of the configuration considered by HEFCSO, which is a definition and does not require external verification.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence describes the structure of the configuration considered by HEFCSO, which is a definition and does not require external verification.",
+          "search_query": null,
+          "sentence_type": "definition",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8667,
+      "tokens": 62,
+      "promptTokens": 511,
+      "prefillMs": 4540,
+      "decodeMs": 4089,
+      "decodeTokensPerSec": 15.162631450232329,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-013",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"author_own_result\",\"severity\":\"high\",\"reason\":\"The validation subset and the categorical cross-entropy objective function J(θ) are specific to the proposed HEFCSO Algorithm and would need to be verified against the authors' own work.\",\"search_query\":\"validation subset categorical cross-entropy objective function HEFCSO Algorithm\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The validation subset and the categorical cross-entropy objective function J(θ) are specific to the proposed HEFCSO Algorithm and would need to be verified against the authors' own work.",
+          "search_query": "validation subset categorical cross-entropy objective function HEFCSO Algorithm",
+          "sentence_type": "author_own_result",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": true,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 28 words; the limit is 25"
+      ],
+      "elapsedMs": 11002,
+      "tokens": 90,
+      "promptTokens": 502,
+      "prefillMs": 4693,
+      "decodeMs": 6255,
+      "decodeTokensPerSec": 14.388489208633093,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-014",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"definition\",\"severity\":\"high\",\"reason\":\"A reader would need to verify the initialisation method and the definition of search space Ω.\",\"search_query\":\"initialisation method search space Ω HEFCSO Algorithm\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A reader would need to verify the initialisation method and the definition of search space Ω.",
+          "search_query": "initialisation method search space Ω HEFCSO Algorithm",
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 10573,
+      "tokens": 68,
+      "promptTokens": 501,
+      "prefillMs": 5625,
+      "decodeMs": 4907,
+      "decodeTokensPerSec": 13.857754228652945,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-015",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"The sentence asserts a specific fact about a national digital health-insurance system in Oman, which would require checking against official sources.\",\"search_query\":\"Dhamani platform Oman digital health-insurance system\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "definition",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence asserts a specific fact about a national digital health-insurance system in Oman, which would require checking against official sources.",
+          "search_query": "Dhamani platform Oman digital health-insurance system",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 11979,
+      "tokens": 73,
+      "promptTokens": 512,
+      "prefillMs": 6195,
+      "decodeMs": 5734,
+      "decodeTokensPerSec": 12.731077781653296,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-016",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Full national rollout in 2025 and employer-readiness evidence need verification from external sources.\",\"search_query\":\"full national rollout 2025 employer-readiness evidence\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Full national rollout in 2025 and employer-readiness evidence need verification from external sources.",
+          "search_query": "full national rollout 2025 employer-readiness evidence",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 13360,
+      "tokens": 71,
+      "promptTokens": 503,
+      "prefillMs": 7359,
+      "decodeMs": 5958,
+      "decodeTokensPerSec": 11.916750587445451,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-017",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Formal employer health-insurance provision rates across Omani private-sector firms, firm structural factors, and organisational resource capacity are being described and associated. These are claims about specific numbers and relationships that would need to be verified against external sources.\",\"search_query\":\"formal employer health-insurance provision rates Omani private-sector firms\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Formal employer health-insurance provision rates across Omani private-sector firms, firm structural factors, and organisational resource capacity are being described and associated. These are claims about specific numbers and relationships that would need to be verified against external sources.",
+          "search_query": "formal employer health-insurance provision rates Omani private-sector firms",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 38 words; the limit is 25"
+      ],
+      "elapsedMs": 18494,
+      "tokens": 100,
+      "promptTokens": 525,
+      "prefillMs": 7986,
+      "decodeMs": 10444,
+      "decodeTokensPerSec": 9.574875526618154,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-018",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"The number of respondents (n = 222) would be checked against the source of the survey data.\",\"search_query\":\"Cross-sectional employer survey n = 222 Dhamani enforcement\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The number of respondents (n = 222) would be checked against the source of the survey data.",
+          "search_query": "Cross-sectional employer survey n = 222 Dhamani enforcement",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 15070,
+      "tokens": 75,
+      "promptTokens": 514,
+      "prefillMs": 7597,
+      "decodeMs": 7426,
+      "decodeTokensPerSec": 10.0996498788042,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-019",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"method_borrowed\",\"severity\":\"high\",\"reason\":\"Multivariable logistic regression methods, ROC AUC, VIF, Box–Tidwell, and bootstrapped mediation analysis methods are being described and their specific implementations are being referenced.\",\"search_query\":\"multivariable logistic regression Hosmer–Lemeshow calibration ROC AUC VIF Box–Tidwell bootstrapped mediation analysis\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "method_borrowed",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Multivariable logistic regression methods, ROC AUC, VIF, Box–Tidwell, and bootstrapped mediation analysis methods are being described and their specific implementations are being referenced.",
+          "search_query": "multivariable logistic regression Hosmer–Lemeshow calibration ROC AUC VIF Box–Tidwell bootstrapped mediation analysis",
+          "sentence_type": "method_borrowed",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 20182,
+      "tokens": 106,
+      "promptTokens": 557,
+      "prefillMs": 8553,
+      "decodeMs": 11562,
+      "decodeTokensPerSec": 9.167964020065734,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-020",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Formal provision was 36.5% overall (95% CI: 30.2–43.1%), ranging from 10.8% among micro-enterprises to 81.0% among large firms (Cramér’s V = 0.573, p < 0.001). These percentages and statistical values are assertions about a specific study or research findings.\",\"search_query\":\"Formal provision percentages Cramér's V p-value\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Formal provision was 36.5% overall (95% CI: 30.2–43.1%), ranging from 10.8% among micro-enterprises to 81.0% among large firms (Cramér’s V = 0.573, p < 0.001). These percentages and statistical values are assertions about a specific study or research findings.",
+          "search_query": "Formal provision percentages Cramér's V p-value",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 39 words; the limit is 25"
+      ],
+      "elapsedMs": 23154,
+      "tokens": 138,
+      "promptTokens": 553,
+      "prefillMs": 7986,
+      "decodeMs": 15089,
+      "decodeTokensPerSec": 9.145735303863741,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-021",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"Organisational resource capacity was the strongest independent predictor (AOR = 31.51, 95% CI: 11.82–84.01, p < 0.001). This sentence asserts a statistical finding (AOR, CI, p-value) that would be checked against published research.\",\"search_query\":\"Organisational resource capacity AOR CI p-value\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Organisational resource capacity was the strongest independent predictor (AOR = 31.51, 95% CI: 11.82–84.01, p < 0.001). This sentence asserts a statistical finding (AOR, CI, p-value) that would be checked against published research.",
+          "search_query": "Organisational resource capacity AOR CI p-value",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 33 words; the limit is 25"
+      ],
+      "elapsedMs": 20784,
+      "tokens": 120,
+      "promptTokens": 528,
+      "prefillMs": 7757,
+      "decodeMs": 12955,
+      "decodeTokensPerSec": 9.262832883056735,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-022",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"The bootstrapped indirect effect and confidence interval are numbers taken from someone else's work.\",\"search_query\":\"bootstrapped indirect effect firm size provision capacity\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The bootstrapped indirect effect and confidence interval are numbers taken from someone else's work.",
+          "search_query": "bootstrapped indirect effect firm size provision capacity",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 14135,
+      "tokens": 65,
+      "promptTokens": 535,
+      "prefillMs": 7651,
+      "decodeMs": 6446,
+      "decodeTokensPerSec": 10.083772882407695,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-023",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Insurance mandates which are employer-based perform all 3 functions.\",\"search_query\":\"Insurance mandates employer-based functions\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Insurance mandates which are employer-based perform all 3 functions.",
+          "search_query": "Insurance mandates employer-based functions",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 4 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 14759,
+      "tokens": 56,
+      "promptTokens": 501,
+      "prefillMs": 8754,
+      "decodeMs": 5971,
+      "decodeTokensPerSec": 9.378663540445487,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-024",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence asserts that revenue is channeled through an employment relationship, which could be checked against studies on universal health coverage and employer mandates.\",\"search_query\":\"universal health coverage employer mandates revenue channeling employment relationship\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence asserts that revenue is channeled through an employment relationship, which could be checked against studies on universal health coverage and employer mandates.",
+          "search_query": "universal health coverage employer mandates revenue channeling employment relationship",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 19051,
+      "tokens": 77,
+      "promptTokens": 501,
+      "prefillMs": 8649,
+      "decodeMs": 10350,
+      "decodeTokensPerSec": 7.4396135265700485,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-025",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":null,\"reason\":\"The sentence is a general statement about pooling risk and does not assert a specific fact or number that would require verification from an external source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a general statement about pooling risk and does not assert a specific fact or number that would require verification from an external source.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 26 words; the limit is 25"
+      ],
+      "elapsedMs": 16784,
+      "tokens": 65,
+      "promptTokens": 498,
+      "prefillMs": 9138,
+      "decodeMs": 7602,
+      "decodeTokensPerSec": 8.550381478558274,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-026",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":null,\"reason\":\"The sentence is a general statement about linking purchasing with benefits package and does not assert a specific fact or number that would require verification from an external source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "transition"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a general statement about linking purchasing with benefits package and does not assert a specific fact or number that would require verification from an external source.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 29 words; the limit is 25"
+      ],
+      "elapsedMs": 16178,
+      "tokens": 68,
+      "promptTokens": 500,
+      "prefillMs": 8416,
+      "decodeMs": 7717,
+      "decodeTokensPerSec": 8.811714396786316,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-027",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Compliance with mandates falls sharply with firm size in every documented context. This assertion can be checked against empirical studies and data.\",\"search_query\":\"firm size compliance mandates documented context\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Compliance with mandates falls sharply with firm size in every documented context. This assertion can be checked against empirical studies and data.",
+          "search_query": "firm size compliance mandates documented context",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 15016,
+      "tokens": 70,
+      "promptTokens": 509,
+      "prefillMs": 7594,
+      "decodeMs": 7377,
+      "decodeTokensPerSec": 9.48895214856988,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-028",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Fixed compliance costs per employee and the need for payroll integration, human-resources administration, liaison with insurers and documentation impose a higher relative burden on micro- and small enterprises than on larger firms. This assertion can be checked against studies or reports on compliance costs and business operations.\",\"search_query\":\"compliance costs payroll integration HR administration micro enterprises\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Fixed compliance costs per employee and the need for payroll integration, human-resources administration, liaison with insurers and documentation impose a higher relative burden on micro- and small enterprises than on larger firms. This assertion can be checked against studies or reports on compliance costs and business operations.",
+          "search_query": "compliance costs payroll integration HR administration micro enterprises",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 47 words; the limit is 25"
+      ],
+      "elapsedMs": 19299,
+      "tokens": 101,
+      "promptTokens": 526,
+      "prefillMs": 7919,
+      "decodeMs": 11315,
+      "decodeTokensPerSec": 8.926204153778171,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-029",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Coverage gaps caused by firms with less than ten employees for more than a decade can be verified against external sources.\",\"search_query\":\"coverage gaps CEBHI Saudi Arabia\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Coverage gaps caused by firms with less than ten employees for more than a decade can be verified against external sources.",
+          "search_query": "coverage gaps CEBHI Saudi Arabia",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 15448,
+      "tokens": 68,
+      "promptTokens": 524,
+      "prefillMs": 7986,
+      "decodeMs": 7416,
+      "decodeTokensPerSec": 9.169363538295576,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-030",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence asserts that the same structural problem might be facing pre-enforcement settings such as Oman, which would require checking against external sources.\",\"search_query\":\"structural problem Oman pre-enforcement settings\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "hedged_speculation"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence asserts that the same structural problem might be facing pre-enforcement settings such as Oman, which would require checking against external sources.",
+          "search_query": "structural problem Oman pre-enforcement settings",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 16762,
+      "tokens": 73,
+      "promptTokens": 505,
+      "prefillMs": 8072,
+      "decodeMs": 8643,
+      "decodeTokensPerSec": 8.44614138609279,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-031",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":null,\"reason\":\"The sentence describes a known fact about the Omani Health System and does not assert anything that would require verification from an external source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence describes a known fact about the Omani Health System and does not assert anything that would require verification from an external source.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": null
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 15544,
+      "tokens": 64,
+      "promptTokens": 521,
+      "prefillMs": 8419,
+      "decodeMs": 7087,
+      "decodeTokensPerSec": 9.03061944405249,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-032",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"A percentage of the labour force can be verified against external sources, such as government statistics or labor force surveys.\",\"search_query\":\"percentage of non-nationals in Omani private sector labour force\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A percentage of the labour force can be verified against external sources, such as government statistics or labor force surveys.",
+          "search_query": "percentage of non-nationals in Omani private sector labour force",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 17287,
+      "tokens": 73,
+      "promptTokens": 515,
+      "prefillMs": 8595,
+      "decodeMs": 8645,
+      "decodeTokensPerSec": 8.444187391555813,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-033",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Dhamani is a specific platform name and its establishment under a resolution requires verification from an external source.\",\"search_query\":\"Dhamani platform establishment Capital Market Authority Resolution 78/2019\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Dhamani is a specific platform name and its establishment under a resolution requires verification from an external source.",
+          "search_query": "Dhamani platform establishment Capital Market Authority Resolution 78/2019",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 18512,
+      "tokens": 77,
+      "promptTokens": 546,
+      "prefillMs": 8839,
+      "decodeMs": 9624,
+      "decodeTokensPerSec": 8.000831255195344,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-034",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"The sentence asserts a requirement of the Dhamani Scheme, which would need to be verified against an external source.\",\"search_query\":\"Dhamani Scheme private-sector insurance requirements\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence asserts a requirement of the Dhamani Scheme, which would need to be verified against an external source.",
+          "search_query": "Dhamani Scheme private-sector insurance requirements",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 17306,
+      "tokens": 69,
+      "promptTokens": 518,
+      "prefillMs": 8330,
+      "decodeMs": 8940,
+      "decodeTokensPerSec": 7.718120805369128,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-035",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"The sentence asserts specific financial limits for different health services, which would be checked against official sources or documents related to the Dhamani Scheme.\",\"search_query\":\"Dhamani Scheme financial limits OMR 3000 OMR 4500\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence asserts specific financial limits for different health services, which would be checked against official sources or documents related to the Dhamani Scheme.",
+          "search_query": "Dhamani Scheme financial limits OMR 3000 OMR 4500",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": true
+      },
+      "retried": false,
+      "elapsedMs": 20344,
+      "tokens": 86,
+      "promptTokens": 563,
+      "prefillMs": 9089,
+      "decodeMs": 11198,
+      "decodeTokensPerSec": 7.679942846936953,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-036",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"A reader would need to verify the existence and capabilities of Dhamani's digital architecture.\",\"search_query\":\"Dhamani digital architecture capabilities\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A reader would need to verify the existence and capabilities of Dhamani's digital architecture.",
+          "search_query": "Dhamani digital architecture capabilities",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": true,
+        "severity": false
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 4 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 16385,
+      "tokens": 63,
+      "promptTokens": 535,
+      "prefillMs": 8657,
+      "decodeMs": 7688,
+      "decodeTokensPerSec": 8.194588969823101,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-037",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":null,\"reason\":\"The sentence describes a scheme's challenges without asserting a specific fact or number that would require verification from an external source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence describes a scheme's challenges without asserting a specific fact or number that would require verification from an external source.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": null
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 16186,
+      "tokens": 61,
+      "promptTokens": 504,
+      "prefillMs": 8599,
+      "decodeMs": 7543,
+      "decodeTokensPerSec": 8.08696804984754,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-038",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"phased implementation, digital infrastructure, and targeted SME support were all necessary for broad employer compliance but not individually sufficient\",\"search_query\":\"phased implementation digital infrastructure targeted SME support broad employer compliance\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "interpretation"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "phased implementation, digital infrastructure, and targeted SME support were all necessary for broad employer compliance but not individually sufficient",
+          "search_query": "phased implementation digital infrastructure targeted SME support broad employer compliance",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 19301,
+      "tokens": 73,
+      "promptTokens": 517,
+      "prefillMs": 9574,
+      "decodeMs": 9680,
+      "decodeTokensPerSec": 7.541322314049587,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-039",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"To document formal employer health-insurance provision rates and associated firm characteristics across a pre-enforcement sample of Omani private-sector firms. Would be checked against someone else's research on Omani private-sector firms and health insurance rates.\",\"search_query\":\"Omani private-sector firms health insurance rates\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "To document formal employer health-insurance provision rates and associated firm characteristics across a pre-enforcement sample of Omani private-sector firms. Would be checked against someone else's research on Omani private-sector firms and health insurance rates.",
+          "search_query": "Omani private-sector firms health insurance rates",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 34 words; the limit is 25"
+      ],
+      "elapsedMs": 21018,
+      "tokens": 91,
+      "promptTokens": 514,
+      "prefillMs": 8718,
+      "decodeMs": 12245,
+      "decodeTokensPerSec": 7.431604736627195,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-040",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"A reader would need to verify if there are firm structural factors independently associated with formal health-insurance provision, and against whom these factors were tested.\",\"search_query\":\"firm structural factors independently associated with formal health-insurance provision\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A reader would need to verify if there are firm structural factors independently associated with formal health-insurance provision, and against whom these factors were tested.",
+          "search_query": "firm structural factors independently associated with formal health-insurance provision",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 19522,
+      "tokens": 79,
+      "promptTokens": 510,
+      "prefillMs": 8699,
+      "decodeMs": 10769,
+      "decodeTokensPerSec": 7.335871482960349,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-041",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"method_borrowed\",\"severity\":\"high\",\"reason\":\"The sentence asserts a specific statistical method (bootstrapped indirect effect) used to test a hypothesis, which would require checking against a source.\",\"search_query\":\"bootstrapped indirect effect organizational resource capacity firm size formal provision\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence asserts a specific statistical method (bootstrapped indirect effect) used to test a hypothesis, which would require checking against a source.",
+          "search_query": "bootstrapped indirect effect organizational resource capacity firm size formal provision",
+          "sentence_type": "method_borrowed",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 19869,
+      "tokens": 80,
+      "promptTokens": 520,
+      "prefillMs": 8910,
+      "decodeMs": 10910,
+      "decodeTokensPerSec": 7.332722273143904,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-042",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Firm structural factors (size, sector, ownership) are independently associated with formal health-insurance provision after adjustment for organisational resource capacity.\",\"search_query\":\"firm structural factors association formal health-insurance provision\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Firm structural factors (size, sector, ownership) are independently associated with formal health-insurance provision after adjustment for organisational resource capacity.",
+          "search_query": "firm structural factors association formal health-insurance provision",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 19134,
+      "tokens": 76,
+      "promptTokens": 518,
+      "prefillMs": 8867,
+      "decodeMs": 10221,
+      "decodeTokensPerSec": 7.4356716563936995,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-043",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"definition\",\"severity\":\"high\",\"reason\":\"Formal employer-provided health-insurance provision was coded 1 if the firm formally enrolled employees in a registered health-insurance product (through Dhamani or an equivalent licensed insurer) and 0 otherwise. This assertion can be checked against the operationalization and coding methodology provided by the authors.\",\"search_query\":\"Formal employer-provided health-insurance provision coding methodology\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Formal employer-provided health-insurance provision was coded 1 if the firm formally enrolled employees in a registered health-insurance product (through Dhamani or an equivalent licensed insurer) and 0 otherwise. This assertion can be checked against the operationalization and coding methodology provided by the authors.",
+          "search_query": "Formal employer-provided health-insurance provision coding methodology",
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 43 words; the limit is 25"
+      ],
+      "elapsedMs": 23533,
+      "tokens": 107,
+      "promptTokens": 528,
+      "prefillMs": 8860,
+      "decodeMs": 14610,
+      "decodeTokensPerSec": 7.323750855578371,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-044",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"definition\",\"severity\":\"high\",\"reason\":\"Informal reimbursements or ad hoc health allowances are coded 0, as these do not constitute formal insurance under the Dhamani framework. The definition of 'formal insurance' and the criteria for coding as 0 would need to be checked against the Dhamani framework documentation or other sources.\",\"search_query\":\"Dhamani framework formal insurance reimbursement\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Informal reimbursements or ad hoc health allowances are coded 0, as these do not constitute formal insurance under the Dhamani framework. The definition of 'formal insurance' and the criteria for coding as 0 would need to be checked against the Dhamani framework documentation or other sources.",
+          "search_query": "Dhamani framework formal insurance reimbursement",
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 46 words; the limit is 25",
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 27631,
+      "tokens": 104,
+      "promptTokens": 514,
+      "prefillMs": 9087,
+      "decodeMs": 18473,
+      "decodeTokensPerSec": 5.629838142153414,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-045",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"definition\",\"severity\":\"low\",\"reason\":\"The sentence describes operationalization of variables, which is an author's own method.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence describes operationalization of variables, which is an author's own method.",
+          "search_query": null,
+          "sentence_type": "definition",
+          "severity": "low"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 5995,
+      "tokens": 53,
+      "promptTokens": 500,
+      "prefillMs": 3016,
+      "decodeMs": 2938,
+      "decodeTokensPerSec": 18.03948264125255,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-046",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"method_borrowed\",\"severity\":null,\"reason\":\"The sentence describes a methodological choice (entering industry sector as nominal dummies with a reference category) and does not assert a claim that would require verification from an external source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence describes a methodological choice (entering industry sector as nominal dummies with a reference category) and does not assert a claim that would require verification from an external source.",
+          "search_query": null,
+          "sentence_type": "method_borrowed",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 30 words; the limit is 25"
+      ],
+      "elapsedMs": 7006,
+      "tokens": 75,
+      "promptTokens": 501,
+      "prefillMs": 2935,
+      "decodeMs": 4024,
+      "decodeTokensPerSec": 18.63817097415507,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-047",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"definition\",\"severity\":\"high\",\"reason\":\"Ownership coded as nationally owned versus internationally owned or subsidiary would be checked against someone else's work or data.\",\"search_query\":\"ownership coding nationally owned internationally owned subsidiary\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Ownership coded as nationally owned versus internationally owned or subsidiary would be checked against someone else's work or data.",
+          "search_query": "ownership coding nationally owned internationally owned subsidiary",
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6438,
+      "tokens": 65,
+      "promptTokens": 501,
+      "prefillMs": 2916,
+      "decodeMs": 3485,
+      "decodeTokensPerSec": 18.65136298421808,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-048",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"definition\",\"severity\":null,\"reason\":\"The sentence describes a method of operationalization and does not assert a fact or number that would require verification against an external source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence describes a method of operationalization and does not assert a fact or number that would require verification against an external source.",
+          "search_query": null,
+          "sentence_type": "definition",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6347,
+      "tokens": 61,
+      "promptTokens": 520,
+      "prefillMs": 3025,
+      "decodeMs": 3284,
+      "decodeTokensPerSec": 18.574908647990256,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-049",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"definition\",\"severity\":\"high\",\"reason\":\"Dimension 1: Administrative capacity (4 items). Would require checking against an external source to verify the specific items.\",\"search_query\":\"Dimension 1: Administrative capacity (4 items) variables operationalisation\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Dimension 1: Administrative capacity (4 items). Would require checking against an external source to verify the specific items.",
+          "search_query": "Dimension 1: Administrative capacity (4 items) variables operationalisation",
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6819,
+      "tokens": 73,
+      "promptTokens": 496,
+      "prefillMs": 2909,
+      "decodeMs": 3863,
+      "decodeTokensPerSec": 18.897230132021743,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-050",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"definition\",\"severity\":\"high\",\"reason\":\"A reader would need to verify the specific operationalization of 'firm’s self-reported ability' and the processes involved in insurance enrolment, documentation, and communication.\",\"search_query\":\"firm self-reported ability insurance enrolment documentation communication\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A reader would need to verify the specific operationalization of 'firm’s self-reported ability' and the processes involved in insurance enrolment, documentation, and communication.",
+          "search_query": "firm self-reported ability insurance enrolment documentation communication",
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7219,
+      "tokens": 78,
+      "promptTokens": 515,
+      "prefillMs": 2998,
+      "decodeMs": 4172,
+      "decodeTokensPerSec": 18.696069031639503,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-051",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"common_knowledge\",\"severity\":null,\"reason\":\"A fact about the world, such as the existence of a designated member of staff, would be checked against someone else's work.\",\"search_query\":\"designated member of staff overseeing employee insurance enrolment\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A fact about the world, such as the existence of a designated member of staff, would be checked against someone else's work.",
+          "search_query": "designated member of staff overseeing employee insurance enrolment",
+          "sentence_type": "common_knowledge",
+          "severity": null
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "severity: is absent while needs_citation is true; the prompt excuses it only when needs_citation is false"
+      ],
+      "elapsedMs": 6578,
+      "tokens": 68,
+      "promptTokens": 508,
+      "prefillMs": 2927,
+      "decodeMs": 3613,
+      "decodeTokensPerSec": 18.820924439523942,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-052",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"A reader would need to verify if the payroll or HR systems can process regular insurance premium payments without significant modification, which is an assertion about a specific capability of systems.\",\"search_query\":\"payroll systems process insurance premium payments\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A reader would need to verify if the payroll or HR systems can process regular insurance premium payments without significant modification, which is an assertion about a specific capability of systems.",
+          "search_query": "payroll systems process insurance premium payments",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 31 words; the limit is 25"
+      ],
+      "elapsedMs": 7194,
+      "tokens": 79,
+      "promptTokens": 505,
+      "prefillMs": 2951,
+      "decodeMs": 4196,
+      "decodeTokensPerSec": 18.82745471877979,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-053",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"A claim about the ability to communicate effectively with insurance providers or third-party administrators would be checked against someone else's work or data.\",\"search_query\":\"firm communication ability insurance providers third-party administrators\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A claim about the ability to communicate effectively with insurance providers or third-party administrators would be checked against someone else's work or data.",
+          "search_query": "firm communication ability insurance providers third-party administrators",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6814,
+      "tokens": 73,
+      "promptTokens": 505,
+      "prefillMs": 2909,
+      "decodeMs": 3864,
+      "decodeTokensPerSec": 18.892339544513458,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-054",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"A claim about administrative capacity and its relation to routine operations would be checked against external sources or industry standards.\",\"search_query\":\"administrative capacity health-insurance compliance routine operations\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A claim about administrative capacity and its relation to routine operations would be checked against external sources or industry standards.",
+          "search_query": "administrative capacity health-insurance compliance routine operations",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6658,
+      "tokens": 69,
+      "promptTokens": 507,
+      "prefillMs": 2958,
+      "decodeMs": 3655,
+      "decodeTokensPerSec": 18.87824897400821,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-055",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"definition\",\"severity\":\"high\",\"reason\":\"Financial affordability (4 items) — would be checked against a source for the specific items and their operationalization.\",\"search_query\":\"Dimension 2 Financial affordability items operationalization\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Financial affordability (4 items) — would be checked against a source for the specific items and their operationalization.",
+          "search_query": "Dimension 2 Financial affordability items operationalization",
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6456,
+      "tokens": 67,
+      "promptTokens": 496,
+      "prefillMs": 2884,
+      "decodeMs": 3531,
+      "decodeTokensPerSec": 18.974794675729253,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-056",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"A claim about financial capability and cash flow, verifiable against financial records or industry standards.\",\"search_query\":\"monthly cash flow health-insurance premiums operationalisation\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A claim about financial capability and cash flow, verifiable against financial records or industry standards.",
+          "search_query": "monthly cash flow health-insurance premiums operationalisation",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6470,
+      "tokens": 66,
+      "promptTokens": 509,
+      "prefillMs": 2923,
+      "decodeMs": 3511,
+      "decodeTokensPerSec": 18.798063229849046,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-057",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence asserts a claim about a firm's ability to absorb health-insurance costs without reducing other benefits, which could be checked against external sources.\",\"search_query\":\"firm ability to absorb health-insurance costs employee benefits\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence asserts a claim about a firm's ability to absorb health-insurance costs without reducing other benefits, which could be checked against external sources.",
+          "search_query": "firm ability to absorb health-insurance costs employee benefits",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7140,
+      "tokens": 78,
+      "promptTokens": 507,
+      "prefillMs": 2955,
+      "decodeMs": 4140,
+      "decodeTokensPerSec": 18.84057971014493,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-058",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"A reader would need to verify if legally required and the financial ability of the firm to provide health insurance coverage.\",\"search_query\":\"legally required health insurance coverage financial ability firm\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A reader would need to verify if legally required and the financial ability of the firm to provide health insurance coverage.",
+          "search_query": "legally required health insurance coverage financial ability firm",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6699,
+      "tokens": 70,
+      "promptTokens": 510,
+      "prefillMs": 2936,
+      "decodeMs": 3725,
+      "decodeTokensPerSec": 18.79194630872483,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-059",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"prior_work\",\"severity\":\"high\",\"reason\":\"FA4 asserts that the firm has access to financial reserves or credit, which could be drawn on to meet new insurance obligations. This is a claim about the firm's financial position and resources, which would need to be verified against the firm's financial records or disclosures.\",\"search_query\":\"firm financial reserves credit insurance obligations\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "FA4 asserts that the firm has access to financial reserves or credit, which could be drawn on to meet new insurance obligations. This is a claim about the firm's financial position and resources, which would need to be verified against the firm's financial records or disclosures.",
+          "search_query": "firm financial reserves credit insurance obligations",
+          "sentence_type": "prior_work",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 46 words; the limit is 25"
+      ],
+      "elapsedMs": 8118,
+      "tokens": 97,
+      "promptTokens": 512,
+      "prefillMs": 2863,
+      "decodeMs": 5192,
+      "decodeTokensPerSec": 18.682588597842834,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-060",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"A number (Cronbach's alpha values) taken from elsewhere would be checked and against the source of these values.\",\"search_query\":\"Cronbach's alpha values for administrative capacity and financial affordability dimensions\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A number (Cronbach's alpha values) taken from elsewhere would be checked and against the source of these values.",
+          "search_query": "Cronbach's alpha values for administrative capacity and financial affordability dimensions",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7172,
+      "tokens": 75,
+      "promptTokens": 529,
+      "prefillMs": 3044,
+      "decodeMs": 4079,
+      "decodeTokensPerSec": 18.386859524393234,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-061",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"The complete item wording and factor loadings are from a confirmatory factor analysis which is provided in Supplementary Tables S1 and S2. A reader would need to check these details in the supplementary materials.\",\"search_query\":\"Supplementary Tables S1 and S2 complete item wording factor loadings\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The complete item wording and factor loadings are from a confirmatory factor analysis which is provided in Supplementary Tables S1 and S2. A reader would need to check these details in the supplementary materials.",
+          "search_query": "Supplementary Tables S1 and S2 complete item wording factor loadings",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 34 words; the limit is 25"
+      ],
+      "elapsedMs": 9615,
+      "tokens": 92,
+      "promptTokens": 517,
+      "prefillMs": 3044,
+      "decodeMs": 6374,
+      "decodeTokensPerSec": 14.4336366488861,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-062",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"definition\",\"severity\":\"high\",\"reason\":\"A reader would need to verify the specific operationalization of these variables used by the authors.\",\"search_query\":\"Firm's self-reported ability to manage insurance enrolment, process required documentation, and communicate effectively with insurers or TPAs operationalization\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A reader would need to verify the specific operationalization of these variables used by the authors.",
+          "search_query": "Firm's self-reported ability to manage insurance enrolment, process required documentation, and communicate effectively with insurers or TPAs operationalization",
+          "sentence_type": "definition",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 18 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 7423,
+      "tokens": 81,
+      "promptTokens": 511,
+      "prefillMs": 2986,
+      "decodeMs": 4382,
+      "decodeTokensPerSec": 18.484710178000913,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-063",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"A reader would need to verify if 'perceived ability' is a fact about the world or a number taken from elsewhere.\",\"search_query\":\"perceived ability to pay insurance premiums\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A reader would need to verify if 'perceived ability' is a fact about the world or a number taken from elsewhere.",
+          "search_query": "perceived ability to pay insurance premiums",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6806,
+      "tokens": 71,
+      "promptTokens": 503,
+      "prefillMs": 2963,
+      "decodeMs": 3797,
+      "decodeTokensPerSec": 18.698972873321043,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-064",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":false,\"sentence_type\":\"common_knowledge\",\"severity\":null,\"reason\":\"The sentence is a descriptive term and does not assert a specific fact or number that would require verification against an external source.\",\"search_query\":null}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": false,
+          "reason": "The sentence is a descriptive term and does not assert a specific fact or number that would require verification against an external source.",
+          "search_query": null,
+          "sentence_type": "common_knowledge",
+          "severity": null
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6232,
+      "tokens": 62,
+      "promptTokens": 497,
+      "prefillMs": 2892,
+      "decodeMs": 3308,
+      "decodeTokensPerSec": 18.742442563482467,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-065",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"common_knowledge\",\"severity\":\"low\",\"reason\":\"Supplementary Table S1 would be checked against the supplementary materials of the same paper.\",\"search_query\":\"Supplementary Table S1 variables operationalisation\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Supplementary Table S1 would be checked against the supplementary materials of the same paper.",
+          "search_query": "Supplementary Table S1 variables operationalisation",
+          "sentence_type": "common_knowledge",
+          "severity": "low"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "search_query: is 5 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 6325,
+      "tokens": 64,
+      "promptTokens": 495,
+      "prefillMs": 2881,
+      "decodeMs": 3401,
+      "decodeTokensPerSec": 18.817994707438988,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-066",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"Supplementary Table S2 would be checked to verify the confirmatory factor analysis and the two-factor structure.\",\"search_query\":\"Supplementary Table S2 confirmatory factor analysis two-factor structure\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Supplementary Table S2 would be checked to verify the confirmatory factor analysis and the two-factor structure.",
+          "search_query": "Supplementary Table S2 confirmatory factor analysis two-factor structure",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 6836,
+      "tokens": 71,
+      "promptTokens": 501,
+      "prefillMs": 2904,
+      "decodeMs": 3887,
+      "decodeTokensPerSec": 18.266014921533316,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-067",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"prior_work\",\"severity\":\"high\",\"reason\":\"A pre-implementation survey of 222 Omani private-sector employers reveals three key trends. This is a claim about a specific finding from a study, which would need to be verified against the original source.\",\"search_query\":\"Pre-implementation survey of 222 Omani private-sector employers three key trends\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A pre-implementation survey of 222 Omani private-sector employers reveals three key trends. This is a claim about a specific finding from a study, which would need to be verified against the original source.",
+          "search_query": "Pre-implementation survey of 222 Omani private-sector employers three key trends",
+          "sentence_type": "prior_work",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 33 words; the limit is 25"
+      ],
+      "elapsedMs": 8277,
+      "tokens": 98,
+      "promptTokens": 508,
+      "prefillMs": 2974,
+      "decodeMs": 5243,
+      "decodeTokensPerSec": 18.69158878504673,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-068",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"A statistic (Cramér’s V = 0.573) and percentages (10.8% and 81.0%) are provided, which would be checked against the original study.\",\"search_query\":\"Cramér’s V = 0.573 health insurance firm size\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "A statistic (Cramér’s V = 0.573) and percentages (10.8% and 81.0%) are provided, which would be checked against the original study.",
+          "search_query": "Cramér’s V = 0.573 health insurance firm size",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8423,
+      "tokens": 97,
+      "promptTokens": 540,
+      "prefillMs": 3087,
+      "decodeMs": 5268,
+      "decodeTokensPerSec": 18.413059984813973,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-069",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"Insurance compliance is shaped by fixed costs that are found to be in line with a seven-fold gradient.\",\"search_query\":\"Insurance compliance fixed costs seven-fold gradient\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": true,
+          "sentence_type": "empirical_claim",
+          "severity": "medium"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Insurance compliance is shaped by fixed costs that are found to be in line with a seven-fold gradient.",
+          "search_query": "Insurance compliance fixed costs seven-fold gradient",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": true,
+        "sentenceType": false,
+        "severity": false
+      },
+      "retried": false,
+      "elapsedMs": 6410,
+      "tokens": 65,
+      "promptTokens": 509,
+      "prefillMs": 2922,
+      "decodeMs": 3451,
+      "decodeTokensPerSec": 18.83512025499855,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-070",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"30.3% of the total size-provision association and the indirect effect of 0.413 need to be checked against someone else's work.\",\"search_query\":\"mediation analysis, organizational resources, total size-provision association, indirect effect, bias-corrected 95% CI\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "30.3% of the total size-provision association and the indirect effect of 0.413 need to be checked against someone else's work.",
+          "search_query": "mediation analysis, organizational resources, total size-provision association, indirect effect, bias-corrected 95% CI",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 8543,
+      "tokens": 96,
+      "promptTokens": 549,
+      "prefillMs": 3243,
+      "decodeMs": 5243,
+      "decodeTokensPerSec": 18.31012778943353,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-071",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence asserts that the main-model associations are consistent and not artefacts of data sparsity, which would require checking against the Firth sensitivity analysis results.\",\"search_query\":\"Firth sensitivity analysis main-model associations consistency\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence asserts that the main-model associations are consistent and not artefacts of data sparsity, which would require checking against the Firth sensitivity analysis results.",
+          "search_query": "Firth sensitivity analysis main-model associations consistency",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7320,
+      "tokens": 78,
+      "promptTokens": 534,
+      "prefillMs": 3065,
+      "decodeMs": 4202,
+      "decodeTokensPerSec": 18.562589243217516,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-072",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"The sentence presents statistical results (ROC AUC and Hosmer–Lemeshow p value) that would be checked against published studies or data.\",\"search_query\":\"ROC AUC, Hosmer–Lemeshow p value, model discrimination, calibration\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "author_own_result"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence presents statistical results (ROC AUC and Hosmer–Lemeshow p value) that would be checked against published studies or data.",
+          "search_query": "ROC AUC, Hosmer–Lemeshow p value, model discrimination, calibration",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7888,
+      "tokens": 87,
+      "promptTokens": 542,
+      "prefillMs": 3097,
+      "decodeMs": 4741,
+      "decodeTokensPerSec": 18.350558953807216,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-073",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"Cramér’s V = 0.573 is a statistic taken from elsewhere and would be checked against a source.\",\"search_query\":\"Cramér’s V statistic, size gradient, firm size enrollment\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "interpretation"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Cramér’s V = 0.573 is a statistic taken from elsewhere and would be checked against a source.",
+          "search_query": "Cramér’s V statistic, size gradient, firm size enrollment",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7309,
+      "tokens": 77,
+      "promptTokens": 531,
+      "prefillMs": 3064,
+      "decodeMs": 4201,
+      "decodeTokensPerSec": 18.328969293025473,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-074",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"empirical_claim\",\"severity\":\"high\",\"reason\":\"Enforcing the mandate first among large and medium firms to reduce initial compliance friction can be verified against existing policy and compliance data.\",\"search_query\":\"policy enforcement compliance friction large medium firms\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "interpretation"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "Enforcing the mandate first among large and medium firms to reduce initial compliance friction can be verified against existing policy and compliance data.",
+          "search_query": "policy enforcement compliance friction large medium firms",
+          "sentence_type": "empirical_claim",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 7075,
+      "tokens": 71,
+      "promptTokens": 518,
+      "prefillMs": 3207,
+      "decodeMs": 3826,
+      "decodeTokensPerSec": 18.5572399372713,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-075",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"69.6% barrier rate for premium costs, 29.8% co-occurrence of cost and mandate barriers, and 84.2% expressing interest in group plans are numbers that would be checked against someone else's work.\",\"search_query\":\"69.6% barrier rate for premium costs, 29.8% co-occurrence of cost and mandate barriers, 84.2% expressing interest in group plans\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "interpretation"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "69.6% barrier rate for premium costs, 29.8% co-occurrence of cost and mandate barriers, and 84.2% expressing interest in group plans are numbers that would be checked against someone else's work.",
+          "search_query": "69.6% barrier rate for premium costs, 29.8% co-occurrence of cost and mandate barriers, 84.2% expressing interest in group plans",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "advisories": [
+        "reason: is 30 words; the limit is 25",
+        "search_query: is 19 words; the spec requires 6-12 keywords"
+      ],
+      "elapsedMs": 16677,
+      "tokens": 127,
+      "promptTokens": 540,
+      "prefillMs": 3139,
+      "decodeMs": 13455,
+      "decodeTokensPerSec": 9.438870308435526,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    },
+    {
+      "id": "cn-label-076",
+      "outcome": "ok",
+      "raw": "{\"needs_citation\":true,\"sentence_type\":\"statistic\",\"severity\":\"high\",\"reason\":\"The sentence asserts a specific number (31.51) and a percentage (21.3%) which would need to be verified against an external source.\",\"search_query\":\"capacity AOR 31.51 non-insuring firms awareness gaps\"}",
+      "scored": {
+        "expected": {
+          "needs_citation": false,
+          "sentence_type": "interpretation"
+        },
+        "got": {
+          "needs_citation": true,
+          "reason": "The sentence asserts a specific number (31.51) and a percentage (21.3%) which would need to be verified against an external source.",
+          "search_query": "capacity AOR 31.51 non-insuring firms awareness gaps",
+          "sentence_type": "statistic",
+          "severity": "high"
+        },
+        "needsCitation": false,
+        "sentenceType": false,
+        "severity": null
+      },
+      "retried": false,
+      "elapsedMs": 9919,
+      "tokens": 86,
+      "promptTokens": 531,
+      "prefillMs": 3554,
+      "decodeMs": 6232,
+      "decodeTokensPerSec": 13.7997432605905,
+      "stopReasons": [
+        "endOfTurn"
+      ],
+      "truncated": false
+    }
+  ]
+}

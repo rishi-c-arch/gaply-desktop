@@ -30,7 +30,15 @@ use std::io::{Read, Write};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-const TARGET_CASES: usize = 50;
+/// The per-stratum floor the eval guard enforces (§11 D126), mirrored here so a
+/// labelling session shows PROGRESS TOWARD THE THING THAT GATES A NUMBER.
+///
+/// This replaces a flat `TARGET_CASES = 50`, which predated the stratified
+/// design and had gone stale in the worst way: it read "reached 50 cases /
+/// target 50" while the own-work stratum held 1 case and no rate could be
+/// computed at all. A progress bar against a target nobody needs is worse than
+/// none — it reports success at the moment the work is least finished.
+const MIN_PER_STRATUM: usize = 10;
 
 /// How a label came to exist. Written on every case this tool produces, because
 /// the three kinds are NOT interchangeable when scoring (§11 D75).
@@ -198,6 +206,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             positional.push(a);
         }
     }
+    // AN UNKNOWN FLAG IS AN ERROR, NEVER A NO-OP.
+    //
+    // A stale binary predating a flag ignored `--section-exact` and labelled
+    // the whole document unfiltered — 190 candidates starting at the title
+    // page instead of the 31 in the requested section. Nothing said so; the
+    // run looked normal. Silence is the worst possible response to an
+    // instruction that cannot be honoured, and it is indistinguishable from
+    // the flag having worked.
+    const KNOWN: &[&str] = &[
+        "--with-neighbours",
+        "--all",
+        "--suggest",
+        "--section",
+        "--section-exact",
+        "--population",
+        "--declare-only",
+        "--list-sections",
+    ];
+    if let Some(bad) = args.iter().skip(1).find(|a| a.starts_with("--") && !KNOWN.contains(&a.as_str()))
+    {
+        return Err(format!(
+            "unknown flag {bad:?}. Known flags: {}. (If you expected this one to exist, the \
+             binary may predate it — rebuild.)",
+            KNOWN.join(" ")
+        )
+        .into());
+    }
+
     let manuscript = positional.first().copied().ok_or(
         "usage: label-cn <manuscript> [--with-neighbours] [--all] [--suggest] \
          [--section <substring>] [--population prior_work|own_work]",
@@ -244,6 +280,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // sampled — the population's mix still needs them classified, and walking
     // an interactive labelling loop to declare one is friction with no product.
     let declare_only = args.iter().any(|a| a == "--declare-only");
+    // What the PRE-PASS actually assigns, with the candidate count for each —
+    // so a section can be targeted by a name that exists rather than one that
+    // seems likely. Asking the tool beats reading the document.
+    let list_sections = args.iter().any(|a| a == "--list-sections");
     let with_neighbours = args.iter().any(|a| a == "--with-neighbours");
     // By default only UNCITED sentences: those are the ones the audit routes to
     // citation_need. A sentence that already carries a marker is a
@@ -268,6 +308,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // does not re-ask what was already answered.
     let existing_raw = std::fs::read_to_string(out_path)?;
     let mut done: std::collections::HashSet<String> = Default::default();
+    let mut cold_cases: Vec<(String, String)> = Vec::new();
     let mut total_cases = 0usize;
     let mut max_label = 0usize;
     for line in existing_raw.lines().filter(|l| !l.trim().is_empty()) {
@@ -280,6 +321,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(n) = id.strip_prefix("cn-label-").and_then(|n| n.parse::<usize>().ok()) {
                 max_label = max_label.max(n);
             }
+        }
+        if v["labelling"]["provenance"].as_str() == Some(PROVENANCE_COLD) {
+            cold_cases.push((
+                v["labelling"]["document"].as_str().unwrap_or_default().to_string(),
+                v["input"]["section"].as_str().unwrap_or_default().to_string(),
+            ));
         }
     }
 
@@ -356,6 +403,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    if list_sections {
+        let mut rows: std::collections::BTreeMap<&str, (usize, usize, usize)> = Default::default();
+        for p in &pre.planned {
+            let e = rows.entry(p.section.as_deref().unwrap_or("")).or_default();
+            e.0 += 1;
+            if p.markers.is_empty() && !done.contains(p.sentence.trim()) {
+                e.1 += 1;
+            }
+            // The AUTHORS' OWN markers. A section where they cited things is a
+            // section where citing is expected — which is the evidence for
+            // where genuine positive labels live, rather than a guess from the
+            // heading.
+            if !p.markers.is_empty() {
+                e.2 += 1;
+            }
+        }
+        println!("\x1b[1m{}\x1b[0m — {} planned sentences", manuscript, pre.planned.len());
+        println!("{:>7}  {:>8}  {:>10}  section", "planned", "cited", "to label");
+        for (name, (planned, todo, cited)) in &rows {
+            let shown = if name.is_empty() { "(no section — title page)" } else { name };
+            println!("{planned:>7}  {cited:>8}  {todo:>10}  {shown}");
+        }
+        println!("\n(\"to label\" = uncited and not yet in the case file; --all includes cited)");
+        return Ok(());
+    }
+
     println!("\x1b[1m{}\x1b[0m", manuscript);
     println!(
         "{} planned sentences, {} unlabelled {}",
@@ -363,9 +436,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         candidates.len(),
         if include_cited { "(all)" } else { "(uncited only; --all for every one)" }
     );
+    // WHERE THE SET STANDS AGAINST THE THING THAT GATES A NUMBER — per
+    // stratum, read through the same (document, section) map the eval guard
+    // uses, so the two can never disagree about what has been labelled.
+    let stratum_of = |doc: &str, section: &str| -> Option<String> {
+        let mix: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(MIX_PATH).ok()?).ok()?;
+        mix.get(doc)?["sections"][section]["population"].as_str().map(str::to_string)
+    };
+    let mut by_stratum: std::collections::BTreeMap<String, usize> = Default::default();
+    for (doc, section) in &cold_cases {
+        let key = stratum_of(doc, section).unwrap_or_else(|| "(undeclared)".to_string());
+        *by_stratum.entry(key).or_default() += 1;
+    }
+    let status = |b: &std::collections::BTreeMap<String, usize>| {
+        let mut parts: Vec<String> = ["prior_work", "own_work"]
+            .iter()
+            .map(|k| {
+                let n = b.get(*k).copied().unwrap_or(0);
+                let short = MIN_PER_STRATUM.saturating_sub(n);
+                if short == 0 {
+                    format!("{k} {n} \u{2713}")
+                } else {
+                    format!("{k} {n} (need {short} more)")
+                }
+            })
+            .collect();
+        if let Some(n) = b.get("(undeclared)") {
+            parts.push(format!("undeclared section {n}"));
+        }
+        parts.join("  ·  ")
+    };
     println!(
-        "case file: {} cases  ->  target {TARGET_CASES}\n",
-        total_cases
+        "case file: {} cases, {} cold  ·  floor {MIN_PER_STRATUM} per stratum: {}\n",
+        total_cases,
+        cold_cases.len(),
+        status(&by_stratum),
     );
     if candidates.is_empty() {
         println!("nothing left to label.");
@@ -423,10 +529,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         println!("\x1b[2m─────────────────────────────────────────────────────────\x1b[0m");
         println!(
-            "\x1b[2m{} of {} unlabelled   ·   case file {} / {TARGET_CASES}\x1b[0m",
+            "\x1b[2m{} of {} unlabelled   ·   case file {}   ·   {}\x1b[0m",
             i + 1,
             candidates.len(),
-            total_cases + added
+            total_cases + added,
+            status(&by_stratum),
         );
         println!(
             "\x1b[36m{}\x1b[0m \x1b[2m·\x1b[0m \x1b[36m{}\x1b[0m",
@@ -647,15 +754,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         added += 1;
         println!();
 
-        if total_cases + added >= TARGET_CASES {
-            println!("\x1b[1m  reached {TARGET_CASES} cases.\x1b[0m Keep going or press q.\n");
+        // Count THIS case into its stratum as it is written, so the header
+        // above reflects the session rather than its starting state.
+        let key = stratum_of(&doc_name, p.section.as_deref().unwrap_or(""))
+            .unwrap_or_else(|| "(undeclared)".to_string());
+        *by_stratum.entry(key.clone()).or_default() += 1;
+        if by_stratum.get(&key).copied().unwrap_or(0) == MIN_PER_STRATUM {
+            println!(
+                "\x1b[1m  {key} has reached the floor of {MIN_PER_STRATUM}.\x1b[0m \
+                 Keep going or press q.\n"
+            );
         }
     }
 
     println!("\x1b[2m─────────────────────────────────────────────────────────\x1b[0m");
     println!(
-        "\x1b[1madded {added}\x1b[0m  ·  case file now {} / {TARGET_CASES}",
-        total_cases + added
+        "\x1b[1madded {added}\x1b[0m  ·  case file now {}  ·  {}",
+        total_cases + added,
+        status(&by_stratum),
     );
     println!("written to {}", out_path.display());
     Ok(())

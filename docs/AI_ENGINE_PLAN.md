@@ -7337,3 +7337,184 @@ Same rule as D124 and D125, a third time: **the check has to be on the property
 the number depends on, not on a proxy that is easier to count.** A floor counts
 cases. A mix comparison counts sections. Only recomputation checks the
 arithmetic that produced the figure a researcher reads.
+
+#### TWO STRATA, DELIBERATELY — and what would change that
+
+The own-work stratum is **visibly bimodal**, and not by intuition: by the
+authors' own citation markers, counted per section by `label-cn --list-sections`
+on the health-economics paper.
+
+| own-work section | planned | cited BY THE AUTHORS |
+|---|---|---|
+| 6.3 Evidence-Tied Policy Implications | 7 | 3 (**43%**) |
+| 6.1 Principal Findings and Their Interpretation | 11 | 3 (**27%**) |
+| 7. Conclusion | 13 | 2 (15%) |
+| 6.2 The SME Compliance Gap | 7 | 1 (14%) |
+| 5.1 – 5.9, every Results subsection | 46 | **0** |
+| 6.4 Limitations, Declarations, AOR | 24 | **0** |
+
+Results prose cites nothing; Discussion cites in nearly a third of sentences.
+A finer split — `own_results` / `own_interpretation` — would model that better.
+
+**We are staying at two, and this records that as a CHOICE rather than an
+oversight.** A third stratum multiplies the labelling, and — the actual reason —
+*a split is easy to justify forever*. Deciding now would be modelling on
+intuition, before any evidence about whether the two behave differently exists.
+
+**The criterion for revisiting is stated in advance so it cannot be chosen after
+the fact:** the first Discussion batch (6.1, 6.3) is being labelled now. If its
+per-case outcomes look materially unlike the Results batch — meaningfully
+different positive rate, or a precision gap of the size the prior/own split
+itself shows (46% vs 25%) — that is evidence FOR splitting, and it will have been
+measured rather than assumed. If they look alike, two strata were right and the
+question is closed.
+
+This is also why the first own-work batch is not enough on its own. All 24 came
+from `4.3 Variables and Operationalisation` — 29 negative, 1 positive across the
+whole stratum — and 4.3 sits at the ZERO-citation end of a range that runs to
+43%. Weighting those up to stand for all 236 own-work sentences would say the
+stratum is definitionally uncitable when a third of its Discussion is not:
+**§11 D123's error one level down, inside a stratum instead of across a
+document.** With `tp = 0` the stratum's precision is `0/(0+fp)` — a
+false-positive rate wearing a precision label — and its recall rests on one case.
+Real and worth knowing, but not a population estimate.
+
+### D127 — the bare narrative citation is real, occurs once in 347 sentences, and the regex is NOT being changed
+
+A sentence reached the `citation_need` queue carrying what is plainly a
+citation:
+
+> "Administrative costs per employee decline with scale, which gives a
+> structural compliance advantage to larger firms, **as documented by Hadley and
+> Reschovsky 2002**."
+
+`markers_in` missed it. It handles `[7]`, `(Smith, 2019)` and the narrative
+`Smith et al. (2019)`; this form has author names and a year inline with **no
+parentheses at all**, so nothing anchors it.
+
+**Measured before touching the regex, because a FALSE marker is worse than a
+missed one.** The asymmetry is the whole decision: a false marker makes a
+sentence count as CITED, so it leaves the queue silently and is never audited —
+the manuscript loses a check and nothing says so. A missed marker costs one
+extra suggestion in a list the reader is already skimming.
+
+Across both audited manuscripts, 347 planned sentences:
+
+| | R PAPER | health-econ |
+|---|---|---|
+| bare narrative citations OUTSIDE brackets that `markers_in` misses | **0** | **1** |
+
+One occurrence in 347 sentences (0.3%), and it is the one that prompted the
+question. The ~20 other author-year forms in that paper are inside parentheses
+and already handled.
+
+#### The measurement caught its own instrument first
+
+The first pattern reported **two** hits, the second being `"Eval 2018"` — from
+**Sem**`Eval 2018`, a dataset name, because the regex omitted a leading `\b` and
+matched inside a word. A dataset name silently reclassified as a citation is
+*exactly* the failure this rule would introduce at scale, and it appeared within
+minutes of writing the probe, on the first paper tried.
+
+That is the argument in miniature. The form is rare; the pattern that catches it
+is one word-boundary away from suppressing a real sentence; and the papers most
+likely to use bare narrative citations are also the ones full of
+`Vision 2040`-shaped noun phrases.
+
+**Decision: no change.** Revisit when a manuscript shows the form at a density
+that matters — say >2% of judged sentences — measured the same way. The cost of
+the miss is bounded and visible (one extra advisory suggestion). The cost of the
+fix is unbounded and invisible (a real claim dropped from the audit).
+
+### D128 — the advisory lane matches flagging every sentence, on the population it actually runs on
+
+**THE SINGLE MOST USEFUL SENTENCE ANYONE HAS WRITTEN ABOUT THIS LANE, SO IT IS
+STATED FIRST AND PLAINLY:**
+
+> **Flagging EVERY sentence scores 18.0% weighted precision on this population.
+> `citation_need-v4` scores 18.3%.**
+
+A 0.3 percentage-point difference over 75 cases is noise. The lane is, at the
+population level, **statistically indistinguishable from a rule that answers
+"yes" to everything** — it flagged **62 of 75** judged sentences (83%). A prompt
+to look that fires on four sentences in five directs attention nowhere.
+
+This is written down because it is exactly the kind of finding that gets
+forgotten and then rebuilt: the lane looks reasonable in isolation, produces
+fluent per-sentence reasons, and its pooled number (24% here, 43% historically)
+is low-but-plausible rather than obviously broken. **Only the comparison against
+a no-skill baseline shows there is nothing there**, and nobody had computed one
+in the lane's entire history.
+
+#### The measurement
+
+76 cold labels, stratified and population-weighted (§11 D126),
+qwen2.5-3b-instruct-q4km, `citation_need-v4`, 83/84 valid outputs:
+
+| stratum | tp | fp | fn | tn | n | N | weight | precision | recall |
+|---|---|---|---|---|---|---|---|---|---|
+| prior_work | 13 | 15 | 3 | 4 | 35 | 111 | 3.17x | **46%** | **81%** |
+| own_work | 2 | 32 | 0 | 6 | 40 | 236 | 5.90x | 6% | — |
+
+```text
+WEIGHTED   precision 18.3%   recall 85%
+POOLED     precision 24%     recall 83%
+NO-SKILL   precision 18.0%   (flag every sentence)
+```
+
+**The own-work 6% is a FALSE-POSITIVE RATE WEARING A PRECISION LABEL** and must
+never be quoted as precision: `tp = 2`, so the numerator is empty by
+construction, and its "100% recall" rests on two cases. Its honest form is the
+one that explains the 46 suggestions on R PAPER:
+
+> **The model flagged 32 of the 38 own-work sentences that need no citation —
+> 84%.**
+
+#### What the pooled number was hiding
+
+The two strata are not weak and weaker; they are *different*. Prior-work is a
+real if modest signal — 46% precision at 81% recall. Own-work has none.
+
+The lane's whole problem is that it runs on a population that is **68%
+own-work**, where it is useless, while every previous measurement was taken
+where it works. That is §11 D123 restated as a product fact rather than a
+measurement error: the 43% was not a mistake about arithmetic, it was a mistake
+about *which sentences the product judges*.
+
+#### THE FIRST RUN OF THIS MEASUREMENT WAS INVALID, AND A GUARD CAUGHT IT
+
+The own-work cases were labelled with `label-cn --with-neighbours`, which writes
+`preceding_sentence` / `following_sentence` into the case. `job_runner.rs` sends
+**empty strings** for both. So the 40 own-work cases were scored with context the
+product never provides while the 36 prior-work cases were scored without it:
+**the two strata were measured under different input configurations**, and the
+weighted combination mixed them.
+
+`citation_need_cases_send_the_neighbours_the_product_sends` (§11 D73) failed on
+the first full-suite run after labelling and named the case, the field and the
+remedy. Without it the headline number would have been published from a
+comparison between two instruments — the D125 error committed *inside* the
+measurement D125 exists to protect.
+
+The fields were cleared (labels untouched — showing a human context while they
+judge is right; shipping that context to the model is not) and the eval re-run.
+Prior-work came back **byte-identical**, which is the check that the fix touched
+only what it should. The first run put the model at 17.5% against an 18.2%
+baseline — *below* no-skill — and that direction was an artefact: corrected, it
+is 18.3% against 18.0%. **"Indistinguishable from flagging everything" survived
+the correction; "marginally worse than" did not**, and the difference matters
+because the first is a finding and the second would have been an overclaim in
+the other direction.
+
+#### A note on the labels, from the labelling session
+
+Own-work yielded almost no positives: **one borderline positive across 34 new
+cases.** The Discussion sections turned out to be the authors reasoning from
+their own numbers — their gradient, their AOR, their barrier rates — with policy
+inferences following from those.
+
+The 27-43% author-marker density measured in 6.1/6.3 did NOT predict positives,
+and the reasoning that used it to pick those sections was wrong: **cited
+sentences are filtered out before reaching the labeller**, so what remains
+uncited there is uncited *because it does not need citing*. Marker density
+describes the sentences the queue never sees.
