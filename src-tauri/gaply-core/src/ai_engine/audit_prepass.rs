@@ -52,7 +52,14 @@ pub struct Marker {
     pub style: MarkerStyle,
     /// Lead surname, lowercased, for `AuthorYear`. `None` for numeric styles —
     /// a bare `[3]` names nobody without a numbered bibliography.
+    ///
+    /// LOWERCASED because it is a MATCH KEY: `AlJohani`, `Aljohani` and
+    /// `ALJOHANI` are one author. Use [`Marker::lead_display`] for anything a
+    /// reader sees — lowercasing a surname and printing it back is its own small
+    /// defect (§11 D131).
     pub lead_author: Option<String>,
+    /// The lead surname AS WRITTEN, for display only. Never a key.
+    pub lead_display: Option<String>,
     pub year: Option<i32>,
     /// Reference numbers for `Numeric`.
     pub numbers: Vec<u32>,
@@ -283,6 +290,7 @@ pub fn markers_in(sentence: &str) -> Vec<Marker> {
         let raw = c.get(0).map(|m| m.as_str()).unwrap_or_default().to_string();
         out.push(Marker {
             lead_author: c.name("lead").map(|m| m.as_str().to_lowercase()),
+            lead_display: c.name("lead").map(|m| m.as_str().to_string()),
             year: c.name("year").and_then(|m| m.as_str().parse::<i32>().ok()),
             raw,
             style: MarkerStyle::AuthorYear,
@@ -298,6 +306,7 @@ pub fn markers_in(sentence: &str) -> Vec<Marker> {
         }
         out.push(Marker {
             lead_author: c.name("lead").map(|m| m.as_str().to_lowercase()),
+            lead_display: c.name("lead").map(|m| m.as_str().to_string()),
             year: c.name("year").and_then(|m| m.as_str().parse::<i32>().ok()),
             raw: whole.to_string(),
             style: MarkerStyle::AuthorYear,
@@ -306,14 +315,38 @@ pub fn markers_in(sentence: &str) -> Vec<Marker> {
     }
     for m in numeric_re().find_iter(sentence) {
         let raw = m.as_str().to_string();
-        let numbers = number_run_re()
+        let numbers: Vec<u32> = number_run_re()
             .find_iter(&raw)
             .filter_map(|d| d.as_str().parse::<u32>().ok())
             .collect();
+        // INTERVAL NOTATION IS NOT A CITATION (§11 D130).
+        //
+        // "standardised to [0, 1] by (score − 1)/4" was reported as a cited
+        // sentence, so it left the queue and was never examined, and the report
+        // told the researcher it was "cited, but not checkable — numeric
+        // citation style". Two such in one paper.
+        //
+        // A ZERO is the safe discriminator and it is safe for a structural
+        // reason, not a statistical one: a numbered reference list starts at
+        // [1], so no citation marker can contain 0. Measured across both
+        // audited papers — R PAPER parses 21 numeric markers and NOT ONE
+        // contains a zero, so the rule costs nothing where numeric citations
+        // are real.
+        //
+        // A comma-separated PAIR was considered as a second rule and rejected:
+        // `[5, 7]` is a standard multi-citation, and dropping it would silently
+        // un-cite a real claim. Neither paper contains one (0 of 0), so there is
+        // no evidence for the rule and a real cost if it is wrong. The
+        // document-level check in `prepass_blocks` covers the same cases more
+        // safely.
+        if numbers.iter().any(|n| *n == 0) {
+            continue;
+        }
         out.push(Marker {
             raw,
             style: MarkerStyle::Numeric,
             lead_author: None,
+            lead_display: None,
             year: None,
             numbers,
         });
@@ -1072,6 +1105,23 @@ pub fn prepass_blocks(blocks: &[crate::extract::docparse::PagedBlock]) -> Prepas
             report.bibliography = synth;
         }
     }
+
+    // A DOCUMENT-LEVEL RULE WAS CONSIDERED HERE AND REJECTED (§11 D130).
+    //
+    // "A `[n]` in a paper with no numbered reference list is not a citation"
+    // looks stronger than the lexical zero rule and is more dangerous. It was
+    // implemented, and the planted-marker fixture caught it immediately: that
+    // chapter carries numeric markers and no parsed list, so the rule dropped
+    // ALL TWELVE. The same thing happens to a real manuscript whose reference
+    // list simply fails to parse — every numerically-cited sentence silently
+    // becomes "not examined", and the audit quietly does nothing.
+    //
+    // It also buys nothing measurable: the zero rule alone already takes the
+    // health-economics paper from 2 false numeric markers to 0. A rule whose
+    // benefit is unmeasurable and whose failure mode is "the audit silently
+    // checks nothing" is the wrong trade, and §11 D127's asymmetry is what says
+    // so — a missed marker costs one unexamined sentence, a rule like this costs
+    // the whole document.
     report
 }
 
@@ -1271,8 +1321,38 @@ pub fn resolve_marker_with(
     };
 
     let Some((library_id, title)) = hits.first().cloned() else {
+        // AN AUTHOR-YEAR MARKER IDENTIFIES A WORK ONLY APPROXIMATELY, AND THE
+        // REPORT NOW SAYS SO (§11 D131).
+        //
+        // This used to embed `marker.raw`, which made the report wrong twice.
+        //
+        // (1) IT COUNTED ONE WORK AS SEVERAL. The raw text is the grouping key
+        //     downstream, so `(AlJohani & Bugis, 2024)`, `(AlJohani and Bugis,
+        //     2024)` and `AlJohani and Bugis (2024)` became three rows for one
+        //     paper. Three spellings of Alkenbrack and three of Reka did the
+        //     same, and "48 sources not in your library" overstated the work by
+        //     roughly a third. The canonical surname-and-year below is one key
+        //     for all spellings.
+        //
+        // (2) IT PRINTED AN UNCERTAIN EXTRACTION AS A CERTAIN WORK. The
+        //     surname the regex captures is not reliably the lead author:
+        //     measured on a real paper it produced "Authority (2025)" from "The
+        //     Financial Services Authority (2025)", "Valletta (2011)" from
+        //     "Buchmueller, DiNardo, and Valletta (2011)", "Saksena and Kutzin
+        //     (2019)" from "Mathauer, Saksena and Kutzin (2019)", "Weiner's
+        //     (2009)" with the possessive, and "(RBV; Barney, 1991)" with the
+        //     abbreviation. `consistency` already reports this class as
+        //     `uncertain-reference-match` rather than asserting it; this list was
+        //     asserting it anyway, with a fetch action attached. Same rule as
+        //     §11 D129: an uncertain resolution must not print as a certain one.
+        let surname = marker.lead_display.as_deref().unwrap_or(lead);
+        let year = marker.year.map(|y| y.to_string()).unwrap_or_else(|| "no year".into());
         return Ok(Resolution::Unverifiable {
-            reason: format!("cited work not in library: {}", marker.raw),
+            reason: format!(
+                "no library work matches “{surname}, {year}” — taken from the in-text marker, \
+                 which gives a surname and a year and not the full author list, so this may be \
+                 an incomplete or mis-split name rather than a missing source"
+            ),
             library_id: None,
         });
     };
@@ -1630,6 +1710,72 @@ mod tests {
     }
 
     #[test]
+    /// §11 D130. INTERVAL NOTATION IS NOT A CITATION.
+    ///
+    /// `standardised to [0, 1] by (score − 1)/4` was counted as a cited
+    /// sentence: it left the queue unexamined and the report told the researcher
+    /// it was "cited, but not checkable — numeric citation style". Statistical
+    /// papers carry `[0, 1]`, `[0, 100]`, `[1, 5]` constantly.
+    #[test]
+    fn a_bracketed_interval_is_not_a_numeric_marker() {
+        for s in [
+            "Each item scored 1–5, standardised to [0, 1] by (score − 1)/4.",
+            "Scores were rescaled to [0, 100] for comparability.",
+            // U+202F NARROW NO-BREAK SPACE — the real document used one, and
+            // `\s` matches it, which is how this reached the queue.
+            "Standardised to [0,\u{202f}1] before averaging.",
+        ] {
+            let all = markers_in(s);
+            let numeric: Vec<&Marker> =
+                all.iter().filter(|m| m.style == MarkerStyle::Numeric).collect();
+            assert!(numeric.is_empty(), "interval parsed as a citation in {s:?}: {numeric:?}");
+        }
+        // And a real numeric citation still parses, including a multi-citation —
+        // the rule keys on a ZERO, not on a comma, for exactly this reason.
+        for s in ["As shown previously [7].", "Both lines agree [5, 7]."] {
+            assert!(
+                markers_in(s).iter().any(|m| m.style == MarkerStyle::Numeric),
+                "a real numeric citation stopped parsing: {s:?}"
+            );
+        }
+    }
+
+    /// §11 D131. ONE WORK, ONE ROW — whatever the in-text spelling.
+    ///
+    /// The reason string is the grouping key downstream, and it used to embed
+    /// the raw marker, so three spellings of one paper became three "not in your
+    /// library" rows and the source count overstated the work by roughly a third.
+    #[test]
+    fn author_year_spellings_of_one_work_produce_one_reason() {
+        let db = crate::Database::in_memory().unwrap();
+        let bib = BTreeMap::new();
+        let reasons: std::collections::BTreeSet<String> = [
+            "Coverage rose (AlJohani & Bugis, 2024).",
+            "Coverage rose (AlJohani and Bugis, 2024).",
+            "AlJohani and Bugis (2024) report a rise.",
+        ]
+        .iter()
+        .map(|s| {
+            let m = &markers_in(s)[0];
+            match resolve_marker_with(&db, m, &bib).unwrap() {
+                Resolution::Unverifiable { reason, .. } => reason,
+                other => panic!("expected Unverifiable, got {other:?}"),
+            }
+        })
+        .collect();
+        assert_eq!(
+            reasons.len(),
+            1,
+            "three spellings of one work produced {} distinct rows: {reasons:#?}",
+            reasons.len()
+        );
+        let only = reasons.iter().next().unwrap();
+        // It names the surname AS WRITTEN, not the lowercased match key.
+        assert!(only.contains("AlJohani, 2024"), "{only}");
+        // And it does NOT assert a work: the extraction is approximate.
+        assert!(only.contains("not the full author list"), "{only}");
+    }
+
     /// §11 D129. A SHIFTED REFERENCE LIST MUST NOT PRODUCE A CONFIDENT ANSWER.
     ///
     /// `R PAPER .docx` has one auto-numbered entry that is really the wrapped
@@ -2038,6 +2184,9 @@ mod tests {
             raw: format!("({lead}, {year})"),
             style: MarkerStyle::AuthorYear,
             lead_author: Some(lead.to_lowercase()),
+            // AS WRITTEN. Copying the lowercased key here is the exact defect
+            // the field exists to prevent, and doing it made this test fail.
+            lead_display: Some(lead.to_string()),
             year: Some(year),
             numbers: Vec::new(),
         }
@@ -2051,10 +2200,15 @@ mod tests {
     fn resolution_distinguishes_missing_unindexed_and_checkable_sources() {
         let db = crate::db::Database::in_memory().unwrap();
 
-        // (a) nothing in the library at all
+        // (a) nothing in the library at all. §11 D131: the reason names the
+        // surname and year the marker actually gave, and says the extraction is
+        // approximate — it no longer asserts a specific work.
         let r = resolve_marker(&db, &marker("Nobody", 1999)).unwrap();
         assert!(
-            matches!(&r, Resolution::Unverifiable { reason, .. } if reason.contains("not in library")),
+            matches!(&r, Resolution::Unverifiable { reason, .. }
+                if reason.contains("no library work matches")
+                    && reason.contains("Nobody, 1999")
+                    && reason.contains("not the full author list")),
             "{r:?}"
         );
         assert_eq!(r.kind(), ItemKind::Unverifiable);
@@ -2151,6 +2305,7 @@ mod tests {
             raw: "[3]".into(),
             style: MarkerStyle::Numeric,
             lead_author: None,
+            lead_display: None,
             year: None,
             numbers: vec![3],
         };

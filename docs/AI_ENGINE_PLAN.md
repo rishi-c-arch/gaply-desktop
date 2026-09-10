@@ -7660,3 +7660,100 @@ fact established by one check and ignored by the other.
 **A finding that invalidates an input must reach everything downstream of that
 input.** Where that cannot be arranged structurally, the downstream surface
 must carry the doubt rather than print a confident answer.
+
+### D130 — interval notation is not a citation, and the stronger-looking rule was the dangerous one
+
+An audit of the health-economics paper reported two sentences as "cited, but not
+checkable — numeric citation style". Neither cites anything:
+
+> "Each item scored 1–5, standardised to **[0, 1]** by (score − 1)/4."
+
+`[0, 1]` matched the numeric-marker regex. That is **§11 D127's asymmetry
+realised**: a false marker makes the sentence count as CITED, so it leaves the
+queue, is never examined, and the report asserts something false about it.
+Statistical papers carry `[0, 1]`, `[0, 100]`, `[1, 5]` constantly.
+
+Measured before fixing, across both audited papers:
+
+| | numeric markers parsed | containing a zero | comma pairs |
+|---|---|---|---|
+| R PAPER (genuinely numeric-cited) | **21** | **0** | 0 |
+| health-economics (author-year) | 2 | **2** | 0 |
+
+**The rule is: a bracket containing 0 is not a marker**, and it is safe for a
+STRUCTURAL reason rather than a statistical one — a numbered reference list
+starts at `[1]`, so no citation marker can contain 0. It costs nothing where
+numeric citations are real: not one of R PAPER's 21 contains a zero.
+
+One detail worth keeping: the document used `[0,\u{202f}1]` with a NARROW
+NO-BREAK SPACE, which `\s` matches. A rule written against `", "` would have
+missed it.
+
+#### The comma-pair rule, and the document-level rule, were both rejected
+
+"A comma-separated pair inside one bracket is interval notation" was proposed.
+`[5, 7]` is a standard multi-citation, and neither paper contains one (0 of 0) —
+so there is no evidence for the rule and a real cost if it is wrong.
+
+"A `[n]` in a paper with no numbered reference list is not a citation" looks
+stronger and is worse. **It was implemented, and the planted-marker fixture
+caught it in the same minute: that chapter carries numeric markers and no parsed
+list, so the rule dropped ALL TWELVE.** The same happens to a real manuscript
+whose reference list merely fails to parse — every numerically-cited sentence
+silently becomes "not examined" and the audit quietly does nothing.
+
+It also buys nothing measurable: the zero rule alone already takes the health
+paper from 2 to 0.
+
+> **A rule whose benefit is unmeasurable and whose failure mode is "the audit
+> silently checks nothing" is the wrong trade** — which is D127's asymmetry
+> pointing the other way. A missed marker costs one unexamined sentence; that
+> rule costs the document.
+
+### D131 — an author-year marker identifies a work approximately, and the report said it exactly
+
+The same report listed **48 sources "not in your library"**. It was closer to
+two-thirds of that, and several entries were not works at all.
+
+#### One work counted as several
+
+`reason` embedded `marker.raw`, and that string is the GROUPING KEY downstream.
+So one paper arrived as three rows:
+
+```
+(AlJohani & Bugis, 2024)      (AlJohani and Bugis, 2024)      AlJohani and Bugis (2024)
+```
+
+Three spellings of Alkenbrack and three of Reka did the same. The key is now a
+canonical surname-and-year, so every spelling collapses to one row.
+
+#### An uncertain extraction printed as a certain work
+
+The captured surname is not reliably the lead author. Measured on that paper:
+
+| in the text | extracted |
+|---|---|
+| "The Financial Services Authority (2025)" | "Authority (2025)" |
+| "Buchmueller, DiNardo, and Valletta (2011)" | "Valletta (2011)" |
+| "Mathauer, Saksena and Kutzin (2019)" | "Saksena and Kutzin (2019)" |
+| "Weiner's (2009)" | possessive kept |
+| "(RBV; Barney, 1991)" | abbreviation kept |
+| "(Dubai 2013, Abu Dhabi 2006)" | not a citation at all |
+
+**`consistency` already reports this class as `uncertain-reference-match` rather
+than asserting it. The unverifiable list asserted it anyway, with a fetch action
+attached** — so the same report hedged in one section and instructed in another.
+This is §11 D129 again, in a different pair of sections: *an uncertain resolution
+must not print as a certain one.* The reason now says what it actually knows —
+a surname and a year taken from the in-text marker, which may be an incomplete or
+mis-split name rather than a missing source.
+
+#### `lead_author` is a key; `lead_display` is for reading
+
+The match key is lowercased, because `AlJohani`, `Aljohani` and `ALJOHANI` are one
+author. Printing that key back at a researcher is its own small defect, so
+`Marker::lead_display` carries the surname as written and is never a key.
+
+The distinction proved itself immediately: a mechanical edit filled
+`lead_display` from `lead_author`'s lowercased value, and the test asserting the
+surname appears **as written** failed on the spot.
