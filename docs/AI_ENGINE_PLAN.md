@@ -7518,3 +7518,83 @@ and the reasoning that used it to pick those sections was wrong: **cited
 sentences are filtered out before reaching the labeller**, so what remains
 uncited there is uncited *because it does not need citing*. Marker density
 describes the sentences the queue never sees.
+
+#### THE LANE IS RETIRED — and the reason is the distinction, not the number
+
+**Decision: retire `citation_need`.** It rests on **18.3% against an 18.0%
+no-skill baseline.**
+
+> **It was retired not because it was WEAK but because it was INDISTINGUISHABLE
+> FROM A RULE THAT FLAGS EVERYTHING.**
+
+That distinction is the whole finding and it is the part that will get lost. A
+weak signal invites improvement — a better prompt, a bigger model, a threshold.
+This is not weak: there is no signal to improve, and five prompt variants across
+two tasks (§11 D121) had already shown the prompt is not the lever. A feature
+whose own documentation must say "it matches flagging every sentence" should not
+ship, which is also why printing the weighted 18.3% beside the baseline was
+rejected as an option.
+
+What was removed, and what stands:
+
+- **Report** — the "Worth a second look" section, its caveat paragraph, its
+  proportional bar segment, and `emit_suggestion`/`emit_suggestions`. The
+  section is DELETED rather than left to render "none found", which would imply
+  a check that no longer happens. `"Worth a second look"` STAYS in
+  `GAPLY_REPORT_MARKERS`: reports exported before today are still Gaply reports
+  and the self-detection guard must still recognise them (the same reason D108's
+  renamed heading is kept).
+- **Screen** — the "to skim" stat, the flagged-item branch, the per-item
+  suggestion label, and the `advisory` annotation status with its legend entry
+  and highlight colour.
+- **Export** — the `citation_need` arm. `counts_by_category` still tallies an old
+  job's ROWS, because that is history and stays true; `verdict_counts` is empty,
+  because it reports what is RENDERED. A reader seeing `citation_need: 2` with no
+  verdicts beside it is reading the honest shape of a retired lane.
+- **Planner** — no `CitationNeed` item is queued, so **no model call is spent**.
+  Uncited sentences are counted as `not_examined` and the preview says so: the
+  card used to add them to both the item count and the time estimate, promising
+  minutes of work on a lane that no longer runs (31 minutes → 6 on the test
+  fixture). A sentence nobody looked at is not a sentence that passed.
+- **KEPT** — `ai/tasks/citation_need.rs`, its prompt versions, `label-cn`, the
+  eval harness and the committed report, so the measurement stays reproducible.
+  Exactly how v1.7–v1.10 were kept (§11 D121): present in the harness,
+  unreachable from the app. `citation_support` was already the recorded primary
+  feature.
+
+Evidence and deterministic findings are untouched — the same treatment the
+support verdict got in §11 D85.
+
+#### THE PATH BACK, with its precondition, so it is available rather than forgotten
+
+Prior-work sections are **46% precision at 81% recall**. That is a real if modest
+signal, and restricting the lane to them was seriously considered.
+
+**It is blocked on classification, not on the model.** Deciding which sections
+are prior-work must be automatic — the population map that made this measurement
+possible exists only because 52 sections of two papers were hand-classified, and
+a shipped feature cannot ask that of a user. Measured:
+
+| classifier | result |
+|---|---|
+| `extract::sections::detect_heading` (IMRaD, exact phrase) | **3 of 52 (5%)** |
+| document position, best single threshold | 339 of 347 sentences (97%) — **in-sample** |
+
+The 5% closes the first route: real headings are `"4.3 Variables and
+Operationalisation"` and `"HEFCSO-BILSTM: A HYBRID"`, not `"Methods"`.
+
+The 97% is not the second route opening. The threshold was fitted on the same two
+papers it was scored against, and **the boundary already disagrees between
+them** — health-econ's prior-work ends at 0.30, R PAPER's Related Work sits at
+0.32. Those 5 sentences are a prior-work section classified as own-work, which
+would be SKIPPED: the lane sitting out the one region where it works, while the
+researcher is told their literature review was checked. "Prior work comes first"
+also fails on shapes that certainly occur — Related Work at the end, review
+articles, theses with interleaved literature chapters.
+
+**THE PRECONDITION: positional classification measured OUT-OF-SAMPLE on five or
+six manuscripts, before it gates what a researcher is told was checked.** Until
+then the honest fallback is not classification at all but stated coverage
+("checked the first 30%, through §3.5"), which asserts nothing about what those
+sections are — crude, and it does not make the lane good; it makes a 46% lane
+apply only where 46% is the number.

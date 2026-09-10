@@ -1,7 +1,10 @@
 // Gaply — what colour a judged sentence gets, and what it MEANS (§11 D92).
 // Separated from the view so the mapping is testable and stated once.
 
-export type AnnotationStatus = 'evidence' | 'blocked' | 'advisory';
+// §11 D128. 'advisory' is GONE with the lane that produced it: a language
+// model's guess that a sentence might need a citation measured no better than
+// flagging every sentence, so there is no honest highlight for it.
+export type AnnotationStatus = 'evidence' | 'blocked';
 
 export interface StatusStyle {
   /** The word. Colour is never the only signal, so this appears in the legend
@@ -52,15 +55,6 @@ export const STATUS_STYLE: Record<AnnotationStatus, StatusStyle> = {
     action:
       'Fetch an open-access copy or attach the PDF in the Citation Manager, then re-check just these items.',
   },
-  advisory: {
-    label: 'suggestion — not checked',
-    fill: '#ffb300',
-    edge: 'dashed',
-    weight: 'light',
-    meaning:
-      'This sentence carries no citation and a language model thought it might need one. Nothing was checked against any source, and it is right slightly under half the time.',
-    action: 'Skim it. If it states something a reader would want to look up, add a citation.',
-  },
 };
 
 /**
@@ -77,7 +71,11 @@ export function statusOf(
   passageCount = 0,
 ): AnnotationStatus | null {
   if (kind === 'unverifiable') return 'blocked';
-  if (kind === 'citation_need') return verdict === 'needs_citation' ? 'advisory' : null;
+  // §11 D128. `citation_need` is retired: no job plans it, so no sentence can
+  // carry an 'advisory' highlight. Returning null rather than deleting the arm
+  // means a stored item from an old job is silently unmarked instead of drawing
+  // a highlight for a verdict the product no longer stands behind.
+  if (kind === 'citation_need') return null;
   if (kind === 'citation_support') {
     // §11 D108. The VERDICT no longer decides anything here — it is a constant.
     // What decides is whether there are passages to show, because that is what
@@ -91,4 +89,4 @@ export function statusOf(
 }
 
 /** The three, in the order the legend and the detail list present them. */
-export const STATUS_ORDER: AnnotationStatus[] = ['evidence', 'blocked', 'advisory'];
+export const STATUS_ORDER: AnnotationStatus[] = ['evidence', 'blocked'];

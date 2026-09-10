@@ -35,7 +35,15 @@ pub struct AuditPlan {
     pub markers_found: usize,
     /// Items actually queued, by kind. The difference between this and
     /// `total_sentences` is the significance filter doing its job.
+    ///
+    /// ALWAYS 0 since §11 D128 retired the advisory lane. Kept rather than
+    /// deleted so a stored plan from before the retirement still deserialises,
+    /// and so the field reads as a decision rather than an omission.
     pub queued_citation_need: usize,
+    /// Significant sentences carrying NO marker, which are therefore not
+    /// examined at all (§11 D128). Counted so the report can say so: a sentence
+    /// nobody looked at is not a sentence that passed.
+    pub not_examined: usize,
     pub queued_citation_support: usize,
     pub queued_unverifiable: usize,
 }
@@ -146,7 +154,11 @@ pub struct ThesisAuditPreview {
     /// What planning would queue, by kind — the same arithmetic `plan_audit`
     /// does, so the card cannot promise a shape the plan will not produce.
     pub would_check: usize,
-    pub would_suggest: usize,
+    /// Significant sentences carrying NO marker. These are NOT examined — the
+    /// advisory lane that used to judge them is retired (§11 D128) — and the
+    /// card says so, because a preview that counts them as work to be done
+    /// promises a check the run will not perform.
+    pub not_examined: usize,
     pub would_be_unverifiable: usize,
     /// Per distinct cited work. The card's headline is derived from this.
     pub sources: Vec<CitedSourceStatus>,
@@ -212,11 +224,11 @@ pub fn preview_thesis_audit(
 
     let mut order: Vec<String> = Vec::new();
     let mut by_key: BTreeMap<String, CitedSourceStatus> = BTreeMap::new();
-    let (mut would_check, mut would_suggest, mut would_be_unverifiable) = (0usize, 0usize, 0usize);
+    let (mut would_check, mut not_examined, mut would_be_unverifiable) = (0usize, 0usize, 0usize);
 
     for planned in &report.planned {
         if planned.markers.is_empty() {
-            would_suggest += 1;
+            not_examined += 1;
             continue;
         }
         // The SAME first-resolvable-marker rule `plan_audit` uses, so the
@@ -267,10 +279,10 @@ pub fn preview_thesis_audit(
                     },
                 )
             }
-            // `prepass` established there IS a marker, so this cannot occur; a
-            // suggestion is the safe reading rather than a panic.
+            // `prepass` established there IS a marker, so this cannot occur;
+            // counting it as not-examined is the safe reading, not a panic.
             Resolution::Uncited => {
-                would_suggest += 1;
+                not_examined += 1;
                 continue;
             }
         };
@@ -296,7 +308,7 @@ pub fn preview_thesis_audit(
         uncited: report.uncited,
         skipped: report.skipped,
         would_check,
-        would_suggest,
+        not_examined,
         would_be_unverifiable,
         blocked_sources: sources.len() - checkable_sources,
         checkable_sources,
@@ -524,7 +536,7 @@ fn plan_audit(
     let mut locator = crate::page_locate::PageLocator::new(&page_texts);
 
     let mut items: Vec<NewItem> = Vec::with_capacity(report.planned.len());
-    let (mut need, mut support, mut unver) = (0usize, 0usize, 0usize);
+    let (mut not_examined, mut support, mut unver) = (0usize, 0usize, 0usize);
 
     for (seq, planned) in report.planned.iter().enumerate() {
         let (item_page, page_exact) = resolve_page(&mut locator, planned);
@@ -582,26 +594,25 @@ fn plan_audit(
             continue;
         }
 
-        // A sentence with no marker is a candidate for "needs a citation".
+        // A SENTENCE WITH NO MARKER IS NOT EXAMINED. The advisory lane that
+        // used to judge these is RETIRED — §11 D128.
+        //
+        // It scored 18.3% population-weighted precision against an 18.0%
+        // no-skill baseline: indistinguishable from a rule that flags every
+        // sentence, not merely weak. Planning nothing here is what retires it —
+        // no model call is spent, and no surface downstream has anything to
+        // render. The task, its prompt and its eval stay in the harness so the
+        // measurement remains reproducible, exactly as v1.7–v1.10 were kept
+        // (§11 D121).
+        //
+        // `not_examined` is still COUNTED, because a sentence nobody looked at
+        // is not a sentence that passed, and the report says so rather than
+        // leaving the reader to assume coverage it never had.
         if planned.markers.is_empty() {
-            need += 1;
-            items.push(NewItem {
-                seq: seq as i64,
-                kind: ItemKind::CitationNeed,
-                chunk_id: None,
-                page: item_page,
-                sentence: planned.sentence.clone(),
-                // The section the sentence sits under. The prompt has a rule
-                // keyed on it that could never fire while this was empty.
-                payload_json: serde_json::json!({
-                    "section": planned.section,
-                    "paragraph": planned.paragraph,
-                    "pageApproximate": !page_exact,
-                })
-                .to_string(),
-            });
+            not_examined += 1;
             continue;
         }
+
 
         // Cited: checkable only if the source is in the library AND indexed AND
         // embedded. The FIRST resolvable marker decides — a sentence citing
@@ -664,17 +675,12 @@ fn plan_audit(
                 });
             }
             // `prepass` already established there IS a marker, so this arm is
-            // unreachable; treated as uncited rather than panicking.
+            // unreachable. It used to queue a CitationNeed item as a fallback;
+            // that lane is retired (§11 D128), so it counts as not examined —
+            // the same treatment an uncited sentence now gets, and still not a
+            // panic.
             Resolution::Uncited => {
-                need += 1;
-                items.push(NewItem {
-                    seq: seq as i64,
-                    kind: ItemKind::CitationNeed,
-                    chunk_id: None,
-                    page: item_page,
-                    sentence: planned.sentence.clone(),
-                    payload_json: "{}".to_string(),
-                });
+                not_examined += 1;
             }
         }
     }
@@ -706,7 +712,8 @@ fn plan_audit(
         uncited: report.uncited,
         skipped: report.skipped,
         markers_found: report.markers_found,
-        queued_citation_need: need,
+        queued_citation_need: 0,
+        not_examined,
         queued_citation_support: support,
         queued_unverifiable: unver,
     })
@@ -962,11 +969,22 @@ mod tests {
                 it.payload_json
             );
         }
-        // And the fixture must actually exercise more than one kind, or this
-        // test passes by only covering the site that was already right.
-        assert!(
-            kinds_seen.len() >= 2,
-            "the fixture only produced {kinds_seen:?} — it cannot catch a miss in another arm"
+        // WHAT THE FIXTURE PRODUCES IS PINNED, NOT merely required to be varied.
+        //
+        // This used to demand `kinds_seen.len() >= 2`, so the locator guard
+        // could not pass by covering one arm. Retiring the advisory lane
+        // (§11 D128) removed one of the three kinds, and this fixture cites no
+        // library source, so only `Unverifiable` remains reachable here.
+        //
+        // Relaxing to `>= 1` would quietly weaken the guard. Pinning the SET
+        // instead keeps it sharp in the other direction: the day this fixture
+        // starts producing a second kind, this fails and whoever changed it
+        // must confirm the new arm carries a locator too.
+        assert_eq!(
+            kinds_seen,
+            ["Unverifiable".to_string()].into_iter().collect(),
+            "the set of kinds this fixture produces changed — extend the locator \
+             coverage to the new arm rather than loosening this assertion"
         );
     }
 
@@ -1116,7 +1134,7 @@ mod tests {
         assert_eq!(plan.queued_unverifiable, 0);
         // NOT the manuscript-level question, even though the fixture is full of
         // uncited sentences.
-        assert_eq!(plan.queued_citation_need, 0);
+        assert_eq!(plan.queued_citation_need, 0, "the advisory lane is retired (§11 D128)");
 
         let items = jobs::job_results(&db, plan.job_id, 0, 50).unwrap();
         assert_eq!(items.len(), 3);
@@ -1194,7 +1212,11 @@ mod tests {
         // and that is a RESULT, queued rather than dropped (§11 D40).
         assert_eq!(plan.queued_citation_support, 0);
         assert!(plan.queued_unverifiable >= 19, "cited sentences were dropped: {plan:?}");
-        assert!(plan.queued_citation_need > 0);
+        // §11 D128: retired. Uncited sentences are COUNTED as not examined and
+        // never queued, so no model call is spent on a lane measured at
+        // no-skill.
+        assert_eq!(plan.queued_citation_need, 0, "the advisory lane must queue nothing");
+        assert!(plan.not_examined > 0, "uncited sentences must still be counted");
 
         let queued = plan.queued_citation_need + plan.queued_citation_support + plan.queued_unverifiable;
         let job = jobs::get_job(&db, plan.job_id).unwrap().unwrap();
@@ -1425,7 +1447,10 @@ mod tests {
         let plan = plan_thesis_audit(&db, &p, "citation_need-v4").unwrap();
 
         assert_eq!(pre.would_check, plan.queued_citation_support, "support count drifted");
-        assert_eq!(pre.would_suggest, plan.queued_citation_need, "need count drifted");
+        // The preview and the plan must agree about what is NOT examined, the
+        // same way they agree about what is queued (§11 D128).
+        assert_eq!(pre.not_examined, plan.not_examined, "not-examined count drifted");
+        assert_eq!(plan.queued_citation_need, 0);
         assert_eq!(pre.would_be_unverifiable, plan.queued_unverifiable, "unverifiable count drifted");
         assert_eq!(pre.total_sentences, plan.total_sentences);
         let _ = std::fs::remove_dir_all(&dir);

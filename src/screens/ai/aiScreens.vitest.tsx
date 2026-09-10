@@ -607,7 +607,7 @@ describe('Thesis audit', () => {
     uncited: 11,
     skipped: 3,
     wouldCheck: 2,
-    wouldSuggest: 8,
+    notExamined: 8,
     wouldBeUnverifiable: 18,
     checkableSources: 1,
     blockedSources: 2,
@@ -692,11 +692,16 @@ describe('Thesis audit', () => {
     fireEvent.click(screen.getByTestId('audit-pick'));
     await waitFor(() => expect(screen.getByTestId('audit-plan')).toBeTruthy());
 
-    expect(screen.getByTestId('audit-projection').textContent).toContain('10 need the model');
+    expect(screen.getByTestId('audit-projection').textContent).toContain('2 need the model');
     // The seed is per-device now (§11 D62) and this bridge reports no device,
     // so the projection must fall back to the SLOWER CPU figure — being wrong
     // in the optimistic direction is the failure that matters here.
-    expect(screen.getByTestId('audit-projection').textContent).toContain('31 minutes');
+    //
+    // §11 D128: 31 minutes before the advisory lane was retired, when 8 of these
+    // 10 items were advisory. The estimate fell because the work did; a figure
+    // that had stayed at 31 would be promising time on a lane that no longer
+    // runs.
+    expect(screen.getByTestId('audit-projection').textContent).toContain('6 minutes');
     expect(screen.getByTestId('audit-projection').textContent).toContain('CPU');
 
     // §11 D88. THE ASSERTION THIS TEST WAS NAMED FOR, and never made.
@@ -712,45 +717,6 @@ describe('Thesis audit', () => {
     await waitFor(() => expect(startThesisAudit).toHaveBeenCalledTimes(1));
   });
 
-  /** §11 D89. On screen as in the PDF: a suggestion must not wear the badge an
-   *  adjudicated result wears. `assessed` is the report's "we judged this"
-   *  vocabulary and citation_need was borrowing it. */
-  it('marks suggestions as unchecked rather than assessed', async () => {
-    const items = [
-      { seq: 1, kind: 'citation_need', page: 4, sentence: 'An uncited assertion.', status: 'done' },
-      { seq: 2, kind: 'citation_support', page: 5, sentence: 'A checked claim.', status: 'done' },
-    ];
-    let emit: ((e: JobProgressEvent) => void) | undefined;
-    render(
-      <ThesisAuditScreen
-        aiInstalled
-        pickManuscript={async () => '/t.pdf'}
-        bridge={
-          bridgeWith({
-            startThesisAudit: async (_p: string, cb: any) => { emit = cb; return plan; },
-            jobResults: async () => ({ items }),
-          }) as any
-        }
-      />,
-    );
-    fireEvent.click(screen.getByTestId('audit-pick'));
-    await waitFor(() => expect(screen.getByTestId('audit-confirm-start')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('audit-confirm-start'));
-    await waitFor(() => expect(emit).toBeTruthy());
-    emit!({ jobId: 7, completed: 2, total: 2, currentCategory: 'citation_need', latestItemSummary: '' });
-    await waitFor(() => expect(screen.queryByTestId('audit-dump-toggle')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('audit-dump-toggle'));
-
-    const label = await screen.findByTestId('audit-suggestion-label-1');
-    expect(label.textContent).toMatch(/suggestion/);
-    expect(label.textContent).toMatch(/unchecked/);
-    // §11 D123. No measured rate: it was computed on a population the audit
-    // never judges. The honest qualifier stands in its place.
-    expect(label.textContent).toMatch(/own work/);
-    expect(label.textContent).not.toMatch(/\d+\s*in\s*10|\d+%/);
-    // The checked item keeps its badge; the two must stay distinguishable.
-    expect(screen.queryByTestId('audit-suggestion-label-2')).toBeNull();
-  });
 
   /** §11 D88. The cliff: a three-hour run that ends in "cannot check" must not
    *  be a surprise at the end. The card says it at the start, per SOURCE. */
@@ -1012,18 +978,6 @@ describe('Thesis audit', () => {
     await waitFor(() => expect(screen.getByTestId('audit-health')).toBeTruthy());
   }
 
-  it('renders a citation_need flag as a SUGGESTION, with the reason it actually carries', async () => {
-    await renderWithFlagged([flaggedNeed]);
-    // D89's vocabulary, not a verdict — and no route into the evidence card.
-    expect(screen.getByTestId('audit-flagged-suggestion-0').textContent).toMatch(
-      /suggestion · not checked against any source/,
-    );
-    expect(screen.queryByTestId('audit-drill-0')).toBeNull();
-    // THE FIELD THAT WAS NEVER READ: result.output.reason.
-    expect(screen.getByTestId('audit-flagged-reason-0').textContent).toMatch(
-      /States an empirical trend/,
-    );
-  });
 
   it('renders an unverifiable flag as a blocked source, from result.reason', async () => {
     await renderWithFlagged([flaggedBlocked]);
@@ -1044,9 +998,11 @@ describe('Thesis audit', () => {
     expect(screen.getByTestId('evidence-verdict').textContent).toMatch(/Source passages found/);
   });
 
-  it('counts the three kinds separately, because the actions differ', async () => {
+  it('counts the kinds separately, because the actions differ', async () => {
     await renderWithFlagged([flaggedNeed, flaggedNeed, flaggedBlocked, flaggedSupport]);
-    expect(screen.getByTestId('audit-stat-suggestions').textContent).toMatch(/2/);
+    // §11 D128. The "to skim" stat counted the retired advisory lane; it is gone,
+    // and the two stats that remain are things a reader can act on.
+    expect(screen.queryByTestId('audit-stat-suggestions')).toBeNull();
     expect(screen.getByTestId('audit-stat-blocked').textContent).toMatch(/1/);
     expect(screen.getByTestId('audit-stat-checked-claims').textContent).toMatch(/1/);
     // The old single "N need review" summed all three into one number.

@@ -131,6 +131,9 @@ pub struct AuditReportModel {
     /// Why items could not be judged, and how many.
     pub skipped_reasons: Vec<(String, usize)>,
     pub supported: Vec<ReportItem>,
+    /// RETIRED and always empty (§11 D128). Kept so a stored report model from
+    /// before the retirement still deserialises; nothing populates it and
+    /// nothing renders it.
     pub needs_citation: Vec<ReportItem>,
     pub unverifiable: Vec<ReportItem>,
     /// Items whose model answer failed validation twice.
@@ -291,30 +294,6 @@ fn emit_finding(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
     }
 }
 
-/// Emit ONE SUGGESTION (§11 D89).
-///
-/// Deliberately not `emit_finding`. A suggestion is not a finding: nothing was
-/// checked against any source, and the measured precision is 43% — so it must
-/// not arrive in the badge a `strong` verdict wears, at the weight a verdict
-/// carries.
-///
-/// The rate rides with the ITEM. The section's caveat is a paragraph at the
-/// top, and a reader who lands on item 19 never sees it; by then the label is
-/// the only thing on the page telling them what this is.
-fn emit_suggestion(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
-    out.push(heading(format!("Sentence {} · {}", item.seq, locator(item, has_pages)), 3));
-    // NO Block::Badge. A badge is the report's verdict vocabulary and this is
-    // not a verdict. NO severity either — it is a constant (§11 D82) and would
-    // read as triage.
-    out.push(para(
-        "suggestion · not checked against any source · often the authors’ own work",
-    ));
-    out.push(para(format!("\u{201c}{}\u{201d}", item.sentence.trim())));
-    if let Some(r) = &item.reason {
-        out.push(para(r.trim().to_string()));
-    }
-}
-
 /// Emit ONE EVIDENCE ITEM for `citation_support` (§11 D108).
 ///
 /// Deliberately not `emit_finding`, for the reason D89 split suggestions out:
@@ -409,21 +388,6 @@ fn emit_evidence_items(out: &mut Vec<Block>, title: &str, blurb: &str, items: &[
     sorted.sort_by_key(|i| i.seq);
     for item in sorted {
         emit_evidence_item(out, item, has_pages);
-    }
-}
-
-/// The advisory list, emitted with `emit_suggestion` (§11 D89).
-fn emit_suggestions(out: &mut Vec<Block>, title: &str, blurb: &str, items: &[ReportItem], has_pages: bool) {
-    out.push(heading(title, 1));
-    if items.is_empty() {
-        out.push(para(format!("{blurb} None found.")));
-        return;
-    }
-    out.push(para(blurb));
-    let mut sorted: Vec<&ReportItem> = items.iter().collect();
-    sorted.sort_by_key(|i| i.seq);
-    for item in sorted {
-        emit_suggestion(out, item, has_pages);
     }
 }
 
@@ -594,7 +558,8 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     // ---- AT A GLANCE ------------------------------------------------------
     // The first page answers "how bad is it, and what do I do first". The
     // per-item detail is reference material behind it.
-    let judged = m.supported.len() + m.needs_citation.len();
+    // Advisory items are retired (§11 D128); "judged" is what was CHECKED.
+    let judged = m.supported.len();
 
     out.push(heading("At a glance", 1));
 
@@ -626,21 +591,11 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         )));
     }
 
-    out.push(Block::Note {
-        text: "The “worth a second look” suggestions below are a SEPARATE and weaker \
-             signal. They come from a language model reading each sentence on its own, with no \
-             access to your sources and no view of the sentences around it. Nothing below has \
-             been checked against anything. On a paper that reports its own methods and results, \
-             expect most of them to be the authors’ own work — their own hardware, their own \
-             data split, their own numbers, their own ablations — which needs no citation. They \
-             are a prompt to look, not a finding."
-            .to_string(),
-    });
 
     // The breakdown. Evidence-backed and advisory are SEPARATE BARS, never
     // summed — a chart that adds a 43%-precision suggestion to a checked
     // finding is the same conflation the score just removed (§11 D78).
-    let total_bar = checked + m.unverifiable.len() + m.failed.len() + m.needs_citation.len();
+    let total_bar = checked + m.unverifiable.len() + m.failed.len();
     out.push(para("The whole manuscript, proportionally:"));
     // §11 D93. DRAWN bars, and a tone each — the renderer decides the pixels.
     // These were `"=".repeat(n)` inside a bullet, which is a chart only in a
@@ -659,7 +614,6 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     // only what is true: the passages were found.
     prop("source passages located", checked, Tone::Good);
     prop("could not be checked", m.unverifiable.len(), Tone::Neutral);
-    prop("suggestions only", m.needs_citation.len(), Tone::Warn);
     if !m.failed.is_empty() {
         prop("not judged", m.failed.len(), Tone::Neutral);
     }
@@ -839,26 +793,18 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     out.push(Block::PageBreak);
     emit_blocked_sources(&mut out, &m.unverifiable, m.has_pages);
 
-    // ONLY the sentences actually flagged. `needs_citation` carries every
-    // judged uncited sentence, and on a real manuscript 65 of 65 came back
-    // "no citation needed" — listing those under "worth a second look" would
-    // present 65 non-suggestions as a list of things to review (§11 D78).
-    let flagged: Vec<ReportItem> = m
-        .needs_citation
-        .iter()
-        .filter(|i| i.verdict.as_deref() == Some("needs_citation"))
-        .cloned()
-        .collect();
-    out.push(Block::PageBreak);
-    emit_suggestions(
-        &mut out,
-        "Worth a second look — suggestions, not findings",
-        "SUGGESTIONS. These sentences carry no citation and a language model thought they might \
-         need one. It is right slightly under half the time, so treat this as a list to skim, not \
-         a list of problems. Nothing here was checked against any source.",
-        &flagged,
-        m.has_pages,
-    );
+    // THE ADVISORY SECTION IS GONE — §11 D128.
+    //
+    // "Worth a second look" listed sentences a language model thought might
+    // need a citation. Measured population-weighted it scored 18.3% precision
+    // against an 18.0% no-skill baseline — indistinguishable from a rule that
+    // flags every sentence, not merely weak, and it flagged 83% of what it saw.
+    // `thesis_audit` no longer plans those items, so `m.needs_citation` is
+    // empty; the section is REMOVED rather than left to render "none found",
+    // which would imply a check that no longer happens.
+    //
+    // Same treatment as the support verdict (§11 D85): the evidence and the
+    // deterministic findings stand, the model's opinion about them does not.
 
     if !m.failed.is_empty() {
         out.push(Block::PageBreak);
@@ -979,13 +925,20 @@ mod tests {
         // §11 D108. "Claims checked against their source" is the RETIRED
         // heading, kept in the marker list so reports exported before the
         // rename are still recognised. A current report cannot emit it.
+        //
+        // §11 D128. "Worth a second look" is the same case for a different
+        // reason: the advisory SECTION is retired, not renamed, but every report
+        // exported before that is still a Gaply report and the guard must still
+        // recognise it. Listing both exemptions by NAME rather than loosening
+        // the count keeps the guard's real job intact — if a LIVE heading ever
+        // stops being composed, this still fails.
+        const RETIRED_HEADINGS: &[&str] =
+            &["Claims checked against their source", "Worth a second look"];
         let missing: Vec<&str> = GAPLY_REPORT_MARKERS
             .iter()
             .copied()
             .filter(|m| {
-                *m != "PublishReady"
-                    && *m != "Claims checked against their source"
-                    && !found.contains(m)
+                *m != "PublishReady" && !RETIRED_HEADINGS.contains(m) && !found.contains(m)
             })
             .collect();
         assert!(
@@ -1069,12 +1022,14 @@ mod tests {
     fn an_unpaginated_source_locates_findings_by_paragraph() {
         let mut m = model();
         m.has_pages = false;
-        m.needs_citation = vec![ReportItem {
+        // §11 D128. This used to assert the locator on an ADVISORY item. That
+        // lane is retired and renders nothing, so the property is shown on an
+        // item the report actually emits — which is the stronger place for it.
+        m.failed = vec![ReportItem {
             seq: 4,
             page: None,
             paragraph: Some(12),
-            sentence: "An uncited assertion.".into(),
-            verdict: Some("needs_citation".into()),
+            sentence: "A sentence the model could not answer for.".into(),
             ..Default::default()
         }];
         let text = all_text(&compose_audit(&m));
@@ -1251,9 +1206,13 @@ mod tests {
             text.contains("10 cited claims"),
             "advisory items changed what the cover counts:\n{text}"
         );
-        // The advisory list is labelled as suggestions, never as findings.
-        assert!(text.contains("suggestions, not findings"), "{text}");
-        assert!(!text.contains("Sentences that may need a citation"), "old verdict heading:\n{text}");
+        // §11 D128. The advisory lane is RETIRED: fifty items must not merely
+        // fail to move the score, they must not appear at all. Neither its
+        // section, nor its old heading, nor any of its sentences.
+        for banned in ["suggestions, not findings", "Worth a second look",
+                       "Sentences that may need a citation", "Suggestion 0."] {
+            assert!(!text.contains(banned), "retired advisory surface {banned:?} is back:\n{text}");
+        }
         // §11 D123. NO measured rate is stated. Both figures were real
         // measurements of a labelled set drawn from one paper's front third,
         // while the audit judges the whole document — so they described a
@@ -1262,10 +1221,6 @@ mod tests {
         for banned in ["43%", "82%", "4 in 10"] {
             assert!(!text.contains(banned), "{banned:?} is back in the report:\n{text}");
         }
-        assert!(
-            text.contains("the authors\u{2019} own work"),
-            "the advisory lane must still say what it is:\n{text}"
-        );
     }
 
     /// §11 D95. A derived page and a guessed one must not look alike.
@@ -1560,6 +1515,8 @@ mod tests {
             !blocks.iter().any(|b| matches!(b, Block::Badge { text, .. } if text == "strong")),
             "the withdrawn verdict is still rendered as a badge"
         );
+        // §11 D128. There is no advisory side left to badge — the stronger
+        // check is that nothing of it is rendered.
         assert!(
             !blocks
                 .iter()
@@ -1572,86 +1529,15 @@ mod tests {
         // the advisory side says nothing was checked against any source.
         let text = all_text(&blocks);
         assert!(text.contains("read this and judge it yourself"), "{text}");
-        assert!(text.contains("not checked against any source"), "{text}");
+        // §11 D128: the advisory sentence and its caveat are both gone.
+        assert!(
+            !text.contains("An uncited assertion about the world."),
+            "a retired advisory item reached the report:\n{text}"
+        );
         assert!(text.contains("does not grade"), "the withdrawal is not stated:\n{text}");
     }
 
-    /// §11 D89. The rate must ride with the ITEM, not only sit in the intro.
-    ///
-    /// A reader who lands on item 19 never sees the paragraph at the top of the
-    /// section, and by then the label is the only thing on the page telling
-    /// them what they are looking at.
-    #[test]
-    fn every_suggestion_says_what_it_is_where_it_is() {
-        let mut m = model();
-        m.needs_citation = (0..3)
-            .map(|i| ReportItem {
-                seq: 100 + i,
-                sentence: format!("Uncited assertion {i}."),
-                verdict: Some("needs_citation".into()),
-                ..Default::default()
-            })
-            .collect();
-        let text = all_text(&compose_audit(&m));
 
-        // Once per item, not once per section.
-        assert_eq!(
-            text.matches("not checked against any source").count(),
-            3,
-            "the label must appear beside EVERY suggestion:\n{text}"
-        );
-        assert_eq!(
-            text.matches("often the authors’ own work").count(),
-            3,
-            "the qualifier must ride with every item:\n{text}"
-        );
-        // §11 D123. NO measured rate, here or anywhere in the advisory lane.
-        // The 43% this used to print was computed on a labelled set drawn from
-        // the front third of one paper; the audit judges the whole document,
-        // and two thirds of what it flags comes from Results onward.
-        for banned in ["4 in 10", "43%", "82%"] {
-            assert!(
-                !text.contains(banned),
-                "{banned:?} is a performance rate with no representative measurement behind it:\n{text}"
-            );
-        }
-        // And no severity anywhere: it is a constant (§11 D82) and would read
-        // as triage.
-        for banned in ["severity", "HIGH", "MEDIUM"] {
-            assert!(!text.contains(banned), "{banned:?} leaked into the report:\n{text}");
-        }
-    }
-
-    /// §11 D78. The advisory section lists only what was actually FLAGGED.
-    ///
-    /// `needs_citation` carries every judged uncited sentence, and on a real
-    /// manuscript 65 of 65 came back "no citation needed". Listing those under
-    /// "worth a second look" presents 65 non-suggestions as a review list — the
-    /// exact over-claim this section exists to avoid.
-    #[test]
-    fn the_advisory_section_lists_only_flagged_sentences() {
-        let mut m = model();
-        m.needs_citation = vec![
-            ReportItem {
-                seq: 1,
-                sentence: "The model flagged this one.".into(),
-                verdict: Some("needs_citation".into()),
-                ..Default::default()
-            },
-            ReportItem {
-                seq: 2,
-                sentence: "The model said this needs nothing.".into(),
-                verdict: Some("no_citation_needed".into()),
-                ..Default::default()
-            },
-        ];
-        let text = all_text(&compose_audit(&m));
-        assert!(text.contains("The model flagged this one."), "flagged item missing:\n{text}");
-        assert!(
-            !text.contains("The model said this needs nothing."),
-            "a NOT-flagged sentence appears under 'worth a second look':\n{text}"
-        );
-    }
 
     /// §11 D108. NO score is rendered, at any n. The old rule was "too few to
     /// score is said rather than rendered as 0"; the rule now is that the
@@ -1694,8 +1580,13 @@ mod tests {
     fn the_summary_leads_with_the_worst_CHECKED_items_first() {
         // The old report opened at sentence 0 in document order, which put a
         // contradiction on page 9 below thirty routine items. §11 D78 adds the
-        // second property: the list is EVIDENCE-BACKED, so a 43%-precision
-        // suggestion cannot appear under "most need your attention".
+        // second property: the list is EVIDENCE-BACKED, so a suggestion cannot
+        // appear under "most need your attention".
+        //
+        // §11 D128 settles that by construction — the advisory lane is retired
+        // and renders nothing anywhere. The item is still set here, and now
+        // asserted ABSENT from the whole report, so this also pins the
+        // retirement rather than merely the ordering.
         let mut m = model();
         m.supported = vec![
             ReportItem {
@@ -1738,12 +1629,12 @@ mod tests {
         // D78's property, which never depended on the verdict: evidence-backed
         // material LEADS, and an advisory suggestion appears only inside its
         // own clearly-labelled section.
-        let advisory_hdr = text.find("suggestions, not findings").expect("no advisory section");
-        let uncited = text.find("An uncited assertion.").expect("advisory item absent");
+        // §11 D128. The advisory section is retired, so the half of this test
+        // that checked its ORDER is replaced by the stronger claim: it is not
+        // in the report at all, under any heading.
         assert!(
-            uncited > advisory_hdr,
-            "an advisory suggestion appeared before its own section — it is being \
-             presented as a finding:\n{text}"
+            !text.contains("suggestions, not findings") && !text.contains("An uncited assertion."),
+            "a retired advisory item reached the report:\n{text}"
         );
 
         let detail = text
@@ -1753,8 +1644,10 @@ mod tests {
             text.find("An ordinary supported claim.").unwrap() > detail,
             "a checked item appeared before its own section:\n{text}"
         );
-        // Evidence-backed findings LEAD the advisory ones (§11 D78).
-        assert!(detail < advisory_hdr, "the advisory section preceded the checked findings");
+        // D78's ordering property had a second half — evidence-backed findings
+        // lead the advisory ones. With the advisory section gone there is
+        // nothing left for them to lead, which is the retirement doing the work
+        // the ordering used to.
     }
 
     #[test]

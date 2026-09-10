@@ -174,7 +174,8 @@ export interface ThesisAuditPreview {
   uncited: number;
   skipped: number;
   wouldCheck: number;
-  wouldSuggest: number;
+  /** Significant sentences carrying NO marker, which are NOT examined (D128). */
+  notExamined: number;
   wouldBeUnverifiable: number;
   sources: CitedSourceStatus[];
   checkableSources: number;

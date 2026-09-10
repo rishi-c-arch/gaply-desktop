@@ -611,19 +611,29 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
             </div>
           )}
 
+          {/* §11 D128. `wouldSuggest` used to be added to BOTH the item count
+              and the model-work estimate, so the card promised minutes of work
+              on a lane that is now retired — and, worse, implied those sentences
+              would be examined. They are not, and the card says so plainly
+              rather than leaving a reader to assume coverage. */}
           <p className="gds-ai__hint" data-testid="audit-projection">
-            {preview.wouldCheck + preview.wouldSuggest + preview.wouldBeUnverifiable} items;{' '}
-            {preview.wouldCheck + preview.wouldSuggest} need the model. Estimated{' '}
-            {projectDuration(
-              preview.wouldCheck + preview.wouldSuggest,
-              seedSecondsPerItem(activeDevice),
-            )}{' '}
+            {preview.wouldCheck + preview.wouldBeUnverifiable} items;{' '}
+            {preview.wouldCheck} need the model. Estimated{' '}
+            {projectDuration(preview.wouldCheck, seedSecondsPerItem(activeDevice))}{' '}
             — based on {seedSecondsPerItem(activeDevice)}s per item measured on this machine’s{' '}
             {activeDevice === 'metal' ? 'GPU (Metal)' : 'CPU'}. Unverifiable items are instant and
             are not counted.
           </p>
+          {preview.notExamined > 0 && (
+            <p className="gds-ai__hint" data-testid="audit-not-examined">
+              {preview.notExamined} sentence{preview.notExamined === 1 ? '' : 's'} carry no
+              citation and are <b>not examined</b>. Checking whether a sentence needs a citation
+              was measured at no better than flagging every sentence, so it was withdrawn — this
+              audit checks citations that ARE present against their sources.
+            </p>
+          )}
           <p className="gds-ai__hint" data-testid="audit-wait-advice">
-            {waitAdvice(preview.wouldCheck + preview.wouldSuggest, activeDevice)}
+            {waitAdvice(preview.wouldCheck, activeDevice)}
           </p>
           <div className="gds-audit__actions">
             <Button
@@ -709,15 +719,11 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
         <Card title="Thesis health" data-testid="audit-health">
           <div className="gds-audit__stats">
             <div className="gds-audit__stat"><b>{health.completedItems}</b><span>checked</span></div>
-            {/* §11 D116. Was `flagged.length` under one label, "need review".
-                On a real job that is 46 suggestions at ~43% precision, 16
-                blocked sources and 3 checked claims summed into one number —
-                three different things, only one of which is a finding. Split,
-                because the actions differ. */}
-            <div className="gds-audit__stat" data-testid="audit-stat-suggestions">
-              <b>{(health.flagged ?? []).filter((f: any) => f.kind === 'citation_need').length}</b>
-              <span>to skim</span>
-            </div>
+            {/* §11 D116 split `flagged.length` into its three different things,
+                because the actions differ. The "to skim" stat counted the
+                advisory lane, which §11 D128 retired: it scored 18.3%
+                population-weighted precision against an 18.0% no-skill
+                baseline, so the number it showed was a count of noise. */}
             <div className="gds-audit__stat" data-testid="audit-stat-blocked">
               <b>{(health.flagged ?? []).filter((f: any) => f.kind === 'unverifiable').length}</b>
               <span>not checkable</span>
@@ -827,24 +833,11 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
               >
                 <p className="gds-audit__sentence">{f.sentence}</p>
 
-                {f.kind === 'citation_need' ? (
-                  /* §11 D89's treatment: a suggestion is not a finding and
-                     wears no verdict vocabulary. It used to state a hit rate
-                     too; §11 D123 removed it — 43% was measured on a labelled
-                     set drawn from one paper's front third, and most of what
-                     this flags on a methods-and-results paper is the authors'
-                     own work. The qualifier replaces the number. */
-                  <>
-                    <p className="gds-ai__hint" data-testid={`audit-flagged-suggestion-${i}`}>
-                      suggestion · not checked against any source · often the authors&rsquo; own work
-                    </p>
-                    {out.reason && (
-                      <p className="gds-ai__hint" data-testid={`audit-flagged-reason-${i}`}>
-                        {String(out.reason)}
-                      </p>
-                    )}
-                  </>
-                ) : f.kind === 'unverifiable' ? (
+                {/* §11 D128. The `citation_need` branch that stood here is gone
+                    with the lane. No job plans those items, so nothing reaches
+                    this list; a branch kept "just in case" would be an
+                    un-exercised rendering of a retired verdict. */}
+                {f.kind === 'unverifiable' ? (
                   /* A blocked source is a gap in the library, not a judgement.
                      Its reason IS at `result.reason` — deterministic text, not
                      a model's assertion — and the fix loop is below. */
@@ -1043,24 +1036,13 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
               <h4>{kind.replace('_', ' ')} — {list.length}</h4>
               {list.map((it) => (
                 <div className="gds-audit__item" key={it.seq} data-testid={`audit-item-${it.seq}`}>
-                  {/* §11 D89. A citation_need item is a SUGGESTION — nothing was
-                      checked against any source and its measured precision is
-                      43%. It must not wear `assessed`, which is the badge an
-                      adjudicated result wears; at a glance the two were
-                      indistinguishable. */}
-                  {it.kind === 'citation_need' ? (
-                    <span
-                      className="gds-ai__hint"
-                      data-testid={`audit-suggestion-label-${it.seq}`}
-                    >
-                      suggestion · unchecked · often the authors&rsquo; own work ·{' '}
-                      {it.page === null ? 'page unknown' : `p.${it.page}`}
-                    </span>
-                  ) : (
-                    <Badge status={it.kind === 'unverifiable' ? 'neutral' : 'assessed'}>
-                      {it.page === null ? 'page unknown' : `p.${it.page}`}
-                    </Badge>
-                  )}
+                  {/* §11 D89 kept a suggestion out of the `assessed` badge, so
+                      an unchecked opinion could not look like an adjudicated
+                      result. §11 D128 retired the lane outright, so there is no
+                      second case left to distinguish. */}
+                  <Badge status={it.kind === 'unverifiable' ? 'neutral' : 'assessed'}>
+                    {it.page === null ? 'page unknown' : `p.${it.page}`}
+                  </Badge>
                   <p className="gds-audit__sentence">{it.sentence}</p>
                   {it.kind === 'unverifiable' && (
                     <div className="gds-audit__actions">

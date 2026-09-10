@@ -36,7 +36,9 @@ describe('statusOf — what gets a colour, and what must not', () => {
       expect(statusOf('citation_support', v, withPassage)).toBe('evidence');
     }
     expect(statusOf('unverifiable', null)).toBe('blocked');
-    expect(statusOf('citation_need', 'needs_citation')).toBe('advisory');
+    // §11 D128. A retired advisory item draws NOTHING, whatever its stored
+    // verdict — an old job must not paint a highlight the product withdrew.
+    expect(statusOf('citation_need', 'needs_citation')).toBeNull();
   });
 
   /** What the highlight now claims is that there ARE passages to read, so it
@@ -61,7 +63,6 @@ describe('statusOf — what gets a colour, and what must not', () => {
       [
         statusOf('citation_support', 'weak', 1),
         statusOf('unverifiable', null),
-        statusOf('citation_need', 'needs_citation'),
       ].filter(Boolean),
     );
     for (const s of STATUS_ORDER) {
@@ -86,12 +87,12 @@ describe('the two-cue rule — colour is never the only signal', () => {
     expect(fills.size).toBe(STATUS_ORDER.length);
   });
 
-  /** §11 D89, carried into the annotated view: a 43%-precision suggestion is
-   *  visually subordinate to an evidence-backed finding here too. */
-  it('the suggestion is the only dashed one, and the only light one', () => {
-    expect(STATUS_STYLE.advisory.edge).toBe('dashed');
-    expect(STATUS_STYLE.advisory.weight).toBe('light');
-    for (const s of STATUS_ORDER.filter((s) => s !== 'advisory')) {
+  /** §11 D89 made a suggestion visually subordinate to an evidence-backed
+   *  finding. §11 D128 retired the suggestion, so the distinction has no second
+   *  side — what survives is that every REMAINING status is drawn at full
+   *  weight, because everything the page still marks is something it checked. */
+  it('every remaining status is drawn at full weight', () => {
+    for (const s of STATUS_ORDER) {
       expect(STATUS_STYLE[s].edge).toBe('solid');
       expect(STATUS_STYLE[s].weight).toBe('full');
     }
@@ -111,8 +112,14 @@ const items = [
   // §11 D108. `supporting_chunks` is what earns the highlight now — the
   // verdict beside it is a constant and decides nothing.
   { seq: 1, kind: 'citation_support', page: 1, sentence: 'Organic farming increases soil microbial biomass by a third here.', result: { output: { verdict: 'strong', supporting_chunks: [{ chunk_id: 'c1' }] } } },
-  { seq: 2, kind: 'citation_need', page: 1, sentence: 'A sentence that is printed nowhere on this page at all.', result: { output: { verdict: 'needs_citation' } } },
-  { seq: 3, kind: 'citation_need', page: 1, sentence: 'Another uncited line entirely absent from the page text.', result: { output: { verdict: 'no_citation_needed' } } },
+  // §11 D128. These were `citation_need` items, which now carry no status at
+  // all and would simply drop out — taking the unplaced-item behaviour under
+  // test with them. They are kinds the product still produces, so what is being
+  // tested is still the boundary and not the retired lane.
+  { seq: 2, kind: 'citation_support', page: 1, sentence: 'A sentence that is printed nowhere on this page at all.', result: { output: { verdict: 'weak', supporting_chunks: [{ chunk_id: 'c2' }] } } },
+  // seq 3 must carry NO status, which `citation_support` with no recorded
+  // passage now is (§11 D108) — it was `citation_need`/`no_citation_needed`.
+  { seq: 3, kind: 'citation_support', page: 1, sentence: 'Another cited line entirely absent from the page text.', result: { output: { verdict: 'weak', supporting_chunks: [] } } },
 ];
 
 /* ------------------------------------------------------------------ *

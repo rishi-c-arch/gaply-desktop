@@ -242,27 +242,12 @@ pub fn build_model_with(
                 }
                 m.supported.push(item);
             }
-            "citation_need" => {
-                if let Some(p) = &parsed {
-                    let out = output_of(p);
-                    let needs = out.get("needs_citation").and_then(|v| v.as_bool());
-                    let label = match needs {
-                        Some(true) => "needs_citation",
-                        Some(false) => "no_citation_needed",
-                        None => "not determined",
-                    };
-                    *verdicts.entry(label.to_string()).or_insert(0) += 1;
-                    item.verdict = Some(label.to_string());
-                    // A citation_need judgement rests on NO evidence by
-                    // construction — the sentence cites nothing. Its rationale
-                    // is therefore prose about the sentence itself rather than
-                    // about a source, so it is carried as `reason`, which the
-                    // composer prints unconditionally, and NOT as `explanation`,
-                    // which D18 would suppress for want of a quote.
-                    item.reason = str_field(out, "reason").or_else(|| str_field(out, "rationale"));
-                }
-                m.needs_citation.push(item);
-            }
+            // RETIRED — §11 D128. No job plans `citation_need` items any more,
+            // and a stored item from before the retirement is not rendered:
+            // the report has no section for it, so carrying it here would put
+            // an un-rendered model opinion into an export that claims to show
+            // what was checked.
+            "citation_need" => continue,
             _ => {}
         }
     }
@@ -374,11 +359,13 @@ mod tests {
         assert!(next_step_for("[9] is not in the reference list").contains("numbered correctly"));
     }
 
+    /// §11 D128. The `citation_need` arm of the export is GONE with the lane.
+    /// The test that pinned its rationale-carrying behaviour went with it: a
+    /// stored item from before the retirement is skipped, because the report
+    /// has no section to render it into and an export that claims to show what
+    /// was checked must not carry an un-rendered model opinion.
     #[test]
-    fn a_citation_need_rationale_is_carried_as_reason_not_as_explanation() {
-        // These items rest on no evidence by construction, so prose in
-        // `explanation` would be suppressed by D18 and the reader would be told
-        // "withheld" for an item where the model's reasoning IS the finding.
+    fn a_stored_advisory_item_is_not_carried_into_the_export() {
         let db = db();
         let job = seed_job(&db, vec![item(1, ItemKind::CitationNeed, "An uncited claim.", "{}")]);
         {
@@ -387,23 +374,13 @@ mod tests {
                 &db,
                 items[0].id,
                 "done",
-                Some(r#"{"output":{"needs_citation":true,"reason":"This asserts an empirical result."}}"#),
+                Some(r#"{"output":{"needs_citation":true,"reason":"An empirical result."}}"#),
                 None,
             )
             .unwrap();
         }
         let m = build_model(&db, job, "p.pdf", "today").unwrap();
-        let it = &m.needs_citation[0];
-        assert_eq!(it.verdict.as_deref(), Some("needs_citation"));
-        assert_eq!(it.reason.as_deref(), Some("This asserts an empirical result."));
-        assert!(it.explanation.is_none(), "rationale must not land in the D18-gated field");
-
-        // And it survives into the rendered report.
-        let text = gaply_core::report_html::render_html(
-            &gaply_core::audit_report::compose_audit(&m),
-            "t",
-        );
-        assert!(text.contains("This asserts an empirical result."), "{text}");
+        assert!(m.needs_citation.is_empty(), "a retired advisory item reached the export");
     }
 
     #[test]
@@ -427,10 +404,20 @@ mod tests {
             m.counts_by_category,
             vec![("citation_need".to_string(), 2), ("unverifiable".to_string(), 1)]
         );
-        // The two numbers are different facts and both are reported.
-        assert_eq!(
-            m.verdict_counts,
-            vec![("needs_citation".to_string(), 1), ("no_citation_needed".to_string(), 1)]
+        // THE TWO NUMBERS ARE DIFFERENT FACTS, and §11 D128 made the difference
+        // visible: `counts_by_category` tallies the JOB'S ROWS, so a job run
+        // before the advisory lane was retired still reports the two items it
+        // contained — that is history and stays true. `verdict_counts` reports
+        // what the export RENDERS, and the advisory lane renders nothing, so it
+        // is empty.
+        //
+        // A reader seeing "citation_need: 2" with no verdicts beside it is
+        // reading the honest shape of a retired lane on an old job. New jobs
+        // never produce such rows at all.
+        assert!(
+            m.verdict_counts.is_empty(),
+            "a retired lane contributed verdicts to the export: {:?}",
+            m.verdict_counts
         );
     }
 
