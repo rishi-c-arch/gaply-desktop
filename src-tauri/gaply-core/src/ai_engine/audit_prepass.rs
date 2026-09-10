@@ -738,6 +738,40 @@ fn rejoin_wrapped_blocks(
     out
 }
 
+/// Is this bibliography entry not a reference at all?
+///
+/// NO AUTHOR is the discriminator, on its own. A reference begins with who wrote
+/// it; a continuation of the entry above does not.
+///
+/// The first rule tried was "no author AND no year", and it MISSED the real
+/// defect: `[6] pp. 436–465, 2013.` carries a year, because a page range ends
+/// with one. Requiring both let the very entry this check exists for through.
+/// The year is no help: entry [5] of the same paper is a genuine reference whose
+/// year did not parse.
+///
+/// LIVES HERE, beside [`BibEntry`], because TWO callers need it and they must
+/// agree: `consistency::check_reference_list` raises the structural finding, and
+/// [`first_unreliable_entry`] stops marker resolution trusting the numbering it
+/// describes. A second definition would let the report contradict itself
+/// (§11 D129).
+pub(crate) fn entry_is_malformed(e: &BibEntry) -> bool {
+    e.lead_author.is_none()
+}
+
+/// The LOWEST entry number at or above which the reference list's numbering
+/// cannot be trusted, if any.
+///
+/// An auto-numbered list takes its ordinals from POSITION, so one entry that is
+/// really the wrapped tail of the entry above shifts every ordinal after it by
+/// one. Entries BELOW the break are unaffected and still resolve correctly;
+/// the malformed entry itself and everything above it do not.
+///
+/// This is the fact `resolve_marker_with` needs and did not have. See §11 D129
+/// for what printing a confident resolution without it looked like.
+pub fn first_unreliable_entry(bibliography: &BTreeMap<u32, BibEntry>) -> Option<u32> {
+    bibliography.values().filter(|e| entry_is_malformed(e)).map(|e| e.number).min()
+}
+
 /// The `[n]` a reference entry already carries, if any.
 fn leading_bib_marker(text: &str) -> Option<u32> {
     let t = text.trim_start();
@@ -1163,10 +1197,36 @@ pub fn resolve_marker_with(
                 library_id: None,
             });
         }
-        // A sentence may cite several works; the FIRST that resolves decides,
-        // matching the author-year path's rule.
+        // WHERE THE NUMBERING STOPS BEING TRUSTWORTHY (§11 D129).
+        //
+        // One entry that is really the wrapped tail of the entry above shifts
+        // every ordinal after it by one, and `consistency` raises a STRUCTURAL
+        // finding saying exactly that. Resolution used to ignore it and name the
+        // entry sitting at position `n` anyway — so one report told a researcher
+        // "every marker above [6] resolves to the wrong paper" and then, lower
+        // down, "[9] Whitley, A genetic algorithm tutorial — not in your
+        // library" for a sentence about Yang's firefly algorithm, with an action
+        // attached. A dozen of those.
+        //
+        // The guard runs BEFORE `resolve_bib_entry`, which matters more than the
+        // wording: had Whitley been in the library, indexed and embedded, the
+        // claim would have been CHECKED against an unrelated paper and the
+        // report would have quoted its passages as evidence. A wrong fetch
+        // instruction is visible; a wrong verification is not.
+        let unreliable_from = first_unreliable_entry(bibliography);
         let mut missing: Vec<String> = Vec::new();
         for n in &marker.numbers {
+            if let Some(first) = unreliable_from {
+                if *n >= first {
+                    missing.push(format!(
+                        "[{n}] cannot be resolved — entry [{first}] of the reference list is not a \
+                         reference, so every number from [{first}] up points at the wrong entry. \
+                         Fix the numbering and re-run; until then Gaply will not name a work for \
+                         this marker"
+                    ));
+                    continue;
+                }
+            }
             let Some(entry) = bibliography.get(n) else {
                 missing.push(format!("[{n}] is not in the reference list"));
                 continue;
@@ -1570,6 +1630,113 @@ mod tests {
     }
 
     #[test]
+    /// §11 D129. A SHIFTED REFERENCE LIST MUST NOT PRODUCE A CONFIDENT ANSWER.
+    ///
+    /// `R PAPER .docx` has one auto-numbered entry that is really the wrapped
+    /// tail of the entry above, so Word renders 22 entries where there are 21
+    /// and every ordinal from [6] up points one too high. `consistency` says so
+    /// in a STRUCTURAL finding. Resolution used to ignore that and name the
+    /// entry sitting at position `n` anyway, so one report said "every marker
+    /// above [6] resolves to the wrong paper" and then, lower down, told the
+    /// researcher to fetch "[9] Whitley, A genetic algorithm tutorial" for a
+    /// sentence about Yang's firefly algorithm. A dozen such items.
+    #[test]
+    fn a_marker_above_a_malformed_entry_names_no_work() {
+        let db = crate::Database::in_memory().unwrap();
+        // [3] is the wrapped tail — no author — so [3] and up are unreliable.
+        let bib = parse_numbered_bibliography(
+            "[1] A. Author, A real reference, 2001.\n\
+             [2] B. Bee, Another real reference, 2002.\n\
+             [3] pp. 436–465, 2013.\n\
+             [4] D. Dee, A fourth reference, 2004.",
+        );
+        assert_eq!(first_unreliable_entry(&bib), Some(3));
+
+        // BELOW the break the numbering still holds, so the entry is named.
+        let below = &markers_in("An early claim [2].")[0];
+        match resolve_marker_with(&db, below, &bib).unwrap() {
+            Resolution::Unverifiable { reason, .. } => assert!(
+                reason.contains("Another real reference"),
+                "an entry below the break must still be named: {reason}"
+            ),
+            other => panic!("expected Unverifiable, got {other:?}"),
+        }
+
+        // AT or ABOVE it, no work may be named and the reason must say why.
+        for sentence in ["The malformed one [3].", "A later claim [4]."] {
+            let m = &markers_in(sentence)[0];
+            match resolve_marker_with(&db, m, &bib).unwrap() {
+                Resolution::Unverifiable { reason, .. } => {
+                    assert!(reason.contains("cannot be resolved"), "{reason}");
+                    assert!(reason.contains("[3]"), "the break must be named: {reason}");
+                    assert!(
+                        !reason.contains("A fourth reference") && !reason.contains("not in your library"),
+                        "a work was named for an unreliable marker: {reason}"
+                    );
+                }
+                other => panic!("expected Unverifiable, got {other:?}"),
+            }
+        }
+    }
+
+    /// THE WORSE HALF OF §11 D129, and the reason the guard runs BEFORE the
+    /// library lookup rather than only changing the wording.
+    ///
+    /// If the wrongly-pointed-at entry happens to be in the library, indexed and
+    /// embedded, the old path returned `Checkable` — and the audit would quote
+    /// an unrelated paper's passages as evidence for the claim. A wrong fetch
+    /// instruction is visible to the reader; a wrong verification is not.
+    #[test]
+    fn an_unreliable_marker_is_never_checkable_even_when_the_entry_is_in_the_library() {
+        let db = crate::Database::in_memory().unwrap();
+        {
+            let conn = db.conn().unwrap();
+            conn.execute(
+                "INSERT INTO citation_library (id, csl_json, doi, title, authors, year, tags, sync_status, created_at, updated_at)
+                 VALUES ('lib-1', '{}', '10.1234/abc', 'A genetic algorithm tutorial', 'Whitley, D', 1994, '[]', 'local_only', 1, 1)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO documents (source_type, title, source_url, fetched_at, checksum, status, created_at)
+                 VALUES ('paper', 'Whitley', '/tmp/a.pdf', 1, 'ck-1', 'ingested', 1)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO citation_documents (citation_id, document_id, matched_by, created_at)
+                 VALUES ('lib-1', 1, 'manual', 1)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO ai_model_registry (id, kind, display_name, file_path, dim, registered_at)
+                 VALUES ('m', 'embedding', 'm', '/dev/null', 384, 1)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO ai_chunks (document_id, page, section, char_start, char_end, content, token_estimate, content_hash, created_at)
+                 VALUES (1, 1, NULL, 0, 5, 'text', 1, 'h1', 1)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO ai_chunk_embeddings (chunk_id, model_id, preprocessing_version, dim, vector, created_at)
+                 VALUES (1, 'm', 'p', 384, X'00', 1)",
+                [],
+            ).unwrap();
+        }
+        let bib = parse_numbered_bibliography(
+            "[1] A. Author, A real reference, 2001.\n\
+             [2] pp. 436–465, 2013.\n\
+             [3] D. Whitley, A genetic algorithm tutorial, 1994, doi:10.1234/abc",
+        );
+        assert_eq!(first_unreliable_entry(&bib), Some(2));
+        let m = &markers_in("Yang formalized the firefly algorithm [3].")[0];
+        let r = resolve_marker_with(&db, m, &bib).unwrap();
+        assert!(
+            matches!(r, Resolution::Unverifiable { .. }),
+            "an unreliable marker resolved to a CHECKABLE source — the audit would have \
+             quoted the wrong paper as evidence: {r:?}"
+        );
+    }
+
     fn a_numeric_marker_resolves_through_the_bibliography_to_a_checkable_source() {
         // The whole point: [1] is an index into the paper's own list, the list
         // names a work, and the work is in the library with an indexed source.

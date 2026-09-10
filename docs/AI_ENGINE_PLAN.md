@@ -7598,3 +7598,65 @@ then the honest fallback is not classification at all but stated coverage
 ("checked the first 30%, through §3.5"), which asserts nothing about what those
 sections are — crude, and it does not make the lane good; it makes a 46% lane
 apply only where 46% is the number.
+
+### D129 — the report contradicted itself, and the half nobody would have caught was the verification
+
+A live audit of `R PAPER .docx` produced both of these, in one document:
+
+> **Structural finding:** "[6] does not look like a reference entry … every
+> marker pointing at them resolves to the wrong paper."
+
+> **Unverifiable item:** "Yang [9] formalized FA" — *"[9] Whitley, A genetic
+> algorithm tutorial — not in your library."* **Action:** fetch it.
+
+A dozen such items. The report told the researcher its own numbering was
+unreliable and then, lower down, named a dozen unrelated works as confident
+resolutions with an action attached. `CSA introduced by Askarzadeh [10]` was
+matched to *Yang, Firefly algorithm*.
+
+#### One fact, known in one place and not the other
+
+`consistency::check_reference_list` detects the malformed entry.
+`audit_prepass::resolve_marker_with` resolves `[n]` by looking up position `n`.
+**Nothing connected them**, so resolution trusted an ordinal the same report was
+simultaneously calling wrong.
+
+The predicate now lives in ONE place — `entry_is_malformed`, beside `BibEntry` in
+`audit_prepass` — with `first_unreliable_entry` derived from it, and BOTH callers
+read it. A second definition is exactly how the two halves drifted apart.
+
+Entries BELOW the break still resolve and are still named: the shift only affects
+the malformed entry and everything above it. At or above it, Gaply names no work
+and says why.
+
+#### THE HALF THAT MATTERED MORE, AND WAS INVISIBLE
+
+The guard runs **before** `resolve_bib_entry`, not merely in the wording.
+
+Had *Whitley* been in the library, indexed and embedded, the old path returned
+`Checkable` — and the audit would have quoted **an unrelated paper's passages as
+evidence for the claim**, with a page link, under "the source passages behind
+each cited claim". The reader's only defence is the one thing the report promised
+they would not need: reading the source themselves to notice it is the wrong
+paper.
+
+> **A wrong fetch instruction is visible. A wrong verification is not.**
+
+The defect was reported as a dozen bad fetch instructions because that is what
+showed on a machine whose library happened not to hold those works. On a fuller
+library the same bug is silent and worse. Both are pinned:
+`a_marker_above_a_malformed_entry_names_no_work` and
+`an_unreliable_marker_is_never_checkable_even_when_the_entry_is_in_the_library`.
+
+#### The general shape
+
+Two deterministic checks over the same data, each correct alone, disagreeing in
+one document because one of them did not know what the other had established.
+This is the third time in this line of work that a defect lived in a SEAM rather
+than in a component — §11 D122 (a shared cause with two different consequences),
+§11 D125 (two sides of a comparison measured by different instruments), and now a
+fact established by one check and ignored by the other.
+
+**A finding that invalidates an input must reach everything downstream of that
+input.** Where that cannot be arranged structurally, the downstream surface
+must carry the doubt rather than print a confident answer.

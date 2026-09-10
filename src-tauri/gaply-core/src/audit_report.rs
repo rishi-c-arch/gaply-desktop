@@ -653,10 +653,20 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     out.push(Block::PageBreak);
     out.push(heading("The counts", 1));
     out.push(para(format!(
-        "{} sentences were read and {} were checked against a source or judged for whether they \
-         need one.",
+        // §11 D128. This said "checked against a source OR judged for whether
+        // they need one". The second clause was the advisory lane and is retired;
+        // leaving it described a scope the run no longer has.
+        "{} sentences were read and {} were checked against a source.",
         m.total_sentences, m.checked
     )));
+    // WHAT WAS JUDGED, BY KIND — the row tally, which is NOT the number of
+    // claims whose passages were found. One `citation_support` item can be
+    // judged and yield no passage, so these two numbers differ legitimately and
+    // the report says which is which rather than leaving a reader to reconcile
+    // "4 citation support" against "passages quoted for 3".
+    if !m.counts_by_category.is_empty() {
+        out.push(para("Judged, by kind:"));
+    }
     for (kind, n) in &m.counts_by_category {
         out.push(bullet(format!("{n} {}", kind.replace('_', " ")), 0));
     }
@@ -682,11 +692,12 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     if !support_counts.is_empty() {
         let located: usize = support_counts.iter().map(|(_, n)| *n).sum();
         out.push(para(format!(
-            "{located} cited sentence{} had its source passages located and quoted in this \
+            "{located} cited sentence{} had {} source passages located and quoted in this \
              report. Gaply does not grade how well a passage supports a sentence: on a 6-case \
              labelled set its grade was identical on all 14 outputs across two runs, so the \
              grade carries no information and is not reported. The passages are.",
-            if located == 1 { "" } else { "s" }
+            if located == 1 { "" } else { "s" },
+            if located == 1 { "its" } else { "their" }
         )));
     }
     if !m.skipped_reasons.is_empty() {

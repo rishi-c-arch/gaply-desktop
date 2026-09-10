@@ -728,8 +728,21 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
               <b>{(health.flagged ?? []).filter((f: any) => f.kind === 'unverifiable').length}</b>
               <span>not checkable</span>
             </div>
+            {/* "with passages" must COUNT PASSAGES. This counted
+                `citation_support` items, so a judged claim that yielded no
+                passage was still tallied here — the screen said 4 while the
+                report's cover said "passages quoted for 3" (§11 D129's sibling:
+                one thing, two numbers, because two places defined it). The row
+                tally is a different and legitimate fact; it belongs under
+                "Judged, by kind", not under this label. */}
             <div className="gds-audit__stat" data-testid="audit-stat-checked-claims">
-              <b>{(health.flagged ?? []).filter((f: any) => f.kind === 'citation_support').length}</b>
+              <b>
+                {(health.flagged ?? []).filter(
+                  (f: any) =>
+                    f.kind === 'citation_support' &&
+                    ((f.result?.output?.supporting_chunks ?? []).length > 0),
+                ).length}
+              </b>
               <span>with passages</span>
             </div>
           </div>

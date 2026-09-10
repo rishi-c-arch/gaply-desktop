@@ -100,22 +100,8 @@ fn section_letter_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"^\s*([A-H])\.\s+(\S.*)$").expect("section letter regex"))
 }
 
-/// A reference entry that does not look like a reference.
-///
-/// THE OFF-BY-ONE DETECTOR. A page-range continuation numbered as its own entry
-/// — the defect that made `[7]` resolve to an SVM paper — has neither an author
-/// nor a year, because it is the tail of the entry above it.
-fn entry_is_malformed(e: &BibEntry) -> bool {
-    // NO AUTHOR is the discriminator, on its own. A reference begins with who
-    // wrote it; a continuation does not.
-    //
-    // The first rule tried was "no author AND no year", and it MISSED the real
-    // defect: `[6] pp. 436-465, 2013.` carries a year, because a page range
-    // ends with one. Requiring both let the very entry this check exists for
-    // through. The year is no help here — entry [5] of the same paper is a
-    // genuine reference whose year did not parse.
-    e.lead_author.is_none()
-}
+use crate::ai_engine::audit_prepass::{entry_is_malformed, first_unreliable_entry};
+
 
 /// Corroboration for the message, not for the decision: the shape that says
 /// "this is the tail of the entry above".
