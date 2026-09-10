@@ -44,6 +44,14 @@ pub struct AuditPlan {
     /// examined at all (§11 D128). Counted so the report can say so: a sentence
     /// nobody looked at is not a sentence that passed.
     pub not_examined: usize,
+    /// Reference entries staged for this job (§11 D132) — the author-year list,
+    /// which the fetch can now reach. 0 for a numbered paper, whose entries the
+    /// numbered parser already handles.
+    pub staged_sources: usize,
+    /// Entries NOT staged because `citation_library` already holds that DOI. The
+    /// library path owns them, and reporting the number keeps "why is this list
+    /// shorter than my reference list" answerable.
+    pub staged_already_in_library: usize,
     pub queued_citation_support: usize,
     pub queued_unverifiable: usize,
 }
@@ -697,6 +705,25 @@ fn plan_audit(
     // §11 D94. Persisted WITH the job, because the export has only the
     // manuscript's NAME — not its path — so it cannot re-read the file to
     // recompute them, and a researcher wants the list in the report.
+    // §11 D132. The author-year reference list, staged against THIS job so the
+    // fetch has something to aim at. Never reaches `citation_library`.
+    //
+    // Only for `WholeManuscript`: a citation-scoped audit is already about one
+    // library entry, and staging a whole bibliography for it would import the
+    // manuscript's reference list as a side effect of checking one source.
+    let staged = if matches!(scope, AuditScope::WholeManuscript)
+        && !report.author_year_bibliography.is_empty()
+    {
+        crate::staged_sources::stage_entries(
+            db,
+            job_id,
+            &report.author_year_bibliography,
+            crate::now_epoch(),
+        )?
+    } else {
+        Default::default()
+    };
+
     let consistency = crate::consistency::check_consistency(&blocks, &report);
     if !consistency.findings.is_empty() {
         if let Ok(json) = serde_json::to_string(&consistency) {
@@ -712,6 +739,8 @@ fn plan_audit(
         uncited: report.uncited,
         skipped: report.skipped,
         markers_found: report.markers_found,
+        staged_sources: staged.staged,
+        staged_already_in_library: staged.already_in_library,
         queued_citation_need: 0,
         not_examined,
         queued_citation_support: support,
@@ -1426,6 +1455,76 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+
+    /// §11 D132. PLANNING AN AUTHOR-YEAR MANUSCRIPT STAGES ITS REFERENCE LIST.
+    ///
+    /// 26 of 35 entries in a real paper carry a DOI and the audit read none of
+    /// them, because nothing staged the list for the fetch to aim at.
+    #[test]
+    fn planning_stages_the_author_year_reference_list_and_never_the_library() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("stage-ay");
+        let p = dir.join("thesis.txt");
+        std::fs::write(
+            &p,
+            // BLANK LINES MATTER: the author-year parser reads one BLOCK per
+            // entry, and a `.txt` splits into blocks on blank lines. Without
+            // them the whole file is one block, no block IS the heading, and
+            // nothing is staged — which is how this fixture first failed.
+            "Coverage rose sharply across the region (Alkenbrack et al., 2015).\n\
+             \n\
+             A later review reported the same direction (Reka et al., 2025).\n\
+             \n\
+             References\n\
+             \n\
+             Alkenbrack, S., Hanson, K., & Lindelow, M. (2015). Evasion of mandatory social \
+             health insurance for the formal sector. BMC Health Services Research, 15, 473. \
+             https://doi.org/10.1186/s12913-015-1132-5\n\
+             \n\
+             Reka, H., van Kessel, R., & Pavlova, M. (2025). Private health insurance in Gulf \
+             states: A scoping review. Health Policy Open, 10, 100157. \
+             https://doi.org/10.1016/j.hpopen.2025.100157\n",
+        )
+        .unwrap();
+
+        let plan = plan_thesis_audit(&db, &p, "citation_need-v4").unwrap();
+        assert_eq!(plan.staged_sources, 2, "the author-year list was not staged");
+        assert_eq!(plan.staged_already_in_library, 0);
+
+        let staged = crate::staged_sources::list_for_job(&db, plan.job_id).unwrap();
+        assert_eq!(staged.len(), 2);
+        assert_eq!(
+            crate::staged_sources::fetchable_by_doi(&db, plan.job_id).unwrap().len(),
+            2,
+            "both entries print a DOI, so both are fetchable WITHOUT a network guess"
+        );
+
+        // THE WHOLE POINT: the user's collection is untouched.
+        let n: i64 = db
+            .conn()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM citation_library", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0, "planning an audit put rows in the user's library");
+    }
+
+    /// A numbered manuscript stages nothing — the numbered parser already reaches
+    /// its entries, and `bibliography` and `author_year_bibliography` are never
+    /// both populated.
+    #[test]
+    fn planning_a_numbered_manuscript_stages_nothing() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("stage-numbered");
+        let p = dir.join("thesis.txt");
+        std::fs::write(
+            &p,
+            "Soil microbial biomass rises by roughly a third under organic management [1].\n\
+             References\n[1] R. Smith, Soil biology and management, 2019.\n",
+        )
+        .unwrap();
+        let plan = plan_thesis_audit(&db, &p, "citation_need-v4").unwrap();
+        assert_eq!(plan.staged_sources, 0);
+    }
     /// §11 D88. The preview and the plan must not disagree about one sentence:
     /// a card that promises 12 checks and a run that performs 4 is worse than
     /// no card.

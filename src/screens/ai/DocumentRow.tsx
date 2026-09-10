@@ -232,7 +232,7 @@ export const DocumentRow: React.FC<DocumentRowProps> = ({
     setFetching(true);
     setPhase('Looking for a free copy…');
     try {
-      const [report] = await bridge.fetchOpenAccess([citationId], (ev) => {
+      const [report] = await bridge.fetchOpenAccess([{ kind: 'citation', citationId }], (ev) => {
         if (ev.kind === 'phase') setPhase(describeOaPhase(ev.phase));
       });
       if (!report) {

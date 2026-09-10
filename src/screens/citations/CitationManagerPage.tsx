@@ -783,7 +783,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
     setOaProgress(`Looking up ${eligible.length} source${eligible.length === 1 ? '' : 's'}…`);
     try {
       const reports = await aiBridge.fetchOpenAccess(
-        eligible.map((c) => c.id),
+        eligible.map((c) => ({ kind: 'citation' as const, citationId: c.id })),
         (ev) => {
           if (ev.kind === 'fetching') {
             // Names the paper, not just a count: a batch that says "3 of 12"
@@ -1858,7 +1858,7 @@ const Inner: React.FC<CitationManagerPageProps> = ({
                     }
                     setBusy(true);
                     try {
-                      const reports = await aiBridge.fetchOpenAccess([selected.id]);
+                      const reports = await aiBridge.fetchOpenAccess([{ kind: 'citation', citationId: selected.id }]);
                       toast(summariseOaBatch(reports), 'assessed');
                       if (reports.some((r) => r.checkable)) setRelinked((n) => n + 1);
                     } catch (e) {

@@ -501,21 +501,25 @@ class AiBridge {
   /**
    * Fetch the open-access full text for one or more citations (§11 D56).
    *
-   * ONE method for both surfaces: the single-source action passes a list of
-   * one. A second entry point would be a second place for the outcome
+   * ONE method for every surface and BOTH subject kinds: the single-source
+   * action passes a list of one, and a staged manuscript reference is just
+   * another subject. A by-id convenience was tried and removed — it is a second
+   * name every mock must also know, for an argument the caller can map in one
+   * line. A second entry point would be a second place for the outcome
    * vocabulary to drift, and the outcomes are the whole point — a batch of
    * twelve answers twelve times, never with a count.
    */
   async fetchOpenAccess(
-    citationIds: string[],
+    subjects: OaFetchSubject[],
     onEvent?: (ev: OaFetchEvent) => void,
   ): Promise<OaFetchReport[]> {
     return this.channelInvoke<OaFetchReport[], OaFetchEvent>(
       'citation_fetch_oa',
-      { citationIds },
+      { subjects },
       onEvent,
     );
   }
+
 
   /** Deterministic, no model, no job: which manuscript sentences cite this. */
   async citationAuditPreview(citationId: string, path: string): Promise<CitationAuditPreview> {

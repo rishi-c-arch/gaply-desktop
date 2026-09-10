@@ -40,7 +40,7 @@ use gaply_core::extract::citations::Reference;
 use gaply_core::oa_fetch::{resolve, OaResolution, OaSource};
 use gaply_core::refverify::{ApiRateLimiters, HttpFetcher, VerifyContext};
 use gaply_core::{Database, GaplyError};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::paper_corpus::{PaperFetch, MAX_FETCH_BYTES};
 
@@ -97,7 +97,7 @@ pub enum FetchOutcome {
 /// fetch and a pair of `Option`s would permit neither and both. The distinction
 /// is load-bearing: a staged source must never acquire a `citation_library` row
 /// as a side effect of being checked.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 // `rename_all` on an enum renames the VARIANTS; the fields inside them need
 // `rename_all_fields`. Without it this emitted `citation_id` to TypeScript —
 // §11 D103's exact defect, caught by §11 D103's own guard.

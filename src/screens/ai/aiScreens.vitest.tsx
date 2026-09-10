@@ -834,7 +834,12 @@ describe('Thesis audit', () => {
 
     fireEvent.click(screen.getByTestId('audit-fetch-sources'));
     // Only the blocked sources that HAVE a library entry can be looked up.
-    await waitFor(() => expect(fetchOpenAccess).toHaveBeenCalledWith(['lib-2', 'lib-3']));
+    await waitFor(() => expect(fetchOpenAccess).toHaveBeenCalledWith([
+        // §11 D132: the fetch takes SUBJECTS, so a staged manuscript reference
+        // is addressable by the same call.
+        { kind: 'citation', citationId: 'lib-2' },
+        { kind: 'citation', citationId: 'lib-3' },
+      ]));
 
     // Attaching by hand routes to the Manager, which owns the Document card —
     // this screen must not grow a second file-picker for the same job.
@@ -1074,7 +1079,7 @@ describe('Thesis audit', () => {
 
     // lib-2 has no DOI: sending it would spend a lookup to be told so.
     fireEvent.click(screen.getByTestId('audit-fetch-sources'));
-    await waitFor(() => expect(fetchOpenAccess).toHaveBeenCalledWith(['lib-3']));
+    await waitFor(() => expect(fetchOpenAccess).toHaveBeenCalledWith([{ kind: 'citation', citationId: 'lib-3' }]));
   });
 
   it('fills the results list from streamed progress events', async () => {

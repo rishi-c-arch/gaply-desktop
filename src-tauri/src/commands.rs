@@ -2011,12 +2011,12 @@ pub enum OaFetchEvent {
 #[tracing::instrument(skip(state, on_event))]
 pub async fn citation_fetch_oa(
     state: State<'_, AppState>,
-    citation_ids: Vec<String>,
+    subjects: Vec<crate::oa_fetch::FetchSubject>,
     on_event: tauri::ipc::Channel<OaFetchEvent>,
 ) -> Result<Vec<crate::oa_fetch::FetchReport>, GaplyError> {
-    use crate::oa_fetch::{fetch_one, FetchDeps, FetchTarget};
+    use crate::oa_fetch::{fetch_one, FetchDeps, FetchSubject, FetchTarget};
 
-    if citation_ids.is_empty() {
+    if subjects.is_empty() {
         return Ok(Vec::new());
     }
 
@@ -2025,21 +2025,37 @@ pub async fn citation_fetch_oa(
     let app_data_dir = state.app_data_dir.clone();
 
     tokio::task::spawn_blocking(move || {
-        // Read each citation's identity from the library FIRST: the fetch takes
-        // a DOI, and a DOI it was handed by the caller is a DOI nobody checked
-        // against the user's own library.
-        let targets: Vec<FetchTarget> = citation_ids
+        // Read each source's identity from OUR OWN STORE first — the library for
+        // a citation, `audit_staged_sources` for a staged reference. A DOI the
+        // caller handed us is a DOI nobody checked; the frontend passes an id,
+        // never bibliographic data (§11 D132).
+        //
+        // ONE command for both, deliberately: "fetch this one" and "fetch these
+        // twelve" were already the same operation over a list, and a second
+        // command would be a second place for the outcome vocabulary to drift.
+        // A second command per SUBJECT KIND would be the same mistake twice.
+        let targets: Vec<FetchTarget> = subjects
             .iter()
-            .map(|id| {
-                let stored = gaply_core::citation_library::get(&db, id)?;
-                Ok(FetchTarget {
-                    subject: crate::oa_fetch::FetchSubject::Citation { citation_id: id.clone() },
-                    doi: stored.as_ref().and_then(|r| r.doi.clone()),
-                    title: stored
-                        .as_ref()
-                        .map(|r| r.title.clone())
-                        .filter(|t| !t.trim().is_empty()),
-                })
+            .map(|subject| match subject {
+                FetchSubject::Citation { citation_id } => {
+                    let stored = gaply_core::citation_library::get(&db, citation_id)?;
+                    Ok(FetchTarget {
+                        subject: subject.clone(),
+                        doi: stored.as_ref().and_then(|r| r.doi.clone()),
+                        title: stored
+                            .as_ref()
+                            .map(|r| r.title.clone())
+                            .filter(|t| !t.trim().is_empty()),
+                    })
+                }
+                FetchSubject::Staged { staged_id } => {
+                    let stored = gaply_core::staged_sources::get(&db, *staged_id)?;
+                    Ok(FetchTarget {
+                        subject: subject.clone(),
+                        doi: stored.as_ref().and_then(|r| r.doi.clone()),
+                        title: stored.as_ref().and_then(|r| r.title.clone()),
+                    })
+                }
             })
             .collect::<Result<Vec<_>, GaplyError>>()?;
 

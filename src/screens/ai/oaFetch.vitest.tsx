@@ -150,8 +150,12 @@ describe('Fetch open-access PDF — the action', () => {
 
     await waitFor(() => expect(screen.getByTestId('document-fetch-result')).toBeTruthy());
     expect(screen.getByTestId('document-fetch-result').textContent).toMatch(/fetched and indexed/i);
-    // The list of one: the single action and the batch are the same command.
-    expect(fetchOpenAccess.mock.calls[0][0]).toEqual(['cite-naidu']);
+    // The list of one: the single action and the batch are the same command,
+    // and since §11 D132 it carries SUBJECTS so a staged manuscript reference
+    // is addressable by the same call.
+    expect(fetchOpenAccess.mock.calls[0][0]).toEqual([
+      { kind: 'citation', citationId: 'cite-naidu' },
+    ]);
     expect(screen.getByTestId('document-name').textContent).toBe('10-1-a.pdf');
     expect(onLinked).toHaveBeenCalledWith(12);
   });

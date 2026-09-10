@@ -295,7 +295,7 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
       if (citationIds.length === 0) return;
       setBusyAction(label);
       try {
-        const reports = await bridge.fetchOpenAccess(citationIds);
+        const reports = await bridge.fetchOpenAccess(citationIds.map((citationId) => ({ kind: 'citation' as const, citationId })));
         const notes: Record<string, string> = {};
         const gained: string[] = [];
         for (const r of reports) {
@@ -525,7 +525,7 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
                     setFixing(true);
                     setFixNote(null);
                     try {
-                      await bridge.fetchOpenAccess(ids);
+                      await bridge.fetchOpenAccess(ids.map((citationId) => ({ kind: 'citation' as const, citationId })));
                       if (path) setPreview(await bridge.previewThesisAudit(path));
                     } catch (e) {
                       setFixNote(errorText(e));

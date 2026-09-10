@@ -156,6 +156,29 @@ pub fn list_for_job(db: &Database, job_id: i64) -> Result<Vec<StagedSource>, Gap
     Ok(rows)
 }
 
+/// One staged source by id.
+pub fn get(db: &Database, staged_id: i64) -> Result<Option<StagedSource>, GaplyError> {
+    let conn = db.conn()?;
+    conn.query_row(
+        "SELECT id, surname, year, title, doi, document_id, matched_by
+         FROM audit_staged_sources WHERE id = ?1",
+        params![staged_id],
+        |r| {
+            Ok(StagedSource {
+                id: r.get(0)?,
+                surname: r.get(1)?,
+                year: r.get(2)?,
+                title: r.get(3)?,
+                doi: r.get(4)?,
+                document_id: r.get(5)?,
+                matched_by: r.get(6)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
 /// The staged sources that can be fetched without a network guess: those with a
 /// DOI and no document yet.
 pub fn fetchable_by_doi(db: &Database, job_id: i64) -> Result<Vec<StagedSource>, GaplyError> {
