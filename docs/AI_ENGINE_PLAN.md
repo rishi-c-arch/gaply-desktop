@@ -8107,3 +8107,55 @@ The predicted number is **11 of 47 cited sentences**, from 13 fetchable DOIs
 (§11 D133). Anything materially below that, with fetches succeeding, is a defect
 and not a disappointment.
 
+
+### D136 — two blind spots that made a live failure leave no evidence, both self-inflicted
+
+The first live run of §11 D134's button produced nothing. Diagnosis established
+quickly that the staging half was correct — migration 20 applied, 35 staged rows
+for job 20, 26 carrying a DOI, `list_for_job` returning exactly that against the
+real database with correct camelCase — and then **stalled, because the two places
+that should have recorded what happened recorded nothing.**
+
+#### 1. A span with no event inside it writes nothing
+
+`ai_job_staged_sources` carried `#[tracing::instrument]`, which opens a SPAN.
+A span with no event inside it produces no log line, so **a successful call and a
+call that never happened were identical in the log.** The diagnosis asserted the
+command had not been invoked; that assertion was unfounded and was withdrawn.
+
+It now emits an event, with `fetchable` beside the total — because that count is
+what decides whether the button appears at all, and "35 rows, 0 fetchable" is a
+different situation from "no rows".
+
+#### 2. `.catch(() => setStaged([]))`, commented "the honest degradation"
+
+It was not honest. It was SILENT. A rejected read and a manuscript with nothing to
+fetch rendered the identical screen: no button, no message, no log line. So the
+one failure mode the diagnosis most needed to rule out was the one that left no
+trace.
+
+The read now reports its error where the button would have been, naming the
+reason through `errorText` (§11 D98's rule: never `[object Object]`). Two tests
+hold the distinction open — the same screen under the two conditions, asserting
+they are DISTINGUISHABLE, because that is the property that was missing rather
+than either message.
+
+#### What makes this worth an entry rather than a fix
+
+**This is the session's own recurring lesson, committed by the person writing it
+down.** §11 D130 rejected a rule whose failure mode was "the audit silently
+checks nothing". `label-cn` was changed to refuse an unknown flag rather than
+ignore it, on the grounds that *silence is the worst possible response to an
+instruction that cannot be honoured, because it cannot be told apart from the
+instruction having worked.* §11 D134 records that defending against a missing
+bridge method would have masked real wiring bugs.
+
+Then the very next surface shipped with a swallowed error and an unobservable
+command — both written in the same session, hours after the notes arguing against
+them. Knowing the rule is not the same as applying it at the moment the cheap
+option is in front of you, and the cheap option here was four characters of
+`catch`.
+
+The standing form, for the next time: **an affordance that is absent must say
+whether it is absent because there is nothing to do, or because something
+failed.** Those are different facts and the reader cannot infer which.

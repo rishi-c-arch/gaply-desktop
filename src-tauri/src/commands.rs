@@ -3056,9 +3056,23 @@ pub async fn ai_job_staged_sources(
     job_id: i64,
 ) -> Result<Vec<gaply_core::staged_sources::StagedSource>, GaplyError> {
     let db = state.db.clone();
-    tokio::task::spawn_blocking(move || gaply_core::staged_sources::list_for_job(&db, job_id))
+    let rows = tokio::task::spawn_blocking(move || gaply_core::staged_sources::list_for_job(&db, job_id))
         .await
-        .map_err(|e| GaplyError::Internal(format!("staged source read panicked: {e}")))?
+        .map_err(|e| GaplyError::Internal(format!("staged source read panicked: {e}")))??;
+    // AN INVOCATION MUST BE VISIBLE (§11 D136).
+    //
+    // `#[tracing::instrument]` opens a SPAN; a span with no event inside it
+    // writes nothing, so a successful call and a call that never happened looked
+    // identical in the log. That cost a live diagnosis: the staged rows were
+    // right, the command existed, and there was no way to tell whether the
+    // screen had asked for them.
+    //
+    // `fetchable` is logged beside the total because it is what decides whether
+    // the button appears at all — a read that returns 35 rows and 0 fetchable is
+    // a different situation from one that returns nothing.
+    let fetchable = rows.iter().filter(|s| s.doi.is_some() && s.document_id.is_none()).count();
+    tracing::info!(job_id, staged = rows.len(), fetchable, "staged sources read");
+    Ok(rows)
 }
 
 /// Register a planned job and run it in the background.

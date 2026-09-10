@@ -1025,6 +1025,47 @@ describe('Thesis audit', () => {
     ...over,
   });
 
+  /** §11 D136. A FAILED READ AND "NOTHING TO FETCH" MUST NOT LOOK THE SAME.
+   *
+   *  The effect used to swallow the rejection and render an empty state, so a
+   *  live failure left no evidence anywhere — no button, no message, no log —
+   *  and cost a diagnosis. These two tests are the same screen under the two
+   *  conditions, asserting they are DISTINGUISHABLE.
+   */
+  it('says why the fetch is missing when the staged read fails', async () => {
+    let emit: ((e: JobProgressEvent) => void) | undefined;
+    const bridge = bridgeWith({
+      startThesisAudit: async (_p: string, cb: any) => {
+        emit = cb;
+        return plan;
+      },
+      jobStatus: async () => ({
+        health: { jobId: 7, totalItems: 1, completedItems: 1, flagged: [] },
+      }),
+      jobStagedSources: async () => {
+        throw new Error('database is locked');
+      },
+    });
+    render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
+    fireEvent.click(screen.getByTestId('audit-pick'));
+    await waitFor(() => expect(screen.getByTestId('audit-confirm-start')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('audit-confirm-start'));
+    await waitFor(() => expect(emit).toBeTruthy());
+    emit!({ jobId: 7, completed: 1, total: 1, currentCategory: 'citation_support', latestItemSummary: '' });
+    await waitFor(() => expect(screen.getByTestId('audit-staged-error')).toBeTruthy());
+    // The REASON, not a generic shrug — and errorText, never [object Object].
+    expect(screen.getByTestId('audit-staged-error').textContent).toMatch(/database is locked/);
+    expect(screen.queryByTestId('audit-staged-fetch')).toBeNull();
+  });
+
+  it('says NOTHING when there is genuinely nothing to fetch', async () => {
+    await renderWithStaged([]);
+    await waitFor(() => expect(screen.getByTestId('audit-health')).toBeTruthy());
+    // Neither the button nor an error: an empty reference list is not a fault.
+    expect(screen.queryByTestId('audit-staged-fetch')).toBeNull();
+    expect(screen.queryByTestId('audit-staged-error')).toBeNull();
+  });
+
   it('says how many sources it is about to fetch, and what leaves the machine', async () => {
     await renderWithStaged([stagedRow(), stagedRow({ id: 12, doi: '10.1/other' })]);
     await waitFor(() => expect(screen.getByTestId('audit-staged-fetch')).toBeTruthy());

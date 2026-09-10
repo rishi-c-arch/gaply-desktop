@@ -312,6 +312,17 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
   const [staged, setStaged] = useState<StagedSource[]>([]);
   const [stagedBusy, setStagedBusy] = useState(false);
   const [stagedOutcomes, setStagedOutcomes] = useState<OaFetchReport[]>([]);
+  /**
+   * Why the manuscript-sources button is not here, when it is not here.
+   *
+   * §11 D136. This read used to `.catch(() => setStaged([]))`, commented "the
+   * honest degradation". It was not honest, it was SILENT: a rejected read and a
+   * manuscript with nothing to fetch produced the identical UI — no button, no
+   * message, no log line — so a live failure left no evidence anywhere and cost
+   * a diagnosis. An empty state that looks like success is the worst available
+   * answer.
+   */
+  const [stagedError, setStagedError] = useState<string | null>(null);
 
   // Read once the job exists, because staging happens when the audit plans.
   useEffect(() => {
@@ -320,12 +331,17 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
     void bridge
       .jobStagedSources(jobId)
       .then((rows) => {
-        if (live) setStaged(rows);
+        if (!live) return;
+        setStaged(rows);
+        setStagedError(null);
       })
-      .catch(() => {
-        // A staged-source read failing must not break the audit view: the
-        // button simply does not appear, which is the honest degradation.
-        if (live) setStaged([]);
+      .catch((e) => {
+        // REPORTED, not swallowed. The audit view still works — this is one card
+        // among several — but the reader is told why an affordance is missing
+        // rather than left to infer that there was nothing to fetch.
+        if (!live) return;
+        setStaged([]);
+        setStagedError(errorText(e));
       });
     return () => {
       live = false;
@@ -843,6 +859,12 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
               button says what it is about to do, and a researcher presses it.
               Only entries with a DOI and no document yet: a button that can only
               fail is worse than one that is not there. */}
+          {stagedError && (
+            <p className="gds-ai__hint" data-testid="audit-staged-error">
+              Could not read this manuscript's own sources, so the fetch is not
+              offered: {stagedError}
+            </p>
+          )}
           {stagedFetchable.length > 0 && (
             <div className="gds-audit__fix" data-testid="audit-staged-fetch">
               <Button
