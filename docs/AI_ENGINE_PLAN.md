@@ -8459,6 +8459,62 @@ not saved). A second test pins the path-present case and asserts the
 generic-naming caveat is ABSENT, because an assertion that only checks the text
 appears cannot catch a caveat that has outlived its cause.
 
+#### CONSTRAINT: the app crate cannot be tested in CI, and the bundled model is why
+
+Recorded here because D142's guard lives in the app crate, so this is what bounds
+its enforcement: **it runs locally only.** Checked rather than assumed.
+
+`tauri-build` validates every path in `tauri.conf.json`'s `bundle.resources` at
+BUILD time, not at bundle time. `bundled-models/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf`
+(~400 MB) and `bundled-models/tokenizer.json` (~11 MB) are listed there and are
+gitignored by design, so on a clean checkout `cargo test -p app` dies in the build
+script:
+
+```
+resource path `bundled-models/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf` doesn't exist
+process didn't exit successfully: build-script-build (exit status: 1)
+```
+
+Not a link error and not a failing test — it never compiles. **D124's keychain fix
+is not the blocker and does not unlock this.** It did remove a different obstacle
+(`GAPLY_SKIP_KEYCHAIN` names "a CI shell" explicitly), so the hang is no longer
+what stands in the way; the resource validation is, and it is upstream of
+everything D124 touched.
+
+What running it would actually take, in increasing cost:
+
+1. **Zero-byte placeholders** at both paths before `cargo test -p app`.
+   `windows-build-check.yml` rejects placeholders, but for the BUNDLE, and for a
+   stated reason — it "would upload a real, installable MSI/NSIS containing a
+   model that cannot work … because the artifact looks legitimate". That objection
+   is about a shipped artifact and does not apply to a test job that bundles and
+   uploads nothing. The guard would then take its estimate path, which is the
+   branch built for exactly this case.
+2. **Linux webview dev packages** (webkit2gtk/libsoup/javascriptcore) for the app
+   crate to link. `clean-checkout.yml` deliberately installs none of this — "no
+   Node, no Tauri prerequisites" is its whole design, and it is the per-push
+   guard precisely because it is cheap.
+3. **A full app-crate compile including candle**, which is the expensive part.
+
+And the Windows lane is closed regardless: the app test binary dies at load with
+`STATUS_ENTRYPOINT_NOT_FOUND` (0xc0000139) before the harness runs, which is why
+that workflow runs `cargo test -p gaply_core` and not `--workspace`.
+
+So: possible, not cheap. Not done, and the constraint is written here instead so
+the next person does not rediscover it — **the only enforcement of D142's guard is
+the local pre-commit `cargo test --workspace` gate.** If the app crate is ever
+wanted in CI, step 1 is the cheap part and step 2 is the decision.
+
+##### The measurement nearly came out backwards
+
+`cargo check -p app --all-targets` with the models hidden **succeeded**, and that
+was one step away from being written up as proof that the model is not the
+blocker. It had reused a CACHED build-script result: the `.gguf` appears in no
+`rerun-if-changed`, so removing it does not invalidate the cache. Only forcing the
+script to actually run showed the failure. A CI checkout has no cache, so the
+cached answer was the wrong one to generalise from — and the conclusion it
+supported was the opposite of the truth.
+
 ### D142 — the retry guard measured its own constants; now it measures a prompt
 
 D140 recorded this as a gap; this is the fix.
@@ -8512,6 +8568,10 @@ Saying so is the point. A guard whose reach is overstated is the same defect cla
 as a guard that measures constants: the protection is believed to be somewhere it
 is not. Raising `EVIDENCE_BUDGET_TOKENS` is caught by the pre-commit gate, not by
 a PR check.
+
+The CAUSE — `tauri-build` validating the gitignored bundled-model resource paths
+at build time, so `cargo test -p app` cannot compile on a clean checkout at all —
+and what lifting it would cost are recorded at the end of D141.
 
 The estimate path therefore serves the no-tokenizer case that remains: a fresh
 clone, or any machine without the ~400 MB bundled model, where the tokenizer is
