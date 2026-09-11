@@ -1079,15 +1079,37 @@ describe('Thesis audit', () => {
     expect(note).toMatch(/nothing else leaves your machine/);
   });
 
+  /** §11 D137. A FAILED PRESS MUST SAY SO ON THE CARD IT WAS PRESSED ON.
+   *
+   *  The handler set `fixNote`, which renders only inside the PRE-START card —
+   *  and this button is on the health card, where that card is gone. A failed
+   *  fetch therefore wrote its reason into a state nothing displays: no
+   *  progress, no outcomes, no error, indistinguishable from a press that did
+   *  nothing. That is what happened on the live run.
+   */
+  it('reports a failed fetch on the card the button is on', async () => {
+    const failing = vi.fn(async () => {
+      throw new Error('no internet connection');
+    });
+    await renderWithStaged([stagedRow()], failing as any);
+    fireEvent.click(screen.getByTestId('audit-staged-fetch-button'));
+    await waitFor(() => expect(screen.getByTestId('audit-staged-error')).toBeTruthy());
+    expect(screen.getByTestId('audit-staged-error').textContent).toMatch(/no internet connection/);
+  });
+
   it('does NOT fetch on plan — a researcher presses the button', async () => {
     const { fetchOpenAccess } = await renderWithStaged([stagedRow()]);
     expect(fetchOpenAccess).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId('audit-staged-fetch-button'));
-    await waitFor(() =>
-      // Addressed as a STAGED subject, never as a library citation: staging
-      // exists precisely so these never enter the user's collection.
-      expect(fetchOpenAccess).toHaveBeenCalledWith([{ kind: 'staged', stagedId: 11 }]),
-    );
+    await waitFor(() => expect(fetchOpenAccess).toHaveBeenCalled());
+    // Addressed as a STAGED subject, never as a library citation: staging exists
+    // precisely so these never enter the user's collection. Asserted on the
+    // SUBJECTS argument, because the second is a progress callback (§11 D137) and
+    // pinning the whole call would break on adding one.
+    expect((fetchOpenAccess as any).mock.calls[0][0]).toEqual([
+      { kind: 'staged', stagedId: 11 },
+    ]);
+    expect(typeof (fetchOpenAccess as any).mock.calls[0][1]).toBe('function');
   });
 
   it('offers nothing when no staged source has a DOI — a button that can only fail', async () => {

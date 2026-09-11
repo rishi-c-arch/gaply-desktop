@@ -2016,6 +2016,14 @@ pub async fn citation_fetch_oa(
 ) -> Result<Vec<crate::oa_fetch::FetchReport>, GaplyError> {
     use crate::oa_fetch::{fetch_one, FetchDeps, FetchSubject, FetchTarget};
 
+    // WHERE DID IT STOP? (§11 D137)
+    //
+    // This command had NO tracing event inside its span, so a press that failed
+    // before any network work left the log exactly as a press that never
+    // happened — the same blind spot §11 D136 fixed one command over, and the
+    // reason a live failure could not be located. Every stage boundary below now
+    // says it was reached.
+    tracing::info!(subjects = subjects.len(), "oa fetch requested");
     if subjects.is_empty() {
         return Ok(Vec::new());
     }
@@ -2057,7 +2065,13 @@ pub async fn citation_fetch_oa(
                     })
                 }
             })
-            .collect::<Result<Vec<_>, GaplyError>>()?;
+            .collect::<Result<Vec<_>, GaplyError>>()
+            .inspect_err(|e| tracing::warn!(error = %e, "oa fetch: target build failed"))?;
+        tracing::info!(
+            targets = targets.len(),
+            with_doi = targets.iter().filter(|t| t.doi.is_some()).count(),
+            "oa fetch targets built"
+        );
 
         // Which source the phase updates belong to. `FetchDeps` is built once,
         // outside the loop, so the index the sink reports has to be read at call
@@ -2072,8 +2086,13 @@ pub async fn citation_fetch_oa(
             });
         };
 
-        let http = crate::http_fetcher::ReqwestFetcher::new()?;
-        let bytes = crate::paper_corpus::ReqwestPaperFetcher::new()?;
+        // Both can fail, and both failed INVISIBLY before this: a `?` here ends
+        // the command with an error the caller may or may not render.
+        let http = crate::http_fetcher::ReqwestFetcher::new()
+            .inspect_err(|e| tracing::warn!(error = %e, "oa fetch: http client build failed"))?;
+        let bytes = crate::paper_corpus::ReqwestPaperFetcher::new()
+            .inspect_err(|e| tracing::warn!(error = %e, "oa fetch: paper fetcher build failed"))?;
+        tracing::info!("oa fetch deps ready");
         let limiters = gaply_core::refverify::ApiRateLimiters::with_polite_defaults();
         let deps = FetchDeps {
             db: &db,
@@ -2103,6 +2122,17 @@ pub async fn citation_fetch_oa(
             // Never `?`: one publisher's 403 must not end a batch of twelve.
             // Every failure mode is already an OUTCOME.
             let report = fetch_one(&deps, t, now, &embed);
+            // One line per source, by OUTCOME KIND — 26 lines is the point: a
+            // batch that answers "paywalled" 26 times is a different fact from
+            // one that never ran, and only the log can tell them apart after the
+            // window is closed.
+            tracing::info!(
+                index = i,
+                total,
+                subject = ?t.subject,
+                outcome = report.outcome.kind(),
+                "oa fetch source done"
+            );
             let _ = on_event.send(OaFetchEvent::Done {
                 index: i,
                 total,

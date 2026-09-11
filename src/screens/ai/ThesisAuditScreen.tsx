@@ -24,7 +24,7 @@ import {
   errorText,
   subjectKey,
 } from './aiBridge';
-import { describeOaOutcome, oaFetchDisclosure } from './oaOutcome';
+import { describeOaOutcome, describeOaPhase, oaFetchDisclosure } from './oaOutcome';
 import { EvidenceCard, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
 import { saveBinaryFile } from '../../utils/saveBinaryFile';
@@ -323,6 +323,8 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
    * answer.
    */
   const [stagedError, setStagedError] = useState<string | null>(null);
+  /** What the fetch is DOING, while it does it (§11 D105, D137). */
+  const [stagedProgress, setStagedProgress] = useState<string | null>(null);
 
   // Read once the job exists, because staging happens when the audit plans.
   useEffect(() => {
@@ -358,9 +360,23 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
     if (stagedFetchable.length === 0) return;
     setStagedBusy(true);
     setStagedOutcomes([]);
+    setStagedError(null);
+    setStagedProgress(null);
     try {
       const reports = await bridge.fetchOpenAccess(
         stagedFetchable.map((s) => ({ kind: 'staged' as const, stagedId: s.id })),
+        // PROGRESS. Without this the only sign of a multi-minute, 26-source
+        // fetch was a disabled button, so a working run and a dead one looked
+        // identical — §11 D105's lesson, which this button had not learned.
+        (ev) => {
+          if (ev.kind === 'fetching') {
+            setStagedProgress(
+              `Looking up ${ev.index + 1} of ${ev.total}: ${ev.title ?? 'untitled source'}…`,
+            );
+          } else if (ev.kind === 'phase') {
+            setStagedProgress(describeOaPhase(ev.phase));
+          }
+        },
       );
       // PER-SOURCE outcomes, never a count: "8 of 12 succeeded" hides the four
       // the researcher has to do something about.
@@ -378,9 +394,16 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
       }
       if (jobId) setStaged(await bridge.jobStagedSources(jobId));
     } catch (e) {
-      setFixNote(errorText(e));
+      // §11 D137. This set `fixNote`, which renders ONLY inside the pre-start
+      // card — and this button is on the health card, where that card is gone.
+      // So a failed fetch wrote its reason into a state nothing displays: no
+      // progress, no outcomes, no error, exactly as if the press had done
+      // nothing. The same invisible-error class as §11 D136, committed in the
+      // handler written while fixing it.
+      setStagedError(errorText(e));
     } finally {
       setStagedBusy(false);
+      setStagedProgress(null);
     }
   }, [bridge, jobId, stagedFetchable]);
 
@@ -882,6 +905,11 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
               <p className="gds-ai__hint" data-testid="audit-staged-fetch-note">
                 {oaFetchDisclosure(stagedFetchable.length)}
               </p>
+              {stagedProgress && (
+                <p className="gds-ai__hint" data-testid="audit-staged-progress">
+                  {stagedProgress}
+                </p>
+              )}
               {stagedOutcomes.length > 0 && (
                 <ul className="gds-audit__counts" data-testid="audit-staged-outcomes">
                   {stagedOutcomes.map((r) => (

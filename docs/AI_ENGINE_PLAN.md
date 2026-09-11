@@ -8159,3 +8159,43 @@ option is in front of you, and the cheap option here was four characters of
 The standing form, for the next time: **an affordance that is absent must say
 whether it is absent because there is nothing to do, or because something
 failed.** Those are different facts and the reader cannot infer which.
+
+### D137 — an error written to a state nothing renders is worse than no error handling
+
+The first press of §11 D134's button did nothing visible. The fetch had in fact
+failed before any network work — 0 documents created, app idle at 0% CPU — and
+the handler did catch the error. It called `setFixNote`.
+
+**`fixNote` renders only inside `{preview && stage === 'planned'}`** — the
+pre-start card. The button is on the health card, where that card no longer
+exists. So the reason was captured, stored, and displayed nowhere: no progress,
+no outcomes, no error, indistinguishable from a press that did nothing.
+
+This is §11 D136's class again — **written in the same handler, during the same
+session, while fixing D136.** Three instances now: the swallowed read, the
+unobservable command, and an error routed to a surface that is not mounted. The
+third is the most deceptive, because the code looks correct at the call site: there
+IS a catch, it DOES set a message.
+
+The standing form is therefore narrower than D136's: **an error must be rendered
+by the component that can fail, not handed to a sibling that may not be on
+screen.** `stagedError` lives beside the button it describes.
+
+#### The second invisibility in the same handler
+
+`fetchOpenAccess` was called with no progress callback. A 26-source fetch runs for
+minutes and the only sign was a disabled button, so a working run and a dead one
+looked identical *on success too*. §11 D105 established exactly this for the
+single-source fetch — the batch button had not learned it. Progress now renders
+per source and per phase.
+
+#### And `citation_fetch_oa` had no events inside its span
+
+Same as §11 D136's command, one command over: `#[tracing::instrument]` alone
+writes nothing. It now logs `oa fetch requested`, `targets built` (with
+`with_doi`), `deps ready`, and one line per source with its outcome kind — and
+each of the three `?` sites logs before propagating, so the last line printed
+names the stage that failed.
+
+That instrumentation is what produced the live result: **6 fetched, 6
+abstract-only, 5 no-OA-copy, 4 failed, 1 not-importable.**

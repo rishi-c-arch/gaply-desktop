@@ -90,6 +90,24 @@ pub enum FetchOutcome {
     AlreadyLinked { document_id: i64 },
 }
 
+impl FetchOutcome {
+    /// The arm's name, for logs. §11 D137: a batch that answers "paywalled"
+    /// twenty-six times is a different fact from one that never ran, and after
+    /// the window is closed only the log can tell them apart.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Fetched { .. } => "fetched",
+            Self::AbstractOnly { .. } => "abstractOnly",
+            Self::Paywalled { .. } => "paywalled",
+            Self::NoOaCopy { .. } => "noOaCopy",
+            Self::RateLimited { .. } => "rateLimited",
+            Self::NotImportable { .. } => "notImportable",
+            Self::Failed { .. } => "failed",
+            Self::AlreadyLinked { .. } => "alreadyLinked",
+        }
+    }
+}
+
 /// WHAT a fetch is for — see [`gaply_core::source_ref::SourceRef`].
 ///
 /// An ALIAS, not a second definition. This type started here, for the fetch
