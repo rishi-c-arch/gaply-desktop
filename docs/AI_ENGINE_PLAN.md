@@ -8943,3 +8943,64 @@ Worth recording, because each looked conclusive:
   first written for `hyphen + space`. That space is inserted by `pdftotext` at a
   PDF line break; the stored text is what it is, and only reading the database
   directly settled it.
+
+### D148 — a finding about a subsection that does not exist, and a severity that told the reader to ignore it
+
+The two remaining defects from the design review that change what a reader DOES.
+Both are in the deterministic consistency lane, which is the half of the report
+that carries no error rate, so a defect here costs more than one in the model's
+half.
+
+#### A reference entry is not a subsection heading
+
+The shipped report carried:
+
+> Subsection "D. Demszky et al., "GoEmotions: A dataset ..." follows
+> "A. Vaswani et al., "Attention is all you ...": the letters do not advance by
+> one.
+
+There is no such subsection. `section_letter_re` is `^\s*([A-H])\.\s+(\S.*)$`,
+which is the right shape for "A. Dataset Acquisition" and also the exact shape of
+an IEEE reference entry, because those begin with the first author's INITIAL.
+Word strips the auto-number from the list, so the entry reaches the checker as
+`A. Vaswani et al., "Attention is all you need"` with nothing to distinguish it.
+
+The fix is the line the prepass already draws: `check_section_letters` now stops
+at `is_references_heading`, because everything past it is a bibliography. The
+prepass documents that rule for its own scan ("Stops at the references heading.
+Everything past it is a bibliography"); this check is now the second caller to
+respect it rather than the one that ignored it, which is the D129 lesson applied
+before it cost anything further.
+
+Measured on the real manuscript: the phantom finding is gone and the other seven
+findings are unchanged, so the fix removed the false positive and nothing else.
+The genuine check still fires on a genuine out-of-sequence run, and a new test
+feeds it a reference list to prove the two are told apart.
+
+**Why a false positive here is worse than a miss.** A reader who is told a
+subsection is misnumbered goes looking for it. Not finding it, the reasonable
+conclusion is that the tool is wrong about the manuscript, and that conclusion
+costs the other six findings on the same page their credibility.
+
+#### "Affects the audit" and "No action needed." in the same row
+
+D143 gave the consistency table a "What to do" column, filling a missing action
+with "No action needed." That is right for a cosmetic finding and a contradiction
+next to "Affects the audit": one half of the row says this could change what the
+rest of the report says, and the other says to ignore it. It landed on the
+`marker-resolves-to-malformed-entry` finding, which is the one reporting that a
+citation may resolve to the wrong paper.
+
+Fixed in both places, because either alone would leave the hole open:
+
+* The finding now carries its real action. It is the consequence of the malformed
+  entry reported above it, so the action is that entry's: *"Fix reference entry
+  [6] first (reported above). Until it reads as a reference, this sentence's
+  citation cannot be checked."*
+* The report no longer renders a missing action as "No action needed." for a
+  STRUCTURAL finding. A severity that asserts consequences implies an action, so
+  the fallback is *"Resolve this before relying on the sections below."*, and the
+  cosmetic wording is untouched.
+
+A test asserts no row can pair the two, and that a cosmetic finding keeps the
+honest "No action needed.".

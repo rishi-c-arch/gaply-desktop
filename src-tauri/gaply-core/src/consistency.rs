@@ -670,7 +670,17 @@ fn check_reference_list(out: &mut ConsistencyReport, report: &PrepassReport) {
                 if sentences.len() == 1 { " cites" } else { "s cite" },
                 sentences.first().map(String::as_str).unwrap_or("")
             ),
-            None,
+            // §11 D148. This carried no action, and the report renders a
+            // missing action as "No action needed." — beside a severity of
+            // "Affects the audit", which told the reader to ignore the finding
+            // that says their citations may resolve to the wrong paper.
+            //
+            // The action is real and is the same one the malformed entry needs:
+            // this finding IS that one's consequence.
+            Some(format!(
+                "Fix reference entry [{n}] first (reported above). Until it reads as a reference, \
+                 this sentence's citation cannot be checked."
+            )),
         );
     }
 }
@@ -775,6 +785,23 @@ fn check_captions(out: &mut ConsistencyReport, blocks: &[PagedBlock]) {
 fn check_section_letters(out: &mut ConsistencyReport, blocks: &[PagedBlock]) {
     let mut run: Vec<(char, String)> = Vec::new();
     for b in blocks {
+        // §11 D148. STOP AT THE REFERENCES HEADING.
+        //
+        // Everything past it is a bibliography, and an IEEE entry begins with
+        // the first author's initial. Word strips the auto-number, so the block
+        // reaches here as `A. Vaswani et al., "Attention is all you need"` and
+        // matches the subsection pattern exactly. On a real manuscript that
+        // produced: *Subsection "D. Demszky et al., "GoEmotions: A dataset ..."
+        // follows "A. Vaswani et al., "Attention is all you ...": the letters do
+        // not advance by one* — a finding about a subsection that does not
+        // exist, sending the reader to look for it.
+        //
+        // The prepass already draws this line for exactly this reason; this
+        // check is now the second caller to respect it rather than the one that
+        // ignored it.
+        if crate::ai_engine::audit_prepass::is_references_heading(&b.text) {
+            break;
+        }
         if let Some(c) = section_letter_re().captures(&b.text) {
             let ch = c.get(1).and_then(|m| m.as_str().chars().next()).unwrap_or('?');
             let title = c.get(2).map(|m| snippet(m.as_str(), 40)).unwrap_or_default();
@@ -1059,6 +1086,29 @@ mod tests {
         let m = message(&r, "section-letters-out-of-sequence");
         assert!(m.contains("A."), "{m}");
         assert!(m.contains("do not advance"), "{m}");
+    }
+
+    /// §11 D148. A REFERENCE ENTRY IS NOT A SUBSECTION HEADING.
+    ///
+    /// An IEEE entry begins with the first author's initial, and Word strips the
+    /// auto-number, so `A. Vaswani et al., "Attention is all you need"` arrives
+    /// as a block matching the subsection pattern exactly. On a real manuscript
+    /// this produced a finding about a subsection that does not exist, which
+    /// sends a reader looking for it.
+    #[test]
+    fn a_reference_entry_is_not_read_as_a_subsection() {
+        let r = run(&[
+            "A. Dataset Acquisition Three corpora from publicly available benchmarks were employed.",
+            "B. GloVe Embeddings Each token is mapped to a 200-dimensional pretrained vector.",
+            "References",
+            "A. Vaswani et al., \u{201c}Attention is all you need,\u{201d} in NeurIPS, 2017, pp. 5998-6008.",
+            "D. Demszky et al., \u{201c}GoEmotions: A dataset of fine-grained emotions,\u{201d} ACL, 2020.",
+        ]);
+        assert!(
+            !kinds(&r).iter().any(|k| k == "section-letters-out-of-sequence"),
+            "a reference list was read as subsections: {:?}",
+            r.findings
+        );
     }
 
     #[test]

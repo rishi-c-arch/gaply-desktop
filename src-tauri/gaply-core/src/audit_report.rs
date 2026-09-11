@@ -1386,7 +1386,22 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
                     vec![
                         f.message.clone(),
                         sev(f).to_string(),
-                        f.action.clone().unwrap_or_else(|| "No action needed.".to_string()),
+                        // §11 D148. "No action needed." is the right words for a
+                        // cosmetic finding and a contradiction beside "Affects
+                        // the audit": it tells the reader to ignore something
+                        // the same row says could change the rest of the report.
+                        //
+                        // A structural finding with no recorded action still has
+                        // one, because its severity asserts consequences.
+                        f.action.clone().unwrap_or_else(|| {
+                            match f.severity {
+                                crate::consistency::Severity::Structural => {
+                                    "Resolve this before relying on the sections below."
+                                }
+                                crate::consistency::Severity::Cosmetic => "No action needed.",
+                            }
+                            .to_string()
+                        }),
                     ]
                 })
                 .collect(),
@@ -1912,6 +1927,52 @@ mod tests {
         }];
         let text = all_text(&compose_audit(&m));
         assert!(text.contains("[...] marks"), "the marker was left unexplained:\n{text}");
+    }
+
+    /// §11 D148. A row must never pair "Affects the audit" with "No action
+    /// needed." — one half telling the reader it changes the report and the
+    /// other telling them to ignore it.
+    #[test]
+    fn a_structural_finding_is_never_told_to_be_ignored() {
+        let mut m = model();
+        m.consistency = vec![
+            crate::consistency::ConsistencyFinding {
+                kind: "marker-resolves-to-malformed-entry".into(),
+                severity: crate::consistency::Severity::Structural,
+                message: "1 sentence cites [6], which is not a usable reference entry.".into(),
+                action: None,
+            },
+            crate::consistency::ConsistencyFinding {
+                kind: "duplicate-caption-number".into(),
+                severity: crate::consistency::Severity::Cosmetic,
+                message: "Figure 3 is used 2 times.".into(),
+                action: None,
+            },
+        ];
+        let blocks = compose_audit(&m);
+        let rows = blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::Table { header, rows, .. }
+                    if header.first().map(String::as_str) == Some("What Gaply found") =>
+                {
+                    Some(rows.clone())
+                }
+                _ => None,
+            })
+            .expect("no consistency table");
+
+        for r in &rows {
+            assert!(
+                !(r[1] == "Affects the audit" && r[2] == "No action needed."),
+                "a structural finding was rendered as needing no action: {r:?}"
+            );
+        }
+        // The cosmetic one keeps the honest wording: it genuinely needs nothing.
+        assert!(
+            rows.iter().any(|r| r[1] == "Worth fixing" && r[2] == "No action needed."),
+            "the cosmetic case lost its wording: {rows:?}"
+        );
     }
 
     /// A model that reaches EVERY section, for the whole-output guards.
