@@ -5,10 +5,17 @@ Tauri 2.0 shell (`src-tauri/`), with all business logic in the portable,
 Tauri-free Rust crate `src-tauri/gaply-core/`, plus a standalone FastAPI proxy
 (`gaply-proxy/`, Tailscale-hidden) that is the ONLY path to the cloud.
 
-## Where this checkout must live — NEVER under an iCloud-synced folder
+## Where this checkout lives — `~/dev/gaply-react-frontend`
 
-**Keep the repo outside `~/Desktop` and `~/Documents`** (use `~/dev/` or any
-path that is not synced). If "Desktop & Documents Folders" is on in iCloud Drive,
+**THE LIVE CHECKOUT IS `~/dev/gaply-react-frontend`.** It was cloned fresh from
+`desktop` at 5d0585f on 12 Sep 2026. **Any copy under `~/Desktop/` is DEAD** and
+must not be built, edited or committed from: work done there is work done in the
+wrong tree, and the two will diverge silently because both have the same remotes.
+
+### Why it moved, and why it must not move back
+
+**Never put this repo under `~/Desktop` or `~/Documents`.** If "Desktop &
+Documents Folders" is on in iCloud Drive,
 macOS evicts file contents to the cloud to reclaim space, and an evicted file
 still `ls`es with its correct size while every read of it fails:
 

@@ -41,6 +41,7 @@ pub mod projects;
 pub mod rag;
 pub mod ratelimit;
 pub mod report;
+pub mod quote_clean;
 pub mod report_compose;
 pub mod report_model;
 pub mod report_html;

@@ -8839,3 +8839,107 @@ Two paths disagreeing about one document is D129's shape, and it matters here
 because the artifact classifier's best signal is whichever set of findings it is
 handed. Worth its own look before anything else relies on consistency findings
 being a property of the manuscript rather than of the caller.
+
+### D146 — one manuscript, two entry points, different consistency findings
+
+Found while measuring D145's artifact classifier, and logged before anything else
+comes to rely on it.
+
+The consistency findings the AUDIT stored for job 23 include the author-year
+checks, and yield 7 flagged names. Re-running the checker over the same file
+through `prepass_blocks` reports *"reference style: NUMBERED, the author-year
+checks (orphan (Author, Year), uncited entries, year mismatches) do not apply to
+this paper"* and yields 2.
+
+Same manuscript, same checker, different answers, because the two paths reach it
+with a differently-parsed prepass and therefore disagree about the reference
+style. This is D129's shape: two callers of one piece of logic getting different
+results is a defect in the logic's inputs, not a preference.
+
+It matters beyond cosmetics. D145's classifier takes its strongest signal from
+those findings, so **the quality of the "names that may not be works" split
+depends on which path produced them** — 7 names separated, or 2. Anything else
+that treats a consistency finding as a property of the manuscript rather than of
+the caller inherits the same problem.
+
+Not fixed here: the fix is in the prepass the two paths share, and it needs its
+own measurement of which determination is right for this paper.
+
+### D147 — the quotes were retrieval chunks, and the model's pointer was being thrown away
+
+The report quotes source text and tells the reader that reading it IS the check.
+What it quoted was the raw retrieval chunk: page 10 of a real report carried ~380
+words in one block, cut mid-sentence at both ends, with a journal running header
+inside the prose (`76 Health Services and Outcomes Research Methodology (2025)
+25:57-84`) and PDF hyphenation debris (`regres- sion`, `mul- tiple`,
+`Govern- ment`). The tool had delegated its own retrieval step to the reader.
+
+#### What is NOT done, and why
+
+The obvious fix is to trim each chunk to the sentences that matter. **Rejected.**
+Selecting which sentences support a claim is re-deciding what supports the claim,
+which is precisely the judgement this engine declines to let a model make
+silently. Altering quoted evidence in a research-integrity tool is the failure the
+tool exists to prevent.
+
+The honest version is a DISPLAY change. `supporting_chunks[].why` already carries
+the model's own statement of what in each chunk carries the point, and **the
+export was discarding it**. It now leads the evidence, labelled as the model's,
+with the chunk underneath as the context it is. No selection, no reordering, no
+shortening.
+
+A verbatim quote would be better still, and needs no new judgement: v2 asks the
+model for one. But **all 46 supporting chunks in job 23 carry `why` and none
+carry a quote**, because the shipped task is v1.6. Switching tasks is a separate
+decision with its own measurement.
+
+#### Every edit is visible or disclosed
+
+* An elided run is replaced by `[...]`, never removed silently, and the note
+  beside the passages says what the marker means.
+* De-hyphenation cannot be marked inline without making the quote unreadable, so
+  the standing disclosure states it: the passages are machine-extracted from a
+  PDF, words broken across a line break have been rejoined, and a reader
+  intending to rely on a quote should check it against the source.
+
+#### The de-hyphenation rule was chosen by measurement, and my first two proposals lost
+
+Run over the real evidence corpus (`ai_chunks`: 1,276 chunks, 131k words, 1,623
+candidates):
+
+| rule | joins | left alone | verdict |
+|---|---|---|---|
+| join unless the second fragment is a conjunction | 1596 | 15 | **SHIPPED** |
+| also keep the hyphen when the first fragment is a prefix | 1454 | 157 | rejected |
+| join only when a fragment is not a standalone word | 832 | 779 | rejected |
+
+The **vocabulary** rule is the one I proposed and it fails on its own output: it
+leaves 779 genuine breaks unfixed (`ef- fect`, `be- tween`, `How- ever`). Its
+vocabulary is built from the same corpus, and the trailing fragments of broken
+words (`tion`, `sion`) follow a space, so they enter the vocabulary as standalone
+words and teach the rule that the break is legitimate.
+
+The **prefix** refinement was rejected by inspecting its 142 cases: most are
+ordinary words whose first syllable merely looks like a prefix, so it produced
+`de-scribed`, `Pro-ceedings`, `multi-ple` and `Co-hen`. It would corrupt about
+110 correct joins to rescue about 30 real compounds.
+
+The shipped rule's 15 exclusions are every suspended hyphen in the corpus and all
+are genuine (`low- and`, `inter- and`, `low- or`, `closed- and`). A 40-case random
+sample of joins was correct in 38. **Known residual error, ~2%:** a genuinely
+hyphenated compound that breaks at its own hyphen loses it
+(`intra- annotator` -> `intraannotator`). Readable, and covered by the disclosure.
+
+#### Three measurements nearly published the wrong answer
+
+Worth recording, because each looked conclusive:
+
+* `pdftotext -layout` drops the letter `f`, so the first read of the report showed
+  `quoted or 4`, `indings`, `unveriiable`. That is the extractor, not the report.
+* The first corpus measurement ran against `chunks` (59 rows). Evidence comes from
+  `ai_chunks` (1,276 rows) via `store::chunks_by_ids`. The wrong table contained
+  none of the phenomenon and would have concluded there was nothing to fix.
+* Those defects appeared as `regres- sion` in the extracted text, so the rule was
+  first written for `hyphen + space`. That space is inserted by `pdftotext` at a
+  PDF line break; the stored text is what it is, and only reading the database
+  directly settled it.

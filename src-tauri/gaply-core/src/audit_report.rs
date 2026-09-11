@@ -33,8 +33,29 @@ use crate::report_compose::{Align, Block, Tone};
 pub struct ReportEvidence {
     pub chunk_id: String,
     pub page: Option<u32>,
-    /// The passage itself, as stored. This is what makes the prose checkable.
+    /// The passage itself. This is what makes the prose checkable.
+    ///
+    /// CLEANED for display by `quote_clean` (§11 D147): words broken across a
+    /// PDF line break are rejoined, and a journal running header is replaced by
+    /// a visible `[...]`. Nothing is selected, shortened or reordered.
     pub quote: String,
+    /// What the MODEL said this chunk contributes, verbatim from its answer.
+    ///
+    /// §11 D147. The reader was handed a 380-word retrieval chunk with no
+    /// indication of which part mattered, while the one field that says so was
+    /// being discarded by the export. Leading with it is a DISPLAY change: it
+    /// shows the model's own pointer and keeps the chunk underneath as the
+    /// context it is. Selecting which sentences of the chunk matter would be
+    /// re-deciding what supports the claim, which is the judgement this engine
+    /// declines to let a model make silently.
+    ///
+    /// Empty when the task did not record one (v1 asks for `why`; only v2 asks
+    /// for a verbatim quote).
+    #[serde(default)]
+    pub why: String,
+    /// Whether `quote` had a run elided. The report says so where it shows.
+    #[serde(default)]
+    pub elided: bool,
 }
 
 /// One element of a decomposed claim, and whether the source carried it
@@ -397,11 +418,45 @@ fn emit_evidence_item(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) 
     } else {
         out.push(para("From the cited source. Read this and judge it yourself:"));
         for e in &item.evidence {
+            // §11 D147. The MODEL'S POINTER first, then the passage it points
+            // into. The reader used to meet an undifferentiated 380-word
+            // retrieval chunk with nothing saying which part mattered, while
+            // this field was being discarded by the export.
+            //
+            // It leads, and it is labelled as the model's, because it is the
+            // one thing here that a model wrote. The passage underneath is the
+            // source's own words and is what the check rests on.
+            if !e.why.is_empty() {
+                out.push(para(format!(
+                    "What the model points to in {}: {}",
+                    e.chunk_id,
+                    e.why.trim()
+                )));
+            }
             out.push(bullet(
                 format!("{} · {}: \u{201c}{}\u{201d}", e.chunk_id, page_label(e.page, has_pages), e.quote.trim()),
                 1,
             ));
         }
+        // §11 D147. THE STANDING DISCLOSURE, printed with the passages rather
+        // than buried at the end, because it is about the text directly above
+        // it. De-hyphenation cannot be marked inline without making the quote
+        // unreadable, so it is disclosed here instead; an elision IS marked,
+        // and this says what the marker means.
+        let any_elided = item.evidence.iter().any(|e| e.elided);
+        out.push(Block::Note {
+            text: format!(
+                "These passages are machine-extracted from a PDF. Words broken across a line \
+                 break have been rejoined, so a quote may differ from the page in that respect. \
+                 {}If you intend to rely on a quote, check it against the source.",
+                if any_elided {
+                    "A [...] marks a journal running header or DOI line removed from inside the \
+                     passage. "
+                } else {
+                    ""
+                }
+            ),
+        });
         // The prose stays, AFTER the evidence it rests on — D18's rule is that
         // a model's reading may be printed when there is a quote to check it
         // against, and that is satisfied here. It is the five-class VERDICT
@@ -1462,6 +1517,8 @@ mod tests {
                 chunk_id: "c7".into(),
                 page: Some(4),
                 quote: "The work category of the 56 HCWs: 21 doctors (37.5%)".into(),
+                why: String::new(),
+                elided: false,
             }],
             ..Default::default()
         }
@@ -1803,6 +1860,60 @@ mod tests {
         }
     }
 
+    /// §11 D147. The model's pointer LEADS its passage, and the disclosure is
+    /// printed with the passages rather than buried.
+    #[test]
+    fn the_models_pointer_leads_the_passage_it_points_into() {
+        let mut m = model();
+        m.supported = vec![ReportItem {
+            seq: 3,
+            sentence: "Enrolment is low.".into(),
+            evidence: vec![ReportEvidence {
+                chunk_id: "c931".into(),
+                page: Some(1),
+                quote: "Background: the enrolment rate in the mandatory scheme is low.".into(),
+                why: "Background: Lao PDR has low enrolment.".into(),
+                elided: false,
+            }],
+            ..Default::default()
+        }];
+        let text = all_text(&compose_audit(&m));
+
+        let pointer = text.find("What the model points to in c931").expect("no pointer");
+        let passage = text.find("Background: the enrolment rate").expect("no passage");
+        assert!(pointer < passage, "the pointer did not lead its passage:\n{text}");
+        assert!(text.contains("Background: Lao PDR has low enrolment."), "the why was dropped");
+
+        // The standing disclosure, because de-hyphenation cannot be marked inline.
+        assert!(text.contains("machine-extracted from a PDF"), "no disclosure:\n{text}");
+        assert!(text.contains("check it against the source"), "{text}");
+        // Nothing was elided here, so the marker is NOT explained.
+        assert!(
+            !text.contains("[...] marks"),
+            "an elision was explained where none happened:\n{text}"
+        );
+    }
+
+    /// An elision is explained only where one occurred.
+    #[test]
+    fn an_elided_passage_says_what_the_marker_means() {
+        let mut m = model();
+        m.supported = vec![ReportItem {
+            seq: 3,
+            sentence: "Enrolment is low.".into(),
+            evidence: vec![ReportEvidence {
+                chunk_id: "c1".into(),
+                page: Some(1),
+                quote: "[...] and their dependents.".into(),
+                why: String::new(),
+                elided: true,
+            }],
+            ..Default::default()
+        }];
+        let text = all_text(&compose_audit(&m));
+        assert!(text.contains("[...] marks"), "the marker was left unexplained:\n{text}");
+    }
+
     /// A model that reaches EVERY section, for the whole-output guards.
     fn rich_model() -> AuditReportModel {
         let mut m = model();
@@ -1949,6 +2060,8 @@ mod tests {
             chunk_id: "c9".into(),
             page: None,
             quote: "A passage with no recorded page.".into(),
+            why: String::new(),
+            elided: false,
         });
         let text = all_text(&compose_audit(&m));
         assert!(text.contains("c7 · p.4:"), "{text}");
@@ -2193,6 +2306,8 @@ mod tests {
             chunk_id: "c1".into(),
             page: Some(2),
             quote: q.to_string(),
+            why: String::new(),
+            elided: false,
         };
         m.supported = vec![
             ReportItem {
@@ -2439,6 +2554,8 @@ mod tests {
                 chunk_id: "c32".into(),
                 page: Some(1),
                 quote: "we achieve an average F1-score of 46% over 27 emotion categories".into(),
+                why: String::new(),
+                elided: false,
             }],
             claim_elements: vec![
                 ClaimElement { element: "46% macro-F1".into(), status: "found".into() },
@@ -2568,6 +2685,8 @@ mod tests {
                     chunk_id: format!("c{i}"),
                     page: Some(2),
                     quote: "A passage from the cited source.".into(),
+                    why: String::new(),
+                    elided: false,
                 }],
                 verdict: Some("strong".into()),
                 ..Default::default()

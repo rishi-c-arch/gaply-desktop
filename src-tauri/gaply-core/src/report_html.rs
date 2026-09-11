@@ -378,6 +378,8 @@ mod tests {
                     chunk_id: "c1".into(),
                     page: Some(4),
                     quote: "The passage.".into(),
+                    why: String::new(),
+                    elided: false,
                 }],
                 ..Default::default()
             }],

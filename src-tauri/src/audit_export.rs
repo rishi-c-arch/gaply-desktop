@@ -59,15 +59,41 @@ fn evidence_for(db: &Database, out: &serde_json::Value) -> Vec<ReportEvidence> {
     if ids.is_empty() {
         return Vec::new();
     }
+    // §11 D147. The model's own pointer at what in each chunk carries the
+    // point, keyed by chunk id. It was being dropped here, so the report showed
+    // an undifferentiated retrieval chunk and nothing about which part mattered.
+    let why_by_id: std::collections::HashMap<String, String> = refs
+        .iter()
+        .filter_map(|c| {
+            let id = c.get("chunk_id")?.as_str()?.to_string();
+            let why = c.get("why").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            if why.is_empty() {
+                None
+            } else {
+                Some((id, why))
+            }
+        })
+        .collect();
+
     let stored = store::chunks_by_ids(db, &ids).unwrap_or_default();
     stored
         .into_iter()
-        .map(|c| ReportEvidence {
-            chunk_id: format!("c{}", c.id),
-            // The STORE's page, not the model's echo of it. D18 validates them
-            // as equal at judgement time; this reads the authority directly.
-            page: c.page,
-            quote: c.content,
+        .map(|c| {
+            let chunk_id = format!("c{}", c.id);
+            // §11 D147. Cleaned for DISPLAY: line-break hyphens rejoined, a
+            // journal running header replaced by a visible `[...]`. Nothing is
+            // selected or shortened, and the standing disclosure covers the one
+            // edit that cannot be marked inline.
+            let (quote, elided) = gaply_core::quote_clean::clean_quote(&c.content);
+            ReportEvidence {
+                why: why_by_id.get(&chunk_id).cloned().unwrap_or_default(),
+                chunk_id,
+                // The STORE's page, not the model's echo of it. D18 validates
+                // them as equal at judgement time; this reads the authority.
+                page: c.page,
+                quote,
+                elided,
+            }
         })
         .collect()
 }
