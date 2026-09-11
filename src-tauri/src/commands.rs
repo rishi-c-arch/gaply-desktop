@@ -3099,6 +3099,10 @@ pub async fn ai_audit_jobs_recent(
                 "doneItems": j.done_items,
                 "createdAt": j.created_at,
                 "finishedAt": j.finished_at,
+                // §11 D141. What the job audited. NULL for jobs created before
+                // the column existed, and the screen must print those as unknown
+                // rather than substituting a plausible name.
+                "sourcePath": j.source_path,
                 "stagedSources": staged.len(),
                 "stagedFetched": staged.iter().filter(|s| s.document_id.is_some()).count(),
             }));

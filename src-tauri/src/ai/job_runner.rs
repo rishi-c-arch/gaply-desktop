@@ -604,7 +604,7 @@ mod tests {
     fn seeded(n: i64) -> (Database, i64) {
         let db = Database::in_memory().unwrap();
         let job =
-            create_job(&db, "thesis_audit", None, "citation_need-v2", &need_items(n)).unwrap();
+            create_job(&db, "thesis_audit", None, None, "citation_need-v2", &need_items(n)).unwrap();
         (db, job)
     }
 
@@ -777,6 +777,7 @@ mod tests {
             &db,
             "thesis_audit",
             None,
+            None,
             "citation_support-v1.4",
             &[NewItem {
                 seq: 0,
@@ -817,6 +818,7 @@ mod tests {
         let job = create_job(
             &db,
             "thesis_audit",
+            None,
             None,
             "citation_support-v1.4",
             &[NewItem {
@@ -910,6 +912,7 @@ mod tests {
         create_job(
             db,
             "thesis_audit",
+            None,
             None,
             "citation_support-v1.4",
             &[NewItem {

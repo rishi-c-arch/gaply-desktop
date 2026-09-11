@@ -244,6 +244,13 @@ export interface RecentAuditJob {
   doneItems: number;
   createdAt: number;
   finishedAt: number | null;
+  /**
+   * The manuscript this job audited (§11 D141).
+   *
+   * Null for jobs created before the column existed — they genuinely do not
+   * record it, and the screen prints that rather than guessing a name.
+   */
+  sourcePath: string | null;
   stagedSources: number;
   stagedFetched: number;
 }

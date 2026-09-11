@@ -1429,7 +1429,156 @@ mod tests {
         assert_ne!(PROMPT_VERSION_V17, PROMPT_VERSION);
     }
 
-    /// §11 D69. THE RETRY INVARIANT, pinned against the configured constants.
+    /// Model tokens per word of EVIDENCE PROSE — measured, rounded UP.
+    ///
+    /// The budget's own `WORDS_PER_MODEL_TOKEN = 0.767` implies 1.304 tokens per
+    /// word. Real evidence does not honour that: §11 D69 measured a bundle built
+    /// against a 1200-token budget (920 words) that encoded to **1390 tokens** —
+    /// 1.511 per word, 16% above what the budget assumed.
+    const MEASURED_TOKENS_PER_EVIDENCE_WORD: f64 = 1.511;
+
+    /// Model tokens per word of the SCAFFOLD — the rules and the JSON schema.
+    ///
+    /// A separate constant because §11 D17 measured these as two different
+    /// materials: a ratio derived from a whole prompt came out at 0.46 words per
+    /// token, i.e. 2.174 tokens per word, "because the JSON schema block
+    /// tokenizes far more densely than prose". Pricing scaffold words at the
+    /// prose rate under-counts the scaffold by a third — and D17 records that
+    /// same conflation costing ~40% in the opposite direction.
+    const MEASURED_TOKENS_PER_SCAFFOLD_WORD: f64 = 2.174;
+
+    /// The bundled tokenizer, loaded ONCE.
+    ///
+    /// Loaded per call, this test took 18 s: the growth loop re-reads a ~7 MB
+    /// tokenizer.json on every step. The whole workspace suite is ~18 s, so a
+    /// single guard was doubling it.
+    fn cached_tokenizer() -> Option<&'static tokenizers::Tokenizer> {
+        use std::sync::OnceLock;
+        static TOK: OnceLock<Option<tokenizers::Tokenizer>> = OnceLock::new();
+        TOK.get_or_init(|| {
+            if std::env::var_os("GAPLY_FORCE_TOKEN_ESTIMATE").is_some() {
+                return None;
+            }
+            let (_gguf, path) = crate::models::stage1_lm_paths()?;
+            if !path.exists() {
+                return None;
+            }
+            tokenizers::Tokenizer::from_file(&path).ok()
+        })
+        .as_ref()
+    }
+
+    /// Evidence-block tokens: exact with the tokenizer, else priced at the
+    /// measured prose density.
+    fn evidence_tokens(evidence: &str) -> usize {
+        match cached_tokenizer() {
+            Some(tok) => tok.encode(evidence, false).map(|e| e.get_ids().len()).unwrap_or(0),
+            None => (evidence.split_whitespace().count() as f64
+                * MEASURED_TOKENS_PER_EVIDENCE_WORD)
+                .ceil() as usize,
+        }
+    }
+
+    /// Whole-prompt tokens: exact with the tokenizer, else evidence and scaffold
+    /// priced SEPARATELY at their own measured densities.
+    ///
+    /// Both paths assert. A CI machine has no tokenizer — the bundled model is
+    /// gitignored, ~400 MB — and the previous guard's answer to that was to
+    /// compare the ceiling against a hand-typed constant, which is how it came to
+    /// check its own configuration instead of a prompt.
+    ///
+    /// Exercise the estimate on a machine that HAS the tokenizer with
+    /// `GAPLY_FORCE_TOKEN_ESTIMATE=1`, so the branch CI depends on is not the one
+    /// branch nothing ever runs.
+    fn prompt_tokens(prompt: &str, evidence: &str) -> (usize, &'static str) {
+        if let Some(tok) = cached_tokenizer() {
+            if let Ok(enc) = tok.encode(prompt, true) {
+                return (enc.get_ids().len(), "tokenizer");
+            }
+        }
+        let ev_words = evidence.split_whitespace().count();
+        let total_words = prompt.split_whitespace().count();
+        let scaffold_words = total_words.saturating_sub(ev_words);
+        let est = ev_words as f64 * MEASURED_TOKENS_PER_EVIDENCE_WORD
+            + scaffold_words as f64 * MEASURED_TOKENS_PER_SCAFFOLD_WORD;
+        (est.ceil() as usize, "estimate")
+    }
+
+    /// An evidence bundle filled to the worst case the budget permits, in TOKENS.
+    ///
+    /// # Why tokens and not words
+    ///
+    /// Production trims by WORDS (`evidence_budget_words` -> 920). Filling this
+    /// fixture to 920 words yields a 1972-token prompt — BELOW the 2155 D69
+    /// already measured from real OpenAlex sources. Shipping that would repeat the
+    /// mistake D69 recorded verbatim: "the seeds' worst measured 2825 was a
+    /// property of the fixtures, and real sources exceed the budget those fixtures
+    /// justified". A fixture that tokenizes more cheaply than real prose makes the
+    /// ceiling look further away than it is.
+    ///
+    /// So the target is a TOKEN count — the 920 permitted words priced at the
+    /// measured real density — and the bundle grows until it reaches that, however
+    /// many words of this fixture it takes. More words than a real bundle would
+    /// carry, and the same tokens, which is the quantity the context holds.
+    fn budget_filling_evidence() -> (TaskContext, usize) {
+        let prose: Vec<&str> = include_str!("../../../evals/fixtures/organic_soil_biodiversity.txt")
+            .split_whitespace()
+            .collect();
+        assert!(!prose.is_empty(), "the fixture is empty");
+
+        let budget_words = crate::ai::evidence::evidence_budget_words(
+            crate::ai::evidence::EVIDENCE_BUDGET_TOKENS,
+        );
+        let target_tokens =
+            (budget_words as f64 * MEASURED_TOKENS_PER_EVIDENCE_WORD).ceil() as usize;
+
+        // Grow in SMALL steps and stop AT the target. Adding whole 512-word
+        // chunks overshot by ~700 tokens, which would fail configurations that are
+        // in fact safe — the opposite error to the one being fixed, and just as
+        // misleading.
+        const STEP_WORDS: usize = 32;
+        let mut words = budget_words;
+        loop {
+            let ctx = evidence_of_words(&prose, words);
+            if evidence_tokens(&ctx.render_evidence()) >= target_tokens {
+                return (ctx, target_tokens);
+            }
+            words += STEP_WORDS;
+            assert!(
+                words <= budget_words * 4,
+                "could not reach {target_tokens} evidence tokens within {words} words of this \
+                 fixture — its prose is far sparser than the real sources D69 measured"
+            );
+        }
+    }
+
+    /// `total_words` of the fixture, split at the chunker's 512-word cap.
+    fn evidence_of_words(prose: &[&str], total_words: usize) -> TaskContext {
+        const CHUNK_WORDS: usize = 512;
+        let mut chunks: Vec<EvidenceChunk> = Vec::new();
+        let mut cursor = 0usize;
+        let mut placed = 0usize;
+        while placed < total_words {
+            let take = CHUNK_WORDS.min(total_words - placed);
+            let mut text = String::new();
+            for _ in 0..take {
+                text.push_str(prose[cursor % prose.len()]);
+                text.push(' ');
+                cursor += 1;
+            }
+            chunks.push(EvidenceChunk {
+                chunk_id: format!("c{}", chunks.len() + 1),
+                page: Some((chunks.len() as u32) + 1),
+                section: Some("Results".into()),
+                text: text.trim_end().to_string(),
+            });
+            placed += take;
+        }
+        TaskContext::new(chunks)
+    }
+
+    /// §11 D69, re-grounded by §11 D142. THE RETRY INVARIANT, measured against a
+    /// REAL PROMPT.
     ///
     /// `retry_prompt` quotes the rejected reply verbatim (D10), so a retry costs
     /// the original prompt PLUS a reply of up to `max_tokens`. `max_tokens` is
@@ -1440,13 +1589,21 @@ mod tests {
     /// original <= TASK_N_CTX - 2*MAX_TOKENS - RETRY_OVERHEAD_TOKENS
     /// ```
     ///
-    /// At 4096/1024 that ceiling was 1981 and REAL prompts measured 1919-2155,
-    /// so a real check that failed validation could not be retried at all — it
-    /// was rejected before generation with `prompt is 3246 tokens`. Changing
-    /// either constant without the other must fail here rather than in a user's
-    /// audit.
+    /// # Why this builds a prompt instead of quoting a number
+    ///
+    /// It used to assert the ceiling against `const LARGEST_REAL_PROMPT = 2155`,
+    /// a figure typed in from one measurement. That guarded `TASK_N_CTX` and
+    /// `MAX_TOKENS` and was blind to the third input to a real prompt,
+    /// `EVIDENCE_BUDGET_TOKENS` — which is the one D14 explicitly invites moving
+    /// ("raise it against measured prefill once Metal lands", naming ~2500).
+    /// Taking that invitation would have put real prompts near 3265 against a
+    /// 3009 ceiling: D69's exact defect, reaching a user with the test green.
+    ///
+    /// So the guard now fills a bundle to the budget, builds the prompt the model
+    /// would actually receive, and counts ITS tokens. Raising any of the three
+    /// constants past what the retry path can carry now fails here.
     #[test]
-    fn a_retryable_prompt_fits_the_configured_context() {
+    fn a_budget_filling_prompt_can_still_be_retried() {
         use crate::ai::generative::{max_retryable_prompt_tokens, RETRY_OVERHEAD_TOKENS, TASK_N_CTX};
         let max_tokens = <CitationSupportTask as AiTask>::max_tokens();
         let ceiling = max_retryable_prompt_tokens(max_tokens);
@@ -1455,22 +1612,63 @@ mod tests {
         // factor of two.
         assert_eq!(ceiling, TASK_N_CTX - 2 * max_tokens - RETRY_OVERHEAD_TOKENS);
 
-        // MEASURED against real open-access sources fetched from OpenAlex, NOT
-        // against the six synthetic seeds — §11 D69: the seeds' "worst measured
-        // 2825" was a property of the fixtures, and real sources exceed the
-        // budget those fixtures justified. 2155 is the largest real prompt
-        // observed (GoEmotions, 6 chunks, 1390 evidence tokens).
-        const LARGEST_REAL_PROMPT: usize = 2155;
+        // A real prompt, at the largest the evidence budget permits. The claim
+        // and cited source are long-but-real: a 43-word sentence and a full
+        // reference string, because both travel in the prompt too.
+        let (evidence, target_evidence_tokens) = budget_filling_evidence();
+        let task = CitationSupportTask {
+            claim: "Across the eight trials reviewed here, conversion to organic management \
+                    raised species richness by a mean of 31% relative to conventional \
+                    controls, with the largest gains recorded on previously intensive \
+                    arable land and no significant effect detectable for soil fauna at \
+                    any site."
+                .into(),
+            cited_source: "Alkenbrack, S., Hanson, K., & Lindelow, M. (2015). Evasion of \
+                           mandatory social health insurance for the formal sector: evidence \
+                           from Lao PDR. BMC Health Services Research, 15, 473. \
+                           https://doi.org/10.1186/s12913-015-1132-5"
+                .into(),
+            evidence: evidence.render_evidence(),
+        };
+        let rendered_evidence = task.evidence.clone();
+        let prompt = task.build_prompt();
+        let (tokens, how) = prompt_tokens(&prompt, &rendered_evidence);
+
         assert!(
-            ceiling >= LARGEST_REAL_PROMPT,
-            "a real fetched-source prompt of {LARGEST_REAL_PROMPT} tokens could not be \
-             RETRIED: ceiling is {ceiling} (TASK_N_CTX {TASK_N_CTX}, max_tokens \
-             {max_tokens}). Raise TASK_N_CTX or lower max_tokens — but lowering \
-             max_tokens re-opens D58's truncation class and needs its own cell."
+            tokens <= ceiling,
+            "a prompt the EVIDENCE BUDGET ALLOWS cannot be retried: {tokens} tokens ({how}) \
+             against a ceiling of {ceiling} (TASK_N_CTX {TASK_N_CTX}, max_tokens {max_tokens}, \
+             EVIDENCE_BUDGET_TOKENS {}). This is §11 D69's defect: the first attempt fits, the \
+             RETRY does not, so a check that fails validation gets no second chance and the \
+             user sees `prompt is N tokens`. Raise TASK_N_CTX, or lower the evidence budget — \
+             lowering max_tokens re-opens D58's truncation class and needs its own cell.",
+            crate::ai::evidence::EVIDENCE_BUDGET_TOKENS,
         );
 
         // And the first attempt must fit too, which is the weaker of the two.
-        assert!(TASK_N_CTX - max_tokens >= LARGEST_REAL_PROMPT);
+        assert!(
+            tokens <= TASK_N_CTX - max_tokens,
+            "the prompt does not fit at all: {tokens} tokens ({how})"
+        );
+
+        // The floor this guard must clear: a REAL prompt already observed at 2155
+        // tokens (§11 D69, GoEmotions). A synthetic bundle that came out smaller
+        // than a prompt the field has already produced would be measuring the
+        // fixture, not the budget.
+        const LARGEST_OBSERVED_REAL_PROMPT: usize = 2155;
+        assert!(
+            tokens >= LARGEST_OBSERVED_REAL_PROMPT,
+            "the synthetic bundle ({tokens} tokens) is SMALLER than a real prompt already \
+             measured at {LARGEST_OBSERVED_REAL_PROMPT} — it is measuring the fixture\'s token \
+             density rather than the evidence budget, which is the failure §11 D69 recorded. \
+             Raise MEASURED_TOKENS_PER_EVIDENCE_WORD to the real density or use denser prose."
+        );
+
+        println!(
+            "budget-filling prompt: {tokens} tokens ({how}); evidence target \
+             {target_evidence_tokens}; ceiling {ceiling}; headroom {}",
+            ceiling as i64 - tokens as i64
+        );
     }
 
     #[test]

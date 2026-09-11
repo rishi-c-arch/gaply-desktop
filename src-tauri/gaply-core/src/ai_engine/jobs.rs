@@ -137,6 +137,13 @@ pub struct JobRow {
     pub kind: String,
     pub status: JobStatus,
     pub document_id: Option<i64>,
+    /// The FILE this job audited, when it audited a file (§11 D141).
+    ///
+    /// `document_id` covers a library-scoped run; a whole-manuscript audit is
+    /// planned straight off a path and has no `documents` row, so this is the
+    /// only record of what it looked at. Exactly one of the two is set in
+    /// practice, and NEITHER is set for the 23 jobs that predate this column.
+    pub source_path: Option<String>,
     pub total_items: i64,
     pub done_items: i64,
     pub model_id: Option<String>,
@@ -157,6 +164,7 @@ pub fn create_job(
     db: &Database,
     kind: &str,
     document_id: Option<i64>,
+    source_path: Option<&str>,
     prompt_version: &str,
     items: &[NewItem],
 ) -> Result<i64, GaplyError> {
@@ -164,10 +172,10 @@ pub fn create_job(
     let mut conn = db.conn()?;
     let tx = conn.transaction()?;
     tx.execute(
-        "INSERT INTO ai_jobs (kind, status, document_id, total_items, done_items,
-                              prompt_version, created_at)
-         VALUES (?1, 'queued', ?2, ?3, 0, ?4, ?5)",
-        params![kind, document_id, items.len() as i64, prompt_version, now],
+        "INSERT INTO ai_jobs (kind, status, document_id, source_path, total_items,
+                              done_items, prompt_version, created_at)
+         VALUES (?1, 'queued', ?2, ?3, ?4, 0, ?5, ?6)",
+        params![kind, document_id, source_path, items.len() as i64, prompt_version, now],
     )?;
     let job_id = tx.last_insert_rowid();
     {
@@ -197,8 +205,9 @@ pub fn get_job(db: &Database, job_id: i64) -> Result<Option<JobRow>, GaplyError>
     let conn = db.conn()?;
     let row = conn
         .query_row(
-            "SELECT id, kind, status, document_id, total_items, done_items, model_id,
-                    prompt_version, error, summary_json, created_at, started_at, finished_at
+            "SELECT id, kind, status, document_id, source_path, total_items, done_items,
+                    model_id, prompt_version, error, summary_json, created_at, started_at,
+                    finished_at
              FROM ai_jobs WHERE id = ?1",
             params![job_id],
             |r| {
@@ -207,15 +216,16 @@ pub fn get_job(db: &Database, job_id: i64) -> Result<Option<JobRow>, GaplyError>
                     kind: r.get(1)?,
                     status: JobStatus::parse(&r.get::<_, String>(2)?).unwrap_or(JobStatus::Failed),
                     document_id: r.get(3)?,
-                    total_items: r.get(4)?,
-                    done_items: r.get(5)?,
-                    model_id: r.get(6)?,
-                    prompt_version: r.get(7)?,
-                    error: r.get(8)?,
-                    summary_json: r.get(9)?,
-                    created_at: r.get(10)?,
-                    started_at: r.get(11)?,
-                    finished_at: r.get(12)?,
+                    source_path: r.get(4)?,
+                    total_items: r.get(5)?,
+                    done_items: r.get(6)?,
+                    model_id: r.get(7)?,
+                    prompt_version: r.get(8)?,
+                    error: r.get(9)?,
+                    summary_json: r.get(10)?,
+                    created_at: r.get(11)?,
+                    started_at: r.get(12)?,
+                    finished_at: r.get(13)?,
                 })
             },
         )
@@ -236,8 +246,9 @@ pub fn get_job(db: &Database, job_id: i64) -> Result<Option<JobRow>, GaplyError>
 pub fn recent_jobs(db: &Database, kind: &str, limit: i64) -> Result<Vec<JobRow>, GaplyError> {
     let conn = db.conn()?;
     let mut stmt = conn.prepare(
-        "SELECT id, kind, status, document_id, total_items, done_items, model_id,
-                prompt_version, error, summary_json, created_at, started_at, finished_at
+        "SELECT id, kind, status, document_id, source_path, total_items, done_items,
+                model_id, prompt_version, error, summary_json, created_at, started_at,
+                finished_at
          FROM ai_jobs WHERE kind = ?1 ORDER BY id DESC LIMIT ?2",
     )?;
     let rows = stmt
@@ -247,15 +258,16 @@ pub fn recent_jobs(db: &Database, kind: &str, limit: i64) -> Result<Vec<JobRow>,
                 kind: r.get(1)?,
                 status: JobStatus::parse(&r.get::<_, String>(2)?).unwrap_or(JobStatus::Failed),
                 document_id: r.get(3)?,
-                total_items: r.get(4)?,
-                done_items: r.get(5)?,
-                model_id: r.get(6)?,
-                prompt_version: r.get(7)?,
-                error: r.get(8)?,
-                summary_json: r.get(9)?,
-                created_at: r.get(10)?,
-                started_at: r.get(11)?,
-                finished_at: r.get(12)?,
+                source_path: r.get(4)?,
+                total_items: r.get(5)?,
+                done_items: r.get(6)?,
+                model_id: r.get(7)?,
+                prompt_version: r.get(8)?,
+                error: r.get(9)?,
+                summary_json: r.get(10)?,
+                created_at: r.get(11)?,
+                started_at: r.get(12)?,
+                finished_at: r.get(13)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -559,7 +571,7 @@ mod tests {
                 payload_json: r#"{"reason":"not in your library"}"#.to_string(),
             })
             .collect();
-        let job = create_job(&db, "thesis_audit", None, "v1.4", &items).unwrap();
+        let job = create_job(&db, "thesis_audit", None, None, "v1.4", &items).unwrap();
         for it in job_results(&db, job, 0, 10).unwrap() {
             complete_item(&db, it.id, "done", Some("{}"), None).unwrap();
         }
@@ -604,6 +616,7 @@ mod tests {
             &db,
             "thesis_audit",
             None,
+            None,
             "v1.4",
             &[NewItem {
                 seq: 1,
@@ -642,7 +655,7 @@ mod tests {
 
     fn seeded(n: i64) -> (Database, i64) {
         let db = db();
-        let job = create_job(&db, "thesis_audit", None, "citation_support-v1.4", &items(n)).unwrap();
+        let job = create_job(&db, "thesis_audit", None, None, "citation_support-v1.4", &items(n)).unwrap();
         (db, job)
     }
 
@@ -741,6 +754,7 @@ mod tests {
         let job = create_job(
             &db,
             "thesis_audit",
+            None,
             None,
             "citation_support-v1.4",
             &[NewItem {

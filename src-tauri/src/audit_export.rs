@@ -304,7 +304,7 @@ mod tests {
     }
 
     fn seed_job(db: &Database, items: Vec<NewItem>) -> i64 {
-        jobs::create_job(db, "thesis_audit", None, "citation_support-v1.4", &items).unwrap()
+        jobs::create_job(db, "thesis_audit", None, None, "citation_support-v1.4", &items).unwrap()
     }
 
     fn item(seq: i64, kind: ItemKind, sentence: &str, payload: &str) -> NewItem {

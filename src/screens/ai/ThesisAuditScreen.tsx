@@ -226,9 +226,20 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
   const [reopenedJobId, setReopenedJobId] = useState<number | null>(null);
   const [reopened, setReopened] = useState(false);
   const [recentJobs, setRecentJobs] = useState<RecentAuditJob[]>([]);
+  /**
+   * The path a REOPENED job recorded (§11 D141).
+   *
+   * `path` is the live pick and is null after a remount. This is the stored one,
+   * and stays null for jobs that predate the column — so the label below still
+   * has its generic fallback, which is now reached only when the file truly is
+   * unknown rather than on every reopen.
+   */
+  const [reopenedSourcePath, setReopenedSourcePath] = useState<string | null>(null);
   const jobId = plan?.jobId ?? reopenedJobId ?? resumableJob?.jobId ?? null;
   /** The manuscript's file name, for the report's cover. */
-  const manuscriptLabel = (path ?? 'manuscript').split(/[\\/]/).filter(Boolean).pop() ?? 'manuscript';
+  const auditedPath = path ?? reopenedSourcePath;
+  const manuscriptLabel =
+    (auditedPath ?? 'manuscript').split(/[\\/]/).filter(Boolean).pop() ?? 'manuscript';
 
   const onProgress = useCallback(
     (ev: JobProgressEvent) => {
@@ -315,6 +326,10 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
         ]);
         setReopenedJobId(id);
         setReopened(true);
+        // §11 D141. What the job audited, so the export is not named
+        // "manuscript-citation-audit". Null for pre-column jobs, and the note
+        // below says so rather than inventing a name.
+        setReopenedSourcePath(recentJobs.find((j) => j.jobId === id)?.sourcePath ?? null);
         setHealth(status.health);
         setItems(results.items ?? []);
         setStage('done');
@@ -324,7 +339,7 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
         setBusyAction(null);
       }
     },
-    [bridge],
+    [bridge, recentJobs],
   );
 
   useEffect(() => {
@@ -597,7 +612,12 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
           <ul className="gds-audit__counts">
             {recentJobs.map((j) => (
               <li key={j.jobId} data-testid={`audit-past-job-${j.jobId}`}>
-                <span className="font-medium">#{j.jobId}</span>
+                <span className="font-medium">
+                  #{j.jobId}
+                  {j.sourcePath
+                    ? ` · ${j.sourcePath.split(/[\\/]/).filter(Boolean).pop()}`
+                    : ''}
+                </span>
                 {` · ${j.status} · ${j.doneItems}/${j.totalItems} items`}
                 {j.stagedSources > 0 &&
                   ` · ${j.stagedSources} sources staged, ${j.stagedFetched} fetched`}
@@ -963,11 +983,14 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
               drops state is the same shape as every other defect this week. */}
           {reopened && (
             <p className="gds-ai__hint" data-testid="audit-reopened-note">
-              Reopened from saved results. A job does not record which file it
-              audited, so the export is named generically and the pre-run source
-              list is unavailable. The original fetch&rsquo;s per-source reasons
-              (paywalled, no free copy, failed) are not saved either — a source
-              here reads as fetched or not fetched.
+              Reopened from saved results.{' '}
+              {auditedPath
+                ? `Audited ${manuscriptLabel}.`
+                : 'This job ran before the audited file was recorded, so the export is named generically.'}{' '}
+              The pre-run source list is not stored and would need the file read
+              again. The original fetch&rsquo;s per-source reasons (paywalled, no
+              free copy, failed) are not saved either — a source here reads as
+              fetched or not fetched.
             </p>
           )}
           <div className="gds-audit__stats">

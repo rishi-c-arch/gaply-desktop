@@ -733,7 +733,17 @@ fn plan_audit(
         AuditScope::WholeManuscript => "thesis_audit",
         AuditScope::Citation { .. } => "citation_audit",
     };
-    let job_id = jobs::create_job(db, job_kind, None, prompt_version, &items)?;
+    // §11 D141. The manuscript's PATH, because `document_id` cannot be set here:
+    // a whole-manuscript audit is planned off a file and creates no `documents`
+    // row. Without it a reopened job cannot say what it audited.
+    let job_id = jobs::create_job(
+        db,
+        job_kind,
+        None,
+        Some(&manuscript.to_string_lossy()),
+        prompt_version,
+        &items,
+    )?;
 
     // §11 D94. Persisted WITH the job, because the export has only the
     // manuscript's NAME — not its path — so it cannot re-read the file to
@@ -1541,6 +1551,52 @@ mod tests {
         assert_eq!(n, 0, "planning an audit put rows in the user's library");
     }
 
+    /// §11 D141. THE JOB RECORDS WHAT IT AUDITED.
+    ///
+    /// `document_id` stays NULL for a whole-manuscript run by design — there is
+    /// no `documents` row, because auditing a file must not enter it into the
+    /// user's corpus. So `source_path` is the only record, and without it a
+    /// reopened job cannot name the file: the export fell back to the literal
+    /// "manuscript" and the pre-run source list had nothing to recompute from.
+    ///
+    /// Asserts the PERSISTED row, not the call — a path passed to `create_job`
+    /// and dropped on the floor by the INSERT would satisfy a mock and fail a
+    /// user.
+    #[test]
+    fn planning_records_the_manuscript_path_on_the_job() {
+        let db = Database::in_memory().unwrap();
+        let dir = tmpdir("source-path");
+        let p = dir.join("R PAPER.txt");
+        std::fs::write(
+            &p,
+            "Coverage rose sharply across the region (Alkenbrack et al., 2015).\n\
+             \n\
+             References\n\
+             \n\
+             Alkenbrack, S., Hanson, K., & Lindelow, M. (2015). Evasion of mandatory social \
+             health insurance for the formal sector. BMC Health Services Research, 15, 473. \
+             https://doi.org/10.1186/s12913-015-1132-5\n",
+        )
+        .unwrap();
+
+        let plan = plan_thesis_audit(&db, &p, "citation_support-v1.6").unwrap();
+        let job = jobs::get_job(&db, plan.job_id).unwrap().expect("the job exists");
+
+        assert_eq!(
+            job.source_path.as_deref(),
+            Some(p.to_string_lossy().as_ref()),
+            "the job did not record the file it audited"
+        );
+        // And it is the PATH, not just a name: a reopened job derives the label
+        // from it, and a bare name could not be re-read.
+        assert!(job.source_path.as_deref().unwrap().contains("R PAPER.txt"));
+        assert!(
+            job.document_id.is_none(),
+            "a whole-manuscript audit created a documents row — it must not \
+             enter the manuscript into the user's corpus (§11 D132's rule)"
+        );
+    }
+
     /// A numbered manuscript stages nothing — the numbered parser already reaches
     /// its entries, and `bibliography` and `author_year_bibliography` are never
     /// both populated.
@@ -1607,6 +1663,7 @@ mod tests {
         let job = jobs::create_job(
             &db,
             "thesis_audit",
+            None,
             None,
             "citation_support-v1.4",
             &[
@@ -1707,6 +1764,7 @@ mod tests {
             &db,
             "thesis_audit",
             None,
+            None,
             "citation_support-v1.4",
             &[NewItem {
                 seq: 0,
@@ -1736,6 +1794,7 @@ mod tests {
         let job = jobs::create_job(
             &db,
             "thesis_audit",
+            None,
             None,
             "citation_support-v1.4",
             &[NewItem {

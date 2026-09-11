@@ -8395,7 +8395,7 @@ happening, on three independent pieces of evidence:
 
 The structural suspicion was right, in a different place than predicted.
 `a_retryable_prompt_fits_the_configured_context` compares the ceiling
-`5120 - 2*1024 - 67 = 3009` against `const LARGEST_REAL_PROMPT: usize = 2155` —
+`5120 - 2*1024 - 67 = 3005` against `const LARGEST_REAL_PROMPT: usize = 2155` —
 a number typed in from one measurement. It builds no prompt and tokenizes
 nothing. `max_retryable_prompt_tokens` has **exactly one caller: that test**;
 nothing in production consults the ceiling.
@@ -8405,11 +8405,125 @@ input to a real prompt, `EVIDENCE_BUDGET_TOKENS`. That constant is not stable by
 intent — D14's own text invites raising it ("raise it against measured prefill
 once Metal lands", naming the spec's implied ~2500). Taking that invitation puts
 evidence near 2500 tokens against a measured scaffold of ~765 (2155 - 1390), so
-~3265 against a 3009 ceiling: D69's exact failure, reappearing in a user's audit
-with the invariant test green. Current headroom is 854 tokens and D14 points a
-future reader at spending ~1300 of it.
+past the ceiling: D69's exact failure, reappearing in a user's audit with the
+invariant test green. D14 points a future reader at spending most of the headroom.
+
+**Arithmetic corrected by D142, which measured it.** This entry first put the
+ceiling at 3009 and the headroom at 854. The ceiling is **3005**
+(`5120 - 2048 - 67`), and the headroom against a real budget-filling prompt is
+**779**, not 854 — 854 came from the hand-typed 2155, which is the constant the
+gap is about. The estimate of where a 2500-token budget would land (~3265) was
+also low: measured, it is **3754**. An entry that reasons from the number it is
+criticising inherits its error.
 
 Left as a gap rather than fixed here, to keep this cell about the abstract label.
 The fix is for the guard to assemble a real budget-filling bundle, build the
 prompt, tokenize it and compare THAT to the ceiling — a check on the prompt
 rather than on the constants — and it needs its own cell.
+
+### D141 — a job that cannot say what it audited
+
+`ai_jobs.document_id` is NULL for every whole-manuscript audit ever run, and that
+is correct by design: `plan_audit` takes `manuscript: &Path` and deliberately
+creates no `documents` row, because auditing a file must not enter it into the
+user's own corpus — the rule D132 applied to the bibliography. But it left the
+job with no record of its subject at all, and two visible losses followed:
+
+- the export fell back to the literal string `manuscript`, so a reopened job
+  produced `manuscript-citation-audit.pdf`;
+- the pre-run source list could not be recomputed, because — as D94 had already
+  noted — the export has the manuscript's NAME and not its path.
+
+Migration v21 adds `source_path TEXT`, `plan_audit` writes it, `JobRow` carries
+it, `ai_audit_jobs_recent` returns it, and the past-audits picker prints the file
+name beside each job. **Nullable and never backfilled**: the 23 existing jobs
+genuinely do not record what they audited, and writing a plausible guess would
+make an unknown look like a fact.
+
+The test asserts the PERSISTED row, not the call. A path handed to `create_job`
+and dropped by the INSERT would satisfy a mock and fail a user — and the column
+list in that INSERT is exactly where such a thing goes wrong. It also asserts
+`document_id` is still NULL, because the cheap way to make a path available would
+have been to create a document row, which is the thing that must not happen.
+
+#### The disclosure shrank to fit what is still true
+
+D139's reopened-job note said a job "does not record which file it audited, so
+the export is named generically". That sentence is now false for any job created
+after this change, and a stale disclosure is its own defect — it teaches a
+researcher to distrust output that is in fact fine. The note is conditional: a job
+with a path says *"Audited R PAPER.docx"*, a pre-column job still says the export
+is named generically, and both still state the two losses that remain (the
+pre-run source list is not stored, and the original fetch's per-source reasons are
+not saved). A second test pins the path-present case and asserts the
+generic-naming caveat is ABSENT, because an assertion that only checks the text
+appears cannot catch a caveat that has outlived its cause.
+
+### D142 — the retry guard measured its own constants; now it measures a prompt
+
+D140 recorded this as a gap; this is the fix.
+
+`a_retryable_prompt_fits_the_configured_context` compared the ceiling
+`TASK_N_CTX - 2*MAX_TOKENS - RETRY_OVERHEAD_TOKENS` against
+`const LARGEST_REAL_PROMPT: usize = 2155` — a number typed in from one
+measurement. It built no prompt and tokenized nothing, and
+`max_retryable_prompt_tokens` had exactly one caller: that test. So it pinned the
+two constants appearing in its own formula and was blind to the third input to a
+real prompt, `EVIDENCE_BUDGET_TOKENS` — the one D14 explicitly invites moving.
+
+`a_budget_filling_prompt_can_still_be_retried` now fills an evidence bundle to
+what the budget permits, builds the prompt the model would receive, tokenizes
+THAT, and asserts it against the ceiling.
+
+**Proven, not argued.** With `EVIDENCE_BUDGET_TOKENS` temporarily set to the 2500
+D14 names, the guard fails: `3754 tokens against a ceiling of 3005`. The old
+guard passed that configuration silently. 3754 also exceeds `TASK_N_CTX -
+max_tokens` (3072), so the FIRST attempt would not have fit either.
+
+#### Three things the measurement changed about what I believed
+
+- **The ceiling is 3005, not 3009.** `5120 - 2048 - 67`. D140 said 3009 and its
+  headroom figure inherited the error; both are corrected there.
+- **Filling to the budget in WORDS is not the worst case.** 920 words of the
+  committed fixture gives a 1972-token prompt — *below* the 2155 D69 already
+  measured from real OpenAlex sources. A guard built that way would have been
+  measuring the fixture's token density, which is the exact failure D69 recorded
+  about the synthetic seeds. The target is therefore a TOKEN count: the 920
+  permitted words priced at the measured real density of 1.511 tokens/word, with
+  an assertion that the synthetic prompt is **not smaller** than the largest real
+  one observed. Measured result: 2226 tokens, 779 of headroom.
+- **Growing by whole 512-word chunks overshot the target by ~700 tokens**, which
+  would fail configurations that are actually safe. That is the opposite error and
+  just as misleading, so the bundle grows in 32-word steps and stops at the
+  target.
+
+#### Where this guard runs, stated exactly — because it is NOT CI
+
+Checked rather than assumed, and the answer is narrower than it first looked:
+both workflows run `cargo test -p gaply_core` only (`windows-build-check.yml`
+says so deliberately, and `clean-checkout.yml` skips the app crate because the
+bundled model is gitignored). `citation_support` is an APP-crate module — it has
+to be, the candle deps live there — so **this guard never runs in CI**. It runs
+on the local pre-commit `cargo test --workspace` gate, which CLAUDE.md makes the
+standing requirement, and it cannot be moved to `gaply_core` without moving the
+task there.
+
+Saying so is the point. A guard whose reach is overstated is the same defect class
+as a guard that measures constants: the protection is believed to be somewhere it
+is not. Raising `EVIDENCE_BUDGET_TOKENS` is caught by the pre-commit gate, not by
+a PR check.
+
+The estimate path therefore serves the no-tokenizer case that remains: a fresh
+clone, or any machine without the ~400 MB bundled model, where the tokenizer is
+absent and a silently-skipping guard would be the same nothing the old one was.
+It prices evidence and scaffold
+SEPARATELY, at 1.511 and 2.174 tokens per word: D17 measured the JSON schema block
+as tokenizing far more densely than prose, and pricing scaffold words at the prose
+rate under-counts it by a third. Measured, the estimate comes out at 2514 against
+the tokenizer's 2226 — it **over**-states by 13%, which is the safe direction: a
+tokenizer-less checkout cannot pass a prompt the real tokenizer would reject. Both
+paths fail at a 2500 budget (4029 estimated, 3754 measured).
+
+`GAPLY_FORCE_TOKEN_ESTIMATE=1` runs the estimate on a machine that HAS the
+tokenizer, so the fallback branch is not the one branch nothing ever exercises. The tokenizer is also loaded once through a `OnceLock`: re-reading it
+per step made this single test take 18 s against a whole-workspace suite of ~18 s.

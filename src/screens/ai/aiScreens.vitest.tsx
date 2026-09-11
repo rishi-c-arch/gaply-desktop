@@ -1003,7 +1003,7 @@ describe('Thesis audit', () => {
     const recheckItems = vi.fn(async () => ({ requeued: 0, items: [] }));
     const bridge = bridgeWith({
       recentAuditJobs: async () => [
-        { jobId: 22, status: 'done', totalItems: 46, doneItems: 46, createdAt: 1, finishedAt: 2, stagedSources: 35, stagedFetched: 15 },
+        { jobId: 22, status: 'done', totalItems: 46, doneItems: 46, createdAt: 1, finishedAt: 2, sourcePath: '/papers/R PAPER.docx', stagedSources: 35, stagedFetched: 15 },
       ],
       jobStatus: async () => ({ health: { jobId: 22, totalItems: 46, completedItems: 46, flagged: [] } }),
       // An unverifiable item, because the re-check button lives inside the
@@ -1055,7 +1055,7 @@ describe('Thesis audit', () => {
   it('says what a reopened job cannot show', async () => {
     const bridge = bridgeWith({
       recentAuditJobs: async () => [
-        { jobId: 22, status: 'done', totalItems: 2, doneItems: 2, createdAt: 1, finishedAt: 2, stagedSources: 0, stagedFetched: 0 },
+        { jobId: 22, status: 'done', totalItems: 2, doneItems: 2, createdAt: 1, finishedAt: 2, sourcePath: null, stagedSources: 0, stagedFetched: 0 },
       ],
       jobStatus: async () => ({ health: { jobId: 22, totalItems: 2, completedItems: 2, flagged: [] } }),
       jobResults: async () => ({ items: [] }),
@@ -1065,10 +1065,50 @@ describe('Thesis audit', () => {
     fireEvent.click(screen.getByTestId('audit-reopen-22'));
     await waitFor(() => expect(screen.getByTestId('audit-reopened-note')).toBeTruthy());
     const t = screen.getByTestId('audit-reopened-note').textContent ?? '';
-    // The three things it genuinely cannot show, named rather than omitted.
-    expect(t).toMatch(/does not record which file it audited/);
+    // What it genuinely cannot show, named rather than omitted. This job has no
+    // stored path (§11 D141 does not backfill), so the generic-name caveat is
+    // the honest one HERE — see the test below for a job that does record it.
+    expect(t).toMatch(/ran before the audited file was recorded/);
     expect(t).toMatch(/named generically/);
+    expect(t).toMatch(/pre-run source list is not stored/);
     expect(t).toMatch(/per-source reasons/);
+  });
+
+  /** §11 D141. A job that DOES record its path must not print the caveat for a
+   *  loss it no longer has — a stale disclosure is its own defect. */
+  it('a reopened job that recorded its file names it, and the export is not generic', async () => {
+    const exportAuditReport = vi.fn(
+      async (_jobId: number, _name: string, _format: string) => ({
+        bytes: [1],
+        extension: 'pdf',
+        suggestedName: 'x.pdf',
+      }),
+    );
+    const bridge = bridgeWith({
+      recentAuditJobs: async () => [
+        { jobId: 22, status: 'done', totalItems: 2, doneItems: 2, createdAt: 1, finishedAt: 2, sourcePath: '/papers/R PAPER.docx', stagedSources: 0, stagedFetched: 0 },
+      ],
+      jobStatus: async () => ({ health: { jobId: 22, totalItems: 2, completedItems: 2, flagged: [] } }),
+      jobResults: async () => ({ items: [] }),
+      exportAuditReport,
+    });
+    render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
+    // The picker itself says what each past job audited.
+    await waitFor(() => expect(screen.getByTestId('audit-past-job-22')).toBeTruthy());
+    expect(screen.getByTestId('audit-past-job-22').textContent ?? '').toContain('R PAPER.docx');
+
+    fireEvent.click(screen.getByTestId('audit-reopen-22'));
+    await waitFor(() => expect(screen.getByTestId('audit-reopened-note')).toBeTruthy());
+    const t = screen.getByTestId('audit-reopened-note').textContent ?? '';
+    expect(t).toContain('Audited R PAPER.docx');
+    expect(t).not.toMatch(/named generically/);
+    // The loss that REMAINS is still stated.
+    expect(t).toMatch(/per-source reasons/);
+
+    // And the export carries the real name, not the 'manuscript' fallback.
+    fireEvent.click(screen.getByTestId('audit-export-pdf'));
+    await waitFor(() => expect(exportAuditReport).toHaveBeenCalled());
+    expect(exportAuditReport.mock.calls[0][1]).toBe('R PAPER.docx');
   });
 
   /** §11 D134. The manuscript's own sources: what the button says, and what it

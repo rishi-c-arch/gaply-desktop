@@ -176,7 +176,10 @@ pub const RETRY_OVERHEAD_TOKENS: usize = 67;
 /// 4096/1024 that left 1981 — BELOW two of three real prompts, so any real check
 /// needing a retry could not have one. The specific numbers here will move; the
 /// invariant is what future changes to either constant must respect, and
-/// `a_retryable_prompt_fits_the_configured_context` fails loudly if they do not.
+/// `a_budget_filling_prompt_can_still_be_retried` fails loudly if they do not —
+/// and since §11 D142 it does so by BUILDING a prompt at the evidence budget and
+/// tokenizing it, not by comparing these constants to a third one typed in by
+/// hand. `EVIDENCE_BUDGET_TOKENS` is therefore guarded too; it was not before.
 pub fn max_retryable_prompt_tokens(max_tokens: usize) -> usize {
     TASK_N_CTX
         .saturating_sub(2 * max_tokens)
