@@ -433,7 +433,7 @@ fn prepass_manuscript_with_blocks(
     // are the danger.
     if let Some(markers) = super::audit_prepass::detect_gaply_report(&blocks) {
         return Err(GaplyError::Validation(format!(
-            "this looks like a Gaply audit report, not a manuscript — it contains {}. \
+            "this looks like a Gaply audit report, not a manuscript. It contains {}. \
              Auditing a report produces a plausible-looking result about the report's own \
              wording rather than about your writing. Select the manuscript instead.",
             markers.iter().map(|m| format!("“{m}”")).collect::<Vec<_>>().join(", ")

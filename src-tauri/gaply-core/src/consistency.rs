@@ -116,13 +116,12 @@ fn looks_like_page_range(raw: &str) -> bool {
     t.starts_with("pp.") || t.starts_with("p.") || t.starts_with("vol.") || t.starts_with("no.")
 }
 
+/// DEFECT 6. Was `chars().take(n)`, which produced "Health financing for
+/// universal …" in a shipped report: a title cut mid-word cannot be recognised
+/// or searched for. Delegates to the ONE trim rule the reports share.
 fn snippet(s: &str, n: usize) -> String {
     let t = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    if t.chars().count() <= n {
-        return t;
-    }
-    let cut: String = t.chars().take(n).collect();
-    format!("{cut}…")
+    crate::report_compose::trim_at_word(&t, n)
 }
 
 /// The leading surname of one work inside a co-citation.
@@ -289,7 +288,7 @@ fn check_author_year(out: &mut ConsistencyReport, blocks: &[PagedBlock], report:
                 "uncertain-reference-match",
                 Severity::Cosmetic,
                 format!(
-                    "“{}” was matched to the entry beginning “{}” — the surnames differ by one \
+                    "“{}” was matched to the entry beginning “{}”. The surnames differ by one \
                      character, so this may be a typo rather than a different work.",
                     snippet(&uses[0].1, 50),
                     snippet(&near.raw, 50)
@@ -329,7 +328,7 @@ fn check_author_year(out: &mut ConsistencyReport, blocks: &[PagedBlock], report:
             "orphan-author-year-marker",
             Severity::Structural,
             format!(
-                "“{}” cites a work the reference list does not contain — no entry begins with \
+                "“{}” cites a work the reference list does not contain: no entry begins with \
                  “{surname}”. It is cited {} time{}.",
                 snippet(&uses[0].1, 60),
                 uses.len(),
@@ -629,7 +628,7 @@ fn check_reference_list(out: &mut ConsistencyReport, report: &PrepassReport) {
             "reference-entry-malformed",
             Severity::Structural,
             format!(
-                "[{}] does not look like a reference entry — it names no author{}: “{}”. \
+                "[{}] does not look like a reference entry, because it names no author{}: “{}”. \
                  If it is a continuation of [{}], then the {} entries numbered above it are each \
                  shifted by one, and every marker pointing at them resolves to the wrong paper.",
                 e.number,
@@ -698,7 +697,7 @@ fn check_orphan_markers(out: &mut ConsistencyReport, report: &PrepassReport) {
             "orphan-marker",
             Severity::Structural,
             format!(
-                "[{n}] is cited {count} time{} but the reference list has no entry {n} — it runs \
+                "[{n}] is cited {count} time{} but the reference list has no entry {n}. It runs \
                  from [{lo}] to [{hi}].",
                 if count == 1 { "" } else { "s" }
             ),
@@ -734,7 +733,7 @@ fn check_captions(out: &mut ConsistencyReport, blocks: &[PagedBlock]) {
                     caps[0],
                     caps[1]
                 ),
-                Some("Renumber one of them — a cross-reference cannot say which you mean.".to_string()),
+                Some("Renumber one of them. A cross-reference cannot say which you mean.".to_string()),
             );
         }
     }
@@ -794,7 +793,7 @@ fn check_section_letters(out: &mut ConsistencyReport, blocks: &[PagedBlock]) {
             "section-letters-out-of-sequence",
             Severity::Cosmetic,
             format!(
-                "Subsection “{}. {}” follows “{}. {}” — the letters do not advance by one.",
+                "Subsection “{}. {}” follows “{}. {}”: the letters do not advance by one.",
                 next, w[1].1, prev, w[0].1
             ),
             None,

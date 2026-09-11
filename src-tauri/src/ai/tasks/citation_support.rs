@@ -448,8 +448,8 @@ fn validate_support(
                             errors.push(ValidationError::fatal(
                                 format!("supporting_chunks[{i}].page"),
                                 format!(
-                                    "says page {claimed}, but chunk {} has no recorded page — \
-                                     an unverifiable page must not be asserted",
+                                    "says page {claimed}, but chunk {} has no recorded page. \
+                                     An unverifiable page must not be asserted.",
                                     sc.chunk_id
                                 ),
                             ));
@@ -466,7 +466,7 @@ fn validate_support(
             if sc.why.trim().is_empty() {
                 errors.push(ValidationError::advisory(
                     format!("supporting_chunks[{i}].why"),
-                    "is missing — the citation names a chunk but not what in it carries the point"
+                    "is missing: the citation names a chunk but not what in it carries the point"
                         .to_string(),
                 ));
             }
@@ -490,7 +490,7 @@ fn validate_support(
                 match sc.quote.as_deref().map(str::trim) {
                     None | Some("") => errors.push(ValidationError::fatal(
                         &field,
-                        "is missing — v2 requires a verbatim quote from the chunk, because a \
+                        "is missing: v2 requires a verbatim quote from the chunk, because a \
                          chunk_id alone does not show that the model read the text",
                     )),
                     Some(q) => {
@@ -544,7 +544,7 @@ fn validate_support(
                     "verdict",
                     format!(
                         "is 'strong', but these claim elements are not 'found': {}. \
-                         The spec defines strong as every element found — a false 'strong' \
+                         The spec defines strong as every element found. A false 'strong' \
                          tells an author a citation is sound when it is not",
                         unmet.join(", ")
                     ),
@@ -553,14 +553,14 @@ fn validate_support(
             Verdict::Strong if out.claim_elements.is_empty() => {
                 errors.push(ValidationError::fatal(
                     "verdict",
-                    "is 'strong' but claim_elements is empty — the spec requires the claim to be \
+                    "is 'strong' but claim_elements is empty: the spec requires the claim to be \
                      decomposed and checked BEFORE a verdict is chosen",
                 ));
             }
             Verdict::Contradicts if !out.claim_elements.is_empty() && !any_different => {
                 errors.push(ValidationError::fatal(
                     "verdict",
-                    "is 'contradicts' but no claim element is marked 'different' — a \
+                    "is 'contradicts' but no claim element is marked 'different': a \
                      contradiction must be visible in the decomposition",
                 ));
             }
@@ -572,7 +572,7 @@ fn validate_support(
             (Verdict::Partial, None) | (Verdict::Partial, Some("")) => {
                 errors.push(ValidationError::fatal(
                     "suggested_rewrite",
-                    "is required when the verdict is 'partial' — the spec asks for the author's \
+                    "is required when the verdict is 'partial': the spec asks for the author's \
                      sentence rewritten so it becomes accurate for this source",
                 ));
             }
@@ -590,7 +590,7 @@ fn validate_support(
             errors.push(ValidationError::fatal(
                 "supporting_chunks",
                 format!(
-                    "is empty for verdict '{}' — a judgement about the evidence must say WHICH \
+                    "is empty for verdict '{}': a judgement about the evidence must say WHICH \
                      evidence; only insufficient_evidence may cite nothing",
                     verdict_name(out.verdict)
                 ),

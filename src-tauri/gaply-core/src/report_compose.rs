@@ -67,7 +67,100 @@ pub enum Block {
     /// this block set exists to prevent — and it would be wrong in a
     /// monochrome print anyway.
     Badge { text: String, tone: Tone },
+    /// A ruled table: a header row, data rows, and a per-column alignment.
+    ///
+    /// # Why this is allowed where `ChecklistTable { rows }` was not
+    ///
+    /// The module docs above record dropping `ChecklistTable`, because a
+    /// renderer receiving it had to answer "what does a FINDING look like" (is
+    /// the title bold, is provenance shown). That objection is about DOMAIN
+    /// semantics, and it still stands. This variant carries none: a header, some
+    /// cells, and whether each column reads as words or as a number. The
+    /// renderer decides every visual question (rule weights, padding, zebra) and
+    /// the composer decides none, which is the same split `Bar` and `Badge`
+    /// already use.
+    ///
+    /// It exists because the alternative is worse. A reason that applies to
+    /// every row was being repeated on every row: one caveat ran to 34 words and
+    /// appeared ~20 times, which is the same sentence occupying a third of a
+    /// page. A reason shared by all rows is a heading, and what differs between
+    /// them is a cell.
+    Table {
+        /// Shown above the table. Not a heading: it says what the rows are.
+        caption: Option<String>,
+        header: Vec<String>,
+        rows: Vec<Vec<String>>,
+        /// One per column. Numbers right-align so digits line up; text does not.
+        align: Vec<Align>,
+    },
+    /// One bar divided into parts that sum to a whole, with a legend.
+    ///
+    /// For a breakdown where the parts are the whole: every sentence is checked,
+    /// or not checkable, or not judged. Separate bars invite reading them as
+    /// independent quantities.
+    StackedBar {
+        title: String,
+        /// Label, count, and what the part MEANS. Order is drawing order.
+        segments: Vec<(String, usize, Tone)>,
+    },
+    /// A bar chart, one bar per row, with both axes named.
+    ///
+    /// Horizontal bars because the labels are names (a cited work, a section) and
+    /// names do not fit under vertical bars without rotating them.
+    BarChart {
+        title: String,
+        /// What the bars are.
+        category_axis: String,
+        /// What their length means.
+        value_axis: String,
+        bars: Vec<(String, usize)>,
+    },
     PageBreak,
+}
+
+/// DEFECT 6: shorten at a WORD boundary, never inside a word.
+///
+/// `"Health financing for universal …"` and `"Applied logistic regression (3rd …"`
+/// came from `chars().take(n)`, which cuts wherever the count runs out. A title
+/// ending mid-word is unusable: a reader cannot tell whether it is a work they
+/// know, and cannot search for it either.
+///
+/// ONE definition, called by the composer and by `consistency`. Both had their
+/// own truncation and only one of them was fixed first; two rules for the same
+/// job drift, and the drift shows up in the output as two different kinds of
+/// ellipsis.
+///
+/// Prefer WRAPPING the whole entry, which a table cell does for free. Use this
+/// where a single line is structural.
+pub(crate) fn trim_at_word(s: &str, max_chars: usize) -> String {
+    let s = s.trim();
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let taken: String = s.chars().take(max_chars).collect();
+    let cut = match taken.rfind(' ') {
+        // Refuse a cut so early that almost nothing survives: a one-word
+        // fragment plus an ellipsis is no more use than the mid-word cut.
+        Some(i) if i >= max_chars / 2 => i,
+        _ => taken.len(),
+    };
+    let mut out = taken[..cut].trim_end().to_string();
+    // Trailing punctuation before an ellipsis reads as a typo.
+    while out.ends_with(',') || out.ends_with(';') || out.ends_with('(') {
+        out.pop();
+        out = out.trim_end().to_string();
+    }
+    out.push_str(" \u{2026}");
+    out
+}
+
+/// How a table column reads. Not how wide it is: that is the renderer's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Align {
+    /// Words. Left, always, so the eye finds the start of each entry.
+    Left,
+    /// A number. Right, so the units line up under each other.
+    Right,
 }
 
 /// How a badge should read, not how it should look.
@@ -134,7 +227,7 @@ pub const NOTE_SIMPLIFIED: &str =
 /// ARCHITECTURE_TRACE §31.
 pub const NOTE_MARKED: &str =
     "Some characters could not be displayed in this report and appear as a question \
-     mark. This is a limitation of the report's font, not of the analysis — nothing \
+     mark. This is a limitation of the report's font, not of the analysis. Nothing \
      was skipped or removed.";
 
 /// How much of the quoted manuscript paragraph a finding's bullet shows.
@@ -375,7 +468,7 @@ fn statistics(model: &LocalReportModel, out: &mut Vec<Block>) {
             model.manuscript.statistics.iter().filter(|s| !s.is_threshold && s.effect_size_present)
         {
             out.push(Block::Bullet {
-                text: format!("{} — {} ({})", s.kind, s.reported, s.location),
+                text: format!("{}: {} ({})", s.kind, s.reported, s.location),
                 indent: 0,
             });
         }
@@ -394,7 +487,7 @@ fn statistics(model: &LocalReportModel, out: &mut Vec<Block>) {
         });
         for s in missing {
             out.push(Block::Bullet {
-                text: format!("{} — {} ({})", s.kind, s.reported, s.location),
+                text: format!("{}: {} ({})", s.kind, s.reported, s.location),
                 indent: 0,
             });
         }
@@ -463,7 +556,7 @@ fn checklist(model: &LocalReportModel, out: &mut Vec<Block>) {
         };
         out.push(Block::Bullet {
             text: format!(
-                "[{}] {} — {}{origin}",
+                "[{}] {}: {}{origin}",
                 if item.passed { "met" } else { "not met" },
                 item.requirement,
                 item.detail
@@ -498,7 +591,7 @@ fn similarity(model: &LocalReportModel, out: &mut Vec<Block>) {
         out.push(Block::Paragraph {
             text: format!(
                 "Compared against {} reference passages. {} passage(s) exceeded the \
-                 similarity threshold. Similarity is not plagiarism — quoted, standard \
+                 similarity threshold. Similarity is not plagiarism: quoted, standard \
                  or methodological wording scores highly and is often correct.",
                 model.corpus_chunks_available,
                 model.similarity.len()
@@ -525,11 +618,11 @@ fn limitations(model: &LocalReportModel, out: &mut Vec<Block>) {
 
     let l = &model.lanes;
     let unexamined: Vec<&str> = [
-        (!l.verification_examined, "Reference checking — no references were parsed."),
-        (!l.validation_examined, "Statistical checking — no statistics were found."),
-        (!l.plagiarism_examined, "Text similarity — nothing was available to compare against."),
-        (!l.ai_detection_examined, "AI writing signals — the manuscript was too short to score."),
-        (!l.extraction_examined, "Table and reference checks — neither was found."),
+        (!l.verification_examined, "Reference checking: no references were parsed."),
+        (!l.validation_examined, "Statistical checking: no statistics were found."),
+        (!l.plagiarism_examined, "Text similarity: nothing was available to compare against."),
+        (!l.ai_detection_examined, "AI writing signals: the manuscript was too short to score."),
+        (!l.extraction_examined, "Table and reference checks: neither was found."),
     ]
     .iter()
     .filter(|(unex, _)| *unex)
@@ -542,7 +635,7 @@ fn limitations(model: &LocalReportModel, out: &mut Vec<Block>) {
         // ONTOLOGY §4.20, COMPLETENESS: a findings list with no statement of
         // what did not run reads as "this is everything".
         out.push(Block::Paragraph {
-            text: "These checks did not run. Their silence is not a pass — it means \
+            text: "These checks did not run. Their silence is not a pass. It means \
                    nothing was looked at."
                 .into(),
         });

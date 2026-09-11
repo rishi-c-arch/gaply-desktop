@@ -8587,3 +8587,173 @@ paths fail at a 2500 budget (4029 estimated, 3754 measured).
 `GAPLY_FORCE_TOKEN_ESTIMATE=1` runs the estimate on a machine that HAS the
 tokenizer, so the fallback branch is not the one branch nothing ever exercises. The tokenizer is also loaded once through a `OnceLock`: re-reading it
 per step made this single test take 18 s against a whole-workspace suite of ~18 s.
+
+### D143 — the audit report redesigned to a professional standard
+
+Six defects, reported from a real generated report, fixed together because they
+share a cause: the composer had no way to say "these things are alike", so every
+row carried its own copy of what was common to all of them.
+
+#### 1. A reason shared by every row is a heading, not a column value
+
+One caveat ran to 34 words and appeared on ~20 consecutive rows. `hoist_shared_tail`
+finds the longest tail every row shares, at a word boundary, and states it once
+above the table. It is generic rather than matched to that one sentence, so the
+next repeated caveat is handled too, and it proved that immediately: the same
+mechanism now collapses six identical abstract-only explanations and seven
+identical validation reasons in the "Not judged" section.
+
+The row then needs a NAME, and the first attempt still printed the whole reason,
+because an unmatched author-year citation has no parsed reference entry and the
+grouping key falls back to the reason. `cited_work_label` prefers the parsed
+entry, then the marker the reason quotes (`AlJohani, 2024`), then the trimmed
+reason.
+
+**A hoisted caveat must still be attachable to a row.** D140 put the abstract
+sentence ON the item deliberately. Hoisting it wholesale would have undone that,
+so the section states it once and each item keeps a six-word marker, and a single
+abstract-backed item keeps the full sentence (there is nothing to hoist). The
+test asserts all three cases.
+
+#### 2, 3 and 5. Tables, charts, and how they are laid out
+
+Three new `Block` variants: `Table` (caption, header, rows, per-column `Align`),
+`StackedBar`, `BarChart`. The module docs record dropping `ChecklistTable`
+because a renderer receiving it had to answer *what does a finding look like*.
+That objection was about DOMAIN semantics and still stands; these carry none, so
+the renderer decides every visual question and the composer none, exactly as
+`Bar` and `Badge` already split.
+
+Layout decisions that came from LOOKING at the output, not from the spec:
+
+- **Column widths from content.** An even split gave a column of paragraph
+  numbers the same width as a column of whole sentences. Flex columns now share
+  space in proportion to what they need, and a short label column
+  ("Hadley, 2002") is treated as fixed, because squeezing it wraps a name onto
+  two lines and buys the long column almost nothing.
+- **A table paginates per ROW and repeats its header.** The first version decided
+  the re-emit before measuring the row's height, which put the repeated header
+  UNDER the first row of the continuation page: worse than no header.
+- **Justification is `Tw` word spacing with the last line left alone**, capped at
+  2.6pt per gap; beyond that a ragged edge beats a river. Bullets are U+2022,
+  hung in the margin.
+
+#### 4. No em dashes, and the guard that first failed to notice
+
+An em dash stands in for a colon, a comma, a parenthesis or a full stop without
+saying which, and this report is read by researchers outside computing.
+
+**The first guard passed vacuously on a file visibly carrying seven em dashes.**
+It has its own entry, D144: it is the sharpest instance of this session's whole
+pattern and it happened inside the fix for that pattern.
+
+**And a fixture only reaches the strings its own data triggers.** Six dashes in
+`consistency` survived the rendered-output test and appeared in the regenerated
+report, because those findings are built from a real manuscript's structure. So
+a second guard reads the modules that own reader-facing strings and fails on a
+literal em dash in any non-comment line. Its own first version reported three
+TRAILING comments as defects, which is why it now strips everything after `//`.
+
+**Prompt strings were deliberately NOT changed.** Three em dashes live in text
+sent to the model, not to the reader. D121 forbids prompt edits, and altering
+one to satisfy a typographic rule would change measured behaviour to fix
+something no reader sees.
+
+#### 6. Truncation at a word boundary, and one rule for it
+
+`"Health financing for universal …"` came from `chars().take(n)`. `trim_at_word`
+keeps whole words and refuses a cut so early that only a fragment survives.
+It lives in `report_compose` and BOTH callers use it: `consistency` had its own
+`snippet` with the same bug, and fixing only one would have left two truncation
+rules to drift apart.
+
+Where a table cell can wrap, nothing is truncated at all: the sentences a reader
+needs in order to find their own text in the manuscript are printed in full.
+
+#### What a regenerated report can and cannot show
+
+Consistency findings live in `ai_jobs.summary_json` and item reasons in
+`ai_job_items.error`, both written at audit time. **A re-render of an old job
+replays the wording that shipped with it**, which is correct and is also why the
+first regenerated preview still showed the fixed strings: 7 rows of job 23 carry
+an em dash in the database, and the report renders 7. The preview example takes
+an optional manuscript path and recomputes the consistency findings, so the
+fixed output can be seen without re-running a three-hour audit.
+
+Measured on job 23 (R PAPER .docx): 23 pages before the shared-caveat hoist,
+**18 after**.
+
+### D144 — a guard that asserted on a byte the renderer cannot emit
+
+The sharpest instance of this session's pattern, and it happened INSIDE the fix
+for that pattern.
+
+D142 replaced a test that compared constants with one that measures a real
+prompt. Two commits later, D143's rule was "no em dash reaches the reader", and
+the test written to enforce it read:
+
+```rust
+let pdf = crate::report_pdf::render_pdf(&blocks);
+assert!(!pdf.windows(1).any(|w| w == [0x97]), "em dash (WinAnsi 0x97) in rendered PDF");
+```
+
+An em dash IS WinAnsi `0x97`, so this looks exactly right. It cannot fail.
+`escape_pdf` writes every byte above `0x7F` as a three-digit OCTAL ESCAPE, so a
+PDF this codebase produces never contains the byte `0x97` whatever its text says.
+The assertion was a search for something the renderer is incapable of emitting.
+
+**It was not caught by reasoning about the code.** It was caught by opening the
+generated file:
+
+```
+$ pdftotext audit-preview.pdf - | grep -c '—'
+7
+$ python3 -c "print(open('audit-preview.pdf','rb').read().count(bytes([0x97])))"
+0
+$ python3 -c "print(open('audit-preview.pdf','rb').read().count(b'\\227'))"
+7
+```
+
+Seven em dashes in the report, zero occurrences of the byte the test looked for,
+seven of the escape it did not. The guard was green the entire time.
+
+The fix asserts both forms, and the escape is the one that does the work. But the
+transferable part is not the fix:
+
+- **An encoder sits between your string and the bytes on disk.** A test that
+  asserts on output has to assert on what the OUTPUT PATH actually produces, not
+  on the representation the source used. The byte `0x97` was true of the
+  character and false of the file.
+- **A test that cannot fail looks identical to a test that passes.** Nothing in a
+  green run distinguishes them, which is why the same shape has now appeared
+  three times in three days: D140's guard measured the configuration, D142's
+  measured typed-in constants, and this one measured an impossible byte. The only
+  thing that has reliably caught it is generating the artefact and looking at it.
+- **Prefer a negative control.** A guard for "X must not appear" should be run
+  once against output that DOES contain X, to prove it fails. That check costs a
+  minute and is the only evidence that an assertion is connected to anything.
+
+A companion guard now reads the modules that own reader-facing strings, because a
+rendered-output test only reaches the strings its own fixture data triggers: six
+em dashes in `consistency` survived it, since those findings are built from a
+real manuscript's structure that no hand-written model reproduces.
+
+#### An old export and a new one will disagree, and that is correct
+
+Worth knowing before someone files it as a bug. Consistency findings are stored
+in `ai_jobs.summary_json` and item reasons in `ai_job_items.error`, both written
+when the audit RAN. The report renders what is stored.
+
+So a reader comparing a report exported last week against one exported today,
+for the same job and the same finding, will see **different wording for the same
+fact**: the old one says `... does not contain — no entry begins with ...`, the
+new one says `... does not contain: no entry begins with ...`. Nothing was
+re-judged and no finding changed. Re-rendering an old job faithfully replays the
+wording that shipped with it, which is the behaviour you want from a record: a
+report that silently rewrote its own history would be worse.
+
+It is also why the first regenerated preview still showed em dashes after the fix
+was correct and complete. Exactly 7 rows of job 23 carry one in the database, and
+the report printed 7. `audit_report_preview` takes an optional manuscript path
+and recomputes the consistency findings for exactly this reason, so the current
+wording can be seen without re-running a three-hour audit.

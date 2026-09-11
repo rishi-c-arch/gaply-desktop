@@ -1397,7 +1397,7 @@ fn resolve_bib_entry(
         })),
         None => Ok(Some(Resolution::Unverifiable {
             reason: format!(
-                "[{}] is in your library but its source is not indexed — link the document",
+                "[{}] is in your library but its source is not indexed. Link the document.",
                 entry.number
             ),
             library_id: Some(library_id),
@@ -1457,7 +1457,7 @@ pub fn resolve_marker_with(
             if let Some(first) = unreliable_from {
                 if *n >= first {
                     missing.push(format!(
-                        "[{n}] cannot be resolved — entry [{first}] of the reference list is not a \
+                        "[{n}] cannot be resolved. Entry [{first}] of the reference list is not a \
                          reference, so every number from [{first}] up points at the wrong entry. \
                          Fix the numbering and re-run; until then Gaply will not name a work for \
                          this marker"
@@ -1472,7 +1472,7 @@ pub fn resolve_marker_with(
             match resolve_bib_entry(db, entry)? {
                 Some(r) => return Ok(r),
                 None => missing.push(format!(
-                    "[{n}] {} — not in your library",
+                    "[{n}] {}: not in your library",
                     entry.raw.chars().take(60).collect::<String>()
                 )),
             }
@@ -1559,7 +1559,7 @@ pub fn resolve_marker_with(
         let year = marker.year.map(|y| y.to_string()).unwrap_or_else(|| "no year".into());
         return Ok(Resolution::Unverifiable {
             reason: format!(
-                "no library work matches “{surname}, {year}” — taken from the in-text marker, \
+                "no library work matches “{surname}, {year}”: taken from the in-text marker, \
                  which gives a surname and a year and not the full author list, so this may be \
                  an incomplete or mis-split name rather than a missing source"
             ),

@@ -15,7 +15,7 @@
 //! [`escape`], and `escaping_is_applied_to_every_text_bearing_block` walks the
 //! whole vocabulary so a variant added later cannot quietly skip it.
 
-use crate::report_compose::Block;
+use crate::report_compose::{Align, Block};
 
 /// HTML-escape a string. `&` first, or the other replacements get double-escaped.
 pub fn escape(s: &str) -> String {
@@ -75,6 +75,33 @@ text-transform:uppercase;padding:.12rem .45rem;border-radius:3px;border:1px soli
 .bar-fill.tone-good{background:#1c7340}.bar-fill.tone-warn{background:#b56b0d}\
 .bar-fill.tone-bad{background:#b32121}.bar-fill.tone-neutral{background:#6b6b6b}\
 .bar-count{flex:0 0 78px;text-align:right;color:#6b6b6b;font-size:.85rem}\
+/* Defect 5: body copy justified, headings and cells left, numbers right. */\
+p{text-align:justify;hyphens:auto}\
+h2,h3,h4{text-align:left}\
+ul{list-style:none}\
+li::before{content:\"\\2022\";color:#6b6b6b;font-weight:700;\
+display:inline-block;width:1rem;margin-left:-1rem}\
+/* Defect 2: real ruled tables. */\
+table{border-collapse:collapse;width:100%;margin:.7rem 0;font-size:.92rem}\
+caption{caption-side:top;text-align:left;color:#555;font-size:.88rem;\
+padding-bottom:.35rem}\
+th{text-align:left;font-weight:700;border-bottom:1.4px solid #2e2e2e;\
+padding:.34rem .5rem;white-space:nowrap}\
+td{border-bottom:.5px solid #dcdcd8;padding:.34rem .5rem;vertical-align:top}\
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}\
+tbody tr:nth-child(even){background:#fafaf8}\
+/* Defect 3: charts. */\
+.chart{margin:.8rem 0}\
+.chart-title{font-weight:700;font-size:.94rem;margin-bottom:.1rem}\
+.chart-axis{color:#6b6b6b;font-size:.82rem;margin:.1rem 0}\
+.stack{display:flex;width:100%;height:16px;border-radius:2px;overflow:hidden;\
+background:#efefed}\
+.stack i{display:block;height:100%}\
+.legend{display:flex;flex-wrap:wrap;gap:.9rem;margin-top:.4rem;font-size:.86rem}\
+.legend span{display:flex;align-items:center;gap:.35rem}\
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block}\
+.tone-good{background:#1c7340}.tone-warn{background:#b56b0d}\
+.tone-bad{background:#b32121}.tone-neutral{background:#6b6b6b}\
 @media print{body{margin:0;max-width:none}}";
 
 /// Render blocks to a standalone HTML document.
@@ -168,6 +195,80 @@ pub fn render_html(blocks: &[Block], document_title: &str) -> String {
                             "<span class=\"badge {cls}\">{}</span>\n",
                             escape(text)
                         ));
+                    }
+                    // Defect 1 and 2. A reason shared by every row is the
+                    // caption or a preceding paragraph; the cells carry only
+                    // what differs.
+                    Block::Table { caption, header, rows, align } => {
+                        let cls = |i: usize| match align.get(i) {
+                            Some(Align::Right) => " class=\"num\"",
+                            _ => "",
+                        };
+                        s.push_str("<table>\n");
+                        if let Some(c) = caption {
+                            s.push_str(&format!("<caption>{}</caption>\n", escape(c)));
+                        }
+                        s.push_str("<thead><tr>");
+                        for (i, h) in header.iter().enumerate() {
+                            s.push_str(&format!("<th{}>{}</th>", cls(i), escape(h)));
+                        }
+                        s.push_str("</tr></thead>\n<tbody>\n");
+                        for row in rows {
+                            s.push_str("<tr>");
+                            for (i, cell) in row.iter().enumerate() {
+                                s.push_str(&format!("<td{}>{}</td>", cls(i), escape(cell)));
+                            }
+                            s.push_str("</tr>\n");
+                        }
+                        s.push_str("</tbody>\n</table>\n");
+                    }
+                    // Defect 3. Colour carries meaning AND the legend names it,
+                    // so the chart survives monochrome print and colour blindness.
+                    Block::StackedBar { title, segments } => {
+                        let total: usize = segments.iter().map(|(_, n, _)| *n).sum();
+                        s.push_str("<div class=\"chart\">\n");
+                        s.push_str(&format!("<div class=\"chart-title\">{}</div>\n", escape(title)));
+                        s.push_str(&format!(
+                            "<div class=\"chart-axis\">Whole bar = {} sentences read.</div>\n",
+                            total
+                        ));
+                        s.push_str("<div class=\"stack\">");
+                        for (label, n, tone) in segments {
+                            let pct = if total == 0 { 0.0 } else { *n as f64 / total as f64 * 100.0 };
+                            s.push_str(&format!(
+                                "<i class=\"tone-{}\" style=\"width:{:.2}%\" title=\"{}: {}\"></i>",
+                                tone_class(*tone), pct, escape(label), n
+                            ));
+                        }
+                        s.push_str("</div>\n<div class=\"legend\">");
+                        for (label, n, tone) in segments {
+                            let pct = if total == 0 { 0 } else { (*n as f64 / total as f64 * 100.0).round() as u32 };
+                            s.push_str(&format!(
+                                "<span><i class=\"tone-{}\"></i>{}: {} ({}%)</span>",
+                                tone_class(*tone), escape(label), n, pct
+                            ));
+                        }
+                        s.push_str("</div>\n</div>\n");
+                    }
+                    Block::BarChart { title, category_axis, value_axis, bars } => {
+                        let max = bars.iter().map(|(_, n)| *n).max().unwrap_or(0);
+                        s.push_str("<div class=\"chart\">\n");
+                        s.push_str(&format!("<div class=\"chart-title\">{}</div>\n", escape(title)));
+                        s.push_str(&format!(
+                            "<div class=\"chart-axis\">Rows: {}. Bar length: {}.</div>\n",
+                            escape(category_axis), escape(value_axis)
+                        ));
+                        for (label, n) in bars {
+                            let pct = if max == 0 { 0.0 } else { *n as f64 / max as f64 * 100.0 };
+                            s.push_str(&format!(
+                                "<div class=\"bar\"><span class=\"bar-label\">{}</span>\
+                                 <span class=\"bar-track\"><i class=\"bar-fill tone-neutral\" \
+                                 style=\"width:{:.2}%\"></i></span>\
+                                 <span class=\"bar-count\">{}</span></div>\n",
+                                escape(label), pct, n
+                            ));
+                        }
+                        s.push_str("</div>\n");
                     }
                     Block::PageBreak => s.push_str("<div class=\"pagebreak\"></div>\n"),
                     Block::Bullet { .. } => unreachable!("handled above"),

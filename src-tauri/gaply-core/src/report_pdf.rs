@@ -19,7 +19,7 @@
 //! carried by size and spacing instead. Embedding Noto (and with it bold, and
 //! full Unicode) is the documented next step — see ARCHITECTURE_TRACE §31.18.
 
-use crate::report_compose::{Block, NOTE_MARKED, NOTE_SIMPLIFIED};
+use crate::report_compose::{Align, Block, Tone, NOTE_MARKED, NOTE_SIMPLIFIED};
 
 const PAGE_W: f64 = 595.28; // A4
 const PAGE_H: f64 = 841.89;
@@ -432,6 +432,7 @@ fn text_width_in(bytes: &[u8], size: f64, face: Face) -> f64 {
 }
 
 /// One positioned line of already-encoded bytes.
+#[derive(Clone)]
 struct Line {
     bytes: Vec<u8>,
     face: Face,
@@ -444,6 +445,15 @@ struct Line {
     rgb: Rgb,
     /// Extra space above this line.
     lead: f64,
+    /// Extra width added to every space on this line, for JUSTIFICATION
+    /// (defect 5). PDF's `Tw` operator, so the spaces stretch and the glyphs
+    /// do not: a line is justified by the gaps between words, never by
+    /// distorting the letters.
+    ///
+    /// Zero on the LAST line of a paragraph and on anything that is not body
+    /// copy. A justified last line is the classic giveaway of a tool that
+    /// justified by rule rather than by typography.
+    word_space: f64,
 }
 
 /// Background and rule treatment for a group of lines.
@@ -469,11 +479,86 @@ enum Decor {
     Pill(Rgb),
 }
 
+/// DEFECT 5: justify a run of body lines to the column.
+///
+/// Sets PDF word spacing per line so the spaces stretch and the glyphs keep
+/// their drawn widths. The LAST line is left alone, which is the whole
+/// difference between justified text and text that has been stretched by rule.
+///
+/// A line is left ragged when the stretch would be visible as a river: more
+/// than `MAX_WORD_STRETCH` added to a single space reads worse than an uneven
+/// right edge, and a line with one or no spaces cannot be stretched at all.
+fn justify(lines: &mut [Line], column: f64) {
+    /// Points of extra space per gap before ragged beats justified.
+    const MAX_WORD_STRETCH: f64 = 2.6;
+    let n = lines.len();
+    if n < 2 {
+        return;
+    }
+    for line in lines.iter_mut().take(n - 1) {
+        let spaces = line.bytes.iter().filter(|b| **b == b' ').count();
+        if spaces == 0 {
+            continue;
+        }
+        let natural = text_width_in(&line.bytes, line.size, line.face);
+        let slack = column - line.indent - natural;
+        if slack <= 0.0 {
+            continue;
+        }
+        let per_space = slack / spaces as f64;
+        if per_space <= MAX_WORD_STRETCH {
+            line.word_space = per_space;
+        }
+    }
+}
+
+/// The ink a semantic tone is drawn in. ONE definition, so a `Good` bar and a
+/// `Good` chart segment cannot drift to different greens.
+fn tone_ink(tone: Tone) -> Rgb {
+    match tone {
+        Tone::Good => rgb(0x1C, 0x73, 0x40),
+        Tone::Warn => rgb(0xB5, 0x6B, 0x0D),
+        Tone::Bad => rgb(0xB3, 0x21, 0x21),
+        Tone::Neutral => rgb(0x6B, 0x6B, 0x6B),
+    }
+}
+
+/// A rectangle placed relative to a group's own text top (defect 3).
+///
+/// The escape hatch that makes charts possible without teaching `Decor` a new
+/// variant per chart type. The COMPOSER still supplies only facts: every number
+/// here was computed by the renderer from a `StackedBar`'s counts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Draw {
+    /// From the left text margin.
+    dx: f64,
+    /// DOWN from the group's text top.
+    dy: f64,
+    w: f64,
+    h: f64,
+    rgb: Rgb,
+}
+
+/// Where a group sits in a table, so a table split across pages keeps its
+/// header (defect 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TablePart {
+    /// The header row. Re-emitted at the top of each continuation page.
+    Header,
+    /// A data row. Triggers the re-emit when it lands on a fresh page.
+    Row,
+}
+
 /// A group of lines drawn together, with its decoration. Groups are the unit
 /// of pagination: a panel is never split across a page boundary.
+#[derive(Clone)]
 struct Elem {
     lines: Vec<Line>,
     decor: Decor,
+    /// Rectangles drawn under this group's text: chart geometry.
+    draws: Vec<Draw>,
+    /// Set on table header and data rows only.
+    table: Option<TablePart>,
     /// A page break requested by the composer. HONOURED unless the current page
     /// is nearly empty — see `paginate_and_write`.
     soft_break: bool,
@@ -483,7 +568,14 @@ struct Elem {
 
 impl Elem {
     fn br(soft: bool, hard: bool) -> Self {
-        Elem { lines: Vec::new(), decor: Decor::None, soft_break: soft, hard_break: hard, }
+        Elem {
+            lines: Vec::new(),
+            decor: Decor::None,
+            soft_break: soft,
+            hard_break: hard,
+            draws: Vec::new(),
+            table: None,
+        }
     }
     /// Total vertical space this group needs, decoration included.
     fn height(&self) -> f64 {
@@ -577,6 +669,7 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
                 indent,
                 rgb,
                 lead: if i == 0 { lead } else { 0.0 },
+                word_space: 0.0,
             })
             .collect()
     };
@@ -594,8 +687,7 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
                 // §11 D93. The ANSWER, set large — page 1 used to carry five
                 // metadata pairs and four-fifths white paper.
                 if let Some((h, tone)) = headline {
-                    use crate::report_compose::Tone;
-                    let ink = match tone {
+                        let ink = match tone {
                         Tone::Good => rgb(0x1C, 0x73, 0x40),
                         Tone::Warn => rgb(0xB5, 0x6B, 0x0D),
                         Tone::Bad => rgb(0xB3, 0x21, 0x21),
@@ -603,13 +695,13 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
                     };
                     lines.extend(lay(&mut outcome, h, scale::H1, Face::Bold, 0.0, ink, 26.0, TEXT_W));
                 }
-                elems.push(Elem { lines, decor: Decor::RuleUnder(0.9, INK), soft_break: false, hard_break: false });
+                elems.push(Elem { lines, decor: Decor::RuleUnder(0.9, INK), soft_break: false, hard_break: false, draws: Vec::new(), table: None });
 
                 // Metadata as label/value pairs, 10pt between pairs.
                 for (k, v) in meta {
                     let mut pair = lay(&mut outcome, &k.to_uppercase(), scale::FIELD_LABEL, Face::Bold, 0.0, FAINT, 10.0, TEXT_W);
                     pair.extend(lay(&mut outcome, v, scale::FIELD_VALUE, Face::Regular, 0.0, INK, 1.0, TEXT_W));
-                    elems.push(Elem { lines: pair, decor: Decor::None, soft_break: false, hard_break: false });
+                    elems.push(Elem { lines: pair, decor: Decor::None, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
                 }
                 elems.push(Elem::br(false, true));
             }
@@ -620,11 +712,13 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
                     _ => (scale::H3, Face::Bold, INK, 14.0, Decor::None),
                 };
                 let lines = lay(&mut outcome, text, sc, face, 0.0, rgb, lead, TEXT_W);
-                elems.push(Elem { lines, decor, soft_break: false, hard_break: false });
+                elems.push(Elem { lines, decor, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
             }
             Block::Paragraph { text } => {
-                let lines = lay(&mut outcome, text, scale::BODY, Face::Regular, 0.0, BODY, 8.0, TEXT_W);
-                elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false });
+                let mut lines = lay(&mut outcome, text, scale::BODY, Face::Regular, 0.0, BODY, 8.0, TEXT_W);
+                // DEFECT 5. Body copy is justified; headings and cells are not.
+                justify(&mut lines, TEXT_W);
+                elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
             }
             Block::Bullet { text, indent } => {
                 if *indent >= 1 {
@@ -635,30 +729,28 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
                         &mut outcome, text, scale::QUOTATION, Face::Oblique,
                         12.0, BODY, 8.0, TEXT_W - 20.0,
                     );
-                    elems.push(Elem { lines, decor: Decor::Quote, soft_break: false, hard_break: false });
+                    elems.push(Elem { lines, decor: Decor::Quote, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
                 } else {
-                    let lines = lay(
-                        &mut outcome, &format!("- {text}"), scale::BODY, Face::Regular,
+                    // DEFECT 5. A real bullet (U+2022, WinAnsi 0x95), hung in
+                    // the margin so the text edge stays straight. "- " is a
+                    // hyphen pretending to be a list marker.
+                    let mut lines = lay(
+                        &mut outcome, &format!("\u{2022}  {text}"), scale::BODY, Face::Regular,
                         14.0, BODY, 4.0, TEXT_W,
                     );
-                    elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false });
+                    justify(&mut lines, TEXT_W);
+                    elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
                 }
             }
             Block::Note { text } => {
                 let lines = lay(&mut outcome, text, scale::SMALL, Face::Regular, 11.0, MUTED, 12.0, TEXT_W - 22.0);
-                elems.push(Elem { lines, decor: Decor::Panel, soft_break: false, hard_break: false });
+                elems.push(Elem { lines, decor: Decor::Panel, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
             }
             // §11 D93. Label on the left, a DRAWN track in the middle, the
             // count and percent right-aligned — three columns that cannot
             // collide, where "=".repeat(n) plus two numbers always did.
             Block::Bar { label, value, total, tone } => {
-                use crate::report_compose::Tone;
-                let ink = match tone {
-                    Tone::Good => rgb(0x1C, 0x73, 0x40),
-                    Tone::Warn => rgb(0xB5, 0x6B, 0x0D),
-                    Tone::Bad => rgb(0xB3, 0x21, 0x21),
-                    Tone::Neutral => rgb(0x6B, 0x6B, 0x6B),
-                };
+                let ink = tone_ink(*tone);
                 let frac = if *total == 0 { 0.0 } else { (*value as f64 / *total as f64).clamp(0.0, 1.0) };
                 let pct = (frac * 100.0).round() as u32;
                 // Two separate lines in ONE element: the label, and the count
@@ -676,10 +768,9 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
                     r.lead = 0.0;
                 }
                 lines.append(&mut right);
-                elems.push(Elem { lines, decor: Decor::Bar(frac, ink), soft_break: false, hard_break: false });
+                elems.push(Elem { lines, decor: Decor::Bar(frac, ink), soft_break: false, hard_break: false, draws: Vec::new(), table: None });
             }
             Block::Badge { text, tone } => {
-                use crate::report_compose::Tone;
                 // Ink and tint, not one colour: coloured text on white is a
                 // word that happens to be red. The fill is what makes it a
                 // badge you can find by scanning rather than by reading.
@@ -704,7 +795,305 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
                     decor: Decor::Pill(tint),
                     soft_break: false,
                     hard_break: false,
+                    draws: Vec::new(),
+                    table: None,
                 });
+            }
+            // ---- DEFECT 2: a real ruled table ------------------------------
+            //
+            // Expanded into ONE ELEM PER ROW rather than one per table, so a
+            // long table paginates at a row boundary instead of being refused
+            // as an over-tall atomic group. `TablePart` is what lets the header
+            // come back at the top of the continuation page.
+            Block::Table { caption, header, rows, align } => {
+                let cols = header.len().max(rows.iter().map(|r| r.len()).max().unwrap_or(0));
+                if cols == 0 {
+                    continue;
+                }
+                // Column widths from CONTENT, not from an even split: a
+                // "Sentences" column of two-digit numbers does not need a
+                // third of the page, and the names do.
+                let gutter = 10.0;
+                let mut natural = vec![0.0f64; cols];
+                for c in 0..cols {
+                    let mut w: f64 = header
+                        .get(c)
+                        .map(|h| text_width_in(&encode_winansi(h).0, scale::SMALL.0, Face::Bold))
+                        .unwrap_or(0.0);
+                    for r in rows {
+                        if let Some(cell) = r.get(c) {
+                            let cw = text_width_in(
+                                &encode_winansi(cell).0, scale::SMALL.0, Face::Regular,
+                            );
+                            if cw > w {
+                                w = cw;
+                            }
+                        }
+                    }
+                    natural[c] = w;
+                }
+                let avail = TEXT_W - gutter * (cols as f64 - 1.0);
+                let total_natural: f64 = natural.iter().sum();
+                let widths: Vec<f64> = if total_natural <= avail {
+                    // Everything fits: give the slack to the FIRST left column,
+                    // which is the one holding names that may still be long.
+                    let mut w = natural.clone();
+                    let slack = avail - total_natural;
+                    let grow = align
+                        .iter()
+                        .position(|a| *a == Align::Left)
+                        .unwrap_or(0);
+                    w[grow] += slack;
+                    w
+                } else {
+                    // Over-wide: numeric columns keep their natural width (they
+                    // are short and must not wrap), and the text columns share
+                    // what is left. This is what stops a long title from
+                    // squeezing a count column to nothing.
+                    let fixed: f64 = (0..cols)
+                        .filter(|c| align.get(*c) == Some(&Align::Right))
+                        .map(|c| natural[c])
+                        .sum();
+                    // Flex columns share what is left IN PROPORTION to what
+                    // they need. An even split gave a column of paragraph
+                    // numbers the same width as a column of whole sentences,
+                    // so one wrapped to six lines while the other wasted two
+                    // thirds of its space.
+                    // A column of short labels ("Hadley, 2002") is effectively
+                    // fixed: squeezing it wraps a name onto two lines and buys
+                    // the long column almost nothing.
+                    const SHORT_COL: f64 = 86.0;
+                    let is_flex = |c: usize| {
+                        align.get(c) != Some(&Align::Right) && natural[c] > SHORT_COL
+                    };
+                    let fixed = fixed
+                        + (0..cols)
+                            .filter(|c| align.get(*c) != Some(&Align::Right) && !is_flex(*c))
+                            .map(|c| natural[c])
+                            .sum::<f64>();
+                    let flex_natural: f64 = (0..cols).filter(|c| is_flex(*c)).map(|c| natural[c]).sum();
+                    let flex_avail = (avail - fixed).max(60.0);
+                    (0..cols)
+                        .map(|c| {
+                            if !is_flex(c) {
+                                natural[c]
+                            } else if flex_natural <= 0.0 {
+                                flex_avail
+                            } else {
+                                (flex_avail * natural[c] / flex_natural).max(46.0)
+                            }
+                        })
+                        .collect()
+                };
+                let mut xs = Vec::with_capacity(cols);
+                let mut x = 0.0;
+                for w in &widths {
+                    xs.push(x);
+                    x += w + gutter;
+                }
+
+                if let Some(c) = caption {
+                    let lines = lay(&mut outcome, c, scale::SMALL, Face::Regular, 0.0, MUTED, 12.0, TEXT_W);
+                    elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
+                }
+
+                // One row -> one Elem. Cells that wrap make the row taller;
+                // every cell in a row starts at the SAME baseline because only
+                // the first line of the row carries the vertical advance.
+                let mut row_elem = |out: &mut EncodingOutcome,
+                                    cells: &[String],
+                                    face: Face,
+                                    colour: Rgb,
+                                    part: TablePart|
+                 -> Elem {
+                    let pad_top = 5.0;
+                    let leading = scale::SMALL.1;
+                    let mut wrapped: Vec<Vec<Vec<u8>>> = Vec::with_capacity(cols);
+                    for c in 0..cols {
+                        let text = cells.get(c).map(String::as_str).unwrap_or("");
+                        let (bytes, o) = encode_winansi(text);
+                        *out = EncodingOutcome {
+                            any_simplified: out.any_simplified || o.any_simplified,
+                            any_marked: out.any_marked || o.any_marked,
+                        };
+                        wrapped.push(wrap(&bytes, scale::SMALL.0, widths[c], face));
+                    }
+                    let depth = wrapped.iter().map(Vec::len).max().unwrap_or(1).max(1);
+                    let mut lines: Vec<Line> = Vec::new();
+                    for r in 0..depth {
+                        // A zero-width carrier holds the row-line's advance, so
+                        // a short cell in column 0 cannot swallow it.
+                        lines.push(Line {
+                            bytes: Vec::new(),
+                            face,
+                            size: scale::SMALL.0,
+                            leading,
+                            indent: 0.0,
+                            rgb: colour,
+                            lead: if r == 0 { pad_top } else { 0.0 },
+                            word_space: 0.0,
+                        });
+                        for c in 0..cols {
+                            let Some(bytes) = wrapped[c].get(r) else { continue };
+                            let w = text_width_in(bytes, scale::SMALL.0, face);
+                            let indent = if align.get(c) == Some(&Align::Right) {
+                                // Right-aligned by MEASURING to the column's
+                                // right edge: digits line up under digits.
+                                xs[c] + widths[c] - w
+                            } else {
+                                xs[c]
+                            };
+                            lines.push(Line {
+                                bytes: bytes.clone(),
+                                face,
+                                size: scale::SMALL.0,
+                                leading: 0.0,
+                                indent,
+                                rgb: colour,
+                                lead: 0.0,
+                                word_space: 0.0,
+                            });
+                        }
+                    }
+                    // Bottom padding as a real carrier line, so `Elem::height`
+                    // reserves it and the next row cannot ride up into it.
+                    const PAD_BOTTOM: f64 = 4.0;
+                    lines.push(Line {
+                        bytes: Vec::new(),
+                        face,
+                        size: scale::SMALL.0,
+                        leading: PAD_BOTTOM,
+                        indent: 0.0,
+                        rgb: colour,
+                        lead: 0.0,
+                        word_space: 0.0,
+                    });
+                    let height = pad_top + leading * depth as f64 + PAD_BOTTOM;
+                    // The rule UNDER the row: heavy under the header (it
+                    // separates head from body), a hairline between data rows.
+                    let (rule_h, rule_c) = match part {
+                        TablePart::Header => (1.1, INK),
+                        TablePart::Row => (0.4, HAIR),
+                    };
+                    Elem {
+                        lines,
+                        decor: Decor::None,
+                        soft_break: false,
+                        hard_break: false,
+                        draws: vec![Draw { dx: 0.0, dy: height - 1.0, w: TEXT_W, h: rule_h, rgb: rule_c }],
+                        table: Some(part),
+                    }
+                };
+
+                let e = row_elem(&mut outcome, header, Face::Bold, INK, TablePart::Header);
+                elems.push(e);
+                for row in rows {
+                    let e = row_elem(&mut outcome, row, Face::Regular, BODY, TablePart::Row);
+                    elems.push(e);
+                }
+            }
+            // ---- DEFECT 3: charts -----------------------------------------
+            //
+            // One bar cut into parts that sum to the whole, with a legend that
+            // NAMES each colour. Colour never carries the meaning alone: the
+            // legend prints the label and the count beside its swatch, so the
+            // chart survives a monochrome print and a colour-blind reader.
+            Block::StackedBar { title, segments } => {
+                let total: usize = segments.iter().map(|(_, n, _)| *n).sum();
+                let bar_h = 14.0;
+                let gap_above = 6.0;
+                let mut lines = lay(&mut outcome, title, scale::H3, Face::Bold, 0.0, INK, 14.0, TEXT_W);
+                let axis = format!(
+                    "Whole bar = {total} sentences read. Each part is labelled below."
+                );
+                lines.extend(lay(&mut outcome, &axis, scale::SMALL, Face::Regular, 0.0, MUTED, 3.0, TEXT_W));
+                // Vertical offset of the bar: the sum of what the text above it
+                // advanced, plus a gap.
+                let mut dy: f64 = lines.iter().map(|l| l.lead + l.leading).sum();
+                dy += gap_above;
+                // A blank line reserves the bar's own height so the legend does
+                // not sit on top of it.
+                lines.push(Line {
+                    bytes: Vec::new(),
+                    face: Face::Regular,
+                    size: scale::SMALL.0,
+                    leading: bar_h + gap_above + 4.0,
+                    indent: 0.0,
+                    rgb: BODY,
+                    lead: 0.0,
+                    word_space: 0.0,
+                });
+                let mut draws = vec![Draw { dx: 0.0, dy, w: TEXT_W, h: bar_h, rgb: PANEL }];
+                let mut x = 0.0;
+                for (_, n, tone) in segments {
+                    if total == 0 {
+                        break;
+                    }
+                    let w = TEXT_W * (*n as f64 / total as f64);
+                    if w > 0.0 {
+                        draws.push(Draw { dx: x, dy, w: w.max(1.0), h: bar_h, rgb: tone_ink(*tone) });
+                    }
+                    x += w;
+                }
+                // The legend: a swatch per part, with its label and count.
+                let swatch = 8.0;
+                for (label, n, tone) in segments {
+                    let pct = if total == 0 { 0 } else { ((*n as f64 / total as f64) * 100.0).round() as u32 };
+                    let text = format!("{label}: {n} ({pct}%)");
+                    let mut l = lay(&mut outcome, &text, scale::SMALL, Face::Regular, swatch + 7.0, BODY, 3.0, TEXT_W);
+                    let row_dy: f64 = lines.iter().map(|x| x.lead + x.leading).sum::<f64>()
+                        + l.first().map(|f| f.lead + f.leading).unwrap_or(0.0);
+                    draws.push(Draw {
+                        dx: 0.0,
+                        // Aligned to the legend line's own baseline, 1pt under
+                        // it, so the swatch sits on the text rather than above.
+                        dy: row_dy - swatch + 1.0,
+                        w: swatch,
+                        h: swatch,
+                        rgb: tone_ink(*tone),
+                    });
+                    lines.append(&mut l);
+                    let _ = tone;
+                }
+                elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false, draws, table: None });
+            }
+            // Horizontal bars, reusing the row geometry `Bar` already has:
+            // label, drawn track, value. Both axes are named in words above the
+            // chart, because "top ten" is meaningless without saying ten of what.
+            Block::BarChart { title, category_axis, value_axis, bars } => {
+                let max = bars.iter().map(|(_, n)| *n).max().unwrap_or(0);
+                let lines = lay(&mut outcome, title, scale::H3, Face::Bold, 0.0, INK, 16.0, TEXT_W);
+                elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
+                let axis = format!("Each row is {category_axis}. Bar length is {value_axis}.");
+                let lines = lay(&mut outcome, &axis, scale::SMALL, Face::Regular, 0.0, MUTED, 3.0, TEXT_W);
+                elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
+                for (label, n) in bars {
+                    let frac = if max == 0 { 0.0 } else { (*n as f64 / max as f64).clamp(0.0, 1.0) };
+                    let mut lines = lay(&mut outcome, label, scale::SMALL, Face::Regular, 0.0, BODY, 0.0, BAR_LABEL_W);
+                    lines.truncate(1);
+                    let mut right = lay(&mut outcome, &n.to_string(), scale::SMALL, Face::Regular, 0.0, MUTED, 0.0, TEXT_W);
+                    if let Some(r) = right.first_mut() {
+                        let w = text_width_in(&r.bytes, r.size, r.face);
+                        r.indent = TEXT_W - w;
+                        r.leading = 0.0;
+                        r.lead = 0.0;
+                    }
+                    lines.append(&mut right);
+                    elems.push(Elem {
+                        lines,
+                        decor: Decor::Bar(frac, rgb(0x46, 0x62, 0x8C)),
+                        soft_break: false,
+                        hard_break: false,
+                        draws: Vec::new(),
+                        table: None,
+                    });
+                }
+                // The value scale, stated rather than drawn as ticks: at this
+                // size a tick row is noise, and the largest value is what a
+                // reader needs to read the lengths against.
+                let scale_note = format!("Longest bar = {max}.");
+                let lines = lay(&mut outcome, &scale_note, scale::SMALL, Face::Regular, BAR_LABEL_W, MUTED, 4.0, TEXT_W);
+                elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
             }
             Block::PageBreak => elems.push(Elem::br(true, false)),
         }
@@ -717,11 +1106,11 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
     let mut scratch = EncodingOutcome::default();
     if simplified {
         let lines = lay(&mut scratch, NOTE_SIMPLIFIED, scale::FURNITURE, Face::Regular, 11.0, MUTED, 18.0, TEXT_W - 22.0);
-        elems.push(Elem { lines, decor: Decor::Panel, soft_break: false, hard_break: false });
+        elems.push(Elem { lines, decor: Decor::Panel, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
     }
     if marked {
         let lines = lay(&mut scratch, NOTE_MARKED, scale::FURNITURE, Face::Regular, 11.0, MUTED, 8.0, TEXT_W - 22.0);
-        elems.push(Elem { lines, decor: Decor::Panel, soft_break: false, hard_break: false });
+        elems.push(Elem { lines, decor: Decor::Panel, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
     }
     debug_assert_eq!(scratch, EncodingOutcome::default(), "disclosure notes must be ASCII");
 
@@ -750,6 +1139,11 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
     let mut y = top;
     #[allow(unused_assignments)]
     let mut page_empty = true;
+    // DEFECT 2: a table that spills onto the next page takes its header with
+    // it. Without this a reader meets a grid of unlabelled columns, which is
+    // worse than prose.
+    let mut table_header: Option<Elem> = None;
+    let mut header_on_page = false;
 
     macro_rules! new_page {
         () => {{
@@ -762,10 +1156,32 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
             pages.push(page);
             y = top;
             page_empty = true;
+            header_on_page = false;
         }};
     }
 
-    for el in elems {
+    let mut queue: std::collections::VecDeque<Elem> = elems.into();
+    while let Some(el) = queue.pop_front() {
+        // Remember the live header, and re-issue it when a data row opens a
+        // page without one.
+        match el.table {
+            Some(TablePart::Header) => {
+                table_header = Some(el.clone());
+                header_on_page = true;
+            }
+            // The re-emit cannot be decided HERE: whether this row opens a
+            // new page is not known until its height is measured below. Doing
+            // it here put the repeated header UNDER the first row of the
+            // continuation page, which is worse than no header at all.
+            Some(TablePart::Row) => {}
+            None => {
+                // A non-table block ends the table: the next row starts a new
+                // one and must print its own header.
+                if !el.soft_break && !el.hard_break && !el.lines.is_empty() {
+                    table_header = None;
+                }
+            }
+        }
         if el.hard_break {
             if !page_empty {
                 new_page!();
@@ -790,6 +1206,15 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
         if !page_empty && y - h < bottom {
             new_page!();
         }
+        // NOW the page is settled. A data row that finds itself on a page with
+        // no header puts the header back in front of itself and returns.
+        if matches!(el.table, Some(TablePart::Row)) && !header_on_page {
+            if let Some(hd) = table_header.clone() {
+                queue.push_front(el);
+                queue.push_front(hd);
+                continue;
+            }
+        }
 
         let block_top = y;
         let pad = match el.decor {
@@ -805,17 +1230,35 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
         let mut body = Vec::new();
         for line in &el.lines {
             y -= line.lead + line.leading;
+            if line.bytes.is_empty() {
+                // A carrier line: it holds vertical space (a table row's
+                // advance, a chart's reserved bar) and draws nothing.
+                continue;
+            }
             body.extend_from_slice(
                 format!(
-                    "{:.3} {:.3} {:.3} rg\nBT\n{} {:.2} Tf\n1 0 0 1 {:.2} {:.2} Tm\n(",
+                    "{:.3} {:.3} {:.3} rg\nBT\n{} {:.2} Tf\n{:.3} Tw\n1 0 0 1 {:.2} {:.2} Tm\n(",
                     line.rgb[0], line.rgb[1], line.rgb[2],
                     line.face.resource(), line.size,
+                    line.word_space,
                     MARGIN_X + line.indent, y
                 )
                 .as_bytes(),
             );
             body.extend_from_slice(&escape_pdf(&line.bytes));
             body.extend_from_slice(b") Tj\nET\n");
+        }
+        // DEFECT 3: chart geometry, positioned from this group's text top.
+        // Drawn into the DECORATION stream so the page's text still lands on
+        // top of every fill (§11 D93's ordering).
+        for d in &el.draws {
+            stream.extend_from_slice(&fill_rect(
+                MARGIN_X + d.dx,
+                text_top - d.dy - d.h,
+                d.w,
+                d.h,
+                d.rgb,
+            ));
         }
         let text_bottom = y;
         if pad > 0.0 {
@@ -1222,7 +1665,7 @@ mod tests {
     fn folding_alone_discloses_only_simplification() {
         let m = model(Some("Study by Łukasz"), vec![finding("f1", "Ordinary title", FindingSeverity::Minor)]);
         let text = squash(&render(&m));
-        assert!(text.contains("Lukasz"), "Ł must fold to L — the case NFD cannot handle");
+        assert!(text.contains("Lukasz"), "Ł must fold to L: the case NFD cannot handle");
         assert!(text.contains(&squash(NOTE_SIMPLIFIED)));
         assert!(!text.contains(&squash(NOTE_MARKED)), "nothing was marked");
     }

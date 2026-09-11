@@ -24,7 +24,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::report_compose::{Block, Tone};
+use crate::report_compose::{Align, Block, Tone};
 
 /// One passage the model rested a verdict on. `page` comes from the store, not
 /// from the model — D18's validated half.
@@ -248,7 +248,26 @@ pub const MIN_SCOREABLE: usize = 10;
 /// The ordering is the guarantee: sentence, then verdict, then — only if there
 /// is evidence — each quote with its page, and only then the model's prose. A
 /// reader meets the source before the claim about it.
-fn emit_finding(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
+/// §11 D140. Said in full on an item when it is the only one, and once for the
+/// section when several items share it: forty words repeated six times is the
+/// defect this report was redesigned to remove, and the fact is the same fact.
+const ABSTRACT_ONLY_LONG: &str =
+    "Only an ABSTRACT was available for the cited work, not its full text. An abstract carries \
+     too little to quote for most claims, so this is a limit of what could be obtained rather \
+     than a judgement about the sentence.";
+const ABSTRACT_ONLY_SHORT: &str = "Checked against an ABSTRACT only, not the full text.";
+
+/// `hoisted` names the caveats the SECTION has already stated once, so an item
+/// does not repeat them (defect 1).
+#[derive(Debug, Clone, Copy, Default)]
+struct Hoisted {
+    /// The abstract-only explanation is above this item.
+    abstract_note: bool,
+    /// Every item in the section carries the same reason, printed above.
+    reason: bool,
+}
+
+fn emit_finding(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool, hoisted: Hoisted) {
     // COMPACT: locator, badge, sentence, one line of reason. The previous shape
     // spent four paragraphs per item, which turned 65 findings into something
     // to wade through rather than read.
@@ -278,16 +297,21 @@ fn emit_finding(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
     // dropped HERE — the same shape as the export defaulting `abstract_only` to
     // false (§11 D138).
     if item.abstract_only {
-        out.push(para(
-            "Only an ABSTRACT was available for the cited work, not its full text. An abstract \
-             carries too little to quote for most claims, so this is a limit of what could be \
-             obtained rather than a judgement about the sentence."
-                .to_string(),
-        ));
+        // DEFECT 1. When the section says it once, the item still has to be
+        // IDENTIFIABLE as one of them, or the hoisted sentence applies to
+        // nothing a reader can point at. A short marker does that in six words
+        // instead of forty.
+        out.push(para(if hoisted.abstract_note {
+            ABSTRACT_ONLY_SHORT.to_string()
+        } else {
+            ABSTRACT_ONLY_LONG.to_string()
+        }));
     }
 
     if let Some(r) = &item.reason {
-        out.push(para(r.trim().to_string()));
+        if !hoisted.reason {
+            out.push(para(r.trim().to_string()));
+        }
     }
     if let Some(entry) = &item.reference_entry {
         out.push(bullet(format!("Reference list entry: {entry}"), 0));
@@ -308,7 +332,7 @@ fn emit_finding(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
         out.push(para("Evidence from the cited source:"));
         for e in &item.evidence {
             out.push(bullet(
-                format!("{} · {} — “{}”", e.chunk_id, page_label(e.page, has_pages), e.quote.trim()),
+                format!("{} · {}: “{}”", e.chunk_id, page_label(e.page, has_pages), e.quote.trim()),
                 1,
             ));
         }
@@ -347,7 +371,7 @@ fn emit_evidence_item(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) 
     // "GoEmotions reports 46% macro-F1" is in the abstract — so it is not
     // refused; it is labelled, because it must not read as a full-text check.
     out.push(para(if item.abstract_only {
-        "passages located IN THE ABSTRACT ONLY — the full text was not available, so only \
+        "passages located IN THE ABSTRACT ONLY. The full text was not available, so only \
          what the abstract states could be checked · the source text below is the finding · \
          Gaply does not grade how well it supports the sentence"
     } else {
@@ -371,10 +395,10 @@ fn emit_evidence_item(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) 
             });
         }
     } else {
-        out.push(para("From the cited source — read this and judge it yourself:"));
+        out.push(para("From the cited source. Read this and judge it yourself:"));
         for e in &item.evidence {
             out.push(bullet(
-                format!("{} · {} — \u{201c}{}\u{201d}", e.chunk_id, page_label(e.page, has_pages), e.quote.trim()),
+                format!("{} · {}: \u{201c}{}\u{201d}", e.chunk_id, page_label(e.page, has_pages), e.quote.trim()),
                 1,
             ));
         }
@@ -397,7 +421,7 @@ fn emit_evidence_item(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) 
                 "different" => "the source says otherwise",
                 other => other,
             };
-            out.push(bullet(format!("{} — {mark}", el.element.trim()), 1));
+            out.push(bullet(format!("{}: {mark}", el.element.trim()), 1));
         }
         out.push(Block::Note {
             text: "These marks are the model's reading of the passages above, not Gaply's \
@@ -442,7 +466,28 @@ fn emit_section(
         return;
     }
     out.push(para(blurb));
-    // Most severe first, then document order within a severity — so the reader
+
+    // DEFECT 1, applied to this section's two repeating caveats.
+    let mut hoisted = Hoisted::default();
+    if items.iter().filter(|i| i.abstract_only).count() >= 2 {
+        out.push(Block::Note { text: ABSTRACT_ONLY_LONG.to_string() });
+        hoisted.abstract_note = true;
+    }
+    // When every item failed the same way, the reason is a property of the
+    // SECTION. Printing it per item made seven identical paragraphs.
+    let reasons: Vec<String> =
+        items.iter().filter_map(|i| i.reason.clone()).map(|r| r.trim().to_string()).collect();
+    if reasons.len() == items.len() && items.len() >= 2 {
+        let first = &reasons[0];
+        if reasons.iter().all(|r| r == first) {
+            out.push(Block::Note {
+                text: format!("Every item below reports the same thing: {first}"),
+            });
+            hoisted.reason = true;
+        }
+    }
+
+    // Most severe first, then document order within a severity, so the reader
     // meets what most needs them at the top of each section.
     let mut sorted: Vec<&ReportItem> = items.iter().collect();
     // §11 D108. Was `(attention_rank(i), i.seq)`. `attention_rank` read the
@@ -450,14 +495,18 @@ fn emit_section(
     // at all, so document order is the honest one.
     sorted.sort_by_key(|i| i.seq);
     for item in sorted {
-        emit_finding(out, item, has_pages);
+        emit_finding(out, item, has_pages, hoisted);
     }
 }
 
 /// One cited work that nothing could be checked against, and everything that
 /// depends on it.
 struct BlockedSource<'a> {
+    /// The grouping KEY: the reference entry when one was parsed, else the
+    /// resolution reason. Not what the reader is shown: see `cited_work_label`.
     entry: String,
+    /// The parsed reference entry, when there was one.
+    parsed_entry: Option<String>,
     items: Vec<&'a ReportItem>,
     next_step: Option<String>,
 }
@@ -468,6 +517,126 @@ struct BlockedSource<'a> {
 /// and asked the reader to notice. Grouped, each row is one thing to fix and
 /// says how many sentences it unblocks — which is the number that decides
 /// whether it is worth fixing.
+use crate::report_compose::trim_at_word;
+
+/// DEFECT 1: lift an explanation shared by every row out of the rows.
+///
+/// One caveat ran to 34 words and was repeated on ~20 consecutive rows, which is
+/// the same sentence filling a third of a page. A reason that applies to all rows
+/// is a heading; only what DIFFERS belongs in a row.
+///
+/// Generic on purpose, so this works for the next repeated caveat too: it finds
+/// the longest tail every string shares, at a word boundary, and returns it
+/// once with the per-row remainders.
+///
+/// Returns `(None, unchanged)` unless there are at least two rows and the shared
+/// tail is long enough to be worth hoisting. Hoisting three words would cost
+/// clarity and save nothing.
+fn hoist_shared_tail(reasons: &[String]) -> (Option<String>, Vec<String>) {
+    /// Below this, repetition is cheaper than an extra sentence of preamble.
+    const MIN_TAIL_CHARS: usize = 40;
+    if reasons.len() < 2 {
+        return (None, reasons.to_vec());
+    }
+    let first: Vec<char> = reasons[0].chars().collect();
+    let mut shared = 0usize;
+    'outer: for n in 1..=first.len() {
+        let tail: String = first[first.len() - n..].iter().collect();
+        for r in reasons {
+            if !r.ends_with(&tail) || r.chars().count() == n {
+                break 'outer;
+            }
+        }
+        shared = n;
+    }
+    if shared < MIN_TAIL_CHARS {
+        return (None, reasons.to_vec());
+    }
+    let mut tail: String = first[first.len() - shared..].iter().collect();
+    // Pull the cut back to a word boundary so the hoisted sentence starts on a
+    // word and the remainders do not end mid-word.
+    if let Some(i) = tail.find(' ') {
+        if !tail.starts_with(' ') {
+            tail = tail[i + 1..].to_string();
+        }
+    }
+    let tail = tail.trim().to_string();
+    if tail.chars().count() < MIN_TAIL_CHARS {
+        return (None, reasons.to_vec());
+    }
+    let rest = reasons
+        .iter()
+        .map(|r| {
+            let keep = r.len() - tail.len();
+            r[..keep]
+                .trim_end()
+                .trim_end_matches([',', ';', ':'])
+                .trim_end()
+                .to_string()
+        })
+        .collect();
+    (Some(tail), rest)
+}
+
+/// A short status for a row, from the reason the model layer recorded.
+///
+/// The reason says what happened in a sentence; a table column needs three
+/// words. Both are kept: the status is the cell, the full reason is hoisted
+/// above the table when every row shares it.
+fn status_phrase(reason: &str) -> &'static str {
+    let r = reason.to_lowercase();
+    if r.contains("no library work matches") || r.contains("not in library") {
+        "Not in your library"
+    } else if r.contains("not indexed or not embedded") {
+        "Linked, not yet indexed"
+    } else if r.contains("no indexed document is linked") || r.contains("source is not indexed") {
+        "In library, no file linked"
+    } else if r.contains("numeric citation style") {
+        "Reference list not readable"
+    } else {
+        "Could not be checked"
+    }
+}
+
+/// DEFECT 1: what to call the cited work in a table row.
+///
+/// A row's first column must name the WORK, in a few words a reader recognises.
+/// It was printing the whole resolution sentence, because an unmatched
+/// author-year citation has no parsed reference entry and `group_by_source`
+/// falls back to the reason. The reason is 34 words and identical on every row,
+/// so the column held one repeated paragraph and no identifying information.
+///
+/// In order of preference:
+///   1. the parsed reference entry, which is the work as the manuscript states it;
+///   2. the marker the reason quotes (`\u{201C}Banerjee, 2021\u{201D}`), which is all
+///      that exists for a citation nothing matched;
+///   3. the reason itself, trimmed, when it is neither.
+fn cited_work_label(entry: &str, parsed_entry: Option<&str>) -> String {
+    if let Some(e) = parsed_entry {
+        return trim_at_word(e, 120);
+    }
+    if let Some(q) = first_quoted(entry) {
+        return q;
+    }
+    trim_at_word(entry, 90)
+}
+
+/// The first curly- or straight-quoted run in a string, if any.
+fn first_quoted(s: &str) -> Option<String> {
+    for (open, close) in [('\u{201C}', '\u{201D}'), ('"', '"')] {
+        if let Some(a) = s.find(open) {
+            let rest = &s[a + open.len_utf8()..];
+            if let Some(b) = rest.find(close) {
+                let inner = rest[..b].trim();
+                if !inner.is_empty() && inner.chars().count() <= 80 {
+                    return Some(inner.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 fn group_by_source(items: &[ReportItem]) -> Vec<BlockedSource<'_>> {
     let mut order: Vec<String> = Vec::new();
     let mut map: std::collections::HashMap<String, BlockedSource> = Default::default();
@@ -485,6 +654,7 @@ fn group_by_source(items: &[ReportItem]) -> Vec<BlockedSource<'_>> {
                 key.clone(),
                 BlockedSource {
                     entry: key.clone(),
+                    parsed_entry: it.reference_entry.clone(),
                     items: Vec::new(),
                     next_step: it.next_step.clone(),
                 },
@@ -498,47 +668,146 @@ fn group_by_source(items: &[ReportItem]) -> Vec<BlockedSource<'_>> {
     out
 }
 
+/// DEFECTS 1, 2, 3 and 6 all landed in this section, because all four were worst
+/// here: ~20 near-identical paragraphs, each repeating a 34-word caveat, each
+/// with a heading truncated mid-word.
+///
+/// It is now: one sentence of shared explanation, a chart of which works block
+/// the most sentences, a table of the works, and a table of where each is cited.
 fn emit_blocked_sources(out: &mut Vec<Block>, items: &[ReportItem], has_pages: bool) {
     out.push(heading("Cited, but not checkable", 1));
     if items.is_empty() {
-        out.push(para("Every cited source was available to check against. None found."));
+        out.push(para("None found. Every cited source was available to check against."));
         return;
     }
     let groups = group_by_source(items);
     out.push(para(format!(
-        "{} sentence{} cite {} source{} Gaply could not read. This is a gap in your library, \
-         not a defect in the writing — each source below is one action away from being checkable.",
+        "{} sentence{} cite {} source{} Gaply could not read. This is a gap in your library \
+         rather than a fault in your writing. Each source listed below is one action away from \
+         being checkable.",
         items.len(),
         if items.len() == 1 { "" } else { "s" },
         groups.len(),
         if groups.len() == 1 { "" } else { "s" },
     )));
 
-    for g in groups {
-        out.push(heading(
-            format!(
-                "{} — blocks {} sentence{}",
-                g.entry.chars().take(90).collect::<String>(),
-                g.items.len(),
-                if g.items.len() == 1 { "" } else { "s" }
-            ),
-            2,
-        ));
-        out.push(Block::Badge { text: "not checkable".into(), tone: Tone::Warn });
-        if let Some(step) = &g.next_step {
-            out.push(para(format!("Fix: {step}")));
+    // DEFECT 1. The shared caveat, said ONCE.
+    let reasons: Vec<String> = groups
+        .iter()
+        .map(|g| g.items.first().and_then(|i| i.reason.clone()).unwrap_or_default())
+        .collect();
+    let (shared, _rest) = hoist_shared_tail(&reasons);
+    if let Some(tail) = shared {
+        // Capitalised and closed, because it is now a sentence of its own rather
+        // than the end of one.
+        // A tail split off after a dash or colon still carries it. Strip the
+        // joiner: this is a sentence now, and one opening with a dash reads as
+        // a fragment of the sentence it was cut from.
+        let mut sentence = tail
+            .trim_start_matches(['\u{2014}', '\u{2013}', '-', ':', ',', ' '])
+            .to_string();
+        if let Some(c) = sentence.chars().next() {
+            sentence = c.to_uppercase().collect::<String>() + &sentence[c.len_utf8()..];
         }
-        for it in &g.items {
-            out.push(bullet(
-                format!(
-                    "{} — “{}”",
-                    locator(it, has_pages),
-                    it.sentence.trim().chars().take(110).collect::<String>()
+        if !sentence.ends_with('.') {
+            sentence.push('.');
+        }
+        out.push(Block::Note {
+            text: format!("This applies to every row below. {sentence}"),
+        });
+    }
+
+    // DEFECT 3. Which gap is worth closing first, seen rather than counted.
+    if groups.len() >= 2 {
+        let top: Vec<(String, usize)> = groups
+            .iter()
+            .take(10)
+            .map(|g| {
+                (trim_at_word(&cited_work_label(&g.entry, g.parsed_entry.as_deref()), 44), g.items.len())
+            })
+            .collect();
+        out.push(Block::BarChart {
+            title: "Which missing sources block the most sentences".to_string(),
+            category_axis: "one cited work".to_string(),
+            value_axis: "how many of your sentences cite it".to_string(),
+            bars: top,
+        });
+        if groups.len() > 10 {
+            out.push(Block::Note {
+                text: format!(
+                    "The chart shows the ten works blocking the most sentences. All {} are in \
+                     the table below.",
+                    groups.len()
                 ),
-                0,
-            ));
+            });
         }
     }
+
+    // DEFECT 2. The list as a table, with the counts right-aligned.
+    out.push(Block::Table {
+        caption: Some("Every cited work Gaply could not read, most-cited first.".to_string()),
+        header: vec![
+            "Cited work".to_string(),
+            "Sentences".to_string(),
+            "Status".to_string(),
+        ],
+        rows: groups
+            .iter()
+            .map(|g| {
+                let reason = g.items.first().and_then(|i| i.reason.as_deref()).unwrap_or("");
+                vec![
+                    cited_work_label(&g.entry, g.parsed_entry.as_deref()),
+                    g.items.len().to_string(),
+                    status_phrase(reason).to_string(),
+                ]
+            })
+            .collect(),
+        align: vec![Align::Left, Align::Right, Align::Left],
+    });
+
+    // What to do, once per distinct action rather than once per work.
+    let mut steps: Vec<String> = Vec::new();
+    for g in &groups {
+        if let Some(st) = &g.next_step {
+            if !steps.contains(st) {
+                steps.push(st.clone());
+            }
+        }
+    }
+    if !steps.is_empty() {
+        out.push(heading("What to do", 2));
+        for st in steps {
+            out.push(bullet(st, 0));
+        }
+    }
+
+    // DEFECT 6. The sentences, in a table, with the text WRAPPED and not cut.
+    // A truncated sentence cannot be found in the manuscript, which is the only
+    // thing this column is for.
+    out.push(heading("Where each one is cited", 2));
+    out.push(Block::Table {
+        caption: Some(
+            "Your own sentences, so you can find each one in the manuscript.".to_string(),
+        ),
+        header: vec![
+            if has_pages { "Page".to_string() } else { "Sentence".to_string() },
+            "Cited work".to_string(),
+            "Your sentence".to_string(),
+        ],
+        rows: groups
+            .iter()
+            .flat_map(|g| {
+                g.items.iter().map(move |it| {
+                    vec![
+                        locator(it, has_pages),
+                        trim_at_word(&cited_work_label(&g.entry, g.parsed_entry.as_deref()), 40),
+                        it.sentence.trim().to_string(),
+                    ]
+                })
+            })
+            .collect(),
+        align: vec![Align::Left, Align::Left, Align::Left],
+    });
 }
 
 /// Compose the whole report.
@@ -583,7 +852,7 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
                     .count();
                 let full_text = with_passages - from_abstract;
                 let mut line = format!(
-                    "{cover_checked} cited claim{} — source passages quoted for {full_text}",
+                    "{cover_checked} cited claim{}. Source passages quoted for {full_text}",
                     if cover_checked == 1 { "" } else { "s" },
                 );
                 if from_abstract > 0 {
@@ -638,7 +907,7 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         out.push(para(format!(
             "Gaply does not score how well your sources support your claims, and this report \
              gives no /100. It located the source passages behind {checked} cited claim{} and \
-             quotes them below with their page — reading those is the check. The grader that \
+             quotes them below with their page. Reading those is the check. The grader that \
              used to produce a score was measured on a labelled set and returned the SAME grade \
              for every case (14 of 14 outputs across two runs), so any number built from it \
              described the grader rather than your manuscript.",
@@ -650,28 +919,24 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     // The breakdown. Evidence-backed and advisory are SEPARATE BARS, never
     // summed — a chart that adds a 43%-precision suggestion to a checked
     // finding is the same conflation the score just removed (§11 D78).
-    let total_bar = checked + m.unverifiable.len() + m.failed.len();
-    out.push(para("The whole manuscript, proportionally:"));
-    // §11 D93. DRAWN bars, and a tone each — the renderer decides the pixels.
-    // These were `"=".repeat(n)` inside a bullet, which is a chart only in a
-    // terminal; in a proportional font the alignment padding collapsed and the
-    // count ran into the percent ("16 19%").
-    let mut prop = |label: &str, n: usize, tone: Tone| {
-        out.push(Block::Bar {
-            label: label.to_string(),
-            value: n,
-            total: total_bar,
-            tone,
-        });
-    };
-    // §11 D108. Was "checked, held up" / "checked, did not hold up" — the
-    // withdrawn verdict, split into two bars and coloured. One bar now, saying
-    // only what is true: the passages were found.
-    prop("source passages located", checked, Tone::Good);
-    prop("could not be checked", m.unverifiable.len(), Tone::Neutral);
+    // DEFECT 3. ONE stacked bar, because these three parts ARE the whole:
+    // every sentence that reached a check is in exactly one of them. Three
+    // separate bars invited reading them as unrelated quantities, and §11 D78's
+    // warning about summing unlike things applies to the reader's eye too.
+    //
+    // §11 D93 established that the bars are DRAWN rather than typed: these were
+    // `"=".repeat(n)` inside a bullet, which is a chart only in a terminal.
+    let mut segments = vec![
+        ("Source passages found".to_string(), checked, Tone::Good),
+        ("Could not be checked".to_string(), m.unverifiable.len(), Tone::Neutral),
+    ];
     if !m.failed.is_empty() {
-        prop("not judged", m.failed.len(), Tone::Neutral);
+        segments.push(("Not judged".to_string(), m.failed.len(), Tone::Warn));
     }
+    out.push(Block::StackedBar {
+        title: "What happened to every sentence that cited a source".to_string(),
+        segments,
+    });
 
     // §11 D108. THE ATTENTION LIST IS WITHDRAWN.
     //
@@ -711,55 +976,72 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         // §11 D128. This said "checked against a source OR judged for whether
         // they need one". The second clause was the advisory lane and is retired;
         // leaving it described a scope the run no longer has.
-        "{} sentences were read and {} were checked against a source.",
+        "Gaply read {} sentences. {} of them cite a source and were checked against it.",
         m.total_sentences, m.checked
     )));
-    // WHAT WAS JUDGED, BY KIND — the row tally, which is NOT the number of
-    // claims whose passages were found. One `citation_support` item can be
-    // judged and yield no passage, so these two numbers differ legitimately and
-    // the report says which is which rather than leaving a reader to reconcile
-    // "4 citation support" against "passages quoted for 3".
+
+    // DEFECT 2. Was a run of bullets. WHAT WAS JUDGED, BY KIND: the row tally,
+    // which is NOT the number of claims whose passages were found. One
+    // `citation_support` item can be judged and yield no passage, so these two
+    // numbers differ legitimately and the report says which is which rather than
+    // leaving a reader to reconcile "4 citation support" against "passages
+    // quoted for 3".
     if !m.counts_by_category.is_empty() {
-        out.push(para("Judged, by kind:"));
+        out.push(Block::Table {
+            caption: Some(
+                "What Gaply did with each sentence. Counts rows, not findings.".to_string(),
+            ),
+            header: vec!["Kind of check".to_string(), "Sentences".to_string()],
+            rows: m
+                .counts_by_category
+                .iter()
+                .map(|(kind, n)| vec![kind.replace('_', " "), n.to_string()])
+                .collect(),
+            align: vec![Align::Left, Align::Right],
+        });
     }
-    for (kind, n) in &m.counts_by_category {
-        out.push(bullet(format!("{n} {}", kind.replace('_', " ")), 0));
-    }
+
     // §11 D108. The support VERDICTS are recorded but no longer summarised as
     // bars. "support: weak 8 (67%)" is the same withdrawn grade wearing a
     // headline, and a bar is the most emphatic thing on the page.
     let (support_counts, other_counts): (Vec<_>, Vec<_>) =
         m.verdict_counts.iter().partition(|(v, _)| v.starts_with("support:"));
     if !other_counts.is_empty() {
-        out.push(para("What the model concluded:"));
-        for (v, n) in &other_counts {
-            // §11 D93. The second ASCII-bar site. `{:<26}` padded with spaces
-            // that a proportional font does not align, so the label and the
-            // count collided exactly as they did above.
-            out.push(Block::Bar {
-                label: v.replace('_', " "),
-                value: *n,
-                total: judged.max(1),
-                tone: tone_of(Some(v)),
-            });
-        }
+        out.push(Block::Table {
+            caption: Some("What the model concluded.".to_string()),
+            header: vec!["Conclusion".to_string(), "Sentences".to_string()],
+            rows: other_counts
+                .iter()
+                .map(|(v, n)| vec![v.replace('_', " "), n.to_string()])
+                .collect(),
+            align: vec![Align::Left, Align::Right],
+        });
     }
     if !support_counts.is_empty() {
         let located: usize = support_counts.iter().map(|(_, n)| *n).sum();
         out.push(para(format!(
-            "{located} cited sentence{} had {} source passages located and quoted in this \
-             report. Gaply does not grade how well a passage supports a sentence: on a 6-case \
-             labelled set its grade was identical on all 14 outputs across two runs, so the \
-             grade carries no information and is not reported. The passages are.",
+            "{located} cited sentence{} had source passages located and quoted in this report. \
+             Gaply does not grade how well a passage supports a sentence. On a 6-case labelled \
+             set the grade was identical on all 14 outputs across two runs, so it carries no \
+             information and is not reported. The passages are.",
             if located == 1 { "" } else { "s" },
-            if located == 1 { "its" } else { "their" }
         )));
     }
     if !m.skipped_reasons.is_empty() {
-        out.push(para("Not judged, and why:"));
-        for (r, n) in &m.skipped_reasons {
-            out.push(bullet(format!("{n} — {r}"), 0));
-        }
+        // DEFECT 4. Was `bullet(format!("{n} — {r}"))`: an em dash doing a
+        // table's job.
+        out.push(Block::Table {
+            // "Not judged" is a marker `detect_gaply_report` recognises, so the
+            // wording keeps it rather than paraphrasing it away (§11 D80).
+            caption: Some("Not judged, and why.".to_string()),
+            header: vec!["Reason".to_string(), "Sentences".to_string()],
+            rows: m
+                .skipped_reasons
+                .iter()
+                .map(|(r, n)| vec![r.clone(), n.to_string()])
+                .collect(),
+            align: vec![Align::Left, Align::Right],
+        });
     }
 
     // §11 D110. RETRACTION LEADS. Two reasons it sits above even the
@@ -778,21 +1060,25 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         out.push(Block::Badge { text: "retracted".into(), tone: Tone::Bad });
         out.push(para(format!(
             "{} of the works this manuscript cites {} been RETRACTED by the publisher. This is \
-             not a judgement of your writing and no language model was involved — a retraction \
+             not a judgement of your writing, and no language model was involved. A retraction \
              registry was asked and answered. Citing a retracted work can be legitimate when the \
              retraction is the point; otherwise the citation needs replacing.",
             m.retracted_sources.len(),
             if m.retracted_sources.len() == 1 { "has" } else { "have" },
         )));
-        for (entry, citing) in &m.retracted_sources {
-            out.push(bullet(
-                format!("{entry} — cited by {citing} sentence{}", if *citing == 1 { "" } else { "s" }),
-                0,
-            ));
-        }
+        out.push(Block::Table {
+            caption: Some("Works a retraction registry reports as withdrawn.".to_string()),
+            header: vec!["Retracted work".to_string(), "Your sentences citing it".to_string()],
+            rows: m
+                .retracted_sources
+                .iter()
+                .map(|(entry, citing)| vec![entry.clone(), citing.to_string()])
+                .collect(),
+            align: vec![Align::Left, Align::Right],
+        });
         out.push(Block::Note {
             text: "Only works a registry actually answered about appear here. An entry that was \
-                   never checked is not listed and is not clean — the Citation Manager says which \
+                   never checked is not listed, and is not clean. The Citation Manager says which \
                    is which."
                 .to_string(),
         });
@@ -810,31 +1096,49 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         out.push(Block::PageBreak);
         out.push(heading("Consistency checks", 1));
         out.push(para(
-            "Found by reading the manuscript's own structure — its reference list, markers, \
+            "Found by reading the manuscript's own structure: its reference list, markers, \
              captions and headings. No language model was involved, so unlike the sections \
              below these are not judgements and carry no error rate.",
         ));
-        let structural: Vec<_> = m.consistency.iter().filter(|f| f.severity == crate::consistency::Severity::Structural).collect();
-        let cosmetic: Vec<_> = m.consistency.iter().filter(|f| f.severity == crate::consistency::Severity::Cosmetic).collect();
-        if !structural.is_empty() {
-            out.push(heading("These affect whether the audit above can be trusted", 2));
-            for f in structural {
-                out.push(Block::Badge { text: "resolution".into(), tone: Tone::Bad });
-                out.push(para(f.message.clone()));
-                if let Some(a) = &f.action {
-                    out.push(bullet(format!("What to do: {a}"), 0));
-                }
+        // DEFECT 2. One table, with severity as a COLUMN rather than as two
+        // headings and a badge per finding. Severity is what differs between
+        // rows, so it is a cell; the reader scans one grid instead of two lists.
+        let sev = |f: &crate::consistency::ConsistencyFinding| -> &'static str {
+            match f.severity {
+                crate::consistency::Severity::Structural => "Affects the audit",
+                crate::consistency::Severity::Cosmetic => "Worth fixing",
             }
-        }
-        if !cosmetic.is_empty() {
-            out.push(heading("Worth fixing; they change no verdict above", 2));
-            for f in cosmetic {
-                out.push(para(f.message.clone()));
-                if let Some(a) = &f.action {
-                    out.push(bullet(format!("What to do: {a}"), 0));
-                }
-            }
-        }
+        };
+        // Structural first: these decide whether the rest of the report can be
+        // trusted, so they must not sort below a spacing nit.
+        let mut ordered: Vec<&crate::consistency::ConsistencyFinding> = m.consistency.iter().collect();
+        ordered.sort_by_key(|f| match f.severity {
+            crate::consistency::Severity::Structural => 0,
+            crate::consistency::Severity::Cosmetic => 1,
+        });
+        out.push(Block::Table {
+            caption: Some(
+                "\"Affects the audit\" means this could change what the rest of this report \
+                 says. \"Worth fixing\" changes nothing above it."
+                    .to_string(),
+            ),
+            header: vec![
+                "What Gaply found".to_string(),
+                "Severity".to_string(),
+                "What to do".to_string(),
+            ],
+            rows: ordered
+                .iter()
+                .map(|f| {
+                    vec![
+                        f.message.clone(),
+                        sev(f).to_string(),
+                        f.action.clone().unwrap_or_else(|| "No action needed.".to_string()),
+                    ]
+                })
+                .collect(),
+            align: vec![Align::Left, Align::Left, Align::Left],
+        });
     }
 
     out.push(Block::PageBreak);
@@ -847,7 +1151,7 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         &mut out,
         "The source passages behind each cited claim",
         "Each sentence below cites a source Gaply could read, and the passages it rests on are \
-         quoted underneath it with their page. THIS IS THE EVIDENCE-BACKED SECTION — and the \
+         quoted underneath it with their page. THIS IS THE EVIDENCE-BACKED SECTION, and the \
          evidence is the finding. Gaply does NOT grade how well a passage supports a sentence: \
          measured on a 6-case labelled set, its grade was the same one every time (14 of 14 \
          outputs across two runs), so the grade carries no information and is not shown. \
@@ -910,6 +1214,38 @@ mod tests {
                 let pct = if *total == 0 { 0 } else { ((*value as f64 / *total as f64) * 100.0).round() as u32 };
                 format!("{label} {value} ({pct}%)")
             }
+            // Defect 1 and 2. A table's text is its caption, its header and
+            // every cell, so wording assertions keep working after prose became
+            // rows.
+            Block::Table { caption, header, rows, .. } => {
+                let mut t = caption.clone().unwrap_or_default();
+                t.push(' ');
+                t.push_str(&header.join(" "));
+                for r in rows {
+                    t.push(' ');
+                    t.push_str(&r.join(" "));
+                }
+                t
+            }
+            Block::StackedBar { title, segments } => {
+                // The legend a reader sees prints the count AND the share, so
+                // the text form carries both: the collision guard below is
+                // asserting on what reaches the page.
+                let total: usize = segments.iter().map(|(_, n, _)| *n).sum();
+                let mut t = title.clone();
+                for (label, n, _) in segments {
+                    let pct = if total == 0 { 0 } else { ((*n as f64 / total as f64) * 100.0).round() as u32 };
+                    t.push_str(&format!(" {label} {n} ({pct}%)"));
+                }
+                t
+            }
+            Block::BarChart { title, category_axis, value_axis, bars } => {
+                let mut t = format!("{title} {category_axis} {value_axis}");
+                for (label, n) in bars {
+                    t.push_str(&format!(" {label} {n}"));
+                }
+                t
+            }
             Block::PageBreak => String::new(),
         }
     }
@@ -929,6 +1265,17 @@ mod tests {
                 page: Some(4),
                 quote: "The work category of the 56 HCWs: 21 doctors (37.5%)".into(),
             }],
+            ..Default::default()
+        }
+    }
+
+    /// An item blocked on one cited work, identified by its reference entry.
+    fn blocked_item(entry: &str) -> ReportItem {
+        ReportItem {
+            seq: 11,
+            page: Some(5),
+            sentence: "Uptake has risen steadily across the region since 2015.".into(),
+            reference_entry: Some(entry.to_string()),
             ..Default::default()
         }
     }
@@ -965,6 +1312,228 @@ mod tests {
             failed: vec![],
             consistency: vec![],
         }
+    }
+
+    /// DEFECT 4: NO EM DASHES ANYWHERE IN THE OUTPUT.
+    ///
+    /// An em dash is a typographer's join that a reader has to decode: it stands
+    /// in for a colon, a comma, a parenthesis or a full stop without saying
+    /// which. In a report read by researchers outside computing, the punctuation
+    /// should not need interpreting, and two clauses joined by a dash are almost
+    /// always clearer as two sentences.
+    ///
+    /// Checked on the COMPOSED TEXT and on BOTH RENDERED OUTPUTS, because a dash
+    /// can enter at any of the three layers. The PDF check is on the encoded
+    /// byte (WinAnsi `0x97`), not on the Rust string, since that is what a
+    /// reader's viewer actually draws.
+    ///
+    /// A rich model on purpose: every section has to be reachable for this to
+    /// mean anything, and a model with empty vectors would pass while the
+    /// unreachable sections kept their dashes.
+    #[test]
+    fn no_em_dash_reaches_the_reader() {
+        let m = rich_model();
+        let blocks = compose_audit(&m);
+
+        // 1. The composed text, with the offending string named. A bare
+        //    "contains an em dash" failure would send the next person grepping
+        //    a 1800-line file.
+        let mut offenders: Vec<String> = Vec::new();
+        for b in &blocks {
+            let t = text_of(b);
+            if t.contains('\u{2014}') {
+                offenders.push(t.chars().take(160).collect());
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "em dash (U+2014) in composed output:\n  {}",
+            offenders.join("\n  ")
+        );
+
+        // 2. The HTML, where it would arrive as UTF-8.
+        let html = crate::report_html::render_html(&blocks, "t");
+        assert!(!html.contains('\u{2014}'), "em dash in rendered HTML");
+
+        // 3. The PDF. An em dash is WinAnsi 0x97, but `escape_pdf` writes any
+        //    byte above 0x7F as an OCTAL ESCAPE, so the literal byte never
+        //    appears in the file and `0x97` alone is a check for something the
+        //    renderer cannot emit.
+        //
+        //    The first version of this assertion did exactly that. It passed on
+        //    a report that carried SEVEN em dashes, which `pdftotext` found
+        //    immediately. Both forms are checked now, and the escape is the one
+        //    that does the work.
+        let pdf = crate::report_pdf::render_pdf(&blocks);
+        assert!(
+            !pdf.windows(1).any(|w| w == [0x97]),
+            "em dash (raw WinAnsi 0x97) in rendered PDF"
+        );
+        assert!(
+            !pdf.windows(4).any(|w| w == b"\\227"),
+            "em dash (octal escape \\227) in rendered PDF"
+        );
+
+        // THE NEGATIVE CONTROL (§11 D144). A guard for "X must not appear" is
+        // worth nothing until it has been shown to FAIL on output that does
+        // contain X. The byte-only version of this assertion was green for its
+        // whole life on a report carrying seven em dashes, and nothing about a
+        // passing run said so.
+        let dashed = crate::report_pdf::render_pdf(&[Block::Paragraph {
+            text: "a \u{2014} b".to_string(),
+        }]);
+        assert!(
+            !dashed.windows(1).any(|w| w == [0x97]),
+            "the renderer emits the RAW byte after all, so the escape check is \
+             not the load-bearing one and this control needs rewriting"
+        );
+        assert!(
+            dashed.windows(4).any(|w| w == b"\\227"),
+            "the escape check cannot see an em dash that IS in the output: the \
+             guard above proves nothing"
+        );
+    }
+
+    /// DEFECT 4, at the SOURCE, because the output test could not see this.
+    ///
+    /// `no_em_dash_reaches_the_reader` renders a fixture, and a fixture only
+    /// reaches the strings its own data triggers. Six dashes in `consistency`
+    /// survived it and appeared in the regenerated report: the findings there are
+    /// built from a real manuscript's structure, which no hand-written model
+    /// reproduces.
+    ///
+    /// So this reads the modules that own reader-facing strings and fails on a
+    /// literal em dash in any non-comment line. Regex lines are exempt: a
+    /// character class matching a dash in someone else's text is not a dash in
+    /// ours.
+    #[test]
+    fn no_module_that_writes_to_the_reader_contains_an_em_dash() {
+        let sources = [
+            ("audit_report.rs", include_str!("audit_report.rs")),
+            ("consistency.rs", include_str!("consistency.rs")),
+            ("report_html.rs", include_str!("report_html.rs")),
+            ("report_pdf.rs", include_str!("report_pdf.rs")),
+            ("report_compose.rs", include_str!("report_compose.rs")),
+        ];
+        let mut bad: Vec<String> = Vec::new();
+        for (name, src) in sources {
+            for (n, line) in src.lines().enumerate() {
+                let t = line.trim_start();
+                if !line.contains('\u{2014}') {
+                    continue;
+                }
+                // Comments explain the rule and may quote the character. A
+                // TRAILING comment counts too: `return; // ... \u{2014} ...` is a
+                // comment, and the first version of this guard reported three of
+                // them as defects.
+                let code = match line.find("//") {
+                    Some(i) => &line[..i],
+                    None => line,
+                };
+                if !code.contains('\u{2014}') || t.starts_with("*") {
+                    continue;
+                }
+                // A regex matching a dash in a MANUSCRIPT is not one in a report.
+                if line.contains("Regex::new") || line.contains("regex") {
+                    continue;
+                }
+                bad.push(format!("{name}:{}: {}", n + 1, t.chars().take(110).collect::<String>()));
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "em dash in a module that writes to the reader:\n  {}",
+            bad.join("\n  ")
+        );
+    }
+
+    /// DEFECT 1, for the two caveats that repeat inside a SECTION.
+    ///
+    /// Six items checked against an abstract printed the same forty words six
+    /// times, and seven items that failed the same way printed the same reason
+    /// seven times. §11 D140 put the abstract sentence ON the item deliberately,
+    /// so hoisting must not lose it: the section states it once and each item
+    /// still says, briefly, that it is one of them.
+    #[test]
+    fn a_caveat_shared_by_a_whole_section_is_stated_once() {
+        let mut m = model();
+        let same = "the model's output failed validation twice: supporting_chunks is empty";
+        m.failed = (0..6)
+            .map(|i| ReportItem {
+                seq: i,
+                sentence: format!("Sentence {i}."),
+                abstract_only: true,
+                reason: Some(same.to_string()),
+                ..Default::default()
+            })
+            .collect();
+        let text = all_text(&compose_audit(&m));
+
+        // The long explanation: ONCE for six items.
+        assert_eq!(
+            text.matches("An abstract carries").count(),
+            1,
+            "the abstract caveat was repeated per item:\n{text}"
+        );
+        // But every item is still identifiable as one of them.
+        assert_eq!(
+            text.matches("Checked against an ABSTRACT only").count(),
+            6,
+            "an item stopped saying it was abstract-backed:\n{text}"
+        );
+        // And the identical reason is stated once, not six times.
+        assert_eq!(
+            text.matches(same).count(),
+            1,
+            "the shared reason was repeated per item:\n{text}"
+        );
+
+        // A SINGLE abstract-backed item keeps the full sentence on the item:
+        // there is nothing to hoist, and a one-line marker with no explanation
+        // anywhere would be worse than what §11 D140 fixed.
+        let mut one = model();
+        one.failed = vec![ReportItem { abstract_only: true, ..Default::default() }];
+        let t1 = all_text(&compose_audit(&one));
+        assert_eq!(t1.matches("An abstract carries").count(), 1, "{t1}");
+        assert!(!t1.contains("Checked against an ABSTRACT only"), "{t1}");
+    }
+
+    /// A model that reaches EVERY section, for the whole-output guards.
+    fn rich_model() -> AuditReportModel {
+        let mut m = model();
+        m.unverifiable = vec![
+            ReportItem {
+                reason: Some(
+                    "no library work matches \u{201C}AlJohani, 2024\u{201D}: taken from the \
+                     in-text marker, which gives a surname and a year and not the full author \
+                     list, so this may be an incomplete or mis-split name rather than a missing \
+                     source"
+                        .into(),
+                ),
+                next_step: Some("Add the work to your library, then re-run.".into()),
+                ..blocked_item("AlJohani, 2024")
+            },
+            ReportItem {
+                reason: Some(
+                    "no library work matches \u{201C}Banerjee, 2021\u{201D}: taken from the \
+                     in-text marker, which gives a surname and a year and not the full author \
+                     list, so this may be an incomplete or mis-split name rather than a missing \
+                     source"
+                        .into(),
+                ),
+                next_step: Some("Add the work to your library, then re-run.".into()),
+                ..blocked_item("Banerjee, 2021")
+            },
+        ];
+        m.failed = vec![ReportItem { reason: Some("the reply was not valid JSON".into()), ..blocked_item("x") }];
+        m.retracted_sources = vec![("Smith, J. (2019). A withdrawn paper.".into(), 2)];
+        m.consistency = vec![crate::consistency::ConsistencyFinding {
+            kind: "reference_count".into(),
+            severity: crate::consistency::Severity::Structural,
+            message: "Reference 6 is numbered but the list has 5 entries.".into(),
+            action: Some("Renumber the reference list.".into()),
+        }];
+        m
     }
 
     /// §11 D80. The guard's marker list must keep matching the real composer.
@@ -1077,8 +1646,8 @@ mod tests {
             quote: "A passage with no recorded page.".into(),
         });
         let text = all_text(&compose_audit(&m));
-        assert!(text.contains("c7 · p.4 —"), "{text}");
-        assert!(text.contains("c9 · page unknown —"), "{text}");
+        assert!(text.contains("c7 · p.4:"), "{text}");
+        assert!(text.contains("c9 · page unknown:"), "{text}");
     }
 
     /// §11 D65. A Word file has no pages, but it HAS paragraphs — and a
@@ -1180,7 +1749,9 @@ mod tests {
         // citation_need and the model said "needs one" for 52 of them. A report
         // that showed only the first would overstate the finding by 25%.
         let text = all_text(&compose_audit(&model()));
-        assert!(text.contains("65 citation need"), "{text}");
+        // DEFECT 2: these are table cells now, so the number follows its label
+        // instead of preceding it.
+        assert!(text.contains("citation need 65"), "{text}");
         // The verdict counts are drawn as proportional bars now, so the number
         // and its label are no longer adjacent — assert both, not the old
         // "52 needs citation" spelling.
@@ -1188,7 +1759,8 @@ mod tests {
         assert!(text.contains("52"), "{text}");
         assert!(text.contains("no citation needed"), "{text}");
         assert!(text.contains("27"), "{text}");
-        assert!(text.contains("5 — a table row or a figure caption"), "{text}");
+        assert!(text.contains("a table row or a figure caption"), "{text}");
+        assert!(text.contains(" 5"), "{text}");
     }
 
     #[test]
@@ -1214,13 +1786,24 @@ mod tests {
         ];
         let text = all_text(&compose_audit(&m));
 
-        // ONE heading for the source, carrying the count that decides whether
-        // fixing it is worth the reader's time.
-        assert!(text.contains("blocks 3 sentences"), "{text}");
+        // DEFECT 1 and 2. ONE ROW for the source, carrying the count that
+        // decides whether fixing it is worth the reader's time. It was one
+        // heading plus a repeated paragraph per source.
+        let blocks = compose_audit(&m);
+        let table = blocks.iter().find_map(|b| match b {
+            Block::Table { header, rows, .. } if header.first().map(String::as_str) == Some("Cited work") => Some(rows),
+            _ => None,
+        });
+        let rows = table.expect("no table of cited works");
+        assert_eq!(rows.len(), 1, "three sentences on one work did not group to one row: {rows:?}");
+        assert_eq!(rows[0][1], "3", "the row lost its sentence count: {rows:?}");
+        // DEFECT 1. The action is listed ONCE per distinct action now, under
+        // "What to do", rather than once per source with a "Fix:" prefix. Two
+        // sources needing the same step print it once between them.
         assert_eq!(
-            text.matches("Fix: Fetch the open-access PDF").count(),
+            text.matches("Fetch the open-access PDF").count(),
             1,
-            "the action was repeated per sentence instead of per source:\n{text}"
+            "the action was repeated instead of stated once:\n{text}"
         );
         assert!(text.contains("S. Mohammad and P. Turney"), "{text}");
         // Every dependent sentence is still listed under it — grouping must not
@@ -1229,7 +1812,7 @@ mod tests {
             assert!(text.contains(s), "missing dependent sentence {s}:\n{text}");
         }
         // And the section says whose fault it is not.
-        assert!(text.contains("not a defect in the writing"), "{text}");
+        assert!(text.contains("rather than a fault in your writing"), "{text}");
     }
 
     /// §11 D78. The score covers EVIDENCE-BACKED findings only.
@@ -1332,7 +1915,7 @@ mod tests {
         );
         // And the cover does not fold it into the full-text count.
         assert!(
-            text.contains("source passages quoted for 1, and for 1 from the abstract only"),
+            text.contains("Source passages quoted for 1, and for 1 from the abstract only"),
             "the cover implied two full-text checks:\n{text}"
         );
         // The weaker thing is still PRESENT — not filtered out.
@@ -1424,8 +2007,24 @@ mod tests {
             .collect();
         let blocks = compose_audit(&m);
 
-        let bars: Vec<&Block> = blocks.iter().filter(|b| matches!(b, Block::Bar { .. })).collect();
-        assert!(bars.len() >= 4, "the At-a-glance proportions are not Bar blocks: {}", bars.len());
+        // DEFECT 3. The three At-a-glance proportions are now ONE StackedBar,
+        // because they partition the same whole; separate bars invited reading
+        // them as unrelated quantities. The property under test is unchanged:
+        // proportions are DRAWN blocks, never characters in a string.
+        let drawn: Vec<&Block> = blocks
+            .iter()
+            .filter(|b| matches!(b, Block::StackedBar { .. } | Block::BarChart { .. } | Block::Bar { .. }))
+            .collect();
+        assert!(!drawn.is_empty(), "the At-a-glance proportions are not drawn blocks");
+        let stacked = blocks.iter().find_map(|b| match b {
+            Block::StackedBar { segments, .. } => Some(segments),
+            _ => None,
+        });
+        let segments = stacked.expect("no stacked bar for the manuscript breakdown");
+        assert!(
+            segments.len() >= 2,
+            "the breakdown collapsed to one segment: {segments:?}"
+        );
 
         // And no ASCII bar survives anywhere in the document.
         let text = all_text(&blocks);
@@ -1480,8 +2079,21 @@ mod tests {
 
         assert!(text.contains("Retracted sources"), "no retraction section:\n{text}");
         assert!(text.contains("Wakefield"), "the work is not named:\n{text}");
-        assert!(text.contains("cited by 3 sentences"), "{text}");
-        assert!(text.contains("cited by 1 sentence"), "singular not agreed:\n{text}");
+        // DEFECT 2: a table, so the count is a cell and the header carries the
+        // plural once. The old assertions pinned "cited by 3 sentences" and
+        // "cited by 1 sentence" to catch a singular/plural slip; a column cannot
+        // make that slip, so what is asserted now is that both counts survive
+        // and are attributed to the right work.
+        assert!(text.contains("Your sentences citing it"), "no count column:\n{text}");
+        let rows: Vec<&Block> = blocks
+            .iter()
+            .filter(|b| matches!(b, Block::Table { header, .. } if header.iter().any(|h| h == "Retracted work")))
+            .collect();
+        assert_eq!(rows.len(), 1, "the retraction table is not there exactly once");
+        if let Some(Block::Table { rows, .. }) = rows.first() {
+            assert!(rows.iter().any(|r| r[0].contains("Wakefield") && r[1] == "3"), "{rows:?}");
+            assert!(rows.iter().any(|r| r[1] == "1"), "the single-sentence work lost its count: {rows:?}");
+        }
 
         // It LEADS: above the deterministic consistency checks, and far above
         // anything the model produced.
@@ -1497,7 +2109,7 @@ mod tests {
         // It says it is NOT a model judgement, and it does not claim the rest
         // are clean.
         assert!(text.contains("no language model was involved"), "{text}");
-        assert!(text.contains("never checked is not listed and is not clean"), "{text}");
+        assert!(text.contains("never checked is not listed, and is not clean"), "{text}");
 
         // And it is absent when there are none — no "0 retracted" reassurance,
         // which would read as a clean bill the check cannot give.
@@ -1545,8 +2157,8 @@ mod tests {
         assert!(text.contains("46% over 27 emotion categories"), "the passage is missing:\n{text}");
         assert!(text.contains("p.1"), "the page link is missing:\n{text}");
         assert!(text.contains("What the sentence claims, part by part"), "{text}");
-        assert!(text.contains("46% macro-F1 — in the source"), "{text}");
-        assert!(text.contains("95% accuracy — NOT in the passages read"), "{text}");
+        assert!(text.contains("46% macro-F1: in the source"), "{text}");
+        assert!(text.contains("95% accuracy: NOT in the passages read"), "{text}");
         // The marks are the model's, and the report says so.
         assert!(text.contains("not Gaply's conclusion"), "{text}");
 
@@ -1684,7 +2296,7 @@ mod tests {
         // evidence side quotes source text and says the passage IS the finding;
         // the advisory side says nothing was checked against any source.
         let text = all_text(&blocks);
-        assert!(text.contains("read this and judge it yourself"), "{text}");
+        assert!(text.contains("Read this and judge it yourself"), "{text}");
         // §11 D128: the advisory sentence and its caveat are both gone.
         assert!(
             !text.contains("An uncited assertion about the world."),
