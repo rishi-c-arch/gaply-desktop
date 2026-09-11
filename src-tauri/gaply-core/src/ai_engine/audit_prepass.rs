@@ -1300,7 +1300,18 @@ pub enum Resolution {
     /// source whose PDF had been fetched and embedded still resolved as
     /// unverifiable, and the whole staging path produced ZERO checkable
     /// sentences.
-    Checkable { via: crate::source_ref::SourceRef, document_id: i64 },
+    Checkable {
+        via: crate::source_ref::SourceRef,
+        document_id: i64,
+        /// The linked document is an ABSTRACT, not the full text (§11 D138).
+        ///
+        /// Carried rather than filtered. An abstract legitimately supports some
+        /// claims — "GoEmotions reports 46% macro-F1" is in the abstract — so
+        /// refusing it would drop real checks. What it must not do is LOOK like a
+        /// full-text check: the distinction travels to the reader, and out of any
+        /// count that implies full-text verification.
+        abstract_only: bool,
+    },
     /// Cited, but nothing to check against.
     ///
     /// `library_id` is `Some` when the marker DID resolve to a library entry
@@ -1382,6 +1393,7 @@ fn resolve_bib_entry(
         Some((document_id, _)) => Ok(Some(Resolution::Checkable {
             via: crate::source_ref::SourceRef::Citation { citation_id: library_id },
             document_id,
+            abstract_only: super::store::is_abstract_only(db, document_id)?,
         })),
         None => Ok(Some(Resolution::Unverifiable {
             reason: format!(
@@ -1538,6 +1550,7 @@ pub fn resolve_marker_with(
                         staged_id: crate::staged_sources::id_for_doi(db, doi)?.unwrap_or(0),
                     },
                     document_id,
+                    abstract_only: super::store::is_abstract_only(db, document_id)?,
                 });
             }
         }
@@ -1559,6 +1572,7 @@ pub fn resolve_marker_with(
             Ok(Resolution::Checkable {
                 via: crate::source_ref::SourceRef::Citation { citation_id: library_id },
                 document_id,
+                abstract_only: super::store::is_abstract_only(db, document_id)?,
             })
         }
         None => Ok(Resolution::Unverifiable {
@@ -2088,8 +2102,9 @@ mod tests {
 
         let m = &markers_in("Coverage rose sharply (Alkenbrack et al., 2015).")[0];
         match resolve_marker_with(&db, m, &bib).unwrap() {
-            Resolution::Checkable { via, document_id } => {
+            Resolution::Checkable { via, document_id, abstract_only } => {
                 assert_eq!(document_id, doc);
+                assert!(!abstract_only);
                 assert!(
                     matches!(via, crate::source_ref::SourceRef::Staged { .. }),
                     "resolved via the library rather than the staged source: {via:?}"
@@ -2326,11 +2341,12 @@ mod tests {
         );
         let m = &markers_in("Emotion detection matters [1].")[0];
         match resolve_marker_with(&db, m, &Bibliography::numbered(&bib)).unwrap() {
-            Resolution::Checkable { via, document_id } => {
+            Resolution::Checkable { via, document_id, abstract_only } => {
                 // §11 D133: a library citation says so, rather than the id being
                 // assumed present on every checkable resolution.
                 assert_eq!(via.citation_id(), Some("lib-1"));
                 assert_eq!(document_id, 1);
+                assert!(!abstract_only, "a full-text document must not read as an abstract");
             }
             other => panic!("expected Checkable, got {other:?}"),
         }

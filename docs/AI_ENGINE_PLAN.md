@@ -8199,3 +8199,65 @@ names the stage that failed.
 
 That instrumentation is what produced the live result: **6 fetched, 6
 abstract-only, 5 no-OA-copy, 4 failed, 1 not-importable.**
+
+### D138 — an abstract is a real source and must not look like a full text
+
+The measurement §11 D135 was written to protect, taken from the database rather
+than the UI:
+
+| | |
+|---|---|
+| unverifiable items in the job | 46 |
+| **now resolve `Checkable` via a staged source** | **12** |
+| backed by FULL TEXT | **5** |
+| backed by an ABSTRACT only | **7** |
+
+Not zero, so §11 D135's defect case did not occur: staged → fetched → linked →
+embedded → resolves by DOI works end to end. 12 against a predicted ceiling of 11,
+because abstract-only fetches also store a document and several works predicted
+paywalled returned abstracts.
+
+**Seven of the twelve rest on an abstract**, and that is the finding. The obvious
+response — require full text — is wrong: an abstract legitimately carries some
+claims ("GoEmotions reports 46% macro-F1" is in the abstract), so filtering would
+drop seven real checks. The rule is the one this project keeps arriving at:
+
+> **The weaker thing is allowed. It is not allowed to look like the stronger one.**
+
+So `Resolution::Checkable` carries `abstract_only`, and the distinction travels to
+the reader instead of into a filter:
+
+- the **evidence item** says *"passages located IN THE ABSTRACT ONLY — the full
+  text was not available"*, on the item, where a reader who lands on item 19 sees
+  it rather than a section header they scrolled past;
+- the **cover** reads *"passages quoted for 5, and for 1 from the abstract only"*
+  rather than folding both into one number a reader would take as full-text
+  verification;
+- the **preview** counts `would_check_abstract_only` apart from `would_check`, so
+  "a PDF Gaply can read" keeps meaning that;
+- the **export** reads `abstractOnly` back out of the planner's payload. It had
+  rebuilt `ReportItem` with the field defaulted to `false` — the distinction
+  existing in the database and being dropped at the point of use, which is the
+  same shape as §11 D129 and §11 D133.
+
+### D139 — GAP, NOT BUILT: a completed audit is durable in the database and ephemeral on screen
+
+Navigating away from a finished audit loses it. `jobId` is
+`plan?.jobId ?? resumableJob?.jobId`: `plan` is local state from
+`startThesisAudit` and dies with the screen, and `resumableJob` resumes UNFINISHED
+work — a `done` job has nothing to resume. So the health card, the flagged list,
+the staged-sources button and the re-check all become unreachable.
+
+Everything needed to rebuild that view is in the database: `ai_jobs`,
+`ai_job_items` with their results, `audit_staged_sources`, and the consistency
+findings stored on the job.
+
+**This cost a real measurement.** A three-hour run completed, the fetch reported
+its 22 outcomes, and the Re-check press — the step §11 D135 names as THE
+measurement — was no longer reachable. The number had to be recovered by querying
+the database directly.
+
+A job whose results take hours to produce and seconds to lose is a defect, not a
+missing nicety. What it needs: a job picker or a resume-by-id path that
+rehydrates a `done` job's health and items, which the existing `jobStatus` and
+`jobResults` commands already serve. **Not built.**

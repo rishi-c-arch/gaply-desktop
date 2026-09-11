@@ -191,6 +191,15 @@ pub fn build_model_with(
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
             sentence: it.sentence.clone(),
+            // §11 D138. From the PLANNER's payload, which recorded which kind of
+            // source backed the check. Without this the export rebuilt the item
+            // with the field defaulted to false, so the report said "passages
+            // located" about an abstract — the distinction existing in the
+            // database and being dropped at the point of use.
+            abstract_only: payload
+                .get("abstractOnly")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             ..Default::default()
         };
 

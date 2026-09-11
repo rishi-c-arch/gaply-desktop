@@ -162,6 +162,10 @@ pub struct ThesisAuditPreview {
     /// What planning would queue, by kind — the same arithmetic `plan_audit`
     /// does, so the card cannot promise a shape the plan will not produce.
     pub would_check: usize,
+    /// Sources whose only readable copy is an ABSTRACT (§11 D138). A real check
+    /// and a weaker one: counted separately so `would_check` keeps meaning "full
+    /// text Gaply can read".
+    pub would_check_abstract_only: usize,
     /// Significant sentences carrying NO marker. These are NOT examined — the
     /// advisory lane that used to judge them is retired (§11 D128) — and the
     /// card says so, because a preview that counts them as work to be done
@@ -233,6 +237,9 @@ pub fn preview_thesis_audit(
     let mut order: Vec<String> = Vec::new();
     let mut by_key: BTreeMap<String, CitedSourceStatus> = BTreeMap::new();
     let (mut would_check, mut not_examined, mut would_be_unverifiable) = (0usize, 0usize, 0usize);
+    // §11 D138. Kept apart from `would_check`: an abstract is a real source and
+    // not a full text, and one number cannot mean both.
+    let mut would_check_abstract_only = 0usize;
 
     for planned in &report.planned {
         if planned.markers.is_empty() {
@@ -257,8 +264,15 @@ pub fn preview_thesis_audit(
         }
 
         let (key, entry) = match &resolution {
-            Resolution::Checkable { via, document_id } => {
-                would_check += 1;
+            Resolution::Checkable { via, document_id, abstract_only } => {
+                // §11 D138. `would_check` is the card's "a PDF Gaply can read"
+                // count, which an abstract is not — counted separately so the
+                // weaker thing does not inflate the stronger number.
+                if *abstract_only {
+                    would_check_abstract_only += 1;
+                } else {
+                    would_check += 1;
+                }
                 // `has_doi` and `retracted` are LIBRARY facts — they read
                 // `citation_library` — so they are asked only of a library
                 // citation rather than assumed of every source (§11 D133).
@@ -320,6 +334,7 @@ pub fn preview_thesis_audit(
         uncited: report.uncited,
         skipped: report.skipped,
         would_check,
+        would_check_abstract_only,
         not_examined,
         would_be_unverifiable,
         blocked_sources: sources.len() - checkable_sources,
@@ -568,7 +583,7 @@ fn plan_audit(
                 continue;
             };
             match resolution {
-                Resolution::Checkable { via, document_id } => {
+                Resolution::Checkable { via, document_id, abstract_only } => {
                     support += 1;
                     items.push(NewItem {
                         seq: seq as i64,
@@ -584,6 +599,10 @@ fn plan_audit(
                             // (§11 D133).
                             "libraryId": via.citation_id(),
                             "source": via,
+                            // §11 D138. Travels to the reader: the evidence card
+                            // says an abstract was checked, rather than letting it
+                            // read as a full-text check.
+                            "abstractOnly": abstract_only,
                             "citedSource": marker,
                             "paragraph": planned.paragraph,
                             "section": planned.section,
@@ -652,7 +671,7 @@ fn plan_audit(
         }
 
         match resolution {
-            Resolution::Checkable { via, document_id } => {
+            Resolution::Checkable { via, document_id, abstract_only } => {
                 support += 1;
                 let cited_source = planned
                     .markers
@@ -669,6 +688,7 @@ fn plan_audit(
                         "documentId": document_id,
                         "libraryId": via.citation_id(),
                         "source": via,
+                        "abstractOnly": abstract_only,
                         "citedSource": cited_source,
                         // D65's locator. This site was MISSED when the other
                         // three payloads got it — the whole-manuscript path is

@@ -69,6 +69,12 @@ pub struct ReportItem {
     #[serde(default)]
     pub page_approximate: bool,
     pub sentence: String,
+    /// The source checked was an ABSTRACT, not the full text (§11 D138).
+    ///
+    /// Shown on the item, not filtered out of it: an abstract legitimately
+    /// supports some claims, and refusing it would drop real checks. What it may
+    /// not do is read as a full-text check, so it says which.
+    pub abstract_only: bool,
     /// `strong` | `partial` | … for support; `needs_citation` / `no_citation_needed`
     /// for need; absent when the item was never judged.
     pub verdict: Option<String>,
@@ -313,9 +319,19 @@ fn emit_finding(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
 fn emit_evidence_item(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
     out.push(heading(format!("Sentence {} · {}", item.seq, locator(item, has_pages)), 3));
     // NO Block::Badge. The five-class verdict is withheld from the report.
-    out.push(para(
-        "passages located · the source text below is the finding · Gaply does not grade          how well it supports the sentence",
-    ));
+    //
+    // §11 D138. An abstract-backed check SAYS SO, on the item, where a reader who
+    // lands on item 19 sees it. An abstract legitimately supports some claims —
+    // "GoEmotions reports 46% macro-F1" is in the abstract — so it is not
+    // refused; it is labelled, because it must not read as a full-text check.
+    out.push(para(if item.abstract_only {
+        "passages located IN THE ABSTRACT ONLY — the full text was not available, so only \
+         what the abstract states could be checked · the source text below is the finding · \
+         Gaply does not grade how well it supports the sentence"
+    } else {
+        "passages located · the source text below is the finding · Gaply does not grade \
+         how well it supports the sentence"
+    }));
     out.push(para(format!("\u{201c}{}\u{201d}", item.sentence.trim())));
 
     if let Some(entry) = &item.reference_entry {
@@ -533,10 +549,27 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
                 // a report that quoted none.
                 let with_passages =
                     m.supported.iter().filter(|i| !i.evidence.is_empty()).count();
-                format!(
-                    "{cover_checked} cited claim{} — source passages quoted for {with_passages}",
+                // §11 D138. An abstract-backed check is NOT full-text
+                // verification, and the cover is the one line everyone reads.
+                // Named separately rather than folded in, because a single
+                // number cannot mean both and the stronger reading is the one a
+                // reader would assume.
+                let from_abstract = m
+                    .supported
+                    .iter()
+                    .filter(|i| !i.evidence.is_empty() && i.abstract_only)
+                    .count();
+                let full_text = with_passages - from_abstract;
+                let mut line = format!(
+                    "{cover_checked} cited claim{} — source passages quoted for {full_text}",
                     if cover_checked == 1 { "" } else { "s" },
-                )
+                );
+                if from_abstract > 0 {
+                    line.push_str(&format!(
+                        ", and for {from_abstract} from the abstract only"
+                    ));
+                }
+                line
             },
             Tone::Neutral,
         )
@@ -1232,6 +1265,56 @@ mod tests {
         for banned in ["43%", "82%", "4 in 10"] {
             assert!(!text.contains(banned), "{banned:?} is back in the report:\n{text}");
         }
+    }
+
+    /// §11 D138. AN ABSTRACT-BACKED CHECK IS ALLOWED, AND MAY NOT LOOK LIKE A
+    /// FULL-TEXT ONE.
+    ///
+    /// Measured on a real run: of 12 sentences that became checkable, 5 rested on
+    /// full text and 7 on an abstract. Refusing abstracts would have dropped 7
+    /// real checks — an abstract genuinely carries some claims ("GoEmotions
+    /// reports 46% macro-F1" is in the abstract). Presenting them identically
+    /// would have told a researcher 12 claims were verified against their
+    /// sources, which is not what happened.
+    #[test]
+    fn an_abstract_backed_check_says_so_and_is_counted_apart() {
+        let mut m = model();
+        let ev = |q: &str| ReportEvidence {
+            chunk_id: "c1".into(),
+            page: Some(2),
+            quote: q.to_string(),
+        };
+        m.supported = vec![
+            ReportItem {
+                seq: 1,
+                sentence: "A claim checked against the full text.".into(),
+                evidence: vec![ev("A passage from the body of the paper.")],
+                verdict: Some("strong".into()),
+                ..Default::default()
+            },
+            ReportItem {
+                seq: 2,
+                sentence: "A claim checked against the abstract only.".into(),
+                evidence: vec![ev("The abstract reports 46% macro-F1.")],
+                verdict: Some("strong".into()),
+                abstract_only: true,
+                ..Default::default()
+            },
+        ];
+        let text = all_text(&compose_audit(&m));
+
+        // The ITEM says so, where a reader who lands on it will see it.
+        assert!(
+            text.contains("IN THE ABSTRACT ONLY"),
+            "an abstract-backed check did not say so:\n{text}"
+        );
+        // And the cover does not fold it into the full-text count.
+        assert!(
+            text.contains("source passages quoted for 1, and for 1 from the abstract only"),
+            "the cover implied two full-text checks:\n{text}"
+        );
+        // The weaker thing is still PRESENT — not filtered out.
+        assert!(text.contains("The abstract reports 46% macro-F1."), "{text}");
     }
 
     /// §11 D95. A derived page and a guessed one must not look alike.

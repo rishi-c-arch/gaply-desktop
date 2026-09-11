@@ -3315,7 +3315,11 @@ pub async fn ai_job_recheck_items(
                         // be checked are different facts. Narrowed to the
                         // fetched subjects so an unrelated item already checkable
                         // is not requeued.
-                        let Ok(audit_prepass::Resolution::Checkable { via, document_id }) =
+                        let Ok(audit_prepass::Resolution::Checkable {
+                            via,
+                            document_id,
+                            abstract_only,
+                        }) =
                             audit_prepass::resolve_marker_with(&db, &m, &bib)
                         else {
                             continue;
@@ -3331,6 +3335,9 @@ pub async fn ai_job_recheck_items(
                             // answer (§11 D133).
                             "libraryId": via.citation_id(),
                             "source": via,
+                            // §11 D138. Travels with the requeue, so a re-checked
+                            // item keeps saying which kind of source backed it.
+                            "abstractOnly": abstract_only,
                         }));
                         break;
                     }
