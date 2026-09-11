@@ -621,6 +621,101 @@ fn cited_work_label(entry: &str, parsed_entry: Option<&str>) -> String {
     trim_at_word(entry, 90)
 }
 
+/// §11 D145. Is this "cited work" probably not a work at all?
+///
+/// Five of twenty rows in a real report were extraction artifacts rather than
+/// missing sources: `RBV, 1991` (a theory acronym), `Authority, 2025` (from
+/// "The Financial Services Authority"), `Weiner's, 2009` (a possessive),
+/// `Dubai, 2006` (from a co-citation), and `Kutzins, 2013` two rows below
+/// `Kutzin, 2013`. A reader who finds four nonsense rows in twenty stops
+/// believing the other sixteen, and this table exists to say what to fetch.
+///
+/// The strongest signal costs nothing: **the report has already examined these
+/// markers** in its deterministic consistency section. Repeating them a page
+/// later as confident fetch targets is the report contradicting itself.
+///
+/// Returns the reason to SHOW, not a boolean, because the row must say why.
+fn artifact_reason(label: &str, consistency: &[crate::consistency::ConsistencyFinding]) -> Option<String> {
+    let (surname, year) = match label.rsplit_once(',') {
+        Some((s, y)) => (s.trim(), y.trim()),
+        None => (label.trim(), ""),
+    };
+    if surname.is_empty() {
+        return None;
+    }
+
+    // 1. The deterministic checks already flagged this exact marker.
+    //
+    // Matched against the finding's SUBJECT (the marker it quotes first), as a
+    // WHOLE WORD. Matching anywhere in the message flagged `Kutzin, 2013` — a
+    // real work — because the finding about `Kutzins (2013)` quotes the entry it
+    // was matched to, and "Kutzin" is a substring of "Kutzins". Calling a
+    // researcher's genuine citation junk is the one thing this must never do.
+    for f in consistency {
+        let subject = first_quoted(&f.message).unwrap_or_else(|| f.message.clone());
+        if !contains_word(&subject, surname) {
+            continue;
+        }
+        if !year.is_empty() && !subject.contains(year) {
+            continue;
+        }
+        match f.kind.as_str() {
+            "uncertain-reference-match" => {
+                return Some(
+                    "may be a co-author or a mis-split name: the consistency checks matched it to \
+                     an entry listed under a different name"
+                        .to_string(),
+                )
+            }
+            "orphan-author-year-marker" => {
+                return Some(
+                    "the consistency checks found no reference entry beginning with this name"
+                        .to_string(),
+                )
+            }
+            _ => {}
+        }
+    }
+
+    // 2. An acronym, not a surname: RBV, WHO, OECD.
+    let letters: Vec<char> = surname.chars().filter(|c| c.is_alphabetic()).collect();
+    if letters.len() >= 2 && letters.len() <= 5 && letters.iter().all(|c| c.is_uppercase()) {
+        return Some("reads as an acronym rather than an author's surname".to_string());
+    }
+
+    // 3. A possessive: "Weiner's (2009) model" names Weiner, and the apostrophe
+    //    is the sentence's grammar, not part of the name.
+    if surname.ends_with("'s") || surname.ends_with("\u{2019}s") {
+        return Some("reads as a possessive form of a name rather than the name".to_string());
+    }
+
+    None
+}
+
+/// Does `haystack` contain `word` as a WHOLE word?
+///
+/// Substring matching is what made `Kutzin` match a finding about `Kutzins`.
+fn contains_word(haystack: &str, word: &str) -> bool {
+    if word.is_empty() {
+        return false;
+    }
+    let mut from = 0usize;
+    while let Some(i) = haystack[from..].find(word) {
+        let start = from + i;
+        let end = start + word.len();
+        let before_ok = haystack[..start].chars().next_back().map_or(true, |c| !c.is_alphabetic());
+        let after_ok = haystack[end..].chars().next().map_or(true, |c| !c.is_alphabetic());
+        if before_ok && after_ok {
+            return true;
+        }
+        from = start + word.len().max(1);
+        if from >= haystack.len() {
+            break;
+        }
+    }
+    false
+}
+
 /// The first curly- or straight-quoted run in a string, if any.
 fn first_quoted(s: &str) -> Option<String> {
     for (open, close) in [('\u{201C}', '\u{201D}'), ('"', '"')] {
@@ -628,7 +723,7 @@ fn first_quoted(s: &str) -> Option<String> {
             let rest = &s[a + open.len_utf8()..];
             if let Some(b) = rest.find(close) {
                 let inner = rest[..b].trim();
-                if !inner.is_empty() && inner.chars().count() <= 80 {
+                if !inner.is_empty() && inner.chars().count() <= 160 {
                     return Some(inner.to_string());
                 }
             }
@@ -674,7 +769,12 @@ fn group_by_source(items: &[ReportItem]) -> Vec<BlockedSource<'_>> {
 ///
 /// It is now: one sentence of shared explanation, a chart of which works block
 /// the most sentences, a table of the works, and a table of where each is cited.
-fn emit_blocked_sources(out: &mut Vec<Block>, items: &[ReportItem], has_pages: bool) {
+fn emit_blocked_sources(
+    out: &mut Vec<Block>,
+    items: &[ReportItem],
+    has_pages: bool,
+    consistency: &[crate::consistency::ConsistencyFinding],
+) {
     out.push(heading("Cited, but not checkable", 1));
     if items.is_empty() {
         out.push(para("None found. Every cited source was available to check against."));
@@ -743,31 +843,57 @@ fn emit_blocked_sources(out: &mut Vec<Block>, items: &[ReportItem], has_pages: b
         }
     }
 
-    // DEFECT 2. The list as a table, with the counts right-aligned.
-    out.push(Block::Table {
-        caption: Some("Every cited work Gaply could not read, most-cited first.".to_string()),
-        header: vec![
-            "Cited work".to_string(),
-            "Sentences".to_string(),
-            "Status".to_string(),
-        ],
-        rows: groups
-            .iter()
-            .map(|g| {
-                let reason = g.items.first().and_then(|i| i.reason.as_deref()).unwrap_or("");
-                vec![
-                    cited_work_label(&g.entry, g.parsed_entry.as_deref()),
-                    g.items.len().to_string(),
-                    status_phrase(reason).to_string(),
-                ]
-            })
-            .collect(),
-        align: vec![Align::Left, Align::Right, Align::Left],
-    });
-
-    // What to do, once per distinct action rather than once per work.
-    let mut steps: Vec<String> = Vec::new();
+    // §11 D145. TWO tables, because these are two different asks.
+    //
+    // The first is a shopping list: works to go and add. The second is a
+    // checking list: names that may not be works at all, which the report must
+    // not present as things to fetch.
+    let mut real: Vec<(&BlockedSource, String)> = Vec::new();
+    let mut suspect: Vec<(&BlockedSource, String)> = Vec::new();
     for g in &groups {
+        let label = cited_work_label(&g.entry, g.parsed_entry.as_deref());
+        match artifact_reason(&label, consistency) {
+            Some(why) => suspect.push((g, why)),
+            None => real.push((g, label)),
+        }
+    }
+
+    // Where a work is cited, so the reader can go straight to it. This replaces
+    // a "Status" column whose every value was the same six words: a column that
+    // never varies is a heading, and it was occupying the width the one
+    // actionable thing needed (§11 D145).
+    let cited_at = |g: &BlockedSource| -> String {
+        let mut locs: Vec<String> = g.items.iter().map(|it| locator(it, has_pages)).collect();
+        locs.dedup();
+        locs.join(", ")
+    };
+
+    if !real.is_empty() {
+        // The status is stated ONCE, in the caption, because every row shares it.
+        out.push(Block::Table {
+            caption: Some(format!(
+                "Not in your library. Add {} and re-run to have {} checked.",
+                if real.len() == 1 { "this work" } else { "these works" },
+                if real.len() == 1 { "its sentence" } else { "their sentences" },
+            )),
+            header: vec![
+                "Cited work".to_string(),
+                "Sentences".to_string(),
+                if has_pages { "Cited on page".to_string() } else { "Cited at".to_string() },
+            ],
+            rows: real
+                .iter()
+                .map(|(g, label)| vec![label.clone(), g.items.len().to_string(), cited_at(g)])
+                .collect(),
+            align: vec![Align::Left, Align::Right, Align::Left],
+        });
+    }
+
+    // What to do, once per distinct action rather than once per work, and ONLY
+    // for the works that are works: telling a reader to add `RBV, 1991` to
+    // their library is an instruction to do the wrong thing.
+    let mut steps: Vec<String> = Vec::new();
+    for (g, _) in &real {
         if let Some(st) = &g.next_step {
             if !steps.contains(st) {
                 steps.push(st.clone());
@@ -779,6 +905,37 @@ fn emit_blocked_sources(out: &mut Vec<Block>, items: &[ReportItem], has_pages: b
         for st in steps {
             out.push(bullet(st, 0));
         }
+    }
+
+    if !suspect.is_empty() {
+        out.push(heading("Names that may not be separate works", 2));
+        out.push(para(format!(
+            "{} of the {} names in this section came from an in-text marker that may not name a \
+             work at all: an acronym, a possessive, or a name the consistency checks could not \
+             match to a reference entry. They are listed apart because adding them to your \
+             library would be the wrong action. Check the sentence first.",
+            suspect.len(),
+            groups.len(),
+        )));
+        out.push(Block::Table {
+            caption: Some("Check these against your manuscript before doing anything.".to_string()),
+            header: vec![
+                "Name as cited".to_string(),
+                "Sentences".to_string(),
+                "Why it may not be a work".to_string(),
+            ],
+            rows: suspect
+                .iter()
+                .map(|(g, why)| {
+                    vec![
+                        cited_work_label(&g.entry, g.parsed_entry.as_deref()),
+                        g.items.len().to_string(),
+                        why.clone(),
+                    ]
+                })
+                .collect(),
+            align: vec![Align::Left, Align::Right, Align::Left],
+        });
     }
 
     // DEFECT 6. The sentences, in a table, with the text WRAPPED and not cut.
@@ -825,10 +982,31 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     // whatsoever. A fabricated failing grade is worse than no grade, and §11
     // D85 already settled the principle: a number that cannot respond to the
     // thing it names is worse than absent.
+    // §11 D145. THE DENOMINATOR, defined once and used everywhere it appears.
+    //
+    // Every sentence that cites a source is in exactly one of three states, and
+    // the report previously named them with three different numbers in three
+    // places: the cover said "5 cited claims", "The counts" said 39 were
+    // "checked against a source", and the chart said 5. `checked` is ANSWERED
+    // (46 minus the 7 that failed validation), which is not the same thing as
+    // checked against a source and must never be printed as if it were.
+    let citing_total = m.supported.len() + m.unverifiable.len() + m.failed.len();
+    // Reached the cited source: a check was actually attempted against it.
+    let reached_source = m.supported.len() + m.failed.len();
     let cover_checked = m.supported.len();
     let cover_headline = Some(if cover_checked == 0 {
         (
-            "No claim could be checked against its cited source".to_string(),
+            if citing_total == 0 {
+                // Nothing cited a source at all: a different fact from "none of
+                // them could be checked", and "None of 0" is not a sentence.
+                "No sentence in this manuscript cites a source".to_string()
+            } else {
+                format!(
+                    "None of {citing_total} cited claim{} could be checked against {} source",
+                    if citing_total == 1 { "" } else { "s" },
+                    if citing_total == 1 { "its" } else { "their" },
+                )
+            },
             Tone::Neutral,
         )
     } else {
@@ -851,9 +1029,15 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
                     .filter(|i| !i.evidence.is_empty() && i.abstract_only)
                     .count();
                 let full_text = with_passages - from_abstract;
+                // §11 D145. "5 cited claims" on a manuscript with 46 of them
+                // announces the successes and hides the denominator, and page 1
+                // is the page everyone reads. The failure is the finding here:
+                // 34 of 46 could not be checked at all.
                 let mut line = format!(
-                    "{cover_checked} cited claim{}. Source passages quoted for {full_text}",
-                    if cover_checked == 1 { "" } else { "s" },
+                    "{cover_checked} of {citing_total} cited claim{} checked against {} source. \
+                     Passages quoted for {full_text}",
+                    if citing_total == 1 { "" } else { "s" },
+                    if citing_total == 1 { "its" } else { "their" },
                 );
                 if from_abstract > 0 {
                     line.push_str(&format!(
@@ -874,8 +1058,12 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
             ("Judged by".to_string(), m.model_id.clone()),
             ("Prompt version".to_string(), m.prompt_version.clone()),
             ("Sentences read".to_string(), m.total_sentences.to_string()),
-            // "answered", not "checked": see `AuditReportModel::checked`.
-            ("Sentences answered".to_string(), m.checked.to_string()),
+            // §11 D145. Was "Sentences answered: 39". `checked` counts every
+            // item that returned an answer, INCLUDING the 34 whose answer was
+            // "I cannot reach this source" — so beside a cover claiming checks
+            // it read as 39 checks. These two say what actually happened.
+            ("Cited source reached".to_string(), reached_source.to_string()),
+            ("Passages quoted".to_string(), cover_checked.to_string()),
         ],
     });
 
@@ -906,7 +1094,8 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     } else {
         out.push(para(format!(
             "Gaply does not score how well your sources support your claims, and this report \
-             gives no /100. It located the source passages behind {checked} cited claim{} and \
+             gives no /100. It located the source passages behind {checked} of {citing_total} \
+             cited claim{} and \
              quotes them below with their page. Reading those is the check. The grader that \
              used to produce a score was measured on a labelled set and returned the SAME grade \
              for every case (14 of 14 outputs across two runs), so any number built from it \
@@ -976,8 +1165,17 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         // §11 D128. This said "checked against a source OR judged for whether
         // they need one". The second clause was the advisory lane and is retired;
         // leaving it described a scope the run no longer has.
-        "Gaply read {} sentences. {} of them cite a source and were checked against it.",
-        m.total_sentences, m.checked
+        // §11 D145. This printed the ANSWERED count as if it were the checked
+        // count: it claimed 39 checks where 5 happened, in the section called
+        // "The counts", contradicting the chart one page earlier. It is the
+        // number a researcher would quote to a supervisor.
+        "Gaply read {} sentences. {} of them cite a source. It could reach the cited source for \
+         {} of those and quoted passages for {}; the remaining {} cite works it could not read.",
+        m.total_sentences,
+        citing_total,
+        reached_source,
+        m.supported.len(),
+        m.unverifiable.len()
     )));
 
     // DEFECT 2. Was a run of bullets. WHAT WAS JUDGED, BY KIND: the row tally,
@@ -1161,7 +1359,7 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     );
 
     out.push(Block::PageBreak);
-    emit_blocked_sources(&mut out, &m.unverifiable, m.has_pages);
+    emit_blocked_sources(&mut out, &m.unverifiable, m.has_pages, &m.consistency);
 
     // THE ADVISORY SECTION IS GONE — §11 D128.
     //
@@ -1496,6 +1694,113 @@ mod tests {
         let t1 = all_text(&compose_audit(&one));
         assert_eq!(t1.matches("An abstract carries").count(), 1, "{t1}");
         assert!(!t1.contains("Checked against an ABSTRACT only"), "{t1}");
+    }
+
+    /// §11 D145. THE NUMBERS AGREE WITH EACH OTHER.
+    #[test]
+    fn the_checked_count_never_claims_more_than_the_chart() {
+        let mut m = model();
+        m.supported = vec![item_with_evidence(); 5];
+        m.unverifiable = (0..34).map(|i| ReportItem { seq: i, ..Default::default() }).collect();
+        m.failed = (0..7).map(|i| ReportItem { seq: i, ..Default::default() }).collect();
+        m.checked = 39; // answered, i.e. 46 minus the 7 that failed validation
+        let blocks = compose_audit(&m);
+        let text = all_text(&blocks);
+
+        assert!(
+            !text.contains("39 of them cite a source and were checked"),
+            "the answered count is being reported as checks:\n{text}"
+        );
+        let segments = blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::StackedBar { segments, .. } => Some(segments.clone()),
+                _ => None,
+            })
+            .expect("no breakdown chart");
+        let charted = segments
+            .iter()
+            .find(|(l, _, _)| l.contains("passages found"))
+            .map(|(_, n, _)| *n)
+            .expect("no checked segment");
+        assert_eq!(charted, 5);
+        assert!(text.contains("quoted passages for 5"), "{text}");
+
+        let Some(Block::Cover { headline, meta, .. }) = blocks.first() else { panic!("no cover") };
+        let h = &headline.as_ref().unwrap().0;
+        assert!(h.contains("5 of 46"), "the cover hides the denominator: {h}");
+        assert!(
+            !meta.iter().any(|(k, _)| k == "Sentences answered"),
+            "the misleading cover figure is back: {meta:?}"
+        );
+    }
+
+    /// §11 D145. A name that may not be a work is not a shopping-list row.
+    #[test]
+    fn marker_artifacts_are_listed_apart_from_works_to_fetch() {
+        let mut m = model();
+        m.unverifiable = vec![
+            // Distinct sentences, because real ones are: a fixture that reuses
+            // one string trips the shared-value check below for a reason the
+            // product does not have.
+            ReportItem { seq: 1, sentence: "Uptake rose after 2015.".into(), next_step: Some("Add it to your library.".into()), ..blocked_item("Banerjee, 2021") },
+            ReportItem { seq: 2, sentence: "Enrolment followed the same path.".into(), next_step: Some("Add it to your library.".into()), ..blocked_item("Banerjee, 2021") },
+            ReportItem { seq: 3, sentence: "Firms differ in their resources.".into(), next_step: Some("Add it to your library.".into()), ..blocked_item("RBV, 1991") },
+            ReportItem { seq: 4, sentence: "Attribution shapes the response.".into(), next_step: Some("Add it to your library.".into()), ..blocked_item("Weiner\u{2019}s, 2009") },
+            ReportItem { seq: 5, sentence: "The platform processed three million transactions.".into(), next_step: Some("Add it to your library.".into()), ..blocked_item("Authority, 2025") },
+        ];
+        m.consistency = vec![crate::consistency::ConsistencyFinding {
+            kind: "uncertain-reference-match".into(),
+            severity: crate::consistency::Severity::Cosmetic,
+            message: "\u{201C}Authority (2025)\u{201D} names \u{201C}authority\u{201D}, which appears in the entry \
+                      beginning \u{201C}The Financial Services Authority. (2025)\u{201D}"
+                .into(),
+            action: None,
+        }];
+        let blocks = compose_audit(&m);
+
+        let table_with = |first_header: &str| -> Vec<Vec<String>> {
+            blocks
+                .iter()
+                .find_map(|b| match b {
+                    Block::Table { header, rows, .. }
+                        if header.first().map(String::as_str) == Some(first_header) =>
+                    {
+                        Some(rows.clone())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_default()
+        };
+        let names = |rows: &[Vec<String>]| rows.iter().map(|r| r[0].clone()).collect::<Vec<_>>();
+        assert_eq!(names(&table_with("Cited work")), vec!["Banerjee, 2021"], "a non-work is on the shopping list");
+        let s = names(&table_with("Name as cited"));
+        for expected in ["RBV, 1991", "Weiner\u{2019}s, 2009", "Authority, 2025"] {
+            assert!(s.iter().any(|n| n == expected), "{expected} was presented as a work: {s:?}");
+        }
+
+        // DEFECT 3: no TEXT column whose every value is the same.
+        //
+        // Scoped to left-aligned columns after the first, which is where a
+        // derived label like "Not in your library" lands. A COUNT column is
+        // exempt: four works cited once each legitimately show "1" four times.
+        for b in &blocks {
+            if let Block::Table { header, rows, align, .. } = b {
+                if rows.len() < 2 {
+                    continue;
+                }
+                for (c, name) in header.iter().enumerate() {
+                    if c == 0 || align.get(c) != Some(&Align::Left) {
+                        continue;
+                    }
+                    let first = rows[0].get(c);
+                    assert!(
+                        !rows.iter().all(|r| r.get(c) == first),
+                        "column {name:?} repeats {first:?} on every row: that is a heading, not a cell"
+                    );
+                }
+            }
+        }
     }
 
     /// A model that reaches EVERY section, for the whole-output guards.
@@ -1915,7 +2220,7 @@ mod tests {
         );
         // And the cover does not fold it into the full-text count.
         assert!(
-            text.contains("Source passages quoted for 1, and for 1 from the abstract only"),
+            text.contains("Passages quoted for 1, and for 1 from the abstract only"),
             "the cover implied two full-text checks:\n{text}"
         );
         // The weaker thing is still PRESENT — not filtered out.
@@ -2237,7 +2542,10 @@ mod tests {
         let Some(Block::Cover { headline, .. }) = empty_blocks.first() else {
             panic!("no cover")
         };
-        assert!(headline.as_ref().unwrap().0.contains("No claim could be checked"), "{headline:?}");
+        // §11 D145. The empty case carries the DENOMINATOR too, and
+        // distinguishes "nothing cited a source" from "none could be checked".
+        let h = &headline.as_ref().unwrap().0;
+        assert!(h.contains("could be checked") || h.contains("cites a source"), "{headline:?}");
     }
 
     /// §11 D89. A suggestion must not arrive dressed as a finding.

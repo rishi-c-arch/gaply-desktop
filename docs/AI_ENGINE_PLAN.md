@@ -8757,3 +8757,85 @@ was correct and complete. Exactly 7 rows of job 23 carry one in the database, an
 the report printed 7. `audit_report_preview` takes an optional manuscript path
 and recomputes the consistency findings for exactly this reason, so the current
 wording can be seen without re-running a three-hour audit.
+
+### D145 — the report's arithmetic contradicted its own chart, and its shopping list contained things that are not works
+
+Four defects from a page-by-page read of a real generated report (D143's
+redesign). The first two are one failure; the second two are another.
+
+#### The numbers a researcher would quote to a supervisor
+
+"The counts" opened with: *"Gaply read 46 sentences. **39 of them cite a source
+and were checked against it.**"* Five were. `checked` counts every item that
+RETURNED AN ANSWER, and 34 of those answers were "I cannot reach this source", so
+printing it as a checked count claimed eight times the work that happened, in the
+section named for counting, one page after a chart saying 5 (11%).
+
+The cover had the same shape from the other direction: *"5 cited claims. Source
+passages quoted for 4…"* on a manuscript with 46 cited claims. Page 1 is the page
+everyone reads, and it announced the successes while omitting the denominator.
+
+One definition, used everywhere the number appears:
+
+```
+citing_total   = supported + unverifiable + failed   // every sentence citing a source
+reached_source = supported + failed                  // a check was attempted
+supported                                            // a passage was quoted
+```
+
+The cover reads *"5 of 46 cited claims checked against their source"*, the counts
+section names all three states, and the cover metadata lost "Sentences answered:
+39" — the misleading figure itself — for "Cited source reached" and "Passages
+quoted".
+
+**`checked` is not renamed and not removed.** D74 named it "answered" on purpose
+and the field means what it says; the defect was printing it under a label that
+claimed something else.
+
+#### A column that never varies, and a list that said to fetch things that are not works
+
+"Status" held `Not in your library` on all twenty rows. A value shared by every
+row is a heading — D143's own rule, violated one table over — and it occupied the
+width the actionable column needed. It is stated once in the caption now, and the
+column is **where each work is cited** (`¶36, ¶41, ¶256`).
+
+Five of the twenty rows were not works: `RBV, 1991` (a theory acronym),
+`Authority, 2025` (from "The Financial Services Authority"), `Weiner's, 2009` (a
+possessive), `Dubai, 2006` (from a co-citation), and `Kutzins, 2013` two rows
+below `Kutzin, 2013`. These are D131's marker-extraction artifacts arriving in a
+table whose entire purpose is to say what to go and fetch.
+
+They are a SECOND table now, "Names that may not be separate works", with the
+reason per row, and "What to do" applies only to the first group. Separated
+rather than deleted: some may be real, and silently dropping rows would hide the
+same uncertainty more quietly.
+
+**The strongest signal cost nothing: the report had already said so.** The
+deterministic consistency section flags `uncertain-reference-match` and
+`orphan-author-year-marker` for exactly these markers, so presenting them a page
+later as confident fetch targets was the report contradicting itself. The
+classifier reads `m.consistency` first, then falls back to two narrow shape rules
+(an all-caps 2-5 letter token; a possessive ending), both of which only ever
+downgrade a row to "check this".
+
+**Matching is on the finding's SUBJECT, as a whole word.** The first version
+matched anywhere in the message and flagged `Kutzin, 2013` — a real work —
+because the finding about `Kutzins (2013)` quotes the entry it was matched to and
+"Kutzin" is a substring of "Kutzins". Calling a researcher's genuine citation
+junk is the one thing this classifier must never do.
+
+Measured on job 23 with the audit's stored findings: 7 of 20 names moved, and the
+two least obvious (`Saksena, 2019`, `Valletta, 2011`) were checked by hand and are
+correct — both are middle authors of works listed under a different first author.
+
+#### GAP: the same manuscript yields different findings from two entry points
+
+Noticed while measuring the above, not fixed. The consistency findings STORED by
+the audit include the author-year checks and produce 7 flags. Re-running the
+checker on the same file through `prepass_blocks` reports *"reference style:
+NUMBERED, the author-year checks do not apply to this paper"* and produces 2.
+
+Two paths disagreeing about one document is D129's shape, and it matters here
+because the artifact classifier's best signal is whichever set of findings it is
+handed. Worth its own look before anything else relies on consistency findings
+being a property of the manuscript rather than of the caller.

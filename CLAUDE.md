@@ -5,6 +5,51 @@ Tauri 2.0 shell (`src-tauri/`), with all business logic in the portable,
 Tauri-free Rust crate `src-tauri/gaply-core/`, plus a standalone FastAPI proxy
 (`gaply-proxy/`, Tailscale-hidden) that is the ONLY path to the cloud.
 
+## Where this checkout must live — NEVER under an iCloud-synced folder
+
+**Keep the repo outside `~/Desktop` and `~/Documents`** (use `~/dev/` or any
+path that is not synced). If "Desktop & Documents Folders" is on in iCloud Drive,
+macOS evicts file contents to the cloud to reclaim space, and an evicted file
+still `ls`es with its correct size while every read of it fails:
+
+```
+$ head -c 200 src-tauri/gaply-core/src/app_check.rs
+head: Error reading ... app_check.rs
+$ cargo check
+error: couldn't read `gaply-core/src/cache.rs`: Need authenticator (os error 81)
+```
+
+`cargo` stops at the first one it meets, and there is no clue in the message that
+this is a storage problem rather than a code problem. **Measured 11 Sep 2026: 27
+tracked files were unreadable** — 11 `.rs` files under `src-tauri/` plus the 15
+`icons/*.png` the Tauri build needs and `src-tauri/.gitignore` — with dozens more
+across `gaply-proxy/` and `public/`. `brctl download` did not bring them back.
+
+**The recovery, and its one precondition.** The bytes are still in `.git`, so
+evicted files can be rewritten from the object store. `git checkout -- <path>`
+alone does NOT do it: git compares stat metadata, sees the file as unmodified,
+and skips it. The file has to be deleted first:
+
+```bash
+# 1. CHECK THIS FIRST. It must print nothing, or you are about to lose work.
+git status --porcelain --untracked-files=no
+
+# 2. Only then: delete the unreadable files and let git rewrite them.
+for f in $(git ls-files src-tauri); do
+  [ -f "$f" ] && head -c 1 "$f" >/dev/null 2>&1 || echo "$f"
+done > /tmp/evicted.txt
+while read -r f; do rm -f "$f"; done < /tmp/evicted.txt
+git checkout -- src-tauri
+```
+
+Step 1 is the whole safety argument: this rewrites the working tree from HEAD, so
+it is lossless ONLY while nothing tracked is modified. Uncommitted work was lost
+once to a bare `git checkout .` run against a dirty tree during exactly this
+recovery. Untracked files are not touched by `checkout` and survive either way.
+
+**Commit early while a machine is behaving like this.** The safest response to an
+environment that is eating files is a commit, not a longer debugging session.
+
 ## Remotes — READ BEFORE ANY PUSH
 
 **This checkout has two remotes on two different GitHub accounts, and they are
