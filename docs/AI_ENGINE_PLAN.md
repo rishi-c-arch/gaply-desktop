@@ -8326,3 +8326,90 @@ there was no resume path at all, rather than a resume path that failed to cover
 finished jobs. Left alone deliberately: resuming an interrupted job and reopening a
 finished one are different questions, and wiring the dead one while building the
 other would have conflated them. Worth its own look.
+
+### D140 — an abstract-backed failure says so, and both predictions about why were wrong
+
+Job 23's re-check produced `12 citation support · 7 could not be judged`. The 7
+are not a model quality problem in the way the number suggests: **6 of them were
+checked against an abstract only**, and all 6 failed the same way —
+`supporting_chunks: is empty for verdict 'weak'`. The model was shown a few
+hundred words of abstract, found nothing quotable for the claim, and said so; the
+validator then rejected the answer for carrying no quote.
+
+`emit_finding` now states that, on the item, whenever `abstract_only` is set:
+
+> Only an ABSTRACT was available for the cited work, not its full text. An
+> abstract carries too little to quote for most claims, so this is a limit of
+> what could be obtained rather than a judgement about the sentence.
+
+The wording is load-bearing in one respect: it is a statement about the
+**evidence obtained**, not about the sentence. A reader who sees "could not be
+judged" with no explanation will attribute it to their own citation. The test
+(`a_not_judged_item_says_when_only_an_abstract_was_available`) asserts the phrase
+appears **exactly once** in a report carrying both an abstract-backed and a
+full-text-backed item — a label that renders on every item would carry no
+information, and asserting mere presence would not catch that.
+
+#### Both hypotheses for a stronger rule failed, and the measurement is why
+
+The proposal was to stop sending single-chunk abstracts at all, on either of two
+rules. Both were tested against the real rows and neither survives:
+
+- **Gate on `abstract_only`.** It would have cost a real check. 1 of the 7
+  abstract-backed items came back with a usable passage. A rule that suppresses
+  a lane producing a 1-in-7 yield is discarding evidence, not noise.
+- **Gate on chunk count.** Chunk count does not predict failure — the rate is
+  non-monotonic across the corpus: 1 chunk 86%, 36 chunks 0%, 61 chunks 50%,
+  113 chunks 67%, 116 chunks 0%, 150 chunks 82%. There is no threshold to set.
+
+So the label ships and the gate does not. The misleading part of `7 could not be
+judged` was that it read as a verdict; that is now fixed at the point the reader
+sees it, which is cheaper and more honest than suppressing the attempt. n = 7 is
+too thin to justify either structural change.
+
+#### The 150-chunk failures are NOT D69 recurring
+
+Checked explicitly, because `prompt is 3246 tokens` in the corpus reads exactly
+like the case D69 fixed, and a context overflow reappearing in practice would
+mean D69's invariant test was guarding constants rather than prompts. It is not
+happening, on three independent pieces of evidence:
+
+- **The one overflow row predates the fix.** `job 9 / seq 25` is the only
+  `prompt is` row in the database and its own text says *"the configured context
+  is 4096"* — the pre-D69 value. Job 9: `2026-09-04 16:53:36`. The commit that
+  raised `TASK_N_CTX` to 5120 (e8177d3): `2026-09-04 18:27:56`. It is the run
+  that motivated D69.
+- **The other 22 failures prove their retry fit.** They carry `failed validation
+  twice`, i.e. `TaskError::ValidationFailed`, a variant that holds `retry_raw`.
+  Reaching it requires the retry prompt to have been built AND generated. An
+  over-ceiling prompt produces `TaskError::Generation` before any token. So
+  every one of the 22 retries was inside 5120; the model replied with non-JSON.
+- **Document chunk count cannot drive prompt size.** `assemble` requests
+  `RETRIEVAL_K = 12` and trims to `evidence_budget_words(1200) = 920` words, so
+  a 150-chunk and a 6-chunk document present the same top-12. The single
+  unconditional admission — the first chunk, added before the budget test — is
+  bounded independently: chunking caps at 512 words and 0 of 59 stored chunks
+  exceed 920.
+
+#### GAP (recorded, not fixed): the retry guard is blind to the evidence budget
+
+The structural suspicion was right, in a different place than predicted.
+`a_retryable_prompt_fits_the_configured_context` compares the ceiling
+`5120 - 2*1024 - 67 = 3009` against `const LARGEST_REAL_PROMPT: usize = 2155` —
+a number typed in from one measurement. It builds no prompt and tokenizes
+nothing. `max_retryable_prompt_tokens` has **exactly one caller: that test**;
+nothing in production consults the ceiling.
+
+So the guard pins the two constants in its own formula and is blind to the third
+input to a real prompt, `EVIDENCE_BUDGET_TOKENS`. That constant is not stable by
+intent — D14's own text invites raising it ("raise it against measured prefill
+once Metal lands", naming the spec's implied ~2500). Taking that invitation puts
+evidence near 2500 tokens against a measured scaffold of ~765 (2155 - 1390), so
+~3265 against a 3009 ceiling: D69's exact failure, reappearing in a user's audit
+with the invariant test green. Current headroom is 854 tokens and D14 points a
+future reader at spending ~1300 of it.
+
+Left as a gap rather than fixed here, to keep this cell about the abstract label.
+The fix is for the guard to assemble a real budget-filling bundle, build the
+prompt, tokenize it and compare THAT to the ceiling — a check on the prompt
+rather than on the constants — and it needs its own cell.

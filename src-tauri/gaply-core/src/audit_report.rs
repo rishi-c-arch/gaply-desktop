@@ -264,6 +264,28 @@ fn emit_finding(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) {
     }
     out.push(para(format!("“{}”", item.sentence.trim())));
 
+    // §11 D140. WHY it could not be judged, when the answer is the SOURCE rather
+    // than the model.
+    //
+    // §11 D138 stopped an abstract-backed SUCCESS looking like a full-text one.
+    // This is the same rule broken in the other direction: an abstract-backed
+    // FAILURE looking like a model failure. Measured on a real run, 6 of 7 "could
+    // not be judged" items had only an abstract to work from, and a reader seeing
+    // "7 could not be judged" concludes the model is unreliable when the honest
+    // statement is that six had too little to cite.
+    //
+    // The distinction was in the payload, survived into `m.failed`, and was
+    // dropped HERE — the same shape as the export defaulting `abstract_only` to
+    // false (§11 D138).
+    if item.abstract_only {
+        out.push(para(
+            "Only an ABSTRACT was available for the cited work, not its full text. An abstract \
+             carries too little to quote for most claims, so this is a limit of what could be \
+             obtained rather than a judgement about the sentence."
+                .to_string(),
+        ));
+    }
+
     if let Some(r) = &item.reason {
         out.push(para(r.trim().to_string()));
     }
@@ -1315,6 +1337,46 @@ mod tests {
         );
         // The weaker thing is still PRESENT — not filtered out.
         assert!(text.contains("The abstract reports 46% macro-F1."), "{text}");
+    }
+
+    /// §11 D140. AN ABSTRACT-BACKED FAILURE MUST NOT LOOK LIKE A MODEL FAILURE.
+    ///
+    /// §11 D138 stopped an abstract-backed SUCCESS reading as a full-text one.
+    /// This is the same rule in the other direction. Measured live: of 7 items
+    /// that "could not be judged", SIX had only an abstract — a one-chunk source
+    /// carries too little to quote, so the model answered "weak" and cited
+    /// nothing, which the validator correctly refuses. A reader seeing "7 could
+    /// not be judged" concludes the model is unreliable; the honest statement is
+    /// that six had nothing to work from.
+    #[test]
+    fn a_not_judged_item_says_when_only_an_abstract_was_available() {
+        let mut m = model();
+        m.failed = vec![
+            ReportItem {
+                seq: 80,
+                sentence: "A claim whose source had only an abstract.".into(),
+                abstract_only: true,
+                ..Default::default()
+            },
+            ReportItem {
+                seq: 141,
+                sentence: "A claim whose source was full text.".into(),
+                ..Default::default()
+            },
+        ];
+        let text = all_text(&compose_audit(&m));
+
+        assert!(
+            text.contains("Only an ABSTRACT was available"),
+            "an abstract-backed failure did not say so:\n{text}"
+        );
+        // ONCE — on the abstract item, not on the full-text one beside it.
+        assert_eq!(text.matches("Only an ABSTRACT was available").count(), 1, "{text}");
+        // And it says whose limit it is: the source's, not the sentence's.
+        assert!(
+            text.contains("rather than a judgement about the sentence"),
+            "the notice did not distinguish a source limit from a verdict:\n{text}"
+        );
     }
 
     /// §11 D95. A derived page and a guessed one must not look alike.
