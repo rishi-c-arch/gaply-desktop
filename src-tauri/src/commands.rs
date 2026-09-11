@@ -3070,6 +3070,47 @@ pub async fn ai_job_start_thesis_audit(
     Ok(serde_json::to_value(&plan).unwrap_or(serde_json::Value::Null))
 }
 
+/// Recent thesis audits, so a finished one can be REOPENED (§11 D139).
+///
+/// A completed audit is durable in the database and was ephemeral on screen: its
+/// health, items, staged sources and both action buttons lived only while the
+/// screen that started it stayed mounted. This is rehydration, not a new feature —
+/// `ai_job_status` and `ai_job_results` already serve the contents.
+///
+/// Carries the staged counts because they are what the picker needs to say
+/// something useful: "26 sources staged, 15 fetched" tells a reader which job is
+/// worth reopening, where a row of ids does not.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn ai_audit_jobs_recent(
+    state: State<'_, AppState>,
+    limit: i64,
+) -> Result<Vec<serde_json::Value>, GaplyError> {
+    let db = state.db.clone();
+    let out = tokio::task::spawn_blocking(move || -> Result<Vec<serde_json::Value>, GaplyError> {
+        let jobs = gaply_core::ai_engine::jobs::recent_jobs(&db, "thesis_audit", limit.clamp(1, 50))?;
+        let mut out = Vec::with_capacity(jobs.len());
+        for j in jobs {
+            let staged = gaply_core::staged_sources::list_for_job(&db, j.id)?;
+            out.push(serde_json::json!({
+                "jobId": j.id,
+                "status": j.status.as_str(),
+                "totalItems": j.total_items,
+                "doneItems": j.done_items,
+                "createdAt": j.created_at,
+                "finishedAt": j.finished_at,
+                "stagedSources": staged.len(),
+                "stagedFetched": staged.iter().filter(|s| s.document_id.is_some()).count(),
+            }));
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("recent jobs read panicked: {e}")))??;
+    tracing::info!(jobs = out.len(), "recent audit jobs read");
+    Ok(out)
+}
+
 /// The reference entries this audit staged from the manuscript (§11 D134).
 ///
 /// Read-only and deterministic: no model, no network. The button that fetches

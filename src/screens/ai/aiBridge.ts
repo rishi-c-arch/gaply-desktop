@@ -236,6 +236,18 @@ export function subjectKey(s: OaFetchSubject): string {
   return s.kind === 'citation' ? s.citationId : `staged:${s.stagedId}`;
 }
 
+/** A past audit, enough to decide whether it is worth reopening (§11 D139). */
+export interface RecentAuditJob {
+  jobId: number;
+  status: string;
+  totalItems: number;
+  doneItems: number;
+  createdAt: number;
+  finishedAt: number | null;
+  stagedSources: number;
+  stagedFetched: number;
+}
+
 /**
  * One reference entry the audit staged from the manuscript (§11 D132).
  *
@@ -540,6 +552,15 @@ class AiBridge {
     );
   }
 
+
+  /**
+   * Recent thesis audits, so a finished one can be reopened (§11 D139).
+   *
+   * A completed audit is durable in the database; it was ephemeral on screen.
+   */
+  async recentAuditJobs(limit = 10): Promise<RecentAuditJob[]> {
+    return this.invoke<RecentAuditJob[]>('ai_audit_jobs_recent', { limit });
+  }
 
   /**
    * The reference entries this audit staged from the manuscript (§11 D134).

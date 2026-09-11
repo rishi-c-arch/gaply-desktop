@@ -158,6 +158,7 @@ pub fn run() {
             commands::ai_job_export_report,
             commands::ai_job_recheck_items,
             commands::ai_job_staged_sources,
+            commands::ai_audit_jobs_recent,
             commands::ai_job_status,
             commands::ai_job_pause,
             commands::ai_job_resume,

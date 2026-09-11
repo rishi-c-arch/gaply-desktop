@@ -8240,24 +8240,89 @@ the reader instead of into a filter:
   existing in the database and being dropped at the point of use, which is the
   same shape as §11 D129 and §11 D133.
 
-### D139 — GAP, NOT BUILT: a completed audit is durable in the database and ephemeral on screen
+### D139 — a completed audit was durable in the database and ephemeral on screen
 
-Navigating away from a finished audit loses it. `jobId` is
+Navigating away from a finished audit lost it. `jobId` was
 `plan?.jobId ?? resumableJob?.jobId`: `plan` is local state from
-`startThesisAudit` and dies with the screen, and `resumableJob` resumes UNFINISHED
-work — a `done` job has nothing to resume. So the health card, the flagged list,
-the staged-sources button and the re-check all become unreachable.
+`startThesisAudit` and dies with the screen, and `resumableJob` resumes
+UNFINISHED work — a `done` job has nothing to resume. So the health card, the
+flagged list, the staged-sources button and the re-check all became unreachable
+while every byte needed to rebuild them sat in `ai_jobs`, `ai_job_items`,
+`audit_staged_sources` and the job's stored consistency findings.
 
-Everything needed to rebuild that view is in the database: `ai_jobs`,
-`ai_job_items` with their results, `audit_staged_sources`, and the consistency
-findings stored on the job.
+**It cost a real measurement.** A three-hour run completed, the fetch reported its
+22 outcomes, and the Re-check press — the step §11 D135 names as THE measurement —
+was gone. The number had to be recovered by querying the database directly. A job
+whose results take hours to produce and seconds to lose is a defect, not a missing
+nicety.
 
-**This cost a real measurement.** A three-hour run completed, the fetch reported
-its 22 outcomes, and the Re-check press — the step §11 D135 names as THE
-measurement — was no longer reachable. The number had to be recovered by querying
-the database directly.
+#### Built as REHYDRATION, not as a feature
 
-A job whose results take hours to produce and seconds to lose is a defect, not a
-missing nicety. What it needs: a job picker or a resume-by-id path that
-rehydrates a `done` job's health and items, which the existing `jobStatus` and
-`jobResults` commands already serve. **Not built.**
+`jobs::recent_jobs` plus one command; `ai_job_status` and `ai_job_results` already
+served the contents. `ai_audit_jobs_recent` carries the staged counts because a
+row of ids tells a reader nothing — the picker says *"#22 · done · 46/46 items ·
+35 sources staged, 15 fetched"*, which is what decides whether a job is worth
+reopening.
+
+**THE TWO BUTTONS THAT WERE LOST ARE THE TWO THAT MATTER**, so both are asserted
+reachable from a rehydrated job rather than only from a freshly planned one:
+
+- the **staged fetch** needed nothing: its effect is keyed on `jobId`;
+- the **re-check** needed real work. `nowCheckable` is normally filled from a
+  fetch's own reports, which a reopened job does not have. It is now DERIVED FROM
+  THE STORE — staged sources carrying a document, plus library ids named by
+  unverifiable items. A generous candidate set is safe because `recheckItems`
+  already re-asks the store and narrows ("a fetch that succeeded and an item that
+  can now be checked are different facts"), so an empty requeue is a TRUE answer
+  rather than a missing one.
+
+A coupling found rather than designed: the re-check button lives inside the
+"Cited, but not checkable" section, so it is unreachable when nothing is blocked.
+That is honest — with nothing blocked there is nothing to re-check — but it is a
+real constraint, and the first version of the test failed on it.
+
+#### THE THREE LOSSES ARE STATED ON THE CARD, AND THAT NOTICE IS THE FEATURE WORKING
+
+> Reopened from saved results. A job does not record which file it audited, so the
+> export is named generically and the pre-run source list is unavailable. The
+> original fetch's per-source reasons (paywalled, no free copy, failed) are not
+> saved either — a source here reads as fetched or not fetched.
+
+Not an apology: a reopened view that silently dropped state would be the same
+shape as §11 D136, §11 D137 and §11 D138 — a distinction that exists and is
+dropped at the point of use. Each loss was verified rather than assumed:
+
+1. **No manuscript path.** See the gap below.
+2. **No per-source fetch reasons.** Only the EFFECT is persisted (`document_id`
+   set or not), so 4 failed, 5 no-OA-copy and 1 not-importable all read
+   identically as "not fetched". The distinction existed in `FetchOutcome` and
+   was never written down.
+3. **No live progress**, which is inherent.
+
+A test pins that notice, because an omission nobody states is exactly what this
+week keeps producing.
+
+#### GAP, NOT BUILT: a job does not record what it audited
+
+`ai_jobs.document_id` is **NULL for every path-based run** — the manuscript is
+opened by path, never registered as a `documents` row — so a job genuinely does
+not know which file it audited. That is the root of loss (1): `manuscriptLabel`
+falls back to `"manuscript"` and `previewThesisAudit(path)` cannot run.
+
+**Recorded as its own gap because it will bite something else.** Anything that
+wants to re-run, re-export under the right name, compare two audits of the same
+manuscript, or answer "which paper was this?" needs it, and each will discover the
+absence separately. The fix is small — persist the path, or register the
+manuscript as a document — and is not part of rehydration.
+
+#### `resumableJob` was declared and never set
+
+`ThesisAuditPage` holds `const [resumable, setResumable] = useState(null)` and
+**nothing ever calls `setResumable`**. The "Unfinished audit" card and its resume
+handler have therefore been unreachable.
+
+Discovered, not introduced — and it explains the shape of the original defect:
+there was no resume path at all, rather than a resume path that failed to cover
+finished jobs. Left alone deliberately: resuming an interrupted job and reopening a
+finished one are different questions, and wiring the dead one while building the
+other would have conflated them. Worth its own look.

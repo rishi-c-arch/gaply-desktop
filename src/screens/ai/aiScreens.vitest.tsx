@@ -637,6 +637,10 @@ describe('Thesis audit', () => {
       // button is absent unless a test opts in. A screen whose bridge cannot
       // answer must not show a button that can only fail.
       jobStagedSources: async () => [],
+      // §11 D139. No past audits by default, so the picker is absent unless a
+      // test opts in — same reason as jobStagedSources (§11 D134): a screen whose
+      // bridge cannot answer must not show an affordance that can only fail.
+      recentAuditJobs: async () => [],
       ...over,
     };
   }
@@ -987,6 +991,85 @@ describe('Thesis audit', () => {
     await waitFor(() => expect(screen.getByTestId('audit-health')).toBeTruthy());
   }
 
+
+  /** §11 D139. REOPENING A FINISHED AUDIT.
+   *
+   *  A completed audit is durable in the database and was ephemeral on screen.
+   *  The two buttons that were lost — the staged fetch and the re-check — are the
+   *  two that matter, so these tests assert they are REACHABLE from a rehydrated
+   *  job rather than only from a freshly planned one.
+   */
+  it('reopens a finished audit, and BOTH lost buttons are reachable', async () => {
+    const recheckItems = vi.fn(async () => ({ requeued: 0, items: [] }));
+    const bridge = bridgeWith({
+      recentAuditJobs: async () => [
+        { jobId: 22, status: 'done', totalItems: 46, doneItems: 46, createdAt: 1, finishedAt: 2, stagedSources: 35, stagedFetched: 15 },
+      ],
+      jobStatus: async () => ({ health: { jobId: 22, totalItems: 46, completedItems: 46, flagged: [] } }),
+      // An unverifiable item, because the re-check button lives inside the
+      // "Cited, but not checkable" section — with nothing blocked there is
+      // nothing to re-check, which is the honest coupling.
+      jobResults: async () => ({
+        items: [
+          {
+            seq: 1,
+            kind: 'unverifiable',
+            sentence: 'Coverage rose sharply (Alkenbrack et al., 2015).',
+            status: 'done',
+            result: { reason: 'no library work matches “Alkenbrack, 2015”' },
+          },
+        ],
+      }),
+      // One staged source WITH a document (fetched) and one without.
+      jobStagedSources: async () => [
+        { id: 71, surname: 'alkenbrack', year: 2015, title: 'Evasion', doi: '10.1/a', documentId: 14, matchedBy: 'doi' },
+        { id: 72, surname: 'cashin', year: 2017, title: 'Aligning', doi: '10.1/b', documentId: null, matchedBy: null },
+      ],
+      recheckItems,
+    });
+    render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
+
+    // The picker says what each job holds, so a reader can tell which is worth it.
+    await waitFor(() => expect(screen.getByTestId('audit-past-job-22')).toBeTruthy());
+    expect(screen.getByTestId('audit-past-job-22').textContent).toMatch(/35 sources staged, 15 fetched/);
+
+    fireEvent.click(screen.getByTestId('audit-reopen-22'));
+    await waitFor(() => expect(screen.getByTestId('audit-health')).toBeTruthy());
+
+    // BUTTON 1: the staged fetch, for the source that still has no document.
+    await waitFor(() => expect(screen.getByTestId('audit-staged-fetch')).toBeTruthy());
+    expect(screen.getByTestId('audit-staged-fetch-button').textContent).toMatch(
+      /Fetch 1 source this manuscript cites/,
+    );
+
+    // BUTTON 2: the re-check, whose candidates are DERIVED FROM THE STORE — a
+    // reopened job has no fetch reports to remember.
+    await waitFor(() => expect(screen.getByTestId('audit-recheck')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('audit-recheck'));
+    await waitFor(() => expect(recheckItems).toHaveBeenCalled());
+    expect((recheckItems as any).mock.calls[0][1]).toEqual([
+      { kind: 'staged', stagedId: 71 },
+    ]);
+  });
+
+  it('says what a reopened job cannot show', async () => {
+    const bridge = bridgeWith({
+      recentAuditJobs: async () => [
+        { jobId: 22, status: 'done', totalItems: 2, doneItems: 2, createdAt: 1, finishedAt: 2, stagedSources: 0, stagedFetched: 0 },
+      ],
+      jobStatus: async () => ({ health: { jobId: 22, totalItems: 2, completedItems: 2, flagged: [] } }),
+      jobResults: async () => ({ items: [] }),
+    });
+    render(<ThesisAuditScreen aiInstalled pickManuscript={async () => '/t.pdf'} bridge={bridge as any} />);
+    await waitFor(() => expect(screen.getByTestId('audit-reopen-22')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('audit-reopen-22'));
+    await waitFor(() => expect(screen.getByTestId('audit-reopened-note')).toBeTruthy());
+    const t = screen.getByTestId('audit-reopened-note').textContent ?? '';
+    // The three things it genuinely cannot show, named rather than omitted.
+    expect(t).toMatch(/does not record which file it audited/);
+    expect(t).toMatch(/named generically/);
+    expect(t).toMatch(/per-source reasons/);
+  });
 
   /** §11 D134. The manuscript's own sources: what the button says, and what it
    *  does not do on its own. */

@@ -223,6 +223,45 @@ pub fn get_job(db: &Database, job_id: i64) -> Result<Option<JobRow>, GaplyError>
     Ok(row)
 }
 
+/// Recent jobs of one kind, newest first.
+///
+/// For REOPENING a finished audit (§11 D139). A completed job's results are
+/// durable — items, verdicts, staged sources, consistency findings — and were
+/// reachable only while the screen that started it stayed mounted. That cost a
+/// measurement: a three-hour run finished and the button that would have used it
+/// was gone.
+///
+/// Deliberately not filtered to `done`: a `failed` or `cancelled` job is also
+/// worth reopening, and hiding it would make the list disagree with the database.
+pub fn recent_jobs(db: &Database, kind: &str, limit: i64) -> Result<Vec<JobRow>, GaplyError> {
+    let conn = db.conn()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, kind, status, document_id, total_items, done_items, model_id,
+                prompt_version, error, summary_json, created_at, started_at, finished_at
+         FROM ai_jobs WHERE kind = ?1 ORDER BY id DESC LIMIT ?2",
+    )?;
+    let rows = stmt
+        .query_map(params![kind, limit], |r| {
+            Ok(JobRow {
+                id: r.get(0)?,
+                kind: r.get(1)?,
+                status: JobStatus::parse(&r.get::<_, String>(2)?).unwrap_or(JobStatus::Failed),
+                document_id: r.get(3)?,
+                total_items: r.get(4)?,
+                done_items: r.get(5)?,
+                model_id: r.get(6)?,
+                prompt_version: r.get(7)?,
+                error: r.get(8)?,
+                summary_json: r.get(9)?,
+                created_at: r.get(10)?,
+                started_at: r.get(11)?,
+                finished_at: r.get(12)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 pub fn set_job_status(db: &Database, job_id: i64, status: JobStatus) -> Result<(), GaplyError> {
     let conn = db.conn()?;
     let now = now_epoch();

@@ -19,6 +19,7 @@ import {
   JobProgressEvent,
   OaFetchReport,
   OaFetchSubject,
+  RecentAuditJob,
   StagedSource,
   ThesisAuditPreview,
   errorText,
@@ -136,6 +137,7 @@ export interface ThesisAuditScreenProps {
     | 'previewThesisAudit'
     | 'fetchOpenAccess'
     | 'jobStagedSources'
+    | 'recentAuditJobs'
     | 'jobStatus'
     | 'pauseJob'
     | 'resumeJob'
@@ -143,6 +145,7 @@ export interface ThesisAuditScreenProps {
     | 'jobResults'
     | 'fetchOpenAccess'
     | 'jobStagedSources'
+    | 'recentAuditJobs'
     | 'modelStatus'
     | 'recheckItems'
     | 'exportAuditReport'
@@ -213,7 +216,17 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
     };
   }, [bridge]);
 
-  const jobId = plan?.jobId ?? resumableJob?.jobId ?? null;
+  /**
+   * A finished audit reopened from the database (§11 D139).
+   *
+   * A third source for `jobId`, because `plan` dies with the screen and
+   * `resumableJob` resumes UNFINISHED work — a `done` job has nothing to resume,
+   * so its results were unreachable the moment the screen unmounted.
+   */
+  const [reopenedJobId, setReopenedJobId] = useState<number | null>(null);
+  const [reopened, setReopened] = useState(false);
+  const [recentJobs, setRecentJobs] = useState<RecentAuditJob[]>([]);
+  const jobId = plan?.jobId ?? reopenedJobId ?? resumableJob?.jobId ?? null;
   /** The manuscript's file name, for the report's cover. */
   const manuscriptLabel = (path ?? 'manuscript').split(/[\\/]/).filter(Boolean).pop() ?? 'manuscript';
 
@@ -276,6 +289,43 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
       setError(errorText(e));
     }
   }, [bridge, resumableJob, onProgress]);
+
+  // The picker's contents. Read on mount rather than on demand: a reader who
+  // does not know a past audit is reopenable will not press a button to find out.
+  useEffect(() => {
+    let alive = true;
+    void bridge
+      .recentAuditJobs(10)
+      .then((rows) => alive && setRecentJobs(rows))
+      .catch(() => alive && setRecentJobs([]));
+    return () => {
+      alive = false;
+    };
+  }, [bridge]);
+
+  /** Rehydrate a finished job: its health, its items, its staged sources. */
+  const reopenJob = useCallback(
+    async (id: number) => {
+      setBusyAction(`reopen-${id}`);
+      setError(null);
+      try {
+        const [status, results] = await Promise.all([
+          bridge.jobStatus(id) as Promise<any>,
+          bridge.jobResults(id, 0, 200) as Promise<any>,
+        ]);
+        setReopenedJobId(id);
+        setReopened(true);
+        setHealth(status.health);
+        setItems(results.items ?? []);
+        setStage('done');
+      } catch (e) {
+        setError(errorText(e));
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [bridge],
+  );
 
   useEffect(() => {
     if (stage === 'done' && jobId != null && !health) {
@@ -349,6 +399,41 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
       live = false;
     };
   }, [bridge, jobId]);
+
+  /**
+   * For a REOPENED job, what might now be re-checkable — derived from the STORE,
+   * not from session memory (§11 D139).
+   *
+   * `nowCheckable` is normally filled by a fetch's own reports. A reopened job has
+   * none, so the candidates are everything a fetch could have made checkable: a
+   * staged source that has a document, and any library citation an unverifiable
+   * item names. `recheckItems` then re-asks the store and narrows — it already
+   * does, by design ("a fetch that succeeded and an item that can now be checked
+   * are different facts"), so a generous candidate set is safe and an empty
+   * requeue is a true answer rather than a missing one.
+   */
+  useEffect(() => {
+    if (!reopened) return;
+    const fromStaged: OaFetchSubject[] = staged
+      .filter((s) => s.documentId !== null)
+      .map((s) => ({ kind: 'staged' as const, stagedId: s.id }));
+    const fromLibrary: OaFetchSubject[] = Array.from(
+      new Set(
+        items
+          .filter((it: any) => it.kind === 'unverifiable')
+          .map((it: any) => (it as any).libraryId ?? (it as any).payload?.libraryId)
+          .filter((v: unknown): v is string => typeof v === 'string' && v.length > 0),
+      ),
+    ).map((citationId) => ({ kind: 'citation' as const, citationId }));
+    const all = [...fromStaged, ...fromLibrary];
+    if (all.length > 0) {
+      setNowCheckable((prev) => {
+        const seen = new Map(prev.map((su) => [subjectKey(su), su]));
+        for (const su of all) seen.set(subjectKey(su), su);
+        return Array.from(seen.values());
+      });
+    }
+  }, [reopened, staged, items]);
 
   /** With a DOI and no document yet — the only ones a DOI fetch can reach. */
   const stagedFetchable = useMemo(
@@ -503,6 +588,34 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
 
   return (
     <div className="gds-root" data-testid="thesis-audit">
+      {/* PAST AUDITS (§11 D139). A finished job's results are durable and were
+          reachable only while the screen that started it stayed mounted — which
+          cost a measurement: a three-hour run completed and the two buttons that
+          would have used it were gone. This is rehydration, not a new feature. */}
+      {stage === 'idle' && recentJobs.length > 0 && (
+        <Card title="Past audits" data-testid="audit-past-jobs">
+          <ul className="gds-audit__counts">
+            {recentJobs.map((j) => (
+              <li key={j.jobId} data-testid={`audit-past-job-${j.jobId}`}>
+                <span className="font-medium">#{j.jobId}</span>
+                {` · ${j.status} · ${j.doneItems}/${j.totalItems} items`}
+                {j.stagedSources > 0 &&
+                  ` · ${j.stagedSources} sources staged, ${j.stagedFetched} fetched`}
+                {'  '}
+                <Button
+                  variant="ghost"
+                  disabled={busyAction !== null}
+                  data-testid={`audit-reopen-${j.jobId}`}
+                  onClick={() => void reopenJob(j.jobId)}
+                >
+                  {busyAction === `reopen-${j.jobId}` ? 'Opening…' : 'Reopen'}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       {resumableJob && stage === 'idle' && (
         <Card title="Unfinished audit" data-testid="audit-resume-offer">
           <p className="gds-ai__hint">
@@ -845,6 +958,18 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
 
       {health && (
         <Card title="Thesis health" data-testid="audit-health">
+          {/* WHAT A REOPENED JOB CANNOT SHOW (§11 D139).
+              Said rather than silently omitted — a reopened view that quietly
+              drops state is the same shape as every other defect this week. */}
+          {reopened && (
+            <p className="gds-ai__hint" data-testid="audit-reopened-note">
+              Reopened from saved results. A job does not record which file it
+              audited, so the export is named generically and the pre-run source
+              list is unavailable. The original fetch&rsquo;s per-source reasons
+              (paywalled, no free copy, failed) are not saved either — a source
+              here reads as fetched or not fetched.
+            </p>
+          )}
           <div className="gds-audit__stats">
             <div className="gds-audit__stat"><b>{health.completedItems}</b><span>checked</span></div>
             {/* §11 D116 split `flagged.length` into its three different things,
