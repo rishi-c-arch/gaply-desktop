@@ -51,6 +51,32 @@ const timeGreeting = (): string => {
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 };
 
+export interface NoteCounts { paper: number; project: number; manuscript: number }
+
+/** The greeting's inventory sentence — every note type the store holds.
+ *
+ *  It used to name only `paper` and `project`, which were the two types when it
+ *  was written; `manuscript` (the Research Paper Writer) was added to the store
+ *  later and nothing came back here. A researcher with three papers in progress
+ *  and nothing else read "0 paper notes and 0 project ideas" — their entire
+ *  library, described as empty, on the screen that lists it.
+ *
+ *  Only NON-EMPTY types are named, so the sentence is about what you have
+ *  rather than a roll-call of zeroes. Vocabulary matches the left rail exactly
+ *  ("Research Papers"), so the two never name the same thing differently. */
+export const libraryLine = (counts: NoteCounts): string => {
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const parts = [
+    counts.paper > 0 ? plural(counts.paper, 'paper note', 'paper notes') : null,
+    counts.project > 0 ? plural(counts.project, 'project idea', 'project ideas') : null,
+    counts.manuscript > 0 ? plural(counts.manuscript, 'research paper', 'research papers') : null,
+  ].filter((p): p is string => p !== null);
+
+  if (parts.length === 0) return 'Your library is empty — everything you write here stays on this device.';
+  const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  return `Your library holds ${list} — all on this device.`;
+};
+
 /** A serif snippet for a note card — the note's own words, never invented. */
 const snippetOf = (n: Note): string => {
   if (n.note_type === 'project' || n.note_type === 'manuscript') return n.body;
@@ -331,9 +357,7 @@ const NoteCreatorPage: React.FC<NoteCreatorPageProps> = ({ notes, papers }) => {
           {/* Hero / greeting — real counts, not the mock's fake ones */}
           <section className="an-greet">
             <h2>{timeGreeting()}, Researcher.</h2>
-            <p>
-              Your library holds {counts.paper} paper {counts.paper === 1 ? 'note' : 'notes'} and {counts.project} project {counts.project === 1 ? 'idea' : 'ideas'} — all on this device.
-            </p>
+            <p data-testid="greet-inventory">{libraryLine(counts)}</p>
           </section>
 
           {/* Quick-entry widgets */}

@@ -37,13 +37,21 @@ const ScaffoldPicker: React.FC<ScaffoldPickerProps> = ({ scaffolds, notice, curr
           <p className="an-sp-notice-text">{s.noticeText}</p>
           <div className="an-sp-meta">
             <span className="an-sp-style" title="Suggested reference style">Refs: {s.cslDefaultStyle}</span>
+            {/* NO onClick HERE, and never add one that stops propagation.
+                External links work because tauri-plugin-opener injects a click
+                listener on WINDOW (init-iife.js) that catches <a target="_blank">
+                and invokes plugin:opener|open_url. React dispatches from its root
+                container, and a synthetic stopPropagation() also stops the NATIVE
+                event there — so the shim never sees the click and the link does
+                nothing at all, silently. This card has no click handler of its
+                own, so the guard that used to sit here protected nothing and cost
+                every scaffold its "verify" link. Measured 12 Sep 2026. */}
             <a
               className="an-sp-verify"
               href={s.publisherAuthorUrl}
               target="_blank"
               rel="noreferrer noopener"
               data-testid={`sp-verify-${s.id}`}
-              onClick={(e) => e.stopPropagation()}
             >
               Verify current requirements ↗
             </a>

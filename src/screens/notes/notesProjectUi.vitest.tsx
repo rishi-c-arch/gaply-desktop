@@ -11,7 +11,7 @@ vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
 }));
 
-import NoteCreatorPage from './NoteCreatorPage';
+import NoteCreatorPage, { libraryLine } from './NoteCreatorPage';
 import RecommendedToolsPanel from './RecommendedToolsPanel';
 import { makeMockNotesBridge, Note } from './notesBridge';
 import { makeMockPaperSource } from './paperSource';
@@ -188,5 +188,44 @@ describe('RecommendedToolsPanel — honest + static', () => {
     render(<RecommendedToolsPanel />);
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+/* ------------------- the greeting counts every note type ------------------- */
+
+describe('greeting inventory', () => {
+  // The defect: `manuscript` was added to the store after this sentence was
+  // written, and nothing came back here — so a library of three research papers
+  // described itself as "0 paper notes and 0 project ideas".
+  it('names manuscripts — a manuscript-only library is never described as empty', () => {
+    expect(libraryLine({ paper: 0, project: 0, manuscript: 3 }))
+      .toBe('Your library holds 3 research papers — all on this device.');
+  });
+
+  it('lists only what you have, in rail order, with an Oxford-free join', () => {
+    expect(libraryLine({ paper: 2, project: 1, manuscript: 3 }))
+      .toBe('Your library holds 2 paper notes, 1 project idea and 3 research papers — all on this device.');
+    expect(libraryLine({ paper: 2, project: 0, manuscript: 3 }))
+      .toBe('Your library holds 2 paper notes and 3 research papers — all on this device.');
+  });
+
+  it('singulars are singular', () => {
+    expect(libraryLine({ paper: 1, project: 1, manuscript: 1 }))
+      .toBe('Your library holds 1 paper note, 1 project idea and 1 research paper — all on this device.');
+  });
+
+  it('an empty library says so instead of reciting zeroes', () => {
+    expect(libraryLine({ paper: 0, project: 0, manuscript: 0 }))
+      .toBe('Your library is empty — everything you write here stays on this device.');
+  });
+
+  it('renders from the REAL store counts, manuscripts included', async () => {
+    const manuscript: Note = {
+      id: 'm1', note_type: 'manuscript', paper_id: null, paper_title: '', title: 'A paper',
+      fields_json: '{}', body: 'draft', tags: [], sync_status: 'local_only', created_at: 1, updated_at: 9,
+    };
+    renderPage(makeMockNotesBridge([manuscript]));
+    const line = await screen.findByTestId('greet-inventory');
+    expect(line.textContent).toBe('Your library holds 1 research paper — all on this device.');
   });
 });
