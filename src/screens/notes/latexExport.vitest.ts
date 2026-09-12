@@ -15,7 +15,7 @@ import { CslItem } from '../citations/citationTypes';
 import { renderManuscriptCitations } from './manuscriptCitations';
 import { buildLatexBundle } from './manuscriptLatex';
 import { escapeTex, proseToTex, texComment } from './latexEscape';
-import { newManuscript, Manuscript, Scaffold, LatexFormat, DEFAULT_LATEX_FORMAT } from './manuscriptModel';
+import { newManuscript, Manuscript, Scaffold, ReadingFormat, DEFAULT_READING_FORMAT } from './manuscriptModel';
 
 const CAT = JSON.parse(readFileSync('public/manuscripts/scaffolds.json', 'utf8')) as { version: number; scaffolds: Scaffold[] };
 const sc = (id: string) => CAT.scaffolds.find((s) => s.id === id)!;
@@ -36,7 +36,7 @@ beforeAll(async () => {
 /** Build a bundle and return main.tex plus the file list. */
 const build = async (
   bodies: Record<string, string>,
-  opts: { scaffoldId?: string; style?: string; library?: Map<string, CslItem>; bibtex?: string; format?: LatexFormat } = {},
+  opts: { scaffoldId?: string; style?: string; library?: Map<string, CslItem>; bibtex?: string; format?: ReadingFormat } = {},
 ) => {
   const scaffold = sc(opts.scaffoldId ?? 'ieee');
   const m: Manuscript = newManuscript('m1', scaffold);
@@ -45,7 +45,7 @@ const build = async (
   for (const [k, v] of Object.entries(bodies)) { const s = m.sections.find((x) => x.key === k); if (s) s.body = v; }
   const cites = await renderManuscriptCitations(m.sections, opts.style ?? 'ieee', opts.library ?? new Map());
   const bundle = await buildLatexBundle(
-    m, scaffold, opts.format ?? scaffold.latexFormat ?? DEFAULT_LATEX_FORMAT, cites, opts.bibtex,
+    m, scaffold, opts.format ?? scaffold.readingFormat ?? DEFAULT_READING_FORMAT, cites, opts.bibtex,
     { readImage: async () => ({ data: PNG, mime: 'image/png' }) },
   );
   return { tex: bundle.files.get('main.tex') as string, files: Array.from(bundle.files.keys()), bundle, cites };
@@ -143,7 +143,7 @@ describe('figures', () => {
     m.title = 'T';
     m.sections.find((s) => s.key === 'results')!.body = '![](gaply-image://missing.png)';
     const cites = await renderManuscriptCitations(m.sections, 'ieee', new Map());
-    const bundle = await buildLatexBundle(m, scaffold, scaffold.latexFormat, cites, undefined, {
+    const bundle = await buildLatexBundle(m, scaffold, scaffold.readingFormat, cites, undefined, {
       readImage: async () => { throw new Error('gone'); },
     });
     const tex = bundle.files.get('main.tex') as string;
@@ -255,13 +255,13 @@ describe('the file stays honest about what it is', () => {
     expect(tex).not.toContain('READING layout');
   });
 
-  it('every scaffold carries a latexFormat with an honest source note', () => {
+  it('every scaffold carries a readingFormat with an honest source note', () => {
     for (const s of CAT.scaffolds) {
-      expect(s.latexFormat, s.id).toBeTruthy();
-      expect(s.latexFormat!.source, s.id).toBeTruthy();
-      expect([1, 2]).toContain(s.latexFormat!.columns);
+      expect(s.readingFormat, s.id).toBeTruthy();
+      expect(s.readingFormat!.source, s.id).toBeTruthy();
+      expect([1, 2]).toContain(s.readingFormat!.columns);
       // the source note must not claim to reproduce the publisher's layout
-      expect(s.latexFormat!.source!.toLowerCase(), s.id).not.toMatch(/official template|camera-ready reproduction/);
+      expect(s.readingFormat!.source!.toLowerCase(), s.id).not.toMatch(/official template|camera-ready reproduction/);
     }
   });
 

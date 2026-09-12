@@ -12,6 +12,7 @@ import MarkdownIt from 'markdown-it';
 import type Token from 'markdown-it/lib/token';
 import { CITE_TOKEN_RE } from './GaplyCiteNode';
 import { registerMathRule, mathTokenPayload } from './GaplyMathNode';
+import { texToOmml } from './manuscriptOmml';
 import { CitationRender } from './manuscriptCitations';
 import { IMAGE_REF_PREFIX } from './noteImages';
 import type { ResolvedImage, ImageResolver } from './manuscriptDocx';
@@ -42,6 +43,13 @@ export interface RichDocxCtx {
   resolveImage: ImageResolver;
   fit: (w: number, h: number) => { width: number; height: number };
   olInstance: { n: number };        // fresh numbering instance per ordered list (restart at 1)
+  /** Formulas that could not be mapped to OMML and shipped as LaTeX source.
+   *  Collected so the caller can report the limit rather than have it
+   *  discovered in a reviewer's copy. */
+  mathFallbacks?: Array<{ tex: string; reason: string }>;
+  /** Wrap a raw `<m:oMath>` string as a docx component. Supplied by the caller
+   *  because it needs docx's lazily-imported module; see manuscriptDocx. */
+  ommlComponent: (omml: string) => ParaChild;
 }
 
 /** Replace [[cite:id]] with its resolved marker, advancing the shared counter in
@@ -118,14 +126,22 @@ async function inlineRuns(children: Token[], ctx: RichDocxCtx): Promise<ParaChil
         break;
       }
       case 'gaply_math': {
-        // STOPGAP, deliberately visible. Real OMML is the journal-styled Word
-        // export, which is held until LaTeX lands; until then a formula exports
-        // as its own LaTeX source in a monospace run. That is readable, obviously
-        // a formula, and honest about not being typeset — where emitting nothing
-        // would silently drop the author's mathematics, and emitting the raw
-        // `[[math:…]]` token would leak Gaply's storage format into their file.
+        // REAL OMML, with the LaTeX source as the fallback rather than the rule.
+        // texToOmml never throws: it returns null and a reason for anything
+        // outside the renderer's subset, so a formula it cannot typeset still
+        // reaches the page as its own source in a math font. Losing an author's
+        // mathematics is the one outcome that is never acceptable; rendering it
+        // less beautifully than Word could is a limit worth taking.
+        //
+        // `ommlComponent`, NOT ImportedXmlComponent.fromXmlString — see its note.
         const { tex, display } = mathTokenPayload(t);
-        emit(new D.TextRun({ text: display ? `  ${tex}  ` : tex, font: 'Cambria Math', italics: true }));
+        const { omml, reason } = texToOmml(tex);
+        if (omml) {
+          emit(ctx.ommlComponent(omml));
+        } else {
+          ctx.mathFallbacks?.push({ tex, reason: reason ?? 'unsupported' });
+          emit(new D.TextRun({ text: display ? `  ${tex}  ` : tex, font: 'Cambria Math', italics: true }));
+        }
         break;
       }
       // BOTH break kinds become a real <w:br/>, because in THIS document model

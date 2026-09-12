@@ -18,7 +18,7 @@ import { ensureCslEngine, registerStyleXml, registerLocaleXml } from '../../src/
 import { CslItem } from '../../src/screens/citations/citationTypes';
 import { renderManuscriptCitations } from '../../src/screens/notes/manuscriptCitations';
 import { buildLatexBundle } from '../../src/screens/notes/manuscriptLatex';
-import { newManuscript, Manuscript, Scaffold, DEFAULT_LATEX_FORMAT } from '../../src/screens/notes/manuscriptModel';
+import { newManuscript, Manuscript, Scaffold, DEFAULT_READING_FORMAT } from '../../src/screens/notes/manuscriptModel';
 
 const OUT = process.env.LATEX_GOLDEN_DIR || '/tmp/latex-goldens';
 const CAT = JSON.parse(readFileSync('public/manuscripts/scaffolds.json', 'utf8')) as { scaffolds: Scaffold[] };
@@ -68,7 +68,7 @@ const FULL: Record<string, string> = {
 const write = async (name: string, m: Manuscript, scaffold: Scaffold, library: Map<string, CslItem>, style: string) => {
   const cites = await renderManuscriptCitations(m.sections, style, library);
   const bundle = await buildLatexBundle(
-    m, scaffold, scaffold.latexFormat ?? DEFAULT_LATEX_FORMAT, cites, undefined,
+    m, scaffold, scaffold.readingFormat ?? DEFAULT_READING_FORMAT, cites, undefined,
     { readImage: async () => ({ data: PNG, mime: 'image/png' }) },
   );
   bundle.files.forEach((contents, path) => {

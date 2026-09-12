@@ -46,29 +46,42 @@ export const DEFAULT_DOCX_FORMAT: DocxFormat = {
   titleBlock: { affiliations: true, correspondingAuthor: true },
 };
 
-/** Per-venue LaTeX profile for the .tex export. Mirrors DocxFormat's shape and
- *  purpose: grounded in the venue's public guidance where it specifies
- *  something, a sensible academic default otherwise (see `source`).
+/** ONE per-venue READING-LAYOUT decision, rendered by TWO exporters.
  *
- *  `columns: 2` is a READING layout — see the export's header comment. It is
- *  deliberately NOT presented as a submission artefact, which is what lets the
- *  product's standing claims about camera-ready typesetting stay true. */
-export interface LatexFormat {
+ *  Two-column IEEE should look two-column in both the .tex and the journal-
+ *  styled .docx; a venue that publishes single-column should be single-column
+ *  in both. Keeping that as one profile is what stops the two drifting — two
+ *  parallel blocks in scaffolds.json would eventually disagree, and a reader
+ *  comparing the two outputs would be right to call it a bug.
+ *
+ *  A reading layout is NOT the submission artefact. The single-column .docx
+ *  manuscript remains that, and its `docxFormat` profile is untouched by
+ *  anything here — which is what keeps the product's four standing claims true.
+ *
+ *  Fields are shared unless noted; `font` and `columnGapInch` are consumed only
+ *  by the .docx renderer (LaTeX takes its font from the class and its gutter
+ *  from `\columnsep`), and `marginInch` by both. */
+export interface ReadingFormat {
   columns: 1 | 2;
-  fontSizePt: 10 | 11 | 12;
+  fontSizePt: 9 | 10 | 11 | 12;
   marginInch: number;
   pageSize: 'letter' | 'a4';
   lineNumbers: boolean;
   sectionNumbering: 'none' | 'decimal' | 'roman-upper';
   titleBlock: { affiliations: boolean; correspondingAuthor: boolean };
+  /** .docx only — LaTeX uses the document class's own face. */
+  font?: string;
+  /** .docx only — the gutter between columns. */
+  columnGapInch?: number;
   source?: string;
 }
 
-/** The generic reading layout, used when a scaffold omits its own profile. */
-export const DEFAULT_LATEX_FORMAT: LatexFormat = {
+/** The generic two-column reading layout, used when a scaffold omits its own. */
+export const DEFAULT_READING_FORMAT: ReadingFormat = {
   columns: 2, fontSizePt: 10, marginInch: 0.75, pageSize: 'letter',
   lineNumbers: false, sectionNumbering: 'decimal',
   titleBlock: { affiliations: true, correspondingAuthor: true },
+  font: 'Times New Roman', columnGapInch: 0.25,
   source: "Gaply's generic two-column reading layout. Not tied to any publisher.",
 };
 
@@ -80,7 +93,9 @@ export interface Scaffold {
   publisherAuthorUrl: string;// link to the venue's real author page
   noticeText: string;        // honest per-scaffold disclaimer
   docxFormat?: DocxFormat;   // per-venue manuscript formatting (Set C+)
-  latexFormat?: LatexFormat; // per-venue .tex reading layout
+  /** The per-venue reading layout, shared by the .tex and journal .docx
+   *  exports. NOT the submission profile — that is `docxFormat`. */
+  readingFormat?: ReadingFormat;
   sections: ScaffoldSection[];
 }
 
@@ -94,7 +109,7 @@ export const IMRAD_SCAFFOLD: Scaffold = {
   publisherAuthorUrl: 'https://www.icmje.org/recommendations/',
   noticeText: "A general IMRaD structure — Gaply's own starting scaffold, not tied to any publisher. Follow your target journal's guidelines.",
   docxFormat: { ...DEFAULT_DOCX_FORMAT },
-  latexFormat: { ...DEFAULT_LATEX_FORMAT, columns: 1, fontSizePt: 11, sectionNumbering: 'none' },
+  readingFormat: { ...DEFAULT_READING_FORMAT, columns: 1, fontSizePt: 11, sectionNumbering: 'none' },
   sections: [
     { key: 'abstract', heading: 'Abstract', guidance: 'One paragraph: problem, method, key result, significance. Usually no citations.', typicalWords: '150–250', required: true },
     { key: 'keywords', heading: 'Keywords', guidance: '3–6 comma-separated indexing terms.', typicalWords: '3–6 terms', required: false },

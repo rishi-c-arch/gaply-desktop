@@ -13,7 +13,7 @@ import { LocalLibrary, TauriLocalLibrary, storedToCitation } from '../citations/
 import { CslItem } from '../citations/citationTypes';
 import { Note, NoteDraft } from './notesBridge';
 import {
-  Manuscript, Scaffold, DEFAULT_DOCX_FORMAT, DEFAULT_LATEX_FORMAT, manuscriptFromNote, manuscriptToDraft, newManuscript,
+  Manuscript, Scaffold, DEFAULT_DOCX_FORMAT, DEFAULT_READING_FORMAT, manuscriptFromNote, manuscriptToDraft, newManuscript,
   switchScaffold, storedScaffoldId, wordCount,
   renameSection, addSection, deleteSection, moveSection,
 } from './manuscriptModel';
@@ -88,7 +88,7 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
   const [pendingDelete, setPendingDelete] = useState<{ key: string; heading: string; words: number } | null>(null);
   // A resolved render held back by the dangling-citation export gate, plus the
   // format that was asked for, so "Export anyway" resumes the right writer.
-  const [pendingExport, setPendingExport] = useState<{ cites: CitationRender; kind: 'docx' | 'tex' } | null>(null);
+  const [pendingExport, setPendingExport] = useState<{ cites: CitationRender; kind: 'docx' | 'tex' | 'reading' } | null>(null);
   const [renamingKey, setRenamingKey] = useState<string | null>(null);
   const [activeKey, setActiveKey] = useState(manuscript.sections[0]?.key ?? '');
 
@@ -177,9 +177,20 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
 
   /** Write the .docx. Split out from the gate below so "Export anyway" reuses
    *  the exact same path (no second resolve, no chance of a different render). */
-  const writeDocx = async (cites: CitationRender) => {
+  const writeDocx = async (cites: CitationRender, reading = false) => {
     try {
-      await saveManuscriptDocx(manuscript, exportFileName(manuscript.title, 'manuscript').replace(/\.md$/, '.docx'), scaffold.docxFormat ?? DEFAULT_DOCX_FORMAT, cites);
+      const name = exportFileName(manuscript.title, 'manuscript').replace(/\.md$/, reading ? '-reading.docx' : '.docx');
+      const fallbacks: Array<{ tex: string; reason: string }> = [];
+      await saveManuscriptDocx(
+        manuscript, name, scaffold.docxFormat ?? DEFAULT_DOCX_FORMAT, cites,
+        reading ? (scaffold.readingFormat ?? DEFAULT_READING_FORMAT) : undefined, fallbacks,
+      );
+      // Say which formulas could not be typeset, rather than letting the author
+      // find LaTeX source in their own paper. Not an error — the mathematics is
+      // on the page either way — so it is stated once, after a successful write.
+      if (fallbacks.length) {
+        onError?.(`Exported. ${fallbacks.length} formula${fallbacks.length > 1 ? 's' : ''} could not be typeset by Word and ${fallbacks.length > 1 ? 'appear' : 'appears'} as LaTeX source: ${fallbacks.map((f) => f.reason).join('; ')}.`);
+      }
     } catch (e) {
       onError?.(e instanceof Error ? e.message : 'Could not export the .docx');
     }
@@ -199,7 +210,7 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
       } catch { bibtex = undefined; }
 
       const bundle = await buildLatexBundle(
-        manuscript, scaffold, scaffold.latexFormat ?? DEFAULT_LATEX_FORMAT, cites, bibtex,
+        manuscript, scaffold, scaffold.readingFormat ?? DEFAULT_READING_FORMAT, cites, bibtex,
       );
       await saveLatexBundle(bundle, exportFileName(manuscript.title, 'manuscript').replace(/\.md$/, '-latex.zip'));
     } catch (e) {
@@ -215,6 +226,17 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
       await writeTex(cites);
     } catch (e) {
       onError?.(e instanceof Error ? e.message : 'Could not export the LaTeX bundle');
+    }
+  };
+
+  const exportReadingDocx = async () => {
+    onError?.(null);
+    try {
+      const cites = await renderManuscriptCitations(manuscript.sections, manuscript.cslStyleId, libMap);
+      if (cites.dangling.length > 0) { setPendingExport({ cites, kind: 'reading' }); return; }
+      await writeDocx(cites, true);
+    } catch (e) {
+      onError?.(e instanceof Error ? e.message : 'Could not export the reading layout');
     }
   };
 
@@ -336,6 +358,9 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
           <button className="an-ghostbtn" onClick={() => void exportTex()} disabled={busy} data-testid="ms-export-tex" title="Export a LaTeX bundle — a reading layout, not a submission file">
             <IcExport /> .tex
           </button>
+          <button className="an-ghostbtn" onClick={() => void exportReadingDocx()} disabled={busy} data-testid="ms-export-reading" title="Export a journal-styled .docx — a reading layout, not a submission file">
+            <IcExport /> journal .docx
+          </button>
           <div className="an-divider" />
           {existing && onDelete && (
             <button className={`an-deletebtn${deleteArmed ? ' an-deletebtn--armed' : ''}`} onClick={onDeleteClick} data-testid="ms-delete" title={deleteArmed ? 'Click again to delete' : 'Delete manuscript'}>
@@ -363,7 +388,7 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
           <button className="an-linkbtn" data-testid="ms-change-structure" onClick={() => setPickerMode('switch')}>Change structure</button>
           <br />Gaply formats your <b>structure and references</b>; the publisher typesets the final camera-ready layout.
           <br /><span data-testid="ms-export-note">Exports a clean single-column submission manuscript — for camera-ready typesetting after acceptance, use your publisher’s official template or Overleaf.</span>
-          <br /><span data-testid="ms-tex-note"><b>.tex</b> gives you a <b>reading layout</b> — see your paper roughly the way a reader will. It uses the generic LaTeX <code>article</code> class, not a publisher template, and it isn’t the file you submit.</span>
+          <br /><span data-testid="ms-tex-note"><b>.tex</b> and <b>journal .docx</b> give you a <b>reading layout</b> — see your paper roughly the way a reader will, in this venue’s shape. Neither is a publisher template and neither is the file you submit; the single-column <b>.docx</b> above is.</span>
         </div>
 
         {pendingExport && (
@@ -383,7 +408,11 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
               <button
                 className="an-deletebtn an-deletebtn--armed"
                 data-testid="ms-danglingwarn-confirm"
-                onClick={() => { const p = pendingExport; setPendingExport(null); void (p.kind === 'tex' ? writeTex(p.cites) : writeDocx(p.cites)); }}
+                onClick={() => {
+                  const p = pendingExport;
+                  setPendingExport(null);
+                  void (p.kind === 'tex' ? writeTex(p.cites) : writeDocx(p.cites, p.kind === 'reading'));
+                }}
               >
                 Export anyway (with [?])
               </button>
