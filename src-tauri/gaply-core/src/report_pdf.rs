@@ -639,9 +639,68 @@ mod scale {
 }
 
 /// Render composed blocks to PDF bytes.
+/// §11 D149. TWO PASSES, because a contents page states page numbers.
+///
+/// A page number is not knowable until the document has been paginated, and
+/// paginating it requires the contents page to already be there. So the
+/// document is laid out twice: the first pass learns which page each section
+/// heading landed on, the second prints those numbers into the contents.
+///
+/// It terminates, and the numbers it prints are the numbers of the document it
+/// prints, because the two passes lay out IDENTICALLY. A contents entry's page
+/// number is a right-aligned run on the entry's own line, measured into place
+/// rather than padded, and a line that advances nothing vertically cannot
+/// change where anything else falls. Absent (pass one) or present (pass two),
+/// every element has the same height and lands on the same page.
+///
+/// The cost is one extra layout pass over a document of a few dozen pages.
 pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
+    let (elems, sections) = layout(blocks, &[]);
+    let first = paginate(elems, &sections);
+    let (elems, sections) = layout(blocks, &first.section_pages);
+    let settled = paginate(elems, &sections);
+    debug_assert_eq!(
+        first.section_pages, settled.section_pages,
+        "the two passes disagree about where the sections are, so the contents page \
+         is printing numbers from a document that is not this one"
+    );
+    furnish_and_write(settled.pages, running_title(blocks))
+}
+
+/// What the running header calls this document (§11 D149).
+///
+/// From the cover, which is the composer saying what it composed. A block list
+/// with no cover is a fragment (every test in this module renders one), and a
+/// fragment is furnished with the product's name rather than a guess.
+fn running_title(blocks: &[Block]) -> String {
+    blocks
+        .iter()
+        .find_map(|b| match b {
+            Block::Cover { running_title, .. } => Some(running_title.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "Gaply report".to_string())
+}
+
+/// Lay every block out into positioned elements.
+///
+/// `section_pages` holds the page number of each level-1 heading, in order, or
+/// is empty on the first pass. Returns the elements, and the INDEX of each
+/// level-1 heading's element so the paginator can report where they landed.
+fn layout(blocks: &[Block], section_pages: &[usize]) -> (Vec<Elem>, Vec<usize>) {
     let mut outcome = EncodingOutcome::default();
     let mut elems: Vec<Elem> = Vec::new();
+    // Which elements are section headings, in document order.
+    let mut section_elems: Vec<usize> = Vec::new();
+    // The contents IS this list: the composer does not restate it, so the two
+    // cannot drift (see `Block::Contents`).
+    let section_titles: Vec<&str> = blocks
+        .iter()
+        .filter_map(|b| match b {
+            Block::Heading { text, level: 1 } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
 
     // Build the lines for one run of text, wrapped to the column it sits in.
     let mut lay = |out: &mut EncodingOutcome,
@@ -676,7 +735,8 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
 
     for block in blocks {
         match block {
-            Block::Cover { title, subtitle, meta, headline } => {
+            // `running_title` is furniture, read by `running_title()` above.
+            Block::Cover { title, subtitle, meta, headline, running_title: _ } => {
                 // 2.2pt INK rule flush across the top margin, then 34mm.
                 let mut lines = Vec::new();
                 // §11 D93. Was 96.4pt, which marooned the cover block in the middle
@@ -712,6 +772,9 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
                     _ => (scale::H3, Face::Bold, INK, 14.0, Decor::None),
                 };
                 let lines = lay(&mut outcome, text, sc, face, 0.0, rgb, lead, TEXT_W);
+                if *level == 1 {
+                    section_elems.push(elems.len());
+                }
                 elems.push(Elem { lines, decor, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
             }
             Block::Paragraph { text } => {
@@ -1095,6 +1158,34 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
                 let lines = lay(&mut outcome, &scale_note, scale::SMALL, Face::Regular, BAR_LABEL_W, MUTED, 4.0, TEXT_W);
                 elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
             }
+            Block::Contents { title } => {
+                let lines = lay(&mut outcome, title, scale::H2, Face::Bold, 0.0, INK, 20.0, TEXT_W);
+                elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
+                for (i, t) in section_titles.iter().enumerate() {
+                    // The entry, then its page number right-aligned on the same
+                    // line. The number is measured into place and advances
+                    // nothing, which is what lets the two passes agree.
+                    let mut lines = lay(
+                        &mut outcome, t, scale::BODY, Face::Regular, 0.0, BODY, 5.0,
+                        TEXT_W - CONTENTS_NUM_W,
+                    );
+                    lines.truncate(1);
+                    if let Some(n) = section_pages.get(i).filter(|n| **n > 0) {
+                        let mut right = lay(
+                            &mut outcome, &n.to_string(), scale::BODY, Face::Regular, 0.0,
+                            MUTED, 0.0, TEXT_W,
+                        );
+                        if let Some(r) = right.first_mut() {
+                            let w = text_width_in(&r.bytes, r.size, r.face);
+                            r.indent = TEXT_W - w;
+                            r.leading = 0.0;
+                            r.lead = 0.0;
+                        }
+                        lines.append(&mut right);
+                    }
+                    elems.push(Elem { lines, decor: Decor::None, soft_break: false, hard_break: false, draws: Vec::new(), table: None });
+                }
+            }
             Block::PageBreak => elems.push(Elem::br(true, false)),
         }
     }
@@ -1114,7 +1205,7 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
     }
     debug_assert_eq!(scratch, EncodingOutcome::default(), "disclosure notes must be ASCII");
 
-    paginate_and_write(elems)
+    (elems, section_elems)
 }
 
 /// A page break is honoured only when the page already carries real content.
@@ -1126,7 +1217,21 @@ pub fn render_pdf(blocks: &[Block]) -> Vec<u8> {
 /// empty page behind is spent as vertical space instead. It applies uniformly.
 const SOFT_BREAK_MIN_FILL: f64 = 0.45;
 
-fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
+/// The right-hand column a contents entry leaves for its page number, so a long
+/// section name wraps before it collides with the digits (§11 D149).
+const CONTENTS_NUM_W: f64 = 34.0;
+
+/// A paginated document, and where each level-1 heading landed (§11 D149).
+struct Paginated {
+    pages: Vec<Vec<u8>>,
+    /// One 1-based page number per section heading, in document order.
+    section_pages: Vec<usize>,
+}
+
+/// `section_elems` holds indices into `elems` whose page number the caller
+/// wants back: the contents page is built from them.
+fn paginate(elems: Vec<Elem>, section_elems: &[usize]) -> Paginated {
+    let mut section_pages: Vec<usize> = vec![0; section_elems.len()];
     let top = PAGE_H - MARGIN_Y - HEADER_H;
     let bottom = MARGIN_Y + FOOTER_H;
     let usable = top - bottom;
@@ -1160,8 +1265,13 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
         }};
     }
 
-    let mut queue: std::collections::VecDeque<Elem> = elems.into();
-    while let Some(el) = queue.pop_front() {
+    // The index rides with the element because a table row can be pushed back
+    // onto the queue behind a repeated header, and it is still the same
+    // element when it comes round again.
+    const NOT_AN_ORIGINAL: usize = usize::MAX;
+    let mut queue: std::collections::VecDeque<(usize, Elem)> =
+        elems.into_iter().enumerate().collect();
+    while let Some((idx, el)) = queue.pop_front() {
         // Remember the live header, and re-issue it when a data row opens a
         // page without one.
         match el.table {
@@ -1210,10 +1320,17 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
         // no header puts the header back in front of itself and returns.
         if matches!(el.table, Some(TablePart::Row)) && !header_on_page {
             if let Some(hd) = table_header.clone() {
-                queue.push_front(el);
-                queue.push_front(hd);
+                queue.push_front((idx, el));
+                queue.push_front((NOT_AN_ORIGINAL, hd));
                 continue;
             }
+        }
+
+        // The page is settled: this element is about to be drawn on it. A
+        // 1-based number, because it is what the reader will see printed in
+        // the footer.
+        if let Some(k) = section_elems.iter().position(|&i| i == idx) {
+            section_pages[k] = pages.len() + 1;
         }
 
         let block_top = y;
@@ -1326,7 +1443,11 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
         pages.push(Vec::new());
     }
 
-    // Running header and footer, added per page once the count is known.
+    Paginated { pages, section_pages }
+}
+
+/// Draw the running header and footer on every page, and write the file.
+fn furnish_and_write(pages: Vec<Vec<u8>>, running_title: String) -> Vec<u8> {
     let total = pages.len();
     let furnished: Vec<Vec<u8>> = pages
         .into_iter()
@@ -1337,10 +1458,16 @@ fn paginate_and_write(elems: Vec<Elem>) -> Vec<u8> {
             if i == 0 {
                 page.extend_from_slice(&fill_rect(MARGIN_X, PAGE_H - MARGIN_Y, TEXT_W, 2.2, INK));
             } else {
-                page.extend_from_slice(&furniture_text("PublishReady report", MARGIN_X, PAGE_H - MARGIN_Y - 10.0));
+                // §11 D149. Was the hard-coded "PublishReady report", printed
+                // on all eighteen pages of a document called "Thesis citation
+                // audit". A renderer cannot know what it is rendering, so it
+                // stopped guessing: the composer says, on the cover.
+                page.extend_from_slice(&furniture_text(&running_title, MARGIN_X, PAGE_H - MARGIN_Y - 10.0));
                 page.extend_from_slice(&fill_rect(MARGIN_X, PAGE_H - MARGIN_Y - 15.0, TEXT_W, 0.5, HAIR));
             }
-            page.extend_from_slice(&furniture_text("PublishReady", MARGIN_X, MARGIN_Y));
+            // The FOOTER names the product, which is true of every report this
+            // renderer draws. The header names this one.
+            page.extend_from_slice(&furniture_text("Gaply", MARGIN_X, MARGIN_Y));
             let n = format!("{}", i + 1);
             let (bytes, _) = encode_winansi(&n);
             let w = text_width_in(&bytes, scale::FURNITURE.0, Face::Regular);
@@ -1759,6 +1886,149 @@ mod layout_tests {
         (rects, tms)
     }
 
+    /// Each page's content stream, in page order.
+    ///
+    /// The renderer writes one uncompressed stream per page and no other
+    /// streams, so this is the page structure rather than a guess at it. It is
+    /// what lets a test ask WHICH PAGE something landed on (§11 D149).
+    fn page_streams(pdf: &[u8]) -> Vec<String> {
+        let text = String::from_utf8_lossy(pdf).into_owned();
+        // Split on the dictionary that introduces a content stream, never on
+        // the bare keyword: "endstream" ends with it too, and splitting there
+        // returns the object trailer as if it were a page.
+        text.split(">>\nstream\n")
+            .skip(1)
+            .filter_map(|chunk| chunk.split("endstream").next().map(str::to_string))
+            .collect()
+    }
+
+    /// The strings a page draws, in drawing order, each with the font resource
+    /// it was drawn in. The font is what tells a SECTION HEADING (bold) from
+    /// the contents entry naming it (regular), which are the same characters.
+    fn drawn(page: &str) -> Vec<(String, String)> {
+        let mut face = String::new();
+        let mut out = Vec::new();
+        for l in page.lines() {
+            if l.ends_with(" Tf") {
+                face = l.split_whitespace().next().unwrap_or_default().to_string();
+            }
+            if let Some(t) = l.strip_suffix(") Tj") {
+                out.push((face.clone(), t.trim_start_matches('(').to_string()));
+            }
+        }
+        out
+    }
+
+    /// The strings a page draws, in drawing order, as they were written into
+    /// the content stream.
+    fn drawn_text(page: &str) -> Vec<String> {
+        drawn(page).into_iter().map(|(_, t)| t).collect()
+    }
+
+    /// §11 D149. THE RUNNING HEADER NAMES THIS DOCUMENT.
+    ///
+    /// It was the literal "PublishReady report", drawn on every page after the
+    /// cover, including all eighteen pages of a document titled "Thesis
+    /// citation audit". The renderer cannot know what it is rendering, so the
+    /// composer says, on the cover.
+    #[test]
+    fn the_running_header_names_the_document_the_composer_composed() {
+        let blocks = vec![
+            Block::Cover {
+                title: "Thesis citation audit".into(),
+                subtitle: "R PAPER .docx".into(),
+                meta: vec![],
+                headline: None,
+                running_title: "Thesis citation audit".into(),
+            },
+            Block::PageBreak,
+            Block::Heading { text: "At a glance".into(), level: 1 },
+            Block::Paragraph { text: "A sentence on the second page.".into() },
+        ];
+        let pdf = render_pdf(&blocks);
+        let after_cover = &page_streams(&pdf)[1];
+        assert!(
+            drawn_text(after_cover).iter().any(|t| t == "Thesis citation audit"),
+            "the running header does not name this document: {after_cover}"
+        );
+        assert!(
+            !String::from_utf8_lossy(&pdf).contains("PublishReady"),
+            "another product's name is still on the page"
+        );
+
+        // THE NEGATIVE CONTROL. The name was not simply deleted everywhere: the
+        // report it was right for still carries it.
+        let pr = render_pdf(&specimen());
+        assert!(
+            drawn_text(&page_streams(&pr)[1]).iter().any(|t| t == "PublishReady report"),
+            "the PublishReady report lost its own name"
+        );
+    }
+
+    /// §11 D149. THE CONTENTS PAGE STATES WHERE EACH SECTION ACTUALLY IS.
+    ///
+    /// The numbers come from a first layout pass and are printed by a second,
+    /// so the thing to check is not that numbers appear but that each one is
+    /// the page its section landed on in the file that was written. A contents
+    /// page with confident wrong numbers is worse than none.
+    #[test]
+    fn the_contents_page_numbers_are_the_pages_the_sections_are_on() {
+        let filler = "A paragraph of ordinary body text, long enough that a run of them fills \
+                      a page and pushes the next section onto the one after it. ";
+        let sections = ["At a glance", "The counts", "Cited, but not checkable", "Not judged"];
+        let mut blocks = vec![
+            Block::Cover {
+                title: "Thesis citation audit".into(),
+                subtitle: "R PAPER .docx".into(),
+                meta: vec![],
+                headline: None,
+                running_title: "Thesis citation audit".into(),
+            },
+            Block::Contents { title: "What is in this report".into() },
+            Block::PageBreak,
+        ];
+        for name in sections {
+            blocks.push(Block::Heading { text: name.into(), level: 1 });
+            for _ in 0..14 {
+                blocks.push(Block::Paragraph { text: filler.repeat(3) });
+            }
+        }
+        let pdf = render_pdf(&blocks);
+        let pages = page_streams(&pdf);
+        assert!(pages.len() >= 4, "the fixture did not spill across pages: {}", pages.len());
+
+        // The cover ends with a break the renderer always honours, so the
+        // contents opens the page after it.
+        let contents_page = pages
+            .iter()
+            .position(|p| drawn_text(p).iter().any(|t| t == "What is in this report"))
+            .expect("no contents page");
+        let contents = drawn_text(&pages[contents_page]);
+        for name in sections {
+            // Where the contents SAYS it is: the first all-digits run drawn
+            // after the entry.
+            let at = contents.iter().position(|t| t == name).expect("no contents entry");
+            let claimed: usize = contents[at + 1..]
+                .iter()
+                .find(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit()))
+                .expect("the entry carries no page number")
+                .parse()
+                .unwrap();
+            // Where it IS. The contents page names every section in regular
+            // type; the heading itself is the bold one, and it can be on the
+            // contents page (a short contents does not spend a whole sheet).
+            let actual = pages
+                .iter()
+                .enumerate()
+                .find(|(_, p)| {
+                    drawn(p).iter().any(|(face, t)| face == "/F2" && t == name)
+                })
+                .map(|(i, _)| i + 1)
+                .expect("a section in the contents is not in the document");
+            assert_eq!(claimed, actual, "the contents sends the reader to the wrong page for {name:?}");
+        }
+    }
+
     /// A specimen exercising every decorated element: cover, h1/h2/h3,
     /// paragraphs, flush and indented bullets, a note, and page breaks.
     fn specimen() -> Vec<Block> {
@@ -1989,7 +2259,13 @@ mod layout_tests {
     #[test]
     fn the_cover_always_stands_alone() {
         let blocks = vec![
-            Block::Cover { title: "T".into(), subtitle: "S".into(), meta: vec![], headline: None },
+            Block::Cover {
+                title: "T".into(),
+                subtitle: "S".into(),
+                meta: vec![],
+                headline: None,
+                running_title: "T".into(),
+            },
             Block::Heading { text: "One".into(), level: 1 },
         ];
         let pdf = render_pdf(&blocks);

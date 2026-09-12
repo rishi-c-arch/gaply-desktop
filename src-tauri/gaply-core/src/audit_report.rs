@@ -181,17 +181,37 @@ fn heading(text: impl Into<String>, level: u8) -> Block {
     Block::Heading { text: text.into(), level }
 }
 
-/// The page label for a passage. `None` is stated, never guessed — a fabricated
-/// page number is worse than an absent one, because it looks checkable.
+/// The page label for a place in THE MANUSCRIPT. `None` is stated, never
+/// guessed — a fabricated page number is worse than an absent one, because it
+/// looks checkable.
+///
+/// §11 D149. Spelled "page 4", not "p.4". The report is read by researchers,
+/// not by the tool, and an abbreviation saves four characters in exchange for
+/// one more thing to decode.
 fn page_label(page: Option<u32>, has_pages: bool) -> String {
     match (page, has_pages) {
-        (Some(p), _) => format!("p.{p}"),
+        (Some(p), _) => format!("page {p}"),
         // The document is paginated and THIS item lost its page — genuinely
         // unknown, and worth saying.
         (None, true) => "page unknown".to_string(),
         // The document has no pagination. Saying "unknown" here would report a
         // defect where there is only a file format.
         (None, false) => "no page numbers".to_string(),
+    }
+}
+
+/// The page label for a passage quoted from A CITED SOURCE.
+///
+/// §11 D149. Separate from `page_label` because the two are about different
+/// documents and only one of them is the manuscript. A source passage was
+/// passing through `page_label(e.page, has_pages)`, so a page-less passage from
+/// a cited PDF printed "no page numbers" — the manuscript's `has_pages`
+/// answering a question about the source. The source is a PDF; if its page is
+/// missing, it was not recorded, which is what this says.
+fn source_page_label(page: Option<u32>) -> String {
+    match page {
+        Some(p) => format!("page {p}"),
+        None => "page not recorded".to_string(),
     }
 }
 
@@ -210,9 +230,13 @@ fn locator(item: &ReportItem, has_pages: bool) -> String {
         // and "somewhere near here". The derived page comes from the text that
         // PRINTS the sentence; the approximate one is a reflowed block's page,
         // which is off by one about 8% of the time.
-        (Some(p), _) if item.page_approximate => format!("~p.{p}"),
-        (Some(p), _) => format!("p.{p}"),
-        (None, Some(par)) => format!("¶{par}"),
+        // §11 D149. Was `~p.5` and `¶32`. The tilde and the pilcrow were the
+        // report's own shorthand, printed to a reader who was never told what
+        // either meant — and `¶32` was the most frequent one in a Word
+        // manuscript, where every single item carries it.
+        (Some(p), _) if item.page_approximate => format!("about page {p}"),
+        (Some(p), _) => format!("page {p}"),
+        (None, Some(par)) => format!("paragraph {par}"),
         (None, None) => page_label(None, has_pages),
     }
 }
@@ -277,6 +301,25 @@ const ABSTRACT_ONLY_LONG: &str =
      too little to quote for most claims, so this is a limit of what could be obtained rather \
      than a judgement about the sentence.";
 const ABSTRACT_ONLY_SHORT: &str = "Checked against an ABSTRACT only, not the full text.";
+
+/// §11 D149. WHY THERE IS NO GRADE, said ONCE.
+///
+/// The same forty words appeared three times, on three consecutive pages: under
+/// "At a glance", again in "The counts", and again in the blurb of the evidence
+/// section. Each telling was accurate. By the third the report is not informing
+/// a reader, it is defending itself, and the defect is the one D140 named at
+/// item scope, at report scope.
+///
+/// The long form belongs where the absence is ASSERTED, which is the "no score"
+/// badge on page 1. Everywhere else states the fact and points at it: a reader
+/// who wants the measurement knows where it is, and one who does not is not
+/// made to read it again.
+const GRADER_WITHDRAWN_LONG: &str =
+    "The grader that used to produce a score was measured on a labelled set and returned the \
+     SAME grade for every case (14 of 14 outputs across two runs), so any number built from it \
+     described the grader rather than your manuscript.";
+const GRADER_WITHDRAWN_SHORT: &str =
+    "Gaply does not grade how well a passage supports a sentence. \u{201c}At a glance\u{201d} says why.";
 
 /// `hoisted` names the caveats the SECTION has already stated once, so an item
 /// does not repeat them (defect 1).
@@ -351,9 +394,13 @@ fn emit_finding(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool, hoiste
         }
     } else {
         out.push(para("Evidence from the cited source:"));
-        for e in &item.evidence {
+        // §11 D149. NUMBERED, not identified by `chunk_id`. `c931` is the
+        // retrieval store's row id: it means nothing to a reader, cannot be
+        // looked up by one, and appeared in the report only because it was the
+        // handle this code already had.
+        for (n, e) in item.evidence.iter().enumerate() {
             out.push(bullet(
-                format!("{} · {}: “{}”", e.chunk_id, page_label(e.page, has_pages), e.quote.trim()),
+                format!("Passage {} · {}: “{}”", n + 1, source_page_label(e.page), e.quote.trim()),
                 1,
             ));
         }
@@ -417,7 +464,7 @@ fn emit_evidence_item(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) 
         }
     } else {
         out.push(para("From the cited source. Read this and judge it yourself:"));
-        for e in &item.evidence {
+        for (n, e) in item.evidence.iter().enumerate() {
             // §11 D147. The MODEL'S POINTER first, then the passage it points
             // into. The reader used to meet an undifferentiated 380-word
             // retrieval chunk with nothing saying which part mattered, while
@@ -426,15 +473,27 @@ fn emit_evidence_item(out: &mut Vec<Block>, item: &ReportItem, has_pages: bool) 
             // It leads, and it is labelled as the model's, because it is the
             // one thing here that a model wrote. The passage underneath is the
             // source's own words and is what the check rests on.
+            //
+            // §11 D149. The passages are NUMBERED. They used to be labelled
+            // with `chunk_id` — `c931`, `c1234` — which is the retrieval
+            // store's row id. It named the passage for the pointer line and for
+            // the quote, which is the only job the label has here, and a reader
+            // can do nothing else with it: it is not searchable, not in the
+            // source, and not explained anywhere in the report.
             if !e.why.is_empty() {
                 out.push(para(format!(
-                    "What the model points to in {}: {}",
-                    e.chunk_id,
+                    "What the model points to in passage {}: {}",
+                    n + 1,
                     e.why.trim()
                 )));
             }
             out.push(bullet(
-                format!("{} · {}: \u{201c}{}\u{201d}", e.chunk_id, page_label(e.page, has_pages), e.quote.trim()),
+                format!(
+                    "Passage {} \u{b7} {}: \u{201c}{}\u{201d}",
+                    n + 1,
+                    source_page_label(e.page),
+                    e.quote.trim()
+                ),
                 1,
             ));
         }
@@ -650,6 +709,27 @@ fn status_phrase(reason: &str) -> &'static str {
         "Reference list not readable"
     } else {
         "Could not be checked"
+    }
+}
+
+/// §11 D149. What to call a KIND OF CHECK in a table a researcher reads.
+///
+/// The counts table printed `kind.replace('_', " ")`, so its rows read "citation
+/// support" and "unverifiable". Those are the planner's enum variants: they are
+/// how this codebase names the two lanes, and neither is a phrase anyone outside
+/// it would use. "Unverifiable" in particular reads as a verdict on the
+/// sentence, when it means Gaply could not obtain the cited work.
+///
+/// An unknown kind falls back to the old spelling rather than being hidden: a
+/// row that is present and awkwardly named can be fixed, and a row silently
+/// dropped from a count cannot even be seen.
+fn check_kind_label(kind: &str) -> String {
+    match kind {
+        "citation_support" => "Checked against the cited source".to_string(),
+        "unverifiable" => "Cited source could not be read".to_string(),
+        // Retired (§11 D128), but jobs run before that still carry the rows.
+        "citation_need" => "Looked at whether it needs a citation".to_string(),
+        other => other.replace('_', " "),
     }
 }
 
@@ -1108,10 +1188,18 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         headline: cover_headline,
         title: "Thesis citation audit".to_string(),
         subtitle: m.manuscript_name.clone(),
+        // §11 D149. The page furniture was hard-coded "PublishReady", on all
+        // eighteen pages of a document that is not that report.
+        running_title: "Thesis citation audit".to_string(),
         meta: vec![
             ("Generated".to_string(), m.generated_on.clone()),
-            ("Judged by".to_string(), m.model_id.clone()),
-            ("Prompt version".to_string(), m.prompt_version.clone()),
+            // §11 D149. "JUDGED BY qwen2.5-3b-instruct-q4km" and "PROMPT
+            // VERSION citation_support-v1.6" were the first two facts on page
+            // 1, and neither is a fact about the manuscript. A model file name
+            // and an internal prompt tag are the tool describing itself to
+            // itself. They are the record of how this run was produced, so they
+            // are kept, once, in "How this report was produced" at the end,
+            // where the reader who wants them is looking for them.
             ("Sentences read".to_string(), m.total_sentences.to_string()),
             // §11 D145. Was "Sentences answered: 39". `checked` counts every
             // item that returned an answer, INCLUDING the 34 whose answer was
@@ -1121,6 +1209,17 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
             ("Passages quoted".to_string(), cover_checked.to_string()),
         ],
     });
+
+    // §11 D149. THE MAP AT THE FRONT. Eighteen pages with no contents, so a
+    // reader who wanted the list of works to add had to find it by scrolling
+    // past nine pages of quoted passages.
+    //
+    // It opens page 2: the cover ends with a break the renderer always
+    // honours. The break after it is the ordinary soft one, so a contents short
+    // enough to leave most of the page empty is followed down it by "At a
+    // glance" rather than costing a sheet of paper to list eight lines.
+    out.push(Block::Contents { title: "What is in this report".to_string() });
+    out.push(Block::PageBreak);
 
     // ---- AT A GLANCE ------------------------------------------------------
     // The first page answers "how bad is it, and what do I do first". The
@@ -1148,13 +1247,15 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         ));
     } else {
         out.push(para(format!(
+            // §11 D149. Was "quotes them below with their page", four lines
+            // above a note saying this manuscript has no page numbering. Both
+            // sentences were true and they read as a contradiction, because
+            // neither said WHICH document its pages belong to. These pages are
+            // the cited source's; the note below is about the manuscript.
             "Gaply does not score how well your sources support your claims, and this report \
              gives no /100. It located the source passages behind {checked} of {citing_total} \
-             cited claim{} and \
-             quotes them below with their page. Reading those is the check. The grader that \
-             used to produce a score was measured on a labelled set and returned the SAME grade \
-             for every case (14 of 14 outputs across two runs), so any number built from it \
-             described the grader rather than your manuscript.",
+             cited claim{} and quotes them below, each with the page it appears on in the work \
+             your sentence cites. Reading those is the check. {GRADER_WITHDRAWN_LONG}",
             if checked == 1 { "" } else { "s" },
         )));
     }
@@ -1196,20 +1297,28 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     // no error rate because no model produced them.
 
     // The provenance line is not decoration. A reader months from now needs to
-    // know which model produced this and that it ran locally.
+    // know that this ran locally.
+    //
+    // §11 D149. It used to name the model file and the prompt version here too.
+    // Which model produced a sentence is worth knowing; `qwen2.5-3b-instruct-q4km
+    // (citation_support-v1.6)` on page 1 is the tool talking to itself. Both
+    // are now stated once, in plain words, in "How this report was produced".
     out.push(Block::Note {
-        text: format!(
-            "Everything a language model contributed to this report was produced on this \
-             machine by {} ({}). No manuscript text was sent anywhere.",
-            m.model_id, m.prompt_version
-        ),
+        text: "Everything a language model contributed to this report was produced on this \
+               machine. No manuscript text was sent anywhere. The last section says which model \
+               it was."
+            .to_string(),
     });
 
     if !m.has_pages {
         out.push(Block::Note {
+            // §11 D149. "Findings in it" and the second sentence: the page
+            // numbers a reader has just been offered are the CITED SOURCES',
+            // and without saying so this note reads as a retraction of them.
             text: "This manuscript is a Word document, which has no page numbering, so findings \
-                   are located by sentence rather than by page. Export it as a PDF and re-run to \
-                   get page references."
+                   in it are located by sentence and paragraph rather than by page. Export it as \
+                   a PDF and re-run to get page references. The page numbers on the quoted \
+                   passages below are the cited sources' own, and are unaffected."
                 .to_string(),
         });
     }
@@ -1241,14 +1350,21 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     // quoted for 3".
     if !m.counts_by_category.is_empty() {
         out.push(Block::Table {
+            // §11 D149. Was "Counts rows, not findings." That is a note to
+            // whoever maintains the two numbers, written where a reader is
+            // trying to understand their own manuscript. It says the same thing
+            // below in words that name what a reader would otherwise
+            // mis-add.
             caption: Some(
-                "What Gaply did with each sentence. Counts rows, not findings.".to_string(),
+                "What Gaply did with each sentence. One row per sentence: a sentence counted \
+                 here can still have no passage quoted for it below."
+                    .to_string(),
             ),
             header: vec!["Kind of check".to_string(), "Sentences".to_string()],
             rows: m
                 .counts_by_category
                 .iter()
-                .map(|(kind, n)| vec![kind.replace('_', " "), n.to_string()])
+                .map(|(kind, n)| vec![check_kind_label(kind), n.to_string()])
                 .collect(),
             align: vec![Align::Left, Align::Right],
         });
@@ -1272,11 +1388,10 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     }
     if !support_counts.is_empty() {
         let located: usize = support_counts.iter().map(|(_, n)| *n).sum();
+        // §11 D149. The SECOND of three tellings, now a pointer.
         out.push(para(format!(
             "{located} cited sentence{} had source passages located and quoted in this report. \
-             Gaply does not grade how well a passage supports a sentence. On a 6-case labelled \
-             set the grade was identical on all 14 outputs across two runs, so it carries no \
-             information and is not reported. The passages are.",
+             The passages are the finding. {GRADER_WITHDRAWN_SHORT}",
             if located == 1 { "" } else { "s" },
         )));
     }
@@ -1409,6 +1524,20 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         });
     }
 
+    // §11 D149. WHAT THE READER CAN ACT ON COMES FIRST.
+    //
+    // This section and the one below it were the other way round, and the
+    // proportions made the inversion expensive: pages 4 to 12 of an 18-page
+    // report were the 5 checked claims, and the 34 sentences whose cited work
+    // is missing (every one of which carries an action) began on page 13.
+    //
+    // Ordering by what the reader DOES with it puts the shopping list first:
+    // adding those works is the single thing that would make the next run of
+    // this audit say more. The quoted passages are what the report is FOR, and
+    // they are also reference material that is read one item at a time.
+    out.push(Block::PageBreak);
+    emit_blocked_sources(&mut out, &m.unverifiable, m.has_pages, &m.consistency);
+
     out.push(Block::PageBreak);
     // §11 D108. Was "Claims checked against their source", led with a verdict
     // badge, and told the reader to read the passage "before the verdict".
@@ -1418,18 +1547,17 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
     emit_evidence_items(
         &mut out,
         "The source passages behind each cited claim",
-        "Each sentence below cites a source Gaply could read, and the passages it rests on are \
-         quoted underneath it with their page. THIS IS THE EVIDENCE-BACKED SECTION, and the \
-         evidence is the finding. Gaply does NOT grade how well a passage supports a sentence: \
-         measured on a 6-case labelled set, its grade was the same one every time (14 of 14 \
-         outputs across two runs), so the grade carries no information and is not shown. \
-         Reading the quoted passage is the check.",
+        // §11 D149. The THIRD telling, now a pointer. The page number here is
+        // the cited source's, and says so.
+        &format!(
+            "Each sentence below cites a source Gaply could read, and the passages it rests on \
+             are quoted underneath it with the page they appear on in that source. THIS IS THE \
+             EVIDENCE-BACKED SECTION, and the evidence is the finding. {GRADER_WITHDRAWN_SHORT} \
+             Reading the quoted passage is the check."
+        ),
         &m.supported,
         m.has_pages,
     );
-
-    out.push(Block::PageBreak);
-    emit_blocked_sources(&mut out, &m.unverifiable, m.has_pages, &m.consistency);
 
     // THE ADVISORY SECTION IS GONE — §11 D128.
     //
@@ -1456,6 +1584,38 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         );
     }
 
+    // §11 D149. AN ENDING.
+    //
+    // The document used to stop on whatever its last finding happened to be,
+    // and then on the PDF renderer's own font disclosure: eighteen pages with
+    // no map at the front and no close at the back. A reader could not tell
+    // whether they had reached the end or the file had been truncated.
+    //
+    // It is also where the two identifiers taken off the cover now live. They
+    // are the record of how this run was produced, which is a real thing to
+    // keep and not the first thing to say.
+    out.push(Block::PageBreak);
+    out.push(heading("How this report was produced", 1));
+    out.push(para(format!(
+        "Gaply read {} on {}, and every check ran on this machine. Nothing about your \
+         manuscript was sent anywhere.",
+        m.manuscript_name, m.generated_on,
+    )));
+    out.push(para(format!(
+        "The consistency checks were made by reading the manuscript's own structure, with no \
+         language model involved. Everything else a model contributed was produced by {}, \
+         running locally. If you need to reproduce this run exactly, it used prompt {}.",
+        m.model_id, m.prompt_version,
+    )));
+    out.push(para(
+        // Conditional, because the exporter's note is: it discloses accented
+        // characters it had to simplify, and an all-ASCII report carries none.
+        // A closing line that promises a note which is not there is the same
+        // defect one line later.
+        "That is the end of the report. If anything appears below this line, it is a note from \
+         the exporter about how this file was written, not a finding about your manuscript.",
+    ));
+
     out
 }
 
@@ -1465,7 +1625,7 @@ mod tests {
 
     fn text_of(b: &Block) -> String {
         match b {
-            Block::Cover { title, subtitle, meta, headline } => format!(
+            Block::Cover { title, subtitle, meta, headline, running_title: _ } => format!(
                 "{title} {subtitle} {} {}",
                 headline.as_ref().map(|(h, _)| h.as_str()).unwrap_or(""),
                 meta.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(" ")
@@ -1514,6 +1674,9 @@ mod tests {
                 }
                 t
             }
+            // The contents is built by each RENDERER from the headings that
+            // follow it, so the composed text carries the title alone.
+            Block::Contents { title } => title.clone(),
             Block::PageBreak => String::new(),
         }
     }
@@ -1894,7 +2057,10 @@ mod tests {
         }];
         let text = all_text(&compose_audit(&m));
 
-        let pointer = text.find("What the model points to in c931").expect("no pointer");
+        // §11 D149. "in passage 1", not "in c931": the pointer and the quote
+        // are still tied together, by a label the reader can use.
+        assert!(!text.contains("c931"), "the retrieval id reached the reader:\n{text}");
+        let pointer = text.find("What the model points to in passage 1").expect("no pointer");
         let passage = text.find("Background: the enrolment rate").expect("no passage");
         assert!(pointer < passage, "the pointer did not lead its passage:\n{text}");
         assert!(text.contains("Background: Lao PDR has low enrolment."), "the why was dropped");
@@ -2013,6 +2179,159 @@ mod tests {
         m
     }
 
+    /// §11 D149. NOTHING THE TOOL CALLS ITSELF REACHES THE READER.
+    ///
+    /// One sweep over a rich report, because these leaked one at a time from
+    /// four different places and each was individually defensible: `c931` is
+    /// the handle the evidence code already had, `\u{b6}32` is compact, "citation
+    /// support" is what the planner calls that lane, and the prompt tag is real
+    /// provenance. Together they are a report that reads as a tool talking to
+    /// itself, which is what a researcher notices.
+    #[test]
+    fn no_internal_identifier_reaches_the_reader() {
+        let mut m = rich_model();
+        m.has_pages = false;
+        let text = all_text(&compose_audit(&m));
+        for needle in [
+            // The retrieval store's row id, which named every quoted passage.
+            "c7",
+            "c931",
+            // The pilcrow, unexplained and on every item of a Word manuscript.
+            "\u{b6}",
+            // The planner's enum variants, as table cells.
+            "citation support",
+            "unverifiable",
+            // A note to whoever maintains the numbers, printed to the reader.
+            "Counts rows, not findings",
+        ] {
+            assert!(
+                !text.contains(needle),
+                "{needle:?} is the tool's own vocabulary and reached the reader:\n{text}"
+            );
+        }
+        // THE ONE IDENTIFIER THAT STAYS is the prompt version, and it is the
+        // exception that shows the rule: it is a label for reproducing this
+        // run, it is stated once, it is at the end under a heading that says
+        // what it is for, and nothing else in the report depends on a reader
+        // decoding it. On the cover it was the second thing they read.
+        assert_eq!(text.matches("citation_support-v1.4").count(), 1, "{text}");
+        let prompt_at = text.find("citation_support-v1.4").expect("the prompt is unrecorded");
+        let ending_at = text.find("How this report was produced").expect("no ending");
+        assert!(ending_at < prompt_at, "the prompt tag is printed before the ending:\n{text}");
+
+        // The negative control: the things those labels were CARRYING are all
+        // still there, said in words.
+        assert!(text.contains("Passage 1 \u{b7} page 4:"), "{text}");
+        assert!(text.contains("paragraph"), "{text}");
+        assert!(text.contains("Cited source could not be read"), "{text}");
+    }
+
+    /// §11 D149. THE MEASUREMENT IS STATED ONCE.
+    ///
+    /// "14 of 14 outputs across two runs" appeared on three consecutive pages,
+    /// forty words each time. Every telling was true; the third reads as the
+    /// report defending itself. It stays where the absence is asserted, and the
+    /// other two sections point at it.
+    #[test]
+    fn the_grader_measurement_is_stated_once_and_pointed_at_thereafter() {
+        let mut m = rich_model();
+        // A support tally, so the section that carried the SECOND telling is
+        // reached: without one it is not emitted and this proves less.
+        m.verdict_counts.push(("support: weak".into(), 3));
+        let text = all_text(&compose_audit(&m));
+        assert_eq!(
+            text.matches("14 of 14").count(),
+            1,
+            "the grader measurement is repeated:\n{text}"
+        );
+        // Said where the "no score" badge is, and nowhere else.
+        let long_at = text.find("14 of 14").expect("the measurement is gone entirely");
+        let glance_at = text.find("At a glance").expect("no At a glance");
+        let evidence_at =
+            text.find("The source passages behind each cited claim").expect("no evidence section");
+        assert!(glance_at < long_at && long_at < evidence_at, "{text}");
+        // And the later sections still state the FACT, pointing back for the
+        // reason. A reader who lands there is not left to assume a grade.
+        assert!(
+            text.matches("does not grade how well a passage supports a sentence").count() >= 2,
+            "a section stopped saying there is no grade:\n{text}"
+        );
+    }
+
+    /// §11 D149. A PAGE NUMBER SAYS WHICH DOCUMENT IT IS IN.
+    ///
+    /// "quotes them below with their page" sat four lines above "this
+    /// manuscript ... has no page numbering". Both were true: the first is the
+    /// cited source's pages, the second the manuscript's. Neither said so, so
+    /// together they read as the report contradicting itself on page 2.
+    #[test]
+    fn a_page_number_says_whose_document_it_belongs_to() {
+        let mut m = rich_model();
+        m.has_pages = false;
+        let text = all_text(&compose_audit(&m));
+        assert!(
+            !text.contains("quotes them below with their page"),
+            "the unattributed page claim is back:\n{text}"
+        );
+        assert!(text.contains("the page it appears on in the work your sentence cites"), "{text}");
+        // The manuscript note still fires, and now says what it does NOT apply
+        // to, which is the sentence four lines above it.
+        assert_eq!(text.matches("Word document, which has no page numbering").count(), 1, "{text}");
+        assert!(text.contains("cited sources' own, and are unaffected"), "{text}");
+    }
+
+    /// §11 D149. WHAT THE READER CAN ACT ON COMES FIRST.
+    ///
+    /// Half the document was the 5 checked claims; the 34 sentences whose cited
+    /// work is missing, every one carrying an action, started nine pages in.
+    #[test]
+    fn the_sources_to_add_come_before_the_passages_to_read() {
+        let text = all_text(&compose_audit(&rich_model()));
+        let blocked = text.find("Cited, but not checkable").expect("no blocked section");
+        let passages =
+            text.find("The source passages behind each cited claim").expect("no evidence section");
+        assert!(
+            blocked < passages,
+            "the reading came before the thing to do about it:\n{text}"
+        );
+    }
+
+    /// §11 D149. A MAP AT THE FRONT AND A CLOSE AT THE BACK.
+    ///
+    /// Eighteen pages with neither: the reader could not find the section they
+    /// wanted without scrolling, and the document stopped on the exporter's
+    /// note about accented characters.
+    #[test]
+    fn the_report_opens_with_a_contents_and_closes_with_an_ending() {
+        let blocks = compose_audit(&rich_model());
+        assert!(
+            matches!(blocks.get(1), Some(Block::Contents { .. })),
+            "the contents is not directly under the cover: {:?}",
+            blocks.get(1)
+        );
+        // The contents names sections that EXIST. It is built by the renderers
+        // from the headings themselves, so this asserts the headings are there
+        // to be built from.
+        let sections: Vec<&str> = blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Heading { text, level: 1 } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(sections.contains(&"At a glance"), "{sections:?}");
+        assert!(sections.contains(&"How this report was produced"), "{sections:?}");
+        assert_eq!(
+            sections.last(),
+            Some(&"How this report was produced"),
+            "the report does not end on its ending: {sections:?}"
+        );
+        let text = all_text(&blocks);
+        assert!(text.contains("That is the end of the report"), "{text}");
+        // The ending is where the provenance the cover dropped now lives.
+        assert!(text.contains("qwen2.5-3b-instruct-q4km"), "{text}");
+    }
+
     /// §11 D80. The guard's marker list must keep matching the real composer.
     ///
     /// The guard refuses a document carrying `GAPLY_REPORT_MIN_MARKERS` of
@@ -2116,6 +2435,12 @@ mod tests {
     fn every_evidence_quote_carries_a_page_or_says_it_is_unknown() {
         // D18's validated half is `chunk_id` and `page`. A missing page is
         // stated, never silently dropped — an unlabelled quote cannot be found.
+        //
+        // §11 D149. The quote is labelled by its POSITION in the item now, not
+        // by the retrieval id, and the page is the SOURCE's: a cited PDF whose
+        // page was not recorded says exactly that, rather than borrowing the
+        // manuscript's "page unknown" or, on a Word manuscript, its "no page
+        // numbers" — which was a statement about the wrong document.
         let mut m = model();
         m.supported[0].evidence.push(ReportEvidence {
             chunk_id: "c9".into(),
@@ -2125,8 +2450,14 @@ mod tests {
             elided: false,
         });
         let text = all_text(&compose_audit(&m));
-        assert!(text.contains("c7 · p.4:"), "{text}");
-        assert!(text.contains("c9 · page unknown:"), "{text}");
+        assert!(text.contains("Passage 1 · page 4:"), "{text}");
+        assert!(text.contains("Passage 2 · page not recorded:"), "{text}");
+
+        // The manuscript's own pagination does not decide how a source's
+        // missing page reads.
+        m.has_pages = false;
+        let text = all_text(&compose_audit(&m));
+        assert!(text.contains("Passage 2 · page not recorded:"), "{text}");
     }
 
     /// §11 D65. A Word file has no pages, but it HAS paragraphs — and a
@@ -2147,7 +2478,10 @@ mod tests {
             ..Default::default()
         }];
         let text = all_text(&compose_audit(&m));
-        assert!(text.contains("¶12"), "no paragraph locator:\n{text}");
+        // §11 D149. Spelled out. `¶12` was the most-printed string in a report
+        // on a Word manuscript, and nothing in the document said what it was.
+        assert!(text.contains("paragraph 12"), "no paragraph locator:\n{text}");
+        assert!(!text.contains("\u{b6}"), "the pilcrow reached the reader:\n{text}");
         assert!(
             !text.contains("no page numbers"),
             "fell back to the absence message despite having a locator:\n{text}"
@@ -2164,7 +2498,7 @@ mod tests {
             paragraph: Some(12),
             ..Default::default()
         };
-        assert_eq!(locator(&it, true), "p.7");
+        assert_eq!(locator(&it, true), "page 7");
     }
 
     /// And an item with neither still says which KIND of absence it is.
@@ -2206,20 +2540,35 @@ mod tests {
         let blocks = compose_audit(&model());
         let cover = blocks.first().expect("a cover");
         match cover {
-            Block::Cover { title, subtitle, meta, .. } => {
+            Block::Cover { title, subtitle, meta, running_title, .. } => {
                 assert_eq!(title, "Thesis citation audit");
                 assert_eq!(subtitle, "R PAPER .pdf");
+                // §11 D149. What the running header calls this document. It was
+                // "PublishReady" on every page of an audit.
+                assert_eq!(running_title, "Thesis citation audit");
                 let keys: Vec<&str> = meta.iter().map(|(k, _)| k.as_str()).collect();
                 assert!(keys.contains(&"Generated"), "{keys:?}");
-                assert!(keys.contains(&"Judged by"), "{keys:?}");
-                assert!(keys.contains(&"Prompt version"), "{keys:?}");
+                // §11 D149. The model file and the prompt tag are NOT on the
+                // cover. They were its first two rows, and neither is a fact
+                // about the manuscript.
+                assert!(!keys.contains(&"Judged by"), "{keys:?}");
+                assert!(!keys.contains(&"Prompt version"), "{keys:?}");
             }
             other => panic!("first block must be the cover, got {other:?}"),
         }
-        // Provenance, including that it ran locally.
+        // Provenance, including that it ran locally. Both facts survive the
+        // move off the cover: the model is named once, at the end, and the
+        // privacy claim is still on page 1.
         let text = all_text(&blocks);
         assert!(text.contains("produced on this machine"), "{text}");
         assert!(text.contains("No manuscript text was sent anywhere"), "{text}");
+        assert!(text.contains("qwen2.5-3b-instruct-q4km"), "the model is unnamed:\n{text}");
+        assert!(text.contains("citation_support-v1.4"), "the prompt is unrecorded:\n{text}");
+        assert_eq!(
+            text.matches("citation_support-v1.4").count(),
+            1,
+            "the prompt version is stated more than once:\n{text}"
+        );
     }
 
     #[test]
@@ -2230,7 +2579,12 @@ mod tests {
         let text = all_text(&compose_audit(&model()));
         // DEFECT 2: these are table cells now, so the number follows its label
         // instead of preceding it.
-        assert!(text.contains("citation need 65"), "{text}");
+        // §11 D149. Named in words a researcher uses. The cells used to read
+        // "citation support" and "unverifiable", which are this codebase's enum
+        // variants.
+        assert!(text.contains("Looked at whether it needs a citation 65"), "{text}");
+        assert!(text.contains("Cited source could not be read 19"), "{text}");
+        assert!(!text.contains("citation support"), "an enum name reached a cell:\n{text}");
         // The verdict counts are drawn as proportional bars now, so the number
         // and its label are no longer adjacent — assert both, not the old
         // "52 needs citation" spelling.
@@ -2447,12 +2801,15 @@ mod tests {
     #[test]
     fn an_approximate_page_is_marked_and_an_exact_one_is_not() {
         let exact = ReportItem { seq: 1, page: Some(4), page_approximate: false, ..Default::default() };
-        assert_eq!(locator(&exact, true), "p.4");
+        assert_eq!(locator(&exact, true), "page 4");
 
+        // §11 D149. The distinction survives the move to plain words: it used
+        // to be carried by a bare `~`, which said nothing to anyone who had not
+        // been told what it meant.
         let approx = ReportItem { seq: 2, page: Some(3), page_approximate: true, ..Default::default() };
         assert_eq!(
             locator(&approx, true),
-            "~p.3",
+            "about page 3",
             "a reflowed block's page is off by one about 8% of the time and must say so"
         );
     }
@@ -2463,8 +2820,8 @@ mod tests {
     fn no_page_and_no_paragraph_prints_neither() {
         let none = ReportItem { seq: 3, page: None, paragraph: None, ..Default::default() };
         let out = locator(&none, true);
-        assert!(!out.contains("p.1"), "a missing page must not become page 1: {out}");
-        assert!(!out.contains('~'), "{out}");
+        assert!(!out.contains("page 1"), "a missing page must not become page 1: {out}");
+        assert!(!out.contains("about"), "{out}");
     }
 
     /// A Word manuscript has no pages at all, so the paragraph ordinal stands
@@ -2472,7 +2829,7 @@ mod tests {
     #[test]
     fn a_paragraph_locator_is_never_marked_approximate() {
         let para = ReportItem { seq: 4, page: None, paragraph: Some(27), ..Default::default() };
-        assert_eq!(locator(&para, false), "¶27");
+        assert_eq!(locator(&para, false), "paragraph 27");
     }
 
     /// §11 D93. The proportions are DRAWN, not typed.
@@ -2638,7 +2995,7 @@ mod tests {
 
         // RENDERED: the passage, its page, and the decomposition.
         assert!(text.contains("46% over 27 emotion categories"), "the passage is missing:\n{text}");
-        assert!(text.contains("p.1"), "the page link is missing:\n{text}");
+        assert!(text.contains("page 1"), "the page link is missing:\n{text}");
         assert!(text.contains("What the sentence claims, part by part"), "{text}");
         assert!(text.contains("46% macro-F1: in the source"), "{text}");
         assert!(text.contains("95% accuracy: NOT in the passages read"), "{text}");

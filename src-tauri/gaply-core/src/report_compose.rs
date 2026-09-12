@@ -40,6 +40,18 @@ pub enum Block {
         subtitle: String,
         meta: Vec<(String, String)>,
         headline: Option<(String, Tone)>,
+        /// What to call this document in page furniture — the running header on
+        /// every page after the cover.
+        ///
+        /// §11 D149. It cannot be derived from the two fields above, and the
+        /// attempt is what produced the defect: the PDF renderer hard-coded
+        /// "PublishReady report", so all eighteen pages of a document titled
+        /// "Thesis citation audit" carried a different product's name. Nor does
+        /// a positional rule work, because the two reports fill the cover the
+        /// other way round — the audit's `title` is the document and its
+        /// `subtitle` is the manuscript, and the PublishReady report's are
+        /// reversed. So the composer, which knows what it is composing, says.
+        running_title: String,
     },
     /// `level` 1 = section, 2 = subsection, 3 = finding title.
     Heading { text: String, level: u8 },
@@ -115,6 +127,16 @@ pub enum Block {
         value_axis: String,
         bars: Vec<(String, usize)>,
     },
+    /// A contents page: this document's level-1 sections, with where to find
+    /// each one.
+    ///
+    /// §11 D149. Deliberately carries no entries. The contents IS the set of
+    /// level-1 headings, so a composer that listed them again would be keeping
+    /// two lists in agreement by hand, and the page numbers are not knowable
+    /// until the renderer has paginated. Each renderer builds the list from the
+    /// headings that follow this block: the PDF resolves real page numbers, the
+    /// HTML links to the headings.
+    Contents { title: String },
     PageBreak,
 }
 
@@ -365,6 +387,9 @@ fn cover(model: &LocalReportModel, out: &mut Vec<Block>) {
         subtitle: "Gaply PublishReady report".into(),
         meta,
         headline: None,
+        // Unchanged from what the renderer used to hard-code, which was right
+        // for THIS report and wrong for the audit (§11 D149).
+        running_title: "PublishReady report".into(),
     });
 }
 

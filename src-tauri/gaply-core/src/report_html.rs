@@ -102,6 +102,11 @@ background:#efefed}\
 .legend i{width:10px;height:10px;border-radius:2px;display:inline-block}\
 .tone-good{background:#1c7340}.tone-warn{background:#b56b0d}\
 .tone-bad{background:#b32121}.tone-neutral{background:#6b6b6b}\
+nav.contents{margin:1.5rem 0}\
+nav.contents h2{margin-top:0}\
+nav.contents ol{margin:.4rem 0;padding-left:1.4rem}\
+nav.contents li{margin:.25rem 0}\
+nav.contents a{color:#1a1a1a}\
 @media print{body{margin:0;max-width:none}}";
 
 /// Render blocks to a standalone HTML document.
@@ -110,6 +115,12 @@ pub fn render_html(blocks: &[Block], document_title: &str) -> String {
     s.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
     s.push_str(&format!("<title>{}</title>\n", escape(document_title)));
     s.push_str(&format!("<style>{STYLE}</style>\n</head>\n<body>\n"));
+
+    // §11 D149. The contents lists this document's level-1 headings, so each
+    // one is given an id to link to. Numbered rather than slugged from the
+    // text: a heading is arbitrary text from the composer, and two sections
+    // could slug to the same anchor.
+    let mut section_no = 0usize;
 
     // Bullets are consecutive runs in a flat block list; group them into one
     // <ul> so the output is a list rather than a series of one-item lists.
@@ -154,7 +165,9 @@ pub fn render_html(blocks: &[Block], document_title: &str) -> String {
                             pct
                         ));
                     }
-                    Block::Cover { title, subtitle, meta, headline } => {
+                    // `running_title` is PDF page furniture; the HTML
+                    // document's title is the argument to this function.
+                    Block::Cover { title, subtitle, meta, headline, running_title: _ } => {
                         s.push_str("<header class=\"cover\">\n");
                         s.push_str(&format!("<h1>{}</h1>\n", escape(title)));
                         s.push_str(&format!("<div class=\"sub\">{}</div>\n", escape(subtitle)));
@@ -179,7 +192,13 @@ pub fn render_html(blocks: &[Block], document_title: &str) -> String {
                             2 => "h3",
                             _ => "h4",
                         };
-                        s.push_str(&format!("<{tag}>{}</{tag}>\n", escape(text)));
+                        let id = if *level == 1 {
+                            section_no += 1;
+                            format!(" id=\"s{section_no}\"")
+                        } else {
+                            String::new()
+                        };
+                        s.push_str(&format!("<{tag}{id}>{}</{tag}>\n", escape(text)));
                     }
                     Block::Paragraph { text } => {
                         s.push_str(&format!("<p>{}</p>\n", escape(text)));
@@ -270,6 +289,31 @@ pub fn render_html(blocks: &[Block], document_title: &str) -> String {
                         }
                         s.push_str("</div>\n");
                     }
+                    // §11 D149. Built from the headings themselves, so it
+                    // cannot list a section this document does not have. A
+                    // screen has no page numbers, so each entry is the link
+                    // that a page number stands in for on paper.
+                    Block::Contents { title } => {
+                        let sections: Vec<&str> = blocks
+                            .iter()
+                            .filter_map(|b| match b {
+                                Block::Heading { text, level: 1 } => Some(text.as_str()),
+                                _ => None,
+                            })
+                            .collect();
+                        if !sections.is_empty() {
+                            s.push_str("<nav class=\"contents\">\n");
+                            s.push_str(&format!("<h2>{}</h2>\n<ol>\n", escape(title)));
+                            for (i, t) in sections.iter().enumerate() {
+                                s.push_str(&format!(
+                                    "<li><a href=\"#s{}\">{}</a></li>\n",
+                                    i + 1,
+                                    escape(t)
+                                ));
+                            }
+                            s.push_str("</ol>\n</nav>\n");
+                        }
+                    }
                     Block::PageBreak => s.push_str("<div class=\"pagebreak\"></div>\n"),
                     Block::Bullet { .. } => unreachable!("handled above"),
                 }
@@ -297,6 +341,7 @@ mod tests {
                 title: hostile.into(),
                 subtitle: hostile.into(),
                 meta: vec![(hostile.into(), hostile.into())],
+                            running_title: hostile.into(),
                             headline: None,
             },
             Block::Heading { text: hostile.into(), level: 1 },
@@ -347,13 +392,21 @@ mod tests {
     fn heading_levels_map_below_the_covers_h1() {
         // Two competing <h1>s is a document with no outline.
         let blocks = vec![
-            Block::Cover { title: "T".into(), subtitle: "S".into(), meta: vec![], headline: None },
+            Block::Cover {
+                title: "T".into(),
+                subtitle: "S".into(),
+                meta: vec![],
+                headline: None,
+                running_title: "T".into(),
+            },
             Block::Heading { text: "Section".into(), level: 1 },
             Block::Heading { text: "Finding".into(), level: 3 },
         ];
         let html = render_html(&blocks, "t");
         assert_eq!(html.matches("<h1>").count(), 1, "{html}");
-        assert!(html.contains("<h2>Section</h2>"), "{html}");
+        // §11 D149. A level-1 heading also carries the anchor its contents
+        // entry links to.
+        assert!(html.contains("<h2 id=\"s1\">Section</h2>"), "{html}");
         assert!(html.contains("<h4>Finding</h4>"), "{html}");
     }
 

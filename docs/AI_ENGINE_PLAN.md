@@ -9004,3 +9004,145 @@ Fixed in both places, because either alone would leave the hole open:
 
 A test asserts no row can pair the two, and that a cosmetic finding keeps the
 honest "No action needed.".
+
+### D149 — the report stops talking to itself, and tells the reader where it is going
+
+Six of the design review's remaining items, in the order they cost a reader
+something. None of them is a wrong number: D145 to D148 fixed those. These are
+what is left once the arithmetic is right, and the largest of them is that half
+the document arrived before the part with an action attached to it.
+
+Measured on job 23 (`R PAPER .docx`, 46 cited sentences, 5 checked, 34 blocked):
+19 pages before, 20 after.
+
+#### The footer said PublishReady on all eighteen pages
+
+`report_pdf` drew the literal strings `"PublishReady report"` and
+`"PublishReady"` into every page's furniture. That is the name of a DIFFERENT
+report this renderer also draws, and it appeared on every page of a document
+whose cover says "Thesis citation audit".
+
+The renderer cannot know what it is rendering, so it stopped guessing: the cover
+now carries a `running_title` and the header prints that. It is not derivable
+from the two fields already there, and the attempt is exactly what produced the
+defect — the audit's `title` is the document and its `subtitle` is the
+manuscript, and the PublishReady report fills those the other way round. The
+FOOTER now reads "Gaply", which is true of every report this renderer draws.
+
+`the_running_header_names_the_document_the_composer_composed` asserts both
+halves, the second being the negative control: the PublishReady report still
+says PublishReady. A fix that deletes a name everywhere passes the first
+assertion and fails the second.
+
+**`PublishReady` is one of `GAPLY_REPORT_MARKERS`**, the list that stops Gaply
+importing its own report as a source. The audit keeps six of the other markers,
+so the guard is unaffected, and the marker test already exempted this string
+because the composer never emitted it.
+
+#### Identifiers that meant something to the code and nothing to the reader
+
+Four kinds, each individually defensible, and together a report that reads as a
+tool describing itself:
+
+* `c931 · p.1` on every quoted passage. That is the retrieval store's row id.
+  The passages are now numbered within their item, which is the only job the
+  label had: the model's pointer line above the quote says "in passage 2" and
+  the quote says "Passage 2", so the pairing D147 introduced survives.
+* `¶32`, on every item of a Word manuscript, never explained. Now "paragraph
+  32". `~p.5` was the same defect carrying D95's approximate-page distinction on
+  a bare tilde; it is now "about page 5", which says it in words.
+* "citation support" and "unverifiable" as table cells — the planner's enum
+  variants. "Unverifiable" reads as a verdict on the sentence when it means
+  Gaply could not obtain the cited work. Now "Checked against the cited source"
+  and "Cited source could not be read", via `check_kind_label`, which falls back
+  to the old spelling for an unknown kind rather than dropping the row.
+* "Counts rows, not findings" in a caption: a note to whoever maintains the two
+  numbers, printed to someone reading about their own manuscript.
+* `JUDGED BY qwen2.5-3b-instruct-q4km` and `PROMPT VERSION citation_support-v1.6`
+  as the first two rows of page 1.
+
+**The prompt version is the one identifier that stays**, and it is the exception
+that shows the rule: it is stated once, at the end, under a heading that says
+what it is for ("If you need to reproduce this run exactly"). On the cover it
+was the second thing a researcher read.
+
+`no_internal_identifier_reaches_the_reader` sweeps a rich report for all of
+them at once, because they leaked one at a time from four different places.
+
+#### A page number that did not say which document it was in
+
+Page 2 carried "quotes them below with their page" four lines above "this
+manuscript ... has no page numbering, so findings are located by sentence". Both
+sentences were true. The first is about the CITED SOURCES, which are PDFs; the
+second is about the manuscript, which is a .docx. Neither said so, so together
+they read as the report contradicting itself.
+
+Fixed by naming the document in both: "each with the page it appears on in the
+work your sentence cites", and the note now ends "The page numbers on the quoted
+passages below are the cited sources' own, and are unaffected."
+
+The same confusion was in the code. `page_label(e.page, has_pages)` answered a
+question about a SOURCE passage using the MANUSCRIPT's pagination flag, so a
+cited PDF whose page was not recorded printed "no page numbers" — a statement
+about the wrong document. `source_page_label` is now separate and says "page not
+recorded".
+
+#### Three tellings of one measurement
+
+"14 of 14 outputs across two runs" appeared on pages 2, 3 and 4, about forty
+words each time. Every telling was accurate. By the third it reads as the report
+defending itself, which is D140's defect at report scope instead of item scope.
+
+The long form stays where the absence is ASSERTED, under the "no score" badge on
+page 1. The other two state the fact and point at it: *"Gaply does not grade how
+well a passage supports a sentence. "At a glance" says why."* The test asserts
+the measurement appears exactly once AND that both later sections still say
+there is no grade — a reader who lands on page 9 must not be left to assume one.
+
+#### A map at the front, and an ending
+
+Eighteen pages with no contents page, stopping on the exporter's note about
+accented characters.
+
+`Block::Contents` carries no entries. The contents IS the set of level-1
+headings, so a composer that listed them again would be keeping two lists in
+agreement by hand; each renderer builds it from the headings that follow. The
+PDF resolves real page numbers by **laying the document out twice** — a page
+number is not knowable until the document is paginated, and paginating it needs
+the contents to be there. The two passes lay out identically because an entry's
+page number is a right-aligned run on the entry's own line, measured into place,
+advancing nothing vertically: present or absent, every element has the same
+height and lands on the same page. A `debug_assert` compares the two passes'
+answers.
+
+`the_contents_page_numbers_are_the_pages_the_sections_are_on` checks each
+printed number against the page that section's heading actually landed on in the
+written file, by parsing the content streams. It distinguishes the heading from
+the contents entry naming it by FONT, since they are the same characters. A
+contents page with confident wrong numbers is worse than none.
+
+The ending is "How this report was produced": what ran where, which model, and
+the prompt version. Its closing line is conditional ("If anything appears below
+this line...") because the exporter's note is conditional, and a closing line
+that promises a note which is not there is the same defect one line later.
+
+#### The half with an action attached started on page 14
+
+Pages 4 to 13 were the 5 checked claims. "Cited, but not checkable" — the 34
+sentences whose cited work is missing, every one of which carries something to
+do — began on page 14, after the reader had waded through ten pages of quoted
+passages.
+
+Swapped. Measured on job 23: the works to add now start on **page 4** rather
+than page 14, and the passages run 9 to 18. Adding those works is the single
+thing that would make the next run of this audit say more; the passages are what
+the report is FOR, and they are also reference material read one item at a time.
+
+#### What was deliberately left
+
+Items 10, 11, 14, 15, 16, 17 and 19 of the review are untouched, as agreed.
+`consistency` also prints "at blocks 220 and 221", which is the same class of
+defect as the identifiers above and belongs to a module whose findings are
+PERSISTED in `ai_jobs.summary_json`: changing that wording changes what a
+re-render of an old job says it found, which is a separate decision from this
+one.
