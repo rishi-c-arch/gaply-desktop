@@ -56,10 +56,42 @@ jobs:
         timeout-minutes: 10
         run: npm ci
 
+      # THE LINT GATE IS A SEPARATE STEP, ON PURPOSE.
+      #
+      # `npm run build` does NOT lint. It is `node scripts/cra-build.js`, which
+      # does `delete env.CI` and sets DISABLE_ESLINT_PLUGIN=true, for the reason
+      # in its own header: Vercel sets CI=true and CRA turns warnings into
+      # errors. That reasoning is sound and the script is shared with the web
+      # lineage, so it is left alone and the gate sits beside the build instead.
+      #
+      # SCOPE, and why it is not a bare `eslint src`:
+      #   · Test files are excluded. The repo's vitest suites put `vi.mock(...)`
+      #     above their imports, which is the required hoisting idiom and which
+      #     CRA's `react-app` config reports as 66 `import/first` ERRORS. The
+      #     rule is wrong for these files rather than the files being wrong, and
+      #     react-scripts never linted them either. 114 problems live here.
+      #   · Everything else in src/ IS linted, including five components that
+      #     nothing imports (HeroR3F, LoadingSpinner, PremiumLoginBackground,
+      #     PremiumSignupBackground, TurnitinStyleReportGenerator). They were
+      #     never linted before because react-scripts only lints the webpack
+      #     graph, and they hold built-but-never-wired fragments — marked in
+      #     place rather than deleted, so parked work stays visible.
+      #
+      # Negative control run before this was added: one unused variable takes
+      # the step to exit 1; reverting it returns exit 0.
+      - name: Lint
+        run: npx eslint src --max-warnings 0
+          --ignore-pattern '**/*.vitest.*'
+          --ignore-pattern '**/*.test.*'
+          --ignore-pattern 'src/setupTests.ts'
+
       - name: Build
-        # CI is already true on Actions; set explicitly so the warnings-as-errors
-        # behaviour is a stated intention rather than an inherited side effect,
-        # and so running this step locally reproduces CI exactly.
+        # CI is already true on Actions; set explicitly so this reproduces
+        # locally. Note it changes nothing about linting — cra-build.js deletes
+        # CI before react-scripts sees it. Measured: a deliberate type error
+        # takes `npm run build` to exit 1 (TS2322); a deliberate unused variable
+        # leaves it at exit 0. It is a COMPILATION and TYPE gate, which is worth
+        # having on every push and is not the same thing as the step above.
         env:
           CI: 'true'
         run: npm run build

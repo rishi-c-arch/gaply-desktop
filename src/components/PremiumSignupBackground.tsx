@@ -1,5 +1,5 @@
 import React, { useRef, useMemo } from 'react';
-import { Canvas, useFrame, useLoader } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { Environment, useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import magnifyingGlassTexture from '../assets/magnifying-4340698.jpg';

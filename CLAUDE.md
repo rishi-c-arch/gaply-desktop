@@ -315,13 +315,44 @@ time injection.
      and stable, in the editor and through the .docx exporter. There was no bug;
      the fix commit was cancelled before it was written (faac77c).
 
-  **The tell was the same both times: a probe that fed the system something a
-  user never would.** A synthesized new-window request the plugin would have
-  intercepted first; markdown source typed into a rich text editor. So:
+  3. **"The release build fails on 15 eslint warnings."** Measured
+     `npx react-scripts build`, which nothing in this repo runs. `npm run build`
+     is `node scripts/cra-build.js`, which does `delete env.CI` and sets
+     `DISABLE_ESLINT_PLUGIN=true` — the reason is in its own header (Vercel sets
+     CI=true and CRA turns warnings into errors). There was no lint gate to be
+     failing. The tell was one line away in `package.json`'s `scripts`.
+
+  **This third one is the sharpest, for two reasons.** The norm above was
+  already written — two commits earlier, by me — and I broke it anyway, which
+  is the evidence that knowing the rule is not the same as applying it, and
+  that the check has to be mechanical rather than remembered.
+
+  **And what caught it was a NEGATIVE CONTROL FAILING TO FAIL, not a trace.**
+  The build-gate commit was pushed deliberately expecting CI to go RED on those
+  15 warnings, with the fix held back to the next commit so the pair would
+  demonstrate the gate actually gates. It went green. A green run where red was
+  predicted is a measurement result, and it was the only thing in the sequence
+  pointing at the truth — no amount of further reading would have produced it,
+  because every line I had read was correct.
+
+  **So: predict the failure before you claim the gate.** A gate whose first run
+  is green proves nothing about whether it gates. Push it knowing what should
+  break, or break something on purpose and watch — for the LaTeX job, a corrupt
+  PNG and a double-numbered bibliography; for the lint step, one unused
+  variable in, exit 1, revert, exit 0. If the prediction fails, the finding is
+  wrong before the gate is.
+
+  **The tell was the same in the first two: a probe that fed the system
+  something a user never would.** A synthesized new-window request the plugin
+  would have intercepted first; markdown source typed into a rich text editor;
+  a build command nobody invokes. So:
   - Drive the probe from the **user's entry point** — type into the editor, click
     the control — not from the seam that is convenient to call.
   - An injected plugin script is invisible to a search of the app's own source.
     When behaviour crosses a plugin boundary, read the plugin.
   - A finding that rests on `read` alone while its neighbours rest on `ran` is
-    the one to distrust. Both of these were flagged as lower-confidence at the
-    time, and both flags were right — flagging is not a substitute for measuring.
+    the one to distrust. The first two WERE flagged as lower-confidence and both
+    flags were right — flagging is not a substitute for measuring. The third was
+    not flagged at all, because it felt measured: a command had been run and had
+    genuinely exited 1. Confidence tracks *having measured something*, not
+    *having measured the right thing*, so it is the weaker signal of the two.

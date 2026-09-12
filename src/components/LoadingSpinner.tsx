@@ -80,6 +80,10 @@ export const useLoading = (initialState: boolean = false) => {
 };
 
 // CSS Styles (to be added to your CSS file)
+// Built and never wired, in a component nothing imports — see the lint
+// step's note in .github/workflows/frontend-build.yml. Kept rather than
+// deleted so the unfinished work stays visible.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const loadingStyles = `
 .loading-overlay {
   position: fixed;

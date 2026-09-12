@@ -113,6 +113,10 @@ function FallingWords({
 }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const [wordInstances, setWordInstances] = useState<WordInstance[]>([]);
+  // Built and never wired, in a component nothing imports — see the lint
+  // step's note in .github/workflows/frontend-build.yml. Kept rather than
+  // deleted so the unfinished work stays visible.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [hoveredWord, setHoveredWord] = useState<number | null>(null);
 
   // Initialize word instances
@@ -234,6 +238,10 @@ function Scene({
   const [isPaused, setIsPaused] = useState(false);
   const [logoHovered, setLogoHovered] = useState(false);
 
+  // Built and never wired, in a component nothing imports — see the lint
+  // step's note in .github/workflows/frontend-build.yml. Kept rather than
+  // deleted so the unfinished work stays visible.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleCanvasHover = useCallback((hovering: boolean) => {
     setIsPaused(hovering || logoHovered);
   }, [logoHovered]);

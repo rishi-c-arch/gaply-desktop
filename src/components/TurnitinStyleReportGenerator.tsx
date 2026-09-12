@@ -645,6 +645,10 @@ export const generateTurnitinStyleReport = (
     }).join('');
   };
 
+  // Built and never wired, in a component nothing imports — see the lint
+  // step's note in .github/workflows/frontend-build.yml. Kept rather than
+  // deleted so the unfinished work stays visible.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const getTypeColor = (type: string) => {
     switch (type) {
       case 'edit': return '#007AFF';

@@ -6,6 +6,8 @@
 // NOT call createClient again — a second client would create a second GoTrue
 // instance and corrupt session state. Import from here or from the services
 // module; both resolve to the exact same client.
+import { getSupabase } from '../services/supabase/client';
+
 export {
   getSupabase,
   isSupabaseConfigured,
@@ -13,8 +15,6 @@ export {
 } from '../services/supabase/client';
 export { createAuthService } from '../services/supabase/auth';
 export type { AuthService, AuthResult, SessionResult, OAuthProvider } from '../services/supabase/auth';
-
-import { getSupabase } from '../services/supabase/client';
 
 /** Convenience accessor mirroring the spec's `supabase` export. Null in
  *  OFFLINE MODE (no env config) — callers must handle null, exactly as the

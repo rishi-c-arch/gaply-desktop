@@ -170,7 +170,7 @@ const showChartError = (ctx, message) => {
   const retry = document.createElement('button');
   retry.className = 'retry-button';
   retry.textContent = 'Retry';
-  retry.addEventListener('click', () => location.reload());
+  retry.addEventListener('click', () => window.location.reload());
   wrap.append(icon, text, retry);
   parent.replaceChildren(wrap);
   
