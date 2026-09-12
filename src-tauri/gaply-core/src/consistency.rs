@@ -293,7 +293,11 @@ fn check_author_year(out: &mut ConsistencyReport, blocks: &[PagedBlock], report:
                     snippet(&uses[0].1, 50),
                     snippet(&near.raw, 50)
                 ),
-                None,
+                Some(
+                    "Check which spelling is right, and make the marker and the reference entry \
+                     agree."
+                        .to_string(),
+                ),
             );
             continue;
         }
@@ -314,7 +318,14 @@ fn check_author_year(out: &mut ConsistencyReport, blocks: &[PagedBlock], report:
                     snippet(&uses[0].1, 50),
                     snippet(&e.raw, 50)
                 ),
-                None,
+                // §11 D131 is why this is not cosmetic in its consequences: a
+                // mis-split name cost a FETCHABLE source its check. The action
+                // is the one that makes the marker resolve.
+                Some(
+                    "Check this is the work you meant, and cite it by the name its entry is \
+                     listed under."
+                        .to_string(),
+                ),
             );
             continue;
         }
@@ -599,7 +610,11 @@ fn check_metric_agreement(out: &mut ConsistencyReport, blocks: &[PagedBlock]) {
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
-                None,
+                Some(
+                    "Check whether these describe the same thing. If they do, one of them is \
+                     wrong; if they do not, say which is which."
+                        .to_string(),
+                ),
             );
         }
     }
@@ -775,7 +790,11 @@ fn check_captions(out: &mut ConsistencyReport, blocks: &[PagedBlock]) {
                         figure_labels.join(", ")
                     }
                 ),
-                None,
+                // §11 D150. This carried no action, so the report printed "No
+                // action needed." beside it. A figure a reviewer is told to
+                // look at and cannot find is a real defect, and one of the
+                // cheapest to fix.
+                Some("Add the caption, or remove the reference.".to_string()),
             );
         }
     }
@@ -823,7 +842,7 @@ fn check_section_letters(out: &mut ConsistencyReport, blocks: &[PagedBlock]) {
                 "Subsection “{}. {}” follows “{}. {}”: the letters do not advance by one.",
                 next, w[1].1, prev, w[0].1
             ),
-            None,
+            Some("Renumber the subsections so the letters run in order.".to_string()),
         );
     }
 }
@@ -1156,6 +1175,67 @@ mod tests {
             "A. Ablation Results Removing the attention layer costs two accuracy points.",
         ]);
         assert!(!kinds(&r).iter().any(|x| x == "section-letters-out-of-sequence"), "{:?}", kinds(&r));
+    }
+
+    /// §11 D150. EVERY FINDING SAYS WHAT TO DO ABOUT IT.
+    ///
+    /// The report renders a missing action as "No action needed." for a
+    /// cosmetic finding (§11 D148), which is right for a finding that genuinely
+    /// needs nothing and wrong for five that did. "Figure 6 is referred to 1
+    /// time but no caption defines it" told a reader to ignore a figure a
+    /// reviewer would flag.
+    ///
+    /// Checked over the whole check set rather than one kind at a time, because
+    /// the defect was not in any single check: it was that a missing action had
+    /// a plausible-looking default, so nothing ever made the absence visible.
+    #[test]
+    fn every_finding_says_what_to_do_about_it() {
+        // Wide enough to reach every check that fires on prose: an orphan
+        // marker, a near-miss surname, a co-author cited alone, a figure with
+        // no caption, a duplicated caption number, a repeated paragraph,
+        // out-of-order subsections and a mixed citation style.
+        let para = "A major drawback of this framework is that it has been restricted to single label \
+                    problems and does not yet handle the multi label case that real corpora present.";
+        let r = run(&[
+            "A. Dataset Acquisition Three corpora from publicly available benchmarks were employed.",
+            "D. Ablation Results Removing the attention layer costs two accuracy points.",
+            "Accuracy reached 91.2% on the held out split, as Figure 6 shows in the appendix.",
+            "Fig. 3. F1-Score Across Three Benchmark Datasets",
+            "Fig. 3. Training Loss Convergence on the Emotions Dataset",
+            para,
+            "An unrelated paragraph that says something else entirely about the data and its shape.",
+            para,
+            "The approach follows Kutzins (2013) and was extended by Banerjee (2021) for our case.",
+            "References",
+            "Kutzin, J. (2013). Health financing for universal coverage. Bulletin of the WHO.",
+        ]);
+        assert!(r.findings.len() >= 4, "the fixture reached too little: {:?}", kinds(&r));
+        let silent: Vec<&str> = r
+            .findings
+            .iter()
+            .filter(|f| f.action.is_none())
+            .map(|f| f.kind.as_str())
+            .collect();
+        assert!(
+            silent.is_empty(),
+            "these findings carry no action, so the report will tell the reader to ignore \
+             them: {silent:?}"
+        );
+    }
+
+    /// The one this was reported as (§11 D150).
+    #[test]
+    fn a_referenced_figure_with_no_caption_says_what_to_do() {
+        let r = run(&[
+            "Accuracy reached 91.2% on the held out split, as Figure 6 shows in the appendix.",
+            "Fig. 3. F1-Score Across Three Benchmark Datasets",
+        ]);
+        let f = r
+            .findings
+            .iter()
+            .find(|f| f.kind == "figure-referenced-but-absent")
+            .expect("no finding");
+        assert_eq!(f.action.as_deref(), Some("Add the caption, or remove the reference."));
     }
 
     #[test]

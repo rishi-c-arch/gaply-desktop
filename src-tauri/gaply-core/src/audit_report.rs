@@ -726,7 +726,7 @@ fn status_phrase(reason: &str) -> &'static str {
 fn check_kind_label(kind: &str) -> String {
     match kind {
         "citation_support" => "Checked against the cited source".to_string(),
-        "unverifiable" => "Cited source could not be read".to_string(),
+        "unverifiable" => "Cited source could not be checked".to_string(),
         // Retired (§11 D128), but jobs run before that still carry the rows.
         "citation_need" => "Looked at whether it needs a citation".to_string(),
         other => other.replace('_', " "),
@@ -916,9 +916,14 @@ fn emit_blocked_sources(
         return;
     }
     let groups = group_by_source(items);
+    // §11 D150. ONE NAME FOR ONE THING. Within fifteen lines this section
+    // called it three: the heading said "not checkable", the prose said "could
+    // not read", and the chart said "missing sources". A reader cannot tell
+    // whether three different populations are being described, and on this page
+    // that question had a real answer (see the chart, below).
     out.push(para(format!(
-        "{} sentence{} cite {} source{} Gaply could not read. This is a gap in your library \
-         rather than a fault in your writing. Each source listed below is one action away from \
+        "{} sentence{} cite {} work{} that could not be checked. This is a gap in your library \
+         rather than a fault in your writing. Each work listed below is one action away from \
          being checkable.",
         items.len(),
         if items.len() == 1 { "" } else { "s" },
@@ -952,32 +957,6 @@ fn emit_blocked_sources(
         });
     }
 
-    // DEFECT 3. Which gap is worth closing first, seen rather than counted.
-    if groups.len() >= 2 {
-        let top: Vec<(String, usize)> = groups
-            .iter()
-            .take(10)
-            .map(|g| {
-                (trim_at_word(&cited_work_label(&g.entry, g.parsed_entry.as_deref()), 44), g.items.len())
-            })
-            .collect();
-        out.push(Block::BarChart {
-            title: "Which missing sources block the most sentences".to_string(),
-            category_axis: "one cited work".to_string(),
-            value_axis: "how many of your sentences cite it".to_string(),
-            bars: top,
-        });
-        if groups.len() > 10 {
-            out.push(Block::Note {
-                text: format!(
-                    "The chart shows the ten works blocking the most sentences. All {} are in \
-                     the table below.",
-                    groups.len()
-                ),
-            });
-        }
-    }
-
     // §11 D145. TWO tables, because these are two different asks.
     //
     // The first is a shopping list: works to go and add. The second is a
@@ -990,6 +969,37 @@ fn emit_blocked_sources(
         match artifact_reason(&label, consistency) {
             Some(why) => suspect.push((g, why)),
             None => real.push((g, label)),
+        }
+    }
+
+    // DEFECT 3. Which gap is worth closing first, seen rather than counted.
+    //
+    // §11 D150. DRAWN FROM `real`, and therefore computed AFTER the split.
+    // It used to draw from `groups`, so `Authority, 2025` was ranked 9th in a
+    // chart of works to go and find while the table under it explained that
+    // the same name is probably a fragment of "The Financial Services
+    // Authority" and must not be fetched. One page, one source, two
+    // populations, and nothing on it said which was which.
+    if real.len() >= 2 {
+        let top: Vec<(String, usize)> = real
+            .iter()
+            .take(10)
+            .map(|(g, label)| (trim_at_word(label, 44), g.items.len()))
+            .collect();
+        out.push(Block::BarChart {
+            title: "Which of these works block the most sentences".to_string(),
+            category_axis: "one cited work".to_string(),
+            value_axis: "how many of your sentences cite it".to_string(),
+            bars: top,
+        });
+        if real.len() > 10 {
+            out.push(Block::Note {
+                text: format!(
+                    "The chart shows the ten works blocking the most sentences. All {} are in \
+                     the table below.",
+                    real.len()
+                ),
+            });
         }
     }
 
@@ -1334,7 +1344,8 @@ pub fn compose_audit(m: &AuditReportModel) -> Vec<Block> {
         // "The counts", contradicting the chart one page earlier. It is the
         // number a researcher would quote to a supervisor.
         "Gaply read {} sentences. {} of them cite a source. It could reach the cited source for \
-         {} of those and quoted passages for {}; the remaining {} cite works it could not read.",
+         {} of those and quoted passages for {}; the remaining {} cite works it could not \
+         check.",
         m.total_sentences,
         citing_total,
         reached_source,
@@ -2179,6 +2190,70 @@ mod tests {
         m
     }
 
+    /// §11 D150. THE CHART AND THE TABLE UNDER IT DRAW THE SAME POPULATION.
+    ///
+    /// The chart was built from `groups`, before the D145 split, so
+    /// `Authority, 2025` was ranked in a chart of works to go and find while
+    /// the table below it explained that the same name is probably a fragment
+    /// of "The Financial Services Authority" and must not be fetched. One page,
+    /// one source, two populations, and nothing on it said which was which.
+    #[test]
+    fn the_chart_ranks_only_the_works_the_table_says_to_fetch() {
+        let mut m = model();
+        // The artifact BLOCKS THE MOST SENTENCES, so a chart drawing from the
+        // unfiltered list puts it first rather than somewhere forgiving.
+        m.unverifiable = vec![
+            ReportItem { seq: 1, sentence: "The platform processed three million transactions.".into(), ..blocked_item("Authority, 2025") },
+            ReportItem { seq: 2, sentence: "It also settled claims automatically.".into(), ..blocked_item("Authority, 2025") },
+            ReportItem { seq: 3, sentence: "Uptake rose after 2015.".into(), ..blocked_item("Banerjee, 2021") },
+            ReportItem { seq: 4, sentence: "Enrolment followed the same path.".into(), ..blocked_item("Hadley, 2002") },
+        ];
+        m.consistency = vec![crate::consistency::ConsistencyFinding {
+            kind: "uncertain-reference-match".into(),
+            severity: crate::consistency::Severity::Cosmetic,
+            message: "\u{201C}Authority (2025)\u{201D} names \u{201C}authority\u{201D}, which appears in the entry \
+                      beginning \u{201C}The Financial Services Authority. (2025)\u{201D}"
+                .into(),
+            action: None,
+        }];
+        let blocks = compose_audit(&m);
+
+        let bars = blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::BarChart { bars, .. } => Some(bars.clone()),
+                _ => None,
+            })
+            .expect("no chart");
+        assert!(
+            !bars.iter().any(|(label, _)| label.contains("Authority")),
+            "the chart ranks a name the table below it says not to fetch: {bars:?}"
+        );
+        // The control: the chart is still drawn, and still ranks the works that
+        // ARE works. Dropping the chart would pass the assertion above.
+        assert!(bars.iter().any(|(label, _)| label.contains("Banerjee")), "{bars:?}");
+        assert_eq!(bars.len(), 2, "{bars:?}");
+    }
+
+    /// §11 D150. ONE NAME FOR ONE THING.
+    ///
+    /// Within fifteen lines the section called it three: the heading said "not
+    /// checkable", the prose "could not read", the chart "missing sources".
+    /// Three names invite the reader to look for three populations, and on that
+    /// page one of them really was a different population.
+    #[test]
+    fn one_state_has_one_name_throughout_the_report() {
+        let text = all_text(&compose_audit(&rich_model()));
+        for stale in ["could not read", "missing sources", "could not be read"] {
+            assert!(
+                !text.contains(stale),
+                "{stale:?} is a second name for what the rest of the report calls checking:\n{text}"
+            );
+        }
+        assert!(text.contains("Cited, but not checkable"), "{text}");
+        assert!(text.contains("that could not be checked"), "{text}");
+    }
+
     /// §11 D149. NOTHING THE TOOL CALLS ITSELF REACHES THE READER.
     ///
     /// One sweep over a rich report, because these leaked one at a time from
@@ -2223,7 +2298,7 @@ mod tests {
         // still there, said in words.
         assert!(text.contains("Passage 1 \u{b7} page 4:"), "{text}");
         assert!(text.contains("paragraph"), "{text}");
-        assert!(text.contains("Cited source could not be read"), "{text}");
+        assert!(text.contains("Cited source could not be checked"), "{text}");
     }
 
     /// §11 D149. THE MEASUREMENT IS STATED ONCE.
@@ -2583,7 +2658,7 @@ mod tests {
         // "citation support" and "unverifiable", which are this codebase's enum
         // variants.
         assert!(text.contains("Looked at whether it needs a citation 65"), "{text}");
-        assert!(text.contains("Cited source could not be read 19"), "{text}");
+        assert!(text.contains("Cited source could not be checked 19"), "{text}");
         assert!(!text.contains("citation support"), "an enum name reached a cell:\n{text}");
         // The verdict counts are drawn as proportional bars now, so the number
         // and its label are no longer adjacent — assert both, not the old

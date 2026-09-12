@@ -9174,3 +9174,89 @@ findings it recomputed so the two sets are never silently swapped.
 #### What was deliberately left
 
 Items 10, 11, 14, 15, 16, 17 and 19 of the review are untouched, as agreed.
+
+### D150 — three readings of the final PDF, and one of them was not the defect it looked like
+
+Three items found by reading the shipped artifact rather than the code, which is
+where the last two sessions' defects have all come from.
+
+#### "Affects the audit" was fixed; "No action needed." on a real defect was not
+
+§11 D148 stopped a STRUCTURAL finding rendering as "No action needed.". The
+cosmetic half of that fallback was left alone and was wrong five times over:
+
+> Figure 6 is referred to 1 time but no caption defines it. | Worth fixing |
+> **No action needed.**
+
+A figure a reviewer is told to look at and cannot find is a real defect, and one
+of the cheapest to fix. Every action-less finding in `consistency` now carries
+one:
+
+| finding | action |
+|---|---|
+| `figure-referenced-but-absent` | Add the caption, or remove the reference. |
+| `section-letters-out-of-sequence` | Renumber the subsections so the letters run in order. |
+| `uncertain-reference-match` (one-character difference) | Check which spelling is right, and make the marker and the entry agree. |
+| `uncertain-reference-match` (name not the one the entry is listed under) | Check this is the work you meant, and cite it by the name its entry is listed under. |
+| `metric-values-unattributed` | Check whether these describe the same thing. If they do, one of them is wrong; if they do not, say which is which. |
+
+The last two matter more than "cosmetic" suggests: §11 D131 is a mis-split name
+that cost a **fetchable** source its check.
+
+**The guard is a sweep, not five assertions.** The defect was not in any one
+check — it was that a missing action had a plausible-looking default, so nothing
+ever made the absence visible. `every_finding_says_what_to_do_about_it` runs a
+fixture wide enough to fire eight checks and fails on any finding whose action
+is `None`. The "No action needed." fallback stays for a finding that genuinely
+needs nothing, and is now unreachable from the shipped check set.
+
+Same persistence rule as §11 D149: a job audited before this keeps the actions
+(and the absences) it shipped with.
+
+#### The chart drew one population and the table under it drew another
+
+`emit_blocked_sources` built its bar chart from `groups` — before §11 D145's
+split into works-to-fetch and names-that-may-not-be-works. So a name the report
+had just decided not to present as fetchable could still be ranked in the chart
+of what to go and find, on the same page, from the same data.
+
+Now computed after the split and drawn from `real`. The negative control was run
+the D144 way rather than assumed: with the chart pointed back at `groups` the
+new test fails, and names the bar it should not have drawn.
+
+```
+the chart ranks a name the table below it says not to fetch:
+  [("Authority, 2025", 2), ("Banerjee, 2021", 1), ("Hadley, 2002", 1)]
+```
+
+**The instance that prompted this was NOT this defect, and the difference is
+worth recording.** `Authority, 2025` appears in the regenerated report's chart
+ranked 9th — and also in the works table beside it, because in that render it is
+not classified as an artifact at all. `artifact_reason`'s first and strongest
+rule is "the deterministic checks already flagged this marker", and the
+recomputed findings for today's manuscript contain no `uncertain-reference-match`
+for it; the other two rules look for an acronym or a possessive, and "Authority"
+is neither. Job 23's PERSISTED findings DO flag it, so a replayed render files it
+under "Names that may not be separate works" and a recomputed one does not.
+
+So the chart and the table agreed in the PDF that was read. The defect they
+looked like they had was real, latent, and is now fixed; the thing actually
+visible on that page is that the classifier has no signal for a capitalised
+ordinary word cited as a surname. **That is left deliberately.** D145's rule is
+conservative on purpose — calling a researcher's genuine citation junk is the
+one thing it must never do — and widening it to catch "Authority" needs a signal
+that does not also catch a real author called Bishop, Church or Price.
+
+#### Three names for one thing, fifteen lines apart
+
+The heading said "Cited, but not checkable", the prose "sources Gaply could not
+read", the chart "missing sources". Three names invite a reader to look for
+three populations, and on that page one of them really was a different
+population, which is what made this worth fixing rather than tidying.
+
+One vocabulary now, built on the heading, which is also a `GAPLY_REPORT_MARKERS`
+entry and could not move: the prose says "works that could not be checked", the
+chart is "Which of these works block the most sentences", and the counts table
+says "Cited source could not be checked", matching the page-1 chart segment
+"Could not be checked". `one_state_has_one_name_throughout_the_report` fails on
+"could not read" or "missing sources" reaching any composed string.
