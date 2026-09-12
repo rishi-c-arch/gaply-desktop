@@ -70,24 +70,34 @@ jobs:
       - name: Compile every bundle
         shell: bash
         run: |
-          set -uo pipefail
-          failed=()
+          # No `set -u`: an empty bash array read with ${#a[@]} aborts under it on
+          # some bash builds, and the shell then exits with the PREVIOUS command's
+          # status — which is how this step first failed with a baffling 127 while
+          # every document had compiled. A plain counter cannot do that.
+          # No pdfinfo either: that is poppler, not TeX Live, and is absent here.
+          set -o pipefail
+          fails=0
+          failed_names=""
           for dir in latex-goldens/*/; do
             name="$(basename "$dir")"
             echo "::group::$name"
             if (cd "$dir" && latexmk -pdf -interaction=nonstopmode -halt-on-error -file-line-error main.tex); then
-              pages="$(pdfinfo "$dir/main.pdf" 2>/dev/null | awk '/^Pages/{print $2}')"
-              echo "PASS  $name  (${pages:-?} pages)"
+              if [ -s "$dir/main.pdf" ]; then
+                echo "PASS  $name  ($(wc -c < "$dir/main.pdf" | tr -d ' ') bytes)"
+              else
+                echo "FAIL  $name  (latexmk succeeded but produced no PDF)"
+                fails=$((fails + 1)); failed_names="$failed_names $name"
+              fi
             else
               echo "FAIL  $name"
               # the actual TeX error, not just the latexmk summary
               sed -n '/^!/,+12p' "$dir"/main.log 2>/dev/null | head -60
-              failed+=("$name")
+              fails=$((fails + 1)); failed_names="$failed_names $name"
             fi
             echo "::endgroup::"
           done
-          if [ ${#failed[@]} -gt 0 ]; then
-            echo "::error::LaTeX export does not compile: ${failed[*]}"
+          if [ "$fails" -gt 0 ]; then
+            echo "::error::LaTeX export does not compile:$failed_names"
             exit 1
           fi
           echo "All bundles compiled."
