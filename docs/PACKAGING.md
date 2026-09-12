@@ -108,6 +108,28 @@ break an app that needs JIT or unsigned executable memory. It does not break
 this one: the signed bundle launches, reaches `AI engine device: metal`, and
 stays up.
 
+#### How the two-line change was verified — locally, not by CI
+
+**Nothing in CI parses `tauri.conf.json`.** `clean-checkout` and `latex-compile`
+never build the app crate; `frontend-build` mentions `tauri build` only in a
+comment; `windows-build-check`'s **Build Tauri Windows app** step is `if:`-gated
+on the gitignored bundled models and is `skipped` on every run; `package-release`
+would parse it, but is dispatch-only and has never run. All three workflows went
+green on this change and none of them read the file.
+
+So the evidence is the artefact: `npm run tauri build` logging
+`Signing with identity "-"`, `codesign --verify --deep --strict` exiting 0 on
+the app **inside the mounted DMG**, and `LSMinimumSystemVersion` read back as
+`11.0` from the installed plist.
+
+That is weaker CI coverage but not a missing gate, and the distinction is
+measured rather than argued: with the key deliberately mis-cased to `"macos"`,
+`npx tauri build` exits 1 in **0 seconds with 0 crates compiled** —
+*"Additional properties are not allowed ('macos' was unexpected)"*. Tauri
+schema-validates the config before compiling anything, so a broken config
+cannot reach a DMG. The config is guarded by the release build itself; see
+CLAUDE.md, "Nothing in CI parses `tauri.conf.json`".
+
 #### `LSMinimumSystemVersion` was wrong twice over
 
 Tauri's default is `10.13`, hardcoded in `tauri-utils`

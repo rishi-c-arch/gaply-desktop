@@ -221,6 +221,48 @@ time injection.
   the workflows run on `desktop`, which has no deploy job, and `origin` is NOT
   gone (see "Remotes"). It stays off every-push because it is heavy (npm ci, a
   full Tauri Windows build); the cheap workflow carries the per-push guard.
+- **Nothing in CI parses `tauri.conf.json`. Checked 12 Sep 2026 — and it is a
+  DIFFERENT situation from the lint gate, which is the part worth recording.**
+
+  Coverage first, plainly. Of the five workflows: `clean-checkout` and
+  `latex-compile` never touch the app crate; `frontend-build` names
+  `npm run tauri build` only in its own header comment; `windows-build-check`
+  has the one step that would parse it — **Build Tauri Windows app** — and that
+  step is `if:`-gated on the bundled models, which are gitignored, so it is
+  `skipped` on every run (confirmed in the run for c44157a). `package-release`
+  would parse it through tauri-action, but is `workflow_dispatch` only and
+  `gh run list --workflow "Package Release"` returns `[]` — it has never run.
+  So a mis-cased `"macos"` key would go green on every automatic workflow.
+
+  **But it is not unguarded the way the frontend build was, and the difference
+  is worth being precise about rather than filing both under the same alarm.**
+  Measured, with the key deliberately mis-cased:
+
+  ```
+  $ npx tauri build
+  Error `"tauri.conf.json"` error on `bundle`: Additional properties are not
+        allowed ('macos' was unexpected)
+  build exit=1   elapsed=0s   crates compiled: 0
+  ```
+
+  Tauri schema-validates the config at CLI startup, before a single crate
+  compiles. The config is an **unskippable precondition of the only thing that
+  produces a DMG**, so it cannot be wrong and unnoticed — the first attempt to
+  ship fails instantly and says exactly which key is wrong.
+
+  The eslint gate had the opposite shape: nothing else in the workflow would
+  ever surface a warning, so 15 of them accumulated across 11 files and would
+  have appeared for the first time during a real release. **The question to ask
+  of a skipped gate is not "does CI run it" but "is there any path on which
+  this is wrong and nobody finds out".** For the lint gate the answer was yes,
+  for months. For the config it is no, by zero seconds. Only the first kind is
+  a gate that isn't running; the second is a gate somewhere else.
+
+  Two consequences. Config changes are verified by running the local build and
+  reading the artefact back, not by watching CI go green — that is how
+  `c44157a` was checked (docs/PACKAGING.md §1a). And a green CI run on a
+  config change is not evidence about the config; do not report it as though
+  it were — a mistake made on c44157a and corrected in the same session.
 - **`tauri dev` WITHOUT `--release` is a trap for anything touching a model.**
   Always `npm run tauri dev -- --release` when the path under test loads BGE,
   candle, or the generative judge. Candle's CPU kernels are unoptimised in a
