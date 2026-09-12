@@ -9260,3 +9260,54 @@ chart is "Which of these works block the most sentences", and the counts table
 says "Cited source could not be checked", matching the page-1 chart segment
 "Could not be checked". `one_state_has_one_name_throughout_the_report` fails on
 "could not read" or "missing sources" reaching any composed string.
+
+### D151 — A STANDING PROPERTY: an exported report is a record, not a live query
+
+Named here because it has now produced three different-looking defects in two
+sessions, and each was investigated as if it were its own thing.
+
+**The property.** Consistency findings are computed once, at audit time, and
+written to `ai_jobs.summary_json` (item reasons likewise to `ai_job_items.error`).
+The report RENDERS what is stored. So every part of a report derived from a
+consistency finding is a record of what the tool said on the day the job ran, and
+a re-render after the checks change will differ from it.
+
+That is correct behaviour, not a cache to be invalidated. An exported report is
+evidence a researcher may have acted on, quoted, or sent to a supervisor; a
+document that silently re-decides its own contents when the tool is upgraded is
+worse than one that is out of date, because nothing on the page says which
+version of the tool wrote it.
+
+**What has actually diverged, in order of discovery:**
+
+| what differed | where | what it looked like |
+|---|---|---|
+| WORDING | §11 D143 | a fixed string still appearing in a regenerated preview |
+| FINDINGS | §11 D149 | job 23 stores 13, a recompute yields 8, sharing none |
+| CLASSIFICATION | §11 D150 | `Authority, 2025` a suspect name on one render, a work to fetch on the other |
+
+One cause, three symptoms. The third is the one that misleads, because the
+divergence is not in the finding itself: `artifact_reason` takes its strongest
+signal FROM the consistency findings, so a report derived from them inherits the
+divergence one step removed, in a table that never mentions them.
+
+**Two distinct sources, and only one is benign.**
+
+1. *Time.* The checks themselves changed between the audit and the re-render.
+   Expected, and the property above is exactly right for it.
+2. *Path.* §11 D146: the audit path and the recompute path reach the checker
+   with a differently-parsed prepass and disagree about the manuscript's
+   reference style, so the recompute skips the author-year checks that the audit
+   ran. That is a DEFECT, still open, and it is why `Authority, 2025` has no
+   `uncertain-reference-match` to be classified by today.
+
+So a difference between two renders of one job is not self-explaining: it is
+either the tool having moved on, or D146. **Do not read a recomputed report as
+the corrected version of a stored one** until D146 is fixed — on a numbered-style
+paper the recompute runs strictly fewer checks.
+
+**What to do with it.** `audit_report_preview` takes an optional manuscript path
+and prints how many findings it recomputed, so the two sets are never silently
+swapped, and the number on that line is the first thing to compare when two
+exports disagree. Anything new that derives a reader-facing claim from a
+consistency finding inherits this property and should say so where it is built.
