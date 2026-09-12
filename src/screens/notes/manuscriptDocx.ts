@@ -79,6 +79,7 @@ export async function buildManuscriptDocx(
 ): Promise<Blob> {
   const {
     Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, ImageRun,
+    ExternalHyperlink,
     PageNumber, Footer, PageBreak, LineNumberRestartFormat, LineRuleType,
     convertInchesToTwip, convertMillimetersToTwip,
     Table, TableRow, TableCell, WidthType, BorderStyle, LevelFormat,
@@ -114,7 +115,7 @@ export async function buildManuscriptDocx(
   // rich content (inside bold/italic/list/table too) in the SAME order
   // orderedRefIds walked, so perToken[k] alignment (and the B2 match) is preserved.
   const richCtx: RichDocxCtx = {
-    D: { Paragraph, TextRun, HeadingLevel, AlignmentType, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle } as unknown as typeof import('docx'),
+    D: { Paragraph, TextRun, HeadingLevel, AlignmentType, ImageRun, ExternalHyperlink, Table, TableRow, TableCell, WidthType, BorderStyle } as unknown as typeof import('docx'),
     bodySpacing, bodyIndent, citations, counter: { i: 0 }, resolveImage, fit, olInstance: { n: 0 },
   };
 
@@ -128,11 +129,24 @@ export async function buildManuscriptDocx(
   let refsEmitted = false;
   for (const s of m.sections) {
     // The References section becomes the AUTO-GENERATED bibliography when the
-    // manuscript has citations; otherwise its manual body is exported as-is.
+    // manuscript has citations AND that bibliography is non-empty; otherwise its
+    // manual body is exported as-is.
+    //
+    // THE EMPTY CASE IS NOT HYPOTHETICAL. `hasCitations` only means "[[cite:…]]
+    // tokens exist" — if every one of them is dangling (the refs were deleted
+    // from the library), renderCitations drops them all and the bibliography is
+    // ''. Skipping the section then discarded BOTH the auto list and whatever
+    // the author had typed by hand, so a submission manuscript exported with no
+    // bibliography at all and nothing said so. Fall through instead: the manual
+    // body is the only reference text that still exists, so it must ship.
     if (s.key === 'references' && cited) {
       const paras = bibParagraphs();
-      if (paras.length) { bodyChildren.push(heading(s.heading), ...paras); refsEmitted = true; }
-      continue;
+      if (paras.length) {
+        bodyChildren.push(heading(s.heading), ...paras);
+        refsEmitted = true;
+        continue;
+      }
+      // empty bibliography → fall through to the manual-body path below
     }
     // Parse the section markdown → real docx blocks (paragraphs, lists, tables,
     // images), with citations resolved inline in document order.

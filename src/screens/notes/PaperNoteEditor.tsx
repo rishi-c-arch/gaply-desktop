@@ -13,6 +13,7 @@ import { noteToMarkdown, exportFileName, ExportableNote } from './noteExport';
 import { saveNoteFile } from './saveNoteFile';
 import { IcBack, IcEye, IcExport, IcTrash, IcSave, IcAdd, IcEditNote } from './NotesIcons';
 import FontScale from './FontScale';
+import { SaveState, DiscardWarning, useDirtyBaseline, useCloseGuard } from './editorSaveState';
 import './notes.css';
 
 /** Honest reading time from the actual export text (~200 wpm, ceil). */
@@ -91,6 +92,14 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
   };
 
   const splitTags = () => tags.split(',').map((t) => t.trim()).filter(Boolean);
+
+  // Dirty tracking: the snapshot is exactly what save() persists — the trimmed
+  // title, the skip-empties template object and the split tags — so whitespace
+  // churn never marks the note dirty, and an emptied field always does.
+  // currentFields() assembles keys in a fixed order, so the string is stable.
+  const snapshot = JSON.stringify([title.trim(), currentFields(), splitTags()]);
+  const { dirty } = useDirtyBaseline(snapshot);
+  const { askedToClose, requestClose, keepEditing, discard } = useCloseGuard(dirty, onClose);
 
   // The exact ExportableNote both export AND preview use — one source, no drift.
   const buildExportable = (): ExportableNote => ({
@@ -205,7 +214,7 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
 
       {/* Footer — honest meta (no fake history/collaborators) + tags */}
       <div className="an-edit-foot">
-        <div className="an-foot-meta"><span>Saved locally · on device</span></div>
+        <div className="an-foot-meta"><SaveState dirty={dirty} busy={busy} savedAt={existing?.updated_at} testid="note-save-state-foot" /></div>
         <div className="an-tagpills">
           {splitTags().map((t) => <span key={t} className="an-pill">#{t}</span>)}
           <input className="an-tags-input" value={tags} placeholder="comma, separated, tags" data-testid="note-tags" onChange={(e) => setTags(e.target.value)} />
@@ -222,7 +231,7 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
       {/* Header / toolbar (mock: Paper Editor top bar) */}
       <header className="an-edit-head">
         <div className="an-edit-head-left">
-          <button className="an-backbtn" onClick={onClose} data-testid="note-close" title="Back to your library"><IcBack /></button>
+          <button className="an-backbtn" onClick={requestClose} data-testid="note-close" title="Back to your library"><IcBack /></button>
           <h1>Paper Editor</h1>
         </div>
         <div className="an-edit-actions">
@@ -251,13 +260,15 @@ const PaperNoteEditor: React.FC<PaperNoteEditorProps> = ({ base, existing, paper
       </header>
 
       <div className={`an-edit-wrap${paperText ? ' an-edit-wrap--wide' : ''}`}>
+        {askedToClose && <DiscardWarning what="this note" onKeep={keepEditing} onDiscard={discard} testid="note-discard" />}
+
         {/* Breadcrumbs + honest storage status */}
         <div className="an-crumbs">
           <div className="an-crumbs-path">
             <span>My Library</span><span>›</span>
             <strong>{base.paper_title || 'Untitled paper'}</strong>
           </div>
-          <div className="an-synced">Saved locally · on device</div>
+          <SaveState dirty={dirty} busy={busy} savedAt={existing?.updated_at} testid="note-save-state" />
         </div>
 
         {fullTextExpected && !paperText && (

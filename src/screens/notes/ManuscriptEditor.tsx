@@ -8,6 +8,7 @@ import RichBody from './RichBody';
 import ScaffoldPicker from './ScaffoldPicker';
 import { CitationProvider, CitationPickItem } from './CitationContext';
 import { signatureOf, renderManuscriptCitations, CitationRender } from './manuscriptCitations';
+import { CITE_TOKEN_RE } from './GaplyCiteNode';
 import { LocalLibrary, TauriLocalLibrary, storedToCitation } from '../citations/localLibrary';
 import { CslItem } from '../citations/citationTypes';
 import { Note, NoteDraft } from './notesBridge';
@@ -21,6 +22,7 @@ import { saveManuscriptDocx } from './manuscriptDocx';
 import { exportFileName } from './noteExport';
 import { IcBack, IcExport, IcTrash, IcSave } from './NotesIcons';
 import FontScale from './FontScale';
+import { SaveState, DiscardWarning, useDirtyBaseline, useCloseGuard } from './editorSaveState';
 import './notes.css';
 
 export interface ManuscriptEditorProps {
@@ -55,6 +57,23 @@ const ManuscriptEditor: React.FC<ManuscriptEditorProps> = (props) => {
 
 type Pending = { next: Scaffold; dropped: Array<{ heading: string; body: string }> };
 
+/** Where the missing references actually are. A dangling id is a deleted
+ *  library row, so the id itself is all that survives and means nothing to a
+ *  reader — the useful answer is which sections to go and look at. */
+export const danglingBySection = (
+  sections: Array<{ heading: string; body: string }>,
+  dangling: string[],
+): Array<{ heading: string; count: number }> => {
+  const missing = new Set(dangling);
+  return sections
+    .map((s) => ({
+      heading: s.heading,
+      count: (s.body.match(CITE_TOKEN_RE) ?? [])
+        .filter((tok) => missing.has(tok.replace(/\[\[cite:|\]\]/g, ''))).length,
+    }))
+    .filter((s) => s.count > 0);
+};
+
 const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffold[]; notice: string }> = ({
   id, existing, onSave, onDelete, onClose, busy, onError, scaffolds, notice, library,
 }) => {
@@ -65,10 +84,19 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
   const [pickerMode, setPickerMode] = useState<null | 'new' | 'switch'>(existing ? null : 'new');
   const [pending, setPending] = useState<Pending | null>(null); // scaffold-switch drop-warning
   const [pendingDelete, setPendingDelete] = useState<{ key: string; heading: string; words: number } | null>(null);
+  // A resolved render held back by the dangling-citation export gate.
+  const [pendingExport, setPendingExport] = useState<CitationRender | null>(null);
   const [renamingKey, setRenamingKey] = useState<string | null>(null);
   const [activeKey, setActiveKey] = useState(manuscript.sections[0]?.key ?? '');
 
   const scaffold = pickScaffold(scaffolds, manuscript.scaffoldId);
+
+  // Dirty tracking against the EXACT persisted payload — manuscriptToDraft is
+  // what save() sends, so the snapshot can't drift from what a save would write
+  // (and scaffold-derived hints, which aren't stored, can't produce false dirt).
+  const snapshotOf = (m: Manuscript) => JSON.stringify(manuscriptToDraft(m));
+  const { dirty, resetBaseline } = useDirtyBaseline(snapshotOf(manuscript));
+  const { askedToClose, requestClose, keepEditing, discard } = useCloseGuard(dirty, onClose);
 
   /* ---- citations (Set B1): library + signature-gated live markers ---- */
   const lib = useMemo(() => library ?? new TauriLocalLibrary(), [library]);
@@ -143,13 +171,30 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
     setManuscript((m) => ({ ...m, sections: m.sections.map((s) => (s.key === key ? { ...s, body } : s)) }));
 
   const save = () => onSave(manuscriptToDraft(manuscript));
+
+  /** Write the .docx. Split out from the gate below so "Export anyway" reuses
+   *  the exact same path (no second resolve, no chance of a different render). */
+  const writeDocx = async (cites: CitationRender) => {
+    try {
+      await saveManuscriptDocx(manuscript, exportFileName(manuscript.title, 'manuscript').replace(/\.md$/, '.docx'), scaffold.docxFormat ?? DEFAULT_DOCX_FORMAT, cites);
+    } catch (e) {
+      onError?.(e instanceof Error ? e.message : 'Could not export the .docx');
+    }
+  };
+
   const exportDocx = async () => {
     onError?.(null);
     try {
       // Resolve citations fresh (same path as live display → export markers match
       // live), then export with the venue's manuscript formatting profile.
       const cites = await renderManuscriptCitations(manuscript.sections, manuscript.cslStyleId, libMap);
-      await saveManuscriptDocx(manuscript, exportFileName(manuscript.title, 'manuscript').replace(/\.md$/, '.docx'), scaffold.docxFormat ?? DEFAULT_DOCX_FORMAT, cites);
+      // A dangling ref writes a literal "[?]" into the manuscript and is missing
+      // from the References list. In the app that's honest; in a file being
+      // emailed to a journal it is worse than not having the file — so STOP and
+      // say which references are missing. Exporting anyway stays available and
+      // explicit, because someone mid-draft may genuinely want the file.
+      if (cites.dangling.length > 0) { setPendingExport(cites); return; }
+      await writeDocx(cites);
     } catch (e) {
       onError?.(e instanceof Error ? e.message : 'Could not export the .docx');
     }
@@ -185,16 +230,20 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
   };
   const move = (key: string, dir: -1 | 1) => setManuscript((m) => moveSection(m, key, dir));
 
-  // Apply a resolved manuscript from a scaffold switch/new pick.
-  const applyManuscript = (m: Manuscript) => {
+  // Apply a resolved manuscript from a scaffold switch/new pick. `rebaseline`
+  // is for the CREATE pick only: choosing the starting structure of an empty
+  // manuscript isn't work to protect, so it must not arm the close guard. A
+  // structure SWITCH on an existing manuscript is a real edit and stays dirty.
+  const applyManuscript = (m: Manuscript, rebaseline = false) => {
     setManuscript(m);
     setActiveKey(m.sections[0]?.key ?? '');
     setPickerMode(null);
     setPending(null);
+    if (rebaseline) resetBaseline(snapshotOf(m));
   };
 
   const onPick = (next: Scaffold) => {
-    if (pickerMode === 'new') { applyManuscript(newManuscript(id, next)); return; }
+    if (pickerMode === 'new') { applyManuscript(newManuscript(id, next), true); return; }
     // switch mode
     if (next.id === manuscript.scaffoldId) { setPickerMode(null); return; }
     const { manuscript: switched, dropped } = switchScaffold(manuscript, next);
@@ -240,7 +289,7 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
     <div data-testid="manuscript-editor">
       <header className="an-edit-head">
         <div className="an-edit-head-left">
-          <button className="an-backbtn" onClick={onClose} data-testid="ms-close" title="Back to your library"><IcBack /></button>
+          <button className="an-backbtn" onClick={requestClose} data-testid="ms-close" title="Back to your library"><IcBack /></button>
           <h1>Research Paper</h1>
         </div>
         <div className="an-edit-actions">
@@ -261,9 +310,11 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
       </header>
 
       <div className="an-edit-wrap">
+        {askedToClose && <DiscardWarning what="this manuscript" onKeep={keepEditing} onDiscard={discard} testid="ms-discard" />}
+
         <div className="an-crumbs">
           <div className="an-crumbs-path"><span>My Library</span><span>›</span><strong>Research Paper</strong></div>
-          <div className="an-synced">Saved locally · on device</div>
+          <SaveState dirty={dirty} busy={busy} savedAt={existing?.updated_at} testid="ms-save-state" />
         </div>
 
         {/* Honest structure banner + change-structure + verify link. */}
@@ -274,6 +325,31 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
           <br />Gaply formats your <b>structure and references</b>; the publisher typesets the final camera-ready layout.
           <br /><span data-testid="ms-export-note">Exports a clean single-column submission manuscript — for camera-ready typesetting after acceptance, use your publisher’s official template or Overleaf.</span>
         </div>
+
+        {pendingExport && (
+          <div className="an-ms-dropwarn" role="alertdialog" data-testid="ms-danglingwarn">
+            <p>
+              <b>{pendingExport.dangling.length} reference{pendingExport.dangling.length > 1 ? 's' : ''} you cite {pendingExport.dangling.length > 1 ? 'are' : 'is'} no longer in your library.</b>{' '}
+              Exporting now writes <b>[?]</b> where {pendingExport.dangling.length > 1 ? 'they' : 'it'} should appear, and leaves {pendingExport.dangling.length > 1 ? 'them' : 'it'} out of the reference list.
+            </p>
+            <ul>
+              {danglingBySection(manuscript.sections, pendingExport.dangling).map((d) => (
+                <li key={d.heading}><b>{d.heading}</b> — {d.count} citation{d.count > 1 ? 's' : ''}</li>
+              ))}
+            </ul>
+            <p>Add {pendingExport.dangling.length > 1 ? 'them' : 'it'} back in <b>Citations</b>, or delete the citation{pendingExport.dangling.length > 1 ? 's' : ''} from your text, then export again.</p>
+            <div className="an-ms-dropwarn-actions">
+              <button className="an-ghostbtn" data-testid="ms-danglingwarn-cancel" onClick={() => setPendingExport(null)}>Fix the references first</button>
+              <button
+                className="an-deletebtn an-deletebtn--armed"
+                data-testid="ms-danglingwarn-confirm"
+                onClick={() => { const c = pendingExport; setPendingExport(null); void writeDocx(c); }}
+              >
+                Export anyway (with [?])
+              </button>
+            </div>
+          </div>
+        )}
 
         {pendingDelete && (
           <div className="an-ms-dropwarn" role="alertdialog" data-testid="ms-deletewarn">

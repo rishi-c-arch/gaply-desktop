@@ -15,7 +15,12 @@ import { CitationRender } from './manuscriptCitations';
 import { IMAGE_REF_PREFIX } from './noteImages';
 import type { ResolvedImage, ImageResolver } from './manuscriptDocx';
 
-const mdit = new MarkdownIt({ html: false, linkify: false, breaks: false }); // GFM tables on by default
+// `breaks: true` matches the editor's own parser (RichBody configures
+// tiptap-markdown the same way), so the two agree about what a newline means.
+// It is a declaration of intent, not the mechanism: `breaks` only affects
+// markdown-it's HTML RENDERER, and we walk tokens. The line-break decision that
+// actually ships is in inlineRuns' softbreak/hardbreak case.
+const mdit = new MarkdownIt({ html: false, linkify: false, breaks: true }); // GFM tables on by default
 
 export const NUMBERING_REF = 'ms-ol';
 
@@ -51,12 +56,21 @@ const matchClose = (tokens: Token[], open: number, openType: string, closeType: 
   return tokens.length - 1;
 };
 
-/** Inline token children → docx runs (bold/italic/code + inline images). */
+/** Inline token children → docx runs (bold/italic/code + links + inline images). */
 async function inlineRuns(children: Token[], ctx: RichDocxCtx): Promise<ParaChild[]> {
   const { D } = ctx;
   const runs: ParaChild[] = [];
   let bold = false;
   let italic = false;
+
+  // Link state. Runs between link_open and link_close are buffered so they can
+  // be wrapped in one ExternalHyperlink; `linkText` accumulates the anchor's
+  // plain text so we can tell whether the URL is already visible to a reader.
+  let linkHref: string | null = null;
+  let linkBuf: ParaChild[] = [];
+  let linkText = '';
+  const emit = (r: ParaChild) => { (linkHref !== null ? linkBuf : runs).push(r); };
+
   for (const t of children) {
     switch (t.type) {
       case 'strong_open': bold = true; break;
@@ -65,28 +79,62 @@ async function inlineRuns(children: Token[], ctx: RichDocxCtx): Promise<ParaChil
       case 'em_close': italic = false; break;
       case 'text': {
         const text = resolveCites(t.content, ctx);
-        if (text) runs.push(new D.TextRun({ text, bold, italics: italic }));
+        if (linkHref !== null) linkText += text;
+        if (text) emit(new D.TextRun({ text, bold, italics: italic }));
+        break;
+      }
+      case 'link_open':
+        linkHref = t.attrGet('href') ?? '';
+        linkBuf = [];
+        linkText = '';
+        break;
+      case 'link_close': {
+        // The URL used to be dropped here entirely — `[text](url)` exported as
+        // bare "text" and the address was gone from the document. Now the anchor
+        // becomes a real hyperlink, AND the bare URL is printed when the anchor
+        // text isn't already the address: a manuscript is reviewed on paper and
+        // in PDF as often as on screen, where a link you can't hover is a link
+        // you can't follow.
+        const href = linkHref ?? '';
+        const children_ = linkBuf.length ? linkBuf : [new D.TextRun({ text: href, bold, italics: italic })];
+        const shown = linkText || href;
+        linkHref = null; // emit() targets the paragraph again from here
+        linkBuf = [];
+        if (href) emit(new D.ExternalHyperlink({ children: children_, link: href }));
+        else children_.forEach(emit);
+        if (href && !shown.includes(href)) emit(new D.TextRun({ text: ` (${href})`, bold, italics: italic }));
         break;
       }
       case 'code_inline': {
         // verbatim, but still advance the counter for any raw [[cite]] (matches
         // orderedRefIds' raw scan, so alignment never drifts).
         const text = resolveCites(t.content, ctx);
-        runs.push(new D.TextRun({ text, font: 'Courier New', bold, italics: italic }));
+        emit(new D.TextRun({ text, font: 'Courier New', bold, italics: italic }));
         break;
       }
-      case 'softbreak': case 'hardbreak':
-        runs.push(new D.TextRun({ text: ' ', bold, italics: italic }));
+      // BOTH break kinds become a real <w:br/>, because in THIS document model
+      // every newline inside a paragraph is one the author pressed Enter for:
+      // RichBody runs tiptap-markdown with `breaks: true` and serializes its
+      // hardBreak nodes to a bare "\n". Emitting a space instead collapsed
+      // stanzas, address blocks and line-per-item keyword lists into one line.
+      //
+      // Note `breaks` is a RENDERER option in markdown-it — it does not change
+      // tokenization, so a single newline still arrives here as `softbreak` and
+      // the decision has to be made on this side. (A source-wrapped paragraph
+      // would round-trip differently, but the editor never produces one.)
+      case 'softbreak':
+      case 'hardbreak':
+        emit(new D.TextRun({ text: '', break: 1, bold, italics: italic }));
         break;
       case 'image': {
         const src = t.attrGet('src') ?? '';
         let img: ResolvedImage | null = null;
         try { img = await ctx.resolveImage(src); } catch { img = null; }
-        if (img && img.data.length) runs.push(new D.ImageRun({ data: img.data, transformation: ctx.fit(img.width, img.height) }));
-        else runs.push(new D.TextRun({ text: `[Figure: ${src.replace(IMAGE_REF_PREFIX, '')}]`, italics: true }));
+        if (img && img.data.length) emit(new D.ImageRun({ data: img.data, transformation: ctx.fit(img.width, img.height) }));
+        else emit(new D.TextRun({ text: `[Figure: ${src.replace(IMAGE_REF_PREFIX, '')}]`, italics: true }));
         break;
       }
-      default: break; // link_open/close etc. → keep inner text (handled by 'text')
+      default: break; // s_open/close etc. → keep inner text (handled by 'text')
     }
   }
   return runs;

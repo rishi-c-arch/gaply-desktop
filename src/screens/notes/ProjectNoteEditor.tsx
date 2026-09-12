@@ -13,6 +13,7 @@ import { saveNoteFile } from './saveNoteFile';
 import { IcBack, IcEye, IcExport, IcTrash, IcSave, IcEditNote } from './NotesIcons';
 import FontScale from './FontScale';
 import { readingMinutes } from './PaperNoteEditor';
+import { SaveState, DiscardWarning, useDirtyBaseline, useCloseGuard } from './editorSaveState';
 import './notes.css';
 
 export interface ProjectNoteEditorProps {
@@ -50,6 +51,13 @@ const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onS
   };
 
   const splitTags = () => tags.split(',').map((t) => t.trim()).filter(Boolean);
+
+  // Dirty tracking: the snapshot is exactly what save() would persist (trimmed
+  // title/body + split tags), so cosmetic whitespace never marks the note dirty
+  // and a real edit always does.
+  const snapshot = JSON.stringify([title.trim(), body.trim(), splitTags()]);
+  const { dirty } = useDirtyBaseline(snapshot);
+  const { askedToClose, requestClose, keepEditing, discard } = useCloseGuard(dirty, onClose);
 
   // The exact ExportableNote both export AND preview use — one source, no drift.
   const buildExportable = (): ExportableNote => ({
@@ -90,7 +98,7 @@ const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onS
       {/* Header / toolbar (mock: Paper Editor top bar) */}
       <header className="an-edit-head">
         <div className="an-edit-head-left">
-          <button className="an-backbtn" onClick={onClose} data-testid="project-close" title="Back to your library"><IcBack /></button>
+          <button className="an-backbtn" onClick={requestClose} data-testid="project-close" title="Back to your library"><IcBack /></button>
           <h1>Project Note</h1>
         </div>
         <div className="an-edit-actions">
@@ -119,10 +127,12 @@ const ProjectNoteEditor: React.FC<ProjectNoteEditorProps> = ({ id, existing, onS
       </header>
 
       <div className="an-edit-wrap">
+        {askedToClose && <DiscardWarning what="this note" onKeep={keepEditing} onDiscard={discard} testid="project-discard" />}
+
         {/* Breadcrumbs + honest storage status */}
         <div className="an-crumbs">
           <div className="an-crumbs-path"><span>My Library</span><span>›</span><strong>Project Note</strong></div>
-          <div className="an-synced">Saved locally · on device</div>
+          <SaveState dirty={dirty} busy={busy} savedAt={existing?.updated_at} testid="project-save-state" />
         </div>
 
         {preview ? (

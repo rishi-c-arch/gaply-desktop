@@ -196,25 +196,51 @@ pub fn list_notes(
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
+/// Escape a user's literal text for use inside a `LIKE` pattern that declares
+/// `ESCAPE '\'`. The two SQL wildcards — `%` (any run) and `_` (any single
+/// character) — plus the escape character itself become literals.
+///
+/// This used to STRIP `%` and `_` from the pattern instead, which silently
+/// changed the search: `my_note` became the pattern `%mynote%`, which matches
+/// nothing, so a note sitting right there reported "No notes match your search"
+/// — indistinguishable from an empty library. Underscores are ordinary in this
+/// audience's vocabulary (gene names, dataset ids, file names, variables).
+fn escape_like(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c == '\\' || c == '%' || c == '_' {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Deterministic local search over title / body / template fields / paper title
 /// / tags. `tag` additionally filters to notes carrying that exact tag.
+///
+/// Every `LIKE` here declares `ESCAPE '\'` so a query is matched as the literal
+/// text the user typed — wildcards included.
 pub fn search_notes(
     db: &Database,
     query: &str,
     tag: Option<&str>,
 ) -> Result<Vec<Note>, GaplyError> {
     let q = query.trim();
-    let like = format!("%{}%", q.replace('%', "").replace('_', ""));
-    let tag_like = tag.map(|t| format!("%\"{}\"%", t.replace('"', "")));
+    let like = format!("%{}%", escape_like(q));
+    // The tag filter is an exact-tag test expressed as a substring of the JSON
+    // array, so its needle needs the same escaping — a tag like `to_read` was
+    // unfindable for exactly the same reason.
+    let tag_like = tag.map(|t| format!("%\"{}\"%", escape_like(&t.replace('"', ""))));
     let conn = db.conn()?;
     let mut stmt = conn.prepare(&format!(
         "SELECT {COLS} FROM notes
-         WHERE (?1 = '' OR title LIKE ?2 COLLATE NOCASE
-                OR body LIKE ?2 COLLATE NOCASE
-                OR fields_json LIKE ?2 COLLATE NOCASE
-                OR paper_title LIKE ?2 COLLATE NOCASE
-                OR tags LIKE ?2 COLLATE NOCASE)
-           AND (?3 IS NULL OR tags LIKE ?3)
+         WHERE (?1 = '' OR title LIKE ?2 ESCAPE '\\' COLLATE NOCASE
+                OR body LIKE ?2 ESCAPE '\\' COLLATE NOCASE
+                OR fields_json LIKE ?2 ESCAPE '\\' COLLATE NOCASE
+                OR paper_title LIKE ?2 ESCAPE '\\' COLLATE NOCASE
+                OR tags LIKE ?2 ESCAPE '\\' COLLATE NOCASE)
+           AND (?3 IS NULL OR tags LIKE ?3 ESCAPE '\\')
          ORDER BY updated_at DESC"
     ))?;
     let rows = stmt.query_map(params![q, like, tag_like], row_to_note)?;
@@ -389,6 +415,67 @@ mod tests {
             )
             .unwrap();
         assert_eq!(fk_count, 0, "notes must have NO foreign key (soft anchor)");
+    }
+
+    /// A query is LITERAL TEXT, not a pattern. The wildcards `%` and `_` used to
+    /// be stripped from the LIKE pattern, so any query containing one silently
+    /// matched nothing (`my_note` → the pattern `%mynote%`) and the UI reported
+    /// "No notes match your search" for a note that was right there.
+    #[test]
+    fn search_treats_sql_wildcards_as_literal_text() {
+        let d = db();
+
+        let mut underscored = project_input();
+        underscored.title = "my_note on ANOVA".into();
+        underscored.body = "uses the gene BRCA_1 and dataset ukb_500k".into();
+        underscored.tags = vec!["to_read".into()];
+        upsert_note(&d, "u1", &underscored).unwrap();
+
+        let mut percent = project_input();
+        percent.title = "Power at 80% and beyond".into();
+        percent.body = String::new();
+        percent.tags = vec![];
+        upsert_note(&d, "p1", &percent).unwrap();
+
+        // a decoy WITHOUT the separator — what the stripped pattern used to hit
+        let mut decoy = project_input();
+        decoy.title = "mynote".into();
+        decoy.body = "BRCA1 ukb500k".into();
+        decoy.tags = vec![];
+        upsert_note(&d, "d1", &decoy).unwrap();
+
+        // THE PIN: a query carrying BOTH wildcards finds the real note and only it
+        let hits = search_notes(&d, "my_note", None).unwrap();
+        assert_eq!(hits.len(), 1, "underscore must match literally");
+        assert_eq!(hits[0].id, "u1");
+
+        let hits = search_notes(&d, "80%", None).unwrap();
+        assert_eq!(hits.len(), 1, "percent must match literally");
+        assert_eq!(hits[0].id, "p1");
+
+        // body + fields searching honors it too
+        assert_eq!(search_notes(&d, "BRCA_1", None).unwrap().len(), 1);
+        assert_eq!(search_notes(&d, "ukb_500k", None).unwrap().len(), 1);
+
+        // and a wildcard is NOT a wildcard: these must not match anything
+        assert_eq!(search_notes(&d, "my_n%", None).unwrap().len(), 0, "% must not glob");
+        assert_eq!(search_notes(&d, "myXnote", None).unwrap().len(), 0, "_ must not match any char");
+
+        // the tag filter shares the escaping
+        assert_eq!(search_notes(&d, "", Some("to_read")).unwrap().len(), 1);
+        assert_eq!(search_notes(&d, "", Some("to%read")).unwrap().len(), 0);
+
+        // a literal backslash is itself, not an escape
+        let mut backslash = project_input();
+        backslash.title = r"path\to\thing".into();
+        backslash.body = String::new();
+        backslash.tags = vec![];
+        upsert_note(&d, "b1", &backslash).unwrap();
+        assert_eq!(search_notes(&d, r"path\to", None).unwrap().len(), 1);
+
+        // ordinary queries are unaffected
+        assert_eq!(search_notes(&d, "ANOVA", None).unwrap().len(), 1);
+        assert_eq!(search_notes(&d, "", None).unwrap().len(), 4, "empty query still lists all");
     }
 
     #[test]
