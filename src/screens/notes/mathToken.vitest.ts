@@ -145,19 +145,21 @@ describe('(5) math, citations and images in one body', () => {
     expect(rt(md)).toBe(md);
   });
 
-  // KNOWN, PRE-EXISTING, AND NOT MATH. Images do not keep their place in a
-  // paragraph across a round-trip: an inline image is split out into its own
-  // block and loses the spaces around it, and an image-only paragraph is welded
-  // to whatever follows. MEASURED with the math extension loaded and NOT loaded
-  // — byte-identical both ways, and image-then-text merges the same with no math
-  // in the document. Recorded here so it is not rediscovered as a math bug, and
-  // pinned so that fixing the image lane fails this test rather than passing
-  // silently.
-  it('KNOWN LIMIT (image lane, predates math): images do not hold their place', () => {
-    expect(rt('See ![](gaply-image://abc123.png) and more text.'))
-      .toBe('See\n\n![](gaply-image://abc123.png)and more text.');
-    expect(rt('![](gaply-image://abc123.png)\n\nplain text'))
-      .toBe('![](gaply-image://abc123.png)plain text');
+  // WAS a KNOWN LIMIT pinned here while it was still broken; now it pins the
+  // fix. Images used to be schema group 'block' (@tiptap/extension-image
+  // defaults to inline:false), so ProseMirror split every paragraph around one:
+  // an inline image was lifted out and lost the spaces beside it, and an
+  // image-only paragraph was welded to whatever followed. `inline: true` in
+  // GaplyImageNode makes the node the shape the rest of the lane always assumed.
+  it('images hold their place — inline, and as their own paragraph', () => {
+    const inline = 'See ![](gaply-image://abc123.png) and more text.';
+    expect(rt(inline)).toBe(inline);
+
+    const own = '![](gaply-image://abc123.png)\n\nplain text';
+    expect(rt(own)).toBe(own);
+
+    const between = 'Before.\n\n![](gaply-image://abc123.png)\n\nAfter.';
+    expect(rt(between)).toBe(between);
   });
 
   it('math, by contrast, holds its place in both positions', () => {

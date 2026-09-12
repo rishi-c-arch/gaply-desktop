@@ -44,9 +44,18 @@ const GaplyImageView: React.FC<NodeViewProps> = ({ node }) => {
 };
 
 /** The production image node: same schema/name ('image') as @tiptap/extension-image
- *  (so markdown parse/serialize is unchanged) with a blob-resolving NodeView. */
+ *  (so markdown parse/serialize is unchanged) with a blob-resolving NodeView.
+ *
+ *  `inline: true` IS THE FIX for images not holding their place. The extension
+ *  defaults to `inline: false`, which makes the schema group 'block' — and a
+ *  block node cannot live inside a paragraph, so ProseMirror split every
+ *  paragraph around an image. "See ![](…) and more text." came back as three
+ *  blocks with the spaces gone, and an image-only paragraph was welded to
+ *  whatever followed it. Nothing in the serializer was wrong; the node was the
+ *  wrong shape. The NodeView already renders `<NodeViewWrapper as="span">`, so
+ *  inline is also what the rest of this file always assumed. */
 export const GaplyImage = Image.extend({
   addNodeView() {
     return ReactNodeViewRenderer(GaplyImageView);
   },
-});
+}).configure({ inline: true });
