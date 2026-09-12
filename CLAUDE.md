@@ -295,3 +295,33 @@ time injection.
   `perplexity_probe --compare`.
 - Be explicit about what's verified locally vs. what needs real infrastructure
   (AWS Nitro, Tailscale tailnet, Windows runners).
+- **A static trace tells you what a mechanism DOES, not that it is the
+  mechanism in play. Establish which one runs before concluding from either.**
+  Two wrong findings in two days, both from tracing a real mechanism accurately
+  and never asking whether it was the one carrying the behaviour:
+
+  1. **External links "are inert."** Traced `new_window_handler` through
+     tauri-runtime-wry to wry's WKWebView delegate and its `else { None }`
+     branch, and confirmed the app registers no handler. All true. But
+     `tauri-plugin-opener` injects `init-iife.js`, a listener on **window** that
+     catches `<a target="_blank">` and invokes `plugin:opener|open_url` — the
+     click is consumed in JS and never reaches the native path. Most links
+     worked. The real defect was 11 links killed by a `stopPropagation` (a68af2b).
+  2. **"Markdown corrupts backslashes in the editor."** Measured
+     `\frac{1}{x}` → `\\frac{1}{x}` and `\,` → `,` and called it live data
+     loss. The probe passed markdown **source** in as editor `content`, so
+     markdown-it consumed `\,` as an escape before the round trip began.
+     Through the path a user takes — type, save, reopen — every case is lossless
+     and stable, in the editor and through the .docx exporter. There was no bug;
+     the fix commit was cancelled before it was written (faac77c).
+
+  **The tell was the same both times: a probe that fed the system something a
+  user never would.** A synthesized new-window request the plugin would have
+  intercepted first; markdown source typed into a rich text editor. So:
+  - Drive the probe from the **user's entry point** — type into the editor, click
+    the control — not from the seam that is convenient to call.
+  - An injected plugin script is invisible to a search of the app's own source.
+    When behaviour crosses a plugin boundary, read the plugin.
+  - A finding that rests on `read` alone while its neighbours rest on `ran` is
+    the one to distrust. Both of these were flagged as lower-confidence at the
+    time, and both flags were right — flagging is not a substitute for measuring.
