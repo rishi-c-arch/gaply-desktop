@@ -515,3 +515,32 @@
 .an-tools-name { font: 600 14px/20px var(--an-ui); color: var(--an-primary); }
 .an-tools-desc { font: 400 14px/22px var(--an-serif); color: var(--an-on-surface-variant); margin-top: 4px; }
 .an-tools-cloud { font: 500 11px/16px var(--an-ui); color: var(--an-on-surface-variant); margin-top: 8px; }
+
+/* ---- Math (Research Paper Writer) ------------------------------------- *
+   The node renders KaTeX inline; display math is the SAME inline atom sitting
+   alone in its paragraph, centred here rather than given its own node type. */
+.an-math { display: inline-block; padding: 0 1px; border-radius: 3px; }
+.an-math--display { display: block; text-align: center; margin: 10px 0; }
+.an-math--selected { background: var(--an-secondary-container); outline: 2px solid var(--an-secondary); }
+.an-math .katex { font-size: 1.05em; }
+.an-math .katex-display { margin: 0; }
+
+/* the insert/edit dialog — same shell as the citation picker */
+.an-math-picker { width: min(560px, 92vw); }
+.an-math-title { font: 700 13px/1.2 var(--an-ui); color: var(--an-on-surface); margin-right: auto; }
+.an-math-toggle { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--an-ui); color: var(--an-on-surface-variant); margin-right: 10px; }
+.an-math-field {
+  width: 100%; border: 1px solid var(--an-outline-variant); border-radius: 8px; padding: 10px 12px;
+  font: 400 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--an-surface-lowest); color: var(--an-on-surface); resize: vertical;
+}
+.an-math-field:focus { outline: 2px solid var(--an-primary-container); outline-offset: 1px; }
+.an-math-preview {
+  min-height: 56px; display: flex; align-items: center; justify-content: center;
+  margin: 10px 0; padding: 12px; border-radius: 8px; background: var(--an-surface-container);
+  overflow-x: auto;
+}
+.an-math-error { margin: 0 0 8px; font: 500 12px/1.45 var(--an-ui); }
+.an-math-examples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.an-math-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.an-math-hint { font: 400 11.5px/1.4 var(--an-ui); color: var(--an-outline); }

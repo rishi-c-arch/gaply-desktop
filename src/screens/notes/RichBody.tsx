@@ -20,8 +20,20 @@ import { TableKit } from '@tiptap/extension-table';
 import { Markdown } from 'tiptap-markdown';
 import { GaplyImage } from './GaplyImageNode';
 import { GaplyCiteLive } from './CitationContext';
+import { GaplyMath } from './GaplyMathNode';
+import { MathNodeView } from './MathView';
+import { ReactNodeViewRenderer } from '@tiptap/react';
 import CitationPicker from './CitationPicker';
+import MathInput from './MathInput';
 import { storeImageFile } from './noteImages';
+
+/** The math node WITH its KaTeX NodeView — the manuscript writing surface only,
+ *  exactly like GaplyCiteLive. The base node keeps the markdown round-trip. */
+const GaplyMathLive = GaplyMath.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(MathNodeView);
+  },
+});
 
 /** Serialize the editor back to canonical markdown. Two normalizations:
  *  hardBreak → plain "\n" (keeps multiline plain-text notes byte-stable), and
@@ -42,7 +54,9 @@ export const richExtensions = (placeholder = '', opts: { citations?: boolean } =
   GaplyImage, // pasted images (Set 3) — renders gaply-image://<hash> refs via blob URL
   // In-text citations (Set B1) — manuscript surface only; renders [[cite:id]]
   // tokens as live, style-aware markers via a NodeView. Off for project notes.
-  ...(opts.citations ? [GaplyCiteLive] : []),
+  // Math rides the same flag: both are manuscript concerns, and a project note
+  // stays a plain quick-capture surface.
+  ...(opts.citations ? [GaplyCiteLive, GaplyMathLive] : []),
   Placeholder.configure({ placeholder }),
   Markdown.configure({ html: false, breaks: true }),
 ];
@@ -70,7 +84,7 @@ export const imageDropHint = (data: DataTransfer | null): string | null =>
  *  in-table selection before the command runs). */
 const hold = (fn: () => void) => (e: React.MouseEvent) => { e.preventDefault(); fn(); };
 
-const RichToolbar: React.FC<{ editor: Editor; onInsertCite?: () => void }> = ({ editor, onInsertCite }) => {
+const RichToolbar: React.FC<{ editor: Editor; onInsertCite?: () => void; onInsertMath?: () => void }> = ({ editor, onInsertCite, onInsertMath }) => {
   const inTable = editor.isActive('table');
   return (
     <div className="an-rb-toolbar" data-testid="rb-toolbar">
@@ -78,6 +92,12 @@ const RichToolbar: React.FC<{ editor: Editor; onInsertCite?: () => void }> = ({ 
         <button className="an-rb-btn" data-testid="rb-insert-cite" title="Insert citation (⌘⇧C)"
           onMouseDown={hold(onInsertCite)}>
           ❝ Cite
+        </button>
+      )}
+      {onInsertMath && !inTable && (
+        <button className="an-rb-btn" data-testid="rb-insert-math" title="Insert formula (⌘⇧M)"
+          onMouseDown={hold(onInsertMath)}>
+          ∑ Formula
         </button>
       )}
       {!inTable ? (
@@ -108,7 +128,8 @@ export interface RichBodyProps {
   placeholder?: string;
   testid?: string;
   /** Manuscript surface only: enables the in-text citation node + insert picker
-   *  (⌘⇧C / toolbar). Project notes leave this off. */
+   *  (⌘⇧C / toolbar) AND the math node + formula dialog (⌘⇧M / toolbar).
+   *  Project notes leave this off. */
   withCitations?: boolean;
 }
 
@@ -118,6 +139,9 @@ const RichBody: React.FC<RichBodyProps> = ({ value, onChange, placeholder, testi
   // the drag-drop hint. Cleared on the next successful paste or on dismiss.
   const [hint, setHint] = useState<string | null>(null);
   const [citeOpen, setCiteOpen] = useState(false);
+  // null = closed. `pos` is set when EDITING an existing formula (replace in
+  // place); undefined `pos` means insert at the selection.
+  const [mathOpen, setMathOpen] = useState<null | { tex: string; display: boolean; pos?: number }>(null);
 
   const editor = useEditor({
     extensions: richExtensions(placeholder ?? '', { citations: withCitations }),
@@ -130,6 +154,11 @@ const RichBody: React.FC<RichBodyProps> = ({ value, onChange, placeholder, testi
         if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'c') {
           event.preventDefault();
           setCiteOpen(true);
+          return true;
+        }
+        if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'm') {
+          event.preventDefault();
+          setMathOpen({ tex: '', display: false });
           return true;
         }
         return false;
@@ -169,11 +198,19 @@ const RichBody: React.FC<RichBodyProps> = ({ value, onChange, placeholder, testi
   });
 
   // Re-render the toolbar on selection changes so table controls appear in-context.
+  // The same transaction hook carries the math NodeView's double-click: it sets
+  // a `gaplyMathEdit` meta rather than reaching into this component, so the node
+  // stays a plain NodeView with no prop drilling.
   useEffect(() => {
     if (!editor) return;
+    const onTx = ({ transaction }: { transaction: { getMeta: (k: string) => unknown } }) => {
+      const edit = transaction.getMeta('gaplyMathEdit') as { pos: number; tex: string; display: boolean } | undefined;
+      if (edit) setMathOpen({ tex: edit.tex, display: edit.display, pos: edit.pos });
+      force();
+    };
     editor.on('selectionUpdate', force);
-    editor.on('transaction', force);
-    return () => { editor.off('selectionUpdate', force); editor.off('transaction', force); };
+    editor.on('transaction', onTx);
+    return () => { editor.off('selectionUpdate', force); editor.off('transaction', onTx); };
   }, [editor]);
 
   const insertCite = (refId: string) => {
@@ -181,9 +218,30 @@ const RichBody: React.FC<RichBodyProps> = ({ value, onChange, placeholder, testi
     setCiteOpen(false);
   };
 
+  /** Insert a new formula, or replace the one being edited IN PLACE so the
+   *  surrounding prose and the document-order citation counter are untouched. */
+  const applyMath = (tex: string, display: boolean) => {
+    const at = mathOpen?.pos;
+    const node = { type: 'gaplyMath', attrs: { tex, display } };
+    if (editor) {
+      if (typeof at === 'number') {
+        editor.chain().focus().insertContentAt({ from: at, to: at + 1 }, node).run();
+      } else {
+        editor.chain().focus().insertContent(node).run();
+      }
+    }
+    setMathOpen(null);
+  };
+
   return (
     <div className="an-richbody" data-testid={testid}>
-      {editor && <RichToolbar editor={editor} onInsertCite={withCitations ? () => setCiteOpen(true) : undefined} />}
+      {editor && (
+        <RichToolbar
+          editor={editor}
+          onInsertCite={withCitations ? () => setCiteOpen(true) : undefined}
+          onInsertMath={withCitations ? () => setMathOpen({ tex: '', display: false }) : undefined}
+        />
+      )}
       {hint && (
         <div className="an-rb-hint" role="status" data-testid="rb-image-hint">
           <span>{hint}</span>
@@ -191,6 +249,14 @@ const RichBody: React.FC<RichBodyProps> = ({ value, onChange, placeholder, testi
         </div>
       )}
       {citeOpen && withCitations && <CitationPicker onPick={insertCite} onClose={() => setCiteOpen(false)} />}
+      {mathOpen && withCitations && (
+        <MathInput
+          initialTex={mathOpen.tex}
+          initialDisplay={mathOpen.display}
+          onInsert={applyMath}
+          onClose={() => setMathOpen(null)}
+        />
+      )}
       <EditorContent editor={editor} />
     </div>
   );
