@@ -67,6 +67,10 @@
       "debugApplicationIdSuffix": ".debug"
     },
     "createUpdaterArtifacts": false,
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "-"
+    },
     "resources": {
       "bundled-models/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf": "models/stage1-lm/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
       "bundled-models/tokenizer.json": "models/slm1-adapter/tokenizer.json",
