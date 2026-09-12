@@ -1,0 +1,65 @@
+name: Frontend build
+
+# THE GATE THAT WAS CONFIGURED AND NEVER RAN.
+#
+# `npm run build` is react-scripts, which treats every eslint warning as an
+# ERROR when CI is set — and GitHub Actions always sets it. So the repo has had
+# a strict frontend gate the whole time. It just had no path to execute:
+#
+#   * windows-build-check runs `npm run tauri build`, whose beforeBuildCommand
+#     IS `npm run build` — but that step is gated on the bundled models, which
+#     are gitignored (~400 MB) and absent from a clean checkout, so it is
+#     SKIPPED on every run. The model gate is correct on its own terms (faking
+#     the weights would upload an installable artifact containing a model that
+#     cannot work); it just takes the frontend build down with it.
+#   * package-release reaches the same beforeBuildCommand through tauri-action,
+#     but is workflow_dispatch only and has never run.
+#
+# The result was 15 eslint warnings accumulating unseen across 11 files, which
+# would have surfaced for the first time during a real release packaging. This
+# job is deliberately cheap — no Rust, no Tauri prerequisites, no model — so the
+# gate runs on every push and a warning is caught by the commit that adds it.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: npm run build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22.x to match package.json "engines".
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        # Same Chromium skips as windows-build-check: puppeteer and two legacy
+        # copies via react-snap/minimalcss each fetch a full Chromium at
+        # postinstall, and nothing here launches a browser.
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
+        timeout-minutes: 10
+        run: npm ci
+
+      - name: Build
+        # CI is already true on Actions; set explicitly so the warnings-as-errors
+        # behaviour is a stated intention rather than an inherited side effect,
+        # and so running this step locally reproduces CI exactly.
+        env:
+          CI: 'true'
+        run: npm run build
