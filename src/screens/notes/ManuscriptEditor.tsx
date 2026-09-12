@@ -13,12 +13,14 @@ import { LocalLibrary, TauriLocalLibrary, storedToCitation } from '../citations/
 import { CslItem } from '../citations/citationTypes';
 import { Note, NoteDraft } from './notesBridge';
 import {
-  Manuscript, Scaffold, DEFAULT_DOCX_FORMAT, manuscriptFromNote, manuscriptToDraft, newManuscript,
+  Manuscript, Scaffold, DEFAULT_DOCX_FORMAT, DEFAULT_LATEX_FORMAT, manuscriptFromNote, manuscriptToDraft, newManuscript,
   switchScaffold, storedScaffoldId, wordCount,
   renameSection, addSection, deleteSection, moveSection,
 } from './manuscriptModel';
 import { loadScaffoldCatalog, pickScaffold } from './manuscriptScaffolds';
 import { saveManuscriptDocx } from './manuscriptDocx';
+import { buildLatexBundle, saveLatexBundle } from './manuscriptLatex';
+import { exportSerialized } from '../citations/exporters';
 import { exportFileName } from './noteExport';
 import { IcBack, IcExport, IcTrash, IcSave } from './NotesIcons';
 import FontScale from './FontScale';
@@ -84,8 +86,9 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
   const [pickerMode, setPickerMode] = useState<null | 'new' | 'switch'>(existing ? null : 'new');
   const [pending, setPending] = useState<Pending | null>(null); // scaffold-switch drop-warning
   const [pendingDelete, setPendingDelete] = useState<{ key: string; heading: string; words: number } | null>(null);
-  // A resolved render held back by the dangling-citation export gate.
-  const [pendingExport, setPendingExport] = useState<CitationRender | null>(null);
+  // A resolved render held back by the dangling-citation export gate, plus the
+  // format that was asked for, so "Export anyway" resumes the right writer.
+  const [pendingExport, setPendingExport] = useState<{ cites: CitationRender; kind: 'docx' | 'tex' } | null>(null);
   const [renamingKey, setRenamingKey] = useState<string | null>(null);
   const [activeKey, setActiveKey] = useState(manuscript.sections[0]?.key ?? '');
 
@@ -182,6 +185,39 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
     }
   };
 
+  /** Write the .tex bundle. Same dangling-citation gate as the .docx path —
+   *  a "[?]" is no better in a .tex than in a .docx. */
+  const writeTex = async (cites: CitationRender) => {
+    try {
+      // The .bib is a convenience file, never the source of the bibliography
+      // (see manuscriptLatex's header) — so a failure to build it must not stop
+      // the export that does not depend on it.
+      let bibtex: string | undefined;
+      try {
+        const cited = Array.from(libMap.values()).filter((c) => citeRender.markers.has(c.id));
+        if (cited.length) bibtex = await exportSerialized(cited, 'bibtex');
+      } catch { bibtex = undefined; }
+
+      const bundle = await buildLatexBundle(
+        manuscript, scaffold, scaffold.latexFormat ?? DEFAULT_LATEX_FORMAT, cites, bibtex,
+      );
+      await saveLatexBundle(bundle, exportFileName(manuscript.title, 'manuscript').replace(/\.md$/, '-latex.zip'));
+    } catch (e) {
+      onError?.(e instanceof Error ? e.message : 'Could not export the LaTeX bundle');
+    }
+  };
+
+  const exportTex = async () => {
+    onError?.(null);
+    try {
+      const cites = await renderManuscriptCitations(manuscript.sections, manuscript.cslStyleId, libMap);
+      if (cites.dangling.length > 0) { setPendingExport({ cites, kind: 'tex' }); return; }
+      await writeTex(cites);
+    } catch (e) {
+      onError?.(e instanceof Error ? e.message : 'Could not export the LaTeX bundle');
+    }
+  };
+
   const exportDocx = async () => {
     onError?.(null);
     try {
@@ -193,7 +229,7 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
       // emailed to a journal it is worse than not having the file — so STOP and
       // say which references are missing. Exporting anyway stays available and
       // explicit, because someone mid-draft may genuinely want the file.
-      if (cites.dangling.length > 0) { setPendingExport(cites); return; }
+      if (cites.dangling.length > 0) { setPendingExport({ cites, kind: 'docx' }); return; }
       await writeDocx(cites);
     } catch (e) {
       onError?.(e instanceof Error ? e.message : 'Could not export the .docx');
@@ -294,8 +330,11 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
         </div>
         <div className="an-edit-actions">
           <FontScale />
-          <button className="an-ghostbtn" onClick={() => void exportDocx()} disabled={busy} data-testid="ms-export" title="Export .docx (submission structure)">
-            <IcExport /> Export .docx
+          <button className="an-ghostbtn" onClick={() => void exportDocx()} disabled={busy} data-testid="ms-export" title="Export .docx (single-column submission manuscript)">
+            <IcExport /> .docx
+          </button>
+          <button className="an-ghostbtn" onClick={() => void exportTex()} disabled={busy} data-testid="ms-export-tex" title="Export a LaTeX bundle — a reading layout, not a submission file">
+            <IcExport /> .tex
           </button>
           <div className="an-divider" />
           {existing && onDelete && (
@@ -324,26 +363,27 @@ const ManuscriptWorkspace: React.FC<ManuscriptEditorProps & { scaffolds: Scaffol
           <button className="an-linkbtn" data-testid="ms-change-structure" onClick={() => setPickerMode('switch')}>Change structure</button>
           <br />Gaply formats your <b>structure and references</b>; the publisher typesets the final camera-ready layout.
           <br /><span data-testid="ms-export-note">Exports a clean single-column submission manuscript — for camera-ready typesetting after acceptance, use your publisher’s official template or Overleaf.</span>
+          <br /><span data-testid="ms-tex-note"><b>.tex</b> gives you a <b>reading layout</b> — see your paper roughly the way a reader will. It uses the generic LaTeX <code>article</code> class, not a publisher template, and it isn’t the file you submit.</span>
         </div>
 
         {pendingExport && (
           <div className="an-ms-dropwarn" role="alertdialog" data-testid="ms-danglingwarn">
             <p>
-              <b>{pendingExport.dangling.length} reference{pendingExport.dangling.length > 1 ? 's' : ''} you cite {pendingExport.dangling.length > 1 ? 'are' : 'is'} no longer in your library.</b>{' '}
-              Exporting now writes <b>[?]</b> where {pendingExport.dangling.length > 1 ? 'they' : 'it'} should appear, and leaves {pendingExport.dangling.length > 1 ? 'them' : 'it'} out of the reference list.
+              <b>{pendingExport.cites.dangling.length} reference{pendingExport.cites.dangling.length > 1 ? 's' : ''} you cite {pendingExport.cites.dangling.length > 1 ? 'are' : 'is'} no longer in your library.</b>{' '}
+              Exporting now writes <b>[?]</b> where {pendingExport.cites.dangling.length > 1 ? 'they' : 'it'} should appear, and leaves {pendingExport.cites.dangling.length > 1 ? 'them' : 'it'} out of the reference list.
             </p>
             <ul>
-              {danglingBySection(manuscript.sections, pendingExport.dangling).map((d) => (
+              {danglingBySection(manuscript.sections, pendingExport.cites.dangling).map((d) => (
                 <li key={d.heading}><b>{d.heading}</b> — {d.count} citation{d.count > 1 ? 's' : ''}</li>
               ))}
             </ul>
-            <p>Add {pendingExport.dangling.length > 1 ? 'them' : 'it'} back in <b>Citations</b>, or delete the citation{pendingExport.dangling.length > 1 ? 's' : ''} from your text, then export again.</p>
+            <p>Add {pendingExport.cites.dangling.length > 1 ? 'them' : 'it'} back in <b>Citations</b>, or delete the citation{pendingExport.cites.dangling.length > 1 ? 's' : ''} from your text, then export again.</p>
             <div className="an-ms-dropwarn-actions">
               <button className="an-ghostbtn" data-testid="ms-danglingwarn-cancel" onClick={() => setPendingExport(null)}>Fix the references first</button>
               <button
                 className="an-deletebtn an-deletebtn--armed"
                 data-testid="ms-danglingwarn-confirm"
-                onClick={() => { const c = pendingExport; setPendingExport(null); void writeDocx(c); }}
+                onClick={() => { const p = pendingExport; setPendingExport(null); void (p.kind === 'tex' ? writeTex(p.cites) : writeDocx(p.cites)); }}
               >
                 Export anyway (with [?])
               </button>

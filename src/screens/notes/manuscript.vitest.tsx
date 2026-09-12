@@ -38,7 +38,7 @@ vi.mock('./manuscriptScaffolds', async (importOriginal) => {
 
 // A real 1x1 PNG — valid image bytes for the embed path.
 const PNG_1x1 = Uint8Array.from(
-  atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='),
+  atob('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mPQ9qnDihiGlgQA2mE9QQx+vG8AAAAASUVORK5CYII='),
   (c) => c.charCodeAt(0),
 );
 
@@ -157,7 +157,10 @@ describe('per-section RichBody with stable keys (pin c)', () => {
     await waitFor(() => expect(screen.getByTestId('ms-notice')).toBeTruthy());
     expect(screen.getByTestId('ms-notice').textContent).toMatch(/Generic IMRaD/);
     expect(screen.getByTestId('ms-notice').textContent).toMatch(/publisher typesets/i);
-    expect(screen.getByTestId('ms-export').getAttribute('title')).toMatch(/submission structure/i);
+    expect(screen.getByTestId('ms-export').getAttribute('title')).toMatch(/single-column submission/i);
+    // ...and the .tex button names itself a reading layout, not a submission file
+    expect(screen.getByTestId('ms-export-tex').getAttribute('title')).toMatch(/reading layout/i);
+    expect(screen.getByTestId('ms-export-tex').getAttribute('title')).toMatch(/not a submission/i);
   });
 });
 

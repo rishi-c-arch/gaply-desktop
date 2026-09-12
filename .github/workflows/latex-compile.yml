@@ -1,0 +1,101 @@
+name: LaTeX compile
+
+# THE GATE THAT MAKES THE .tex EXPORT TESTABLE.
+#
+# Gaply bundles no TeX engine — a deliberate scope decision — so nothing in the
+# app or its unit tests can tell us a generated .tex actually builds. Every other
+# export here is verified by reading the artefact back; without this job, LaTeX
+# would be the one format we ship and never compile.
+#
+# It has already earned itself twice, on the first run: a corrupt PNG fixture
+# that Word silently accepted and pdflatex refused, and a bibliography that
+# compiled but printed "References" twice with "[1] [1]" entries. Neither was
+# visible to the 29 unit tests that passed alongside them.
+#
+# Two jobs because they need different toolchains: node emits the bundles, a TeX
+# Live container compiles them, and an artifact carries them across.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/screens/notes/**'
+      - 'src/screens/citations/**'
+      - 'public/manuscripts/**'
+      - 'scripts/latex-goldens/**'
+      - '.github/workflows/latex-compile.yml'
+  pull_request:
+    paths:
+      - 'src/screens/notes/**'
+      - 'src/screens/citations/**'
+      - 'public/manuscripts/**'
+      - 'scripts/latex-goldens/**'
+      - '.github/workflows/latex-compile.yml'
+  workflow_dispatch:
+
+jobs:
+  emit:
+    name: Emit golden bundles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Build one bundle per scaffold, plus the edge cases
+        run: npx vitest run --config scripts/latex-goldens/vitest.config.ts
+        env:
+          LATEX_GOLDEN_DIR: ${{ github.workspace }}/latex-goldens
+      - uses: actions/upload-artifact@v4
+        with:
+          name: latex-goldens
+          path: latex-goldens/
+          retention-days: 7
+
+  compile:
+    name: latexmk
+    needs: emit
+    runs-on: ubuntu-latest
+    # Full TeX Live: the preamble uses amsmath, graphicx, booktabs, ulem,
+    # hyperref, geometry, lineno and adjustbox, and a partial install would fail
+    # for reasons that have nothing to do with the exporter.
+    container: texlive/texlive:latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: latex-goldens
+          path: latex-goldens
+      - name: Compile every bundle
+        shell: bash
+        run: |
+          set -uo pipefail
+          failed=()
+          for dir in latex-goldens/*/; do
+            name="$(basename "$dir")"
+            echo "::group::$name"
+            if (cd "$dir" && latexmk -pdf -interaction=nonstopmode -halt-on-error -file-line-error main.tex); then
+              pages="$(pdfinfo "$dir/main.pdf" 2>/dev/null | awk '/^Pages/{print $2}')"
+              echo "PASS  $name  (${pages:-?} pages)"
+            else
+              echo "FAIL  $name"
+              # the actual TeX error, not just the latexmk summary
+              sed -n '/^!/,+12p' "$dir"/main.log 2>/dev/null | head -60
+              failed+=("$name")
+            fi
+            echo "::endgroup::"
+          done
+          if [ ${#failed[@]} -gt 0 ]; then
+            echo "::error::LaTeX export does not compile: ${failed[*]}"
+            exit 1
+          fi
+          echo "All bundles compiled."
+      - name: Keep the PDFs, so a layout regression can be looked at
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: latex-pdfs
+          path: latex-goldens/*/main.pdf
+          retention-days: 7
+          if-no-files-found: warn

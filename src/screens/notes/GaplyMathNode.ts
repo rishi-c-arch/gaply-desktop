@@ -45,6 +45,49 @@ export const isStorableTex = (tex: string): boolean => tex.length > 0 && !tex.in
 export const mathToken = (tex: string, display: boolean): string =>
   `[[math${display ? '-block' : ''}:${tex}]]`;
 
+/**
+ * Register the `[[math:…]]` inline rule on a markdown-it instance.
+ *
+ * EXPORTED BECAUSE THE EXPORTERS NEED IT TOO. The .tex and .docx writers parse
+ * the stored body with their own markdown-it, and without this rule the payload
+ * is just text — so markdown-it's `escape` rule reaches inside a formula and
+ * eats `\,`, turning `\int_0^1 x^2\,dx` into `\int_0^1 x^2,dx` on the way out.
+ * The editor never saw that because the node's own parser registers this rule.
+ * One implementation, registered everywhere the token is read.
+ */
+export function registerMathRule(markdownit: import('markdown-it')): void {
+  markdownit.inline.ruler.before('link', 'gaply_math', (state, silent) => {
+    const src = state.src;
+    const start = state.pos;
+    if (src.charCodeAt(start) !== 0x5b /* [ */) return false;
+    let display = false;
+    let open = -1;
+    if (src.startsWith('[[math:', start)) open = start + 7;
+    else if (src.startsWith('[[math-block:', start)) { open = start + 13; display = true; }
+    else return false;
+    const close = src.indexOf(']]', open);
+    if (close < 0) return false;
+    const tex = src.slice(open, close);
+    if (!tex) return false; // `[[math:]]` is not math — leave it literal
+    if (!silent) {
+      const token = state.push('gaply_math', 'span', 0);
+      token.attrs = [
+        ['data-gaply-math', tex],
+        ...(display ? [['data-gaply-math-display', '1'] as [string, string]] : []),
+      ];
+      token.content = tex;
+    }
+    state.pos = close + 2;
+    return true;
+  });
+}
+
+/** Read a `gaply_math` token's payload back out, for the export walks. */
+export const mathTokenPayload = (t: { attrGet: (k: string) => string | null }): { tex: string; display: boolean } => ({
+  tex: t.attrGet('data-gaply-math') ?? '',
+  display: t.attrGet('data-gaply-math-display') === '1',
+});
+
 export const GaplyMath = Node.create({
   name: 'gaplyMath',
   group: 'inline',
@@ -99,30 +142,7 @@ export const GaplyMath = Node.create({
         // whole token in one step.
         parse: {
           setup(markdownit: import('markdown-it')) {
-            markdownit.inline.ruler.before('link', 'gaply_math', (state, silent) => {
-              const src = state.src;
-              const start = state.pos;
-              if (src.charCodeAt(start) !== 0x5b /* [ */) return false;
-              let display = false;
-              let open = -1;
-              if (src.startsWith('[[math:', start)) open = start + 7;
-              else if (src.startsWith('[[math-block:', start)) { open = start + 13; display = true; }
-              else return false;
-              const close = src.indexOf(']]', open);
-              if (close < 0) return false;
-              const tex = src.slice(open, close);
-              if (!tex) return false; // `[[math:]]` is not math — leave it literal
-              if (!silent) {
-                const token = state.push('gaply_math', 'span', 0);
-                token.attrs = [
-                  ['data-gaply-math', tex],
-                  ...(display ? [['data-gaply-math-display', '1'] as [string, string]] : []),
-                ];
-                token.content = tex;
-              }
-              state.pos = close + 2;
-              return true;
-            });
+            registerMathRule(markdownit);
             markdownit.renderer.rules.gaply_math = (tokens, idx) => {
               const t = tokens[idx];
               const tex = t.attrGet('data-gaply-math') ?? '';

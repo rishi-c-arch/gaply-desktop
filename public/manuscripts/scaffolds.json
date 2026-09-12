@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "generatedNote": "Gaply's OWN manuscript scaffolds, informed by publishers' PUBLIC author guidance. NOT copied templates, NOT official. Section keys are shared across scaffolds so switching preserves matching content.",
   "globalNotice": "These are Gaply's own structures to help you start — not official publisher templates. Always check the venue's current author guidelines (linked). Gaply formats structure + references; the publisher typesets the final layout. Free to use.",
   "scaffolds": [
@@ -81,6 +81,19 @@
         "sectionNumbering": "none",
         "pageSize": "letter",
         "source": "Gaply academic default following common IMRaD/ICMJE review-manuscript practice (double-spaced, continuous line numbers, 12pt serif, 1-inch margins). No single publisher owns this format."
+      },
+      "latexFormat": {
+        "columns": 1,
+        "fontSizePt": 11,
+        "marginInch": 1.0,
+        "pageSize": "letter",
+        "lineNumbers": false,
+        "sectionNumbering": "none",
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "source": "Single-column, the same shape as the .docx manuscript export. No publisher owns the IMRaD structure, so there is no journal look to read it in."
       }
     },
     {
@@ -168,6 +181,19 @@
         "sectionNumbering": "roman-upper",
         "pageSize": "letter",
         "source": "Section numbering follows IEEE's Roman-numeral convention (I., II., …). Spacing/font/margins are Gaply review-manuscript defaults. IEEE's OFFICIAL article format is a two-column camera-ready template typeset by IEEE — NOT reproduced here (single-column manuscript only)."
+      },
+      "latexFormat": {
+        "columns": 2,
+        "fontSizePt": 10,
+        "marginInch": 0.75,
+        "pageSize": "letter",
+        "lineNumbers": false,
+        "sectionNumbering": "roman-upper",
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "source": "Two-column with Roman section numerals, which is how IEEE's published articles read. Produced with the generic article class, NOT IEEEtran — a reading layout, not an IEEE submission."
       }
     },
     {
@@ -262,6 +288,19 @@
         "sectionNumbering": "decimal",
         "pageSize": "letter",
         "source": "Line numbers + single-column reflect ACM's 'manuscript/review' submission mode; decimal section numbering per ACM. Spacing/font/margins are Gaply defaults. ACM's camera-ready acmart layout is typeset by ACM — not reproduced."
+      },
+      "latexFormat": {
+        "columns": 2,
+        "fontSizePt": 9,
+        "marginInch": 0.75,
+        "pageSize": "letter",
+        "lineNumbers": false,
+        "sectionNumbering": "decimal",
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "source": "Two-column, decimal sections, as ACM's published articles read. Produced with the generic article class, NOT acmart."
       }
     },
     {
@@ -342,6 +381,19 @@
         "sectionNumbering": "decimal",
         "pageSize": "a4",
         "source": "Decimal numbered sections + A4 per Springer LNCS convention. Spacing (1.5) / font / margins are Gaply review-manuscript defaults. LNCS's final 10pt template is typeset by Springer — not reproduced."
+      },
+      "latexFormat": {
+        "columns": 1,
+        "fontSizePt": 10,
+        "marginInch": 1.0,
+        "pageSize": "a4",
+        "lineNumbers": false,
+        "sectionNumbering": "decimal",
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "source": "Springer LNCS papers are published single-column on A4; that is the reading layout. Produced with the generic article class, NOT llncs."
       }
     },
     {
@@ -422,6 +474,19 @@
         "sectionNumbering": "decimal",
         "pageSize": "a4",
         "source": "Elsevier commonly asks for double-spaced manuscripts with continuous line numbering and decimal numbered sections (1., 2., 2.1) for review. Font/margins/page size are Gaply defaults; exact rules are journal-specific — verify at the link."
+      },
+      "latexFormat": {
+        "columns": 2,
+        "fontSizePt": 10,
+        "marginInch": 0.75,
+        "pageSize": "a4",
+        "lineNumbers": false,
+        "sectionNumbering": "decimal",
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "source": "Two-column A4, as most Elsevier journals publish. Produced with the generic article class, NOT elsarticle."
       }
     },
     {
@@ -488,6 +553,19 @@
         "sectionNumbering": "none",
         "pageSize": "a4",
         "source": "Nature's formatting guide specifies double-spaced manuscripts with continuous line numbering and unnumbered sections (Methods placed after the main text). Font/margins/page size are Gaply defaults (Nature does not mandate a submission font)."
+      },
+      "latexFormat": {
+        "columns": 2,
+        "fontSizePt": 9,
+        "marginInch": 0.75,
+        "pageSize": "a4",
+        "lineNumbers": false,
+        "sectionNumbering": "none",
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "source": "Two-column with unnumbered sections, as Nature publishes. Nature has no official public LaTeX class; this is Gaply's reading approximation."
       }
     },
     {
@@ -561,6 +639,19 @@
         "sectionNumbering": "none",
         "pageSize": "letter",
         "source": "Grounded in PLOS submission guidelines (fetched): 'Manuscript text should be double-spaced'; 'Use continuous line numbers'; abstract not exceeding 300 words, no citations. PLOS allows 'any standard font' — so 12pt Times New Roman, 1-inch margins, and Letter are Gaply defaults."
+      },
+      "latexFormat": {
+        "columns": 1,
+        "fontSizePt": 11,
+        "marginInch": 1.0,
+        "pageSize": "letter",
+        "lineNumbers": true,
+        "sectionNumbering": "decimal",
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "source": "PLOS publishes single-column; line numbers are kept because PLOS asks for them in review. Gaply's reading layout, not a PLOS template."
       }
     },
     {
@@ -641,6 +732,19 @@
         "sectionNumbering": "decimal",
         "pageSize": "a4",
         "source": "Decimal numbered sections + line numbers reflect MDPI's review template; A4 per MDPI. Spacing/font/margins are Gaply defaults. MDPI's camera-ready (Palatino template) is typeset by MDPI — not reproduced."
+      },
+      "latexFormat": {
+        "columns": 1,
+        "fontSizePt": 10,
+        "marginInch": 0.8,
+        "pageSize": "a4",
+        "lineNumbers": true,
+        "sectionNumbering": "decimal",
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "source": "MDPI publishes single-column A4 with numbered sections. Gaply's reading layout, not the MDPI class."
       }
     },
     {
@@ -721,6 +825,19 @@
         "sectionNumbering": "none",
         "pageSize": "a4",
         "source": "Many Taylor & Francis journals request double-spaced, line-numbered manuscripts for review. Section numbering, font, margins, and page size are Gaply defaults; exact rules are journal-specific — verify at the link."
+      },
+      "latexFormat": {
+        "columns": 1,
+        "fontSizePt": 11,
+        "marginInch": 1.0,
+        "pageSize": "a4",
+        "lineNumbers": false,
+        "sectionNumbering": "decimal",
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "source": "Varies widely across T&F journals; single-column A4 is the safe reading default. Not the interact class."
       }
     },
     {
@@ -801,6 +918,19 @@
         "sectionNumbering": "none",
         "pageSize": "a4",
         "source": "Many Wiley journals request double-spaced, line-numbered manuscripts for review. Section numbering, font, margins, and page size are Gaply defaults; Wiley has no single house format — verify at the link."
+      },
+      "latexFormat": {
+        "columns": 2,
+        "fontSizePt": 10,
+        "marginInch": 0.75,
+        "pageSize": "a4",
+        "lineNumbers": false,
+        "sectionNumbering": "decimal",
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "source": "Two-column A4 is the common Wiley published look. Gaply's reading layout, not a Wiley class."
       }
     },
     {
@@ -881,6 +1011,19 @@
         "sectionNumbering": "none",
         "pageSize": "a4",
         "source": "Many SAGE journals request double-spaced manuscripts, often with line numbering, for review. Section numbering, font, margins, and page size are Gaply defaults; exact rules are journal-specific — verify at the link."
+      },
+      "latexFormat": {
+        "columns": 1,
+        "fontSizePt": 10,
+        "marginInch": 1.0,
+        "pageSize": "a4",
+        "lineNumbers": false,
+        "sectionNumbering": "decimal",
+        "titleBlock": {
+          "affiliations": true,
+          "correspondingAuthor": true
+        },
+        "source": "SAGE journals vary; single-column A4 is the safe reading default. Not a SAGE class."
       }
     }
   ]

@@ -11,6 +11,7 @@
 import MarkdownIt from 'markdown-it';
 import type Token from 'markdown-it/lib/token';
 import { CITE_TOKEN_RE } from './GaplyCiteNode';
+import { registerMathRule, mathTokenPayload } from './GaplyMathNode';
 import { CitationRender } from './manuscriptCitations';
 import { IMAGE_REF_PREFIX } from './noteImages';
 import type { ResolvedImage, ImageResolver } from './manuscriptDocx';
@@ -21,6 +22,10 @@ import type { ResolvedImage, ImageResolver } from './manuscriptDocx';
 // markdown-it's HTML RENDERER, and we walk tokens. The line-break decision that
 // actually ships is in inlineRuns' softbreak/hardbreak case.
 const mdit = new MarkdownIt({ html: false, linkify: false, breaks: true }); // GFM tables on by default
+// Math must be claimed here too, or markdown-it's `escape` rule reaches inside a
+// formula and eats `\,` before the walk ever sees it. Registering the rule also
+// means a raw `[[math:…]]` token can never leak into a Word file as literal text.
+registerMathRule(mdit);
 
 export const NUMBERING_REF = 'ms-ol';
 
@@ -110,6 +115,17 @@ async function inlineRuns(children: Token[], ctx: RichDocxCtx): Promise<ParaChil
         // orderedRefIds' raw scan, so alignment never drifts).
         const text = resolveCites(t.content, ctx);
         emit(new D.TextRun({ text, font: 'Courier New', bold, italics: italic }));
+        break;
+      }
+      case 'gaply_math': {
+        // STOPGAP, deliberately visible. Real OMML is the journal-styled Word
+        // export, which is held until LaTeX lands; until then a formula exports
+        // as its own LaTeX source in a monospace run. That is readable, obviously
+        // a formula, and honest about not being typeset — where emitting nothing
+        // would silently drop the author's mathematics, and emitting the raw
+        // `[[math:…]]` token would leak Gaply's storage format into their file.
+        const { tex, display } = mathTokenPayload(t);
+        emit(new D.TextRun({ text: display ? `  ${tex}  ` : tex, font: 'Cambria Math', italics: true }));
         break;
       }
       // BOTH break kinds become a real <w:br/>, because in THIS document model
