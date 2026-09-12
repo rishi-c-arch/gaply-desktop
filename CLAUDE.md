@@ -356,3 +356,52 @@ time injection.
     not flagged at all, because it felt measured: a command had been run and had
     genuinely exited 1. Confidence tracks *having measured something*, not
     *having measured the right thing*, so it is the weaker signal of the two.
+- **A containment assertion over generated markup cannot fail on what is ADDED.
+  `includes()` is blind to a wrapper.** The entry above is about measuring the
+  wrong thing; this one is about measuring the right thing with an instrument
+  that cannot register the defect.
+
+  Building the journal-styled .docx, docx 7.8.2's
+  `ImportedXmlComponent.fromXmlString` returned a component whose `rootKey` was
+  `undefined`, so the packer wrote every formula inside a literal element:
+
+  ```xml
+  <w:p><undefined><m:oMath …>…</m:oMath></undefined></w:p>
+  ```
+
+  `xml.includes('m:oMath')` — **true**. `xml.includes('<m:f>')`, `'<m:nary>'`,
+  `'<m:m>'` — all **true**. `xmllint --noout` — **clean**, because that IS
+  well-formed XML. Word refused the entire file: *"Word experienced an error
+  trying to open the file."* Every assertion was satisfied by a document no
+  consumer would accept.
+
+  **This is the INVERSE of the teardown's §13, and the pair is the point.** §13
+  established that Word's tolerance is wide — it accepted a PNG with a bad CRC
+  and rendered nothing — so a clean open proves well-formedness within that
+  tolerance, not correctness. The natural next thought is "so the XML checks are
+  the real floor and Word is the extra." Exactly backwards. **The XML checks
+  were never a floor either.** Word accepts invalid *resources*; containment
+  assertions accept invalid *structure*. Neither is sufficient and they fail in
+  opposite directions, which is why both are needed and why neither can stand in
+  for the other.
+
+  **The correction that matters is to the story, not just the method.** The
+  feasibility check that opened that task declared two-column layout and raw
+  OMML "proved at the XML level" on exactly these assertions. That file does not
+  open in Word. So the sequence was NOT *"we had XML verification, then we added
+  Word verification on top"*. It was *"there was no verification, and then there
+  was one"*. A record that reads the first way makes the XML stage look like a
+  weaker tier of the same thing; it was not a tier, it was a null result wearing
+  a green tick.
+
+  So, for any generated packaged or binary format (.docx, .zip, images, and the
+  .tex bundle's own parts):
+  - Pair every "contains X" with a NEGATIVE structural assertion — *does not*
+    contain a wrapper, an unknown element, an `undefined`. The pin that now
+    guards this is `expect(xml).not.toContain('<undefined>')`.
+  - Well-formed is not valid. `xmllint` answers a different question than a
+    schema, and neither answers what a real consumer does.
+  - Open it in the real consumer, and hold the claim until you have. Combined
+    with the entry above: predict the failure, break it on purpose, and confirm
+    the assertion actually goes red — reinstating `fromXmlString` fails the pin,
+    removing the column property fails the layout pins.
