@@ -9138,11 +9138,39 @@ than page 14, and the passages run 9 to 18. Adding those works is the single
 thing that would make the next run of this audit say more; the passages are what
 the report is FOR, and they are also reference material read one item at a time.
 
+#### "At blocks 220 and 221", and why fixing it reads as a bug
+
+The same defect as the identifiers above, in `consistency`: `blocks` is the
+argument name of the function that found it, and the number is a 0-based index
+into the parsed document. A reader cannot count to it and cannot search for it.
+
+It is now located the way every other finding is: **"at paragraphs 221 and
+222"**, or by page where the format has one, `audit_report::locator`'s rule that
+a page wins. The ordinal is `index + 1` because the pre-pass counts paragraphs
+1-based over EVERY block, blanked ones included, precisely so its locators match
+what a reader counts in their own document. The two numberings are therefore the
+same numbering, and the test asserts that directly: it takes the paragraph the
+pre-pass assigns a sentence in the repeated block and requires the consistency
+finding to name the same one. Drift there would have one page of the report
+placing two findings about the same paragraph two numbers apart.
+
+**This changes what a NEW run says, and deliberately not what an old one
+replays.** Consistency findings are written to `ai_jobs.summary_json` at audit
+time, so a re-render reproduces the wording that shipped with that job. That is
+the rule recorded under "What a regenerated report can and cannot show" above,
+and it is correct: an exported report is a record of what the tool said, not a
+live query.
+
+The consequence is worth stating because it looks like a bug. **Two exports of
+the same job, one from before this change and one from after, differ in the
+consistency section and nowhere else, and neither is stale.** Measured on job
+23: its stored summary carries 13 findings and none of them is a
+repeated-paragraph, while recomputing from the manuscript today yields 8,
+including the repeated paragraph in the new wording. A reader comparing the two
+would reasonably conclude that something had been lost. The preview example
+takes an optional manuscript path for exactly this reason, and prints how many
+findings it recomputed so the two sets are never silently swapped.
+
 #### What was deliberately left
 
 Items 10, 11, 14, 15, 16, 17 and 19 of the review are untouched, as agreed.
-`consistency` also prints "at blocks 220 and 221", which is the same class of
-defect as the identifiers above and belongs to a module whose findings are
-PERSISTED in `ai_jobs.summary_json`: changing that wording changes what a
-re-render of an old job says it found, which is a separate decision from this
-one.

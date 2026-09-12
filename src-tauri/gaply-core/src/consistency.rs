@@ -828,6 +828,41 @@ fn check_section_letters(out: &mut ConsistencyReport, blocks: &[PagedBlock]) {
     }
 }
 
+/// §11 D149. WHERE A BLOCK IS, in the words the rest of the report uses.
+///
+/// The repeated-paragraph finding said "at blocks 220 and 221". `blocks` is
+/// this function's argument name: a 0-based index into the parsed document,
+/// which a reader cannot count to and cannot search for. The audit locates
+/// everything else by page, or by paragraph where the format has no pages, and
+/// this now says the same thing in the same vocabulary.
+///
+/// The ordinal is `i + 1` because the pre-pass counts paragraphs 1-based over
+/// EVERY block, blanked ones included, precisely so its locators match what a
+/// reader counts in their own document. The two numberings are the same
+/// numbering, and `a_repeated_paragraph_is_located_the_way_every_other_finding_is`
+/// pins that they stay so.
+///
+/// Page wins where there is one, matching `audit_report::locator`: two locators
+/// for one place is a reader deciding which to trust.
+fn block_locations(blocks: &[PagedBlock], at: &[usize]) -> String {
+    let paged = at.iter().all(|&i| blocks.get(i).and_then(|b| b.page).is_some());
+    let mut nums: Vec<String> = at
+        .iter()
+        .map(|&i| match blocks.get(i).and_then(|b| b.page) {
+            Some(p) if paged => p.to_string(),
+            _ => (i + 1).to_string(),
+        })
+        .collect();
+    nums.dedup();
+    let unit = match (paged, nums.len()) {
+        (true, 1) => "page",
+        (true, _) => "pages",
+        (false, 1) => "paragraph",
+        (false, _) => "paragraphs",
+    };
+    format!("{unit} {}", nums.join(" and "))
+}
+
 /// (7) The same paragraph, printed twice.
 fn check_repeated_paragraphs(out: &mut ConsistencyReport, blocks: &[PagedBlock]) {
     let mut seen: BTreeMap<String, Vec<usize>> = BTreeMap::new();
@@ -844,9 +879,9 @@ fn check_repeated_paragraphs(out: &mut ConsistencyReport, blocks: &[PagedBlock])
                 "repeated-paragraph",
                 Severity::Cosmetic,
                 format!(
-                    "A paragraph appears {} times, at blocks {}: “{}”",
+                    "A paragraph appears {} times, at {}: “{}”",
                     at.len(),
-                    at.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(" and "),
+                    block_locations(blocks, &at),
                     snippet(&norm, 80)
                 ),
                 Some("Delete the duplicate, or rewrite one of them.".to_string()),
@@ -1130,7 +1165,42 @@ mod tests {
         let r = run(&[para, "An unrelated paragraph that says something else entirely about the data.", para]);
         let m = message(&r, "repeated-paragraph");
         assert!(m.contains("2 times"), "{m}");
-        assert!(m.contains("0 and 2"), "must name where: {m}");
+        // Every block in this fixture is on page 1, so that is where they are.
+        assert!(m.contains("at page 1"), "must name where: {m}");
+    }
+
+    /// §11 D149. A LOCATION A READER CAN COUNT TO.
+    ///
+    /// This said "at blocks 220 and 221" on a real Word manuscript: a 0-based
+    /// index into the parsed document, in a report that locates everything else
+    /// by paragraph. The ordinal here must be the pre-pass's, because that is
+    /// the one every other finding in the report is printed with.
+    #[test]
+    fn a_repeated_paragraph_is_located_the_way_every_other_finding_is() {
+        let para = "A major drawback of this framework is that it has been restricted to single label \
+                    problems and does not yet handle the multi label case that real corpora present.";
+        let texts = [para, "An unrelated paragraph that says something else entirely about the data.", para];
+        // A Word manuscript: no pages, so the locator is the paragraph ordinal.
+        let b: Vec<PagedBlock> = texts
+            .iter()
+            .map(|t| PagedBlock { page: None, style: None, text: (*t).to_string() })
+            .collect();
+        let pre = prepass_blocks(&b);
+        let r = check_consistency(&b, &pre);
+        let m = message(&r, "repeated-paragraph");
+        assert!(m.contains("at paragraphs 1 and 3"), "{m}");
+        assert!(!m.contains("block"), "the parser's own word reached the reader: {m}");
+
+        // And it is the SAME number the pre-pass gives a sentence in that
+        // paragraph, which is what makes the two comparable on one page of the
+        // report. Drift here would have the report locating one finding at
+        // paragraph 3 and another at paragraph 2 for the same place.
+        let third = pre
+            .planned
+            .iter()
+            .find(|p| p.sentence.starts_with("A major drawback"))
+            .and_then(|p| p.paragraph);
+        assert_eq!(third, Some(1), "the pre-pass numbers paragraphs differently: {third:?}");
     }
 
     #[test]
