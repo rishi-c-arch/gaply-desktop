@@ -270,7 +270,9 @@ const EthicalAiResearchGuidePage: React.FC = () => {
     [slides, titleFor]
   );
 
-  const subtitleParts = useMemo(() => deck.subtitle.split('·').map((s) => s.trim()), [deck.subtitle]);
+  // `deck` is a module constant, so there is nothing here that can change:
+  // listing deck.subtitle implied a reactivity this value does not have.
+  const subtitleParts = useMemo(() => deck.subtitle.split('·').map((s) => s.trim()), []);
 
   return (
     <EthicalAiGuideShell headline={deck.title} subhead={deck.subtitle} seoSearchPhrases={RESEARCH_GUIDE_SEO_PHRASES}>

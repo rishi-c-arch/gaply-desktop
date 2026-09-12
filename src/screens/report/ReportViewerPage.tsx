@@ -4,7 +4,6 @@
 // certainty-tier highlights · RIGHT inspector (selected finding: detail,
 // provenance "click to see why", confidence). Export → local PDF.
 import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import {
   AppShell,
   Badge,

@@ -2,8 +2,8 @@
 // incapable of writing the paper (request + response guards). Multilingual.
 // Grounds every answer in findings/RAG with provenance + the uncertainty
 // disclaimer. Docks to the PublishReady report and is also a standalone route.
-import React, { useMemo, useRef, useState } from 'react';
-import { Badge, Button } from '../../design-system';
+import React, { useRef, useState } from 'react';
+import { Button } from '../../design-system';
 import { ChatClient } from './chatBridge';
 import { buildChatPayload, ChatContext } from './chatContext';
 import {

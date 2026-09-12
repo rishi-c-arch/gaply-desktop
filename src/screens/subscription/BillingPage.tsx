@@ -28,7 +28,7 @@ const Inner: React.FC<BillingPageProps> = ({ razorpay }) => {
   const navigate = useNavigate();
   const { session } = useGaplySession();
   const { toast } = useToast();
-  const { tier, isPremium } = useSubscription();
+  const { isPremium } = useSubscription();
   const paymentsEnabled = useFeatureFlag('payments');
   // Honest default: no fabricated success. Real checkout only when a real
   // client is injected AND the payments flag is on.

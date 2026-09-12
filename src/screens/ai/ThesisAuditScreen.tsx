@@ -593,14 +593,6 @@ export const ThesisAuditScreen: React.FC<ThesisAuditScreenProps> = ({
     return <AiUnavailable feature="The thesis citation audit" onOpenSettings={onOpenSettings} />;
   }
 
-  const queued =
-    plan != null
-      ? plan.queuedCitationNeed + plan.queuedCitationSupport + plan.queuedUnverifiable
-      : 0;
-  // Unverifiable items cost no model time (§11 D40), so they are excluded from
-  // the projection. Including them would overstate the wait by hours.
-  const modelItems = plan != null ? plan.queuedCitationNeed + plan.queuedCitationSupport : 0;
-
   return (
     <div className="gds-root" data-testid="thesis-audit">
       {/* PAST AUDITS (§11 D139). A finished job's results are durable and were

@@ -1833,6 +1833,19 @@ The significance filter (skip headings, the references section, sentences under 
 keep the item count honest. At 65 s per item the difference between filtering and not is measured
 in hours.
 
+**A wait projection must count only the items that cost model time.** Unverifiable items cost
+zero, so including them in an estimate overstates the wait by hours — the same arithmetic as the
+significance filter, applied to the number the user is shown before consenting. This was recorded
+in a comment in `ThesisAuditScreen` beside two variables (`queued`, `modelItems`) that computed it
+and fed nothing; the variables are gone and the reasoning is here instead.
+
+The rule is still enforced, in two places, neither of them those variables:
+`thesis_audit.rs` counts `would_check` from `Resolution::Checkable` alone — unverifiable and
+not-examined sentences are counted separately and never reach it — and the pre-run estimate calls
+`projectDuration(preview.wouldCheck, …)`. The in-run estimate uses live progress
+(`progress.total - progress.completed`), which is measured rather than projected. So the constraint
+above governs any FUTURE projection: seed it from a count of model work, never from a queue total.
+
 
 ## Phase 9a — the in-app PDF viewer that D18's affordance requires
 

@@ -12,6 +12,16 @@ import { aiBridge, isAiReady } from './aiReady';
 export const ThesisAuditPage: React.FC = () => {
   const navigate = useNavigate();
   const [aiInstalled, setAiInstalled] = useState(false);
+  // `setResumable` IS NEVER CALLED, and that is a recorded gap rather than dead
+  // code. ThesisAuditScreen has a complete resume path — it renders the offer
+  // and calls bridge.resumeJob(resumableJob.jobId) — but it can never fire,
+  // because this page always hands it null. The missing piece is DISCOVERY:
+  // aiBridge can resume a job by id and has no way to find an unfinished one,
+  // so wiring this needs a new command (an ai_job_resumable that returns the
+  // latest incomplete job), not a change here. Kept rather than deleted so the
+  // dead feature stays visible; deleting the setter would make it permanent and
+  // silent, which is how it got here.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [resumable, setResumable] = useState<{ jobId: number; completed: number; total: number } | null>(
     null,
   );

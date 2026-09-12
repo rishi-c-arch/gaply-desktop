@@ -7,7 +7,6 @@ import { Badge, Button, Card, Panel } from '../../design-system';
 import { isTauri } from '../../utils/isTauri';
 import { useGaplySession } from '../session/SessionProvider';
 import {
-  AgentStage,
   AnalysisBridge,
   TauriAnalysisBridge,
 } from './bridge';

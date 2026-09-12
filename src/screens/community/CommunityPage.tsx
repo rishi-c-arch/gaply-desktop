@@ -2,7 +2,7 @@
 // where EVERY post is integrity-scanned and badged by architecture. Posts live
 // in Supabase (RLS); the badge is computed locally BEFORE publish, stored with
 // the post, shown always, and cannot be removed by the author.
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AppShell,

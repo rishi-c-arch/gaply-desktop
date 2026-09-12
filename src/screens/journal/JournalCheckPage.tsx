@@ -7,7 +7,6 @@ import {
   AppShell,
   Badge,
   Button,
-  Card,
   GaplyGlobe,
   HeaderBar,
   NavRail,
@@ -24,7 +23,6 @@ import {
   conferenceRisk,
   ConferenceRecord,
   JournalLookupClient,
-  makeMockLookup,
   ProxyJournalLookup,
   searchConference,
 } from './journalLookup';

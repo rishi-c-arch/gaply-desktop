@@ -64,7 +64,10 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
 
   const status = RECOMMENDATION_STATUS[letter.recommendation];
   const issues = letter.issues ?? [];
-  const warnings = letter.warnings ?? [];
+  // NOTE: there is deliberately no raw `warnings` list here. Every warning is
+  // already read above and routed to one of four renderings — withheldReason,
+  // excluded, notExamined, and gateNotes, which is the catch-all — so nothing
+  // falls through. A second, uncategorised copy was a leftover of that refactor.
   return (
     <div className="gds-pr" data-testid="reviewer-letter-panel">
       <div className="gds-pr__head">

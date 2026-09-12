@@ -12,7 +12,7 @@
 import './ai.css';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Card } from '../../design-system/primitives';
-import { aiBridge, errorText, ImportPreflight, LinkSourceEvent, OaFetchReport } from './aiBridge';
+import { aiBridge, errorText, ImportPreflight, LinkSourceEvent } from './aiBridge';
 import { describeOaOutcome, describeOaPhase, isFetchSuccess, oaFetchDisclosure } from './oaOutcome';
 import { pickManuscriptPath } from '../common/pickFile';
 import { mayUseCloud } from '../settings/settingsStore';

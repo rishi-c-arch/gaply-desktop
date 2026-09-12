@@ -16,7 +16,7 @@ import {
   SupportEvent,
 } from './aiBridge';
 import { resultToFinding } from './findingFromResult';
-import { projectDuration, SECONDS_PER_ITEM } from './ThesisAuditScreen';
+import { projectDuration } from './ThesisAuditScreen';
 import { pickManuscriptPath } from '../common/pickFile';
 import { EvidenceCard, EvidenceRow, GroundedFinding, Verdict } from './EvidenceCard';
 import { AiUnavailable } from './AiStatusPanel';
