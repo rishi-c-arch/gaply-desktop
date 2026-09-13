@@ -1,0 +1,628 @@
+# PublishReady Premium — Architecture
+
+*Design document, v4. Grounded in the 13 September teardown (HEAD 568efd4), AgentFlow (arXiv 2604.20801), Context Engineering (arXiv 2603.09619), MetaGPT (2308.00352), AutoGen (2308.08155), and ChatDev (2307.07924). Revised after three external reviews and against the attached reviewer-criteria document ("What Reviewers of Top-Quartile Journals Evaluate"); §14 records what was taken and what was refused. Nothing here is built.*
+
+> **Gaply does not ask fifty agents whether a manuscript is good. It builds a machine-readable representation of the research, gives each specialist the minimum context it needs, tests the evidence chain independently, routes disagreement to targeted re-analysis, and produces a journal-specific readiness assessment a reviewer could retrace.**
+
+---
+
+## 0. What this is, and what it refuses to be
+
+**The product:** a researcher uploads a manuscript, optionally its supporting analysis (code, SPSS, MATLAB, lab notebooks, data), and names a target journal. Gaply returns the manuscript marked up as a reviewer at that journal would mark it, a structured account of what would need to change, and an honest estimate of where it stands — plus a chat that answers questions about *this* manuscript and *these* findings.
+
+**Three things it refuses to do, each because the teardown showed what happens otherwise:**
+
+1. **It will not print a probability it cannot calibrate.** `citation_need` shipped at an assumed accuracy and measured 0.34. AI-detection ships with no labelled set and flags hand-written prose as `major / concern`. A publication-likelihood number is the highest-stakes output the product could have, and it ships as a *rubric score* until there is accept/reject ground truth to calibrate it against. See §8.
+
+2. **It will not quietly relax the privacy claim.** The release gate is the strongest thing in the product — five invariants, an independent server-side validator, *"no manuscript text crosses the proxy boundary."* Premium sends the manuscript to a cloud model. That is not a relaxation of the claim; it is a *different tier with a different claim*, consented to before upload and enforced in Rust. See §2.
+
+3. **It will not add agents to a harness that cannot revise.** All six current participants are `PrecomputedAgent`; `revise()` returns `None`; every run converges in one round with `revised_agents: []`. AgentFlow's central result is that *the harness*, not the headcount, moves outcomes several-fold with the model fixed. The first agent that revises in production is the prerequisite for the fortieth. See §5.
+
+---
+
+## 1. Inputs
+
+| Input | Required | Format | Where it goes |
+|---|---|---|---|
+| Manuscript | yes | .docx, .pdf, .tex, .md | Manuscript layer (§3) |
+| Supporting analysis | no | .py .R .m .sps .ipynb .csv .xlsx, lab notebook PDFs, zip | Analysis layer, parsed per type |
+| Target journal | yes | pick from registry, or paste a URL to author guidelines | Journal layer |
+| Field / subfield | inferred, confirmable | from manuscript + journal | routes the specialist cluster |
+
+### 1.1 The research-type router
+
+Before any cluster wakes, a deterministic-first classifier produces a `ResearchProfile`: study design, domain, analysis types present, data modalities, article type, and the reporting standards the journal binds to that design. Specialists activate against the profile, so a systematic review wakes PRISMA, search-strategy and risk-of-bias specialists; a wet-lab paper wakes controls, replicates, blinding and image-integrity; an ML paper wakes leakage, baselines, ablation and external validation. **Agent count is a consequence of the research, not a product requirement** — one paper may activate 25 specialists and another 60.
+
+**Supporting analysis is the differentiator.** A reviewer who can see the code checks the statistics against what was actually run. Nobody else offers this because nobody else has the analysis. Per-type parsers produce a normalised *analysis record*: which tests were run, on what variables, with what parameters, producing what outputs. That record is what the methodological cluster reasons over — not the raw script.
+
+---
+
+## 2. Privacy: two tiers, one Rust boundary
+
+The teardown found consent enforced in seven screens via `localStorage`, missing in one, and nothing in Rust. That is a preference, not a boundary. Premium is built on a boundary.
+
+### 2.1 The two contracts
+
+| | Free | Premium |
+|---|---|---|
+| What leaves the machine | reference DOIs/titles (consented), structured summaries (gated) | the manuscript, the analysis record, structured findings |
+| Where it goes | CrossRef, OpenAlex, gaply-proxy → structured only | gaply-proxy → OpenAI, with the manuscript |
+| The claim | *"No manuscript text crosses the proxy boundary."* — unchanged, gate stays green | *"Your manuscript is sent to OpenAI for review. Here is exactly what, and why."* — stated before upload, in the report, in the file |
+| Enforcement | release gate, five invariants, unchanged | a distinct Rust type that cannot be constructed without a consent record |
+
+### 2.2 The boundary in code
+
+```
+enum Tier { Free, Premium(ConsentRecord) }
+
+struct ConsentRecord {
+    manuscript_id: Uuid,
+    consented_at: DateTime,
+    scope: ConsentScope,      // bitset — see below
+    provider: Provider,        // OpenAI, named
+    statement_version: u32,    // which consent text they saw
+}
+```
+
+```
+ConsentScope: Manuscript | AnalysisMetadata | AnalysisCode | AnalysisData
+            | ExternalEvidence | JournalResearch
+```
+
+Each scope is a separate checkbox with its own statement. A researcher may send the manuscript and keep the code local; that combination is common and should be one click. The default is manuscript-only.
+
+- `ConsentRecord` is persisted in a new table, one row per manuscript per consent event, never deleted.
+- The premium proxy client takes `Tier::Premium(record)` and nothing else. A free-tier call *cannot* reach the premium route because there is no constructor path from `Tier::Free` to it. This is the type system doing what `localStorage` cannot.
+- The existing release gate is extended with a sixth invariant: **TIER** — every payload that carries manuscript text carries a `ConsentRecord` id, and every `ConsentRecord` id in a payload resolves to a stored row whose scope covers what was sent. Both directions.
+- The consent statement is versioned. If the text changes, existing records do not cover the new scope and the user is asked again.
+
+### 2.3 What premium still keeps local
+
+Everything deterministic runs locally regardless of tier: extraction, the five statistical rules, structural checklist, reference-list consistency, the analysis-record parsers. Premium adds cloud *judgement* on top of local *computation*. The findings that carry "mathematically certain" never depended on the cloud and still don't.
+
+### 2.4 Retention and the proxy
+
+The proxy today persists nothing and never tells the desktop which provider answered. Premium keeps both properties. Additionally:
+
+- The proxy forwards with the provider's zero-retention / no-training flag set, and refuses to forward if the provider's API does not offer one.
+- The desktop stores the *response*, never re-sends the manuscript for the same analysis version. Re-runs on an unchanged manuscript are served from the stored response.
+- The chat (§10) reads from stored findings. It never re-sends the manuscript.
+
+---
+
+## 3. The context fabric
+
+The Context Engineering paper proposes five criteria for an agent's informational environment: **relevance, sufficiency, isolation, economy, provenance.** The teardown found the product already does provenance well — every finding is tagged computed or judged — and isolation badly — the pipeline's AI lane and AI Check use different model selectors and can disagree about the same manuscript.
+
+The fabric is six layers. Each is a distinct epistemic object with a distinct privacy class — that pairing is the test for whether something is a layer or merely a label. Each agent declares which it reads. The harness enforces it.
+
+### 3.1 Layers
+
+| Layer | Contents | Privacy class | Who may read it |
+|---|---|---|---|
+| **Manuscript** | full text, sections, figures, tables | premium, `Manuscript` consent | manuscript-facing specialists |
+| **Analysis** | the analysis record parsed from code/SPSS/MATLAB/notebooks; raw data structure | premium, separate `Analysis*` consents — code and data are more sensitive than prose | methodological specialists |
+| **Journal** | ingested guidelines, scope, recent-paper corpus, reporting-standard bindings — the `JournalFingerprint` (§7) | public, shared across users | journal-fit and reporting specialists |
+| **External evidence** | cited works, retraction records, OA full texts, public literature the research agent gathers | public, cached, injection-guarded | integrity and literature specialists |
+| **Research state** | the machine-readable study: question, hypotheses, design, population, variables, outcomes, claims, methods, analyses, results, tables, figures, references, uncertainties | structured, gate-safe — the free tier already computes most of it | every agent |
+| **Verdict** | findings with epistemic status, evidence, per-agent opinions, revision history, disagreement map, consensus, decision ledger | never leaves | synthesis, chat |
+
+The four of these must stay distinguishable in every finding: *the manuscript says N=624; the SPSS output says valid N=600; the journal requires exclusions be reported; the specialist concludes the 24 need explaining.* Each is a different layer, and a finding that blurs them is a finding a reviewer cannot retrace.
+
+### 3.2 Why layers rather than one prompt
+
+- **Isolation.** A journal-fit agent has no business reading raw manuscript prose; it reads the derived structural map against the journal's scope. A statistics agent has no business reading the journal's recent papers. Declaring layers per agent makes the wrong read a type error.
+- **Economy.** Each agent gets what its declared layers contain, chunked to its budget, and nothing else. The 8 GB machine constraint the teardown named (one model at a time, explicit `unload_slm2()`) becomes a scheduling problem the harness owns rather than each lane.
+- **Provenance.** Every finding records which layers its producing agent read. A finding derived from the journal layer alone is a claim about the journal; one derived from manuscript + journal is a claim about fit. The report can say which.
+
+### 3.3 Versioning
+
+Every layer carries a version. Every finding records the versions of every layer its producer read, plus the agent-graph version and the model identifiers. *Why did Gaply's assessment change?* is then a diff, not a mystery. This is also what makes incremental re-analysis (§5.5) safe: a node re-runs when any input version it depends on has changed, and only then.
+
+### 3.4 The journal layer is the part that doesn't exist yet
+
+`journal_guidelines` has **0 rows after 27 manuscripts.** The checklist has only ever been structural. The journal layer needs:
+
+- **Guideline ingestion is a crawl, not a scrape.** A pasted URL is an *entry point into the journal's instruction ecosystem*, not a page to read. Requirements are spread across author guidelines, article-type pages, submission checklists, formatting, ethics, data availability, reporting standards, trial registration, AI-use policy, conflict-of-interest, preprint and licensing pages, and downloadable templates or checklists. Ingestion is:
+
+  ```
+  entry URL → canonical journal → discovery of permitted linked guideline pages
+            → document collection → source classification (which page is about what)
+            → deep extraction → normalisation → conflict detection
+            → article-type binding → JournalFingerprint
+  ```
+
+  Discovery is bounded to the journal's own domain and the publisher's author-services domain, follows only links whose anchor text or path names a guideline topic, and stops at a depth of three. Every fetched document passes the injection guards (strip_hidden, denylist, perplexity, quarantine); they stay and are extended per §11. The output is a **source tree**, and every extracted requirement records its `source_document`, `source_heading` and `source_span` — the exact sentence — not just a URL.
+- **Every journal fact carries a status**, and the product never flattens them into "the journal requires…":
+
+  | Status | Meaning | Example |
+  |---|---|---|
+  | `VERIFIED` | stated in the journal's own guidelines, span recorded | *Word limit 5,000 — Author Guidelines §3.2* |
+  | `INFERRED` | derived from the comparable corpus, with n | *External validation present in 18 of 25 comparable papers — not a stated requirement* |
+  | `UNAVAILABLE` | searched, nothing authoritative found | *AI-use policy — no policy located on the journal's pages* |
+  | `CONFLICTED` | two sources disagree | *Abstract limit 250 (Author Guidelines) vs 300 (Article Types page)* — both shown, neither chosen |
+
+- **Comparable corpus, not "latest fifty."** For a named journal, fetch *recently published* papers' abstracts and section structures via OpenAlex (public, no manuscript involved). Publication date is what the source provides; acceptance date is not. The product says "recently published" because that is what it has, then filter to those *comparable* to the manuscript: same article type, same or adjacent study design, within a date window, above an embedding-similarity threshold. The corpus has a minimum (below which conventions are `UNAVAILABLE`), a target, and a maximum. From it derive: typical length, typical section set, methods the journal actually publishes, statistical conventions it expects. This is what makes "fit" a measured comparison rather than a model's impression.
+- **Reporting-standard bindings** — the journal's own instructions say which checklist (CONSORT, PRISMA…) applies to which study type. Ingest those as structured requirements, not prose.
+
+---
+
+## 4. The agents
+
+MetaGPT's contribution is that agents work when they have *roles with defined artefacts* — a PRD, a design, a task list — rather than free-form conversation. ChatDev's is that a *pipeline of phases with role pairs* beats a mesh for producing a coherent artefact. AutoGen's is that the *conversation topology* is a first-class design choice. AgentFlow's is that all of it — roles, prompts, tools, topology, coordination — should live in **one typed graph** so it can be searched and enforced.
+
+So: not fifty agents. **Six clusters, each with a defined artefact, containing specialists that share an interface.** The count lands around forty because the specialists are per-analysis-type and per-standard, not because forty is a target.
+
+### 4.1 The clusters
+
+| Cluster | Reads | Produces | Model |
+|---|---|---|---|
+| **Ingestion** | manuscript, analysis files | derived layer: structure, claims, references, stats, analysis record | deterministic |
+| **Methodological soundness** | derived + analysis record + manuscript (premium) | per-method findings: does the analysis support the claim | local rules + cloud judgement |
+| **Reporting standards** | derived + journal | checklist findings against the standard the journal mandates | deterministic against ingested standard |
+| **Journal fit** | derived + journal | scope match, length, structure, conventions, recent-paper comparison | local embeddings + cloud judgement |
+| **Integrity** | derived + references | citation consistency, retraction, self-plagiarism, image reuse signals | deterministic + existing lanes |
+| **Synthesis** | verdict layer only | the marked-up manuscript, the reviewer letter, the rubric score, the chat context | cloud |
+
+### 4.2 Specialists inside a cluster
+
+Methodological soundness is the one that fans out, because analysis types differ:
+
+- Frequentist inference (t-tests, ANOVA, regression assumptions, multiple comparisons)
+- Bayesian analysis
+- Machine learning (train/test leakage, baseline fairness, reporting of variance)
+- Qualitative methods (coding reliability, saturation claims)
+- Survey / psychometric (reliability, validity, sample adequacy)
+- Lab / wet-bench (controls, replicates, blinding as stated)
+- Computational **consistency** (do the code's stated operations account for the numbers in the paper — not reproduction; the code is never executed, see §11)
+
+Each is one specialist with the same interface: `fn assess(record: &AnalysisRecord, claims: &[Claim]) -> Vec<Opinion>`. Adding a specialist is adding a node with declared layers and tools. The harness routes by the analysis record's detected type, so a paper with no code never wakes the reproducibility specialist.
+
+Reporting standards fan out per standard (CONSORT, PRISMA, STROBE, ARRIVE, CHEERS, SRQR, TRIPOD, MOOSE…). Each is a *deterministic* checklist evaluator over the derived layer, because the standards are checklists. No model.
+
+### 4.3 The agent contract
+
+Every agent, cluster or specialist, is a node in the typed graph with:
+
+```
+struct AgentSpec {
+    id: AgentId,
+    cluster: Cluster,
+    reads: Vec<Layer>,               // enforced — reading outside is a build error
+    tools: Vec<Tool>,                // enforced — a tool not listed cannot be called
+    model: ModelRequirement,         // None | Local(tier) | Cloud(provider)
+    emits: OpinionKind,
+    may_revise: bool,                // §5 — the thing that is currently always false
+    hard_constraint: bool,           // deterministic verdicts override soft consensus
+    budget: TokenBudget,
+    requires: Vec<Artifact>,         // e.g. AnalysisRecord — absent → agent is not invoked
+    evidence_policy: EvidencePolicy, // minimum sources, permitted source types,
+                                     //   citation required, uncertainty required
+    timeout: Duration,
+}
+```
+
+`evidence_policy` is what stops a model producing a sophisticated conclusion from insufficient evidence. A journal-fit specialist requires the guideline *and* the recent-paper corpus; a statistical specialist requires the analysis record *and* the claim it bears on; a literature specialist requires a peer-reviewed source. An opinion emitted without its policy satisfied is rejected at the gate with the reason recorded.
+
+This is AgentFlow's DSL applied. The graph is data (a `.ron` or `.json` file), validated at build time: no cycle, every `reads` is a layer that exists, every cloud agent has a consent gate upstream, every `hard_constraint` agent has `model: None`.
+
+### 4.4 Trust tiers
+
+Every output carries a tier. The tier decides what may override what, and the report shows it.
+
+| Tier | What | Decided by | Overrides |
+|---|---|---|---|
+| **0 — Deterministic** | arithmetic, equation equivalence, N consistency, table totals, CI/SE/SD recomputation, duplicate references, unit checks | symbolic and numeric computation | everything above it |
+| **1 — Rule** | CONSORT, PRISMA, STROBE, ARRIVE, TRIPOD, journal requirements | checklist evaluators over the research state | tiers 2–4 |
+| **2 — Evidence reasoning** | does the evidence support the claim; is the method appropriate; is causal language earned | LLM with `evidence_policy` satisfied | tiers 3–4 |
+| **3 — Expert judgement** | novelty, likely reviewer concern, contribution, fit | multiple specialists + evidence | tier 4 |
+| **4 — Synthesis** | the editorial reading | synthesis cluster | nothing |
+
+**Deterministic evidence outranks model consensus.** Eight agents agreeing an equation is correct is not evidence about the equation. The existing `hard_constraint` flag is Tier 0 and Tier 1; this table is the general form.
+
+### 4.5 Reviewer lenses
+
+Specialists produce opinions. Reviewers produce *reports*. The attached reviewer-criteria document describes what a Q1 reviewer actually evaluates, and it does not map one-to-one onto specialists — a methodology reviewer reads the statistics specialist's output *and* the design specialist's *and* the ethics evaluator's, and forms a view.
+
+So: not six more agents. A `ReviewLens` is a perspective applied *over* specialist outputs:
+
+```
+struct ReviewLens {
+    id: LensId,                      // methodology | statistics | novelty_literature
+                                     //   | journal_fit | reporting_ethics | general
+    criteria: Vec<Criterion>,        // from the reviewer-criteria document, each with
+                                     //   strong / weak / action as that document states them
+    reads: Vec<SpecialistId>,        // which specialist outputs this lens sees
+    evidence_policy: EvidencePolicy,
+    severity_policy: SeverityPolicy, // the risk table: fatal / fixable / minor per criterion
+    journal_context: bool,           // whether this lens reads the JournalFingerprint
+}
+```
+
+The six lenses and their criteria, taken from the document:
+
+| Lens | Evaluates |
+|---|---|
+| **Methodology** | study design, controls, sampling, randomisation, blinding, reproducibility & data availability, ethical compliance |
+| **Statistics** | test choice, assumptions verified, effect sizes and CIs reported, multiple-comparison correction, power, selective reporting |
+| **Novelty & literature** | what is claimed as new, against retrieved prior work; coverage, currency, contradictory evidence addressed, self-citation proportion |
+| **Journal fit** | scope match, comparable-corpus position, audience relevance |
+| **Reporting & ethics** | mandated standards met, declarations present, formatting, word limits, reference style, supplementary use |
+| **General** | title/abstract/keywords accuracy, clarity and structure, overstated conclusions, presentation quality |
+
+Each lens produces an independent **reviewer report** in the shape a real one takes: overall assessment, contribution summary, strengths, major concerns (each with its verification trail), minor concerns, journal-specific compliance, required revisions. Lenses run in parallel and do not see each other's reports until the disagreement map (§5.3).
+
+### 4.6 Novelty, significance and claim strength — three separate outputs
+
+The reviewer-criteria document puts novelty and significance first. The architecture makes them explicit pipelines rather than a judgement score, and keeps them apart because a paper can be highly novel and low significance or the reverse.
+
+**Novelty, claim by claim.** Extract every novelty claim from the research state (*"first to demonstrate X", "no prior study has…"*). For each, retrieve the closest prior work through the external-evidence layer. Compare. Output per claim: the claim, the nearest prior work with what it showed and under what conditions, and a status — `NOVEL_AS_STATED`, `NOVELTY_NARROWER_THAN_STATED` (with the narrowing), `PRIOR_WORK_EXISTS` (named), `UNVERIFIED` (retrieval found nothing decisive). *"This is the first study to demonstrate X" → Study A (2024) demonstrated X under condition Y → novelty claim requires revision.* Never a number.
+
+**Significance, separately.** What the contribution changes if true: field-level, practical, theoretical. Tier 3, cloud judgement, evidence-policy requires the comparable corpus so the judgement is relative to what the journal publishes.
+
+**Claim–evidence strength, on every major claim.** The evidence graph traced claim → analysis → result → conclusion, classified `SUPPORTED · PARTIALLY_SUPPORTED · UNSUPPORTED · CONTRADICTED · UNVERIFIED`. The specific check the reviewer document names: **causal overclaim** — the study supports *associated with*, the conclusion says *causes*. That is a Tier 2 finding with the sentence and the design that limits it both cited.
+
+---
+
+## 5. The harness
+
+The current `run_debate` is a real mesh round-table with a sound design: initial opinions, internal-gate filter, up to three rounds of visible revision, confidence-weighted consensus, hard-constraint override. It has never run past round one because nothing can revise.
+
+### 5.1 Fix the existing thing first
+
+`RevisingVerificationAgent` exists, is tested, and is constructed only in tests. Before any new agent:
+
+1. Wire it into `pipeline.rs` in place of the precomputed verification participant.
+2. Run the golden manuscripts. Confirm `rounds_run > 1` and `revised_agents` non-empty on at least one.
+3. Pin it: a test that fails if the production pipeline ever again converges in round one on a manuscript where the fixture agent is designed to revise.
+
+Until that test is green, the debate is a vote and every architectural claim about it is a `doc` claim.
+
+### 5.2 Evidence outranks consensus
+
+Eight agents saying *minor* and two saying *major* is not a majority decision if a deterministic SPSS mismatch says *major*. The existing `hard_constraint` override already encodes this for the statistical validator; it generalises. Consensus weighting applies only among judgement opinions; any evidence-backed deterministic finding on the same claim sets the floor.
+
+### 5.3 Disagreement-driven rounds
+
+The current mesh has every agent reconsider everything each round. Instead:
+
+```
+independent opinions → disagreement map → targeted re-analysis → adjudication → verdict
+```
+
+The disagreement map identifies which claims have opinions that differ by more than a threshold, and *only those* go to a second round, with the disagreeing agents shown each other's evidence. An adjudicator — a synthesis-cluster agent with the full verdict layer — resolves what remains. Fewer tokens, and the revision that happens is the revision that matters.
+
+### 5.4 Orchestration shape
+
+ChatDev's phases over MetaGPT's artefacts, with AutoGen's topology made explicit:
+
+```
+Phase 1  INGEST      ingestion cluster, deterministic, always local
+Phase 2  ASSESS      methodological + reporting + integrity + fit, in parallel
+                     (each cluster's specialists in parallel within it)
+Phase 3  DEBATE      the existing mesh round-table, now with revising agents
+Phase 4  SYNTHESISE  synthesis cluster over the verdict layer
+Phase 5  RENDER      marked-up manuscript, letter, rubric, chat context
+```
+
+- Phase 2 is where the fan-out is. Clusters are independent; specialists within a cluster are independent. This is the parallelism the current sequential six-lane pipeline lacks.
+- Phase 3 is the current `run_debate`, unchanged in design. What changes is that specialists are `may_revise: true` where a revision is meaningful (a methodological specialist seeing the reproducibility specialist's finding that the code doesn't produce the paper's number *should* revise its confidence).
+- The hard-constraint override stays exactly as it is. A deterministic checklist failure is not up for debate.
+
+### 5.5 Incremental re-analysis
+
+The graph is a dependency engine. When a researcher records a decision (§10) or edits the manuscript, the harness computes which research-state fields changed, which agents read those fields, and re-runs only that subgraph. `N = 624 → 600` re-runs statistics, tables, results and the assessments that depend on them — not journal fit, not integrity. Every node's `input_hash / context_hash / model_version / output_hash` is what makes this decidable.
+
+### 5.6 Failure and degradation
+
+The teardown praised this and it stays: every lane degrades, nothing aborts. Extended:
+
+- A cloud agent that cannot reach the proxy emits `Opinion::Unavailable(reason)` — a first-class value the synthesis phase renders as *"not assessed: [reason]"*, never as absence.
+- A specialist whose declared layer is empty (no analysis record) is not invoked and does not appear.
+- The existing `"Verification output rejected by its internal gate"` finding — currently shown to users as though it were about their paper — moves to a *harness log* the chat can surface if asked, and out of the findings list.
+
+### 5.7 The editor layer
+
+Reviewers and editors are different roles with different outputs, and the reviewer-criteria document's workflow — editorial screening → peer review → editorial decision — is the shape. The synthesis cluster becomes an explicit **editor**:
+
+```
+reviewer reports (§4.5) → disagreement map → targeted re-analysis → adjudication
+    → EDITOR: scope · severity precedence · priority → editorial posture
+```
+
+The editor reads all reviewer reports, the disagreement map, the journal fingerprint, and Tier 0/1 findings. It applies **severity precedence** from the risk table — a fatal flaw (missing required ethics approval; an arithmetic contradiction in the primary result; a design with no control) is blocking regardless of how many minor strengths surround it — and produces the editorial posture (§8). A reviewer says *"I am concerned that…"*; the editor says *"given these concerns and this journal's scope, major revision, for these three reasons."*
+
+The editor is Tier 4 and overrides nothing below it. It orders and frames; it does not re-decide a Tier 0 finding.
+
+### 5.8 Model scheduling
+
+The 8 GB constraint is real. The harness owns it:
+
+- Local model loads are serialised. Phase 2 specialists that need the local model queue for it; those that are deterministic or cloud run alongside.
+- Cloud calls are batched per cluster where the provider allows, to reduce round-trips.
+- `unload_slm2()` and the scoped model drop stay; they become harness policy rather than per-lane discipline.
+
+---
+
+## 6. Models — which does what
+
+The teardown corrected the vocabulary: there are no bespoke models, no adapters, no training pipeline. "SLM-1" and "SLM-2" are stock Qwen with prompt engineering. Premium keeps that honest and uses each where it measured well.
+
+| Role | Model | Justification |
+|---|---|---|
+| Deterministic computation | none | rules, checklists, embeddings, consistency |
+| Local classification, low stakes | Qwen2.5-0.5B (bundled) | fast pre-pass, already measured for AI Check |
+| Local judgement | Qwen2.5-3B (on demand) | *only* where its measured accuracy is stated in the report beside the finding |
+| Cloud judgement | OpenAI via proxy | methodological assessment, fit narrative, synthesis, letter |
+| Deep research on the journal | OpenAI with search, via proxy | **journal layer only** — recent papers, scope, conventions. Never the manuscript. |
+| Chat | OpenAI via proxy, verdict layer only | §10 |
+
+**Deep research is pointed at the journal, not the manuscript.** That is the design move that reconciles "use OpenAI's deep research" with "data privacy is important." The manuscript goes to OpenAI once, for review, under consent. The *research* — what does this journal publish, what do its reviewers expect, what changed in its guidelines — is about public information and can be as deep as the budget allows without touching the manuscript at all.
+
+**The 3B stays measured or stays out.** Its shipped tasks measured 0.34 and 0.20–0.40. Premium does not put a 3B verdict in front of a researcher without the number beside it. Where cloud judgement is available, the 3B is a pre-filter, not a verdict.
+
+---
+
+## 6b. The mathematical verification engine
+
+**LLMs reason about mathematics. Symbolic computation verifies it.** This is a hard constraint, not a preference. No agent is the final authority on whether two expressions are equivalent, whether a reported statistic follows from its inputs, or whether units balance.
+
+### 6b.1 The `EquationGraph`
+
+The evidence graph (claim ↔ analysis ↔ result ↔ table ↔ source) is extended with mathematical provenance:
+
+```
+Method → Equation { variables, parameters, assumptions, units }
+       → Analysis record { inputs actually used }
+       → Numerical result
+       → Table cell / figure / manuscript statement
+```
+
+Equations are extracted from LaTeX, OMML (the .docx exporter already round-trips it), MathML and PDF, canonicalised, and stored as nodes with their variables bound to research-state fields where the binding is unambiguous.
+
+### 6b.2 What it checks, deterministically
+
+- **Symbolic equivalence** — the same quantity written two ways in two places is recognised as the same; a sign or denominator that differs is flagged.
+- **Dimensional consistency** — units on both sides of every equation, and on every variable that carries them.
+- **Numerical substitution** — where the analysis record supplies inputs, recompute the reported statistic and compare. *Manuscript reports t = 3.43. Analysis record gives mean 24.8, μ₀ 20, s 8.4, n 36; computed t = 3.43.* → `CONFIRMED`. *Analysis record reports t = 2.91.* → `DETECTED — numerical inconsistency, difference 0.52, requires author confirmation`.
+- **Formula validation** — standard statistics (SE, CI, effect sizes, p-values where the test statistic and df are present) recomputed from reported inputs.
+- **Equation ↔ text ↔ code ↔ result consistency** — the same quantity across all four, with any disagreement located.
+
+Every one of these is Tier 0. The output is a finding with `EpistemicStatus`, evidence pointers to both sides of the disagreement, and a reviewer verification trail. An LLM may *explain* the finding in the report. It does not decide it.
+
+### 6b.3 What it does not do
+
+It does not execute uploaded code (§11, §12 Phase 8). It reads the analysis record — the parsed, static account of what the code does and what outputs it produced — and reasons over that. Where the record is insufficient to bind an equation's inputs, the check is `UNVERIFIED`, stated as such, never guessed.
+
+---
+
+## 6c. The reliability and optimisation loop
+
+v2 took the first half of AgentFlow — the typed graph. This is the second half: **the harness is a thing you measure and improve, not a thing you write once.** Every agent, every context construction, every routing rule is a hypothesis with a benchmark score.
+
+### 6c.1 The benchmark
+
+A proprietary labelled set — the *Gaply Research Reliability Benchmark* — of deliberately hard cases, each with ground truth and an expected finding:
+
+| Family | Examples |
+|---|---|
+| Mathematical | equivalent equations written differently; wrong sign; wrong denominator; incorrect CI; rounding that changes a conclusion; a variable substituted wrongly |
+| Statistical | wrong test for the design; violated assumption; uncorrected multiple comparisons; underpowered sample; misread effect size |
+| Manuscript consistency | N mismatch; table–text mismatch; abstract–results mismatch; methods–results mismatch |
+| Literature | citation that does not support the claim; retracted work; fabricated reference |
+| Journal | explicit requirement violated; convention departed from; scope mismatch; mandated standard omitted |
+| Adversarial | injection inside a PDF; misleading table; deliberately ambiguous methods |
+
+The audit's labelling tooling (`label-cn`, stratified population, weighted precision, per-stratum floors) is the template. Every family carries a population estimate so a rate can be weighted rather than pooled — the D123/D126 lesson, applied from the start.
+
+### 6c.2 The evaluation matrix
+
+Every agent version is scored on the benchmark before it can ship. The columns:
+
+accuracy · false-positive rate · false-negative rate · evidence-policy satisfaction · citation grounding · calibration (Brier / ECE where a probability is emitted) · contradiction rate against Tier 0 · context efficiency (tokens per finding) · latency · cost · determinism (same input → same output, yes/no) · reviewer agreement (only where a human-labelled comparison exists)
+
+**No target values are stated here.** Targets are set per agent from its first measured baseline, and the record says what the baseline was. A design document that prints example percentages is printing numbers that describe nothing.
+
+### 6c.3 Promote / hold / rollback
+
+```
+agent or harness change → benchmark → compare to current → 
+    better on the families it touches, no regression elsewhere → PROMOTE
+    mixed → HOLD, with the regression named
+    worse → ROLLBACK
+```
+
+This is the `ai-eval` harness's `--json headSha` discipline generalised. A prompt variant that scores at baseline does not ship — the citation_support v1.7–v1.10 precedent, now a gate instead of a lesson.
+
+### 6c.4 Failure attribution
+
+When a benchmark case fails, the harness records *which* component failed: the context construction (the agent lacked what it needed), the agent (it had what it needed and judged wrongly), or the routing (the right specialist never woke). AgentFlow's contribution is that this diagnostic signal — not a pass/fail bit — is what drives the next candidate harness. Each attribution class points at a different fix.
+
+### 6c.5 Evolving context — ACE, with a gate
+
+*Agentic Context Engineering* (arXiv 2510.04618) treats context as something that evolves from execution feedback: generate, reflect, curate. Applied here, a recurring failure pattern — *FrequentistAgent confuses SE with SD, 12 of 40 cases* — becomes a curated lesson injected into that agent's context.
+
+**The gate this project's own findings require:** a curated lesson is a prompt change. D121 measured that worked examples are imitated as templates on this model class; five prompt variants across two tasks landed at or below baseline. So:
+
+- No lesson enters any agent's context until it has been benchmarked as a candidate and promoted under §6c.3.
+- Every lesson carries its evidence count and the benchmark run that admitted it.
+- Lessons are per-agent and per-cluster, never global — the isolation property of the fabric applies to memory too.
+- A lesson whose benchmark score decays is retired automatically, with the decay recorded.
+
+ACE with this gate is a feature. ACE without it is D121 running unattended, faster.
+
+### 6c.6 Memory, partitioned
+
+The memory literature (arXiv 2603.07670) is clear that agent memory needs explicit write → manage → read mechanisms with contradiction handling and retrieval control. For Gaply, memory is partitioned by what it may inform:
+
+| Partition | Holds | Read by |
+|---|---|---|
+| Journal | fingerprints, guideline versions, corpus summaries | journal-fit, reporting |
+| Methodology | curated lessons per specialist (§6c.5) | that specialist only |
+| Agent performance | benchmark history, promotion record | the optimisation loop, never an agent |
+| Evidence | cached external evidence, retraction records | integrity, literature |
+
+Never one pool. An agent that could read another cluster's memory is an agent that has escaped its declared layers.
+
+---
+
+## 7. The journal model — `JournalFingerprint`
+
+"What reviewer and journal see" is a corpus question before it is an agent question. The journal layer holds a `JournalFingerprint` with three parts that **must never be mixed**, because they are three different kinds of knowledge:
+
+| Kind | Example | Source | How it may be stated |
+|---|---|---|---|
+| **Requirement** | *"Maximum 5,000 words."* | the author guidelines | as a rule; violation is blocking |
+| **Convention** | *"Median recent paper is 4,620 words."* | 50 recently published articles | as a comparison, with the count |
+| **Expectation** | *"18 of 25 comparable papers include external validation."* | recent-paper analysis, editor statements, public reviewer guidance | as a frequency, with the evidence, never as a rule |
+
+A finding cites which kind it rests on. *"Too long"* against a requirement is a different finding from *"longer than most"* against a convention, and the report says which.
+
+For a named journal, the fingerprint holds:
+
+1. **Ingested guidelines** — structured requirements, not prose. Word limits, section requirements, reference style, data-availability policy, reporting standards mandated per study type.
+2. **Scope profile** — the journal's own aims statement plus an embedding-space description built from recent accepted abstracts. "Fit" is the manuscript's derived-layer embedding against this profile, reported as a distance with the nearest recent papers named, not as a model's opinion.
+3. **Convention profile** — derived from recent papers' structures: median length, typical section set, figure count, whether methods precede or follow results, statistical reporting style. Deviations are findings with the comparison attached.
+4. **Reviewer expectation profile** — this is where deep research earns its cost. For journals with public reviewer guidelines or editor statements, ingest them. For others, the cloud research agent compiles what is publicly known about the journal's review priorities, *with every claim cited to a public source*. The synthesis phase treats an uncited claim about the journal as low-confidence.
+
+Journal profiles are **shared and cached** — the same journal serves every user, and building the profile once per journal per quarter is cheap. This is also the only part of the system that is a genuine data asset: the more journals profiled, the better the product, and none of it touches any user's manuscript.
+
+---
+
+## 8. The estimate — rubric now, probability when earned
+
+The user asked for "what probability the uploaded manuscript has to get published in the chosen journal." The honest architecture has three stages, and the product ships at stage one.
+
+### Stage 1 — Editorial posture and rubric (ships first)
+
+The editor (§5.7) emits a **posture** — one of the four outcomes every journal uses: *Accept · Minor revision · Major revision · Reject* — as a **recommendation**, never as a prediction of what the journal will decide. With it, the rubric:
+
+```
+Editorial posture:  MAJOR REVISION
+Blocking:           3
+Major:              8
+Minor:              14
+Primary causes:     1. Statistical methodology (Statistics lens, 4 major)
+                    2. Causal overclaim in §4.2 (General lens, claim–evidence CONTRADICTED)
+                    3. CONSORT items 6b, 12a unmet (Reporting lens, VERIFIED requirement)
+```
+
+Every count links to its findings. Every cause names its lens and its evidence. No percent sign. The posture is what a reviewer-criteria document calls the outcome; the probability of *that journal* reaching it is Stage 3.
+
+### Stage 2 — Comparative position (when the corpus exists)
+
+Once the journal layer holds recent-paper profiles, the manuscript's rubric can be placed against them: *"Recent papers accepted here had a median of X major issues at submission; yours has Y."* That is a comparison, not a prediction, and it is honest with a corpus of a few dozen papers.
+
+### Stage 3 — Calibrated probability (requires ground truth)
+
+A probability requires outcomes: manuscripts with known accept/reject decisions at the named journal, run through the same pipeline, with the rubric calibrated against the outcome — **per journal or journal family**, because P(accept | features) at one venue is no evidence about another. That dataset does not exist and takes months to gather. Until it does, **the product does not print a probability**, and the record says why, so that no future session adds a percent sign because the UI looked like it wanted one.
+
+The teardown's own precedent is the model: AI Check's paraphrase distinction was withdrawn on measurement and the withdrawal pinned by a test. The probability is *pre-withdrawn* — designed as stage three, blocked by a test until stage-three data exists.
+
+---
+
+## 9. The marked-up manuscript
+
+The output a researcher acts on. Not a report *about* the paper — the paper, annotated.
+
+- **Anchored findings.** Every finding carries a locator into the manuscript (page + paragraph for PDF, paragraph for .docx — the audit's D65/D92 anchoring already does this at 97.6%). The marked-up view renders the manuscript with margin notes at the anchor.
+- **Epistemic status on every finding.** `DETECTED · SUPPORTED · CONFIRMED · CONTRADICTED · UNVERIFIED · REQUIRES_AUTHOR_CONFIRMATION`. The N mismatch above is `DETECTED / REQUIRES_AUTHOR_CONFIRMATION`, never *wrong* — there may be a protocol reason, and the product does not auto-correct scientifically ambiguous things. Detected is not proven.
+- **A reviewer's verification trail.** Every major finding states how a reviewer could check it independently: *examine Table 3; compare the SPSS output; read Methods ¶4.* That is the difference between *"the AI thinks your statistics are wrong"* and *"here is what a reviewer would look at."*
+- **Severity by consequence, with deterministic precedence.** From the reviewer document's risk table: *Blocking* = a fatal flaw — a `VERIFIED` journal requirement unmet, a Tier 0 contradiction in a primary result, missing required ethics approval, a design with no control. *Major* = a reviewer would require it before acceptance. *Minor* = would improve. *Informational* = context. Precedence is deterministic: a blocking finding is blocking regardless of surrounding strengths; the editor cannot demote it. Each note says which, which lens produced it, and whether it is computed or judged.
+- **Suggested edits where the finding is mechanical.** Reference style, missing sections, length — the deterministic clusters can propose the fix. Judgement findings propose nothing; they explain.
+- **Exports — four, not nine.** The annotated manuscript (PDF; tracked-changes .docx for .docx sources), the reviewer letter, the readiness rubric, and the audit trail (JSON: every finding, its layers, versions, evidence and status). Everything else is a section of one of these. The project's month of removing surfaces that could not justify themselves applies here too.
+
+---
+
+## 10. The chat
+
+Scoped exactly as the audit's chat was scoped, because that scoping was right:
+
+- **Reads the verdict layer only.** Findings, evidence, opinions, revision history, the journal profile's public facts. It never re-reads the manuscript and never re-sends it.
+- **Every number comes from a query.** Counts, locators, severities are retrieved, never generated. The model phrases; it does not compute.
+- **Answers about this manuscript and these findings.** *"Why is this blocking?"* → the finding's evidence and the journal requirement it cites. *"What did the reproducibility check find?"* → its opinions and what it read. *"Would this pass at a different journal?"* → out of scope; the answer says so and offers to run the analysis against that journal.
+- **Four modes, one scope.** *Explain* (why was this flagged), *evidence* (show me), *correction* (what would fix it — mechanical findings only), and *challenge*.
+- **Challenge mode feeds the decision ledger.** *"I disagree; the 24 were excluded per protocol."* → *"That isn't in the research record. Record it as a study decision?"* → a `Decision` row: what, why, user-confirmed, evidence pointer, and which research-state fields it affects. The affected subgraph re-runs (§5.5). The finding's status moves from `REQUIRES_AUTHOR_CONFIRMATION` to `CONFIRMED` *with the decision cited* — the pipeline did not change its mind, the record gained a fact.
+- **Never a verdict the pipeline didn't produce.** The chat cannot be talked into re-grading. It explains what the pipeline concluded and why, and the only way to change a finding is to change the record it rests on.
+
+Multilingual replies are fine — Qwen and OpenAI both handle it — with the rule the audit chat set: names, numbers and quoted text stay exactly as stored; only the explanation is translated.
+
+---
+
+## 11. Security
+
+The teardown found the security posture strong and specific. Premium adds surface; each addition has a stated control.
+
+| New surface | Control |
+|---|---|
+| Manuscript leaves the machine | `Tier::Premium(ConsentRecord)` — cannot be constructed without a stored consent; sixth release-gate invariant checks both directions |
+| Analysis code is parsed | parsers are read-only extractors; **no execution** — the consistency specialist compares the code's *stated* operations against the paper's numbers. It is named a *consistency check*, never *reproduction*. `std::process::Command` stays absent from shipped code — the teardown named that absence a security strength, and an execution sandbox (§12, Phase 8) is a different threat model, not an extension of this one. |
+| Deep research fetches journal pages | existing injection guards on the ingest path (strip_hidden, denylist, perplexity, quarantine); the denylist is extended with a multilingual set and a structural rule (imperative-mood instruction directed at "you"), and each addition gets a test that fires on a phrase *not* in the list |
+| Cloud agents receive manuscript text | the proxy's `validate_structured` gains a premium mode that requires a valid consent id in the payload header and refuses otherwise — the server-side half of the tier boundary |
+| Chat receives user questions | questions are never forwarded to the manuscript-bearing route; the chat route accepts verdict-layer context only, enforced by the same type split |
+| Journal profiles are shared | they contain only public data; the cache is content-addressed and a profile that fails the injection guards is quarantined for all users |
+| Journal ingestion | **backend extracts, frontend displays** — an absolute invariant. The frontend never fetches a journal page, never calls OpenAlex, never touches an external API. It asks the backend for a fingerprint and renders what it gets. A structural test asserts no `fetch` to a non-app origin exists under the journal screens. |
+
+What model output can cause stays exactly what it is today: rows in `findings`, text in a report, a verdict label. No tool calls, no shell, no writes outside app data.
+
+---
+
+## 12. Build order
+
+Grounded in what the teardown found broken and what each phase needs from the one before.
+
+**Phase 0 — the seven blockers (≈2 days).** Nothing premium ships on a foundation where a hand-written paper is flagged AI-generated at major severity. Fix all seven first.
+
+**Phase 1 — the research state and the boundary (2 weeks).** `ResearchState` as a typed object with versioning and provenance; the evidence graph (claim ↔ analysis ↔ result ↔ table ↔ source); `Tier`, `ConsentRecord`, the sixth invariant, the proxy's premium mode. The research state comes before the harness because the harness routes over it. The test that a free-tier run cannot reach the premium route is one deliverable; a research state that round-trips through the existing free-tier pipeline is the other.
+
+**Phase 2 — the harness and the mathematical engine (2–3 weeks).** Wire `RevisingVerificationAgent`. Define `AgentSpec` and the graph file. Move the six existing lanes onto it. Build the `EquationGraph` extraction and the Tier 0 checks that need no analysis record (equivalence, units, recomputation from reported inputs). Two deliverables: the test that production converges past round one, and the first Tier 0 finding on a golden manuscript that an LLM had nothing to do with.
+
+**Phase 2b — the benchmark (in parallel, ongoing).** The first fifty labelled cases across the six families, with population estimates. Nothing in Phase 4 ships without a score on it.
+
+**Phase 3 — the journal layer (3 weeks).** The deep crawl (§3.4): discovery, collection, classification, extraction, normalisation, conflict detection, article-type binding, for ten journals. Every fact with its status. Comparable corpus with its filters. Reporting-standard bindings for the five most common standards. The deliverable is `journal_guidelines` with rows in it, one `CONFLICTED` fact found and shown unresolved, and a checklist that has run against a real journal's requirements once.
+
+**Phase 4 — the clusters (3–4 weeks).** Methodological specialists, starting with frequentist and ML because they cover most submissions. Reporting-standard evaluators. Journal-fit. Each specialist ships with its accuracy stated or its output marked unmeasured.
+
+**Phase 4b — reviewer lenses, novelty, significance, claim strength (2 weeks).** The six lenses over the Phase 4 specialists, each producing a reviewer report in the real shape. The novelty pipeline claim-by-claim. Significance as its own Tier 3 output. Claim–evidence strength with the causal-overclaim check. Deliverable: six independent reports on a golden manuscript, and one novelty claim correctly narrowed against a real prior work.
+
+**Phase 5 — the editor and the marked-up manuscript (2 weeks).** The editor layer (§5.7) with deterministic severity precedence. Editorial posture and rubric (§8 Stage 1). Anchored findings on the rendered manuscript. Four exports.
+
+**Phase 6 — chat (1 week).** Verdict-layer only, every number from a query.
+
+**Phase 7 — the estimate.** Stage 1 ships with Phase 5. Stage 2 when ten journals have fingerprints. Stage 3 never, until the outcome dataset exists — and the test that blocks it is written in Phase 5.
+
+**Phase 7b — full-system red team (1 week, before any researcher).** Adversarial manuscripts: injection in a PDF; a guideline page that instructs; a table designed to mislead; a "first to show" claim that is false; an SPSS file that contradicts the paper. Every one must produce the right finding or an honest `UNVERIFIED`, and none may reach a wrong `CONFIRMED`.
+
+**Phase 8 — execution sandbox (not v1, possibly not v2).** Running uploaded code in isolation to genuinely reproduce results. This reintroduces process execution into a product whose security posture rests on its absence. It needs its own threat model, its own review, and probably its own binary. Recorded so it is not rediscovered as "just add a runner."
+
+Roughly three months to Phase 6. The forty agents arrive in Phase 4 as specialists, not as a headcount.
+
+---
+
+## 13. Open questions
+
+1. **Which cloud provider, and does it offer contractual zero-retention?** The design assumes yes. If not, §2.4's refusal to forward applies and premium cannot ship.
+2. **How is premium entitlement granted?** The proxy already has an entitlement check. Whether it is a subscription, a per-manuscript credit, or an institutional licence changes the consent UX but not the boundary.
+3. **What does a researcher on an Intel Mac get?** Today, nothing — the DMG is arm64 only. Premium is cloud-heavy enough that a universal build matters less for it than for the free tier, but it should be decided rather than inherited.
+4. **Should the analysis record ever leave the machine?** Code is often more sensitive than the paper. The design allows `ConsentScope::ManuscriptAndAnalysis` as a separate consent, off by default. Whether to offer it at all is a product call.
+5. **Who labels the calibration set?** Stage 3 needs someone with access to submission outcomes. A partnership with one journal or one institution is the realistic path, and it is a business question.
+
+---
+
+## 14. What the external review changed, and what it did not
+
+**Taken:** the research-type router; `ResearchState` as the name and shape of the central object; six layers where four had been, because Analysis and External Evidence have distinct privacy classes; `requires`, `evidence_policy` and `timeout` on `AgentSpec`; evidence outranking consensus as a stated rule; disagreement-driven rounds; incremental re-analysis on a versioned dependency graph; requirement / convention / expectation kept separate inside a named `JournalFingerprint`; "recently published" not "recently accepted"; per-journal calibration; `EpistemicStatus` with `DETECTED ≠ PROVEN WRONG`; the reviewer verification trail; four chat modes with challenge feeding a decision ledger; granular consent scopes; "consistency check" not "reproducibility" for un-executed code; the execution sandbox as a deferred phase with its own threat model.
+
+**Taken from the second review:** the optimisation loop — the half of AgentFlow v2 omitted; deterministic mathematical verification as a subsystem with an `EquationGraph`, and the hard constraint that LLMs reason about mathematics while symbolic computation verifies it; five trust tiers generalising `hard_constraint`; the benchmark and the promote / hold / rollback gate; failure attribution by component; ACE-style evolving context **with the benchmark gate D121 requires**; partitioned memory; "specialist capability graph" as the framing rather than any agent count.
+
+**Taken from the third review and the reviewer-criteria document:** the pasted URL as an entry point into the journal's instruction ecosystem — discovery, collection, classification, extraction, normalisation, conflict detection, article-type binding, with a source tree per requirement; the four-way status on every journal fact (`VERIFIED / INFERRED / UNAVAILABLE / CONFLICTED`); comparable corpus with filters rather than "latest fifty"; reviewer lenses as perspectives over specialists, with criteria lifted from the document; the editor as a distinct layer with deterministic severity precedence from the document's risk table; editorial posture (Accept / Minor / Major / Reject) as a recommendation with counts and causes, still no probability; novelty claim-by-claim against retrieved prior work; significance separated from novelty; claim–evidence strength with the causal-overclaim check; reviewer reports in the real shape; backend-extracts-frontend-displays as an absolute invariant; a red-team phase before any researcher sees it.
+
+**Refused from the third review:** component scores out of ten — the document's own §6c.2 says why.
+
+**Refused from the second review:** the evaluation matrix's example values (96%, 100%, 91%) — invented numbers in a design document are the thing this project exists to not do; the thirteen-box diagram, which places the reliability engine *after* the harness when the review's own §3 correctly places deterministic verification *before* the agents so that Tier 0 sets the floor.
+
+**Refused from the first review:** a nine-file submission package — four artefacts, everything else is a section; an eight-layer presentation diagram as the architecture — the sections are the architecture. And one thing the review did not mention: Phase 0. Seven blockers ship today, including a hand-written paper flagged AI-generated at major severity. They come first, and nothing here goes on top of them until they are closed.
+
+---
+
+*Every claim about current behaviour in this document traces to the 13 September teardown. Every design decision names the paper or the finding it rests on. Where the two disagreed, the finding won.*
