@@ -225,7 +225,7 @@ pub fn run_premium_gate(
     report_details: &[String],
     record: Option<&Value>,
     lines: Option<&[String]>,
-    resolve: &dyn Fn(&str) -> Option<crate::consent::ConsentRecord>,
+    resolve: &dyn Fn(&str) -> Option<gaply_core::consent::ConsentRecord>,
 ) -> GateReport {
     let mut gate = GateReport::default();
     gate.record(TIER, check_tier(payload, report_details, resolve));
@@ -333,9 +333,9 @@ pub fn manuscript_text_in(payload: &Value, report_details: &[String]) -> Option<
 pub fn check_tier(
     payload: &Value,
     report_details: &[String],
-    resolve: &dyn Fn(&str) -> Option<crate::consent::ConsentRecord>,
+    resolve: &dyn Fn(&str) -> Option<gaply_core::consent::ConsentRecord>,
 ) -> GateOutcome {
-    use crate::consent::ConsentScope;
+    use gaply_core::consent::ConsentScope;
     if payload["summary"]["findings"].as_array().is_none() {
         return GateOutcome::skip("payload has no summary.findings array — nothing was readable");
     }
@@ -764,7 +764,8 @@ mod partition {
     //! what holds it.
 
     use super::*;
-    use crate::consent::{ConsentRecord, ConsentScope, Tier};
+    use gaply_core::consent::{store, ConsentRecord, ConsentScope, Tier};
+    use gaply_core::Database;
     use serde_json::json;
 
     /// A real manuscript sentence. Long enough to clear `check_privacy`'s
@@ -796,17 +797,38 @@ mod partition {
         base(json!([{ "id": "f1", "title": EXCERPT, "evidence": ["rule:X"] }]), consent)
     }
 
-    fn stored(id: &str) -> ConsentRecord {
-        ConsentRecord::for_test(id, "m1", ConsentScope::MANUSCRIPT)
+    /// A record that is REALLY IN A DATABASE.
+    ///
+    /// `ConsentRecord::for_test` is no longer reachable from this crate — it is
+    /// `pub(crate)` to `gaply-core` — so these tests can no longer fabricate a
+    /// consent, which is the point. Every record here is written through
+    /// `store::record` and read back, so the partition is asserted against the
+    /// same object a production run would hold.
+    fn db_with(id: &str) -> (Database, ConsentRecord) {
+        let db = Database::in_memory().expect("in-memory db");
+        let rec = store::record(
+            &db,
+            id,
+            "m1",
+            1_700_000_000,
+            ConsentScope::MANUSCRIPT,
+            gaply_core::consent::ProviderClass::CloudLlmViaProxy,
+            1,
+        )
+        .expect("consent recorded");
+        (db, rec)
     }
 
-    /// A resolver over a fixed set of stored rows — the seam that stands in for
-    /// the `consent_records` table until Phase 1 creates it.
+    /// The REAL resolver, closing over a real database — what production passes.
     fn resolving(id: &'static str) -> impl Fn(&str) -> Option<ConsentRecord> {
-        move |q: &str| if q == id { Some(stored(id)) } else { None }
+        let (db, _) = db_with(id);
+        move |q: &str| store::resolve(&db, q).expect("resolve must not error")
     }
+
+    /// A database with no consent rows at all: every id resolves to nothing.
     fn resolving_nothing() -> impl Fn(&str) -> Option<ConsentRecord> {
-        |_: &str| None
+        let db = Database::in_memory().expect("in-memory db");
+        move |q: &str| store::resolve(&db, q).expect("resolve must not error")
     }
 
     /// Both gates, on one payload, with COMPARISON and PERSISTENCE supplied so
@@ -882,7 +904,8 @@ mod partition {
     /// a stored row, and an unresolvable claim is not a consent.
     #[test]
     fn the_premium_gate_cannot_be_reached_without_a_consent_record() {
-        match Tier::Premium(stored("c1")) {
+        let (_db, rec) = db_with("c1");
+        match Tier::Premium(rec) {
             Tier::Premium(r) => assert_eq!(r.scope(), ConsentScope::MANUSCRIPT),
             Tier::Free => panic!("constructed Premium, matched Free"),
         }

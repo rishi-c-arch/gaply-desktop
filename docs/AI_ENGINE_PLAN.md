@@ -9496,15 +9496,81 @@ Two smaller departures from the design, both toward existing convention:
   *"consented to something we do not understand"* into *"consented to less"*, and
   guessing downward is still guessing.
 
-#### WHAT IS NOT DONE HERE
+#### WHAT IS NOT DONE HERE — **CLOSED, Phase 1 Part A**
 
-`ConsentRecord::from_persisted` is `pub` and there is no `consent_records` table
-yet, so nothing currently stops a caller constructing a record that was never
-stored. **That is the one part of this weaker than the design requires**, and it
-is Phase 1's first job: create the table, make the constructor `pub(crate)`, and
-put the store in front of it. The `resolve` closure `check_tier` takes is the
-seam that table plugs into — a parameter rather than a global, so a gate run can
-never silently consult a different store than the payload was built against.
+This entry originally read: *"`ConsentRecord::from_persisted` is `pub` and there
+is no `consent_records` table yet… that is the one part of this weaker than the
+design requires."* It is now done, and the fix corrected a decision recorded
+three paragraphs above it.
+
+- **Migration 22** creates `consent_records`: append-only, one row per manuscript
+  per consent event, no UNIQUE on `manuscript_id` (a second consent is a new row
+  and the old one stays true about its moment), a CHECK pinning `scope` to the
+  six defined bits and `provider_class` to the known vocabulary.
+- **`consent::store`** is the only public path to a `ConsentRecord`.
+  `from_persisted` is now **module-private** — not `pub`, not `pub(crate)` — and
+  `store::record` / `store::resolve` are its only callers. A record that exists
+  is a row that exists, by visibility rather than by discipline.
+- **`check_tier` takes the real resolver.** The partition tests no longer
+  fabricate consents: `ConsentRecord::for_test` is `pub(crate)` to `gaply-core`
+  and invisible to the app crate, so every record in those tests is written
+  through the store and read back.
+
+**AND THE MODULE MOVED TO gaply-core, correcting this entry's own reasoning.**
+D152 said it lived in the app crate because the design specified `Uuid` and
+`DateTime`, *"two dependencies gaply-core does not carry"*. **That reason was
+void on arrival** — the implementation used `now_epoch()` and a `String` id, so
+nothing was ever needed. The stated justification described a design that was not
+built, and it survived a commit because nobody re-read it against the code it
+justified.
+
+What forced the move is the guarantee. `Database::conn` is `pub(crate)` to
+`gaply-core`, so a store in the app crate cannot read the table — which means
+`from_persisted` would have to be `pub` for the store to call it, which is
+exactly the hole. **Co-location is what makes the constructor private.**
+`gaply-core` already holds `app_check.rs` and `secrets.rs`, so a boundary concept
+is not foreign there.
+
+#### THE GUARD, AND WHY IT READS SOURCE
+
+The property is a VISIBILITY fact and visibility cannot be observed at runtime: a
+test that called `from_persisted` would not compile, and one that does not call
+it proves nothing. So `a_consent_record_cannot_be_constructed_outside_this_module`
+reads the module's own source — the instrument `wire_contract_tests.rs` and
+`decision_records.rs` already use for compile-shaped properties.
+
+It checks **two** things, because either alone leaves the guarantee gone:
+
+1. the constructor carries no visibility modifier (`pub` opens it to the
+   workspace; `pub(crate)` opens it to every other module in `gaply-core`);
+2. no field is public — a public field makes `ConsentRecord { .. }` valid
+   wherever the type is, which routes around a perfectly private constructor.
+
+Both were broken on purpose and both went red:
+
+```text
+`pub fn from_persisted` — the constructor has regained visibility, so a caller
+outside this module can mint a ConsentRecord the database never saw
+
+ConsentRecord has a public field, so `ConsentRecord { .. }` bypasses the
+constructor entirely
+```
+
+**The first version of this guard failed on its own search strings.**
+`include_str!` pulls in the test module, and the needles appear literally in the
+assertion a few lines below. It is the `pkill -f` shape — a pattern that cannot
+tell its target from the thing doing the searching — so the guard is scoped to
+the source preceding `#[cfg(test)]`, with an assertion that the split actually
+found something, since a split that matched nothing would scan the whole file and
+pass or fail for the wrong reason.
+
+#### STILL NOT DONE
+
+The proxy's `validate_structured` premium mode, and a premium payload builder.
+Until the first exists, TIER is enforced on the desktop only, and a desktop-only
+half of a two-sided boundary should be read as exactly that. Until the second
+exists, `run_premium_gate` has no production runner — it is exercised only by
+tests.
 
 The proxy's `validate_structured` premium mode — the server-side half of this
 boundary — is also Phase 1. Until it exists, TIER is enforced on the desktop

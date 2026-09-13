@@ -11,6 +11,7 @@ pub mod app_check;
 pub mod audit_report;
 pub mod cache;
 pub mod chat_agent;
+pub mod consent;
 pub mod chunk;
 pub mod citation_links;
 pub mod citation_library;

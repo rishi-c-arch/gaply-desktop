@@ -3,7 +3,6 @@ mod aicheck;
 pub mod audit_export;
 pub mod citation_resolver;
 pub mod commands;
-pub mod consent;
 pub mod escalation;
 pub mod guidelines;
 pub mod http_fetcher;
