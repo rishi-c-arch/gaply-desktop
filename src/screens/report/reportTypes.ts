@@ -55,12 +55,34 @@ export interface DebateSummary {
   revised_agents: AgentKind[];
 }
 
+/** Why a harness note exists. Mirrors gaply_core::report::HarnessNoteReason. */
+export type HarnessNoteReason = 'output_rejected_by_internal_gate';
+
+/**
+ * A statement about GAPLY'S OWN RUN — never about the manuscript.
+ *
+ * "Verification output rejected by its internal gate" used to be a `minor`
+ * FINDING and appeared in 20 of 22 stored reports, sitting in the same list,
+ * with the same severity vocabulary, as real defects in the author's paper.
+ * It is recorded here instead: still shown if asked, no longer counted as
+ * something wrong with the manuscript.
+ *
+ * Optional because reports cached before the field existed do not carry it.
+ */
+export interface HarnessNote {
+  agent: AgentKind;
+  detail: string;
+  reason: HarnessNoteReason;
+}
+
 export interface PublishReadyReport {
   verdict: string; // "pass" | "concern"
   combined_confidence: number;
   findings: Finding[];
   checklist: ChecklistItem[];
   debate: DebateSummary;
+  /** Absent on reports cached before the field existed. */
+  harness_notes?: HarnessNote[];
   disclaimer: string;
 }
 

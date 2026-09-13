@@ -1626,3 +1626,98 @@ fn the_disclaimer_restores_the_revision_tier_when_an_agent_revises() {
         report.disclaimer
     );
 }
+
+// ============================================================================
+// BLOCKER 5 — a statement about our run is not a finding about their paper
+// ============================================================================
+
+/// A debate in which the Verification agent's opinion fails its own internal
+/// gate — the shape that produced `"Verification output rejected by its internal
+/// gate"` in 20 of 22 stored reports.
+fn outcome_with_a_gate_rejection() -> crate::swarm::DebateOutcome {
+    let mut rejected = opinion(AgentKind::Verification, ANSWER_PASS, 0.8);
+    rejected.gate_passed = false;
+    rejected.explanation = "verdicts were not grounded in the supplied evidence".into();
+    let mut agents: Vec<Box<dyn SwarmAgent>> = vec![
+        Box::new(PrecomputedAgent::new(opinion(AgentKind::Rag, ANSWER_PASS, 0.75))),
+        Box::new(PrecomputedAgent::new(rejected)),
+    ];
+    run_debate(&mut agents, &DebateConfig::default()).unwrap()
+}
+
+/// **The gate rejection is recorded, and it is not a finding.**
+///
+/// Both halves matter and the test would be wrong with either alone: dropping
+/// the note entirely would hide from an author that a lane produced nothing
+/// usable, and leaving it in `findings` puts a fact about our harness in the
+/// list of things wrong with their manuscript, in the same severity vocabulary.
+#[test]
+fn a_gate_rejection_becomes_a_harness_note_and_never_a_finding() {
+    use crate::report::HarnessNoteReason;
+    let outcome = outcome_with_a_gate_rejection();
+    assert_eq!(outcome.rejected.len(), 1, "fixture precondition: one rejected opinion");
+
+    let ex = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nR.\n");
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+
+    // Not in the findings list, by title or by provenance.
+    assert!(
+        !report.findings.iter().any(|f| f.title.contains("rejected by its internal gate")),
+        "a harness statement is still rendered as a finding: {:?}",
+        report.findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+    );
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.provenance.iter().any(|p| p.starts_with("swarm:rejected"))),
+        "a rejected opinion still reaches findings by provenance"
+    );
+    // `findings` and `evidence` are unzipped from one source and must stay the
+    // same length — removing an item from one without the other is the desync
+    // the pairing exists to prevent.
+    assert_eq!(report.findings.len(), report.evidence.len());
+
+    // Recorded, with the agent, its own words, and a machine-readable reason.
+    assert_eq!(report.harness_notes.len(), 1, "the note must survive the move");
+    let note = &report.harness_notes[0];
+    assert_eq!(note.agent, AgentKind::Verification);
+    assert_eq!(note.reason, HarnessNoteReason::OutputRejectedByInternalGate);
+    assert!(
+        note.detail.contains("not grounded"),
+        "the note must carry the agent's own explanation: {:?}",
+        note.detail
+    );
+
+    // And the structured summary still names the agent, so the two agree.
+    assert!(report.debate.rejected_agents.contains(&AgentKind::Verification));
+}
+
+/// A clean run has no notes — the field is not a place where something always
+/// appears, which is what would make readers stop looking at it.
+#[test]
+fn a_run_with_no_rejections_has_no_harness_notes() {
+    let outcome = minimal_outcome();
+    let ex = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nR.\n");
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+    assert!(report.harness_notes.is_empty());
+}
+
+/// Reports cached before `harness_notes` existed must still parse. The serde
+/// drift this guards has bitten five times (§11 D53, D103, D109); a defaulted
+/// field is only additive if something checks that old rows load.
+#[test]
+fn a_report_cached_before_harness_notes_still_parses() {
+    let json = serde_json::json!({
+        "verdict": "pass", "combined_confidence": 0.8,
+        "findings": [], "evidence": [], "checklist": [],
+        "debate": { "rounds_run": 1, "converged": true, "overridden_by_constraint": false,
+                    "rejected_agents": [], "revised_agents": [] },
+        "disclaimer": "Certainty tiers: ..."
+    });
+    let parsed: PublishReadyReport =
+        serde_json::from_value(json).expect("a pre-field report must still parse");
+    assert!(parsed.harness_notes.is_empty());
+}

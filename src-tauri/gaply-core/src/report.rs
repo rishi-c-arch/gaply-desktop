@@ -203,6 +203,47 @@ pub struct DebateSummary {
     pub revised_agents: Vec<AgentKind>,
 }
 
+/// **A statement about Gaply's own execution — never about the manuscript.**
+///
+/// # Why these left the findings list
+///
+/// `"Verification output rejected by its internal gate"` was a `Minor` FINDING,
+/// and it appeared in **20 of 22** stored reports. A researcher opening their
+/// report saw it in the same list, in the same shape, with the same severity
+/// vocabulary as *"a primary statistical claim reports a p-value but no
+/// confidence interval"* — one is a defect in their paper, the other is a note
+/// about our harness, and nothing on the page distinguished them.
+///
+/// §11's `ClaimKind::ProcessState` already stopped these changing the
+/// recommendation (`reviewer_agent.rs:1096`), which was the half that altered a
+/// verdict. This is the other half: they stop being findings at all.
+///
+/// **They are not deleted.** An author is entitled to know a lane did not
+/// produce usable output — "we could not check this" is true and worth showing.
+/// It belongs in a record of the RUN, which is what this is: durable (the report
+/// is cached), readable by the chat when asked, and outside the list of things
+/// wrong with the paper.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HarnessNote {
+    /// Which subsystem the note is about.
+    pub agent: AgentKind,
+    /// What happened, in the agent's own words.
+    pub detail: String,
+    /// Why it is recorded — the machine-readable reason, so a consumer can
+    /// group without parsing prose.
+    pub reason: HarnessNoteReason,
+}
+
+/// Why a harness note exists. Deliberately small and total; a new variant is an
+/// additive change, and the `#[serde(other)]`-free totality means a consumer
+/// cannot silently mis-bucket one.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HarnessNoteReason {
+    /// The agent produced output and our own gate refused it before the debate.
+    OutputRejectedByInternalGate,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PublishReadyReport {
     /// Overall verdict from the debate (hard constraint wins if present).
@@ -218,7 +259,14 @@ pub struct PublishReadyReport {
     pub evidence: Vec<EvidenceRecord>,
     pub checklist: Vec<ChecklistItem>,
     pub debate: DebateSummary,
-    /// Mandatory, never empty: explains the three certainty tiers.
+    /// **Statements about GAPLY'S OWN RUN, kept out of `findings`.**
+    ///
+    /// See [`HarnessNote`]. Defaulted on deserialize so every report cached
+    /// before this field existed still parses (the §11 D53/D103 serde-drift
+    /// discipline: a new field is additive only if old rows keep loading).
+    #[serde(default)]
+    pub harness_notes: Vec<HarnessNote>,
+    /// Mandatory, never empty: explains the certainty tiers this report uses.
     pub disclaimer: String,
 }
 
@@ -707,30 +755,20 @@ pub fn compile_report(
         ));
     }
 
-    // --- gate-rejected opinions surface as MINOR findings (flagged, not lost)
-    for op in &outcome.rejected {
-        items.push(paired(
-            Finding {
-                // OUR internal gate rejected an agent's output (§23.4 f5)
-                //
-                // CORRECT None: a statement about OUR gate, not about a place
-                // in the manuscript.
-                location: None,
-                claim: ClaimKind::ProcessState,
-                severity: FindingSeverity::Minor,
-                tier: CertaintyTier::AiAssessedModerate,
-                certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
-                agent: op.agent,
-                title: format!("{:?} output rejected by its internal gate", op.agent),
-                detail: op.explanation.clone(),
-                confidence: 0.0,
-                provenance: vec!["swarm:rejected-before-debate (internal gate failed)".into()],
-            },
-            // Rejected: `paired` detects the provenance and forces NoSignal/HeldOut
-            // via from_finding; raw_confidence is unused for that path.
-            0.0,
-        ));
-    }
+    // --- gate-rejected opinions become HARNESS NOTES, not findings ----------
+    //
+    // They used to be pushed here as `Minor` findings and reached 20 of 22
+    // stored reports. See [`HarnessNote`] for why that was wrong and why they
+    // are still recorded.
+    let harness_notes: Vec<HarnessNote> = outcome
+        .rejected
+        .iter()
+        .map(|op| HarnessNote {
+            agent: op.agent,
+            detail: op.explanation.clone(),
+            reason: HarnessNoteReason::OutputRejectedByInternalGate,
+        })
+        .collect();
 
     // --- priority ordering ----------------------------------------------------
     // CRITICAL hard constraints first — severity outranks EVERYTHING, including
@@ -769,6 +807,7 @@ pub fn compile_report(
         findings,
         evidence,
         checklist,
+        harness_notes,
         debate: DebateSummary {
             rounds_run: outcome.rounds_run,
             converged: outcome.converged,

@@ -265,6 +265,7 @@ mod tests {
                     rejected_agents: vec![],
                     revised_agents: vec![],
                 },
+                harness_notes: vec![],
                 disclaimer: "d".into(),
             },
             lanes: LaneExamination {
