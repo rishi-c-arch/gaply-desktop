@@ -755,11 +755,29 @@ disqualifying for every interactive caller, and `paper_corpus` multiplies it by
   DELETION rather than optimisation — caching its regexes would only make a pass
   that returns nothing return nothing faster.
 
-So the question is not who pays 14 seconds. It is **fix the hot spot, delete the
-empty pass, then re-measure and ask again** — the fix is the pattern already used
-two files over, and it should bring the corpus total to roughly 3–4 s. That
-figure is a PREDICTION calibrated on `variables.rs`'s measured rate; re-run the
-probe after the fix rather than quoting it.
+**[FIXED AND RE-MEASURED — the answer changed completely.]** Caching the
+regexes where the lists already were took the corpus from **30,378 ms to 196
+ms, a 155x reduction**: R PAPER 2810 -> 2.8 ms, `final final L` 14,526 -> 150
+ms. The layer now adds **2.8–150 ms per manuscript**, against 1–70 ms for base
+extraction.
+
+**So the Phase 2 prerequisite is resolved, and not by choosing a lane.** At
+0.8–14.5 s the layer was disqualifying everywhere. At 2.8–150 ms it is
+affordable for every caller including the interactive ones, and `paper_corpus`'s
+`MAX_PAPERS = 8` multiplier is now ~1.2 s worst case rather than ~2 minutes.
+Turning it on is a normal decision again rather than a cost trade — **but it
+should still not be turned on until something reads it**, which is Part C's
+`AgentSpec` work, not this phase's.
+
+**`datasets` stays.** It cost 29–56% and returned nothing, which looked like a
+deletion candidate. Written correctly it costs **0.0–3.9 ms**. The cost argument
+disappeared; what remains is "found nothing on six manuscripts", and six is a
+small corpus to delete a feature on.
+
+**The prediction here was wrong by 20–100x** — it said 3–4 s. It was calibrated
+on `variables.rs` as a clean reference, and `variables.rs` had four uncached
+regexes of its own. Calibrating a fix against a ruler carrying the same defect
+is the mistake; `examples/scientific_cost_probe.rs` records it.
 
 **Also corrected here:** this note previously said the layer cost *"every
 existing caller — AI Check, PublishReady, the audit pre-pass, the paper

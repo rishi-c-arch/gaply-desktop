@@ -343,8 +343,8 @@ fn method_name_for_design(design: &StudyDesign) -> Option<String> {
 }
 
 fn extract_sampling(sentence: &str) -> SamplingDescription {
-    let re = Regex::new(r"(?i)(?:n\s*=\s*|sample\s+(?:size\s+(?:of\s+)?|of\s+)|recruited\s+|enrolled\s+|(?:a\s+)?total\s+of\s+)(\d{1,6})(?:\s+participants|\s+subjects|\s+patients|\s+respondents|\s+students)?").unwrap();
-    let method = Regex::new(r"(?i)\b(convenience sample|random sample|stratified sample|cluster sample|snowball sample|purposive sample)\b").unwrap()
+    let re = sampling_size_re();
+    let method = sampling_method_re()
         .captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string());
@@ -355,7 +355,7 @@ fn extract_sampling(sentence: &str) -> SamplingDescription {
 }
 
 fn extract_intervention(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)(?:randomized|assigned|allocated)\s+(?:to|into)\s+([A-Za-z0-9\s\-]{3,80})(?:\s+and\s+)?(?:group|arm|condition)?").unwrap();
+    let re = intervention_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| truncate(m.as_str().trim(), MAX_FIELD_LEN))
@@ -363,21 +363,21 @@ fn extract_intervention(sentence: &str) -> Option<String> {
 }
 
 fn extract_comparator(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)\b(placebo|control group|standard care|usual care|waitlist control|sham)\b").unwrap();
+    let re = comparator_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
 }
 
 fn extract_randomization(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)\b(randomly allocated|randomly assigned|computer[- ]generated|block randomization|stratified randomization|simple randomization)\b").unwrap();
+    let re = randomization_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
 }
 
 fn extract_blinding(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)\b(double[- ]blind|single[- ]blind|triple[- ]blind|open[- ]label|observer[- ]blind|assessor[- ]blind)\b").unwrap();
+    let re = blinding_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
@@ -385,9 +385,7 @@ fn extract_blinding(sentence: &str) -> Option<String> {
 
 fn extract_software(sentence: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for sw in software_list() {
-        let escaped = regex::escape(sw);
-        let re = Regex::new(&format!(r"(?i)\b{}\b", escaped)).unwrap();
+    for (re, sw) in software_res() {
         if re.is_match(sentence) {
             out.push(sw.to_string());
         }
@@ -399,9 +397,7 @@ fn extract_software(sentence: &str) -> Vec<String> {
 
 fn extract_libraries(sentence: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for lib in library_list() {
-        let escaped = regex::escape(lib);
-        let re = Regex::new(&format!(r"(?i)\b{}\b", escaped)).unwrap();
+    for (re, lib) in library_res() {
         if re.is_match(sentence) {
             out.push(lib.to_string());
         }
@@ -412,7 +408,7 @@ fn extract_libraries(sentence: &str) -> Vec<String> {
 }
 
 fn extract_algorithms(sentence: &str) -> Vec<String> {
-    let re = Regex::new(r"(?i)\b(logistic regression|linear regression|random forest|support vector machine|SVM|k-nearest neighbor|k-NN|decision tree|gradient boosting|neural network|CNN|RNN|LSTM|transformer|BERT|GPT)\b").unwrap();
+    let re = algorithm_re();
     re.captures_iter(sentence)
         .filter_map(|c| c.get(1))
         .map(|m| m.as_str().to_string())
@@ -422,7 +418,7 @@ fn extract_algorithms(sentence: &str) -> Vec<String> {
 }
 
 fn extract_evaluation_metrics(sentence: &str) -> Vec<String> {
-    let re = Regex::new(r"(?i)\b(accuracy|precision|recall|F1[- ]score|F1|AUROC|AUC[- ]ROC|mean squared error|RMSE|MAE|sensitivity|specificity|R[\u00b22])\b").unwrap();
+    let re = evaluation_metric_re();
     re.captures_iter(sentence)
         .filter_map(|c| c.get(1))
         .map(|m| m.as_str().to_string())
@@ -434,7 +430,13 @@ fn extract_evaluation_metrics(sentence: &str) -> Vec<String> {
 fn associated_stat_tests(result: &ExtractionResult, loc: &Location, sentence: &str) -> Vec<StatisticalTestRef> {
     let mut out = Vec::new();
     let sentence_lower = sentence.to_lowercase();
-    for stat in &result.statistics {
+    // `enumerate()` carries the index the old code recovered with
+    // `result.statistics.iter().position(|s| s as *const _ == stat as *const _)`
+    // — a linear scan over the same vector it was already iterating, to find an
+    // index it already had. O(n^2) in statistics per matching sentence, and a
+    // pointer-identity comparison whose correctness depended on the vector not
+    // being reallocated between the two iterations.
+    for (stat_index, stat) in result.statistics.iter().enumerate() {
         if stat.location.section == loc.section && stat.location.paragraph == loc.paragraph {
             let raw = stat.stat.raw().to_lowercase();
             if sentence_lower.contains(&raw) {
@@ -444,7 +446,7 @@ fn associated_stat_tests(result: &ExtractionResult, loc: &Location, sentence: &s
                         _ => stat.stat.raw().to_string(),
                     },
                     stat: Some(StatRef {
-                        index: result.statistics.iter().position(|s| s as *const _ == stat as *const _).unwrap_or(0),
+                        index: stat_index,
                         location: stat.location.clone(),
                     }),
                 });
@@ -494,6 +496,88 @@ fn truncate(text: &str, max_len: usize) -> String {
             _ => text[..max_len].to_string(),
         }
     }
+}
+
+
+
+/// Software names paired with their COMPILED regex.
+///
+/// `software_list()` was `OnceLock`-cached and the regex built from each entry
+/// was not, so this compiled 25 patterns on every sentence. Same defect as
+/// `datasets.rs`'s known-dataset loop, same fix.
+fn software_res() -> &'static Vec<(Regex, &'static str)> {
+    static RES: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
+    RES.get_or_init(|| compile_word_patterns(software_list()))
+}
+
+/// Library names paired with their COMPILED regex. 10 patterns, per sentence.
+fn library_res() -> &'static Vec<(Regex, &'static str)> {
+    static RES: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
+    RES.get_or_init(|| compile_word_patterns(library_list()))
+}
+
+/// Word-boundary-anchored, case-insensitive, escaped — the exact shape the two
+/// loops built inline. One definition so they cannot drift apart.
+fn compile_word_patterns(list: &'static [&'static str]) -> Vec<(Regex, &'static str)> {
+    list.iter()
+        .map(|s| {
+            let escaped = regex::escape(s);
+            (
+                Regex::new(&format!(r"(?i)\b{escaped}\b")).expect("word pattern must compile"),
+                *s,
+            )
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Cached regexes.
+//
+// Each of these was `Regex::new(...).unwrap()` inside a function called ONCE
+// PER SENTENCE, so a 1,390-sentence manuscript paid ten compilations per
+// sentence for patterns that never change. The pattern text is unchanged —
+// only where it is compiled moved. Baseline and arithmetic:
+// `examples/scientific_cost_probe.rs`.
+// ---------------------------------------------------------------------------
+
+fn sampling_size_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)(?:n\s*=\s*|sample\s+(?:size\s+(?:of\s+)?|of\s+)|recruited\s+|enrolled\s+|(?:a\s+)?total\s+of\s+)(\d{1,6})(?:\s+participants|\s+subjects|\s+patients|\s+respondents|\s+students)?").expect("sampling_size_re must compile"))
+}
+
+fn sampling_method_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(convenience sample|random sample|stratified sample|cluster sample|snowball sample|purposive sample)\b").expect("sampling_method_re must compile"))
+}
+
+fn intervention_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)(?:randomized|assigned|allocated)\s+(?:to|into)\s+([A-Za-z0-9\s\-]{3,80})(?:\s+and\s+)?(?:group|arm|condition)?").expect("intervention_re must compile"))
+}
+
+fn comparator_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(placebo|control group|standard care|usual care|waitlist control|sham)\b").expect("comparator_re must compile"))
+}
+
+fn randomization_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(randomly allocated|randomly assigned|computer[- ]generated|block randomization|stratified randomization|simple randomization)\b").expect("randomization_re must compile"))
+}
+
+fn blinding_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(double[- ]blind|single[- ]blind|triple[- ]blind|open[- ]label|observer[- ]blind|assessor[- ]blind)\b").expect("blinding_re must compile"))
+}
+
+fn algorithm_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(logistic regression|linear regression|random forest|support vector machine|SVM|k-nearest neighbor|k-NN|decision tree|gradient boosting|neural network|CNN|RNN|LSTM|transformer|BERT|GPT)\b").expect("algorithm_re must compile"))
+}
+
+fn evaluation_metric_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(accuracy|precision|recall|F1[- ]score|F1|AUROC|AUC[- ]ROC|mean squared error|RMSE|MAE|sensitivity|specificity|R[\u00b22])\b").expect("evaluation_metric_re must compile"))
 }
 
 #[cfg(test)]

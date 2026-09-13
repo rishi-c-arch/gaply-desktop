@@ -56,13 +56,59 @@
 //! `result.statistics.iter().position(...)` inside a loop over
 //! `result.statistics`, recovering an index it already has.
 //!
-//! ## What this predicts
+//! ## AFTER THE FIX — measured, same probe, same corpus, same known-good row
 //!
-//! Caching the regexes should leave only matching. `variables.rs` is the
-//! calibration point at 1.3–1.9 ms/sentence, so the six-manuscript total should
-//! fall from 30.4 s to roughly 4–6 s; deleting the empty `datasets` pass takes
-//! another ~30%. **Predictions, not results — re-run this probe after the fix
-//! rather than quoting them.**
+//! ```text
+//! manuscript              sentences   claims  variables    methods   datasets      delta
+//! IJAS haemolymph.pdf            64     0.6ms      0.8ms      1.9ms      0.5ms      3.9ms
+//! R PAPER .docx                 247     0.5ms      0.6ms      1.4ms      0.2ms      2.8ms
+//! Revised Health Econ.docx      305     1.1ms      1.6ms      4.0ms      0.5ms      7.2ms
+//! final final L.pdf            1390    14.7ms     55.0ms     58.5ms      3.9ms    150.3ms
+//! Lake Chapter 1.docx           105     1.4ms      4.4ms      5.6ms      0.0ms     11.5ms
+//! chapter3 .docx                629     1.9ms     11.2ms      6.0ms      1.4ms     20.6ms
+//! ```
+//!
+//! **Corpus total 30,378 ms -> 196 ms. A 155x reduction.** `methods` fell from
+//! 5.93 to 0.042 ms/sentence on the largest manuscript: matching a compiled
+//! regex is ~two orders of magnitude cheaper than compiling one, and essentially
+//! all the old cost was compilation.
+//!
+//! ## THE PREDICTION WAS WRONG BY 20-100x, AND WHY
+//!
+//! Predicted: R PAPER ~250-350 ms, final final L ~2.5-3.5 s, corpus 4-6 s.
+//! Measured: 2.8 ms, 150 ms, 196 ms.
+//!
+//! The prediction was calibrated on `variables.rs`'s 1.3-1.9 ms/sentence, taken
+//! as the floor for "correctly cached matching work". **It was not a floor — it
+//! was contaminated.** `variables.rs` had four uncached regexes of its own,
+//! found by `tests/regex_compilation_guard.rs` and missed by the source reading
+//! that produced the prediction. The fix was calibrated against a ruler carrying
+//! the same defect it was measuring.
+//!
+//! **The transferable rule: before calibrating a fix against a "clean" reference
+//! in the same codebase, check the reference is actually clean.**
+//!
+//! The proportions also inverted — `variables` went from 6-20% to 22-54% — not
+//! because it got slower (530 ms -> 11.2 ms on `chapter3`) but because the
+//! denominator collapsed around it.
+//!
+//! ## WHAT `datasets` COSTS WHEN WRITTEN CORRECTLY
+//!
+//! **0.0-3.9 ms, 0-12% of the layer** — still returning zero on all six. Before
+//! the fix it was 29-56% and 0.45-4.3 s and looked like a deletion candidate on
+//! cost. **The cost argument is gone.** What remains is only "found nothing on
+//! six manuscripts", which is a small corpus to delete a feature on. It stays.
+//! If it is ever removed, that should rest on evidence it cannot work, not on a
+//! price that turned out to be a defect.
+//!
+//! ## The O(n^2) at `methods.rs`
+//!
+//! The pointer-identity `position()` scan was fixed in the same change and is
+//! **not separately measurable** — it only ran on sentences that already matched
+//! a statistic, and its cost sits inside `methods`' 58.5 ms, below this probe's
+//! resolution. It was fixed because it was wrong (a linear scan recovering an
+//! index `enumerate()` already has, with correctness resting on the vector not
+//! reallocating between two iterations), not because it was measurably slow.
 //!
 //! Usage: `cargo run --release --example scientific_cost_probe -- <file>…`
 //!

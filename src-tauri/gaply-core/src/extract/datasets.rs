@@ -15,11 +15,38 @@ use crate::scientific_model::{
     ClaimId, DataSource, Dataset, DatasetId, MethodId, SourceSpan, VariableId,
 };
 
+/// "data were obtained from X" — the generic dataset-source phrasing. A const so
+/// the pattern text sits beside its sibling and neither can drift into a
+/// per-call `Regex::new`.
+const DATA_FROM_PATTERN: &str = r"(?i)(?:data|dataset|corpus|database)\s+(?:were|was)\s+(?:obtained|collected|downloaded|extracted|gathered)\s+(?:from|via)\s+([A-Za-z0-9\s\-]{3,60})";
+
+/// Institution / clinical dataset mentions.
+const CLINICAL_PATTERN: &str = r"(?i)(?:data|dataset|records)\s+(?:from|at)\s+(?:the\s+)?([A-Za-z][A-Za-z0-9\s,\.\-]{3,80}\s+(?:Hospital|University|Clinic|Center|Centre|Institute|Registry))";
+
 /// Maximum length of stored dataset text fields.
 const MAX_FIELD_LEN: usize = 200;
 
 /// Well-known public datasets and benchmarks. Names are normalized on output.
-fn known_datasets() -> &'static Vec<(&'static str, &'static str)> {
+fn known_datasets() -> &'static Vec<(Regex, &'static str)> {
+    static LIST: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
+    LIST.get_or_init(|| {
+        raw_known_datasets()
+            .iter()
+            .map(|(pattern, normalized)| {
+                let escaped = regex::escape(pattern);
+                (
+                    Regex::new(&format!(r"(?i)\b{escaped}\b"))
+                        .expect("known-dataset pattern must compile"),
+                    *normalized,
+                )
+            })
+            .collect()
+    })
+}
+
+/// The raw patterns. Split out of [`known_datasets`] so the names stay readable
+/// and [`known_dataset_names`] has something to build from.
+fn raw_known_datasets() -> &'static Vec<(&'static str, &'static str)> {
     static LIST: OnceLock<Vec<(&str, &str)>> = OnceLock::new();
     LIST.get_or_init(|| {
         vec![
@@ -219,9 +246,7 @@ fn extract_datasets_from_sentence(
     let mut out = Vec::new();
 
     // 1. Known public datasets.
-    for (pattern, normalized) in known_datasets() {
-        let escaped = regex::escape(pattern);
-        let re = Regex::new(&format!(r"(?i)\b{}\b", escaped)).unwrap();
+    for (re, normalized) in known_datasets() {
         if re.is_match(sentence) {
             out.push(build_dataset(
                 normalized.to_string(),
@@ -235,8 +260,7 @@ fn extract_datasets_from_sentence(
     }
 
     // 2. Generic dataset source language: "data were obtained from X".
-    let from_re = Regex::new(r"(?i)(?:data|dataset|corpus|database)\s+(?:were|was)\s+(?:obtained|collected|downloaded|extracted|gathered)\s+(?:from|via)\s+([A-Za-z0-9\s\-]{3,60})").unwrap();
-    for caps in from_re.captures_iter(sentence) {
+    for caps in from_re().captures_iter(sentence) {
         if let Some(m) = caps.get(1) {
             let name = clean_name(m.as_str());
             if !name.is_empty() && !known_dataset_names().contains(&name.to_lowercase()) {
@@ -253,8 +277,7 @@ fn extract_datasets_from_sentence(
     }
 
     // 3. Institution / clinical dataset mentions.
-    let clinical_re = Regex::new(r"(?i)(?:data|dataset|records)\s+(?:from|at)\s+(?:the\s+)?([A-Za-z][A-Za-z0-9\s,\.\-]{3,80}\s+(?:Hospital|University|Clinic|Center|Centre|Institute|Registry))").unwrap();
-    for caps in clinical_re.captures_iter(sentence) {
+    for caps in clinical_re().captures_iter(sentence) {
         if let Some(m) = caps.get(1) {
             let name = clean_name(m.as_str());
             if !name.is_empty() && !known_dataset_names().contains(&name.to_lowercase()) {
@@ -307,11 +330,32 @@ fn build_dataset(
     }
 }
 
-fn known_dataset_names() -> HashSet<String> {
-    known_datasets()
-        .iter()
-        .map(|(_, normalized)| normalized.to_lowercase())
-        .collect()
+/// Cached. This rebuilt the whole `HashSet` on every call and is called twice
+/// per sentence, so it allocated 21 lowercased strings and a set each time.
+fn known_dataset_names() -> &'static HashSet<String> {
+    static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        raw_known_datasets()
+            .iter()
+            .map(|(_, normalized)| normalized.to_lowercase())
+            .collect()
+    })
+}
+
+/// "data were obtained from X". Cached — was compiled on every sentence.
+fn from_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(DATA_FROM_PATTERN).expect("from_re must compile")
+    })
+}
+
+/// Institution / clinical dataset mentions. Cached — was compiled per sentence.
+fn clinical_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(CLINICAL_PATTERN).expect("clinical_re must compile")
+    })
 }
 
 fn normalize_name(name: &str) -> String {
@@ -349,7 +393,7 @@ fn infer_data_source(sentence: &str) -> DataSource {
 }
 
 fn extract_sample_size(sentence: &str) -> Option<usize> {
-    let re = Regex::new(r"(?i)(?:n\s*=\s*|sample\s+(?:size\s+(?:of\s+)?|of\s+)|total of\s+|included\s+)(\d{1,7})(?:\s+(?:participants|subjects|patients|records|images|samples))?").unwrap();
+    let re = ds_pat1_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .and_then(|m| m.as_str().parse::<usize>().ok())
@@ -367,70 +411,70 @@ fn loc_sample_size(result: &ExtractionResult, loc: &Location) -> Option<usize> {
 }
 
 fn extract_sample_description(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)(?:sample of\s+|participants were\s+|included\s+)([A-Za-z0-9\s,\-]{3,80})(?:\s+from\s+|$|\.)").unwrap();
+    let re = ds_pat2_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| truncate(m.as_str().trim(), MAX_FIELD_LEN))
 }
 
 fn extract_population(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)(?:population of\s+|sample of\s+)([A-Za-z0-9\s,\-]{3,60})(?:\s+(?:from|in|with|aged)|\.|,)").unwrap();
+    let re = ds_pat3_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| truncate(m.as_str().trim(), MAX_FIELD_LEN))
 }
 
 fn extract_country(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)\b(in the United States|in the US|in the UK|in the Netherlands|in Germany|in France|in China|in India|in Australia|in Canada|in Japan|in Brazil|in Spain|in Italy)\b").unwrap();
+    let re = ds_pat4_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
 }
 
 fn extract_recruitment(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)\b(recruited through|recruited via|recruited from|convenience sampling|random sampling|stratified sampling|snowball sampling|purposive sampling)\b").unwrap();
+    let re = ds_pat5_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
 }
 
 fn extract_time_period(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)\b(between\s+\d{4}\s+and\s+\d{4}|from\s+\d{4}\s+to\s+\d{4}|from\s+January\s+\d{4}|in\s+\d{4})\b").unwrap();
+    let re = ds_pat6_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
 }
 
 fn extract_institution(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)\b([A-Za-z][A-Za-z0-9\s,\.\-]{3,80}(?:Hospital|University|Clinic|Center|Centre|Institute|Registry))\b").unwrap();
+    let re = ds_pat7_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| truncate(m.as_str().trim(), MAX_FIELD_LEN))
 }
 
 fn extract_version(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)\b(version\s+\d+(?:\.\d+)?|v\d+(?:\.\d+)?)\b").unwrap();
+    let re = ds_pat8_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
 }
 
 fn extract_doi(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)\b(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)\b").unwrap();
+    let re = ds_pat9_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
 }
 
 fn extract_repository(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)\b(github\.com/[^\s]+|gitlab\.com/[^\s]+|zenodo\.org/[^\s]+|figshare\.com/[^\s]+|osf\.io/[^\s]+|huggingface\.co/[^\s]+|kaggle\.com/[^\s]+)\b").unwrap();
+    let re = ds_pat10_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
 }
 
 fn extract_license(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)\b(CC0|CC-BY|CC BY|MIT license|Apache-2\.0|GPL|ODbL|public domain)\b").unwrap();
+    let re = ds_pat11_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
@@ -520,6 +564,61 @@ fn truncate(text: &str, max_len: usize) -> String {
             _ => text[..max_len].to_string(),
         }
     }
+}
+
+fn ds_pat1_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)(?:n\s*=\s*|sample\s+(?:size\s+(?:of\s+)?|of\s+)|total of\s+|included\s+)(\d{1,7})(?:\s+(?:participants|subjects|patients|records|images|samples))?").expect("ds_pat1_re must compile"))
+}
+
+fn ds_pat2_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)(?:sample of\s+|participants were\s+|included\s+)([A-Za-z0-9\s,\-]{3,80})(?:\s+from\s+|$|\.)").expect("ds_pat2_re must compile"))
+}
+
+fn ds_pat3_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)(?:population of\s+|sample of\s+)([A-Za-z0-9\s,\-]{3,60})(?:\s+(?:from|in|with|aged)|\.|,)").expect("ds_pat3_re must compile"))
+}
+
+fn ds_pat4_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(in the United States|in the US|in the UK|in the Netherlands|in Germany|in France|in China|in India|in Australia|in Canada|in Japan|in Brazil|in Spain|in Italy)\b").expect("ds_pat4_re must compile"))
+}
+
+fn ds_pat5_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(recruited through|recruited via|recruited from|convenience sampling|random sampling|stratified sampling|snowball sampling|purposive sampling)\b").expect("ds_pat5_re must compile"))
+}
+
+fn ds_pat6_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(between\s+\d{4}\s+and\s+\d{4}|from\s+\d{4}\s+to\s+\d{4}|from\s+January\s+\d{4}|in\s+\d{4})\b").expect("ds_pat6_re must compile"))
+}
+
+fn ds_pat7_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b([A-Za-z][A-Za-z0-9\s,\.\-]{3,80}(?:Hospital|University|Clinic|Center|Centre|Institute|Registry))\b").expect("ds_pat7_re must compile"))
+}
+
+fn ds_pat8_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(version\s+\d+(?:\.\d+)?|v\d+(?:\.\d+)?)\b").expect("ds_pat8_re must compile"))
+}
+
+fn ds_pat9_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)\b").expect("ds_pat9_re must compile"))
+}
+
+fn ds_pat10_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(github\.com/[^\s]+|gitlab\.com/[^\s]+|zenodo\.org/[^\s]+|figshare\.com/[^\s]+|osf\.io/[^\s]+|huggingface\.co/[^\s]+|kaggle\.com/[^\s]+)\b").expect("ds_pat10_re must compile"))
+}
+
+fn ds_pat11_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(CC0|CC-BY|CC BY|MIT license|Apache-2\.0|GPL|ODbL|public domain)\b").expect("ds_pat11_re must compile"))
 }
 
 #[cfg(test)]

@@ -348,7 +348,7 @@ impl VariableAccumulator {
 /// them (e.g. "age (years) was" becomes "age  was"). Offsets are not used for
 /// name extraction, only the captured text, so this is safe.
 fn strip_units_for_matching(sentence: &str) -> String {
-    let re = Regex::new(r"\([^)]{1,40}\)").unwrap();
+    let re = var_pat3_re();
     re.replace_all(sentence, " ").to_string()
 }
 
@@ -413,7 +413,7 @@ fn canonical_key(name: &str) -> String {
 
 /// Extract a unit from parentheses near a measurement, e.g. "age (years)".
 fn extract_units(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"\(([A-Za-z0-9°%\-/·\.\s]{1,30})\)").unwrap();
+    let re = var_pat1_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().trim().to_string())
@@ -423,12 +423,12 @@ fn extract_units(sentence: &str) -> Option<String> {
 fn looks_like_citation(text: &str) -> bool {
     let t = text.trim();
     // Citation-like parentheticals: "Smith et al., 2023", "n = 120"
-    Regex::new(r"(?i)^[A-Z][a-z]+\s+et\s+al\.?|^\d{4}$|^n\s*[=\s]").unwrap().is_match(t)
+    var_pat2_re().is_match(t)
 }
 
 /// Extract a short operationalization phrase from the sentence, if present.
 fn extract_operationalization(sentence: &str) -> Option<String> {
-    let re = Regex::new(r"(?i)(?:measured|assessed|operationalized|quantified)\s+(?:as|by|using|with)\s+(.{3,80}?)(?:\.|,|;|$)").unwrap();
+    let re = var_pat4_re();
     re.captures(sentence)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().trim().to_string())
@@ -481,6 +481,29 @@ fn name_appears_in_claim(
         return true;
     }
     aliases.iter().any(|a| text.contains(&a.to_lowercase()))
+}
+
+
+// --- cached regexes (were compiled per sentence; see tests/regex_compilation_guard.rs) ---
+
+fn var_pat1_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\(([A-Za-z0-9°%\-/·\.\s]{1,30})\)").expect("var_pat1_re must compile"))
+}
+
+fn var_pat2_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)^[A-Z][a-z]+\s+et\s+al\.?|^\d{4}$|^n\s*[=\s]").expect("var_pat2_re must compile"))
+}
+
+fn var_pat3_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\([^)]{1,40}\)").expect("var_pat3_re must compile"))
+}
+
+fn var_pat4_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)(?:measured|assessed|operationalized|quantified)\s+(?:as|by|using|with)\s+(.{3,80}?)(?:\.|,|;|$)").expect("var_pat4_re must compile"))
 }
 
 #[cfg(test)]
