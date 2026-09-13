@@ -57,6 +57,35 @@ recovery. Untracked files are not touched by `checkout` and survive either way.
 **Commit early while a machine is behaving like this.** The safest response to an
 environment that is eating files is a commit, not a longer debugging session.
 
+### The dead tree can be reached from OUTSIDE the repo, and git will not tell you
+
+**Fixed 13 Sep 2026.** `~/gaply-models/` is not in any checkout, so nothing above
+covers it — and both of its entries were **symlinks into
+`~/Desktop/gaply-react-frontend/src-tauri/bundled-models/`**:
+
+```
+~/gaply-models/stage1-lm/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf -> ~/Desktop/...
+~/gaply-models/slm1-adapter/tokenizer.json                 -> ~/Desktop/...
+```
+
+They RESOLVED, which is why this survived a move and four audits: `ls -lL`
+showed 398 MB and 11 MB, readable, correct. The danger was never that they were
+broken; it was that the bytes lived in the tree iCloud evicts, while
+`models/mod.rs:88` makes `~/gaply-models/slm1-adapter/tokenizer.json` the
+PREFERRED resolution for **every SLM-1 tier**. One eviction takes out Stage-1 and
+both deep tiers at once, with `os error 81` and no hint that storage is the
+problem.
+
+Replaced with real copies from the live tree after checking both ends had the
+same sha256 (`6eb923e7…` and `6b4360dd…`), so the replacement lost nothing.
+`find ~/gaply-models -type l` now prints nothing, and that is the check to run
+when a model "disappears".
+
+**The general rule:** `git status` describes the checkout. Model files, caches
+and anything under `$HOME` that the app resolves by convention are outside it,
+so a move that fixes the repo does not fix them. After relocating this repo,
+`find ~ -maxdepth 4 -type l -lname '*Desktop*'` is the sweep.
+
 ## Remotes — READ BEFORE ANY PUSH
 
 **This checkout has two remotes on two different GitHub accounts, and they are
