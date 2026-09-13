@@ -427,6 +427,61 @@ time injection.
     not flagged at all, because it felt measured: a command had been run and had
     genuinely exited 1. Confidence tracks *having measured something*, not
     *having measured the right thing*, so it is the weaker signal of the two.
+- **A BATCH RUN MUST CONTAIN A KNOWN-GOOD CASE. A uniformly clean result is the
+  signature of a broken instrument, and the known-good case is the only thing
+  that can tell you.** Measured 13 Sep 2026, re-measuring the AI-detection
+  severity across six real manuscripts:
+
+  ```
+  chapter3 .docx        sev=NONE   none
+  final final L.pdf     sev=NONE   none
+  IJAS … haemolymph.pdf sev=NONE   none      <- this one had produced a finding
+  Lake Chapter 1.docx   sev=NONE   none         ten minutes earlier
+  R PAPER .docx         sev=NONE   none
+  Revised … FINAL.docx  sev=NONE   none
+  ```
+
+  Six clean results reading as "the fix worked everywhere". The loop used
+  `timeout`, **which does not exist on macOS by default**, so every invocation
+  failed instantly and `|| true` swallowed it. Nothing in the output said so —
+  a failed run and a run that found nothing are the same empty string.
+
+  The only reason it was caught is that one row was a case whose answer was
+  already known from a single run minutes before. Without it, "0 of 6" would
+  have gone into a decision record as a result.
+
+  So: **every batch includes at least one input whose answer you already know,
+  and you check that row first.** If it comes back clean, the instrument is
+  broken and the other rows mean nothing. This is the negative-control rule
+  applied to the harness rather than to the code — and it is cheap, which is
+  the argument for doing it every time rather than when suspicious.
+
+  Corollaries from the same session: prefer `|| true` nowhere near a
+  measurement loop; a missing binary should be a loud failure, not an empty
+  result; and `ps -o %cpu` distinguishes the other failure mode — a batch at
+  **0.0% CPU** with a network- or keychain-shaped stack is blocked, not working
+  (that is how §11 D154's consent hole surfaced, on the very next attempt at
+  this same table).
+
+- **A Bash call refused by the permission classifier runs NOTHING, including the
+  parts you later assume ran. `git status` is the only thing that catches it.**
+  13 Sep 2026: a single call combined a `python3` patch of `orchestrator.rs`
+  with `cargo test --workspace`. The classifier was briefly unavailable and
+  refused the whole call. The test half was re-run on its own and went green —
+  so the session had a passing suite, a code comment that had never been
+  written, and no error anywhere pointing at the gap.
+
+  It surfaced only at `git add`: the file was absent from
+  `git diff --cached --name-only`, and `grep -c D153 orchestrator.rs` returned
+  `0`. Nothing else would have found it — the change was a comment, so no test
+  could fail on its absence.
+
+  **Do not combine an edit and its verification in one Bash call.** If the call
+  is refused or interrupted, the two halves have different fates and the
+  verification is the half more likely to be retried. And before staging, read
+  `git diff --cached --name-only` against the list of files you believe you
+  edited, rather than trusting that each edit landed.
+
 - **A containment assertion over generated markup cannot fail on what is ADDED.
   `includes()` is blind to a wrapper.** The entry above is about measuring the
   wrong thing; this one is about measuring the right thing with an instrument
