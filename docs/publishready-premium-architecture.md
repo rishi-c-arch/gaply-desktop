@@ -374,6 +374,33 @@ The current `run_debate` is a real mesh round-table with a sound design: initial
 
 Until that test is green, the debate is a vote and every architectural claim about it is a `doc` claim.
 
+**[BUILT — and the "run the golden manuscripts" step could not be done as
+written.]** `pipeline.rs` now puts a `RevisingVerificationAgent` in the
+verification slot on the consent-granted path; the other five stay precomputed
+deliberately (`revising.rs`'s design boundary: their outputs are MEASUREMENTS,
+and a validator that changed its answer under peer pressure would be broken, not
+collaborative).
+
+Three things the wiring needed that §5.1 does not mention:
+
+- **The proxy has to outlive the lane.** It was built inside the verification
+  lane's closure and dropped there. It now leaves the lane, and `unload_slm2()`
+  moved to *after* the debate — the reconsideration is a SECOND proxy call, so
+  unloading before it would force a mid-debate reload.
+- **The revised report has to come back.** `compile_report` builds the
+  per-citation findings from the verification report, so a caller holding the
+  pre-debate copy would render findings that contradict the `revised_agents`
+  summary printed beside them. `SwarmAgent` gained a blanket impl for `&mut T`
+  so the pipeline keeps ownership, and the agent gained `into_parts()`.
+- **Step 2 — "run the golden manuscripts, confirm `rounds_run > 1`" — is not
+  hermetically possible.** Revision needs a verification report with real
+  citation ids, which needs `items`, which the lane only fills by calling
+  CrossRef/OpenAlex per reference. So the pin is SPLIT: one test proves the
+  mechanism against the pipeline's own five precomputed peers, one proves the
+  wiring by reading the source. Each says in its own docs what it cannot see.
+  Both were broken on purpose; the mechanism break reproduces exactly
+  `rounds_run: 1, revised_agents: []`.
+
 ### 5.2 Evidence outranks consensus
 
 Eight agents saying *minor* and two saying *major* is not a majority decision if a deterministic SPSS mismatch says *major*. The existing `hard_constraint` override already encodes this for the statistical validator; it generalises. Consensus weighting applies only among judgement opinions; any evidence-backed deterministic finding on the same claim sets the floor.

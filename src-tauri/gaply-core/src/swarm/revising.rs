@@ -47,6 +47,21 @@ impl<'a> RevisingVerificationAgent<'a> {
     pub fn report(&self) -> &VerificationReport {
         &self.report
     }
+
+    /// Take back the items and the FINAL report once the debate is over.
+    ///
+    /// The caller handed `items` in and still needs them afterwards — the
+    /// pipeline builds its `registry` of per-reference evidence from exactly
+    /// these. Returning them avoids the alternative, which was cloning
+    /// `ReferenceVerification` and therefore deriving `Clone` across the whole
+    /// `refverify` result tree for one caller's convenience.
+    ///
+    /// Consuming `self` is deliberate: after this the agent's report has been
+    /// moved out, so an agent that could still be asked to revise would be
+    /// holding a report it no longer owns.
+    pub fn into_parts(self) -> (Vec<(Reference, ReferenceVerification)>, VerificationReport) {
+        (self.items, self.report)
+    }
 }
 
 impl SwarmAgent for RevisingVerificationAgent<'_> {

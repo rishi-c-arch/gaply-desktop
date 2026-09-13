@@ -104,6 +104,34 @@ pub trait SwarmAgent {
     }
 }
 
+/// **A `&mut` to an agent is an agent.**
+///
+/// `run_debate` takes `&mut [Box<dyn SwarmAgent>]`, which means every
+/// participant is normally MOVED into the vector and unreachable afterwards.
+/// That is fine for [`PrecomputedAgent`], whose opinion never changes — but
+/// [`RevisingVerificationAgent`] holds the verification report and REVISES it
+/// during the debate, and the caller needs the revised one: `compile_report`
+/// builds the per-citation findings from that report, so a caller that kept the
+/// pre-debate copy would render findings that contradict its own
+/// `revised_agents` summary.
+///
+/// With this impl the caller keeps ownership, boxes a `&mut`, and reads
+/// `reviser.report()` once the debate returns. The alternative was a second
+/// `reconsider_citations` call to rebuild the report — which is what the test
+/// in `report/tests.rs` does and is acceptable there, but in production would
+/// mean paying for the same cloud round-trip twice and hoping the two agreed.
+impl<T: SwarmAgent + ?Sized> SwarmAgent for &mut T {
+    fn kind(&self) -> AgentKind {
+        (**self).kind()
+    }
+    fn opine(&mut self) -> Result<Opinion, GaplyError> {
+        (**self).opine()
+    }
+    fn revise(&mut self, own: &Opinion, others: &[Opinion], round: usize) -> Option<Opinion> {
+        (**self).revise(own, others, round)
+    }
+}
+
 /// The simplest agent: a fixed, precomputed opinion (adapters below produce
 /// these from the real agent reports). Never revises.
 pub struct PrecomputedAgent {

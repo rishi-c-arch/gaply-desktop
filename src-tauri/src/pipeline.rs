@@ -35,7 +35,9 @@ use gaply_core::reviewer_agent::LaneExamination;
 use gaply_core::extract::ExtractionResult;
 use gaply_core::plagiarism::PlagiarismReport;
 use gaply_core::report::{build_checklist, compile_report, PublishReadyReport};
-use gaply_core::swarm::{adapters, run_debate, DebateConfig, PrecomputedAgent, SwarmAgent};
+use gaply_core::swarm::{
+    adapters, run_debate, DebateConfig, PrecomputedAgent, RevisingVerificationAgent, SwarmAgent,
+};
 use gaply_core::verify_agent::{verify_citations, MockProxyClient};
 use gaply_core::research_state::ResearchState;
 use gaply_core::{ai_detect, extract, now_epoch, plagiarism, rag, validate, Database, GaplyError};
@@ -465,7 +467,7 @@ fn run_pipeline_inner(
                     refs.len()
                 )
             };
-            return Ok(((report, Vec::new()), summary));
+            return Ok(((report, Vec::new(), None), summary));
         }
         if !refs.is_empty() {
             let verifier = RefVerifier::new()?;
@@ -492,9 +494,13 @@ fn run_pipeline_inner(
                 verify_citations(&mock, &items)?
             }
         };
-        // 8GB OOM guard: explicitly unload SLM-2 (verified via /api/ps) so
-        // qwen3:4b is out of memory before any next analysis loads candle SLM-1.
-        crate::models::unload_slm2();
+        // NOTE: `unload_slm2()` used to be HERE. It moved to after the debate,
+        // because the debate is where `RevisingVerificationAgent` may make its
+        // SECOND proxy call — unloading first would either force a reload
+        // mid-debate or leave the reconsideration talking to nothing. The guard
+        // is unchanged in what it guarantees (SLM-2 out of memory before the
+        // pipeline returns, so a subsequent run's candle SLM-1 load is safe);
+        // only the point at which it fires moved past the last user of SLM-2.
         let definite = report
             .verdicts
             .iter()
@@ -510,22 +516,80 @@ fn run_pipeline_inner(
         // the evidence bundle (`verify_agent.rs:176`, `:206`); dropping `items`
         // here made them unavailable to any local deterministic finding — a
         // LOCALITY problem, not unused computation (ARCHITECTURE_TRACE §2).
-        let registry: Vec<ReferenceVerification> = items.into_iter().map(|(_, rv)| rv).collect();
-        Ok(((report, registry), summary))
+        // `items` leaves the lane instead of being consumed here: the
+        // reconsideration needs the same (reference, evidence) pairs the first
+        // call was built from, so the revision bundle — and the harness gate
+        // over it — is identical to the original. The registry is built from
+        // them after the debate, once the reviser hands them back.
+        Ok(((report, items, Some(proxy)), summary))
     })?;
-    let (verification, registry) = verification;
+    let (verification, verify_items, verify_proxy) = verification;
 
     // --- synthesis: round-table debate → compiled report --------------------
     let report = (|| -> Result<gaply_core::report::PublishReadyReport, GaplyError> {
-        let mut agents: Vec<Box<dyn SwarmAgent>> = vec![
-            Box::new(PrecomputedAgent::new(adapters::from_extraction(&extraction))),
-            Box::new(PrecomputedAgent::new(adapters::from_validation(&validation))),
-            Box::new(PrecomputedAgent::new(adapters::from_ai_detection(&ai))),
-            Box::new(PrecomputedAgent::new(adapters::from_plagiarism(&plag))),
-            Box::new(PrecomputedAgent::new(adapters::from_rag_hits(&hits))),
-            Box::new(PrecomputedAgent::new(adapters::from_verification_report(&verification))),
-        ];
-        let outcome = run_debate(&mut agents, &DebateConfig::default())?;
+        // **§5.1 — the verification participant REVISES.**
+        //
+        // It was a `PrecomputedAgent`, like the other five. `SwarmAgent::revise`
+        // defaults to `None`, so every debate converged in round one with
+        // `revised_agents: []` — measured empty in 22 of 22 stored reports. The
+        // mesh round-table was a vote, and every claim about it was a `doc`
+        // claim.
+        //
+        // The other five stay precomputed ON PURPOSE (`revising.rs`'s design
+        // boundary): their outputs are MEASUREMENTS — deterministic rules,
+        // parses, similarity scores, perplexity statistics — and a validator
+        // that changed its answer under peer pressure would be broken, not
+        // collaborative. Verification's verdicts are LLM-derived judgements, so
+        // reconsideration is meaningful there and only there.
+        //
+        // Boxed as `&mut` (see the blanket impl on `SwarmAgent`) so this
+        // function keeps ownership and can read the REVISED report back out.
+        // `compile_report` builds the per-citation findings from that report:
+        // passing the pre-debate copy would render findings that contradict the
+        // `revised_agents` summary printed beside them.
+        let precomputed_five = || -> Vec<Box<dyn SwarmAgent>> {
+            vec![
+                Box::new(PrecomputedAgent::new(adapters::from_extraction(&extraction))),
+                Box::new(PrecomputedAgent::new(adapters::from_validation(&validation))),
+                Box::new(PrecomputedAgent::new(adapters::from_ai_detection(&ai))),
+                Box::new(PrecomputedAgent::new(adapters::from_plagiarism(&plag))),
+                Box::new(PrecomputedAgent::new(adapters::from_rag_hits(&hits))),
+            ]
+        };
+
+        let (outcome, verification, registry) = match verify_proxy.as_ref() {
+            Some(proxy) => {
+                let mut reviser =
+                    RevisingVerificationAgent::new(&**proxy, verify_items, verification);
+                // Inner scope so the `&mut reviser` borrow ends before
+                // `into_parts` consumes it.
+                let outcome = {
+                    let mut agents: Vec<Box<dyn SwarmAgent + '_>> = precomputed_five()
+                        .into_iter()
+                        .chain(std::iter::once(
+                            Box::new(&mut reviser) as Box<dyn SwarmAgent + '_>
+                        ))
+                        .collect();
+                    run_debate(&mut agents, &DebateConfig::default())?
+                };
+                let (items, revised) = reviser.into_parts();
+                let registry: Vec<ReferenceVerification> =
+                    items.into_iter().map(|(_, rv)| rv).collect();
+                (outcome, revised, registry)
+            }
+            None => {
+                // Consent refused: no proxy was built, so there is nothing to
+                // reconsider WITH. The lane already returned an empty report
+                // and no items; the debate runs with a precomputed participant
+                // exactly as before, and `revised_agents` is legitimately empty.
+                let mut agents: Vec<Box<dyn SwarmAgent>> = precomputed_five();
+                agents.push(Box::new(PrecomputedAgent::new(
+                    adapters::from_verification_report(&verification),
+                )));
+                let outcome = run_debate(&mut agents, &DebateConfig::default())?;
+                (outcome, verification, Vec::new())
+            }
+        };
         // Build the checklist from the ingested journal_guideline corpus. With
         // no guidelines ingested, build_checklist still returns the always-on
         // structural checks (section presence) — never fabricated guideline
@@ -552,6 +616,14 @@ fn run_pipeline_inner(
             &registry,
         ))
     })();
+
+    // 8GB OOM guard, moved here from inside the verification lane: SLM-2 must be
+    // out of memory before any NEXT analysis loads candle SLM-1. It fires after
+    // the debate because the debate is where `RevisingVerificationAgent` makes
+    // its second proxy call — unloading before that would force a reload
+    // mid-debate. Unconditional and outside the `match` so it runs on the error
+    // path too: a failed synthesis must not leave the model resident.
+    crate::models::unload_slm2();
 
     let report = match report {
         Ok(r) => r,
@@ -1393,6 +1465,182 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
         assert!(
             checklist.iter().all(|c| c["guideline_source"].is_null()),
             "no guidelines → no guideline-derived items, got {checklist:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod revision_pin {
+    //! **§5.1 — production must be able to converge PAST round one.**
+    //!
+    //! Before this, the six debate participants were all `PrecomputedAgent` and
+    //! `SwarmAgent::revise` defaults to `None`, so every run ended in round one
+    //! with `revised_agents: []` — measured empty in 22 of 22 stored reports.
+    //! The mesh round-table was a vote.
+    //!
+    //! # WHY TWO TESTS AND NOT ONE END-TO-END TEST
+    //!
+    //! The honest instrument would drive `run_pipeline_inner` and assert
+    //! `rounds_run > 1`. **It cannot be written hermetically.** Revision needs a
+    //! verification report with real citation ids, which needs `items`, which
+    //! the lane only fills by calling CrossRef/OpenAlex per reference — real
+    //! network, which this repo forbids in tests. Seeding the refverify cache to
+    //! fake it would mean asserting on a path no user takes.
+    //!
+    //! So the property is split, and each half says what it cannot see:
+    //!
+    //! 1. [`the_debate_revises_when_a_peer_disagrees`] proves the MECHANISM
+    //!    against the pipeline's own five precomputed peers. It cannot prove the
+    //!    pipeline uses it.
+    //! 2. [`the_pipeline_wires_the_reviser_into_the_verification_slot`] proves
+    //!    the WIRING by reading the source. It cannot prove the mechanism works.
+    //!
+    //! Together they cover the regression; apart, either would pass while the
+    //! debate was still a vote.
+
+    use super::*;
+    use gaply_core::extract::citations::Reference;
+    use gaply_core::refverify::{ExistenceCheck, Provenance, ReferenceVerification};
+    use gaply_core::swarm::{AgentKind, ANSWER_CONCERN};
+    use gaply_core::verify_agent::{verify_citations, MockProxyClient};
+
+    fn reference() -> Reference {
+        Reference {
+            raw: "Doe, J. (2022). A paper. https://doi.org/10.1/abc".into(),
+            authors: "Doe, J.".into(),
+            year: Some(2022),
+            title: Some("A paper".into()),
+            doi: Some("10.1/abc".into()),
+        }
+    }
+
+    fn items() -> Vec<(Reference, ReferenceVerification)> {
+        let mut rv = ReferenceVerification {
+            reference_raw: "Doe, J. (2022). A paper.".into(),
+            exists: None,
+            retraction: None,
+            open_access: None,
+            enrichment: None,
+            provenance: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let prov = Provenance {
+            source: "crossref".into(),
+            url: "https://api.crossref.org/works/10.1/abc".into(),
+            fetched_at: 0,
+            checksum: String::new(),
+            from_cache: false,
+        };
+        rv.exists = Some(ExistenceCheck {
+            source: "crossref",
+            found: true,
+            doi: Some("10.1/abc".into()),
+            title: None,
+            matched_authors: None,
+            matched_year: Some(2022),
+            is_retracted_hint: None,
+            provenance: prov.clone(),
+        });
+        rv.provenance.push(prov);
+        vec![(reference(), rv)]
+    }
+
+    /// **THE MECHANISM.** The verification participant revises when a peer
+    /// contradicts it, and the debate therefore runs past round one.
+    ///
+    /// The peers are `PrecomputedAgent`s built by the same `adapters::*`
+    /// functions `run_pipeline_inner` uses, with one deliberately dissenting —
+    /// which is exactly the trigger `revising.rs` documents (a peer whose
+    /// stance contradicts ours).
+    #[test]
+    fn the_debate_revises_when_a_peer_disagrees() {
+        let proxy = MockProxyClient::returning_sequence(vec![
+            serde_json::json!({"verdicts": [{
+                "citation_id": "c1", "verdict": "SUPPORTED", "confidence": 0.9,
+                "rationale": "matches", "evidence_refs": ["ev-c1-0"]
+            }]}),
+            serde_json::json!({"verdicts": [{
+                "citation_id": "c1", "verdict": "UNKNOWN", "confidence": 0.3,
+                "rationale": "peer similarity finding undermines support",
+                "evidence_refs": ["ev-c1-0"]
+            }]}),
+        ]);
+        let its = items();
+        let initial = verify_citations(&proxy, &its).expect("initial verification");
+
+        let mut reviser = RevisingVerificationAgent::new(&proxy, its, initial);
+        let outcome = {
+            let mut agents: Vec<Box<dyn SwarmAgent + '_>> = vec![
+                // A dissenting peer — the contradiction that triggers revision.
+                Box::new(PrecomputedAgent::new(gaply_core::swarm::Opinion {
+                    agent: AgentKind::Plagiarism,
+                    answer: ANSWER_CONCERN.into(),
+                    explanation: "high-similarity match".into(),
+                    confidence: 0.92,
+                    hard_constraint: false,
+                    gate_passed: true,
+                })),
+                Box::new(&mut reviser),
+            ];
+            run_debate(&mut agents, &DebateConfig::default()).expect("debate runs")
+        };
+
+        assert!(
+            outcome.rounds_run > 1,
+            "production converged in round one on a fixture designed to provoke revision — \
+             the debate is a vote again: {outcome:?}"
+        );
+        assert!(
+            outcome.revised_agents.contains(&AgentKind::Verification),
+            "the verification agent must be recorded as having revised: {:?}",
+            outcome.revised_agents
+        );
+
+        // And the REVISED report is what a caller gets back — the property
+        // `compile_report` depends on, since it builds per-citation findings
+        // from it and would otherwise contradict `revised_agents`.
+        let (_returned_items, revised) = reviser.into_parts();
+        assert!(
+            revised.verdicts.iter().any(|v| v.verdict == gaply_core::verify_agent::Verdict::Unknown),
+            "into_parts must hand back the RECONSIDERED report, not the original: {revised:?}"
+        );
+    }
+
+    /// **THE WIRING.** The pipeline's consent-granted path constructs a
+    /// `RevisingVerificationAgent`, and does NOT build the verification slot
+    /// from `adapters::from_verification_report` there.
+    ///
+    /// A source scan, for the reason in the module header. What it cannot catch:
+    /// a reviser that is constructed and then never reaches `run_debate`, or one
+    /// whose revision is discarded. The mechanism test above covers neither of
+    /// those either — only a hermetic end-to-end run would, and that is blocked
+    /// on the network dependency described above.
+    #[test]
+    fn the_pipeline_wires_the_reviser_into_the_verification_slot() {
+        let src = include_str!("pipeline.rs");
+        let synth = src
+            .split("--- synthesis: round-table debate")
+            .nth(1)
+            .expect("the synthesis block must exist")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("bounded by the test module");
+
+        assert!(
+            synth.contains("RevisingVerificationAgent::new("),
+            "the synthesis block no longer constructs a RevisingVerificationAgent — the \
+             verification participant cannot revise and every debate will converge in \
+             round one"
+        );
+        // The precomputed verification participant is legitimate on exactly one
+        // path: consent refused, where no proxy exists to reconsider with. It
+        // must not appear outside that arm.
+        let precomputed_verification =
+            synth.matches("from_verification_report(").count();
+        assert_eq!(
+            precomputed_verification, 1,
+            "expected exactly one precomputed verification participant (the consent-refused \
+             arm); found {precomputed_verification}"
         );
     }
 }

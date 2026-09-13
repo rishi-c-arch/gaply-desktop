@@ -452,6 +452,66 @@ pub(crate) mod scripted {
     /// `/api/chat` (the scripted reply), `/api/ps` (no residents), and
     /// `/api/generate` (unload ack). Returns the endpoint URL. The acceptor
     /// thread lives until the test binary exits — fine for tests.
+    /// Like [`scripted_ollama`] but returns a DIFFERENT reply per `/api/chat`
+    /// call, in order, repeating the last one once exhausted.
+    ///
+    /// The reconsideration path needs this: `RevisingVerificationAgent` holds
+    /// its revision only when the second proxy round says something different
+    /// from the first, so a constant double cannot exercise it at all.
+    pub(crate) fn scripted_ollama_sequence(replies: Vec<String>) -> String {
+        assert!(!replies.is_empty(), "a scripted sequence needs at least one reply");
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let mut chat_calls = 0usize;
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { break };
+                let mut buf = Vec::new();
+                let mut byte = [0u8; 1];
+                while !buf.ends_with(b"\r\n\r\n") {
+                    match s.read(&mut byte) {
+                        Ok(1) => buf.push(byte[0]),
+                        _ => break,
+                    }
+                }
+                let head = String::from_utf8_lossy(&buf).to_string();
+                let content_length: usize = head
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse().unwrap_or(0))
+                    })
+                    .unwrap_or(0);
+                let mut body = vec![0u8; content_length];
+                if content_length > 0 {
+                    let _ = s.read_exact(&mut body);
+                }
+                let reply = if head.starts_with("GET /api/version") {
+                    r#"{"version":"0.0.0-scripted"}"#.to_string()
+                } else if head.starts_with("GET /api/ps") {
+                    r#"{"models":[]}"#.to_string()
+                } else if head.starts_with("POST /api/chat") {
+                    let idx = chat_calls.min(replies.len() - 1);
+                    chat_calls += 1;
+                    serde_json::json!({
+                        "message": {"role": "assistant", "content": replies[idx]}
+                    })
+                    .to_string()
+                } else {
+                    "{}".to_string()
+                };
+                let _ = write!(
+                    s,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    reply.len(),
+                    reply
+                );
+            }
+        });
+        format!("http://{addr}")
+    }
+
     pub(crate) fn scripted_ollama(chat_content: &'static str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().unwrap();
