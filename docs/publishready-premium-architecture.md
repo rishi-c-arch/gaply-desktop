@@ -1,7 +1,15 @@
 # PublishReady Premium — Architecture
 
-*Design document, v5. Grounded in the 13 September teardown (HEAD 568efd4), AgentFlow (arXiv 2604.20801), Context Engineering (arXiv 2603.09619), MetaGPT (2308.00352), AutoGen (2308.08155), and ChatDev (2307.07924). Revised after three external reviews and against the attached reviewer-criteria document ("What Reviewers of Top-Quartile Journals Evaluate"); §14 records what was taken and what was refused.*
+*Design document, v6. Grounded in the 13 September teardown (HEAD 568efd4), AgentFlow (arXiv 2604.20801), Context Engineering (arXiv 2603.09619), MetaGPT (2308.00352), AutoGen (2308.08155), and ChatDev (2307.07924). Revised after three external reviews and against the attached reviewer-criteria document ("What Reviewers of Top-Quartile Journals Evaluate"); §14 records what was taken and what was refused.*
 
+> **v6 — one correction, and it is to the architecture.** §3.1's "Privacy class"
+> column conflated *what needs consent to leave the machine* with *who may read
+> it*. Read as a read-permission it would have required premium consent to parse
+> a file the user had just opened. The table now states the egress class and the
+> read rule separately; §3.1 carries how it was found, which is the part worth
+> keeping — a spec, an implementation and a test all agreeing and all three
+> wrong.
+>
 > **v5 — what changed and why.** v4 was written from the teardown and never
 > checked against the tree. Reading the code found nine claims about current
 > behaviour that were wrong, stale, or untraceable — one of them load-bearing
@@ -143,14 +151,59 @@ The fabric is six layers. Each is a distinct epistemic object with a distinct pr
 
 ### 3.1 Layers
 
-| Layer | Contents | Privacy class | Who may read it |
+**[v6 — the "Privacy class" column meant the wrong thing, and this is a defect
+in the architecture rather than a note about the code. See below the table.]**
+
+**PRIVACY CLASSES ARE ABOUT EGRESS, NOT READING.** A layer's class says what
+needs consent to **leave the machine**, never who may look at it locally. The
+column is renamed accordingly, and the read rule is stated in full because the
+wrong half of it is the part that was missing:
+
+> **Any agent may READ any layer. A CLOUD agent may only SEND a layer whose
+> egress class requires consent if it declares a scope that COVERS that layer —
+> and a scope that exists but does not cover it is rejected.**
+
+That last clause is the hole: `requires_consent.is_some()` waves through an
+agent that declares `JournalResearch` and then sends the manuscript.
+
+| Layer | Contents | Egress class — what consent it needs to LEAVE | Who may read it (locally: anyone) |
 |---|---|---|---|
-| **Manuscript** | full text, sections, figures, tables | premium, `Manuscript` consent | manuscript-facing specialists |
-| **Analysis** | the analysis record parsed from code/SPSS/MATLAB/notebooks; raw data structure | premium, separate `Analysis*` consents — code and data are more sensitive than prose | methodological specialists |
-| **Journal** | ingested guidelines, scope, recent-paper corpus, reporting-standard bindings — the `JournalFingerprint` (§7) | public, shared across users | journal-fit and reporting specialists |
-| **External evidence** | cited works, retraction records, OA full texts, public literature the research agent gathers | public, cached, injection-guarded | integrity and literature specialists |
-| **Research state** | the machine-readable study: question, hypotheses, design, population, variables, outcomes, claims, methods, analyses, results, table/figure POINTERS, references, uncertainties | structured, gate-safe | every agent |
+| **Manuscript** | full text, sections, figures, tables | `Manuscript` consent to leave. **No consent to read** — the free tier's extraction reads all of it locally and sends nothing | manuscript-facing specialists |
+| **Analysis** | the analysis record parsed from code/SPSS/MATLAB/notebooks; raw data structure | `AnalysisCode` / `AnalysisData` to leave — code and data are more sensitive than prose | methodological specialists |
+| **Journal** | ingested guidelines, scope, recent-paper corpus, reporting-standard bindings — the `JournalFingerprint` (§7) | none — public, shared across users | journal-fit and reporting specialists |
+| **External evidence** | cited works, retraction records, OA full texts, public literature the research agent gathers | `ExternalEvidence` — public, cached, injection-guarded, but the SELECTION is about this manuscript | integrity and literature specialists |
+| **Research state** | the machine-readable study: question, hypotheses, design, population, variables, outcomes, claims, methods, analyses, results, table/figure POINTERS, references, uncertainties | none — structured, gate-safe, carries no prose | every agent |
 | **Verdict** | findings with epistemic status, evidence, per-agent opinions, revision history, disagreement map, consensus, decision ledger | never leaves | synthesis, chat |
+
+#### [v6] HOW THIS WAS FOUND — three things agreeing, and all three wrong
+
+The original column said the Manuscript layer was *"premium, `Manuscript`
+consent"*, under a heading — *"Who may read it"* — that made it a READ
+permission. Read that way, **the free tier would need premium consent to parse a
+file the user had just opened.**
+
+The sequence is the finding, not a footnote:
+
+1. **The spec was wrong** — a privacy column that conflated reading with sending.
+2. **The implementation followed the spec.** `agent_graph.rs`'s first rule was
+   `layer.is_premium_consented() && requires_consent.is_none()` → error, for any
+   agent, cloud or not.
+3. **The test pinned the implementation.**
+   `reading_the_manuscript_layer_without_consent_is_rejected` asserted exactly
+   that, and passed.
+
+Three artefacts agreeing with each other, all three wrong, and no amount of
+re-reading any of them would have surfaced it — each was consistent with the
+other two. **What broke the loop was building a real graph and watching the
+validator reject something obviously legitimate**: `extraction`, a local
+deterministic pass that transmits nothing, failed to validate. The absurdity of
+the rejection is what exposed the premise; the test was then corrected along
+with the rule it was pinning.
+
+This is the §11 D129 shape one level up — not two copies of a claim drifting
+apart, but three copies of a claim staying perfectly in sync while all of them
+are false. Agreement between a spec, its implementation and its test is evidence
+that they were derived from each other, not that any of them is right.
 
 **[Phase 1 — two corrections, both found by building it.]**
 
@@ -315,6 +368,12 @@ This is AgentFlow's DSL applied. The graph is data (a `.ron` or `.json` file), v
 **The scientific layer is now a dependency rather than a flag.** `graph.requires_scientific_extraction()` decides whether the pipeline derives it, so a lane that reads nothing pays nothing and there is no list to maintain. It is deferred rather than passed as `ExtractOptions::scientific`, because which agents are scheduled can depend on what extraction found — the decision cannot be made before extraction runs, and re-running with the flag set would pay the base cost twice. No shipped agent declares it yet, pinned by a test that is where switching it on becomes deliberate.
 
 **The six lanes are described by the graph, and the description is pinned against reality** — `the_graphs_order_matches_the_pipelines_lane_order` fails if the graph and `run_pipeline_inner` disagree, because a graph that describes something that does not happen is worse than no graph when the next phase routes over it. The report stayed **byte-identical** against `tests/fixtures/report.golden.json` through the migration.
+
+**TWO THINGS THIS DID NOT DO, stated plainly because the phrase "moved onto it" does lighter work than it sounds.**
+
+**The lanes are DESCRIBED by the graph, not DRIVEN by it.** `run_pipeline_inner` still executes its six lanes in a hardcoded sequence. What the graph supplies today is the declaration of record and the derivable-artifact decision; the order is pinned against the executor so the two cannot diverge silently, which is a guarantee about agreement, not about control. **A graph-driven executor is a separate change, and the golden test cannot cover it** — byte-identity proves the report did not move, not that the mechanism producing it is the one the graph describes. That change needs its own instrument.
+
+**The cloud rule is enforced in two halves, and only one of them runs.** The validator checks at build time that a cloud agent DECLARES a scope covering what it reads. It cannot check that the running harness holds a `Tier::Premium(record)` whose stored scope actually covers what was sent — that is `run_premium_gate`'s job, and **`run_premium_gate` still has no production runner**. So §4.3's *"every cloud agent has a `Tier::Premium` gate upstream"* is today a static declaration plus a runtime gate that nothing in production invokes.
 
 ### 4.4 Trust tiers
 
@@ -877,6 +936,22 @@ Roughly three months to Phase 6. The forty agents arrive in Phase 4 as specialis
 
 **Taken from the third review and the reviewer-criteria document:** the pasted URL as an entry point into the journal's instruction ecosystem — discovery, collection, classification, extraction, normalisation, conflict detection, article-type binding, with a source tree per requirement; the four-way status on every journal fact (`VERIFIED / INFERRED / UNAVAILABLE / CONFLICTED`); comparable corpus with filters rather than "latest fifty"; reviewer lenses as perspectives over specialists, with criteria lifted from the document; the editor as a distinct layer with deterministic severity precedence from the document's risk table; editorial posture (Accept / Minor / Major / Reject) as a recommendation with counts and causes, still no probability; novelty claim-by-claim against retrieved prior work; significance separated from novelty; claim–evidence strength with the causal-overclaim check; reviewer reports in the real shape; backend-extracts-frontend-displays as an absolute invariant; a red-team phase before any researcher sees it.
 
+**[v6] The one correction that ran the other way.** Every earlier correction was
+the document being stale about the code: v5 re-ran nine claims against the tree
+and the code won each time. §3.1's privacy-class column is the first where **the
+document was wrong and the code was faithfully implementing the error** — the
+spec conflated egress with reading, `agent_graph.rs`'s first consent rule
+followed it exactly, and a test pinned that rule and passed.
+
+Three artefacts in perfect agreement, none of them right, and re-reading any one
+of them would have confirmed the other two. **What broke it was building a real
+graph and watching the validator reject `extraction`** — a local deterministic
+pass that transmits nothing. The rejection was obviously wrong, and that is what
+made the premise visible. The lesson generalises past this document: agreement
+between a spec, its implementation and its test is evidence that they were
+derived from one another, not that any of them is correct. The thing that tests
+a premise is a case it has to decide, not another reading of it.
+
 **Refused from the third review:** component scores out of ten — the document's own §6c.2 says why.
 
 **Refused from the second review:** the evaluation matrix's example values (96%, 100%, 91%) — invented numbers in a design document are the thing this project exists to not do; the thirteen-box diagram, which places the reliability engine *after* the harness when the review's own §3 correctly places deterministic verification *before* the agents so that Tier 0 sets the floor.
@@ -891,4 +966,4 @@ One thing found that no review or reading would have: `src-tauri/tests/decision_
 
 ---
 
-*Every design decision names the paper or the finding it rests on. Claims about current behaviour traced to the 13 September teardown until v5, which re-ran them against the tree and corrected nine; where the teardown and the code disagreed, **the code won**, and the correction is marked in place rather than silently applied.*
+*Every design decision names the paper or the finding it rests on. Claims about current behaviour traced to the 13 September teardown until v5, which re-ran them against the tree and corrected nine; where the teardown and the code disagreed, **the code won**, and the correction is marked in place rather than silently applied. v6 is the first correction that went the other way — not the document being stale about the code, but the document being WRONG, with the code and its tests faithfully implementing the error.*
