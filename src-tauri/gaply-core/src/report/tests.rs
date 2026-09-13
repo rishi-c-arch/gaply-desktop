@@ -1521,3 +1521,108 @@ fn an_unresolvable_citation_id_yields_a_typed_absence_not_an_index() {
     assert!(title.contains("a reference"), "typed absence: {title}");
     assert!(!title.contains("c9"), "must not leak the index: {title}");
 }
+
+// ============================================================================
+// BLOCKER 4 — the disclaimer describes the tiers the report actually has
+// ============================================================================
+
+/// **A tier no finding carries must not be explained as though it did.**
+///
+/// The disclaimer named three certainty tiers unconditionally, including
+/// *"'reconsidered after peer review' findings were revised by the verification
+/// agent after seeing other agents' evidence"*. Nothing in production can
+/// revise: every participant is a `PrecomputedAgent` and `SwarmAgent::revise`
+/// returns `None`, so `revised_agents` is empty on every run — measured as empty
+/// in **22 of 22** stored reports.
+///
+/// A researcher reading that sentence would reasonably conclude a peer-review
+/// step had happened and found nothing to revise. No such step ran. The clause
+/// describes a mechanism that exists in the code and did not execute, which is a
+/// worse failure than a missing explanation: it is an explanation of something
+/// that did not occur, printed beside findings that did.
+#[test]
+fn the_disclaimer_omits_the_revision_tier_when_nothing_was_revised() {
+    let outcome = minimal_outcome();
+    assert!(
+        outcome.revised_agents.is_empty(),
+        "fixture precondition: this outcome must have no revisions"
+    );
+    let ex = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nR.\n");
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+
+    assert!(
+        !report.disclaimer.contains("reconsidered after peer review"),
+        "the disclaimer explains a tier no finding carries: {:?}",
+        report.disclaimer
+    );
+    // The two tiers that ARE reachable must still be explained — the fix is to
+    // drop a clause, never to drop the disclaimer.
+    assert!(report.disclaimer.contains("mathematically certain"), "{:?}", report.disclaimer);
+    assert!(report.disclaimer.contains("AI-assessed"), "{:?}", report.disclaimer);
+    assert!(!report.disclaimer.is_empty());
+
+    // And no finding may claim the tier either — the disclaimer and the
+    // findings must agree about which tiers this report has.
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.tier == CertaintyTier::ReconsideredAfterPeerReview),
+        "a finding carries the revision tier on a run with no revisions"
+    );
+}
+
+/// The other direction, so the fix is not "delete the sentence". When an agent
+/// DOES revise, the clause must come back — otherwise the tier would be carried
+/// by findings and explained nowhere, which is the same defect mirrored.
+///
+/// Built the same way as
+/// `every_finding_carries_provenance_and_correct_tier_including_reconsidered`:
+/// a scripted two-response proxy, so the verification agent revises on seeing
+/// the plagiarism agent's concern.
+#[test]
+fn the_disclaimer_restores_the_revision_tier_when_an_agent_revises() {
+    let proxy = MockProxyClient::returning_sequence(vec![
+        json!({"verdicts": [{
+            "citation_id": "c1", "verdict": "SUPPORTED", "confidence": 0.9,
+            "rationale": "matches", "evidence_refs": ["ev-c1-0"]
+        }]}),
+        json!({"verdicts": [{
+            "citation_id": "c1", "verdict": "UNKNOWN", "confidence": 0.3,
+            "rationale": "peer similarity finding undermines support",
+            "evidence_refs": ["ev-c1-0"]
+        }]}),
+    ]);
+    let reference = Reference {
+        raw: "Doe, J. (2022). A paper. https://doi.org/10.1/abc".into(),
+        authors: "Doe, J.".into(),
+        year: Some(2022),
+        title: Some("A paper".into()),
+        doi: Some("10.1/abc".into()),
+    };
+    let items = verification_items(reference);
+    let initial = verify_citations(&proxy, &items).unwrap();
+    let mut agents: Vec<Box<dyn SwarmAgent + '_>> = vec![
+        Box::new(PrecomputedAgent::new(opinion(
+            AgentKind::Plagiarism,
+            crate::swarm::ANSWER_CONCERN,
+            0.92,
+        ))),
+        Box::new(RevisingVerificationAgent::new(&proxy, items, initial)),
+    ];
+    let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
+    assert!(
+        outcome.revised_agents.contains(&AgentKind::Verification),
+        "fixture precondition: this outcome must contain a revision"
+    );
+
+    let ex = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nR.\n");
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+    assert!(
+        report.disclaimer.contains("reconsidered after peer review"),
+        "a revised run must explain the tier its findings carry: {:?}",
+        report.disclaimer
+    );
+}

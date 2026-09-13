@@ -222,11 +222,46 @@ pub struct PublishReadyReport {
     pub disclaimer: String,
 }
 
-const DISCLAIMER: &str = "Certainty tiers: 'mathematically certain' findings are \
+/// The two tiers every report can carry.
+const DISCLAIMER_BASE: &str = "Certainty tiers: 'mathematically certain' findings are \
 deterministic rule verdicts and require correction; 'AI-assessed, moderate confidence' \
 findings are statistical or model-derived signals — indicators for human review, never \
-definitive proof; 'reconsidered after peer review' findings were revised by the \
-verification agent after seeing other agents' evidence and remain non-definitive.";
+definitive proof";
+
+/// The third clause — appended ONLY when an agent actually revised.
+const DISCLAIMER_REVISED: &str = "; 'reconsidered after peer review' findings were revised \
+by the verification agent after seeing other agents' evidence and remain non-definitive";
+
+/// **The disclaimer explains the tiers THIS report has, not the tiers the type
+/// can express.**
+///
+/// # Why this stopped being a constant
+///
+/// It named all three tiers unconditionally. Nothing in production can revise —
+/// every participant is a `PrecomputedAgent` and [`crate::swarm::SwarmAgent::revise`]
+/// returns `None` — so `revised_agents` is empty on every run, measured empty in
+/// **22 of 22** stored reports. A researcher reading the third clause would
+/// reasonably conclude a peer-review step ran and found nothing to revise.
+///
+/// **That is worse than an absent explanation.** A missing sentence leaves a
+/// reader uninformed; this one described a mechanism that exists in the code and
+/// did not execute, printed beside findings that did — and it was the sentence
+/// most likely to be quoted as evidence the review was thorough.
+///
+/// The clause is not deleted. When [`crate::swarm::RevisingVerificationAgent`]
+/// is wired into the pipeline (§5.1 of the premium architecture) revisions will
+/// happen, and the clause returns on exactly the runs that have them. Both
+/// directions are pinned:
+/// `the_disclaimer_omits_the_revision_tier_when_nothing_was_revised` and
+/// `the_disclaimer_restores_the_revision_tier_when_an_agent_revises`.
+fn disclaimer_for(revised: bool) -> String {
+    let mut s = String::from(DISCLAIMER_BASE);
+    if revised {
+        s.push_str(DISCLAIMER_REVISED);
+    }
+    s.push('.');
+    s
+}
 
 // ============================================================================
 // Compiler
@@ -741,7 +776,10 @@ pub fn compile_report(
             rejected_agents: outcome.rejected.iter().map(|o| o.agent).collect(),
             revised_agents: outcome.revised_agents.clone(),
         },
-        disclaimer: DISCLAIMER.into(),
+        // Derived from the SAME `outcome.revised_agents` the `DebateSummary`
+        // above reports, read at one site, so the prose and the structured
+        // field cannot disagree about whether anything was revised.
+        disclaimer: disclaimer_for(!outcome.revised_agents.is_empty()),
     }
 }
 
