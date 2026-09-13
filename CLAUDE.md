@@ -460,6 +460,58 @@ time injection.
     not flagged at all, because it felt measured: a command had been run and had
     genuinely exited 1. Confidence tracks *having measured something*, not
     *having measured the right thing*, so it is the weaker signal of the two.
+- **BEFORE CALIBRATING A FIX AGAINST A "CLEAN" REFERENCE IN THE SAME CODEBASE,
+  VERIFY THE REFERENCE IS CLEAN. A reference point inside the system under
+  measurement is a MEASUREMENT, not a constant, and it needs the same scrutiny
+  as the thing being fixed.**
+
+  **This is a different failure family from the three entries below it.** Those
+  are instruments reporting success while the thing they watched failed — a
+  swallowed exit status, a pattern matching the watcher, a batch whose harness
+  was broken. This one is an instrument working perfectly on a contaminated
+  input: the arithmetic was right, the reasoning was right, and the number was
+  wrong because the ruler was.
+
+  Measured 13 Sep 2026. The scientific-extraction passes compiled their regexes
+  once per sentence, costing 30.4 s across six manuscripts. Predicting what
+  caching them would save, `variables.rs` was taken as the floor for
+  "correctly-cached matching work" at **1.3–1.9 ms/sentence** — it used
+  `OnceLock`, so it looked like the clean case. **It had four uncached regexes
+  of its own.** The prediction inherited the defect it was measuring:
+
+  | | predicted | measured |
+  |---|---:|---:|
+  | R PAPER | 250–350 ms | **2.8 ms** |
+  | final final L | 2.5–3.5 s | **150 ms** |
+  | corpus | 4–6 s | **196 ms** |
+
+  **20–100x too pessimistic, all of it traceable to the calibration file.**
+
+  **An EXTERNAL floor would not have had the defect.** "What does matching a
+  compiled regex cost, independent of this codebase" is answerable from first
+  principles — roughly two orders of magnitude below compiling one — and that
+  is the number that turned out to be right. Prefer a floor that does not live
+  in the code you are changing; when you must use an internal one, measure it
+  first and say that you did.
+
+  **WHAT EXPOSED IT WAS THE GUARD, NOT THE READING — and the source pass that
+  produced the prediction had already looked at that file.** A
+  `tests/regex_compilation_guard.rs` scan written afterwards found **nine
+  uncached regexes the careful read had missed**, five in `datasets.rs` and
+  **four in the calibration file itself**. That is the argument for building the
+  instrument rather than trusting a thorough pass: the pass was thorough, was
+  performed by someone who knew exactly what to look for, and missed a third of
+  the instances — including the ones that invalidated its own conclusion.
+
+  **A related honesty point from the same fix.** An O(n²) pointer-identity scan
+  (`methods.rs`, recovering an index `enumerate()` already had) was corrected in
+  the same change. It was **below the probe's resolution** and is not separately
+  measurable — it ran only on sentences that already matched a statistic. It was
+  fixed because it was WRONG, not because it was slow, and the accounting says
+  so: essentially all the cost was regex compilation. Listing it as a
+  contributing optimisation would have inflated the story of the fix with a
+  change that bought nothing measurable.
+
 - **A BATCH RUN MUST CONTAIN A KNOWN-GOOD CASE. A uniformly clean result is the
   signature of a broken instrument, and the known-good case is the only thing
   that can tell you.** Measured 13 Sep 2026, re-measuring the AI-detection
