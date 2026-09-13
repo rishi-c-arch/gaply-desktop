@@ -237,6 +237,39 @@ time injection.
   design (~400 MB) — and says so rather than failing ambiguously; `gaply_core`
   is the crate that must build from source alone and is always checked.
 
+  **WHY the script scopes itself to `gaply_core`, stated plainly so nobody
+  concludes an earlier commit was broken:** *the app crate cannot build in a
+  fresh worktree AT ALL*, at any commit, however healthy. `tauri-build` resolves
+  `tauri.conf.json`'s bundle resources at build-script time and fails hard:
+
+  ```
+  resource path `bundled-models/tokenizer.json` doesn't exist
+  error: failed to run custom build command for `app v0.1.0`
+  ```
+
+  `bundled-models/` is gitignored by design (~400 MB), so a `git worktree add`
+  never has it. This is a property of the CHECKOUT, not of the code, and it looks
+  exactly like a broken commit if you meet it without knowing — measured 13 Sep
+  2026 while capturing a golden fixture from `e5eb963`, a commit whose CI was
+  fully green.
+
+  **So any capture-from-an-earlier-commit must supply the models.** Symlinks are
+  enough and avoid a second 400 MB copy:
+
+  ```bash
+  git worktree add --detach "$WT" <ref>
+  mkdir -p "$WT/src-tauri/bundled-models"
+  for f in ~/dev/gaply-react-frontend/src-tauri/bundled-models/*; do
+    ln -sf "$f" "$WT/src-tauri/bundled-models/$(basename "$f")"
+  done
+  ```
+
+  Symlinking **into the live tree** is correct here and is not the
+  `~/gaply-models` mistake above — that one pointed at the DEAD `~/Desktop`
+  tree. Remove the worktree when done (`git worktree remove --force`), and note
+  that a scratchpad worktree does not survive a session boundary: it comes back
+  as `prunable`, and `git worktree prune` is the cleanup.
+
   **CI now enforces this too**, which it did not before. `.github/workflows/
   clean-checkout.yml` runs on every push and PR and builds + tests `gaply_core`
   from the checkout — a CI checkout IS the committed tree, so a missing
@@ -462,6 +495,39 @@ time injection.
   **0.0% CPU** with a network- or keychain-shaped stack is blocked, not working
   (that is how §11 D154's consent hole surfaced, on the very next attempt at
   this same table).
+
+- **NEVER READ THE EXIT STATUS OF A COMMAND YOU PIPED. Capture to a file, then
+  read the status AND the file.** A shell pipeline reports the LAST stage's
+  status, so `cargo build --example x 2>&1 | tail -20` exits **0** on a build
+  that failed — you get `tail` succeeding at printing an error.
+
+  Measured 13 Sep 2026, and it cost two rounds. A golden-fixture capture was
+  reported as built; the binary did not exist; the log showed `Finished` because
+  `tail` had only kept the last 20 lines, which were `gaply_core`'s warnings from
+  BEFORE the app crate failed. Re-run as `cargo build … > build.log 2>&1; echo
+  "CARGO_EXIT=$?"` it printed `CARGO_EXIT=101` and the real cause on the first
+  line of the file.
+
+  ```bash
+  # WRONG — $? is tail's, and the head of the error is discarded
+  cargo build --example x 2>&1 | tail -20
+
+  # RIGHT — the status is cargo's, and the whole log survives
+  cargo build --example x > build.log 2>&1; echo "CARGO_EXIT=$?"; tail -25 build.log
+  ```
+
+  **And check for the artefact, not only the status.** `CARGO_EXIT=0` was
+  confirmed alongside `ls target/debug/examples/x` before the capture was
+  trusted, because a status that has already lied twice is not evidence on its
+  own.
+
+  **This is the same shape as the two entries around it, which is why they sit
+  together:** `|| true` swallowing a missing binary, a pipe reporting the wrong
+  stage, and `pkill -f` matching the watcher instead of the target
+  (`dev-detached.sh --stop`). In every case **the instrument reported success
+  while the thing it was watching had failed**, and in every case the tell was
+  an artefact that should have existed and did not. Trust the artefact over the
+  status.
 
 - **A Bash call refused by the permission classifier runs NOTHING, including the
   parts you later assume ran. `git status` is the only thing that catches it.**
