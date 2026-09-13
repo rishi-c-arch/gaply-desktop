@@ -302,6 +302,20 @@ struct AgentSpec {
 
 This is AgentFlow's DSL applied. The graph is data (a `.ron` or `.json` file), validated at build time: no cycle, every `reads` is a layer that exists, every cloud agent has a consent gate upstream, every `hard_constraint` agent has `model: None`.
 
+**[BUILT — `gaply-core/src/agent_graph.rs` + `data/agent_graph.json`. Three corrections came out of building it.]**
+
+**1. `requires` needs two kinds, and §4.3 only has one.** It is defined here as *"absent → agent is not invoked"*, which is right for `AnalysisRecord` — the researcher uploaded code or did not, and absence is a fact about the submission. It is wrong for `ScientificExtraction`, which the harness can PRODUCE from the manuscript it already parsed. `Artifact::is_derivable` splits them: derivable-and-required → the harness computes it; supplied-and-absent → the agent is not invoked. Conflating them gives either an agent that never runs because nobody set a flag, or a harness trying to conjure an analysis record out of prose.
+
+**2. "every `reads` is a layer that exists" is enforced by the TYPE, not by the validator.** `Layer` is a closed enum, so a graph file naming `"quantum_layer"` fails to DESERIALIZE and never reaches validation. What remains checkable is the degenerate case the type cannot express — an agent declaring no layers at all. A test records where the rule lives so nobody adds a redundant check or removes the type guarantee believing a check covers it.
+
+**3. §3.1's privacy classes are about EGRESS, not about reading — and the first graph written against the other reading failed to validate.** `extraction` reads the whole Manuscript layer on the free tier and transmits nothing; requiring `Manuscript` consent to read it would mean the free tier needed premium consent to parse a file the user just opened. The rule is therefore: a LOCAL agent may read any layer; a CLOUD agent reading a layer whose content needs consent to leave must declare a scope COVERING that layer. `ConsentScopeName::covers` is that mapping, and a scope that exists but does not cover the layer is rejected — the case a bare `is_some()` check waves through.
+
+**The validator was built before the graph, and each rule was broken separately**: a two-node cycle and a three-node cycle, a missing dependency (asserted NOT to be reported as a cycle — different fixes, different places to look), a cloud agent with no gate, a gate on a local agent, a hard-constraint agent with a local model and with a cloud model, an agent reading nothing, and a cloud agent whose scope does not cover what it reads. Each asserts the REASON, because a validator reporting `Cycle` for a missing gate would pass a bare `is_err()`. Every violation is returned, not the first, so fixing a graph is not an N-round game.
+
+**The scientific layer is now a dependency rather than a flag.** `graph.requires_scientific_extraction()` decides whether the pipeline derives it, so a lane that reads nothing pays nothing and there is no list to maintain. It is deferred rather than passed as `ExtractOptions::scientific`, because which agents are scheduled can depend on what extraction found — the decision cannot be made before extraction runs, and re-running with the flag set would pay the base cost twice. No shipped agent declares it yet, pinned by a test that is where switching it on becomes deliberate.
+
+**The six lanes are described by the graph, and the description is pinned against reality** — `the_graphs_order_matches_the_pipelines_lane_order` fails if the graph and `run_pipeline_inner` disagree, because a graph that describes something that does not happen is worse than no graph when the next phase routes over it. The report stayed **byte-identical** against `tests/fixtures/report.golden.json` through the migration.
+
 ### 4.4 Trust tiers
 
 Every output carries a tier. The tier decides what may override what, and the report shows it.

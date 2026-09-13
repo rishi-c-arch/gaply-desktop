@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "extraction",
+      "reads": ["manuscript"],
+      "requires_consent": null,
+      "after": [],
+      "model": "none",
+      "trust_tier": "deterministic",
+      "hard_constraint": false,
+      "may_revise": false
+    },
+    {
+      "id": "validation_maths",
+      "reads": ["research_state"],
+      "after": ["extraction"],
+      "model": "none",
+      "trust_tier": "deterministic",
+      "hard_constraint": true,
+      "may_revise": false
+    },
+    {
+      "id": "ai_detection",
+      "reads": ["research_state"],
+      "after": ["extraction"],
+      "model": {"local": "perplexity"},
+      "trust_tier": "evidence_reasoning",
+      "hard_constraint": false,
+      "may_revise": false
+    },
+    {
+      "id": "plagiarism",
+      "reads": ["research_state", "external_evidence"],
+      "after": ["extraction"],
+      "model": "none",
+      "trust_tier": "deterministic",
+      "hard_constraint": false,
+      "may_revise": false
+    },
+    {
+      "id": "rag",
+      "reads": ["research_state", "journal"],
+      "after": ["extraction"],
+      "model": "none",
+      "trust_tier": "rule",
+      "hard_constraint": false,
+      "may_revise": false
+    },
+    {
+      "id": "verification",
+      "reads": ["research_state", "external_evidence"],
+      "after": ["extraction"],
+      "model": "cloud",
+      "trust_tier": "evidence_reasoning",
+      "hard_constraint": false,
+      "may_revise": true,
+      "requires_consent": "external_evidence"
+    }
+  ]
+}

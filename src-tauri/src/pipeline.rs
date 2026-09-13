@@ -331,6 +331,16 @@ fn run_pipeline_inner(
     consent: NetworkConsent,
     emit: &dyn Fn(AnalysisEvent),
 ) -> Result<PipelineResult, GaplyError> {
+    // **THE GRAPH DECIDES WHAT RUNS (§4.3).**
+    //
+    // Validated at first use — a graph that does not validate panics rather
+    // than running unvalidated agents, which is the thing the validator exists
+    // to prevent. The lanes below still execute in a fixed sequence; what the
+    // graph supplies today is (a) the declaration of record, pinned against
+    // that sequence by `the_graphs_order_matches_the_pipelines_lane_order`, and
+    // (b) the derivable-artifact decision immediately below.
+    let graph = gaply_core::agent_graph::shipped_graph();
+
     // Parse once, up front (part of the extraction lane's work).
     let text = lane(emit, "extraction", 1, || {
         let text = extract::docparse::parse_path(std::path::Path::new(&path))?;
@@ -339,7 +349,24 @@ fn run_pipeline_inner(
 
     // 1) Extraction — real parse → sections/claims/citations, persisted.
     let extraction = {
-        let extraction = extract::extract_from_text(&text);
+        // **The scientific layer is a DEPENDENCY, not a flag.**
+        //
+        // Derived only when some scheduled agent declares
+        // `requires: [ScientificExtraction]`. No shipped agent does yet, so it
+        // is not derived and nothing pays for it — measured at 2.8-150 ms per
+        // manuscript (`examples/scientific_cost_probe.rs`), which is affordable
+        // but pointless while nothing reads the result.
+        //
+        // Deferred rather than passed as `ExtractOptions::scientific`: which
+        // agents are scheduled can depend on what extraction found, so the
+        // decision cannot be made before extraction runs, and re-running with
+        // the flag set would pay the base cost twice. The four passes take an
+        // already-built `ExtractionResult`, so they compose after the fact.
+        let extraction = if graph.requires_scientific_extraction() {
+            extract::extract_from_text_with(&text, extract::ExtractOptions::with_scientific())
+        } else {
+            extract::extract_from_text(&text)
+        };
         let manuscript_title = title
             .clone()
             .or_else(|| extraction.title.clone())
