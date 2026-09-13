@@ -1,6 +1,17 @@
 # PublishReady Premium — Architecture
 
-*Design document, v4. Grounded in the 13 September teardown (HEAD 568efd4), AgentFlow (arXiv 2604.20801), Context Engineering (arXiv 2603.09619), MetaGPT (2308.00352), AutoGen (2308.08155), and ChatDev (2307.07924). Revised after three external reviews and against the attached reviewer-criteria document ("What Reviewers of Top-Quartile Journals Evaluate"); §14 records what was taken and what was refused. Nothing here is built.*
+*Design document, v5. Grounded in the 13 September teardown (HEAD 568efd4), AgentFlow (arXiv 2604.20801), Context Engineering (arXiv 2603.09619), MetaGPT (2308.00352), AutoGen (2308.08155), and ChatDev (2307.07924). Revised after three external reviews and against the attached reviewer-criteria document ("What Reviewers of Top-Quartile Journals Evaluate"); §14 records what was taken and what was refused.*
+
+> **v5 — what changed and why.** v4 was written from the teardown and never
+> checked against the tree. Reading the code found nine claims about current
+> behaviour that were wrong, stale, or untraceable — one of them load-bearing
+> enough to have sent a whole phase at a table nothing writes to. Every
+> correction below is marked **[v5]** with what was measured. §14 records that
+> these came from reading the code, not from a review.
+>
+> **Two things are now built** (they were not when v4 said "nothing here is
+> built"): the two-gate privacy boundary (§2.2) and its decision record,
+> `docs/AI_ENGINE_PLAN.md` §11 D152. Everything else is still design.
 
 > **Gaply does not ask fifty agents whether a manuscript is good. It builds a machine-readable representation of the research, gives each specialist the minimum context it needs, tests the evidence chain independently, routes disagreement to targeted re-analysis, and produces a journal-specific readiness assessment a reviewer could retrace.**
 
@@ -12,7 +23,7 @@
 
 **Three things it refuses to do, each because the teardown showed what happens otherwise:**
 
-1. **It will not print a probability it cannot calibrate.** `citation_need` shipped at an assumed accuracy and measured 0.34. AI-detection ships with no labelled set and flags hand-written prose as `major / concern`. A publication-likelihood number is the highest-stakes output the product could have, and it ships as a *rubric score* until there is accept/reject ground truth to calibrate it against. See §8.
+1. **It will not print a probability it cannot calibrate.** **[v5 — corrected]** v4 said `citation_need` "shipped at an assumed accuracy and measured 0.34." The 0.34 is traceable to nothing: it appears nowhere in `AI_ENGINE_PLAN.md`. The real measurement (§11 D128) is **18.3% weighted precision against an 18.0% no-skill baseline** — and the lane is **already retired**, not shipping. D128's finding is also sharper than "it was weak": *"It was retired not because it was WEAK but because it was INDISTINGUISHABLE FROM A RULE THAT FLAGS EVERYTHING."* A weak signal invites a better prompt; this one had nothing to improve. AI-detection is the live example instead — it ships with no labelled set and flagged hand-written prose `major` in **19 of 22 stored reports** (measured). A publication-likelihood number is the highest-stakes output the product could have, and it ships as a *rubric score* until there is accept/reject ground truth to calibrate it against. See §8.
 
 2. **It will not quietly relax the privacy claim.** The release gate is the strongest thing in the product — five invariants, an independent server-side validator, *"no manuscript text crosses the proxy boundary."* Premium sends the manuscript to a cloud model. That is not a relaxation of the claim; it is a *different tier with a different claim*, consented to before upload and enforced in Rust. See §2.
 
@@ -59,7 +70,7 @@ struct ConsentRecord {
     manuscript_id: Uuid,
     consented_at: DateTime,
     scope: ConsentScope,      // bitset — see below
-    provider: Provider,        // OpenAI, named
+    provider: ProviderClass,   // [v5] a CLASS, not a vendor — see below
     statement_version: u32,    // which consent text they saw
 }
 ```
@@ -71,9 +82,23 @@ ConsentScope: Manuscript | AnalysisMetadata | AnalysisCode | AnalysisData
 
 Each scope is a separate checkbox with its own statement. A researcher may send the manuscript and keep the code local; that combination is common and should be one click. The default is manuscript-only.
 
-- `ConsentRecord` is persisted in a new table, one row per manuscript per consent event, never deleted.
+- **[v5 — corrected]** v4's field was `provider: Provider // OpenAI, named`. **The desktop cannot honestly record that.** `gaply-proxy/app/main.py:146-152` picks the provider server-side from `GAPLY_LLM_PROVIDER`, and `:262` states the property deliberately: *"nothing is persisted. The desktop never knows which one handled it."* A consent record naming a vendor would be a claim this machine can neither check nor be told is wrong — an unfalsifiable privacy statement. The field names a **class** (`CloudLlmViaProxy`) instead. Naming the vendor is available and costs provider-blindness; §11 D152 records that trade rather than leaving it a gap.
+- `ConsentRecord` is persisted in a new table, one row per manuscript per consent event, never deleted. **[v5]** The type lives in the **app crate**, not `gaply-core`: the design's `Uuid`/`DateTime` are two dependencies `gaply-core` does not carry and should not acquire — it is declared *"portable, Tauri-free"* at `rust-version = "1.77.2"`, with no network and no clock. It uses `now_epoch()` `i64` and a `String` id, the conventions already in the codebase.
 - The premium proxy client takes `Tier::Premium(record)` and nothing else. A free-tier call *cannot* reach the premium route because there is no constructor path from `Tier::Free` to it. This is the type system doing what `localStorage` cannot.
-- The existing release gate is extended with a sixth invariant: **TIER** — every payload that carries manuscript text carries a `ConsentRecord` id, and every `ConsentRecord` id in a payload resolves to a stored row whose scope covers what was sent. Both directions.
+- **[v5 — BUILT, and not as a sixth invariant]** v4 said the release gate is "extended with a sixth invariant: TIER". It cannot be. `check_privacy` **fails** any payload containing manuscript text, and a premium payload *is* manuscript text — so a single enumeration would have had to take a tier argument and skip PRIVACY, which is a tier-aware PRIVACY under a different name.
+
+  So there are **two gates, each unconditional**:
+
+  | gate | invariants | guards |
+  |---|---|---|
+  | `run_free_gate` | PRIVACY + PROVENANCE, SELECTION, COMPARISON, PERSISTENCE | the free route |
+  | `run_premium_gate` | **TIER** + the same four structural | the premium route |
+
+  `check_privacy`'s worth is that it takes no argument — *"no manuscript text crosses this boundary"* survives only while nothing can weaken it. PRIVACY is absent from the premium gate not because it was relaxed there, but because manuscript text is what that tier exists to send. TIER is its counterpart: every payload carrying manuscript text carries a `ConsentRecord` id, and every id resolves to a stored row whose scope covers what was sent. Both directions.
+
+  Both invariants call **one** predicate, `manuscript_text_in`. Separate detectors would let a payload read as clean to one and text-bearing to the other, and a payload passing both routes would exist with every test green.
+
+  One payload passes **neither** gate — manuscript text with no consent record. That is the safety property, not a gap, and it is asserted as required. Full reasoning, the three deliberate breaks, and what is still missing: **§11 D152**.
 - The consent statement is versioned. If the text changes, existing records do not cover the new scope and the user is asked again.
 
 ### 2.3 What premium still keeps local
@@ -92,7 +117,11 @@ The proxy today persists nothing and never tells the desktop which provider answ
 
 ## 3. The context fabric
 
-The Context Engineering paper proposes five criteria for an agent's informational environment: **relevance, sufficiency, isolation, economy, provenance.** The teardown found the product already does provenance well — every finding is tagged computed or judged — and isolation badly — the pipeline's AI lane and AI Check use different model selectors and can disagree about the same manuscript.
+The Context Engineering paper proposes five criteria for an agent's informational environment: **relevance, sufficiency, isolation, economy, provenance.** The product already does provenance well — every finding is tagged computed or judged.
+
+**[v5 — corrected]** v4 justified the isolation argument with *"the pipeline's AI lane and AI Check use different model selectors and can disagree about the same manuscript."* **That was already fixed before v4 was written.** Both go through `select_deep_model()`: `pipeline.rs:326` → `models::perplexity_model()` → `models/mod.rs:936-938`, and `aicheck.rs:329` directly. `pipeline.rs:318-324` documents the merge and `pipeline.rs:788` pins it.
+
+The lanes *can* still disagree — the pipeline calls whole-document `detect_extraction` while AI Check runs the tiered stage-1/deep path — but that is a different defect with a different fix, and the layer argument below should be read as resting on the general principle rather than on that example.
 
 The fabric is six layers. Each is a distinct epistemic object with a distinct privacy class — that pairing is the test for whether something is a layer or merely a label. Each agent declares which it reads. The harness enforces it.
 
@@ -119,9 +148,35 @@ The four of these must stay distinguishable in every finding: *the manuscript sa
 
 Every layer carries a version. Every finding records the versions of every layer its producer read, plus the agent-graph version and the model identifiers. *Why did Gaply's assessment change?* is then a diff, not a mystery. This is also what makes incremental re-analysis (§5.5) safe: a node re-runs when any input version it depends on has changed, and only then.
 
-### 3.4 The journal layer is the part that doesn't exist yet
+### 3.4 The journal layer — what exists, and what is actually missing
 
-`journal_guidelines` has **0 rows after 27 manuscripts.** The checklist has only ever been structural. The journal layer needs:
+**[v5 — THE BIGGEST CORRECTION IN THIS DOCUMENT.]** v4 opened: *"`journal_guidelines` has 0 rows after 27 manuscripts. The checklist has only ever been structural."* The count is real. **It is a count of a table nothing writes to.**
+
+Measured against the live database:
+
+```
+select count(*) from journal_guidelines;                       -> 0
+select count(*) from manuscripts;                              -> 27
+select source_type, count(*) from documents group by 1;        -> journal_guideline | 6
+                                                                  paper             | 22
+select count(*) from chunks;                                   -> 59
+```
+
+`journal_guidelines` is a migration-3 vestigial table, sibling of `reference_styles`, which `migrations.rs:93` labels *"SUPERSEDED (reserved, intentionally unused)"*. Its only mention outside `migrations.rs` is a provenance **string literal** at `guidelines.rs:166` — never a SQL write. The real corpus holds **six ingested guideline pages** (Nature Medicine, BMJ ×2, BMC Public Health, PLOS ONE, PLOS Medicine), all `status='ingested'`, 59 chunks.
+
+And the pipeline v4 said did not exist is wired end to end:
+
+| stage | where |
+|---|---|
+| fetch, rate-limited, untrusted | `src-tauri/src/guidelines.rs` |
+| `strip_hidden` / denylist / quarantine | `gaply-core/src/sanitize.rs:43,79` |
+| RAG ingest as `SourceType::JournalGuideline` | `gaply-core/src/rag.rs:29,41` |
+| checklist query against that corpus | `pipeline.rs:944` (a passing test) |
+| UI trigger, behind consent | `PublishReadyPage.tsx:157-163` |
+
+**The corpus is small because the guidelines URL is optional and six people pasted one — not because the layer is unbuilt.** This is the project's own standing lesson (*"a static trace tells you what a mechanism DOES, not that it is the mechanism in play"*) in its fourth instance, and the first to reach a build plan: Phase 3's v4 deliverable was satisfiable by inserting into a table no reader reads.
+
+**What is actually missing** is the depth, not the plumbing: one flat page per journal instead of a crawl, no requirement/convention/expectation split, no status on any fact, no article-type binding, no comparable corpus, no `JournalFingerprint` type. Everything below is therefore an **extension of a working path**, and the first task of Phase 3 is to read `guidelines.rs`, `journal_registry.rs` and `paper_corpus.rs` before writing anything:
 
 - **Guideline ingestion is a crawl, not a scrape.** A pasted URL is an *entry point into the journal's instruction ecosystem*, not a page to read. Requirements are spread across author guidelines, article-type pages, submission checklists, formatting, ethics, data availability, reporting standards, trial registration, AI-use policy, conflict-of-interest, preprint and licensing pages, and downloadable templates or checklists. Ingestion is:
 
@@ -319,7 +374,7 @@ The teardown praised this and it stays: every lane degrades, nothing aborts. Ext
 
 - A cloud agent that cannot reach the proxy emits `Opinion::Unavailable(reason)` — a first-class value the synthesis phase renders as *"not assessed: [reason]"*, never as absence.
 - A specialist whose declared layer is empty (no analysis record) is not invoked and does not appear.
-- The existing `"Verification output rejected by its internal gate"` finding — currently shown to users as though it were about their paper — moves to a *harness log* the chat can surface if asked, and out of the findings list.
+- The existing `"Verification output rejected by its internal gate"` finding moves to a *harness log* the chat can surface if asked, and out of the findings list. **[v5 — half of this is already done, and the half that remains is the smaller one.]** v4 said it is "shown to users as though it were about their paper." It is shown — in **20 of 22** stored reports, as a `Minor` — but it no longer counts toward anything: `ClaimKind::ProcessState` exists and `reviewer_agent.rs:1096` excludes it from the recommendation, recording an `ExcludedFinding` with the reason. So the remaining work is purely surfacing, not verdict influence, and the same is true of AI-detection's `AuthorshipSignal` (`:1092`).
 
 ### 5.7 The editor layer
 
@@ -359,7 +414,9 @@ The teardown corrected the vocabulary: there are no bespoke models, no adapters,
 
 **Deep research is pointed at the journal, not the manuscript.** That is the design move that reconciles "use OpenAI's deep research" with "data privacy is important." The manuscript goes to OpenAI once, for review, under consent. The *research* — what does this journal publish, what do its reviewers expect, what changed in its guidelines — is about public information and can be as deep as the budget allows without touching the manuscript at all.
 
-**The 3B stays measured or stays out.** Its shipped tasks measured 0.34 and 0.20–0.40. Premium does not put a 3B verdict in front of a researcher without the number beside it. Where cloud judgement is available, the 3B is a pre-filter, not a verdict.
+**The 3B stays measured or stays out.** **[v5 — corrected]** v4 wrote *"its shipped tasks measured 0.34 and 0.20–0.40."* Neither number is traceable to any record. The figure that exists is `citation_need`'s **18.3% weighted against an 18.0% no-skill baseline** (§11 D128) — and that lane is retired, so it is not a shipped task. The honest statement is that **the 3B's shipped accuracy on PublishReady tasks is unmeasured**, which is a stronger reason for the rule than a wrong number would have been. Premium does not put a 3B verdict in front of a researcher without a number beside it; where cloud judgement is available, the 3B is a pre-filter, not a verdict.
+
+**[v5]** Note also that the table above names the 0.5B and the 3B, and those are the *generative* tiers. The perplexity path the AI-detection lane uses is a different ladder — `DeepTier::{Full7B, Mini, HeuristicOnly}` (Qwen2.5-7B / 1.5B / frequency proxy, `models/mod.rs:446-456`) — and it is the one producing the `major` findings §0.1 names. A model table that omits it describes half the models actually running.
 
 ---
 
@@ -378,7 +435,13 @@ Method → Equation { variables, parameters, assumptions, units }
        → Table cell / figure / manuscript statement
 ```
 
-Equations are extracted from LaTeX, OMML (the .docx exporter already round-trips it), MathML and PDF, canonicalised, and stored as nodes with their variables bound to research-state fields where the binding is unambiguous.
+**[v5 — corrected: there is no upstream for this yet.]** v4 said equations are extracted "from LaTeX, OMML (the .docx exporter already round-trips it), MathML and PDF." The OMML claim is wrong in direction and in location:
+
+- `src/screens/notes/manuscriptOmml.ts:327` `texToOmml()` is a **frontend TypeScript generator**, LaTeX → OMML, one direction, for the Notes writer's export. It is not a round trip.
+- There is **no OMML reader anywhere**. `gaply-core/src/extract/docparse.rs` extracts `<w:t>` text only — no `m:oMath` handling. Math in an uploaded `.docx` is flattened or dropped before anything sees it.
+- The code that does exist sits on the side §11 declares must never do extraction.
+
+So equation extraction is **net-new work on the ingest path**, and it is the gating item for this whole subsystem: the `EquationGraph` has nothing to build from until `docparse.rs` can read `m:oMath` (and the PDF/LaTeX equivalents). Equations, once extracted, are canonicalised and stored as nodes with their variables bound to research-state fields where the binding is unambiguous.
 
 ### 6b.2 What it checks, deterministically
 
@@ -389,6 +452,8 @@ Equations are extracted from LaTeX, OMML (the .docx exporter already round-trips
 - **Equation ↔ text ↔ code ↔ result consistency** — the same quantity across all four, with any disagreement located.
 
 Every one of these is Tier 0. The output is a finding with `EpistemicStatus`, evidence pointers to both sides of the disagreement, and a reviewer verification trail. An LLM may *explain* the finding in the report. It does not decide it.
+
+**[v5 — two of these five are already built, and v4 did not say so.]** `gaply-core/src/stats_verify.rs` is a deterministic recompute engine with no model, no proxy, no network and no I/O: Welch's and Student's *t*, one-way ANOVA, Pearson and Spearman, χ² of independence, and OLS with standard errors — every result validated against scipy/R reference values in its own test module. That is **numerical substitution** and **formula validation** already shipping. Rebuilding them would waste the work and, worse, create a second numeric authority for the same quantities. What is genuinely new here is **symbolic equivalence**, **dimensional consistency**, and the **equation extraction** that feeds all of it.
 
 ### 6b.3 What it does not do
 
@@ -432,7 +497,7 @@ agent or harness change → benchmark → compare to current →
     worse → ROLLBACK
 ```
 
-This is the `ai-eval` harness's `--json headSha` discipline generalised. A prompt variant that scores at baseline does not ship — the citation_support v1.7–v1.10 precedent, now a gate instead of a lesson.
+**[v5 — corrected]** v4 called this *"the `ai-eval` harness's `--json headSha` discipline generalised."* **There is no such flag.** `ai-eval` accepts `--bakeoff --out --task --cases --date --prompt --support-variant --model --model-dir --embedder-dir --smoke --isolated --allow-contended`; neither `--json` nor `headSha` occurs anywhere in the repo. There is no existing promote/hold/rollback mechanism to generalise, so this is built from nothing — the harness's real contributions are the committed per-run reports and the `--isolated` / `--allow-contended` contention guard (§11 D118), which is a different and smaller thing. A prompt variant that scores at baseline does not ship — the citation_support v1.7–v1.10 precedent, now a gate instead of a lesson.
 
 ### 6c.4 Failure attribution
 
@@ -477,6 +542,8 @@ Never one pool. An agent that could read another cluster's memory is an agent th
 | **Expectation** | *"18 of 25 comparable papers include external validation."* | recent-paper analysis, editor statements, public reviewer guidance | as a frequency, with the evidence, never as a rule |
 
 A finding cites which kind it rests on. *"Too long"* against a requirement is a different finding from *"longer than most"* against a convention, and the report says which.
+
+**[v5]** Three existing modules already serve parts of this and none was named in v4. Read them before building: **`journal_registry.rs`** assembles a `JournalVerification` card strictly from OpenAlex `/sources` + DOAJ, in a module that imports no `ProxyClient` and no model type — so an LLM *cannot* inject a journal fact — with an `unverified` list for facts the registries did not supply. That is this section's requirement/expectation separation, already built and already structurally enforced; the `JournalFingerprint` should extend it rather than sit beside it. **`journal_site_summary.rs`** is the grounded self-reported-site lane, deliberately kept apart for exactly the same reason and labelled self-reported. **`paper_corpus.rs`** builds bounded per-paper digests with session-tagged RAG ingest — the comparable corpus's mechanics.
 
 For a named journal, the fingerprint holds:
 
@@ -525,12 +592,12 @@ The teardown's own precedent is the model: AI Check's paraphrase distinction was
 
 The output a researcher acts on. Not a report *about* the paper — the paper, annotated.
 
-- **Anchored findings.** Every finding carries a locator into the manuscript (page + paragraph for PDF, paragraph for .docx — the audit's D65/D92 anchoring already does this at 97.6%). The marked-up view renders the manuscript with margin notes at the anchor.
+- **Anchored findings.** Every finding carries a locator into the manuscript. **[v5 — corrected]** v4 cited *"the audit's D65/D92 anchoring already does this at 97.6%."* Three things are conflated. The 97.6% is **80 of 82 sentences on one paper** (`R PAPER .pdf`); it is **PDF only**; and it is in the **thesis-audit** lane, over audit items, not PublishReady findings — the anchoring does not transfer for free. D92 also **refused** `.docx` annotation on stated grounds: page geometry is not in the file, and *"a reconstruction that looks subtly wrong to the person who wrote the paper is worse than no reconstruction."* So: page + paragraph for PDF, paragraph ordinals for `.docx` (D65's substitution), and the marked-up view renders margin notes at the anchor.
 - **Epistemic status on every finding.** `DETECTED · SUPPORTED · CONFIRMED · CONTRADICTED · UNVERIFIED · REQUIRES_AUTHOR_CONFIRMATION`. The N mismatch above is `DETECTED / REQUIRES_AUTHOR_CONFIRMATION`, never *wrong* — there may be a protocol reason, and the product does not auto-correct scientifically ambiguous things. Detected is not proven.
 - **A reviewer's verification trail.** Every major finding states how a reviewer could check it independently: *examine Table 3; compare the SPSS output; read Methods ¶4.* That is the difference between *"the AI thinks your statistics are wrong"* and *"here is what a reviewer would look at."*
 - **Severity by consequence, with deterministic precedence.** From the reviewer document's risk table: *Blocking* = a fatal flaw — a `VERIFIED` journal requirement unmet, a Tier 0 contradiction in a primary result, missing required ethics approval, a design with no control. *Major* = a reviewer would require it before acceptance. *Minor* = would improve. *Informational* = context. Precedence is deterministic: a blocking finding is blocking regardless of surrounding strengths; the editor cannot demote it. Each note says which, which lens produced it, and whether it is computed or judged.
 - **Suggested edits where the finding is mechanical.** Reference style, missing sections, length — the deterministic clusters can propose the fix. Judgement findings propose nothing; they explain.
-- **Exports — four, not nine.** The annotated manuscript (PDF; tracked-changes .docx for .docx sources), the reviewer letter, the readiness rubric, and the audit trail (JSON: every finding, its layers, versions, evidence and status). Everything else is a section of one of these. The project's month of removing surfaces that could not justify themselves applies here too.
+- **Exports — four, not nine.** The annotated manuscript, the reviewer letter, the readiness rubric, and the audit trail (JSON: every finding, its layers, versions, evidence and status). Everything else is a section of one of these. The project's month of removing surfaces that could not justify themselves applies here too. **[v5 — corrected]** v4 listed *"tracked-changes .docx for .docx sources"* as part of the first export. That is the exact artefact D92 declined to build, and v4 gave no argument against D92's reason. It is **not** in scope unless that argument is made and recorded; the honest `.docx` output is paragraph-anchored notes, not a reconstructed page.
 
 ---
 
@@ -556,12 +623,12 @@ The teardown found the security posture strong and specific. Premium adds surfac
 | New surface | Control |
 |---|---|
 | Manuscript leaves the machine | `Tier::Premium(ConsentRecord)` — cannot be constructed without a stored consent; sixth release-gate invariant checks both directions |
-| Analysis code is parsed | parsers are read-only extractors; **no execution** — the consistency specialist compares the code's *stated* operations against the paper's numbers. It is named a *consistency check*, never *reproduction*. `std::process::Command` stays absent from shipped code — the teardown named that absence a security strength, and an execution sandbox (§12, Phase 8) is a different threat model, not an extension of this one. |
+| Analysis code is parsed | parsers are read-only extractors; **no execution** — the consistency specialist compares the code's *stated* operations against the paper's numbers. It is named a *consistency check*, never *reproduction*. `std::process::Command` stays absent from **the app binary's dependency graph** — an execution sandbox (§12, Phase 8) is a different threat model, not an extension of this one. **[v5 — qualifier added]** v4 said "absent from shipped code", which is not quite what is true: it occurs at `src-tauri/src/bin/ai-eval.rs:462,471` (`uname`, `sw_vers`). That is a separate `[[bin]]` target in the same crate, so the invariant has to be stated against the binary rather than the crate, or it cannot be tested as written. |
 | Deep research fetches journal pages | existing injection guards on the ingest path (strip_hidden, denylist, perplexity, quarantine); the denylist is extended with a multilingual set and a structural rule (imperative-mood instruction directed at "you"), and each addition gets a test that fires on a phrase *not* in the list |
 | Cloud agents receive manuscript text | the proxy's `validate_structured` gains a premium mode that requires a valid consent id in the payload header and refuses otherwise — the server-side half of the tier boundary |
 | Chat receives user questions | questions are never forwarded to the manuscript-bearing route; the chat route accepts verdict-layer context only, enforced by the same type split |
 | Journal profiles are shared | they contain only public data; the cache is content-addressed and a profile that fails the injection guards is quarantined for all users |
-| Journal ingestion | **backend extracts, frontend displays** — an absolute invariant. The frontend never fetches a journal page, never calls OpenAlex, never touches an external API. It asks the backend for a fingerprint and renders what it gets. A structural test asserts no `fetch` to a non-app origin exists under the journal screens. |
+| Journal ingestion | **backend extracts, frontend displays** — stated as a **new rule to establish**, not a property the product has. **[v5 — corrected]** v4 called it "an absolute invariant" and described it in the present tense. The frontend already calls external APIs directly: `src/features/citation-generator/citationFetchers.ts` hits CrossRef (`:59`) and OpenLibrary (`:92`), plus a PubMed path. v4's proposed test — *"no `fetch` to a non-app origin under the journal screens"* — would pass today while the real violations sit one directory away, which is a guard that measures nothing. The rule for the journal layer stands; enforcing it means a test scoped to **every** renderer path, and a decision about the citation-generator fetches that is separate from this design. |
 
 What model output can cause stays exactly what it is today: rows in `findings`, text in a report, a verdict label. No tool calls, no shell, no writes outside app data.
 
@@ -571,15 +638,47 @@ What model output can cause stays exactly what it is today: rows in `findings`, 
 
 Grounded in what the teardown found broken and what each phase needs from the one before.
 
-**Phase 0 — the seven blockers (≈2 days).** Nothing premium ships on a foundation where a hand-written paper is flagged AI-generated at major severity. Fix all seven first.
+**Phase 0 — the blockers (≈2 days).** Nothing premium ships on a foundation where a hand-written paper is flagged AI-generated at major severity.
 
-**Phase 1 — the research state and the boundary (2 weeks).** `ResearchState` as a typed object with versioning and provenance; the evidence graph (claim ↔ analysis ↔ result ↔ table ↔ source); `Tier`, `ConsentRecord`, the sixth invariant, the proxy's premium mode. The research state comes before the harness because the harness routes over it. The test that a free-tier run cannot reach the premium route is one deliverable; a research state that round-trips through the existing free-tier pipeline is the other.
+**[v5 — the list is seven items; two of them are not open.]** Measured against the tree:
+
+| # | blocker | status |
+|---|---|---|
+| 1 | AI-detection capped at `info` when heuristic-only | **half closed.** `claim_is_eligible(AuthorshipSignal) == false` (`reviewer_agent.rs:1092`) already stops it changing the recommendation. It is still rendered `Major` (`report.rs:639-643`) in **19 of 22** stored reports. |
+| 2 | withdraw `citation_need` | **already closed** by §11 D128 — report section, screen branch, export arm and planner item all removed; the task and eval harness deliberately kept. What D128 did *not* add is a test that fails if the lane is ever consulted again; `queued_citation_need == 0` pins the planner, not the call site. |
+| 3 | consent gate on the Analysis screen + a network flag into Rust | open |
+| 4 | drop the "reconsidered after peer review" clause when nothing revised | open |
+| 5 | gate-rejection finding out of the findings list | open — present in **20 of 22** stored reports |
+| 6 | reviewer letter unavailable stated *before* the run | open |
+| 7 | `~/gaply-models` symlinks into the dead Desktop tree | open |
+
+**Blocker 1 cannot be fixed as written**, and that is the item to scope rather than rush: `AiDetectionReport` (`ai_detect.rs:264-274`) carries no `DeepKind`, and `perplexity_model()` (`models/mod.rs:944-950`) discards the selection. The lane cannot know whether a real model ran, so capping on that condition needs a new seam — which is a change to a shared type, not a blocker fix, and belongs in its own change with its own test.
+
+**Phase 1 — the research state and the boundary (2 weeks).** `ResearchState` as a typed object with versioning and provenance; the evidence graph (claim ↔ analysis ↔ result ↔ table ↔ source). The research state comes before the harness because the harness routes over it.
+
+**[v5 — the boundary half is partly built; what remains is specific.]** `Tier`, `ConsentRecord`, `ConsentScope`, `check_tier` and the two gates exist (`src-tauri/src/consent.rs`, `release_gate.rs`; §11 D152), with the partition pinned by tests written before the gates and verified by three deliberate breaks. **Three things are still open, and the first is the one that matters:**
+
+1. **`consent_records` does not exist.** `ConsentRecord::from_persisted` is `pub`, so nothing yet stops a caller constructing a record that was never stored — the type-level guarantee is real about `Tier`, and only as strong as that constructor about consent. Create the table, make the constructor `pub(crate)`, put the store in front of it, and pass a real resolver to `check_tier` in place of the test closure.
+2. **The proxy's premium mode.** `validate_structured` is the server-side half of the boundary; until it exists, TIER is enforced on the desktop only, and a desktop-only half of a two-sided boundary should be read as exactly that.
+3. **No premium payload builder**, so `run_premium_gate` has no runner — the free gate's `examples/release_gate.rs` has no counterpart yet.
+
+Deliverables: a research state that round-trips through the existing free-tier pipeline byte-identically, and a `ConsentRecord` that cannot be obtained except from a stored row.
 
 **Phase 2 — the harness and the mathematical engine (2–3 weeks).** Wire `RevisingVerificationAgent`. Define `AgentSpec` and the graph file. Move the six existing lanes onto it. Build the `EquationGraph` extraction and the Tier 0 checks that need no analysis record (equivalence, units, recomputation from reported inputs). Two deliverables: the test that production converges past round one, and the first Tier 0 finding on a golden manuscript that an LLM had nothing to do with.
 
 **Phase 2b — the benchmark (in parallel, ongoing).** The first fifty labelled cases across the six families, with population estimates. Nothing in Phase 4 ships without a score on it.
 
-**Phase 3 — the journal layer (3 weeks).** The deep crawl (§3.4): discovery, collection, classification, extraction, normalisation, conflict detection, article-type binding, for ten journals. Every fact with its status. Comparable corpus with its filters. Reporting-standard bindings for the five most common standards. The deliverable is `journal_guidelines` with rows in it, one `CONFLICTED` fact found and shown unresolved, and a checklist that has run against a real journal's requirements once.
+**Phase 3 — the journal layer (3 weeks).** The deep crawl (§3.4): discovery, collection, classification, extraction, normalisation, conflict detection, article-type binding, for ten journals. Every fact with its status. Comparable corpus with its filters. Reporting-standard bindings for the five most common standards.
+
+**[v5 — the deliverable is rewritten, because v4's was satisfiable by writing to a dead table.]** v4 asked for *"`journal_guidelines` with rows in it."* Nothing reads that table (§3.4). The deliverable is:
+
+- **the existing path extended, not replaced** — `guidelines.rs` ingests, `rag.rs` stores under `SourceType::JournalGuideline`, `build_checklist` queries it, and all three keep working;
+- **a `journal_guideline` corpus covering ten journals from a multi-page crawl**, verifiable as `select count(*) from documents where source_type='journal_guideline'` — rising from its current **6**, which is the number to beat and the number to quote;
+- **every extracted requirement carrying `source_document` / `source_heading` / `source_span`**, so a fact can be traced to the sentence that states it;
+- **one `CONFLICTED` fact found and shown unresolved**, with both sources;
+- **a checklist that has run against a real journal's ingested requirements once**, beyond the structural items.
+
+If a `journal_guidelines` row is ever written, that is a decision to revive a superseded table and needs its own note saying what now reads it.
 
 **Phase 4 — the clusters (3–4 weeks).** Methodological specialists, starting with frequentist and ML because they cover most submissions. Reporting-standard evaluators. Journal-fit. Each specialist ships with its accuracy stated or its output marked unmeasured.
 
@@ -621,8 +720,14 @@ Roughly three months to Phase 6. The forty agents arrive in Phase 4 as specialis
 
 **Refused from the second review:** the evaluation matrix's example values (96%, 100%, 91%) — invented numbers in a design document are the thing this project exists to not do; the thirteen-box diagram, which places the reliability engine *after* the harness when the review's own §3 correctly places deterministic verification *before* the agents so that Tier 0 sets the floor.
 
+**[v5] What reading the code changed, and it was not a review.** Every correction marked **[v5]** above came from running the tree the document describes — a database query, a grep, a test run — not from anyone's opinion of the design. That distinction is the reason they are worth more than the three reviews: a reviewer can tell you an argument is weak, but only the code can tell you a premise is false, and **nine of v4's premises were.** The costliest was §3.4, where a true count of a dead table became "the journal layer does not exist" and sent a three-week phase at the wrong deliverable — the project's own standing lesson (*a static trace tells you what a mechanism does, not that it is the mechanism in play*) in its fourth instance.
+
+Two claims got **stronger** on measurement, not weaker, and they are the reason to keep doing this rather than to distrust the document: all six agents really are `PrecomputedAgent` and **22 of 22** stored reports converged in round one with `revised_agents: []`; and the AI-detection `major` finding v4 described anecdotally is in **19 of 22**. The design was right about those; it just had no numbers, and now it does.
+
+One thing found that no review or reading would have: `src-tauri/tests/decision_records.rs` fails the build if a code comment cites a `§11 D<n>` that was never written. It fired on this work, which is how §11 D152 came to exist before the code that cites it shipped.
+
 **Refused from the first review:** a nine-file submission package — four artefacts, everything else is a section; an eight-layer presentation diagram as the architecture — the sections are the architecture. And one thing the review did not mention: Phase 0. Seven blockers ship today, including a hand-written paper flagged AI-generated at major severity. They come first, and nothing here goes on top of them until they are closed.
 
 ---
 
-*Every claim about current behaviour in this document traces to the 13 September teardown. Every design decision names the paper or the finding it rests on. Where the two disagreed, the finding won.*
+*Every design decision names the paper or the finding it rests on. Claims about current behaviour traced to the 13 September teardown until v5, which re-ran them against the tree and corrected nine; where the teardown and the code disagreed, **the code won**, and the correction is marked in place rather than silently applied.*
