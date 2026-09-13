@@ -219,6 +219,8 @@ fn main() {
             Some(format!("set9 publishready run {run_no}")),
             None, // measurement probe: unauthenticated, so no cloud verify tier
             None,
+            // A memory probe invoked by hand: the operator asked for the run.
+            app_lib::pipeline::NetworkConsent::Granted,
             &emit,
         )
         .expect("pipeline run");

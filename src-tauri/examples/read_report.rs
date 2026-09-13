@@ -51,7 +51,12 @@ fn main() -> Result<(), GaplyError> {
     }
     let events = std::cell::RefCell::new(Vec::new());
     let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
-    run_pipeline_measured(db.clone(), embedder, path.clone(), None, None, guidelines.clone(), &emit)?;
+    run_pipeline_measured(
+        db.clone(), embedder, path.clone(), None, None, guidelines.clone(),
+        // A development harness invoked by hand: the operator asked for the run.
+        app_lib::pipeline::NetworkConsent::Granted,
+        &emit,
+    )?;
     let evs = events.into_inner();
     for e in &evs {
         match e {

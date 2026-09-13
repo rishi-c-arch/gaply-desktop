@@ -2,8 +2,20 @@
 // Rust agents (Tauri commands). Everything here is LOCAL: the Rust core reads
 // the manuscript from a file PATH and returns structured reports. This bridge
 // only ever passes a PATH over Tauri IPC — never the manuscript bytes — and
-// makes NO network calls. The verification lane is the sole cloud step and is
-// gated to premium (and still proxy-bound, structured-summaries-only).
+// makes NO network calls itself.
+//
+// THE VERIFICATION LANE IS NOT LOCAL, and this file used to say it was. It
+// sends each reference to CrossRef/OpenAlex — by TITLE when the reference has
+// no DOI (`refverify.rs:474`, `query.bibliographic=`) — and it did so with no
+// consent check anywhere in the path. Seven other screens gated their cloud
+// work on `mayUseCloud`; this one did not, and a measured run on a two-DOI
+// manuscript reported "2 reference(s) checked via public APIs" with the toggle
+// off.
+//
+// The gate below is now read here and PASSED to Rust, where the lane refuses
+// (`pipeline.rs`, `NetworkConsent`). Reading it here alone would have made the
+// screens agree and left the boundary nowhere: localStorage is a preference the
+// backend cannot see and the user can edit.
 //
 // The bridge PROTOCOL supports true per-section streaming (fully exercised by
 // makeMockBridge in tests). The current Rust commands are one-shot, so the real
@@ -11,6 +23,8 @@
 // streams per-section AI risk from the real report. A future event-emitting
 // Rust command would let the real path stream sections live during a stage;
 // that wiring is intentionally deferred (same pattern as the rest of the build).
+
+import { mayUseCloud } from '../settings/settingsStore';
 
 export type AgentStage =
   | 'extraction'
@@ -74,6 +88,11 @@ export class TauriAnalysisBridge implements AnalysisBridge {
     // Lazy import so the browser/test bundle never needs Tauri.
     const { invoke, Channel } = await import('@tauri-apps/api/core');
     const { path, title } = input;
+    // THE gate, read once per run and sent with the call. The suite is
+    // `citation_verification` because that is exactly what the verification
+    // lane does — reference metadata to CrossRef/OpenAlex — and it is the same
+    // suite AI Check and the Citation Manager gate the same work on.
+    const allowNetwork = mayUseCloud('citation_verification');
 
     // One real command (run_full_analysis) drives all six lanes; per-stage
     // progress streams back over a typed IPC Channel. We map the Rust
@@ -115,7 +134,7 @@ export class TauriAnalysisBridge implements AnalysisBridge {
     };
 
     try {
-      await invoke('run_full_analysis', { path, title, onEvent: channel });
+      await invoke('run_full_analysis', { path, title, allowNetwork, onEvent: channel });
     } catch (err) {
       if (signal?.aborted) {
         emit({ kind: 'aborted' });

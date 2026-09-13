@@ -22,7 +22,10 @@ fn main() -> Result<(), GaplyError> {
     let events = std::cell::RefCell::new(Vec::new());
     let emit = |e: app_lib::pipeline::AnalysisEvent| events.borrow_mut().push(e);
     app_lib::pipeline::run_pipeline_measured(
-        db.clone(), embedder.clone(), path.clone(), None, None, guidelines.clone(), &emit,
+        db.clone(), embedder.clone(), path.clone(), None, None, guidelines.clone(),
+        // A pre-ship instrument run deliberately: the operator asked for the run.
+        app_lib::pipeline::NetworkConsent::Granted,
+        &emit,
     )?;
     let report_id = events.into_inner().into_iter().find_map(|e| match e {
         app_lib::pipeline::AnalysisEvent::Finished { report_id } => Some(report_id),

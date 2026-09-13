@@ -126,6 +126,47 @@ pub enum AnalysisEvent {
     Failed { stage: String, message: String },
 }
 
+/// **Whether this run may touch the network at all.**
+///
+/// # Why this is a parameter and not a `localStorage` read
+///
+/// Consent lived in seven screens as a `localStorage` boolean and was missing
+/// in the eighth (`src/screens/analysis/bridge.ts`). Adding it to the eighth
+/// would have made the screens agree and left the boundary where it was: a
+/// preference the backend cannot see, stored where the user can edit it, on the
+/// wrong side of the IPC call it is supposed to gate.
+///
+/// So the decision is made in the frontend and ENFORCED here. A `bool` would
+/// have done the job and been one `!` away from meaning the opposite at every
+/// call site; a two-variant enum cannot be misread, and `Denied` is a word that
+/// appears in the refusal the user sees.
+///
+/// This governs the VERIFICATION lane's reference lookups — the only outbound
+/// calls the general analysis pipeline makes. The other five lanes are local by
+/// construction and are unaffected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkConsent {
+    /// The user's cloud toggle for this suite is on.
+    Granted,
+    /// It is off. Reference lookups do not happen, and the lane SAYS so.
+    Denied,
+}
+
+impl NetworkConsent {
+    /// From the frontend's gate. Named rather than `From<bool>` so the call
+    /// site reads as a consent decision, not a cast.
+    pub fn from_allowed(allowed: bool) -> Self {
+        if allowed {
+            Self::Granted
+        } else {
+            Self::Denied
+        }
+    }
+    pub fn is_granted(self) -> bool {
+        matches!(self, Self::Granted)
+    }
+}
+
 /// The async command. Extracts `Arc` handles from managed state (cheap, Send)
 /// then runs the sync pipeline off the async runtime via spawn_blocking.
 #[tauri::command]
@@ -134,10 +175,16 @@ pub async fn run_full_analysis(
     state: State<'_, AppState>,
     path: String,
     title: Option<String>,
+    // The Analysis screen's `mayUseCloud('citation_verification')`. NOT
+    // defaulted: an absent argument would deserialize to `false` on some shapes
+    // and `true` on others depending on who wrote the caller, and a consent flag
+    // that has a default has a way of being forgotten into the permissive one.
+    allow_network: bool,
     on_event: Channel<AnalysisEvent>,
 ) -> Result<(), GaplyError> {
     let db = state.db.clone();
     let embedder = state.embedder.clone();
+    let consent = NetworkConsent::from_allowed(allow_network);
     // `user_token: None` — this command has no signed-in-user parameter, so the
     // cloud verification tier stays unauthenticated here and degrades to local
     // Ollama/mock exactly as before. PublishReady (`run_publishready`) is the
@@ -147,9 +194,11 @@ pub async fn run_full_analysis(
     // guidelines_url: None — run_full_analysis is the general analysis command and
     // has no journal-guidelines input; the checklist stays structural-only, which
     // is the honest empty case. PublishReady is the path that carries one.
-    tokio::task::spawn_blocking(move || run_pipeline(db, embedder, path, title, None, None, on_event))
-        .await
-        .map_err(|e| GaplyError::Internal(format!("analysis task panicked: {e}")))?
+    tokio::task::spawn_blocking(move || {
+        run_pipeline(db, embedder, path, title, None, None, consent, on_event)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("analysis task panicked: {e}")))?
 }
 
 /// Run a lane: emit StageStarted, execute `f`, emit StageCompleted or Failed.
@@ -219,11 +268,12 @@ fn run_pipeline(
     title: Option<String>,
     user_token: Option<String>,
     guidelines_url: Option<String>,
+    consent: NetworkConsent,
     ch: Channel<AnalysisEvent>,
 ) -> Result<(), GaplyError> {
     // The lane state is for the PublishReady verdict path; the general analysis
     // command has no aggregator to feed, so it is discarded here deliberately.
-    run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, &|ev| {
+    run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, consent, &|ev| {
         let _ = ch.send(ev);
     })
     .map(|_result| ())
@@ -240,9 +290,10 @@ pub fn run_pipeline_measured(
     title: Option<String>,
     user_token: Option<String>,
     guidelines_url: Option<String>,
+    consent: NetworkConsent,
     emit: &dyn Fn(AnalysisEvent),
 ) -> Result<PipelineResult, GaplyError> {
-    run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, emit)
+    run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, consent, emit)
 }
 
 /// The synchronous pipeline. Every stage is a real production call. `emit` is
@@ -261,6 +312,10 @@ fn run_pipeline_inner(
     // The guideline document the user asked for. Threaded from the frontend so
     // identity is PROPAGATED, not reconstructed from corpus state.
     guidelines_url: Option<String>,
+    // Whether the verification lane may make its reference lookups. Threaded in
+    // rather than read from a global for the same reason as `guidelines_url`:
+    // the decision belongs to the caller and must arrive with the call.
+    consent: NetworkConsent,
     emit: &dyn Fn(AnalysisEvent),
 ) -> Result<PipelineResult, GaplyError> {
     // Parse once, up front (part of the extraction lane's work).
@@ -361,6 +416,31 @@ fn run_pipeline_inner(
     let verification = lane(emit, "verification", 6, || {
         let mut items: Vec<(Reference, ReferenceVerification)> = Vec::new();
         let refs = &extraction.references;
+        // BLOCKER 3 — the refusal, in Rust, before anything is constructed.
+        //
+        // Deliberately ABOVE `RefVerifier::new()` rather than inside the loop:
+        // the check has to sit where no network object exists yet, so a future
+        // edit that moves work around cannot leave a fetcher built and a guard
+        // further down. There is nothing here to "skip past".
+        //
+        // The run CONTINUES. A refused lane is not a failed lane — the other
+        // five are local and their findings are unaffected — and the summary
+        // says which it was, because "0 references checked" and "we did not
+        // check your references" are different sentences and only one of them
+        // is true here.
+        if !refs.is_empty() && !consent.is_granted() {
+            crate::models::unload_slm2();
+            let report = verify_citations(
+                &MockProxyClient::returning(serde_json::json!({ "verdicts": [] })),
+                &[],
+            )?;
+            let summary = format!(
+                "{} reference(s) not checked — cloud access is off for citation verification \
+                 (Settings → Sync & Privacy)",
+                refs.len()
+            );
+            return Ok(((report, Vec::new()), summary));
+        }
         if !refs.is_empty() {
             let verifier = RefVerifier::new()?;
             let now = now_epoch();
@@ -469,8 +549,12 @@ fn run_pipeline_inner(
     // (b) Each flag asks whether the INPUT to eligible-claim production was
     // present, never whether the lane produced output.
     let lanes = LaneExamination {
-        // The whole lane is gated on `!refs.is_empty()`.
-        verification_examined: !extraction.references.is_empty(),
+        // The whole lane is gated on `!refs.is_empty()` AND on consent. A lane
+        // that refused examined NOTHING, and §26 PR-4 asks exactly that
+        // question — so a refusal must not read as "ran and found nothing",
+        // which is the shape that would let an unexamined manuscript earn a
+        // clean verdict.
+        verification_examined: !extraction.references.is_empty() && consent.is_granted(),
         // `validate()` iterates `result.statistics`; empty in, no flags out.
         validation_examined: !extraction.statistics.is_empty(),
         // Nothing to compare against, and too few chunks for self-overlap.
@@ -568,6 +652,111 @@ Conclusion
 A night of sleep improved memory consolidation in this sample.
 ";
 
+    /// A manuscript WITH a References section, so the verification lane has
+    /// something to look up. Used only by the consent tests below, which assert
+    /// that nothing is looked up.
+    const MANUSCRIPT_WITH_REFS: &str = "\
+Title: Sleep and Memory Consolidation in Adults
+
+Abstract
+We examined whether a night of sleep improves memory consolidation in adults.
+
+Introduction
+Prior work suggests that sleep supports the consolidation of declarative memory.
+
+Methods
+We recruited 48 participants and analysed recall with a paired t-test.
+
+Results
+Sleep significantly improved recall (t(47) = 3.2, p = 0.002, d = 0.46).
+
+Discussion
+The results are consistent with a consolidation account of sleep.
+
+References
+Walker M P and Stickgold R. 2006. Sleep, memory, and plasticity. Annual Review of Psychology 57: 139-166. https://doi.org/10.1146/annurev.psych.56.091103.070307
+
+Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neuroscience 11: 114-126. https://doi.org/10.1038/nrn2762
+";
+
+    /// **BLOCKER 3 — the verification lane refuses in Rust when consent is
+    /// absent.**
+    ///
+    /// # Why this is a Rust test and not a frontend one
+    ///
+    /// The gate existed in seven screens as a `localStorage` read and was
+    /// missing in the eighth (`src/screens/analysis/bridge.ts`). Adding it there
+    /// would have made eight screens agree — and left the boundary exactly where
+    /// it was, which is to say nowhere: `localStorage` is a preference the
+    /// backend cannot see and a user can edit. **This test is the boundary.** It
+    /// calls the pipeline directly, with no frontend in the picture, and asserts
+    /// the lookups do not happen.
+    ///
+    /// # Hermetic BY THE THING IT ASSERTS
+    ///
+    /// `MANUSCRIPT_WITH_REFS` carries two real DOIs. With `allow_network:
+    /// false` nothing resolves them, so this test makes no network call — and if
+    /// the refusal ever regresses, the test does not merely fail, it starts
+    /// hitting CrossRef from the suite. That is the honest shape: the assertion
+    /// and the hermeticity are the same property.
+    #[test]
+    fn the_verification_lane_makes_no_lookups_when_network_consent_is_absent() {
+        use std::cell::RefCell;
+        force_heuristic();
+        let db = Arc::new(Database::in_memory().expect("in-memory db"));
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+        let path = std::env::temp_dir()
+            .join(format!("gaply_consent_off_{}.txt", std::process::id()));
+        std::fs::write(&path, MANUSCRIPT_WITH_REFS).expect("write temp manuscript");
+
+        let events: RefCell<Vec<AnalysisEvent>> = RefCell::new(Vec::new());
+        let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
+        let res = run_pipeline_inner(
+            db.clone(),
+            embedder,
+            path.to_string_lossy().to_string(),
+            Some("consent-off".into()),
+            None,
+            None,
+            NetworkConsent::Denied,
+            &emit,
+        );
+        let _ = std::fs::remove_file(&path);
+        let out = res.expect("the run must COMPLETE — refusing a lane is not failing it");
+
+        // The references were extracted: the lane had something to look up and
+        // declined, rather than there being nothing to do.
+        assert!(
+            out.extraction.references.len() >= 2,
+            "fixture must yield references to refuse; got {}",
+            out.extraction.references.len()
+        );
+
+        let summary = events
+            .into_inner()
+            .into_iter()
+            .find_map(|e| match e {
+                AnalysisEvent::StageCompleted { stage, summary } if stage == "verification" => {
+                    Some(summary)
+                }
+                _ => None,
+            })
+            .expect("the verification lane must complete");
+
+        assert!(
+            !summary.contains("checked via public APIs"),
+            "the lane reported live lookups with consent absent: {summary:?}"
+        );
+        assert!(
+            summary.contains("cloud access is off"),
+            "the lane must SAY it refused, not silently report zero: {summary:?}"
+        );
+        assert!(
+            !out.lanes.verification_examined,
+            "a refused lane examined nothing and must not count as having run"
+        );
+    }
+
     #[test]
     fn full_pipeline_runs_all_six_lanes_and_produces_a_real_report() {
         use std::cell::RefCell;
@@ -591,6 +780,7 @@ A night of sleep improved memory consolidation in this sample.
             Some("E2E manuscript".into()),
             None, // unauthenticated: keeps the verify lane off the cloud tier
             None, // no guidelines requested -> structural-only checklist
+            NetworkConsent::Granted, // the fixtures carry no References section
             &emit,
         );
         let _ = std::fs::remove_file(&path);
@@ -811,6 +1001,7 @@ A night of sleep improved memory consolidation in this sample.
             Some("AI gate regression".into()),
             None, // unauthenticated: keeps the verify lane off the cloud tier
             None, // no guidelines requested -> structural-only checklist
+            NetworkConsent::Granted, // the fixtures carry no References section
             &emit,
         );
         let _ = std::fs::remove_file(&path);
@@ -863,6 +1054,7 @@ A night of sleep improved memory consolidation in this sample.
             Some("pdf e2e".into()),
             None,
             None,
+            NetworkConsent::Granted, // MANUSCRIPT has no References section
             &emit,
         );
         let _ = std::fs::remove_file(&path);
@@ -921,6 +1113,7 @@ A night of sleep improved memory consolidation in this sample.
             Some("checklist e2e".into()),
             None, // unauthenticated: keeps the verify lane off the cloud tier
             guidelines_url,
+            NetworkConsent::Granted, // MANUSCRIPT has no References section
             &emit,
         )
         .expect("pipeline completes");

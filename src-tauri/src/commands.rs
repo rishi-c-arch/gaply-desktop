@@ -632,6 +632,17 @@ pub fn run_publishready_measured(
         None,
         user_token.clone(),
         guidelines_url.clone(),
+        // PublishReady's own consent gate is at `PublishReadyPage.tsx:142`
+        // (`mayUseCloud('publishready')`), which refuses to start the run at
+        // all — so reaching this function already means it passed.
+        //
+        // THAT GATE IS STILL `localStorage`, i.e. still a preference and not a
+        // boundary, and `Granted` here records that this path INHERITS the
+        // frontend's word rather than checking anything itself. Blocker 3 scoped
+        // the Analysis screen, which had no gate at all; giving PublishReady the
+        // same Rust-side parameter is the obvious next step and is deliberately
+        // not folded in here.
+        crate::pipeline::NetworkConsent::Granted,
         &emit,
     )?;
     let lanes = pipeline_out.lanes;

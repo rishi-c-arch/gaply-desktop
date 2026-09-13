@@ -164,6 +164,8 @@ fn main() {
             Some(format!("mem-probe run {run_no}")),
             None, // measurement probe: unauthenticated, so no cloud verify tier
             None,
+            // A memory probe invoked by hand: the operator asked for the run.
+            app_lib::pipeline::NetworkConsent::Granted,
             &emit,
         );
         *stage_post.lock().unwrap() = format!("between-runs-{run_no}");
