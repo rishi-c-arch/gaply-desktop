@@ -82,6 +82,22 @@ ConsentScope: Manuscript | AnalysisMetadata | AnalysisCode | AnalysisData
 
 Each scope is a separate checkbox with its own statement. A researcher may send the manuscript and keep the code local; that combination is common and should be one click. The default is manuscript-only.
 
+- **[Phase 1 — BUILT, and the v5 note below about placement is superseded]**
+  `ConsentRecord`, `ConsentScope`, `Tier`, the `consent_records` table
+  (migration 22, append-only) and the store now exist in **`gaply-core`**, not
+  the app crate. `ConsentRecord::from_persisted` is **module-private** — not
+  `pub`, not `pub(crate)` — and `store::record` / `store::resolve` are its only
+  callers, so the only way to obtain a record anywhere in the workspace is to
+  write a row or read one back. `check_tier` takes the real resolver; the
+  partition tests can no longer fabricate a consent. §11 D152 carries the
+  reasoning and the two deliberate breaks.
+
+  The v5 bullet below said it lived in the app crate because the design's `Uuid`
+  and `DateTime` were dependencies `gaply-core` does not carry. **That reason was
+  void on arrival** — the implementation used `now_epoch()` and a `String` id.
+  What forced the move is that `Database::conn` is `pub(crate)`, so a store in
+  the app crate cannot read the table, which would have kept `from_persisted`
+  public — the hole itself.
 - **[v5 — corrected]** v4's field was `provider: Provider // OpenAI, named`. **The desktop cannot honestly record that.** `gaply-proxy/app/main.py:146-152` picks the provider server-side from `GAPLY_LLM_PROVIDER`, and `:262` states the property deliberately: *"nothing is persisted. The desktop never knows which one handled it."* A consent record naming a vendor would be a claim this machine can neither check nor be told is wrong — an unfalsifiable privacy statement. The field names a **class** (`CloudLlmViaProxy`) instead. Naming the vendor is available and costs provider-blindness; §11 D152 records that trade rather than leaving it a gap.
 - `ConsentRecord` is persisted in a new table, one row per manuscript per consent event, never deleted. **[v5]** The type lives in the **app crate**, not `gaply-core`: the design's `Uuid`/`DateTime` are two dependencies `gaply-core` does not carry and should not acquire — it is declared *"portable, Tauri-free"* at `rust-version = "1.77.2"`, with no network and no clock. It uses `now_epoch()` `i64` and a `String` id, the conventions already in the codebase.
 - The premium proxy client takes `Tier::Premium(record)` and nothing else. A free-tier call *cannot* reach the premium route because there is no constructor path from `Tier::Free` to it. This is the type system doing what `localStorage` cannot.
@@ -133,8 +149,33 @@ The fabric is six layers. Each is a distinct epistemic object with a distinct pr
 | **Analysis** | the analysis record parsed from code/SPSS/MATLAB/notebooks; raw data structure | premium, separate `Analysis*` consents — code and data are more sensitive than prose | methodological specialists |
 | **Journal** | ingested guidelines, scope, recent-paper corpus, reporting-standard bindings — the `JournalFingerprint` (§7) | public, shared across users | journal-fit and reporting specialists |
 | **External evidence** | cited works, retraction records, OA full texts, public literature the research agent gathers | public, cached, injection-guarded | integrity and literature specialists |
-| **Research state** | the machine-readable study: question, hypotheses, design, population, variables, outcomes, claims, methods, analyses, results, tables, figures, references, uncertainties | structured, gate-safe — the free tier already computes most of it | every agent |
+| **Research state** | the machine-readable study: question, hypotheses, design, population, variables, outcomes, claims, methods, analyses, results, table/figure POINTERS, references, uncertainties | structured, gate-safe | every agent |
 | **Verdict** | findings with epistemic status, evidence, per-agent opinions, revision history, disagreement map, consensus, decision ledger | never leaves | synthesis, chat |
+
+**[Phase 1 — two corrections, both found by building it.]**
+
+**Tables and figures appeared in TWO layers with incompatible privacy classes.**
+The Manuscript row claims them as premium-consented and the Research-state row
+claimed them as gate-safe; a table cannot be both, and §3.1's own test — *"a
+distinct epistemic object with a distinct privacy class"* — is what the overlap
+fails. The split the code forces: a `TableRef` is `{label, caption, location}`, a
+POINTER with no cell data, and that is gate-safe; a table's CONTENTS are
+manuscript text and are not extracted at all. The row above now says pointers.
+
+**"the free tier already computes most of it" was wrong — it CAN and does not.**
+`ExtractOptions::scientific` is opt-in and **no production caller opts in**;
+`extract_from_text` passes `ExtractOptions::base()`, so `ExtractionResult.scientific`
+is `None` on every real run. The extractors for claims, variables, methods and
+datasets are written and tested; they are switched off, because (in the option's
+own words) *"the scientific layer is consumed by one that does not exist yet"*.
+`ResearchState` is that consumer, and turning the layer on is now a **Phase 2
+prerequisite with a cost** — four extra passes over the manuscript for every
+caller — not a detail inside Phase 4. §12 Phase 2 records the decision.
+
+**Figures are listed and nothing extracts them.** `extract` detects tables only.
+`ResearchState::figures` is present and permanently empty, with a provenance row
+recording `(none — no figure extractor exists)` at count 0, because "no extractor
+runs for this" and "this extractor found nothing" are different facts.
 
 The four of these must stay distinguishable in every finding: *the manuscript says N=624; the SPSS output says valid N=600; the journal requires exclusions be reported; the specialist concludes the 24 need explaining.* Each is a different layer, and a finding that blurs them is a finding a reviewer cannot retrace.
 
@@ -656,6 +697,23 @@ Grounded in what the teardown found broken and what each phase needs from the on
 
 **Phase 1 — the research state and the boundary (2 weeks).** `ResearchState` as a typed object with versioning and provenance; the evidence graph (claim ↔ analysis ↔ result ↔ table ↔ source). The research state comes before the harness because the harness routes over it.
 
+**[Phase 1 — Part A and Part B BUILT. What remains is below.]** `ResearchState`
+exists in `gaply-core` (`research_state.rs`): versioned, content-hashed,
+serialisable, with per-field extractor provenance and the evidence graph. It
+**composes** `ScientificExtraction` by `Arc` rather than restating its fields —
+questions, hypotheses, variables, methods, datasets, claims, contributions and
+limitations were already typed, already versioned, already carrying `SourceSpan`
+provenance, so a parallel definition would have been the §11 D129 shape. It
+carries NO prose: §3.1's privacy classes make that the difference between a layer
+that can travel and one that cannot, pinned by a test.
+
+The evidence graph emits **one exact edge kind and two co-location kinds**, named
+for what they rest on: `CitesReference` (a numeric marker to a reference by
+index — author-year identifies a work approximately per §11 D131, so it gets no
+edge rather than a probable one), `StatisticCoLocatedWithTable` and
+`ClaimCoLocatedWithStatistic`. An out-of-range marker produces no edge at all.
+`Supports` would be a claim about meaning; extraction can only see position.
+
 **[v5 — the boundary half is partly built; what remains is specific.]** `Tier`, `ConsentRecord`, `ConsentScope`, `check_tier` and the two gates exist (`src-tauri/src/consent.rs`, `release_gate.rs`; §11 D152), with the partition pinned by tests written before the gates and verified by three deliberate breaks. **Three things are still open, and the first is the one that matters:**
 
 1. **`consent_records` does not exist.** `ConsentRecord::from_persisted` is `pub`, so nothing yet stops a caller constructing a record that was never stored — the type-level guarantee is real about `Tier`, and only as strong as that constructor about consent. Create the table, make the constructor `pub(crate)`, put the store in front of it, and pass a real resolver to `check_tier` in place of the test closure.
@@ -664,7 +722,21 @@ Grounded in what the teardown found broken and what each phase needs from the on
 
 Deliverables: a research state that round-trips through the existing free-tier pipeline byte-identically, and a `ConsentRecord` that cannot be obtained except from a stored row.
 
-**Phase 2 — the harness and the mathematical engine (2–3 weeks).** Wire `RevisingVerificationAgent`. Define `AgentSpec` and the graph file. Move the six existing lanes onto it. Build the `EquationGraph` extraction and the Tier 0 checks that need no analysis record (equivalence, units, recomputation from reported inputs). Two deliverables: the test that production converges past round one, and the first Tier 0 finding on a golden manuscript that an LLM had nothing to do with.
+**Phase 2 — the harness and the mathematical engine (2–3 weeks).**
+
+**[Phase 1 found a prerequisite this phase did not have.]** The scientific layer
+is opt-in and nothing opts in, so `ResearchState::science` is `None` on every
+real run: no claims, no variables, no methods, no datasets. A harness routing
+over the research state, and every §4.2 specialist taking `&[Claim]`, would
+receive nothing. **Before the harness: decide who turns `ExtractOptions::scientific`
+on and who pays for it.** The option's own comment says it was made opt-in
+because it cost every caller — AI Check, PublishReady, the audit pre-pass, the
+paper corpus — four extra passes over the manuscript to fill a field none of them
+read. That cost is described and has never been measured. Per-lane opt-in
+(PublishReady yes, AI Check no) is the obvious shape; measuring first is the
+precondition either way.
+
+ Wire `RevisingVerificationAgent`. Define `AgentSpec` and the graph file. Move the six existing lanes onto it. Build the `EquationGraph` extraction and the Tier 0 checks that need no analysis record (equivalence, units, recomputation from reported inputs). Two deliverables: the test that production converges past round one, and the first Tier 0 finding on a golden manuscript that an LLM had nothing to do with.
 
 **Phase 2b — the benchmark (in parallel, ongoing).** The first fifty labelled cases across the six families, with population estimates. Nothing in Phase 4 ships without a score on it.
 

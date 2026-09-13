@@ -37,6 +37,7 @@ use gaply_core::plagiarism::PlagiarismReport;
 use gaply_core::report::{build_checklist, compile_report, PublishReadyReport};
 use gaply_core::swarm::{adapters, run_debate, DebateConfig, PrecomputedAgent, SwarmAgent};
 use gaply_core::verify_agent::{verify_citations, MockProxyClient};
+use gaply_core::research_state::ResearchState;
 use gaply_core::{ai_detect, extract, now_epoch, plagiarism, rag, validate, Database, GaplyError};
 
 use crate::http_fetcher::RefVerifier;
@@ -257,6 +258,16 @@ pub struct PipelineResult {
     /// The whole manuscript. Held for nearby-text lookup and NEVER copied
     /// wholesale into `LocalReportModel` — only extracted snippets are.
     pub text: String,
+    /// **The machine-readable study** (§3.1), derived from `extraction`.
+    ///
+    /// Purely additive: nothing in the report path reads it, and the golden
+    /// test `the_report_is_byte_identical_with_a_research_state_derived` pins
+    /// that adding it changed no output. It is here so Phase 2's harness has
+    /// something to route over, and so the derivation runs on every real run
+    /// rather than being written and never exercised.
+    ///
+    /// Contains NO prose — see `gaply_core::research_state`.
+    pub research_state: ResearchState,
 }
 
 /// Channel wrapper: forward emitted events to the IPC channel (closed channel
@@ -582,7 +593,20 @@ fn run_pipeline_inner(
 
     // The two sources §31.2 found unreachable now leave the function instead of
     // being dropped at its closing brace.
-    Ok(PipelineResult { report_id, report, lanes, extraction, plagiarism: plag, text })
+    // Derived, not re-extracted: a pure projection of what extraction already
+    // returned. "Do not change what extraction does; change where its output
+    // lands" — this is the landing site.
+    let research_state = ResearchState::from_extraction(&extraction);
+
+    Ok(PipelineResult {
+        report_id,
+        report,
+        lanes,
+        extraction,
+        plagiarism: plag,
+        text,
+        research_state,
+    })
 }
 
 #[cfg(test)]
@@ -833,6 +857,119 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
              proxy: {summary:?}"
         );
         assert!(!out.lanes.verification_examined);
+    }
+
+    /// **THE PHASE 1 PART B DELIVERABLE — the report is byte-identical.**
+    ///
+    /// `ResearchState` is meant to change WHERE extraction's output lands, not
+    /// what the product says. The way that claim fails is not dramatically: a
+    /// derivation that mutated a shared structure, or a field order that moved a
+    /// serialised key, would shift the report by a byte nobody looks at until a
+    /// cached report stops parsing (§11 D53/D103/D109 — five drifts, all
+    /// silent).
+    ///
+    /// # THE FIRST VERSION OF THIS TEST COULD NOT FAIL
+    ///
+    /// It serialised `out.report` twice, with the derivation between the two
+    /// calls, and asserted the bytes matched. `ResearchState::from_extraction`
+    /// takes `&ExtractionResult`, so it *cannot* mutate the report — the two
+    /// sides were the same immutable value and the assertion was satisfied by
+    /// the type system before the test ran. A green result meant nothing, which
+    /// is the shape this project keeps finding (the lint gate, the XML
+    /// containment assertions).
+    ///
+    /// **So the comparison is against bytes produced by DIFFERENT CODE.**
+    /// `tests/fixtures/report.golden.json` was captured from a throwaway
+    /// worktree at `e5eb963` — the commit immediately before `ResearchState`
+    /// existed — by running the same pipeline over
+    /// `tests/fixtures/golden_manuscript.txt`. "Before and after" is then two
+    /// compilers apart, which is what it has to mean for the claim to be worth
+    /// anything.
+    ///
+    /// If this fails, the derivation is not additive. Regenerating the fixture
+    /// to make it pass is the wrong move unless the report is MEANT to change,
+    /// in which case say so in the commit and record why.
+    #[test]
+    fn the_report_is_byte_identical_to_the_pre_research_state_capture() {
+        use std::cell::RefCell;
+        force_heuristic();
+        let golden = include_str!("../tests/fixtures/report.golden.json");
+        let manuscript = include_str!("../tests/fixtures/golden_manuscript.txt");
+
+        let db = Arc::new(Database::in_memory().expect("in-memory db"));
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+        let path = std::env::temp_dir().join(format!("gaply_golden_{}.txt", std::process::id()));
+        std::fs::write(&path, manuscript).expect("write temp manuscript");
+
+        let events: RefCell<Vec<AnalysisEvent>> = RefCell::new(Vec::new());
+        let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
+        let out = run_pipeline_inner(
+            db.clone(),
+            embedder,
+            path.to_string_lossy().to_string(),
+            Some("golden".into()),
+            None,
+            None,
+            NetworkConsent::Denied,
+            &emit,
+        )
+        .expect("pipeline completes");
+        let _ = std::fs::remove_file(&path);
+
+        let now = serde_json::to_string(&out.report).expect("report serialises");
+        assert_eq!(
+            now,
+            golden.trim_end(),
+            "the report changed. ResearchState is supposed to be a projection of extraction \
+             that nothing in the report path reads — if this differs, it is not."
+        );
+
+        // And the state is real, so the comparison above is not passing because
+        // the derivation quietly did nothing.
+        assert!(out.research_state.hash_matches());
+        assert_eq!(out.research_state.references.len(), out.extraction.references.len());
+        assert!(!out.research_state.structure.is_empty());
+    }
+
+    /// The privacy-class property from §3.1, asserted rather than assumed: the
+    /// research state is "structured, gate-safe" while the manuscript layer is
+    /// premium-consented. A state carrying prose would quietly move text into a
+    /// layer that is allowed to travel.
+    #[test]
+    fn the_research_state_carries_no_manuscript_prose() {
+        use std::cell::RefCell;
+        force_heuristic();
+        let db = Arc::new(Database::in_memory().expect("in-memory db"));
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+        let path = std::env::temp_dir().join(format!("gaply_noprose_{}.txt", std::process::id()));
+        std::fs::write(&path, MANUSCRIPT_WITH_REFS).expect("write temp manuscript");
+        let events: RefCell<Vec<AnalysisEvent>> = RefCell::new(Vec::new());
+        let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
+        let out = run_pipeline_inner(
+            db.clone(),
+            embedder,
+            path.to_string_lossy().to_string(),
+            Some("no-prose".into()),
+            None,
+            None,
+            NetworkConsent::Denied,
+            &emit,
+        )
+        .expect("pipeline completes");
+        let _ = std::fs::remove_file(&path);
+
+        let json = serde_json::to_string(&out.research_state).expect("state serialises");
+        // A distinctive sentence from the body, present in the manuscript and in
+        // no heading, caption, statistic or reference.
+        let body_sentence = "Prior work suggests that sleep supports the consolidation";
+        assert!(
+            out.text.contains(body_sentence),
+            "fixture precondition: the sentence must be in the manuscript"
+        );
+        assert!(
+            !json.contains(body_sentence),
+            "manuscript prose reached the research state, which is the gate-safe layer"
+        );
     }
 
     #[test]

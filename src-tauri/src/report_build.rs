@@ -268,6 +268,12 @@ mod tests {
                 harness_notes: vec![],
                 disclaimer: "d".into(),
             },
+            // Derived from the same empty extraction this fixture uses, so the
+            // fixture stays a projection of its own inputs rather than carrying
+            // a hand-written state that could disagree with them.
+            research_state: gaply_core::research_state::ResearchState::from_extraction(
+                &Default::default(),
+            ),
             lanes: LaneExamination {
                 verification_examined: false,
                 validation_examined: true,

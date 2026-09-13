@@ -1,0 +1,22 @@
+Title: Sleep and Memory Consolidation in Adults
+
+Abstract
+We examined whether a night of sleep improves memory consolidation in adults.
+
+Introduction
+Prior work suggests that sleep supports the consolidation of declarative memory [1].
+A second line of work reports the opposite under partial deprivation [2].
+
+Methods
+We recruited 48 participants and analysed recall with a paired t-test.
+
+Results
+Table 1 Recall by condition. Sleep significantly improved recall (t(47) = 3.2, p = 0.002, d = 0.46).
+
+Discussion
+The results are consistent with a consolidation account of sleep.
+
+References
+Walker M P and Stickgold R. 2006. Sleep, memory, and plasticity. Annual Review of Psychology 57: 139-166. https://doi.org/10.1146/annurev.psych.56.091103.070307
+
+Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neuroscience 11: 114-126. https://doi.org/10.1038/nrn2762
