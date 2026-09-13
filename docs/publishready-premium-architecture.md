@@ -732,9 +732,39 @@ receive nothing. **Before the harness: decide who turns `ExtractOptions::scienti
 on and who pays for it.** The option's own comment says it was made opt-in
 because it cost every caller — AI Check, PublishReady, the audit pre-pass, the
 paper corpus — four extra passes over the manuscript to fill a field none of them
-read. That cost is described and has never been measured. Per-lane opt-in
-(PublishReady yes, AI Check no) is the obvious shape; measuring first is the
-precondition either way.
+read. **[MEASURED 13 Sep 2026 — and the decision is NOT "which lane pays".]**
+`examples/scientific_cost_probe.rs` carries the baseline; the headline is that
+the layer adds **0.8–14.5 s per manuscript** to a step that costs 1–70 ms —
+**30.4 s across six real manuscripts against 95 ms, a 320x slowdown**.
+
+At 200 ms the answer would have been "turn it on everywhere". At 14 s it is
+disqualifying for every interactive caller, and `paper_corpus` multiplies it by
+`MAX_PAPERS = 8`. But the profile says the 14 s is a **defect, not a price**:
+
+- **`methods` dominates 5 of 6 (52–80%), `datasets` is 29–41%, `claims` is free.**
+- **The cost is linear in SENTENCES and independent of what it finds** — 4.2–7.5
+  ms/sentence across a 22x range of inputs while match counts vary 2 to 79. A
+  constant per-sentence cost that ignores its own results is work done *before*
+  matching.
+- **It is regex compilation.** `datasets.rs:222-224` and `methods.rs:387-390` /
+  `401-404` build a `Regex` inside a loop over a pattern list, on every sentence:
+  the lists are `OnceLock`-cached, the compiled regexes are not. `claims.rs` and
+  `variables.rs` cache correctly and cost 0% and 6–20%.
+- **`datasets` returns ZERO on all six manuscripts** while costing 0.45–4.3 s.
+  It has never produced a result on a real manuscript. That is a candidate for
+  DELETION rather than optimisation — caching its regexes would only make a pass
+  that returns nothing return nothing faster.
+
+So the question is not who pays 14 seconds. It is **fix the hot spot, delete the
+empty pass, then re-measure and ask again** — the fix is the pattern already used
+two files over, and it should bring the corpus total to roughly 3–4 s. That
+figure is a PREDICTION calibrated on `variables.rs`'s measured rate; re-run the
+probe after the fix rather than quoting it.
+
+**Also corrected here:** this note previously said the layer cost *"every
+existing caller — AI Check, PublishReady, the audit pre-pass, the paper
+corpus"*. **The audit pre-pass never called `extract_from_text` at all** —
+`audit_prepass.rs` uses `docparse` only. That caller was never paying.
 
  Wire `RevisingVerificationAgent`. Define `AgentSpec` and the graph file. Move the six existing lanes onto it. Build the `EquationGraph` extraction and the Tier 0 checks that need no analysis record (equivalence, units, recomputation from reported inputs). Two deliverables: the test that production converges past round one, and the first Tier 0 finding on a golden manuscript that an LLM had nothing to do with.
 
