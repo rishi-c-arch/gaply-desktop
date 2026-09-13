@@ -934,7 +934,27 @@ mod mini_loader_tests {
 /// machine with the file on disk — bypassing the ≥16GB structural gate and the
 /// RAM courtesy check, and producing multi-hour uncapped runs on 8GB.
 pub fn perplexity_model() -> Box<dyn PerplexityModel> {
-    model_for_selection(select_deep_model())
+    perplexity_model_with_kind().0
+}
+
+/// The model AND the honest [`DeepKind`] label for what was actually loaded.
+///
+/// # Why this exists
+///
+/// [`perplexity_model`] returns a bare `Box<dyn PerplexityModel>`, so the tier
+/// [`select_deep_model`] decided was DISCARDED one function after being
+/// computed. Every caller downstream — the pipeline's AI lane, the report
+/// compiler, the round-table adapter — then had no way to know whether a real
+/// model or the frequency proxy produced the numbers they were about to label.
+/// The only trace left was the model's display NAME, and a caller deciding
+/// anything from that is doing a string comparison in place of a type.
+///
+/// `perplexity_model` stays for the probes and examples that genuinely want
+/// only the model; anything that REPORTS on the result should take the kind too.
+pub fn perplexity_model_with_kind() -> (Box<dyn PerplexityModel>, DeepKind) {
+    let selection = select_deep_model();
+    let kind = selection.kind;
+    (model_for_selection(selection), kind)
 }
 
 /// Honour a [`DeepSelection`] for callers that need a model unconditionally:

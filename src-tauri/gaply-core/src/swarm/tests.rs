@@ -243,7 +243,7 @@ fn five_local_agents_run_fully_offline() {
     let extraction = crate::extract::extract_from_text(text);
     let validation = crate::validate::validate(&extraction);
     let model = crate::ai_detect::HeuristicModel::gpt2_like();
-    let ai = crate::ai_detect::detect_text(&model, text);
+    let ai = crate::ai_detect::detect_text(&model, crate::ai_detect::DeepKind::Absent, text);
 
     let db = crate::Database::in_memory().unwrap();
     let embedder = crate::embed::HashEmbedder;
@@ -474,7 +474,7 @@ fn end_to_end_six_agents_produce_confidence_weighted_result() {
     assert!(!extraction.references.is_empty(), "fixture must yield a reference");
     let validation = crate::validate::validate(&extraction);
     let model = crate::ai_detect::HeuristicModel::gpt2_like();
-    let ai = crate::ai_detect::detect_text(&model, text);
+    let ai = crate::ai_detect::detect_text(&model, crate::ai_detect::DeepKind::Absent, text);
     let db = crate::Database::in_memory().unwrap();
     let embedder = crate::embed::HashEmbedder;
     let mut session = crate::plagiarism::PlagiarismSession::new().unwrap();

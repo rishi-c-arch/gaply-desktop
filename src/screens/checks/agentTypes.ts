@@ -103,6 +103,9 @@ export interface SectionAiScore {
   uncertainty: string;
 }
 
+/** Which deep tier scored the text. Mirrors gaply_core::ai_detect::DeepKind. */
+export type DeepKind = 'full' | 'compact' | 'gated_low_ram' | 'skipped_low_memory' | 'absent';
+
 export interface AiDetectionReport {
   model: string;
   overall_mean_perplexity: number;
@@ -111,6 +114,17 @@ export interface AiDetectionReport {
   sections: SectionAiScore[];
   confidence: string; // "low"
   disclaimer: string; // MANDATORY, never empty
+  /**
+   * Which tier actually scored this text (§11 D153).
+   *
+   * `model` is a DISPLAY NAME — prose, not a fact to branch on. This is the
+   * fact. `null`/absent means NOT RECORDED (a report cached before the field
+   * existed), never "no deep model ran" — those are different claims.
+   *
+   * Note that `detect_ai` always reports 'absent': that command hardcodes the
+   * heuristic model and never loads a deep tier, whatever the machine could run.
+   */
+  deep_kind?: DeepKind | null;
 }
 
 /* ------------------- AI Check (Set 5) — two-way tiered ------------------ */

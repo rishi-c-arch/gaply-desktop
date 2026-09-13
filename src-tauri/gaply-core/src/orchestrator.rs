@@ -82,6 +82,20 @@ impl RoutingPolicy for DefaultRoutingPolicy {
             }
             // AI-DETECTION — by SEVERITY (a flagged concern), NEVER the coarse
             // confidence number. Competes for budget like everything else.
+            //
+            // SINCE §11 D153 THIS IS FALSE FOR THE AUTHORSHIP OPINION, which is
+            // capped at `info` and so can never clear this bar. That is a
+            // CONSEQUENCE worth stating rather than a line to delete: spending a
+            // cloud call to ask a second model "was this written by a model" is
+            // asking a less-measured instrument to arbitrate an unmeasured one,
+            // and the claim is already ineligible for the recommendation
+            // (`reviewer_agent::claim_is_eligible`).
+            //
+            // The arm STAYS because the agent also produces the stylometry
+            // findings (ManuscriptDefect, Minor) — also below the bar today, but
+            // a genuine Critical/Major from this agent would be a real
+            // escalation candidate, and deleting the arm would make that
+            // decision silently rather than visibly.
             AgentKind::AiDetection => {
                 matches!(rec.severity, FindingSeverity::Critical | FindingSeverity::Major)
             }

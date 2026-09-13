@@ -356,6 +356,11 @@ pub mod adapters {
     }
 
     /// AI-Detection: statistical proxy; its report says "low" confidence — honor that.
+    ///
+    /// The explanation now names WHICH TIER produced the numbers and states that
+    /// the lane has no measured accuracy (§11 D153). Severity is capped
+    /// elsewhere, in `report.rs`, because it is a property of the CLAIM rather
+    /// than of this adapter.
     pub fn from_ai_detection(r: &AiDetectionReport) -> Opinion {
         let (answer, conf) = match r.signal {
             AiSignal::LeansHumanLike => (ANSWER_PASS, 0.6),
@@ -366,8 +371,12 @@ pub mod adapters {
             agent: AgentKind::AiDetection,
             answer: answer.into(),
             explanation: format!(
-                "signal {:?} (mean perplexity {:.1}, burstiness {:.1}); {}",
-                r.signal, r.overall_mean_perplexity, r.overall_burstiness, r.disclaimer
+                "signal {:?} (mean perplexity {:.1}, burstiness {:.1}); {} {}",
+                r.signal,
+                r.overall_mean_perplexity,
+                r.overall_burstiness,
+                crate::ai_detect::tier_provenance(r.deep_kind),
+                r.disclaimer
             ),
             confidence: conf,
             hard_constraint: false,

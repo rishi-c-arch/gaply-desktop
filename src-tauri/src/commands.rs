@@ -299,8 +299,14 @@ pub fn delete_secret(name: String) -> Result<(), GaplyError> {
 pub fn detect_ai(path: String) -> Result<AiDetectionReport, GaplyError> {
     let text = docparse::parse_path(std::path::Path::new(&path))?;
     let extraction = extract::extract_from_text(&text);
+    // THIS COMMAND IS ALWAYS HEURISTIC and now says so. It hardcodes
+    // `HeuristicModel::gpt2_like()` — it does not consult `select_deep_model`,
+    // so no deep tier is ever loaded here regardless of what the machine could
+    // run. `DeepKind::Absent` is therefore a fact about this call site, not a
+    // guess: the report it returns can never have been produced by a real
+    // language model, and a caller reading `deep_kind` learns that.
     let model = HeuristicModel::gpt2_like();
-    Ok(ai_detect::detect_extraction(&model, &extraction))
+    Ok(ai_detect::detect_extraction(&model, ai_detect::DeepKind::Absent, &extraction))
 }
 
 /// One analyzed section, exactly as the AI-Check flow saw it. `text` is the

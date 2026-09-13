@@ -90,7 +90,7 @@ fn golden_report_for_sample_manuscript() {
     let validation = crate::validate::validate(&extraction);
     assert!(validation.passed, "fixture must be stats-clean: {:?}", validation.flags);
     let model = crate::ai_detect::HeuristicModel::gpt2_like();
-    let ai = crate::ai_detect::detect_text(&model, MANUSCRIPT);
+    let ai = crate::ai_detect::detect_text(&model, crate::ai_detect::DeepKind::Absent, MANUSCRIPT);
     let db = crate::Database::in_memory().unwrap();
     let embedder = crate::embed::HashEmbedder;
     let mut session = crate::plagiarism::PlagiarismSession::new().unwrap();
@@ -1154,10 +1154,18 @@ fn extraction_derived_findings_yield_to_more_urgent_findings_at_the_reviewer_cap
 fn severity_beats_insertion_order_for_extraction_derived_findings() {
     let ex = extraction_with_uncaptioned_table();
     let validation = crate::validate::validate(&ex);
-    // An AiDetection CONCERN -> Major, compiled in the soft-opinion loop AFTER
-    // the extraction-derived findings.
+    // A soft CONCERN -> Major, compiled in the soft-opinion loop AFTER the
+    // extraction-derived findings.
+    //
+    // The vehicle was AiDetection until §11 D153 capped the authorship claim at
+    // `info`, which left this test with no Major to order and made it fail on a
+    // PRECONDITION rather than on its subject. Rag is the replacement: its
+    // opinion carries `ClaimKind::ProcessState`, which the cap does not touch,
+    // so a concern still compiles to Major in the same loop at the same point.
+    // The assertion below is unchanged — this test is about severity beating
+    // insertion order, and which agent supplies the Major was always incidental.
     let mut agents: Vec<Box<dyn SwarmAgent>> = vec![Box::new(PrecomputedAgent::new(opinion(
-        AgentKind::AiDetection,
+        AgentKind::Rag,
         crate::swarm::ANSWER_CONCERN,
         0.6,
     )))];
@@ -1720,4 +1728,111 @@ fn a_report_cached_before_harness_notes_still_parses() {
     let parsed: PublishReadyReport =
         serde_json::from_value(json).expect("a pre-field report must still parse");
     assert!(parsed.harness_notes.is_empty());
+}
+
+// ============================================================================
+// §11 D153 — the authorship signal may never be louder than `info`
+// ============================================================================
+
+/// A debate whose AI-detection opinion is a CONCERN — the shape that produced
+/// `[major] AiDetection: concern` in 19 of 22 stored reports.
+fn outcome_with_an_ai_concern() -> crate::swarm::DebateOutcome {
+    let mut agents: Vec<Box<dyn SwarmAgent>> = vec![
+        Box::new(PrecomputedAgent::new(opinion(AgentKind::Rag, ANSWER_PASS, 0.75))),
+        Box::new(PrecomputedAgent::new(opinion(
+            AgentKind::AiDetection,
+            crate::swarm::ANSWER_CONCERN,
+            0.6,
+        ))),
+    ];
+    run_debate(&mut agents, &DebateConfig::default()).unwrap()
+}
+
+/// **The cap.** An AI-detection concern lands at `info`, never `major`.
+#[test]
+fn an_authorship_concern_is_capped_at_info() {
+    let outcome = outcome_with_an_ai_concern();
+    let ex = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nR.\n");
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+
+    let f = report
+        .findings
+        .iter()
+        .find(|f| f.claim == ClaimKind::AuthorshipSignal)
+        .expect("the authorship opinion must still produce a finding — it is not deleted");
+    assert_eq!(f.severity, FindingSeverity::Info, "an authorship signal may not exceed info");
+    assert_eq!(f.agent, AgentKind::AiDetection);
+
+    // NOTHING in the report may carry AuthorshipSignal above info.
+    for f in &report.findings {
+        if f.claim == ClaimKind::AuthorshipSignal {
+            assert_eq!(f.severity, FindingSeverity::Info, "uncapped authorship finding: {f:?}");
+        }
+    }
+}
+
+/// **THE ACCIDENT THIS GUARDS.** The cap is keyed on the CLAIM. Keyed on
+/// `AgentKind::AiDetection` instead it would also demote the document stylometry
+/// findings — which carry `ManuscriptDefect` at `Minor`, rest on lexical
+/// diversity and citation density rather than on perplexity thresholds, and were
+/// deliberately kept reviewer-relevant by `reviewer_agent.rs:1080-1084`.
+///
+/// Re-deciding that question by accident, in the opposite direction, is exactly
+/// what a producer-keyed cap would have done — and it would have looked correct.
+#[test]
+fn the_cap_does_not_touch_stylometry_findings_from_the_same_agent() {
+    let outcome = outcome_with_an_ai_concern();
+    // Prose with low lexical diversity, so a stylometry finding is produced.
+    let repetitive = format!(
+        "Title\n\nAbstract\n{}\n\nResults\n{}\n",
+        "the study the study the study of the study by the study ".repeat(40),
+        "the result the result the result of the result by the result ".repeat(40)
+    );
+    let ex = crate::extract::extract_from_text(&repetitive);
+    let validation = crate::validate::validate(&ex);
+    let report =
+        compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[]);
+
+    let stylo: Vec<&Finding> = report
+        .findings
+        .iter()
+        .filter(|f| f.agent == AgentKind::AiDetection && f.claim == ClaimKind::ManuscriptDefect)
+        .collect();
+    assert!(
+        !stylo.is_empty(),
+        "fixture precondition: this prose must produce a stylometry finding, else the \
+         guard asserts nothing; got {:?}",
+        report.findings.iter().map(|f| (&f.title, f.claim)).collect::<Vec<_>>()
+    );
+    for f in &stylo {
+        assert_eq!(
+            f.severity,
+            FindingSeverity::Minor,
+            "a stylometry finding was demoted by the authorship cap: {f:?}"
+        );
+    }
+    // And the same report still caps the authorship claim — both behaviours at once.
+    assert!(report
+        .findings
+        .iter()
+        .filter(|f| f.claim == ClaimKind::AuthorshipSignal)
+        .all(|f| f.severity == FindingSeverity::Info));
+}
+
+/// A `pass` opinion was already `info`; the cap must not change it, so a green
+/// test here cannot be mistaken for the cap working.
+#[test]
+fn a_passing_authorship_opinion_is_unchanged() {
+    let mut agents: Vec<Box<dyn SwarmAgent>> = vec![Box::new(PrecomputedAgent::new(opinion(
+        AgentKind::AiDetection,
+        ANSWER_PASS,
+        0.6,
+    )))];
+    let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
+    let ex = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nR.\n");
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+    let f = report.findings.iter().find(|f| f.claim == ClaimKind::AuthorshipSignal).unwrap();
+    assert_eq!(f.severity, FindingSeverity::Info);
 }

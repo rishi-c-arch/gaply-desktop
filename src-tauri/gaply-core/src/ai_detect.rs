@@ -271,6 +271,25 @@ pub struct AiDetectionReport {
     pub confidence: String,
     /// Mandatory disclaimer. Never empty.
     pub disclaimer: String,
+    /// **Which deep tier actually scored this text.**
+    ///
+    /// `model` is the model's own display NAME, which is prose: it answers
+    /// "what shall I print" and not "what ran", and a caller deciding anything
+    /// from it is doing a string comparison in place of a type. This field is
+    /// the fact.
+    ///
+    /// `None` means NOT RECORDED — a report deserialized from a cache written
+    /// before the field existed. Typed absence rather than a defaulted variant
+    /// (§4.12): defaulting to `Absent` would assert "no deep model ran" about a
+    /// run nobody observed, which is a different and unearned claim.
+    ///
+    /// This does NOT decide the finding's severity. Since §11 D153 the whole
+    /// authorship signal is capped at `info` on every tier, because the
+    /// thresholds are uncalibrated on all of them. What this decides is what the
+    /// finding SAYS — "no deep model ran" and "the 7B ran against uncalibrated
+    /// thresholds" are different sentences and a reader is owed the right one.
+    #[serde(default)]
+    pub deep_kind: Option<DeepKind>,
 }
 
 fn mean(xs: &[f64]) -> f64 {
@@ -394,8 +413,39 @@ pub fn document_perplexity(surprisals: &[f32]) -> f64 {
     2f64.powf(mean_bits).min(PERPLEXITY_CLAMP)
 }
 
+/// **What produced these numbers, and what is known about their accuracy.**
+///
+/// One definition, used by the round-table adapter and available to any other
+/// reader, so the sentence a researcher sees about the AI-detection lane cannot
+/// drift between surfaces (the §11 D134 rule).
+///
+/// It states the tier AND the uncalibrated-threshold fact together, because
+/// either alone misleads in a different direction: the tier alone implies the
+/// 7B's verdict is trustworthy, and the accuracy caveat alone hides that a word
+/// frequency table may have produced it.
+pub fn tier_provenance(deep_kind: Option<DeepKind>) -> &'static str {
+    match deep_kind {
+        Some(DeepKind::Full) | Some(DeepKind::Compact) => {
+            "Scored by a local language model. THE LANE HAS NO MEASURED ACCURACY: \
+             the thresholds separating 'AI-like' from 'human-like' were set by hand and \
+             have never been validated against a labelled set, on this tier or any other."
+        }
+        Some(DeepKind::GatedLowRam) | Some(DeepKind::SkippedLowMemory) | Some(DeepKind::Absent) => {
+            "Scored by a WORD-FREQUENCY PROXY, not a language model — no deep model ran on \
+             this device. THE LANE HAS NO MEASURED ACCURACY: the thresholds were set by \
+             hand and have never been validated against a labelled set."
+        }
+        None => {
+            "The tier that scored this text was not recorded. THE LANE HAS NO MEASURED \
+             ACCURACY: the thresholds were set by hand and have never been validated \
+             against a labelled set."
+        }
+    }
+}
+
 fn build_report(
     model: &dyn PerplexityModel,
+    deep_kind: DeepKind,
     sections: Vec<SectionAiScore>,
     all_ppls: Vec<f64>,
 ) -> AiDetectionReport {
@@ -409,11 +459,16 @@ fn build_report(
         sections,
         confidence: "low".to_string(),
         disclaimer: AI_DISCLAIMER.to_string(),
+        deep_kind: Some(deep_kind),
     }
 }
 
 /// Detect over a single block of text (used for quick checks / short inputs).
-pub fn detect_text(model: &dyn PerplexityModel, text: &str) -> AiDetectionReport {
+pub fn detect_text(
+    model: &dyn PerplexityModel,
+    deep_kind: DeepKind,
+    text: &str,
+) -> AiDetectionReport {
     let (mean_ppl, burst, scores) = score_block(model, text);
     let section = SectionAiScore {
         section: SectionKind::Other,
@@ -424,13 +479,14 @@ pub fn detect_text(model: &dyn PerplexityModel, text: &str) -> AiDetectionReport
         uncertainty: SECTION_UNCERTAINTY.to_string(),
     };
     let ppls = scores.iter().map(|s| s.perplexity).collect();
-    build_report(model, vec![section], ppls)
+    build_report(model, deep_kind, vec![section], ppls)
 }
 
 /// Detect per Extraction-Agent section, with an aggregated overall score.
 #[tracing::instrument(skip(model, result), fields(sections = result.sections.len()))]
 pub fn detect_extraction(
     model: &dyn PerplexityModel,
+    deep_kind: DeepKind,
     result: &ExtractionResult,
 ) -> AiDetectionReport {
     let mut sections = Vec::new();
@@ -454,7 +510,7 @@ pub fn detect_extraction(
             uncertainty: SECTION_UNCERTAINTY.to_string(),
         });
     }
-    build_report(model, sections, all_ppls)
+    build_report(model, deep_kind, sections, all_ppls)
 }
 
 // ---------------------------------------------------------------------------
@@ -2101,8 +2157,8 @@ mod tests {
     #[test]
     fn ai_sample_scores_lower_perplexity_than_human() {
         let model = HeuristicModel::gpt2_like();
-        let ai = detect_text(&model, AI_SAMPLE);
-        let human = detect_text(&model, HUMAN_SAMPLE);
+        let ai = detect_text(&model, DeepKind::Absent, AI_SAMPLE);
+        let human = detect_text(&model, DeepKind::Absent, HUMAN_SAMPLE);
         assert!(
             ai.overall_mean_perplexity < human.overall_mean_perplexity,
             "AI {} should be < human {}",
@@ -2114,8 +2170,8 @@ mod tests {
     #[test]
     fn human_sample_is_burstier_than_ai() {
         let model = HeuristicModel::gpt2_like();
-        let ai = detect_text(&model, AI_SAMPLE);
-        let human = detect_text(&model, HUMAN_SAMPLE);
+        let ai = detect_text(&model, DeepKind::Absent, AI_SAMPLE);
+        let human = detect_text(&model, DeepKind::Absent, HUMAN_SAMPLE);
         assert!(
             human.overall_burstiness > ai.overall_burstiness,
             "human {} should be burstier than AI {}",
@@ -2129,7 +2185,7 @@ mod tests {
     #[test]
     fn every_report_carries_a_nonempty_disclaimer() {
         let model = HeuristicModel::gpt2_like();
-        let report = detect_text(&model, AI_SAMPLE);
+        let report = detect_text(&model, DeepKind::Absent, AI_SAMPLE);
         assert!(!report.disclaimer.is_empty());
         assert!(report.disclaimer.contains("NOT proof"));
         assert_eq!(report.confidence, "low");
@@ -2145,7 +2201,7 @@ mod tests {
             + "\n\nDiscussion\n"
             + HUMAN_SAMPLE;
         let model = HeuristicModel::gpt2_like();
-        let report = detect_extraction(&model, &extract_from_text(&doc));
+        let report = detect_extraction(&model, DeepKind::Absent, &extract_from_text(&doc));
 
         let abstract_ = report
             .sections
@@ -2168,7 +2224,7 @@ mod tests {
     #[test]
     fn deterministic() {
         let model = HeuristicModel::gpt2_like();
-        assert_eq!(detect_text(&model, HUMAN_SAMPLE), detect_text(&model, HUMAN_SAMPLE));
+        assert_eq!(detect_text(&model, DeepKind::Absent, HUMAN_SAMPLE), detect_text(&model, DeepKind::Absent, HUMAN_SAMPLE));
     }
 }
 
@@ -2226,7 +2282,7 @@ mod passage_tests {
         let mid = "The system wheezed with results and cerulean data everywhere today.";
         let text = text_of(&[mid, mid, mid]);
         let out = analyze_passages_text(&m(), &text);
-        let detect = detect_text(&m(), &text);
+        let detect = detect_text(&m(), DeepKind::Absent, &text);
         if detect.signal == AiSignal::Inconclusive {
             assert!(out.passages.is_empty(), "inconclusive must not be forced into a category");
         }
@@ -2326,7 +2382,7 @@ mod passage_tests {
         assert!(out.ai_signal_proportion > 0.0 && out.ai_signal_proportion < 1.0);
 
         // the ORIGINAL per-section report still works, side by side
-        let old = detect_extraction(&m(), &ex);
+        let old = detect_extraction(&m(), DeepKind::Absent, &ex);
         assert!(!old.sections.is_empty());
         assert_eq!(old.disclaimer, AI_DISCLAIMER);
     }

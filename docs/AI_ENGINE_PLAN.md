@@ -9510,3 +9510,239 @@ The proxy's `validate_structured` premium mode — the server-side half of this
 boundary — is also Phase 1. Until it exists, TIER is enforced on the desktop
 only, and a desktop-only half of a two-sided boundary should be read as exactly
 that.
+
+### D153 — the authorship signal is withdrawn from `major`, on every tier, because the threshold is the thing that is unmeasured
+
+**THE SENTENCE THIS ENTRY EXISTS FOR, STATED FIRST AND PLAINLY:**
+
+> **`classify()` takes only `(mean_ppl, burstiness)`. The boundary is
+> tier-agnostic, and its own comment disclaims it. A better model behind an
+> unvalidated threshold is a better-computed number on the same unvalidated
+> line.**
+
+That is why the whole lane is capped and not only the heuristic tier. The 7B
+changes *which model computes perplexity*. It does not move the line, and nobody
+has ever checked where the line should be.
+
+The constants, with their own verdict attached (`ai_detect.rs:320-323`):
+
+```rust
+/// Interim, deliberately conservative thresholds for the heuristic proxy.
+/// NOT calibrated against real GPT-2 output — hence the ever-present
+/// disclaimer. Recalibrate when a real model is wired to the trait; the
+/// SLM-1 tiers (Q3 vs Q4, ~+0.13 bits mean) need PER-TIER values here.
+const AI_LIKE_PPL: f64 = 12.0;
+const AI_LIKE_BURSTINESS: f64 = 8.0;
+```
+
+The second sentence is the one that had gone unread for months: a real model was
+wired to the trait, and the recalibration it asks for never happened. The
+per-tier values it says are needed do not exist, so `Full7B`, `Compact` and the
+frequency proxy are all scored against numbers written for the proxy.
+
+#### The measurement
+
+**19 of 22 stored reports carry a `major` AI-detection finding** — 86% of every
+run the product has ever done on this machine.
+
+The negative control was run on the SHIPPED path (`run_pipeline_measured`, the
+real six lanes), on a real human-written manuscript — a researcher's paper on
+juvenile-hormone effects in *Bombyx* haemolymph:
+
+```text
+[lane] ai: signal: LeansAiLike (model: heuristic frequency proxy (fast pre-pass))
+  7. [major] [AI-assessed, moderate confidence] AiDetection: concern
+     detail: signal LeansAiLike (mean perplexity 8.2, burstiness 4.4); …
+```
+
+A word-frequency table called a human entomologist's paper AI-like, at the
+severity that tells a researcher a reviewer would require it changed.
+
+#### THE RE-MEASUREMENT, on six real manuscripts through the shipped pipeline
+
+After the cap, the same harness over six of the researcher's own manuscripts
+(four `.docx`, two `.pdf`):
+
+```text
+chapter3 .docx                                sev=info   AiDetection: concern
+final final L.pdf                             sev=info   AiDetection: concern
+IJAS Manuscript JHA Bombyx haemolymph (1).pdf sev=info   AiDetection: concern
+Lake Chapter 1.docx                           sev=info   AiDetection: concern
+R PAPER .docx                                 sev=info   AiDetection: concern
+Revised Health Economics Paper FINAL (1).docx sev=info   AiDetection: concern
+```
+
+**6 of 6 at `info`.** The 22 stored reports are historical records written by the
+old code and do not change; the number that moved is what a NEW run produces,
+and on every manuscript available it is `info`.
+
+**The second column is the one to sit with. The lane answers `concern` on 6 of
+6** — every real academic manuscript it was given. That is the shape §11 D128
+found fatal for `citation_need`, and it is stated here deliberately **without**
+the conclusion D128 was entitled to draw:
+
+- D128 had a **no-skill baseline** (flag everything = 18.0%) and could therefore
+  say the lane was indistinguishable from it. **There is no such comparison
+  here**, because there are no provenance labels for these six.
+- Six manuscripts of unknown authorship provenance is not a sample, and several
+  may well have had model assistance. *"It fires on everything"* and *"everything
+  it was given happened to be flagged"* are different claims and only the second
+  is supported.
+
+So this is recorded as **the strongest available reason to build the labelled
+set**, not as a finding that the lane is useless. The distinction is the same one
+D128 insisted on, applied in the direction where the evidence is thinner — and
+noting which of the two we are entitled to is the whole discipline.
+
+#### AND THE RUN THAT PRODUCED THAT TABLE FOUND A DIFFERENT DEFECT
+
+The first attempt at this table returned `NONE` for all six — including a
+manuscript that had produced a finding minutes earlier. That is the signature of
+a broken instrument, not a clean result: the loop used `timeout`, which does not
+exist on this machine, and `|| true` swallowed the failure. **The known-good case
+is what exposed it**, which is the argument for always having one in a batch.
+
+The second attempt hung at 0.0% CPU on a keychain frame and exposed §11 D154.
+
+#### THE CAP IS ON THE CLAIM, NOT ON THE PRODUCER — and that rule already existed
+
+`AgentKind::AiDetection` produces **two different things**: the authorship
+opinion (`ClaimKind::AuthorshipSignal`), and the document stylometry findings —
+lexical diversity, citation density — which carry `ClaimKind::ManuscriptDefect`
+at `Minor` and are documented as reviewer-relevant.
+
+**This exact question was already decided.** `reviewer_agent::claim_is_eligible`
+(`reviewer_agent.rs:1080-1084`) is keyed on the claim for editorial
+admissibility, and says why in its own doc comment:
+
+> *"This is EDITORIAL ADMISSIBILITY, deliberately keyed on the claim rather than
+> on the producer. `AgentKind` means 'which subsystem produced this', which is a
+> different question — and keying on it would exclude the stylometric findings
+> `report.rs` documents as reviewer-relevant, since AI-detection produces both."*
+
+So `authorship_capped` keys on `ClaimKind::AuthorshipSignal` and cites that rule
+rather than restating it. **Inventing a second admissibility principle here would
+be the §11 D129 shape**: two places deciding the same question, agreeing on the
+day they are written, and drifting the first time only one of them is edited. A
+cap keyed on the agent would also have re-decided the stylometry question *by
+accident, in the opposite direction* — applying an argument about perplexity
+thresholds to computations that do not use them.
+
+#### What changed, and what stands
+
+- **Severity** — an `AuthorshipSignal` finding is `info`, on every tier. This is
+  the only behavioural change a researcher sees, besides the sentence below.
+- **The finding now says which tier scored it, and that the lane has no measured
+  accuracy.** `ai_detect::tier_provenance` is ONE definition covering both facts,
+  because either alone misleads in a different direction: the tier alone implies
+  the 7B's verdict is trustworthy; the accuracy caveat alone hides that a word
+  frequency table may have produced it.
+- **`AiDetectionReport::deep_kind`** — the tier now travels with the report.
+  `perplexity_model()` computed the selection and threw it away one function
+  later, so nothing downstream could tell a real model from the proxy except by
+  string-matching the model's display NAME. `Option<DeepKind>`, where `None`
+  means *not recorded* (a pre-field cached report) rather than *no deep model
+  ran* — typed absence, because defaulting to `Absent` asserts something about a
+  run nobody observed.
+- **`detect_ai` (`commands.rs`) reports `DeepKind::Absent` as a fact about
+  itself.** It hardcodes `HeuristicModel::gpt2_like()` and never consults
+  `select_deep_model`, so that command is ALWAYS heuristic regardless of what the
+  machine could run. That was true before and unsayable; now it is in the wire.
+- **Escalation** — the authorship opinion can no longer clear
+  `orchestrator.rs`'s `Critical | Major` bar, so it is never escalated. Spending
+  a cloud call to ask a second model *"was this written by a model"* is asking a
+  less-measured instrument to arbitrate an unmeasured one. The arm stays, with
+  the consequence written down, because deleting it would make that decision
+  silently rather than visibly.
+- **UNCHANGED — the stylometry findings.** `Minor`, `ManuscriptDefect`, still
+  reviewer-relevant. See above.
+- **UNCHANGED — the lane itself.** It still runs, still scores, still reports its
+  signal. Nothing is deleted and no threshold is touched: a tuned constant would
+  be a *new* unvalidated line, which is the same defect with fresher numbers.
+- **UNCHANGED — `claim_is_eligible`.** The claim was already ineligible for the
+  recommendation, which is worth stating because it bounds what this fixes: the
+  `major` was loud, not load-bearing. It changed what a researcher *believed*,
+  not what the product *concluded*.
+
+#### THE PATH BACK, with its precondition
+
+**A labelled set. Nothing else.** Not a better prompt, not a bigger model, not a
+tuned constant — until there are texts of known provenance scored by this lane,
+there is no number to print beside the finding and nothing to raise it on.
+
+The precondition is the same one §11 D128 named for `citation_need` and D126
+named for the audit: a population, stratified, with the rate weighted rather than
+pooled. For this lane it also needs to be **per tier** — the constants' own
+comment says Q3 and Q4 differ by ~0.13 bits mean surprisal, so a single labelled
+set scored on one tier does not license the other.
+
+#### WHY THIS IS D128'S SHAPE AND NOT D128'S FINDING
+
+`citation_need` was retired because it was *indistinguishable from a rule that
+flags everything* — a measured comparison against a no-skill baseline.
+
+**No such measurement exists here, and that is the whole point.** This lane has
+not been shown to be useless; it has never been shown to be anything. The
+withdrawal is not a verdict on its accuracy but a refusal to keep asserting a
+severity that presupposes one. The two entries share a discipline — *a feature
+whose own documentation disclaims it should not ship at a severity that
+contradicts the disclaimer* — and differ in what is known: D128 measured and
+withdrew; D153 withdraws **because** nothing has been measured.
+
+### D154 — a consent check conditioned on having something to send is not a consent check
+
+**THE RULE, STATED FIRST:**
+
+> **Whether the payload turns out to be empty is decided AFTER the boundary, not
+> at it.** A guard that asks *"is there anything to send?"* before *"am I allowed
+> to send?"* has put the two questions in the wrong order, and the empty case is
+> exactly where nobody looks.
+
+#### The defect
+
+The Analysis screen's network refusal (§11's blocker 3) shipped as:
+
+```rust
+if !refs.is_empty() && !consent.is_granted() { … refuse … }
+```
+
+A manuscript whose references do not parse — which is most `.docx` chapters —
+**skipped the consent check entirely** and fell through to `verify_proxy`: a real
+HTTP client, the OS keychain, a reachability probe, with consent denied. The
+refusal was real and the boundary still had a hole, because the boundary was
+guarded by a condition about the CARGO rather than about the PERMISSION.
+
+#### HOW IT WAS FOUND, which is the transferable part
+
+**No test caught it.** Every fixture that exercised the guard had references, so
+the whole suite was green on a path that was open.
+
+It was found by a batch measurement run — six real manuscripts through the
+shipped pipeline — sitting at **0.0% CPU**, and `sample <pid>` putting the top
+frame in `gaply_core::app_check::TokenSigner::from_keychain`: the §11 D124 modal,
+on a path that had just been changed to never reach the network.
+
+The tell was the CPU number, exactly as the standing CLAUDE.md norm says — high
+CPU is working, 0.0% with a network-shaped stack is blocked on something it
+should not have been doing at all. **The measurement that found it was not
+looking for it**; it was re-measuring §11 D153's number and the environment
+answered a different question.
+
+#### The negative control
+
+Restoring the old shape reproduces the wrong output, and it is the *specific*
+sentence the fix's own commit message had called out as the misleading one:
+
+```text
+an empty reference list must still take the refusal path, not fall through to
+the proxy: "0 reference(s) checked via public APIs; 0 definite verdict(s)"
+```
+
+That is the sharpest part of this entry. The commit that introduced the hole
+argued, correctly and at length, that *"0 references checked"* and *"we did not
+check your references"* are different sentences and only one of them is true —
+and then left a code path that emits the wrong one. **Knowing the distinction is
+not the same as having guarded it**, which is the §11 D128/D121 lesson arriving
+in a third place.
+
+`a_manuscript_with_no_references_still_refuses_when_consent_is_absent` is the pin.

@@ -53,8 +53,20 @@ fn main() -> Result<(), GaplyError> {
     let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
     run_pipeline_measured(
         db.clone(), embedder, path.clone(), None, None, guidelines.clone(),
-        // A development harness invoked by hand: the operator asked for the run.
-        app_lib::pipeline::NetworkConsent::Granted,
+        // A development harness invoked by hand: the operator asked for the run,
+        // so consent is GRANTED by default. `GAPLY_HARNESS_NO_NETWORK=1` refuses
+        // it — the same `NetworkConsent::Denied` a user with the toggle off gets.
+        //
+        // Why this switch exists: the verification lane makes one rate-limited
+        // CrossRef/OpenAlex call PER REFERENCE, so a real 40-reference paper
+        // spends minutes at 0.0% CPU blocked on I/O. When the measurement is
+        // about another lane, that is pure waiting — and a measurement that
+        // takes ten minutes is a measurement nobody repeats.
+        if std::env::var("GAPLY_HARNESS_NO_NETWORK").is_ok() {
+            app_lib::pipeline::NetworkConsent::Denied
+        } else {
+            app_lib::pipeline::NetworkConsent::Granted
+        },
         &emit,
     )?;
     let evs = events.into_inner();

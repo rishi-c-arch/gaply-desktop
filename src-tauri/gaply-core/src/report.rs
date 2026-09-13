@@ -349,6 +349,45 @@ fn opinion_claim(agent: AgentKind) -> ClaimKind {
     }
 }
 
+/// **An authorship signal may never be louder than `info` (§11 D153).**
+///
+/// # The withdrawal, and why it is not a threshold change
+///
+/// `ai_detect.rs`'s thresholds carry their own verdict in a comment:
+/// *"Interim, deliberately conservative thresholds for the heuristic proxy. NOT
+/// calibrated against real GPT-2 output."* `classify()` takes only
+/// `(mean_ppl, burstiness)`, so **every tier is scored against those same
+/// unvalidated constants** — the 7B changes which model computes perplexity, not
+/// where the line sits. Measured before this cap: `major` on **19 of 22** stored
+/// reports, including a real human-written paper.
+///
+/// So this is not "the heuristic is too loud". There is no tier on which the
+/// lane has a measured accuracy, and a finding that says *major* is telling a
+/// researcher a reviewer would require it changed.
+///
+/// # Keyed on the CLAIM, not the agent — deliberately
+///
+/// AI-detection produces BOTH the authorship opinion and the document
+/// stylometry findings (lexical diversity, citation density), and the latter
+/// carry [`ClaimKind::ManuscriptDefect`] at `Minor` and are documented as
+/// reviewer-relevant. `reviewer_agent::claim_is_eligible` already settled this
+/// exact question for editorial admissibility — *"deliberately keyed on the
+/// claim rather than on the producer"* — and capping by `AgentKind` here would
+/// silently demote those too, applying an argument about perplexity thresholds
+/// to computations that do not use them.
+///
+/// # The route back
+///
+/// A labelled set. Not a better prompt, not a bigger model, not a tuned
+/// constant: until there are texts of known provenance scored by this lane,
+/// there is no number to put beside the finding and nothing to raise it on.
+fn authorship_capped(claim: ClaimKind, proposed: FindingSeverity) -> FindingSeverity {
+    match claim {
+        ClaimKind::AuthorshipSignal => FindingSeverity::Info,
+        ClaimKind::ProcessState | ClaimKind::ManuscriptDefect => proposed,
+    }
+}
+
 /// THE single funnel from `Finding` to its `EvidenceRecord` — and the one place
 /// the user-facing labels are attached, so no constructor can forget them.
 fn paired(finding: Finding, raw_confidence: f64) -> ReportFinding {
@@ -719,8 +758,9 @@ pub fn compile_report(
             .find(|(k, _)| *k == op.agent)
             .map(|(_, w)| *w)
             .unwrap_or_else(|| crate::swarm::rescale_confidence(op.agent, op.confidence));
+        let claim = opinion_claim(op.agent);
         let severity = if op.answer == ANSWER_CONCERN {
-            FindingSeverity::Major
+            authorship_capped(claim, FindingSeverity::Major)
         } else {
             FindingSeverity::Info
         };
@@ -736,7 +776,7 @@ pub fn compile_report(
                 // CORRECT None: an `Opinion` is an agent's aggregate stance on
                 // the whole manuscript by construction (`swarm::Opinion`).
                 location: None,
-                claim: opinion_claim(op.agent),
+                claim,
                 severity,
                 tier,
                 certainty_label: tier.label().into(),

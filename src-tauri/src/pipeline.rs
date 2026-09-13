@@ -378,8 +378,11 @@ fn run_pipeline_inner(
     // is a multi-hour uncapped run on 8GB. The model is scoped INSIDE this lane
     // so it is dropped before the verification stage (one-at-a-time on 8GB).
     let ai = lane(emit, "ai", 3, || {
-        let model = crate::models::perplexity_model();
-        let report = ai_detect::detect_extraction(&*model, &extraction);
+        // The tier travels WITH the model. Before this, `perplexity_model()`
+        // threw the selection away and the report could not say which tier had
+        // scored the text — see `models::perplexity_model_with_kind`.
+        let (model, deep_kind) = crate::models::perplexity_model_with_kind();
+        let report = ai_detect::detect_extraction(&*model, deep_kind, &extraction);
         let summary = format!("signal: {:?} (model: {})", report.signal, model.name());
         Ok((report, summary))
     })?;
@@ -418,6 +421,12 @@ fn run_pipeline_inner(
         let refs = &extraction.references;
         // BLOCKER 3 — the refusal, in Rust, before anything is constructed.
         //
+        // UNCONDITIONAL ON `refs` (§11 D154). This first shipped as
+        // `!refs.is_empty() && !consent.is_granted()`, which let a manuscript
+        // with no parseable references skip the check and reach `verify_proxy`
+        // — client, keychain, probe — with consent denied. Whether the payload
+        // turns out to be empty is decided AFTER the boundary, not at it.
+        //
         // Deliberately ABOVE `RefVerifier::new()` rather than inside the loop:
         // the check has to sit where no network object exists yet, so a future
         // edit that moves work around cannot leave a fetcher built and a guard
@@ -428,17 +437,23 @@ fn run_pipeline_inner(
         // says which it was, because "0 references checked" and "we did not
         // check your references" are different sentences and only one of them
         // is true here.
-        if !refs.is_empty() && !consent.is_granted() {
+        if !consent.is_granted() {
             crate::models::unload_slm2();
             let report = verify_citations(
                 &MockProxyClient::returning(serde_json::json!({ "verdicts": [] })),
                 &[],
             )?;
-            let summary = format!(
-                "{} reference(s) not checked — cloud access is off for citation verification \
-                 (Settings → Sync & Privacy)",
-                refs.len()
-            );
+            let summary = if refs.is_empty() {
+                "no references extracted; no reference checks made — cloud access is off for \
+                 citation verification (Settings → Sync & Privacy)"
+                    .to_string()
+            } else {
+                format!(
+                    "{} reference(s) not checked — cloud access is off for citation verification \
+                     (Settings → Sync & Privacy)",
+                    refs.len()
+                )
+            };
             return Ok(((report, Vec::new()), summary));
         }
         if !refs.is_empty() {
@@ -755,6 +770,69 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
             !out.lanes.verification_examined,
             "a refused lane examined nothing and must not count as having run"
         );
+    }
+
+    /// **THE HOLE THE FIRST GUARD LEFT.**
+    ///
+    /// The refusal was written as `!refs.is_empty() && !consent.is_granted()`,
+    /// so a manuscript whose references do not parse — which is most `.docx`
+    /// chapters — SKIPPED the consent check entirely and fell through to
+    /// `verify_proxy`: a real client, the OS keychain, a reachability probe,
+    /// with consent denied.
+    ///
+    /// It was not found by a test. It was found by a measurement run hanging at
+    /// 0.0% CPU, and `sample` putting the top frame in
+    /// `app_check::TokenSigner::from_keychain` — the §11 D124 modal, reached on
+    /// a path that had just been "fixed" to never reach the network. The
+    /// original guard passed every test because every fixture that exercised it
+    /// had references.
+    ///
+    /// **A consent check conditioned on having something to send is not a
+    /// consent check.** Whether the payload turns out to be empty is decided
+    /// after the boundary, not at it.
+    #[test]
+    fn a_manuscript_with_no_references_still_refuses_when_consent_is_absent() {
+        use std::cell::RefCell;
+        force_heuristic();
+        let db = Arc::new(Database::in_memory().expect("in-memory db"));
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+        let path = std::env::temp_dir()
+            .join(format!("gaply_norefs_{}.txt", std::process::id()));
+        // MANUSCRIPT has no References section at all.
+        std::fs::write(&path, MANUSCRIPT).expect("write temp manuscript");
+
+        let events: RefCell<Vec<AnalysisEvent>> = RefCell::new(Vec::new());
+        let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
+        let res = run_pipeline_inner(
+            db.clone(),
+            embedder,
+            path.to_string_lossy().to_string(),
+            Some("no-refs".into()),
+            None,
+            None,
+            NetworkConsent::Denied,
+            &emit,
+        );
+        let _ = std::fs::remove_file(&path);
+        let out = res.expect("the run must complete");
+        assert!(out.extraction.references.is_empty(), "fixture precondition: no references");
+
+        let summary = events
+            .into_inner()
+            .into_iter()
+            .find_map(|e| match e {
+                AnalysisEvent::StageCompleted { stage, summary } if stage == "verification" => {
+                    Some(summary)
+                }
+                _ => None,
+            })
+            .expect("the verification lane must complete");
+        assert!(
+            summary.contains("cloud access is off"),
+            "an empty reference list must still take the refusal path, not fall through to the \
+             proxy: {summary:?}"
+        );
+        assert!(!out.lanes.verification_examined);
     }
 
     #[test]
