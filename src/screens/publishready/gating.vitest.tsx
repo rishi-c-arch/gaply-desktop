@@ -146,6 +146,9 @@ describe('server-side gate plumbing', () => {
       async ingestGuidelines() {
         return { any_ingested: false, note: 'noop' };
       },
+      async reviewerLetterAvailability() {
+        return { available: true, reason: null, proxyUrl: 'https://proxy.test' };
+      },
     };
     renderPage(SESSION, { subscriptionService: subsService('premium'), bridge });
     await screen.findByTestId('pr-entry');
@@ -163,5 +166,69 @@ describe('server-side gate plumbing', () => {
 
     await waitFor(() => expect(seen.length).toBe(1));
     expect(seen[0].userToken).toBe('jwt-abc');
+  });
+});
+
+/* ------- BLOCKER 6: the reviewer letter's absence is stated BEFORE a run ----- */
+
+describe('reviewer letter pre-flight', () => {
+  /** A bridge whose `run` FAILS the test if it is ever called. The point of the
+   *  notice is that it appears without a run having happened; a mock that
+   *  quietly tolerated a run would let the test pass for the wrong reason. */
+  const noRunBridge = (availability: any): PublishReadyBridge => ({
+    async run() {
+      throw new Error('run() must not be called — the notice is pre-flight');
+    },
+    async ingestGuidelines() {
+      return { any_ingested: false, note: 'noop' };
+    },
+    async reviewerLetterAvailability() {
+      return availability;
+    },
+  });
+
+  it('an unconfigured proxy is announced before the run, and does not block it', async () => {
+    const bridge = noRunBridge({
+      available: false,
+      reason: 'no proxy is configured on this machine — the address points back at your own computer',
+      proxyUrl: 'http://127.0.0.1:8080',
+    });
+    renderPage(SESSION, { subscriptionService: subsService('premium'), bridge });
+
+    const notice = await screen.findByTestId('pr-letter-unavailable');
+    expect(notice.textContent).toMatch(/before you run/i);
+    expect(notice.textContent).toMatch(/no proxy is configured/i);
+
+    // NOT an error, and NOT a blocker: the local half of the report is
+    // unaffected and still worth running, so the decision stays with the user.
+    expect(screen.queryByTestId('pr-error')).toBeNull();
+    expect(screen.queryByTestId('pr-journal-input')).toBeTruthy();
+  });
+
+  it('a configured proxy says nothing — the notice is not a permanent fixture', async () => {
+    const bridge = noRunBridge({ available: true, reason: null, proxyUrl: 'https://proxy.test' });
+    renderPage(SESSION, { subscriptionService: subsService('premium'), bridge });
+    await screen.findByTestId('pr-entry');
+    expect(screen.queryByTestId('pr-letter-unavailable')).toBeNull();
+  });
+
+  it('a failing pre-flight says NOTHING rather than guessing', async () => {
+    // A wrong "unavailable" would talk a user out of a run that would have
+    // worked — worse than the late answer this replaces.
+    const bridge: PublishReadyBridge = {
+      async run() {
+        throw new Error('run() must not be called');
+      },
+      async ingestGuidelines() {
+        return { any_ingested: false, note: 'noop' };
+      },
+      async reviewerLetterAvailability() {
+        throw new Error('IPC exploded');
+      },
+    };
+    renderPage(SESSION, { subscriptionService: subsService('premium'), bridge });
+    await screen.findByTestId('pr-entry');
+    expect(screen.queryByTestId('pr-letter-unavailable')).toBeNull();
+    expect(screen.queryByTestId('pr-error')).toBeNull();
   });
 });

@@ -64,6 +64,64 @@ const REQUEST_TIMEOUT_SECS: u64 = 180;
 /// deployed with enforcement on.
 const USER_TOKEN_HEADER: &str = "X-Gaply-User-Token";
 
+/// **Is the configured proxy a real deployment, or the loopback default?**
+///
+/// # Why this is a STRING check and not a probe
+///
+/// The reviewer letter is the one part of PublishReady that needs the proxy, and
+/// when the proxy is not deployed the user learned that only AFTER a full
+/// analysis run — minutes of local work, then a panel saying deep reasoning was
+/// unavailable. Saying it up front needs an answer in milliseconds.
+///
+/// Two things make a probe the wrong instrument here:
+///
+/// * [`ProxyReqwestClient::reachable`] walks [`PROBE_SCHEDULE`] and can take
+///   **35 seconds** before it concludes, which is not a pre-flight check.
+/// * [`ProxyReqwestClient::from_env`] reads the App Check signing key from the
+///   OS keychain, and on macOS `get_password()` can raise an interactive
+///   "allow access?" panel and BLOCK until somebody clicks it (§11 D124). A
+///   pre-flight check that can hang the app behind a system dialog is worse
+///   than no pre-flight check.
+///
+/// So this answers the cheap, certain half: an unset `GAPLY_PROXY_URL` leaves
+/// [`DEFAULT_PROXY_URL`], which is loopback, and **nothing is listening on this
+/// machine** — no amount of network would change that. A configured remote URL
+/// may still be down; that is what the run's own honest degradation is for, and
+/// this deliberately does not claim otherwise.
+pub fn configured_proxy_url() -> String {
+    std::env::var("GAPLY_PROXY_URL").unwrap_or_else(|_| DEFAULT_PROXY_URL.to_string())
+}
+
+/// True when `url`'s host is a loopback address or `localhost`.
+///
+/// Parsed off the authority rather than substring-matched: `http://127.0.0.1:8080`
+/// and `http://localhost/` are loopback, while a hostname that merely CONTAINS
+/// one of those strings (`https://localhost.example.com`, `https://not-127.0.0.1.example.com`)
+/// is a real remote host and must not be reported as undeployed.
+pub fn is_loopback_url(url: &str) -> bool {
+    let after_scheme = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
+    // Authority ends at the first '/', '?' or '#'.
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("");
+    // Drop userinfo, then the port. IPv6 literals are bracketed.
+    let hostport = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    let host = if let Some(rest) = hostport.strip_prefix('[') {
+        rest.split(']').next().unwrap_or("")
+    } else {
+        hostport.split(':').next().unwrap_or("")
+    };
+    let host = host.trim().to_ascii_lowercase();
+    if host == "localhost" || host == "::1" {
+        return true;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => ip.is_loopback(),
+        Err(_) => false,
+    }
+}
+
 /// A remote [`ProxyClient`] backed by the gaply-proxy `/verify` endpoint.
 pub struct ProxyReqwestClient {
     base_url: String,
@@ -331,6 +389,47 @@ fn map_error_status(
 
 #[cfg(test)]
 mod tests {
+    /// Loopback detection is a SECURITY-SHAPED string parse: a false "yes" tells
+    /// a user with a working proxy that their reviewer letter is unavailable,
+    /// and a false "no" is the silence this blocker exists to remove. The
+    /// substring implementations both fail on the same cases, so they are
+    /// asserted explicitly.
+    #[test]
+    fn loopback_detection_reads_the_host_not_the_string() {
+        use super::is_loopback_url;
+        for yes in [
+            "http://127.0.0.1:8080",
+            "http://127.0.0.1",
+            "http://localhost:8080/verify",
+            "https://LOCALHOST/",
+            "http://[::1]:8080",
+            "http://127.5.5.5:9/x?y#z",
+            "http://user:pw@127.0.0.1:8080",
+        ] {
+            assert!(is_loopback_url(yes), "{yes} is loopback");
+        }
+        for no in [
+            "https://gaply-proxy.tailnet.ts.net",
+            "https://localhost.example.com/verify",
+            "https://not-127.0.0.1.example.com",
+            "https://127.0.0.1.nip.io",
+            "https://example.com/localhost",
+            "",
+        ] {
+            assert!(!is_loopback_url(no), "{no} is NOT loopback");
+        }
+    }
+
+    /// The default is loopback — which is the whole reason the notice exists.
+    #[test]
+    fn an_unset_env_resolves_to_the_loopback_default() {
+        use super::{configured_proxy_url, is_loopback_url, DEFAULT_PROXY_URL};
+        assert!(is_loopback_url(DEFAULT_PROXY_URL));
+        std::env::remove_var("GAPLY_PROXY_URL");
+        assert_eq!(configured_proxy_url(), DEFAULT_PROXY_URL);
+        assert!(is_loopback_url(&configured_proxy_url()));
+    }
+
     use super::*;
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpListener, TcpStream};

@@ -28,6 +28,23 @@ export interface GuidelinesIngestResult {
   note: string;
 }
 
+/**
+ * What can be said about the reviewer letter BEFORE a run starts.
+ *
+ * `available: false` means we are CERTAIN it cannot work (no proxy is
+ * configured on this machine). `available: true` means nothing known ahead of
+ * time rules it out — NOT that it will succeed; a configured remote proxy may
+ * still be down, which the run's own honest degradation covers.
+ *
+ * Wire shape from Rust `ReviewerLetterAvailability` (camelCase).
+ */
+export interface ReviewerLetterAvailability {
+  available: boolean;
+  /** Present exactly when `available` is false. Already phrased for a user. */
+  reason: string | null;
+  proxyUrl: string;
+}
+
 export interface PublishReadyBridge {
   /** `userToken` (Set 8): the signed-in user's Supabase JWT, forwarded so the
    *  proxy can run the REAL server-side entitlement check + consume a use.
@@ -39,6 +56,10 @@ export interface PublishReadyBridge {
    *  proxy, no JWT (RAG is local); a bad page degrades honestly (structural
    *  checks only) and never blocks the run. */
   ingestGuidelines(input: { journalUrl?: string; guidelinesUrl?: string }): Promise<GuidelinesIngestResult>;
+  /** Pre-flight, instant, no network and no keychain: is the configured proxy
+   *  the loopback default? Asked BEFORE a run so a user is not told the
+   *  reviewer letter was unavailable only after paying for a full analysis. */
+  reviewerLetterAvailability(): Promise<ReviewerLetterAvailability>;
 }
 
 /** Backend `run_publishready` return shape (snake_case, as serialized by Rust).
@@ -175,6 +196,20 @@ export class TauriPublishReadyBridge implements PublishReadyBridge {
       guidelinesUrl: guidelinesUrl ?? null,
     })) as GuidelinesIngestResult;
   }
+
+  async reviewerLetterAvailability(): Promise<ReviewerLetterAvailability> {
+    if (!isTauri) {
+      // The web build has no proxy of its own; saying "unavailable" here is the
+      // honest answer and matches what a run would do.
+      return {
+        available: false,
+        reason: 'The reviewer letter is available in the Gaply desktop app.',
+        proxyUrl: '',
+      };
+    }
+    const { invoke } = await import('@tauri-apps/api/core');
+    return (await invoke('reviewer_letter_availability')) as ReviewerLetterAvailability;
+  }
 }
 
 /** Test/dev bridge: given a compiled report, derive the reviewer letter and the
@@ -182,7 +217,7 @@ export class TauriPublishReadyBridge implements PublishReadyBridge {
  *  it carries no manuscript text. */
 export function makePublishReadyMock(
   report: PublishReadyReport,
-  opts?: { ingestResult?: GuidelinesIngestResult }
+  opts?: { ingestResult?: GuidelinesIngestResult; availability?: ReviewerLetterAvailability }
 ): PublishReadyBridge & {
   lastPayload?: unknown;
   /** Recorded ingest calls + call order, so tests can prove ingest-before-run. */
@@ -202,6 +237,15 @@ export function makePublishReadyMock(
       ingestCalls.push(input);
       callOrder.push('ingest');
       return opts?.ingestResult ?? { any_ingested: true, note: 'guidelines ingested (mock)' };
+    },
+    async reviewerLetterAvailability() {
+      // Deliberately NOT recorded in `callOrder`. That array exists to prove
+      // ingest-happens-before-run; this pre-flight is unordered with respect to
+      // both, and pushing it turned every `callOrder` assertion into a test of
+      // when React happens to fire an effect.
+      return (
+        opts?.availability ?? { available: true, reason: null, proxyUrl: 'https://proxy.test' }
+      );
     },
     async run({ journal }) {
       callOrder.push('run');

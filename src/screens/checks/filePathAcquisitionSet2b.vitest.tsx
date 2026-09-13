@@ -76,6 +76,15 @@ describe('M6 Set 2B — gated pages: the Tauri dialog supplies ABSOLUTE paths', 
     // Capture the path at run() and stop (no report render needed).
     const bridge: PublishReadyBridge = {
       ingestGuidelines: async () => ({ any_ingested: false, note: '' }),
+      // Added here rather than guarded in the page with
+      // `typeof b.reviewerLetterAvailability === 'function'`. §11 D134: a guard
+      // there would make a genuinely unwired bridge look like a page with
+      // nothing to announce — indistinguishable from working.
+      reviewerLetterAvailability: async () => ({
+        available: true,
+        reason: null,
+        proxyUrl: 'https://proxy.test',
+      }),
       run: async (input: any) => { runPath = input.manuscriptPath; throw new Error('captured'); },
     } as any;
 

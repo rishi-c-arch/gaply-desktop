@@ -209,6 +209,7 @@ pub fn run() {
             commands::sample_manuscript_path,
             commands::ingest_guidelines,
             commands::run_publishready,
+            commands::reviewer_letter_availability,
             commands::run_copilot_chat,
             commands::run_stats_preview,
             commands::run_stats_verify,

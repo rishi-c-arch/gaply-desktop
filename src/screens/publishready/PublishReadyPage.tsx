@@ -2,7 +2,7 @@
 // journal → full simulated peer review with a publish/no-publish verdict. The
 // manuscript stays on device; only the structured payload leaves (via proxy).
 // Gated behind premium (F12): free users get a blurred teaser + upgrade CTA.
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { pickManuscriptPath, basenameOf } from '../common/pickFile';
 import { isTauri } from '../../utils/isTauri';
@@ -106,6 +106,26 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
   const [result, setResult] = useState<PublishReadyResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // BLOCKER 6 — what we already know about the reviewer letter, before the run.
+  // The panel's honest "unavailable offline" state only ever appeared AFTER a
+  // full analysis; a user with no proxy configured paid minutes of local model
+  // work to learn something knowable in milliseconds.
+  const [letterUnavailable, setLetterUnavailable] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    b.reviewerLetterAvailability()
+      .then((a) => {
+        if (!cancelled) setLetterUnavailable(a.available ? null : a.reason);
+      })
+      // Best-effort: if the check itself fails we say NOTHING rather than
+      // guessing. A wrong "unavailable" would talk a user out of a run that
+      // would have worked, which is worse than the late answer we had before.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [b]);
 
   const journalMatches = useMemo(() => {
     const q = journalQuery.trim().toLowerCase();
@@ -323,6 +343,18 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
           <input ref={prInputRef} type="file" accept=".pdf,.docx" style={{ display: 'none' }} data-testid="pr-file" onChange={(e) => e.target.files?.[0] && void acceptFile(e.target.files[0])} />
           {file && <span className="gds-mono" style={{ marginLeft: 8 }}>{file.name}</span>}
           {error && <p style={{ color: 'var(--g-flagged)', fontSize: 13 }} data-testid="pr-error">{error}</p>}
+          {/* Stated BEFORE the run, not after it. Deliberately not an error and
+              not a blocker: the local half of the report is unaffected and
+              still worth running, so this says what will be missing and leaves
+              the decision with the researcher. */}
+          {letterUnavailable && (
+            <p
+              style={{ color: 'var(--g-muted)', fontSize: 13, marginTop: 8 }}
+              data-testid="pr-letter-unavailable"
+            >
+              <strong>Before you run:</strong> {letterUnavailable}
+            </p>
+          )}
         </Card>
 
         <Card title="2 · Choose the target journal (with its quartile)">

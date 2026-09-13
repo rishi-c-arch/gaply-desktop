@@ -513,6 +513,62 @@ pub struct PublishReadyOutcome {
     pub pdf_bytes: Vec<u8>,
 }
 
+/// What the frontend can say about the reviewer letter BEFORE a run starts.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewerLetterAvailability {
+    /// False only when we are CERTAIN it cannot work. See the command doc.
+    pub available: bool,
+    /// Present exactly when `available` is false. User-facing, already phrased.
+    pub reason: Option<String>,
+    /// The configured endpoint, so a support conversation has the fact in it.
+    pub proxy_url: String,
+}
+
+/// **Say the reviewer letter is unavailable BEFORE the run, not after it.**
+///
+/// # The defect this closes
+///
+/// `ReviewerLetterPanel` renders an honest "unavailable offline" state — at the
+/// END. A user with no proxy configured paid a full analysis (minutes of local
+/// model work) to be told the one cloud-dependent part could never have
+/// produced anything. The information existed before the first byte was parsed.
+///
+/// # Why this reports only what it is CERTAIN of
+///
+/// It answers one question — *is the configured proxy the loopback default?* —
+/// because that is the half that can be answered instantly and without side
+/// effects. It deliberately does NOT probe and does NOT construct a client:
+///
+/// * probing walks a schedule that can take 35 seconds, which is not a
+///   pre-flight check;
+/// * constructing one reads the OS keychain, which on macOS can raise a modal
+///   "allow access?" panel and block until someone clicks it (§11 D124) — a
+///   pre-flight check that can hang the app behind a system dialog is worse than
+///   none.
+///
+/// So `available: true` means *"nothing known ahead of time rules this out"*,
+/// NOT *"this will work"*. A configured remote proxy may still be down, and the
+/// run's existing honest degradation is what covers that. Claiming more here
+/// would replace a late honest answer with an early wrong one.
+#[tauri::command]
+pub fn reviewer_letter_availability() -> ReviewerLetterAvailability {
+    let url = crate::models::proxy_client::configured_proxy_url();
+    if crate::models::proxy_client::is_loopback_url(&url) {
+        return ReviewerLetterAvailability {
+            available: false,
+            reason: Some(
+                "The reviewer letter needs Gaply's cloud proxy, and no proxy is configured on \
+                 this machine — the address points back at your own computer. Everything else \
+                 in the report runs locally and is unaffected."
+                    .to_string(),
+            ),
+            proxy_url: url,
+        };
+    }
+    ReviewerLetterAvailability { available: true, reason: None, proxy_url: url }
+}
+
 /// PublishReady: run the existing 6-lane pipeline (UNMODIFIED), then layer a
 /// single-pass cloud reviewer evaluation on top. The reviewer is CLOUD-ONLY —
 /// it uses the remote proxy directly, never the local Ollama/mock chain (a
