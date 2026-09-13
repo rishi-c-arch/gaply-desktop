@@ -88,8 +88,11 @@ fn main() -> Result<(), GaplyError> {
         .and_then(|l| l.iter().rev().find(|s| !s.trim().is_empty()))
         .and_then(|s| serde_json::from_str(s).ok());
 
-    // ONE enumeration of the checks, shared with the all-unavailable fixture.
-    let gate = run_all(&payload, &details, record.as_ref(), lines.as_deref());
+    // The FREE route's enumeration, shared with the all-unavailable fixture.
+    // This runner builds a free-tier payload (`build_review_payload` sends
+    // structured summaries only), so the free gate is the one that applies; the
+    // premium gate has no runner until Phase 1 gives it a payload to run on.
+    let gate = run_free_gate(&payload, &details, record.as_ref(), lines.as_deref());
 
     println!("\n=== RELEASE GATE ===");
     println!("report findings: {}  payload findings: {}  detail strings checked: {}",

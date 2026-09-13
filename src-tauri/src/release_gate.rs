@@ -154,15 +154,36 @@ pub const PROVENANCE: &str = "PROVENANCE";
 pub const SELECTION: &str = "SELECTION";
 pub const COMPARISON: &str = "COMPARISON";
 pub const PERSISTENCE: &str = "PERSISTENCE";
+/// Premium only. PRIVACY's counterpart on the route that DOES send manuscript
+/// text: everything sent is covered by a stored consent, in both directions.
+pub const TIER: &str = "TIER";
 
-/// Run EVERY invariant. **The single enumeration of the gate's checks.**
+/// The four invariants that are about the payload's SHAPE rather than its
+/// contents, and are therefore common to both routes. Named once so the two
+/// enumerations below cannot drift apart by an edit to one of them.
+fn structural(gate: &mut GateReport, payload: &Value, record: Option<&Value>, lines: Option<&[String]>) {
+    gate.record(PROVENANCE, check_provenance(payload));
+    gate.record(SELECTION, check_selection(payload));
+    gate.record(COMPARISON, check_comparison(record));
+    gate.record(PERSISTENCE, check_persistence(lines));
+}
+
+/// **THE FREE ROUTE'S GATE — the five invariants, PRIVACY included, unchanged.**
 ///
-/// Both the runner and the all-unavailable fixture call this, so a seventh
+/// Both the runner and the all-unavailable fixture call this, so a new
 /// invariant is covered by the fixture ON THE DAY IT IS WRITTEN — nobody has to
 /// remember to add it in two places. That is precisely what LIVENESS could not
 /// do: it guarded two hard-coded NAMES, so a new check was outside it until
 /// someone classified it (ARCHITECTURE_TRACE §33).
-pub fn run_all(
+///
+/// # This was `run_all`, and the rename is the point
+///
+/// There is no longer a gate that runs "all" the invariants, because TIER and
+/// PRIVACY are mutually exclusive by design: a payload that satisfies one
+/// cannot satisfy the other. A single enumeration would have had to take a tier
+/// argument and skip one of them — which is a tier-aware PRIVACY wearing a
+/// different name. See [`run_premium_gate`].
+pub fn run_free_gate(
     payload: &Value,
     report_details: &[String],
     record: Option<&Value>,
@@ -170,10 +191,45 @@ pub fn run_all(
 ) -> GateReport {
     let mut gate = GateReport::default();
     gate.record(PRIVACY, check_privacy(payload, report_details));
-    gate.record(PROVENANCE, check_provenance(payload));
-    gate.record(SELECTION, check_selection(payload));
-    gate.record(COMPARISON, check_comparison(record));
-    gate.record(PERSISTENCE, check_persistence(lines));
+    structural(&mut gate, payload, record, lines);
+    gate
+}
+
+/// **THE PREMIUM ROUTE'S GATE — the four structural invariants plus TIER.**
+///
+/// # Why PRIVACY is absent, and why that is not a relaxation
+///
+/// `check_privacy` is NOT made tier-aware, and the reason is that its worth is
+/// that it takes no argument. *"No manuscript text crosses this boundary"* is a
+/// sentence that survives only while nothing can weaken it; the moment it grows
+/// an `if tier == Premium` it stops being a gate and becomes a policy wearing a
+/// gate's name, and the free tier's central claim is then only as strong as
+/// whoever last edited the condition.
+///
+/// So PRIVACY stays unconditional and guards the free route alone. The premium
+/// route is guarded by a DIFFERENT unconditional invariant — [`check_tier`] —
+/// which asserts the thing that is actually true there: everything sent is
+/// covered by a stored consent record, in both directions.
+///
+/// Manuscript text is not an exception the premium gate tolerates. It is the
+/// precondition the premium gate REQUIRES (`check_tier` fails a payload that
+/// carries none), which is what makes the two routes a partition rather than
+/// one route with a bypass.
+///
+/// `resolve` is the seam onto the `consent_records` table Phase 1 creates. It
+/// is a parameter rather than a global so the invariant is testable without the
+/// table, and so that a gate run can never silently consult a different store
+/// than the one the payload was built against.
+pub fn run_premium_gate(
+    payload: &Value,
+    report_details: &[String],
+    record: Option<&Value>,
+    lines: Option<&[String]>,
+    resolve: &dyn Fn(&str) -> Option<crate::consent::ConsentRecord>,
+) -> GateReport {
+    let mut gate = GateReport::default();
+    gate.record(TIER, check_tier(payload, report_details, resolve));
+    structural(&mut gate, payload, record, lines);
     gate
 }
 
@@ -194,28 +250,135 @@ pub fn check_privacy(payload: &Value, report_details: &[String]) -> GateOutcome 
     // readable, and reporting Pass on that is a check passing on input it never
     // got. Found by the fixture that replaced LIVENESS, on its first run (§33).
     // Typed absence per §4.12.
-    let Some(findings) = payload["summary"]["findings"].as_array() else {
+    if payload["summary"]["findings"].as_array().is_none() {
         return GateOutcome::skip("payload has no summary.findings array — nothing was readable");
-    };
-    for f in findings {
-        if !f["detail"].is_null() {
-            return GateOutcome::fail(
-                PRIVACY,
-                format!("payload finding {} carries a `detail` field", f["id"]),
-            );
+    }
+    match manuscript_text_in(payload, report_details) {
+        Some(reason) => GateOutcome::fail(PRIVACY, reason),
+        None => GateOutcome::Pass,
+    }
+}
+
+/// **THE ONE DEFINITION of "does this payload carry manuscript text".**
+///
+/// Returns the reason it does, or `None`.
+///
+/// # Why this is extracted rather than inlined in PRIVACY
+///
+/// PRIVACY and TIER are opposite verdicts on the SAME question. PRIVACY fails
+/// when the answer is yes; TIER requires the answer to be yes and demands a
+/// consent record for it. If each grew its own detector, a payload could read
+/// as clean to one and as text-bearing to the other — and a payload that passed
+/// both gates would exist, with every test still green, because no test
+/// compares the two detectors.
+///
+/// That is §11 D134's rule — *"a second copy of a privacy claim is a second
+/// thing to keep true"* — applied to a PREDICATE rather than to a sentence, and
+/// it is the property the whole two-gate partition rests on.
+/// `both_gates_key_on_one_definition_of_manuscript_text` is the guard.
+///
+/// Two detections, deliberately different in kind:
+///
+/// * **structural** — a `detail` field, which is where `manuscript_excerpt`
+///   lives (`reviewer_agent.rs:345`);
+/// * **end to end** — a 60-character probe from any compiled-report detail
+///   appearing anywhere in the serialized payload, which is what makes this a
+///   measurement rather than a schema check.
+pub fn manuscript_text_in(payload: &Value, report_details: &[String]) -> Option<String> {
+    if let Some(findings) = payload["summary"]["findings"].as_array() {
+        for f in findings {
+            if !f["detail"].is_null() {
+                return Some(format!("payload finding {} carries a `detail` field", f["id"]));
+            }
         }
     }
     let serialized = payload.to_string();
     for d in report_details {
         let probe: String = d.chars().take(60).collect();
         if probe.chars().count() >= 20 && serialized.contains(probe.as_str()) {
-            return GateOutcome::fail(
-                PRIVACY,
-                format!("manuscript text from a finding detail appears in the payload: {probe:?}"),
-            );
+            return Some(format!(
+                "manuscript text from a finding detail appears in the payload: {probe:?}"
+            ));
         }
     }
-    GateOutcome::Pass
+    None
+}
+
+/// **TIER — everything sent is covered by a stored consent, in both
+/// directions.**
+///
+/// PRIVACY's counterpart on the route that exists to send manuscript text.
+/// Unconditional, like PRIVACY: it takes no tier argument, because it IS the
+/// tier's invariant.
+///
+/// Three things, and the third is the one that makes the routes a partition:
+///
+/// 1. **Forward** — a payload carrying manuscript text carries a consent id.
+/// 2. **Backward** — a consent id in a payload resolves to a stored row whose
+///    scope covers what was sent. An id that resolves to nothing is a CLAIM
+///    about a row, and an unresolvable claim is not a consent.
+/// 3. **The premium route is for payloads that carry manuscript text.** A
+///    structurally clean payload does not belong here even with a valid consent
+///    attached — it belongs on the free route, where PRIVACY can vouch for it.
+///    Without this, a clean payload with a consent id would pass BOTH gates and
+///    the partition would be a pair of overlapping sets.
+///
+/// # What this does NOT yet check
+///
+/// Scope is checked against `MANUSCRIPT` only, because manuscript text is the
+/// only thing the payload builder can currently send. The analysis scopes
+/// (`ANALYSIS_CODE`, `ANALYSIS_DATA`, …) have no producer yet; when one exists,
+/// the check becomes `record.scope().covers(what_was_actually_sent)` and the
+/// `what_was_actually_sent` term is the new work — not this function's shape.
+pub fn check_tier(
+    payload: &Value,
+    report_details: &[String],
+    resolve: &dyn Fn(&str) -> Option<crate::consent::ConsentRecord>,
+) -> GateOutcome {
+    use crate::consent::ConsentScope;
+    if payload["summary"]["findings"].as_array().is_none() {
+        return GateOutcome::skip("payload has no summary.findings array — nothing was readable");
+    }
+    let carries = manuscript_text_in(payload, report_details);
+    let id = payload["consent"]["record_id"].as_str();
+
+    match (carries, id) {
+        (Some(what), None) => GateOutcome::fail(
+            TIER,
+            format!("payload carries manuscript text with no consent record id: {what}"),
+        ),
+        (None, None) => GateOutcome::fail(
+            TIER,
+            "no consent record id in the payload — the premium route requires one".to_string(),
+        ),
+        (carries, Some(id)) => {
+            let Some(record) = resolve(id) else {
+                return GateOutcome::fail(
+                    TIER,
+                    format!("consent record id {id:?} in the payload resolves to no stored row"),
+                );
+            };
+            if carries.is_none() {
+                return GateOutcome::fail(
+                    TIER,
+                    format!(
+                        "consent record id {id:?} but the payload carries no manuscript text — \
+                         a payload with nothing to consent to belongs on the free route"
+                    ),
+                );
+            }
+            if !record.scope().covers(ConsentScope::MANUSCRIPT) {
+                return GateOutcome::fail(
+                    TIER,
+                    format!(
+                        "consent record {id:?} scope {:#08b} does not cover Manuscript",
+                        record.scope().bits()
+                    ),
+                );
+            }
+            GateOutcome::Pass
+        }
+    }
 }
 
 /// **PROVENANCE — only the nine permitted structured prefixes.**
@@ -338,20 +501,22 @@ mod all_unavailable {
 
     /// **No check may report Pass on inputs it could not read.**
     ///
-    /// Iterating `run_all` rather than naming COMPARISON is the entire point.
+    /// Iterating the gate rather than naming COMPARISON is the entire point.
     /// Today COMPARISON is the only check that reads a metric, so a fixture
     /// naming it would assert the same thing and look equivalent. **The
     /// difference appears when a seventh check arrives — which is exactly when
     /// LIVENESS failed.**
     #[test]
     fn no_invariant_reports_pass_on_inputs_it_could_not_read() {
-        let report = run_all(
+        let report = run_free_gate(
             &serde_json::Value::Null,          // no payload
             &[],                               // no report details
             Some(&all_unavailable_record()),   // every metric Unavailable
             None,                              // sink unreadable
         );
-        assert_eq!(report.results().len(), 5, "run_all must enumerate every invariant");
+        assert_eq!(report.results().len(), 5, "the free gate must enumerate every invariant");
+        // The premium enumeration is held to the same property in
+        // `partition::neither_gate_reports_pass_on_inputs_it_could_not_read`.
         for (name, outcome) in report.results() {
             assert!(
                 !outcome.is_pass(),
@@ -370,7 +535,7 @@ mod all_unavailable {
     #[test]
     fn an_empty_findings_array_still_passes() {
         let payload = json!({ "summary": { "findings": [], "checklist": [] } });
-        let report = run_all(&payload, &[], None, None);
+        let report = run_free_gate(&payload, &[], None, None);
         for (name, outcome) in report.results() {
             if matches!(*name, COMPARISON | PERSISTENCE) {
                 continue; // no record, no sink — skipped for unrelated reasons
@@ -541,5 +706,281 @@ mod tests {
         assert!(cov.contains("not evaluated:"), "coverage must state what was not evaluated: {cov}");
         assert!(cov.contains(COMPARISON), "coverage must name the skipped invariant: {cov}");
         assert_eq!(r.counts(), Counts { pass: 2, fail: 0, skipped: 1 });
+    }
+}
+
+#[cfg(test)]
+mod partition {
+    //! **DECISION A — two unconditional gates, and the payload passes exactly one.**
+    //!
+    //! `check_privacy` is NOT made tier-aware. Its worth is that it takes no
+    //! argument: *"no manuscript text crosses this boundary"* is a sentence that
+    //! survives only while nothing can weaken it. A tier-aware version is a
+    //! policy wearing a gate's name.
+    //!
+    //! So there are two gates, each unconditional:
+    //!
+    //! | gate | invariants | guards |
+    //! |---|---|---|
+    //! | [`run_free_gate`] | PRIVACY + the four structural | the free route |
+    //! | [`run_premium_gate`] | the four structural + TIER | the premium route |
+    //!
+    //! PRIVACY is absent from the premium gate because manuscript text is what
+    //! that tier exists to send — not because it was relaxed there.
+    //!
+    //! # THIS MODULE WAS WRITTEN BEFORE EITHER GATE EXISTED
+    //!
+    //! It did not compile, which is the negative control: a partition assertion
+    //! whose first run is green proves nothing about whether it partitions.
+    //!
+    //! # WHERE THE STATED PROPERTY DOES NOT HOLD, AND WHY THAT IS THE POINT
+    //!
+    //! The property as first stated was *"no payload can pass both or neither."*
+    //! **The first half holds universally. The second half is false for exactly
+    //! one payload shape, and that shape is the one the whole design exists to
+    //! reject:**
+    //!
+    //! | payload | free | premium |
+    //! |---|---|---|
+    //! | no manuscript text, no consent id | **PASS** | fail (TIER) |
+    //! | manuscript text + resolving consent id | fail (PRIVACY) | **PASS** |
+    //! | no manuscript text, consent id | **PASS** | fail (TIER) |
+    //! | **manuscript text, NO consent id** | fail (PRIVACY) | fail (TIER) |
+    //!
+    //! The fourth row passes NEITHER gate. That is not a crack in the partition
+    //! — it is the safety property, and a formulation that made it pass
+    //! something would be a worse design that satisfied a nicer sentence. It is
+    //! asserted here as a REQUIRED outcome rather than tolerated as an
+    //! exception.
+    //!
+    //! # THE DRIFT THE PARTITION ACTUALLY DEPENDS ON
+    //!
+    //! Both gates key on ONE definition of "does this payload carry manuscript
+    //! text" — [`manuscript_text_in`]. If PRIVACY and TIER each grew their own,
+    //! the two gates would disagree about the same payload and the partition
+    //! would open silently. That is §11 D134's rule (one definition of a privacy
+    //! claim, never two copies) applied to a predicate rather than to a
+    //! sentence, and `both_gates_key_on_one_definition_of_manuscript_text` is
+    //! what holds it.
+
+    use super::*;
+    use crate::consent::{ConsentRecord, ConsentScope, Tier};
+    use serde_json::json;
+
+    /// A real manuscript sentence. Long enough to clear `check_privacy`'s
+    /// 20-char probe floor, so it is detectable by the shared predicate.
+    const EXCERPT: &str = "the haemolymph biochemical profile of the bivoltine silkworm hybrid";
+
+    /// A detail string the payload does NOT contain — so a clean payload is
+    /// clean against a non-empty `report_details`, not against an empty one.
+    const UNSENT: &str = "a different manuscript sentence that never reaches the payload at all";
+
+    fn base(findings: Value, consent: Option<&str>) -> Value {
+        let mut p = json!({ "summary": { "findings": findings, "checklist": [] } });
+        if let Some(id) = consent {
+            p["consent"] = json!({ "record_id": id });
+        }
+        p
+    }
+
+    /// Structurally valid, carries NO manuscript text.
+    fn clean(consent: Option<&str>) -> Value {
+        base(
+            json!([{ "id": "f1", "title": "statistical rule failed", "evidence": ["rule:X"] }]),
+            consent,
+        )
+    }
+
+    /// Carries manuscript text — the excerpt appears in a rendered field.
+    fn text_bearing(consent: Option<&str>) -> Value {
+        base(json!([{ "id": "f1", "title": EXCERPT, "evidence": ["rule:X"] }]), consent)
+    }
+
+    fn stored(id: &str) -> ConsentRecord {
+        ConsentRecord::for_test(id, "m1", ConsentScope::MANUSCRIPT)
+    }
+
+    /// A resolver over a fixed set of stored rows — the seam that stands in for
+    /// the `consent_records` table until Phase 1 creates it.
+    fn resolving(id: &'static str) -> impl Fn(&str) -> Option<ConsentRecord> {
+        move |q: &str| if q == id { Some(stored(id)) } else { None }
+    }
+    fn resolving_nothing() -> impl Fn(&str) -> Option<ConsentRecord> {
+        |_: &str| None
+    }
+
+    /// Both gates, on one payload, with COMPARISON and PERSISTENCE supplied so
+    /// neither gate skips for a reason unrelated to the partition.
+    fn both(payload: &Value, details: &[String]) -> (bool, bool) {
+        let record = json!({
+            "shadow_findings_sent": { "status": "observed", "value": 1 },
+            "wholesale_findings_sent": { "status": "observed", "value": 1 }
+        });
+        let lines = vec!["{}".to_string()];
+        let free = run_free_gate(payload, details, Some(&record), Some(&lines));
+        let prem = run_premium_gate(payload, details, Some(&record), Some(&lines), &resolving("c1"));
+        (
+            free.no_failures() && free.counts().skipped == 0,
+            prem.no_failures() && prem.counts().skipped == 0,
+        )
+    }
+
+    // --- the partition -------------------------------------------------------
+
+    /// **NO PAYLOAD PASSES BOTH.** The universal half, over every shape.
+    #[test]
+    fn no_payload_passes_both_gates() {
+        let d = vec![EXCERPT.to_string(), UNSENT.to_string()];
+        for (name, p) in [
+            ("clean, no consent", clean(None)),
+            ("clean, consent", clean(Some("c1"))),
+            ("text, no consent", text_bearing(None)),
+            ("text, consent", text_bearing(Some("c1"))),
+        ] {
+            let (free, prem) = both(&p, &d);
+            assert!(!(free && prem), "{name}: passed BOTH gates — the routes are not disjoint");
+        }
+    }
+
+    /// **EVERY WELL-FORMED PAYLOAD PASSES EXACTLY ONE.**
+    #[test]
+    fn each_well_formed_payload_passes_exactly_one_gate() {
+        let d = vec![EXCERPT.to_string(), UNSENT.to_string()];
+        for (name, p, expect_free) in [
+            ("clean, no consent", clean(None), true),
+            ("clean, consent id but nothing to consent to", clean(Some("c1")), true),
+            ("manuscript text under consent", text_bearing(Some("c1")), false),
+        ] {
+            let (free, prem) = both(&p, &d);
+            assert_eq!(free, expect_free, "{name}: free gate");
+            assert_eq!(prem, !expect_free, "{name}: premium gate");
+            assert!(free ^ prem, "{name}: must pass exactly one gate, got free={free} premium={prem}");
+        }
+    }
+
+    /// **THE ONE PAYLOAD THAT MUST PASS NEITHER**, asserted as required rather
+    /// than tolerated. Manuscript text with no consent record is the violation
+    /// both gates exist to stop; a design in which it passed something would be
+    /// worse than one that leaves it in the crack.
+    #[test]
+    fn manuscript_text_without_consent_passes_neither_gate() {
+        let d = vec![EXCERPT.to_string()];
+        let (free, prem) = both(&text_bearing(None), &d);
+        assert!(!free, "PRIVACY must reject manuscript text on the free route");
+        assert!(!prem, "TIER must reject manuscript text with no consent record");
+    }
+
+    // --- the premium gate's precondition -------------------------------------
+
+    /// **THE PREMIUM GATE CANNOT BE REACHED WITHOUT A CONSENT RECORD.**
+    ///
+    /// Two halves. The type-level half is that `Tier::Premium` holds a
+    /// `ConsentRecord` by construction, so there is no value of `Tier` that
+    /// names the premium route without one — asserted by pattern match, since a
+    /// missing record would not compile. The runtime half is that a consent id
+    /// which resolves to NOTHING fails TIER: an id in a payload is a claim about
+    /// a stored row, and an unresolvable claim is not a consent.
+    #[test]
+    fn the_premium_gate_cannot_be_reached_without_a_consent_record() {
+        match Tier::Premium(stored("c1")) {
+            Tier::Premium(r) => assert_eq!(r.scope(), ConsentScope::MANUSCRIPT),
+            Tier::Free => panic!("constructed Premium, matched Free"),
+        }
+
+        let d = vec![EXCERPT.to_string()];
+        let record = json!({
+            "shadow_findings_sent": { "status": "observed", "value": 1 },
+            "wholesale_findings_sent": { "status": "observed", "value": 1 }
+        });
+        let lines = vec!["{}".to_string()];
+        let g = run_premium_gate(
+            &text_bearing(Some("c1")),
+            &d,
+            Some(&record),
+            Some(&lines),
+            &resolving_nothing(),
+        );
+        assert!(!g.no_failures(), "an unresolvable consent id must fail TIER");
+        let named = g.results().iter().any(|(n, o)| {
+            *n == TIER && matches!(o, GateOutcome::Fail { detail, .. } if detail.contains("c1"))
+        });
+        assert!(named, "TIER must name the id that did not resolve: {:?}", g.results());
+    }
+
+    /// PRIVACY is absent from the premium gate and present in the free one —
+    /// stated as an assertion so a later edit that "harmonises" the two
+    /// enumerations fails here rather than silently weakening one route.
+    #[test]
+    fn the_two_gates_enumerate_what_they_are_supposed_to() {
+        let d = vec![UNSENT.to_string()];
+        let free = run_free_gate(&clean(None), &d, None, None);
+        let prem = run_premium_gate(&clean(None), &d, None, None, &resolving("c1"));
+
+        let names = |g: &GateReport| -> Vec<&'static str> { g.results().iter().map(|(n, _)| *n).collect() };
+        let f = names(&free);
+        let p = names(&prem);
+
+        assert!(f.contains(&PRIVACY), "the free gate must run PRIVACY: {f:?}");
+        assert!(!f.contains(&TIER), "the free gate must not run TIER: {f:?}");
+        assert!(p.contains(&TIER), "the premium gate must run TIER: {p:?}");
+        assert!(!p.contains(&PRIVACY), "the premium gate must not run PRIVACY: {p:?}");
+        for structural in [PROVENANCE, SELECTION, COMPARISON, PERSISTENCE] {
+            assert!(f.contains(&structural), "free gate missing {structural}");
+            assert!(p.contains(&structural), "premium gate missing {structural}");
+        }
+        assert_eq!(f.len(), 5, "the free gate is five invariants: {f:?}");
+        assert_eq!(p.len(), 5, "the premium gate is five invariants: {p:?}");
+    }
+
+    /// **THE DRIFT GUARD.** Both gates must decide "is there manuscript text
+    /// here" from the SAME predicate. If they ever grew separate ones, a payload
+    /// could read as clean to PRIVACY and as text-bearing to TIER (or the
+    /// reverse) and pass both routes — the partition would open with every
+    /// existing test still green.
+    #[test]
+    fn both_gates_key_on_one_definition_of_manuscript_text() {
+        // Consent id deliberately ABSENT. TIER fails on either shape here, so
+        // "did TIER fail" carries no information — what must track the shared
+        // predicate is WHICH failure it reports. Comparing the bare fail/pass
+        // bit would be an assertion that cannot distinguish the two reasons,
+        // and it would pass even if TIER stopped detecting text entirely.
+        let d = vec![EXCERPT.to_string()];
+        for (name, p, expect_text) in
+            [("clean", clean(None), false), ("text", text_bearing(None), true)]
+        {
+            let shared_says_text = manuscript_text_in(&p, &d).is_some();
+            assert_eq!(shared_says_text, expect_text, "{name}: the shared predicate itself is wrong");
+
+            let privacy_sees_text =
+                matches!(check_privacy(&p, &d), GateOutcome::Fail { invariant: PRIVACY, .. });
+            assert_eq!(
+                privacy_sees_text, shared_says_text,
+                "{name}: PRIVACY diverged from the shared predicate"
+            );
+
+            let tier_sees_text = match check_tier(&p, &d, &resolving_nothing()) {
+                GateOutcome::Fail { invariant: TIER, ref detail } => {
+                    detail.contains("carries manuscript text")
+                }
+                o => panic!("{name}: TIER must fail without a consent id, got {o:?}"),
+            };
+            assert_eq!(
+                tier_sees_text, shared_says_text,
+                "{name}: TIER diverged from the shared predicate"
+            );
+        }
+    }
+
+    /// A skip is not a pass on either gate — the §32 property, restated for the
+    /// premium enumeration so it cannot be lost when a sixth check is added.
+    #[test]
+    fn neither_gate_reports_pass_on_inputs_it_could_not_read() {
+        let free = run_free_gate(&Value::Null, &[], None, None);
+        let prem = run_premium_gate(&Value::Null, &[], None, None, &resolving_nothing());
+        for (label, g) in [("free", &free), ("premium", &prem)] {
+            for (name, outcome) in g.results() {
+                assert!(!outcome.is_pass(), "{label}/{name} passed on unreadable input: {outcome:?}");
+            }
+        }
     }
 }

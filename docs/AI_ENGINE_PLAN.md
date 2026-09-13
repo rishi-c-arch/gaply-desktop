@@ -35,20 +35,30 @@ module and stays where it is; the AI engine must not call it or depend on it.
 "No telemetry, usage statistics, document content, queries, embeddings, or error payloads are sent
 to any remote service by the AI layer."
 
-There are **exactly three permitted network operations**, and this list is CLOSED — a fourth needs
-its own decision record and its own argument, not an appeal to these:
+There are **exactly four permitted network operations**, and this list is CLOSED — a fifth needs
+its own decision record and its own argument, not an appeal to these. (It said three until §11 D152
+added the fourth, under this rule; the count moves only that way, and only with an entry.)
 
 | # | Operation | Outbound payload | Trigger |
 |---|---|---|---|
 | 1 | Embedding-model download (`ai_model_install`) | a pinned URL, sha256-verified | user presses Install |
 | 2 | Generative-model download (`gen_install`) | a pinned URL, sha256-verified | user presses Install |
 | 3 | **Open-access full-text fetch (`citation_fetch_oa`, D56)** | **a DOI**, to Unpaywall / OpenAlex, then a GET of the PDF URL those return | user presses "Fetch open-access PDF" |
+| 4 | **Premium manuscript review (§11 D152)** | **the manuscript itself**, to gaply-proxy, which forwards to a cloud LLM | explicit per-manuscript consent, recorded before upload |
 
-*Consequence:* R2 is narrowed, not weakened. All three live in the app crate, all three are
-explicitly user-invoked, and none of them runs at startup (see §9.4). Every one is pinned by a
+*Consequence:* R2 is narrowed, not weakened. All four live in the app crate, all four are
+explicitly user-invoked, and none of them runs at startup (see §9.4). Operations 1-3 are pinned by a
 startup test that greps the modules owning the relevant lifecycle for network identifiers:
 `gen_startup_tests::startup_performs_no_generative_load_and_no_network` for 1 and 2, and
 `oa_fetch::tests::startup_performs_no_open_access_fetch_and_no_network` for 3.
+
+**#4 was added under this rule, not around it.** The list said three and said CLOSED; the premium
+tier needed a fourth, so it got its own entry and its own argument in §11 D152 rather than an appeal
+to the existing three — which is the procedure this paragraph specifies. **It is the only one that
+breaks the ID-only invariant**, and deliberately: a DOI is a public identifier, an unpublished
+manuscript is not, so #4's justification is a consent argument rather than a payload argument and is
+enforced by a type and a gate (`Tier::Premium(ConsentRecord)`, `release_gate::run_premium_gate`)
+rather than by the shape of what is sent. The list is closed again at four, on the same terms.
 
 *The invariant that lets #3 exist:* **ID-only outbound.** A DOI is a public identifier for a
 published work, not a fact about the person holding it — no manuscript text, no claim under check,
@@ -9324,3 +9334,179 @@ and prints how many findings it recomputed, so the two sets are never silently
 swapped, and the number on that line is the first thing to compare when two
 exports disagree. Anything new that derives a reader-facing claim from a
 consistency finding inherits this property and should say so where it is built.
+
+### D152 — the premium tier: what leaves, under what consent, and why PRIVACY was not made conditional
+
+**This entry exists because §1's R4 requires it.** R4 states *"Nothing leaves the
+machine"* and lists **exactly three** permitted network operations, then says the
+list is CLOSED: *"a fourth needs its own decision record and its own argument,
+not an appeal to these."* The PublishReady Premium design (`docs/publishready-
+premium-architecture.md`) sends the manuscript to a cloud model. Its own answer —
+*"that is not a relaxation of the claim; it is a different tier with a different
+claim"* — is an argument, but R4 asks for it to be written down here, against the
+rule it departs from, rather than in the document that wants the departure.
+
+So: this is operation **#4**, and the list is closed again behind it.
+
+| # | Operation | Outbound payload | Trigger |
+|---|---|---|---|
+| 4 | **Premium manuscript review** | the manuscript text, the analysis record, and structured findings — to gaply-proxy, which forwards to a cloud LLM | user consents explicitly, per manuscript, before upload |
+
+#### Why it cannot be an appeal to #1–#3
+
+Operations 1 and 2 send a pinned URL. Operation 3's whole justification is the
+**ID-only invariant**: a DOI is a public identifier for a published work, not a
+fact about the person holding it. Premium violates that invariant directly and
+deliberately — it sends the unpublished work itself. There is no reading of #3
+that stretches to cover it, and an appeal to "we already make network calls"
+would be the exact move R4 names.
+
+The argument for #4 is therefore a different one, and it is a consent argument
+rather than a payload argument: **the user is told, in specific terms, what will
+be sent and to what class of recipient, and the sending cannot happen without a
+stored record that they were told.** That is weaker than #3's invariant — no
+amount of consent makes a manuscript a public identifier — and it is why the
+enforcement below is in the type system and the gate rather than in a checkbox.
+
+#### The two gates — and why `check_privacy` was NOT made tier-aware
+
+The obvious implementation is one gate with a tier parameter, PRIVACY skipped
+when the tier is premium. **That was rejected, and the reason is the whole
+decision.**
+
+> `check_privacy`'s worth is that it takes no argument. *"No manuscript text
+> crosses this boundary"* is a sentence that survives only while nothing can
+> weaken it. A tier-aware version is a policy wearing a gate's name.
+
+The moment PRIVACY grows an `if tier == Premium`, the free tier's central claim
+is only as strong as whoever last edited that condition — and the condition would
+sit in the one function whose entire value is that it has no conditions.
+
+So there are two gates, each unconditional (`src-tauri/src/release_gate.rs`):
+
+| gate | invariants | guards |
+|---|---|---|
+| `run_free_gate` | PRIVACY + PROVENANCE, SELECTION, COMPARISON, PERSISTENCE | the free route |
+| `run_premium_gate` | **TIER** + the same four structural | the premium route |
+
+PRIVACY is absent from the premium gate not because it was relaxed there, but
+because manuscript text is what that tier exists to send. TIER is its
+counterpart, and it is unconditional in the same way: every payload carrying
+manuscript text carries a consent id, and every consent id resolves to a stored
+row whose scope covers what was sent. Both directions.
+
+`run_all` no longer exists. There is no gate that runs "all" the invariants,
+because PRIVACY and TIER are mutually exclusive by construction — a payload that
+satisfies one cannot satisfy the other. A single enumeration would have needed a
+tier argument to skip one of them, which is the rejected design under a different
+name.
+
+#### THE PARTITION, AND THE ONE PAYLOAD THAT FALLS OUTSIDE IT
+
+The property asked for was *"a payload passes exactly one gate; none passes both
+or neither."* **The first half holds universally. The second half is false for
+exactly one shape, and that shape is the one the design exists to reject:**
+
+| payload | free | premium |
+|---|---|---|
+| no manuscript text, no consent id | **PASS** | fail (TIER) |
+| no manuscript text, consent id | **PASS** | fail (TIER) |
+| manuscript text + resolving consent id | fail (PRIVACY) | **PASS** |
+| **manuscript text, NO consent id** | fail (PRIVACY) | fail (TIER) |
+
+The fourth row passes neither gate. **That is not a crack in the partition; it is
+the safety property**, and a formulation that made it pass something would be a
+worse design that satisfied a nicer sentence. It is asserted as a REQUIRED
+outcome (`manuscript_text_without_consent_passes_neither_gate`) rather than
+tolerated as an exception.
+
+Row two — a clean payload carrying a consent id — needed a rule to stay on one
+side: **the premium route is for payloads that carry manuscript text.** Without
+it that payload passes both gates and the two routes are overlapping sets rather
+than a partition. The rule has an independent reason: a payload with nothing to
+consent to belongs on the route where PRIVACY can vouch for it.
+
+#### THE DRIFT THE PARTITION ACTUALLY RESTS ON
+
+PRIVACY and TIER are **opposite verdicts on the same question**. If each had its
+own detector for "does this payload carry manuscript text", a payload could read
+as clean to one and text-bearing to the other, and a payload passing both gates
+would exist with every test still green — because no test would be comparing the
+two detectors.
+
+There is therefore ONE definition, `manuscript_text_in`, and both invariants call
+it. This is §11 D134's rule — *"a second copy of a privacy claim is a second
+thing to keep true"* — applied to a PREDICATE rather than to a sentence.
+`both_gates_key_on_one_definition_of_manuscript_text` is what holds it.
+
+#### THE TESTS WERE WRITTEN BEFORE THE GATES, AND ALL THREE BREAKS WERE RUN
+
+A partition assertion whose first run is green proves nothing about whether it
+partitions (the standing rule from the lint-gate episode). So, in order:
+
+1. The `partition` module was written against `run_free_gate`,
+   `run_premium_gate`, `TIER`, `check_tier`, `manuscript_text_in` and
+   `crate::consent` — none of which existed. **13 compile errors, naming every
+   missing seam.** That is the negative control.
+2. Gates built; 20/20 green.
+3. Each load-bearing property then broken on purpose, with the predicted failure
+   stated first:
+
+| break | prediction | result |
+|---|---|---|
+| remove "premium requires manuscript text" | a clean payload with a consent id passes both | **RED** — *"clean, consent: passed BOTH gates — the routes are not disjoint"* |
+| give TIER its own structural-only detector | TIER and PRIVACY disagree on the same payload | **RED** — *"text: TIER diverged from the shared predicate"* |
+| make PRIVACY tier-aware (*"they consented, so it is not a leak"*) | the rejected design passes the free gate on a premium payload | **RED** — both partition tests |
+
+The second break is the one worth keeping: `no_payload_passes_both_gates` stayed
+**green** under it, and only the drift guard fired. Two tests, two different
+failure directions; neither subsumes the other.
+
+#### WHAT CONSENT RECORDS, AND THE ONE FIELD THE DESIGN GOT WRONG
+
+`src-tauri/src/consent.rs`. `Tier::Premium` holds a `ConsentRecord` by
+construction, so no value of `Tier` names the premium route without one.
+
+**The design specified `provider: Provider // OpenAI, named`. The desktop cannot
+honestly record that.** `gaply-proxy/app/main.py:146-152` selects the provider
+SERVER-SIDE from `GAPLY_LLM_PROVIDER`, and `:262` states the property
+deliberately: *"nothing is persisted. The desktop never knows which one handled
+it."* A consent record signed on this machine naming a vendor would be a claim
+the machine has no way to check and no way to be told is wrong — a privacy
+statement that is unfalsifiable by the party making it.
+
+So the field is `ProviderClass::CloudLlmViaProxy` — *a cloud LLM reached
+exclusively through gaply-proxy* — which is true, checkable, and the thing the
+user is actually deciding about. **Naming the vendor is available and not taken:**
+it requires the proxy to return which provider answered, which means giving up
+provider-blindness. That trade is recorded here so it is a decision rather than a
+gap, and `the_provider_is_recorded_as_a_class_reached_through_the_proxy` fails if
+a vendor variant is added without revisiting it.
+
+Two smaller departures from the design, both toward existing convention:
+
+- **It lives in the app crate, not `gaply-core`.** The design's `Uuid` and
+  `DateTime` fields are two dependencies `gaply-core` does not carry; it is
+  declared *"portable, Tauri-free"* at `rust-version = "1.77.2"` with no network
+  and no clock. A consent record is a fact about a NETWORK boundary, so it sits
+  beside the proxy client and the gate it constrains, and uses `now_epoch()`
+  seconds as `i64` with a `String` id.
+- **An unknown scope bit is rejected, not masked.** A bit outside
+  `ConsentScope::ALL` was written by a newer version; masking it off turns
+  *"consented to something we do not understand"* into *"consented to less"*, and
+  guessing downward is still guessing.
+
+#### WHAT IS NOT DONE HERE
+
+`ConsentRecord::from_persisted` is `pub` and there is no `consent_records` table
+yet, so nothing currently stops a caller constructing a record that was never
+stored. **That is the one part of this weaker than the design requires**, and it
+is Phase 1's first job: create the table, make the constructor `pub(crate)`, and
+put the store in front of it. The `resolve` closure `check_tier` takes is the
+seam that table plugs into — a parameter rather than a global, so a gate run can
+never silently consult a different store than the payload was built against.
+
+The proxy's `validate_structured` premium mode — the server-side half of this
+boundary — is also Phase 1. Until it exists, TIER is enforced on the desktop
+only, and a desktop-only half of a two-sided boundary should be read as exactly
+that.
