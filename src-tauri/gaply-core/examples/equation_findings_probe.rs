@@ -5,8 +5,7 @@
 //! loads a model, opens a socket or touches the database; the purity of the
 //! engine itself is enforced by `tests/equation_is_llm_free.rs`.
 use gaply_core::epistemic::EpistemicStatus;
-use gaply_core::equation::check::{check_equation, ArithmeticFinding};
-use gaply_core::equation::expr::Bindings;
+use gaply_core::equation::check::{check_equation, ArithmeticFinding, BoundValues};
 use gaply_core::equation::linear::parse_equation;
 use gaply_core::extract::docparse;
 use std::path::Path;
@@ -34,7 +33,7 @@ fn main() {
                 continue;
             }
             let Ok(eq) = parse_equation(t) else { continue };
-            for f in check_equation(&eq, &Bindings::new()) {
+            for f in check_equation(&eq, &BoundValues::new()) {
                 checked += 1;
                 if f.status == EpistemicStatus::Confirmed {
                     confirmed += 1;

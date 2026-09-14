@@ -72,6 +72,17 @@ pub struct DocxEquation {
     pub paragraph: usize,
     /// The equation in linear notation, ready for the parser.
     pub linear: String,
+    /// Did this element contain STRUCTURE — a fraction, a power, a radical, a
+    /// delimiter — as opposed to a bare run of symbols?
+    ///
+    /// **This is the same predicate `docparse` uses to decide between
+    /// `[equation]` and the inline text** (§11 D155's lossless-flatten rule).
+    /// It is exposed so a caller splicing structured equations back into the
+    /// prose stream can align the two streams by the rule rather than by
+    /// counting — an inline `N` produces an equation here and no placeholder
+    /// there, and a caller pairing them in order silently mismatches every
+    /// equation after the first.
+    pub structural: bool,
 }
 
 /// Wrapper elements whose rendering is just their children, in order.
@@ -198,6 +209,7 @@ pub fn equations_in_document_xml(xml: &str) -> (Vec<DocxEquation>, Vec<(usize, O
     let mut props_depth = 0usize;
     let mut failed: Option<OmmlError> = None;
     let mut in_text = false;
+    let mut structural = false;
 
     loop {
         match reader.read_resolved_event() {
@@ -252,6 +264,9 @@ pub fn equations_in_document_xml(xml: &str) -> (Vec<DocxEquation>, Vec<(usize, O
                     continue;
                 }
                 let Some(frame) = stack.pop() else { continue };
+                if !is_transparent(&frame.name) {
+                    structural = true;
+                }
                 let rendered = match render(&frame.name, frame.parts) {
                     Ok(r) => r,
                     Err(err) => {
@@ -265,11 +280,12 @@ pub fn equations_in_document_xml(xml: &str) -> (Vec<DocxEquation>, Vec<(usize, O
                         None => {
                             let linear = rendered.split_whitespace().collect::<Vec<_>>().join(" ");
                             if !linear.trim().is_empty() {
-                                out.push(DocxEquation { paragraph, linear });
+                                out.push(DocxEquation { paragraph, linear, structural });
                             }
                         }
                     }
                     stack.clear();
+                    structural = false;
                 } else if let Some(parent) = stack.last_mut() {
                     parent.parts.push(rendered);
                 }
@@ -302,7 +318,7 @@ pub fn equations_in_docx(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::equation::check::{check_equation, ClaimKind};
+    use crate::equation::check::{check_equation, BoundValues, ClaimKind};
     use crate::equation::expr::Bindings;
     use crate::equation::linear::parse_equation;
     use crate::epistemic::EpistemicStatus;
@@ -364,6 +380,7 @@ mod tests {
         assert!(errs.is_empty(), "{errs:?}");
         assert_eq!(eqs.len(), 1);
         assert_eq!(eqs[0].linear, "n=((N)/(1+N×(e)^(2)))");
+        assert!(eqs[0].structural, "a fraction is structure");
 
         // And it parses to the RIGHT tree — the denominator contains the power.
         let eq = parse_equation(&eqs[0].linear).expect("parses");
@@ -402,7 +419,7 @@ mod tests {
 
         let eq = parse_equation(&eqs[0].linear)
             .unwrap_or_else(|e| panic!("{:?}: {e}", eqs[0].linear));
-        let claims = check_equation(&eq, &Bindings::new());
+        let claims = check_equation(&eq, &BoundValues::new());
         assert_eq!(claims.len(), 4, "{:?}", eqs[0].linear);
         assert!(matches!(claims[0].kind, ClaimKind::Definition { .. }));
         for c in &claims[1..] {
@@ -458,6 +475,37 @@ mod tests {
         assert!(eqs.is_empty(), "a partial reading escaped: {eqs:?}");
         assert_eq!(errs.len(), 1);
         assert!(matches!(errs[0].1, OmmlError::Unsupported(ref e) if e == "nary"), "{errs:?}");
+    }
+
+    /// The two readers must agree on what counts as structure, or a caller
+    /// splicing one stream into the other mismatches every equation after the
+    /// first — measured, and it is how the Slovin chain went missing from the
+    /// graph probe.
+    #[test]
+    fn a_bare_symbol_is_not_structural_and_docparse_leaves_it_inline() {
+        let body = format!("<w:p><m:oMath>{}</m:oMath></w:p>", mrun("N"));
+        let (eqs, _) = equations_in_document_xml(&doc(&body));
+        assert_eq!(eqs.len(), 1);
+        assert!(!eqs[0].structural, "a lone run carries no structure");
+
+        // And `docparse` keeps it inline rather than emitting a placeholder,
+        // which is the other half of the same rule.
+        let mut buf = Vec::new();
+        {
+            use std::io::Write;
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zip.start_file("word/document.xml", opts).unwrap();
+            zip.write_all(doc(&body).as_bytes()).unwrap();
+            zip.finish().unwrap();
+        }
+        let text = crate::extract::docparse::parse_docx(&buf).unwrap();
+        assert!(text.contains('N'), "{text:?}");
+        assert!(
+            !text.contains(crate::extract::docparse::EQUATION_PLACEHOLDER),
+            "{text:?}"
+        );
     }
 
     #[test]

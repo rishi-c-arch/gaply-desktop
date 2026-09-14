@@ -39,6 +39,53 @@ use super::interval::{eval_interval, Interval, IntervalBindings};
 use super::linear::{Equation, Side};
 use super::rational::Rational;
 
+/// A value the research record supplies, in BOTH readings at once.
+///
+/// **A binding carries the precision of the literal it came from.** `e = 0.04`
+/// read out of a declaration is exactly as ambiguous as `0.04` written inline,
+/// and a binding stored as a bare `Rational` silently becomes a zero-width
+/// interval — which narrows the rounded reading, makes the sides disjoint, and
+/// turns a correct manuscript into a `DETECTED` finding. That is the failure
+/// this type exists to make impossible.
+///
+/// The two maps are only ever written through [`BoundValues::insert`], so they
+/// cannot drift apart — §11 D156's rule about one concept with two spellings,
+/// applied to a data structure.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoundValues {
+    exact: Bindings,
+    intervals: IntervalBindings,
+}
+
+impl BoundValues {
+    pub fn new() -> BoundValues {
+        BoundValues::default()
+    }
+
+    /// Bind `name`, stating how many decimal places the SOURCE displayed.
+    /// `decimals == 0` means an exact integer — see [`Interval::of_literal`].
+    pub fn insert(&mut self, name: impl Into<String>, value: Rational, decimals: u32) {
+        let name = name.into();
+        if let Some(i) = Interval::of_literal(value, decimals) {
+            self.intervals.insert(name.clone(), i);
+        }
+        self.exact.insert(name, value);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.exact.is_empty()
+    }
+    pub fn exact(&self) -> &Bindings {
+        &self.exact
+    }
+    pub fn intervals(&self) -> &IntervalBindings {
+        &self.intervals
+    }
+    pub fn contains(&self, name: &str) -> bool {
+        self.exact.contains_key(name)
+    }
+}
+
 /// What kind of statement one `=` makes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClaimKind {
@@ -104,7 +151,7 @@ impl ArithmeticFinding {
 ///
 /// `bindings` supplies values the research record knows (a `where` clause, an
 /// analysis record). Absent bindings are never invented — §6b.3.
-pub fn check_equation(eq: &Equation, bindings: &Bindings) -> Vec<ArithmeticFinding> {
+pub fn check_equation(eq: &Equation, bindings: &BoundValues) -> Vec<ArithmeticFinding> {
     eq.claims()
         .enumerate()
         .map(|(i, (l, r))| check_claim(eq, i, l, r, bindings))
@@ -112,21 +159,49 @@ pub fn check_equation(eq: &Equation, bindings: &Bindings) -> Vec<ArithmeticFindi
 }
 
 /// Everything reportable, in source order.
-pub fn findings_for(eq: &Equation, bindings: &Bindings) -> Vec<ArithmeticFinding> {
+pub fn findings_for(eq: &Equation, bindings: &BoundValues) -> Vec<ArithmeticFinding> {
     check_equation(eq, bindings).into_iter().filter(ArithmeticFinding::is_reportable).collect()
 }
 
-fn interval_bindings(b: &Bindings) -> IntervalBindings {
-    b.iter().map(|(k, v)| (k.clone(), Interval::point(*v))).collect()
-}
-
-/// Is this side a bare name with no value in the record? Then the equation is
-/// defining it.
-fn unbound_name(s: &Side, b: &Bindings) -> Option<String> {
-    match &s.expr {
-        Expr::Var(n) if !b.contains_key(n) => Some(n.clone()),
-        _ => None,
+/// **What is this equation DEFINING, if anything?**
+///
+/// A manuscript writing `R² = 1 − (SSres/SStot)` is giving `R²` a meaning, not
+/// asserting an identity that must hold for every value of `R`. Testing it as
+/// one produces a witness — `at R = 2, SSres = 3, SStot = 2.5 the left is 4 and
+/// the right is −0.2` — and a `DETECTED` Tier-0 finding against the textbook
+/// definition of the coefficient of determination. Measured in
+/// `Disha Correction .docx`.
+///
+/// The predicate, generalising "one side is a bare unbound name":
+///
+/// > **An equality whose two sides share NO variable is a definition.** The left
+/// > is being given meaning by the right; there is nothing the two jointly
+/// > constrain, so there is nothing to test.
+///
+/// `(a+b)² = a² + b²` shares `a` and `b` across the `=` and IS a claim — it is
+/// testable, it is false, and it still reports. `P_N = P_G − R`,
+/// `Magnesium Hardness = Total Hardness − Calcium Hardness` and
+/// `n = N/(1+Ne²)` share nothing and are definitions.
+fn defined_quantity(left: &Side, right: &Side, b: &BoundValues) -> Option<String> {
+    let lv = left.expr.variables();
+    let rv = right.expr.variables();
+    // Anything already valued by the record is not being defined here.
+    let unbound = |vs: &[String]| vs.iter().any(|v| !b.contains(v));
+    if !unbound(&lv) && !unbound(&rv) {
+        return None;
     }
+    if lv.is_empty() && rv.is_empty() {
+        return None;
+    }
+    if lv.iter().any(|v| rv.contains(v)) {
+        return None;
+    }
+    // Name it the way the manuscript did.
+    let side = if unbound(&lv) { left } else { right };
+    Some(match &side.expr {
+        Expr::Var(n) => n.clone(),
+        _ => side.text.clone(),
+    })
 }
 
 /// How a value appears in a finding: exact when it terminates, marked when it
@@ -140,7 +215,7 @@ fn check_claim(
     index: usize,
     left: &Side,
     right: &Side,
-    b: &Bindings,
+    b: &BoundValues,
 ) -> ArithmeticFinding {
     let mut f = ArithmeticFinding {
         status: EpistemicStatus::Unverified,
@@ -155,7 +230,7 @@ fn check_claim(
     };
 
     // 1. A definition asserts nothing to check.
-    if let Some(name) = unbound_name(left, b).or_else(|| unbound_name(right, b)) {
+    if let Some(name) = defined_quantity(left, right, b) {
         f.kind = ClaimKind::Definition { name: name.clone() };
         f.status = EpistemicStatus::Unverified;
         f.message = format!(
@@ -166,8 +241,8 @@ fn check_claim(
         return f;
     }
 
-    let lv = left.expr.eval(b);
-    let rv = right.expr.eval(b);
+    let lv = left.expr.eval(b.exact());
+    let rv = right.expr.eval(b.exact());
 
     // 2/3/4. Both sides compute.
     if let (Ok(l), Ok(r)) = (&lv, &rv) {
@@ -214,9 +289,8 @@ fn check_claim(
             right: render(*r),
         });
 
-        let ib = interval_bindings(b);
         let (rounded_holds, rounded_detail) =
-            match (eval_interval(&left.expr, &ib), eval_interval(&right.expr, &ib)) {
+            match (eval_interval(&left.expr, b.intervals()), eval_interval(&right.expr, b.intervals())) {
                 (Ok(li), Ok(ri)) => (
                     li.overlaps(&ri),
                     Some((
@@ -360,11 +434,11 @@ mod tests {
 
     fn check(line: &str) -> Vec<ArithmeticFinding> {
         let eq = parse_equation(line).unwrap_or_else(|e| panic!("{line:?}: {e}"));
-        check_equation(&eq, &Bindings::new())
+        check_equation(&eq, &BoundValues::new())
     }
     fn reportable(line: &str) -> Vec<ArithmeticFinding> {
         let eq = parse_equation(line).unwrap_or_else(|e| panic!("{line:?}: {e}"));
-        findings_for(&eq, &Bindings::new())
+        findings_for(&eq, &BoundValues::new())
     }
 
     /// The line, verbatim, from `Corrected_Chapters_3_4_Jitesh_Agarwal.docx`
@@ -565,17 +639,30 @@ mod tests {
     #[test]
     fn the_same_definition_is_recomputed_once_the_record_supplies_values() {
         let eq = parse_equation("DO = (Vtitrant × N × 8000) / Vsample").unwrap();
-        let mut b = Bindings::new();
-        b.insert("Vtitrant".into(), Rational::parse_decimal("5.0").unwrap().0);
-        b.insert("N".into(), Rational::parse_decimal("0.025").unwrap().0);
-        b.insert("Vsample".into(), Rational::from_int(200));
-        b.insert("DO".into(), Rational::from_int(5));
+        let mut b = BoundValues::new();
+        b.insert("Vtitrant", Rational::parse_decimal("5.0").unwrap().0, 1);
+        b.insert("N", Rational::parse_decimal("0.025").unwrap().0, 3);
+        b.insert("Vsample", Rational::from_int(200), 0);
+        b.insert("DO", Rational::from_int(5), 0);
         let out = check_equation(&eq, &b);
         assert_eq!(out[0].status, EpistemicStatus::Confirmed, "{}", out[0].message);
 
-        b.insert("DO".into(), Rational::from_int(6));
+        // A value that is wrong by more than any rounding of the stated inputs.
+        b.insert("DO", Rational::from_int(60), 0);
         let out = check_equation(&eq, &b);
         assert_eq!(out[0].status, EpistemicStatus::Detected, "{}", out[0].message);
+
+        // And one that is only wrong under the exact reading is a QUESTION,
+        // not a verdict — the precision of `5.0` and `0.025` is carried
+        // through the binding, which is the whole point of `BoundValues`.
+        b.insert("DO", Rational::parse_decimal("5.1").unwrap().0, 1);
+        let out = check_equation(&eq, &b);
+        assert_eq!(
+            out[0].status,
+            EpistemicStatus::RequiresAuthorConfirmation,
+            "{}",
+            out[0].message
+        );
     }
 
     /// Every finding names its evidence — the `consistency.rs` rule, which this

@@ -1,8 +1,7 @@
 //! Read equations out of a REAL .docx and check them. The OMML fixtures in
 //! `extract/omml.rs` are reconstructions of Word's markup; this is Word's.
 use gaply_core::epistemic::EpistemicStatus;
-use gaply_core::equation::check::check_equation;
-use gaply_core::equation::expr::Bindings;
+use gaply_core::equation::check::{check_equation, BoundValues};
 use gaply_core::equation::linear::parse_equation;
 use gaply_core::extract::omml;
 
@@ -19,7 +18,7 @@ fn main() {
             println!("  ¶{:<5} {}", e.paragraph, e.linear);
             match parse_equation(&e.linear) {
                 Ok(eq) => {
-                    for c in check_equation(&eq, &Bindings::new()) {
+                    for c in check_equation(&eq, &BoundValues::new()) {
                         let mark = if c.is_reportable() { "  >>> " } else { "      " };
                         if c.is_reportable() {
                             reportable += 1;

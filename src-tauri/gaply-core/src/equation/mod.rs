@@ -59,6 +59,7 @@
 pub mod check;
 pub mod equiv;
 pub mod expr;
+pub mod graph;
 pub mod interval;
 pub mod linear;
 pub mod rational;

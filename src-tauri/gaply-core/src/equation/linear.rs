@@ -148,16 +148,28 @@ fn superscript_digit(c: char) -> Option<i32> {
     }
 }
 
-fn tokenize(s: &str) -> Result<Vec<Tok>, ParseError> {
+/// Tokens, plus whether each was preceded by whitespace.
+///
+/// The gap matters. `2A` is a product; `600 usable` is a number followed by a
+/// word — see [`P::term`].
+fn tokenize(s: &str) -> Result<(Vec<Tok>, Vec<bool>), ParseError> {
     let cs: Vec<char> = s.chars().collect();
     let mut out = Vec::new();
+    let mut spaced = Vec::new();
+    let mut gap = false;
     let mut i = 0usize;
     while i < cs.len() {
         let c = cs[i];
         if c.is_whitespace() {
+            gap = true;
             i += 1;
             continue;
         }
+        let this_gap = std::mem::replace(&mut gap, false);
+        while spaced.len() < out.len() {
+            spaced.push(false);
+        }
+        spaced.push(this_gap);
         // A number: digits, with thousands separators and a decimal point. A
         // comma is only a separator when digits follow it.
         if c.is_ascii_digit() || (c == '.' && cs.get(i + 1).is_some_and(char::is_ascii_digit)) {
@@ -262,7 +274,11 @@ fn tokenize(s: &str) -> Result<Vec<Tok>, ParseError> {
             other => return Err(ParseError::UnexpectedToken(other.to_string())),
         }
     }
-    Ok(out)
+    while spaced.len() < out.len() {
+        spaced.push(false);
+    }
+    spaced.truncate(out.len());
+    Ok((out, spaced))
 }
 
 /// Byte offsets just past each token, for the longest-prefix search in
@@ -357,6 +373,8 @@ fn closes(open: char, close: char) -> bool {
 
 struct P<'a> {
     t: &'a [Tok],
+    /// Whether token `i` was preceded by whitespace in the source.
+    spaced: &'a [bool],
     i: usize,
 }
 
@@ -421,8 +439,17 @@ impl<'a> P<'a> {
                 {
                     lhs = Expr::Mul(Box::new(lhs), Box::new(self.unary()?));
                 }
+                // **A SPACE BREAKS IT.** `2A` is a product; `600 usable` is a
+                // number followed by a word. Measured: without this,
+                // `N = 600 usable` — a table caption in
+                // `Corrected_Chapters_3_4_Jitesh_Agarwal.docx` — parses as
+                // `N = 600 × usable`, and the equivalence check then reports a
+                // DETECTED Tier-0 finding against a caption. Three such
+                // findings appeared in one document. Mathematical writing
+                // spells a product `2x` or `2·x`, never `2 x`.
                 Some(Tok::Ident(_))
-                    if matches!(self.t.get(self.i.wrapping_sub(1)), Some(Tok::Num(..))) =>
+                    if matches!(self.t.get(self.i.wrapping_sub(1)), Some(Tok::Num(..)))
+                        && !self.spaced.get(self.i).copied().unwrap_or(true) =>
                 {
                     lhs = Expr::Mul(Box::new(lhs), Box::new(self.unary()?));
                 }
@@ -612,11 +639,11 @@ fn parse_side(text: &str) -> Result<Side, ParseError> {
     if let Some(label) = as_label_phrase(raw) {
         return Ok(Side { expr: Expr::Var(label), text: raw.to_string(), unit: None });
     }
-    let toks = tokenize(raw)?;
+    let (toks, spaced) = tokenize(raw)?;
     if toks.is_empty() {
         return Err(ParseError::EmptySide);
     }
-    let mut p = P { t: &toks, i: 0 };
+    let mut p = P { t: &toks, spaced: &spaced, i: 0 };
     let e = p.expr()?;
     if p.i != toks.len() {
         return Err(ParseError::UnexpectedToken(format!("{:?}", toks[p.i])));
@@ -630,11 +657,11 @@ fn parse_side(text: &str) -> Result<Side, ParseError> {
 /// not always align with mathematical grouping — a text run can span a bracket
 /// — so a fragment that is not an expression must not be wrapped as one.
 pub fn parses_as_expression(s: &str) -> bool {
-    let Ok(toks) = tokenize(s.trim()) else { return false };
+    let Ok((toks, spaced)) = tokenize(s.trim()) else { return false };
     if toks.is_empty() {
         return false;
     }
-    let mut p = P { t: &toks, i: 0 };
+    let mut p = P { t: &toks, spaced: &spaced, i: 0 };
     matches!(p.expr(), Ok(_) if p.i == toks.len())
 }
 
@@ -715,7 +742,7 @@ fn truncation_would_drop_mathematics(remainder: &str) -> bool {
     if r.is_empty() {
         return false;
     }
-    let toks = match tokenize(r) {
+    let (toks, spaced) = match tokenize(r) {
         Ok(t) => t,
         Err(_) => {
             // Untokenisable: take the part that IS tokenisable and judge that.
@@ -738,7 +765,7 @@ fn truncation_would_drop_mathematics(remainder: &str) -> bool {
     ) {
         return true;
     }
-    let mut p = P { t: &toks, i: 0 };
+    let mut p = P { t: &toks, spaced: &spaced, i: 0 };
     matches!(p.expr(), Ok(_) if p.i == toks.len())
 }
 
