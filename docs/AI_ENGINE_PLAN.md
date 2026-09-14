@@ -9955,3 +9955,92 @@ this machine, so untested and untouched. DrawingML `a:t` (text boxes, charts,
 SmartArt): the namespace fix means it now correctly does *not* reach the prose
 stream, but no document in this corpus exercises it, so that is reasoned, not
 measured.
+
+---
+
+### D156 — three axes that read like one word, and which of them becomes a type
+
+**THE RULE, STATED FIRST:**
+
+> **Before building against a name from a design document, check whether the
+> code already has a name for that thing — and whether it is the SAME thing.**
+> Two vocabularies for one concept start when a document's word is implemented
+> beside a shipping word that already meant it. They also start the other way:
+> when a document's word is *collapsed* into a shipping word that meant
+> something adjacent, and the difference has nowhere left to live.
+
+#### What was found
+
+Building §6b's Tier-0 engine, two names from the architecture document had no
+counterpart in code: `EpistemicStatus` (§9) and the five-row trust-tier table
+(§4.4). The nearest shipping things were `report::CertaintyTier` and
+`stats_verdict::Verdict`. The question — *do the document's names become real
+types, or does the document adopt the code's?* — was decided before findings
+were built rather than at findings time, because that is when the divergence
+becomes expensive.
+
+**They are three axes, not one concept with three names:**
+
+| axis | the question it answers | where it lives |
+|---|---|---|
+| **trust** | how much weight does this carry, what overrides what | `report::CertaintyTier` |
+| **verdict** | did a recomputation match | `stats_verdict::Verdict` |
+| **epistemic status** | what is being asserted about the claim | nowhere |
+
+#### The decision, and the measurement behind each half
+
+**`EpistemicStatus` becomes a real type** (`gaply-core/src/epistemic.rs`). It is
+a missing axis, not a synonym. `Verdict` is `Match | Mismatch` and its
+binary-ness is LOAD-BEARING: `stats_verdict.rs` separates the verified and
+advisory lanes by construction, and `Verdict` is carried only by the type that
+also carries `CertaintyTier::MathematicallyCertain`. Adding `Unverified` to it
+would put an un-decided result inside the type whose whole job is to be certain.
+The two states the equation engine needs — `UNVERIFIED` and
+`REQUIRES_AUTHOR_CONFIRMATION` — are precisely the two `Verdict` cannot hold,
+and they are not decoration: the first is §6b.3's entire refusal discipline, and
+the second is what the 21.9% case resolves to.
+
+**§4.4's five-tier table does NOT become a type. The document adopts the code's
+name.** Measured: `CertaintyTier` has **72 references across 9 Rust files** and
+**crosses the IPC boundary** — `src/screens/report/reportTypes.ts` and
+`src/screens/statsverifier/statsVerifierTypes.ts` both declare it, against the
+serde wire names `mathematically_certain | ai_assessed_moderate |
+reconsidered_after_peer_review`. It is a shipped contract with a frontend
+consumer. A five-value `Tier` enum introduced beside it would be exactly the
+failure this entry exists to prevent, in the same commit that named the risk.
+
+And the precedence §4.4 is really about is already implemented twice:
+`CertaintyTier::rank()` orders findings (`report.rs:821`, `orchestrator.rs`),
+and `swarm::Opinion::hard_constraint` is the override — the deterministic
+agent's verdicts are never voted on. §4.4's `0`–`4` numbering stays as editorial
+ordering in the document, with `Tier 0 ≈ MathematicallyCertain` recorded as a
+mapping rather than duplicated as a second enum.
+
+**Why the asymmetry is right rather than inconsistent.** One name became a type
+and one did not, and the test is not which document said it — it is whether the
+code already has somewhere for the meaning to live. For trust it does, twice
+over. For epistemic status it does not, anywhere, and collapsing it into
+`CertaintyTier` would have left `UNVERIFIED` with nowhere to go, which is how a
+"deterministic" engine quietly acquires a habit of guessing.
+
+#### The decimal rule this made possible
+
+`EpistemicStatus::RequiresAuthorConfirmation` does real work immediately.
+**A manuscript's written decimals are ambiguous by construction**: `0.108` may
+be the exact value used or `0.10843…` displayed to three places, and which was
+meant is not recoverable from the text. The two readings give different answers
+to the same arithmetic claim.
+
+So every arithmetic claim is judged under BOTH (`DecimalReading::{AsWritten,
+AsRounded}`) and the outcome reports which agree — both hold → no finding; both
+fail → `DETECTED`; they disagree → a finding that SAYS SO. Picking one silently
+would be the engine deciding a thing it cannot know, in the place it is easiest
+to commit, and the result would look like a confident Tier-0 verdict.
+
+One case is settled before the readings are consulted: where the reported value
+is what the computed value ROUNDS TO at the precision the author displayed,
+there is no discrepancy to explain. Slovin's formula in
+`Corrected_Chapters_3_4_Jitesh_Agarwal.docx` computes 623.35613… and reports
+`623.36`. That is display rounding and it is the negative control — it must
+produce nothing.
+

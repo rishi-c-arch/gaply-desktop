@@ -460,6 +460,36 @@ time injection.
     not flagged at all, because it felt measured: a command had been run and had
     genuinely exited 1. Confidence tracks *having measured something*, not
     *having measured the right thing*, so it is the weaker signal of the two.
+- **A PURITY CLAIM IN A DOC COMMENT IS NOT A GUARD. Counted 14 Sep 2026:
+  `validate.rs`, `stats_verify.rs` and `stats_verdict.rs` each state "no model,
+  no proxy, no network, no I/O" in their module headers — three claims, ZERO
+  tests, and the only reason they have held is that nobody has tried.**
+
+  This matters more than an ordinary unguarded invariant because of what the
+  claim BUYS. §4.4 puts Tier 0 above every model in the system: a deterministic
+  finding overrides eight agents agreeing, and `swarm.rs` implements that as
+  `hard_constraint` — never voted on, always overriding. **The authority is
+  granted on the strength of a sentence in a comment.** One `use` line inside
+  any of those files would leave the override in place and the determinism
+  gone, and nothing anywhere would say so.
+
+  `gaply-core/tests/equation_is_llm_free.rs` is the first guard of this kind in
+  the repo — a source scan over `src/equation/` for any route to a model, proxy,
+  network, database, filesystem, clock or entropy source, plus an import
+  allowlist pinned to `std` and `serde`. **It was NOT copied from an existing
+  pattern**: the instruction that prompted it said to assert purity "the way the
+  startup module asserts no HTTP client", and no such assertion exists. The
+  absence of an HTTP client in `gaply_core` is real and is a property of
+  `Cargo.toml` that nothing tests; the absence of a model is asserted nowhere at
+  all. A reader told this follows an existing pattern would go looking for the
+  pattern, so the test's own header says it is the first.
+
+  Confirmed to gate by breaking the real tree twice — a `std::fs` call and a
+  `regex` import — and watching each fail with the right message. The three
+  older modules are still unguarded; extending the scan to them is a separate
+  change, and this entry is here so that stays visible rather than being
+  rediscovered.
+
 - **AGREEMENT BETWEEN A SPEC, ITS IMPLEMENTATION AND ITS TEST IS EVIDENCE THAT
   THEY WERE DERIVED FROM ONE ANOTHER, NOT THAT ANY OF THEM IS CORRECT.
   Re-reading any one confirms the other two.**
