@@ -10044,3 +10044,134 @@ there is no discrepancy to explain. Slovin's formula in
 `623.36`. That is display rounding and it is the negative control — it must
 produce nothing.
 
+
+---
+
+### D157 — five values for one symbol, and a binder whose interesting number is its refusals
+
+**THE RULE, STATED FIRST:**
+
+> **A binder that binds everything produces a Tier-0 finding resting on a value
+> the ENGINE chose.** Tier 0 overrides every model in the system (§4.4), so the
+> number that says whether a binder is safe is not how many variables it binds.
+> It is how many it refuses, and whether anyone has read the refusals.
+
+#### The measurement that decided the design
+
+§6b.1 says an equation's variables bind to research-state fields *"where the
+binding is unambiguous"*. The obvious implementation is a document-wide symbol
+table: scan for `<name> = <number>`, remember it, substitute. Before writing
+one, the corpus was asked what it contains.
+
+In `Corrected_Chapters_3_4_Jitesh_Agarwal.docx` — **the document this engine's
+negative control comes from** — the single symbol `N` is declared with five
+different values:
+
+| declaration | count | what it is |
+|---|---:|---|
+| `N= target population = 237,000` | 1 | the value Slovin's formula uses |
+| `N = 600 \| Scale: 1=Strongly Disagree…` | 9 | table captions |
+| `N = 600 usable` / `N = 600 planned` | 2 | the achieved sample |
+| `N = 570` | 1 | an earlier SEM adequacy figure |
+| `N = 30` | 1 | the pilot |
+
+A document-wide table binds `N = 600` — it is twelve of the fifteen — and then
+reports that `237,000/(1 + 237,000 × 0.04²) = 623.36` is wrong. **The arithmetic
+is correct and the engine would have supplied the error**, wearing the one badge
+in the system that overrides model consensus. This is why the predicate has
+BLOCK SCOPE rather than document scope, and it is the whole argument for it.
+
+#### The predicate — two sources, five conditions
+
+**Source 1, preferred: unification, which reads no prose at all.** A manuscript
+that writes `n = N/(1+Ne²)` and then `n = 237,000/(1+237,000(0.04)²)` has stated
+the binding IN THE MATHEMATICS. Unifying the two trees yields
+`N ↦ 237,000, e ↦ 0.04` and nothing else — unification either succeeds with
+exactly one substitution or it fails, and it never searches. There is no
+sentence to interpret, so there is nothing to misread.
+
+**Source 2: a prose declaration, admitted only when all five hold.**
+
+1. **Whole-line shape.** The line parses as a declaration IN ITS ENTIRETY. This
+   is the condition that rejects `N = 600 | Scale: 1=Strongly Disagree…`, out of
+   which the parser would otherwise happily read an `N = 600` prefix.
+2. **Name left, number right.** A bare name, then a bare literal. Middle sides
+   are glosses (`N = target population = 237,000`) and must never COMPUTE —
+   see the third fabrication below. `N = normality of thiosulphate` declares a
+   meaning, not a value, and binds nothing.
+3. **In scope.** The declaration block belonging to that equation: the run of
+   lines after it, through an optional `where`-style introducer, ending at the
+   first line that is not a declaration.
+4. **Unique within the block.** Two values bind NEITHER.
+5. **A trailing parenthetical only as a CONSISTENT RESTATEMENT.**
+   `e = margin of error = 0.04 (4%)` binds `0.04` because `4%` **is** `0.04`.
+   That is a check, not a guess; a restatement that disagrees binds nothing.
+
+Where the two sources disagree, neither wins and the conflict is recorded.
+
+#### What it does, measured over nine documents
+
+**2 bindings. 40 refusals. 1 reportable finding.**
+
+Both bindings are `N` and `e` in the Slovin document, and they come from
+UNIFICATION — the prose declaration agrees, so it is accepted silently rather
+than treated as a conflict. Every one of the 40 refusals was read: all are
+variables that no declaration values (`Vtitrant`, `A₆₆₃`, `Total Hardness`,
+`P_G`), which is the honest state of a methods section that states formulas and
+attaches no numbers to them.
+
+**The two kinds of absence are worded differently, and that is not cosmetic.**
+
+- *"no declaration in scope"* — there was nothing to choose between.
+- *"different values are declared in the same block"* — there was, and the
+  engine declined. This one keeps both candidates as evidence.
+
+Only the second is evidence about the MANUSCRIPT. A report that spelled them the
+same way would bury the interesting one in thirty-nine of the other kind.
+
+#### THE FOUR FABRICATED FINDINGS, AND WHY THE CORPUS BEAT FIXTURES
+
+Every one of these was a confident Tier-0 finding against a CORRECT manuscript,
+produced by a working engine on real input. **Three of the four would have
+passed any test written in advance**, because each needed a shape no author of
+the code would think to write down.
+
+| # | what it produced | document | cause | fix |
+|---|---|---|---|---|
+| 1 | `DETECTED` ×3 against table captions: *"at N = 2, usable = 3 the left is 2 and the right is 1800"* | `Corrected_Chapters_3_4_Jitesh_Agarwal.docx` | `N = 600 usable` parsed as `N = 600 × usable` | a SPACE breaks implicit multiplication between a number and a word. `2A` is a product; `600 usable` is not. Mathematics spells a product `2x`, never `2 x` |
+| 2 | `DETECTED` against the definition of R²: *"at R = 2, SSres = 3, SStot = 2.5 the left is 4 and the right is −0.2"* | `Disha Correction .docx` | `R² = 1 − (SSres/SStot)` tested as a universal identity | an equality whose two sides share NO variable is a DEFINITION, not a claim |
+| 3 | the Slovin chain silently absent — nothing checked the engine's own negative control | `Corrected_Chapters_3_4_Jitesh_Agarwal.docx` | the numeric chain begins with a name and ends with a literal, so it was read as a declaration of `n` | a declaration's middle sides must be glosses; the chain's COMPUTE |
+| 4 | correct arithmetic reading as `DETECTED` once values were bound | synthetic, found by a test | a binding stored as a bare `Rational` became a zero-width interval, narrowing the rounded reading until the sides were disjoint | `BoundValues` carries the source literal's precision and writes both readings through one `insert` |
+
+Only #4 came from a test, and only because writing the test forced the question
+"what precision does a bound value have?" to be answered out loud.
+
+#### #2 has its own shape, and it is worth naming
+
+**A valid witness answering a question that should not have been asked.**
+
+The engine was *right about the arithmetic*. `R² = 1 − SSres/SStot` genuinely
+does not hold for every value of `R`, `SSres` and `SStot`, and `R = 2,
+SSres = 3, SStot = 2.5` genuinely is a counterexample — a reader can check it by
+hand and it will check out. Every component behaved correctly: the parser, the
+prober, the witness, the message.
+
+**What was wrong was the CATEGORY.** The manuscript was defining R², and the
+engine evaluated it as a claim. Nothing inside the computation could have
+detected that, because nothing inside the computation is about what kind of
+statement it is looking at.
+
+This is a different failure from the rest of §11's instrument entries. Those are
+instruments that LIED — a swallowed exit status, a pattern matching its own
+watcher, a calibration file carrying the defect it measured. This one is an
+instrument telling the exact truth about the wrong question, and it is more
+dangerous precisely because the evidence it offers is checkable and correct. A
+reviewer handed that witness would verify it and conclude the finding stands.
+
+The transferable form: **before asking whether a statement is true, ask what
+kind of statement it is.** A checker that can only answer "true or false" will
+answer it for everything it is given, including the things that are neither. And
+the guard has to be structural — here, the disjoint-variables test — because a
+confidence score would have been high on this one. It was not an uncertain
+answer. It was a certain answer to a question nobody asked.
+

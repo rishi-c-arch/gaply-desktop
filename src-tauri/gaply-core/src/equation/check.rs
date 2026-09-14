@@ -170,7 +170,7 @@ pub fn findings_for(eq: &Equation, bindings: &BoundValues) -> Vec<ArithmeticFind
 /// one produces a witness — `at R = 2, SSres = 3, SStot = 2.5 the left is 4 and
 /// the right is −0.2` — and a `DETECTED` Tier-0 finding against the textbook
 /// definition of the coefficient of determination. Measured in
-/// `Disha Correction .docx`.
+/// `Disha Correction .docx`; the shape is named in §11 D157.
 ///
 /// The predicate, generalising "one side is a bare unbound name":
 ///

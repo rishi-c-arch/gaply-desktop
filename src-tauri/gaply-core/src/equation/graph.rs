@@ -5,7 +5,7 @@
 //! > their variables bound to research-state fields **where the binding is
 //! > unambiguous**."* — §6b.1
 //!
-//! # THE FAILURE THIS MODULE IS SHAPED AROUND
+//! # THE FAILURE THIS MODULE IS SHAPED AROUND (§11 D157)
 //!
 //! A binder that binds everything produces a confident Tier-0 finding resting
 //! on a variable the ENGINE assigned, and a Tier-0 finding is the one thing in
