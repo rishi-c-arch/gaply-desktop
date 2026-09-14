@@ -918,6 +918,38 @@ corpus"*. **The audit pre-pass never called `extract_from_text` at all** —
 
  Wire `RevisingVerificationAgent`. Define `AgentSpec` and the graph file. Move the six existing lanes onto it. Build the `EquationGraph` extraction and the Tier 0 checks that need no analysis record (equivalence, units, recomputation from reported inputs). Two deliverables: the test that production converges past round one, and the first Tier 0 finding on a golden manuscript that an LLM had nothing to do with.
 
+**[v6 — PHASE 2 IS BUILT. Parts A–D, with what each corrected.]**
+
+| part | built | what it corrected in this document |
+|---|---|---|
+| **A** | `RevisingVerificationAgent` — the verification participant revises, so the debate stops being a vote | — |
+| **B** | `AgentSpec` and the shipped graph, validator written before the graph | §3.1's Manuscript privacy class read as a READ-permission would have required premium consent to parse a file the user had just opened. Privacy classes are about EGRESS, not reading (v5 → v6, §11's derivation entry) |
+| **C** | the graph's six lanes, order pinned against the executor | The lanes are DESCRIBED by the graph, not driven by it — stated in §4.3 rather than left implied |
+| **D** | the mathematical verification engine: exact-rational core, linear-text and OMML readers onto one parser, symbolic equivalence, dimensional consistency, the `EquationGraph`, and the findings on the report surface | **five corrections, below** |
+
+**What Part D found this document wrong about:**
+
+1. **The gating item was not an OMML reader.** §6b.1 named one. Measured over the six manuscripts: **21 equation-shaped lines survive `docparse` intact, zero lines of OMML exist in any of them.** The linear-text parser is the gate; OMML covers 3 of 17 documents and its priority is a correctness argument, not a coverage one.
+2. **"Flattened or dropped" was half right, and the shipping half was worse.** `docparse` matched elements by local name, so `<m:t>` fell into the `<w:t>` arm: `n = N/(1+Ne²)` became `n=N1+Ne2` and `237,000/(1+379.2)` became `237,0001+379.2` — **numbers not in the manuscript, in the stream the statistic extractor, AI-detection and plagiarism lanes all read.** The same collapse emitted 21 fabricated tab characters into `R PAPER .docx`, which has none. §11 D155.
+3. **`EpistemicStatus` and §4.4's tier table existed only on paper.** Resolved in §11 D156: `EpistemicStatus` became a real type (a missing axis — `Verdict` is binary by construction and cannot hold `UNVERIFIED`); the tier table did NOT, because `CertaintyTier` already ships with 72 references and a frontend wire contract.
+4. **§6b.2's dimensional check is largely unreachable on real manuscripts.** Measured: 17 units known, 14 formulas, **one check performed**. Dimensioned constants live in prose — *"8000 = milliequivalent weight of O₂ × 1000"* — and admitting the symbol beside them while they stay unitless reports a CORRECT formula as wrong. §6b.3 and §11 D158 now say so; the real scope is derived quantities whose inputs the document itself defines.
+5. **36% of unit annotations carry a BASIS, not a unit** (`as CaCO₃`). A dimensions-only system is not incomplete here, it is wrong: two quantities both in `mg/L` on different bases are dimensionally identical and not interchangeable.
+
+**Both deliverables, from real files.** The first Tier-0 finding is on `Revised Health Economics Paper FINAL (1).docx` — the manuscript's own products give 0.21968 where its next line writes 0.219 — carried end-to-end into the report with `CertaintyTier::MathematicallyCertain`, both decimal readings, and a four-step trail. The negative control is Slovin's formula read from Word's actual OMML in `Corrected_Chapters_3_4_Jitesh_Agarwal.docx`: every link confirms, the last only because 623.35613… is what `623.36` displays, and the engine says nothing.
+
+**The binder's ratio is the number that matters.** Across nine documents: **2 bindings, 76 refusals, 1 finding.** One document declares the symbol `N` with five different values, and a document-wide symbol table would bind the wrong one and then disprove correct arithmetic (§11 D157).
+
+---
+
+### 12.1 What Phase 2 carries forward
+
+Four things, each verified against the tree on 14 Sep 2026 rather than copied from an earlier draft:
+
+1. **`run_premium_gate` has no production runner.** It exists and is tested; every caller is a test. §4.3's *"every cloud agent has a `Tier::Premium` gate upstream"* is a static declaration plus a runtime gate nothing in production invokes.
+2. **The lanes are described by the graph, not driven by it.** `run_pipeline_inner` still executes six lanes in a hardcoded sequence; the graph supplies the declaration of record and the derivable-artifact decision, with the order pinned against the executor. A graph-driven executor is a separate change, and the golden test cannot cover it — byte-identity proves the report did not move, not that the mechanism producing it is the one the graph describes.
+3. **Nothing declares `ScientificExtraction`, so the layer stays off.** The MECHANISM is wired — `graph.requires_scientific_extraction()` gates the call in `pipeline.rs` — and no shipped agent declares the requirement, so `ResearchState::science` is `None` on every real run. This is now a one-line change in a graph file rather than a cost decision; the cost was measured and fixed (30.4 s → 196 ms across six manuscripts, §11's regex-caching entry).
+4. **Equation findings carry `location: None`.** The OMML reader knows the `.docx` paragraph index and `extract::Location`'s `paragraph` is an index WITHIN a section — the two do not compose yet. So a researcher gets the equation quoted verbatim and no anchor into their manuscript, which §9's *"every finding carries a locator"* expects. Marked GAP at the construction site in `equation_report.rs`, and listed here so it is not rediscovered.
+
 **Phase 2b — the benchmark (in parallel, ongoing).** The first fifty labelled cases across the six families, with population estimates. Nothing in Phase 4 ships without a score on it.
 
 **Phase 3 — the journal layer (3 weeks).** The deep crawl (§3.4): discovery, collection, classification, extraction, normalisation, conflict detection, article-type binding, for ten journals. Every fact with its status. Comparable corpus with its filters. Reporting-standard bindings for the five most common standards.
