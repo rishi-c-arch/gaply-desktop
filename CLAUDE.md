@@ -798,6 +798,46 @@ time injection.
   trusted, because a status that has already lied twice is not evidence on its
   own.
 
+  **A FILTER YOU WROTE YOURSELF IS THE SHARPER VERSION OF THIS, because you
+  know what it does and that is exactly why you do not check it.** 14 Sep 2026,
+  the journal screens. A new frontend file was typechecked with:
+
+  ```bash
+  npx tsc --noEmit -p tsconfig.json 2>&1 | grep -E "journal/" | head -5; echo TSC_DONE
+  ```
+
+  `tsc` **exited 2** and printed the error. The file was under
+  `src/screens/publishready/`, not `journal/`, so the grep matched nothing —
+  and `echo TSC_DONE` ran either way, because `;` does not care. A clean
+  filtered view plus a success word the shell prints unconditionally read
+  exactly like a pass. CI caught it: the CRA production build failed on
+  `TS2802`, `matchAll` needing `downlevelIteration` at this project's es5
+  target, while 929 vitest tests stayed green because esbuild accepts it.
+
+  **The difference from the pipeline case above is who built the blind spot.**
+  There, `tail -20` discarded the head of an error nobody chose to hide. Here
+  the filter was written deliberately, three minutes earlier, to show only the
+  files being worked on — and a filter written for relevance is trusted for
+  completeness without anyone deciding to trust it. The narrower and more
+  purposeful the filter, the less likely it is to be questioned.
+
+  **The rule that covers both: read the exit status, and if you filter the
+  output, print the status ALONGSIDE the filtered view so the two cannot
+  disagree silently.**
+
+  ```bash
+  # WRONG — the filter is the only thing reporting, and TSC_DONE is uncondi-
+  # tional. Both are true of a run that exited 2.
+  npx tsc --noEmit 2>&1 | grep -E "journal/"; echo TSC_DONE
+
+  # RIGHT — the status is tsc's, and the filtered view sits beside it
+  npx tsc --noEmit > tsc.log 2>&1; echo "TSC_EXIT=$?"; grep -E "journal/" tsc.log
+  ```
+
+  The verification that actually worked was the norm's own second half:
+  **`TSC_EXIT=0`, `BUILD_EXIT=0`, and `build/` present** — status AND artefact,
+  for the real command a release runs rather than a proxy for it.
+
   **This is the same shape as the two entries around it, which is why they sit
   together:** `|| true` swallowing a missing binary, a pipe reporting the wrong
   stage, and `pkill -f` matching the watcher instead of the target
