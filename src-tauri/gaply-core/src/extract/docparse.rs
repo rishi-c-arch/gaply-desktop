@@ -6,7 +6,6 @@ use std::io::Read;
 use std::path::Path;
 
 use quick_xml::events::Event;
-use quick_xml::Reader;
 
 use crate::error::GaplyError;
 use crate::extract::sections;
@@ -669,9 +668,119 @@ pub fn parse_pdf_bytes(bytes: &[u8]) -> Result<String, GaplyError> {
     Ok(text)
 }
 
-/// Extract text from a DOCX (a zip of XML). Paragraphs (`<w:p>`) become
-/// blank-line-separated blocks; `<w:tab>`/`<w:br>` become whitespace.
-pub fn parse_docx(bytes: &[u8]) -> Result<String, GaplyError> {
+// ---------------------------------------------------------------------------
+// DOCX — namespace-aware text harvesting
+// ---------------------------------------------------------------------------
+//
+// ACCURACY CORRECTION (measured 14 Sep 2026). Both DOCX readers matched
+// elements by LOCAL NAME (`e.local_name()`), which discards the namespace
+// prefix. `w:t` and `m:t` are then the same match, and so are a tab CHARACTER
+// and a tab-STOP DEFINITION. Two distinct defects, one symptom: text that
+// parses fine and says something the document does not.
+//
+//  1. **OMML flattened into prose.** `<m:t>` fell into the `<w:t>` arm, so an
+//     equation's leaf text was concatenated with its structure thrown away.
+//     `n = N/(1+Ne²)` came out as `n=N1+Ne2`, and
+//     `n = 237,000/(1+379.2) = 623.36` came out as
+//     `n=237,0001+379.2=623.36` — `237,0001` is a NUMBER THAT IS NOT IN THE
+//     MANUSCRIPT, in the text stream the statistic extractor, the AI-detection
+//     lane and the plagiarism lane all read. A dropped equation is a hole; this
+//     was fabricated data shaped like data. Measured on three real documents
+//     (19, 19 and 39 `m:t` elements).
+//
+//  2. **Tab-stop definitions emitted as tab characters.** `<w:tab/>` inside a
+//     run is a tab; `<w:tab w:val="left" w:pos="720"/>` inside `<w:pPr><w:tabs>`
+//     is a RULER SETTING and produces no text at all. The old loop fired on
+//     both. Measured: `R PAPER .docx` — the instrument most of §11's numbers
+//     were taken on — has 21 tab-stop definitions and **zero** genuine tab
+//     runs, and the old reader emitted exactly 21 tabs, every one of them at
+//     the head of a heading that has no tab (`"\tRelated Work"`).
+//     `Jitesh Agarwal .docx`: 493 of 986. `Disha Correction .docx`: 145 of 284.
+//
+// The fix is to resolve namespaces (`NsReader::read_resolved_event`) rather
+// than to match prefixes as strings — a document may bind `w:` to a different
+// prefix, or bind the WordprocessingML namespace as the default — and to stop
+// emitting content from inside PROPERTY elements. Both readers share the
+// helpers below so the two cannot drift.
+
+/// WordprocessingML — paragraphs, runs, real text.
+const NS_W: &[u8] = b"http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+/// OMML — Office Math Markup. Its `m:t` is an equation leaf, NOT prose.
+const NS_M: &[u8] = b"http://schemas.openxmlformats.org/officeDocument/2006/math";
+
+/// What an equation becomes in the plain-text stream when flattening it would
+/// lose structure.
+///
+/// **Why a placeholder and not the leaf text.** The leaf text of a structured
+/// equation is not a linear rendering of it: the fraction bar, the radical and
+/// the superscript live in the MARKUP, so concatenating leaves produces a
+/// string that reads as arithmetic and is not the author's arithmetic. Emitting
+/// nothing is honest but loses the anchor — a locator has to be able to say
+/// *an equation was here*. This token says exactly that and claims nothing
+/// about what the equation was.
+///
+/// The structured reader (§6b) reads `m:oMath` properly and is where the
+/// equation's content is recovered; this constant is what the PROSE stream
+/// carries, and it is deliberately not parseable as maths.
+pub const EQUATION_PLACEHOLDER: &str = "[equation]";
+
+/// True for an OOXML *properties* container — `w:pPr`, `w:rPr`, `w:sectPr`,
+/// `w:tblPr`, `w:numPr`, `m:ctrlPr`, … Nothing inside one is document text.
+///
+/// The `…Pr` suffix is an OOXML naming convention, not a guess: every property
+/// container in WordprocessingML and OMML carries it, and no content-bearing
+/// element does. `w:tabs` — the container that held the fabricated tabs — sits
+/// inside `w:pPr`, so it is covered by its parent.
+fn is_properties_element(local: &[u8]) -> bool {
+    local.len() > 2 && local.ends_with(b"Pr")
+}
+
+/// OMML elements whose content is a flat sequence of runs, so concatenating
+/// their text loses nothing. Anything else — `m:f`, `m:sSup`, `m:rad`,
+/// `m:nary`, `m:d`, `m:m`, and every element not listed — is STRUCTURAL.
+///
+/// A whitelist, deliberately: an OMML element this code has never seen is then
+/// treated as structural and yields the placeholder, which is the conservative
+/// direction. A blacklist would flatten it silently, which is the defect.
+fn omml_is_flat(local: &[u8]) -> bool {
+    matches!(local, b"oMath" | b"oMathPara" | b"r" | b"t" | b"rPr" | b"sty" | b"ctrlPr" | b"argPr")
+}
+
+/// Accumulates one `m:oMath` element and decides what the prose stream gets.
+#[derive(Default)]
+struct MathCapture {
+    /// Nesting depth of `m:oMath` (OMML permits nesting).
+    depth: usize,
+    /// Leaf text, in document order.
+    text: String,
+    /// Set by any OMML element outside [`omml_is_flat`]'s whitelist.
+    structural: bool,
+}
+
+impl MathCapture {
+    /// The prose-stream rendering: the leaf text when flattening is LOSSLESS
+    /// (a bare run sequence — an inline symbol such as `N` or `e`), and the
+    /// placeholder the moment any structure is present.
+    fn render(&self) -> String {
+        let t = self.text.trim();
+        if self.structural || t.is_empty() {
+            EQUATION_PLACEHOLDER.to_string()
+        } else {
+            t.to_string()
+        }
+    }
+}
+
+/// Resolve an event's namespace to its URI, or `None` when unbound.
+fn ns_uri<'a>(r: &'a quick_xml::name::ResolveResult<'a>) -> Option<&'a [u8]> {
+    match r {
+        quick_xml::name::ResolveResult::Bound(ns) => Some(ns.as_ref()),
+        _ => None,
+    }
+}
+
+/// Read `word/document.xml` out of a `.docx` zip.
+fn docx_document_xml(bytes: &[u8]) -> Result<String, GaplyError> {
     let cursor = std::io::Cursor::new(bytes);
     let mut zip = zip::ZipArchive::new(cursor)
         .map_err(|e| GaplyError::Validation(format!("not a valid docx (zip): {e}")))?;
@@ -679,41 +788,208 @@ pub fn parse_docx(bytes: &[u8]) -> Result<String, GaplyError> {
     zip.by_name("word/document.xml")
         .map_err(|e| GaplyError::Validation(format!("docx missing document.xml: {e}")))?
         .read_to_string(&mut xml)?;
+    Ok(xml)
+}
 
-    let mut reader = Reader::from_str(&xml);
+/// The shared, namespace-aware walk over `word/document.xml`.
+///
+/// Emits into `sink`; `end_paragraph` fires at every `</w:p>`. The two public
+/// readers differ ONLY in what they do with those two callbacks, so a fix to
+/// namespace handling lands in both by construction.
+fn walk_docx_body(
+    xml: &str,
+    mut sink: impl FnMut(&str),
+    mut end_paragraph: impl FnMut(),
+    mut style: impl FnMut(String),
+) -> Result<(), GaplyError> {
+    let mut reader = quick_xml::NsReader::from_str(xml);
     // Lenient: we only harvest text, so don't fail the whole document on a
     // mismatched/idiosyncratic end tag (real-world DOCX is not always strict).
     let cfg = reader.config_mut();
     cfg.trim_text(false);
     cfg.check_end_names = false;
-    let mut out = String::new();
-    let mut in_text = false;
+
+    // Inside `w:t` — and ONLY `w:t`. `m:t` no longer lands here.
+    let mut in_wt = false;
+    // Nesting depth inside a properties container; > 0 suppresses all content.
+    let mut props = 0usize;
+    let mut math: Option<MathCapture> = None;
 
     loop {
-        match reader.read_event() {
-            Ok(Event::Start(e)) if e.local_name().as_ref() == b"t" => in_text = true,
-            Ok(Event::End(e)) if e.local_name().as_ref() == b"t" => in_text = false,
-            Ok(Event::Text(t)) if in_text => {
-                out.push_str(&t.unescape().unwrap_or_default());
+        let ev = reader.read_resolved_event();
+        match ev {
+            Ok((rs, Event::Start(e))) => {
+                let ns = ns_uri(&rs);
+                let local = e.local_name();
+                let local = local.as_ref();
+
+                // --- inside an equation: capture, never emit inline ---------
+                if let Some(m) = math.as_mut() {
+                    if ns == Some(NS_M) {
+                        if local == b"oMath" {
+                            m.depth += 1;
+                        } else if !omml_is_flat(local) {
+                            m.structural = true;
+                        }
+                    }
+                    if is_properties_element(local) {
+                        props += 1;
+                    } else if props == 0 {
+                        if (ns == Some(NS_M) || ns == Some(NS_W)) && local == b"t" {
+                            in_wt = true;
+                        } else if ns == Some(NS_W) {
+                            // WordprocessingML WHITESPACE inside an equation is
+                            // Word content, not OMML structure — the namespace
+                            // rule this whole change is about says which side it
+                            // falls on. Swallowing it would collapse the real
+                            // break in `Where:` / `N = target population`.
+                            match local {
+                                b"br" | b"cr" => sink("\n"),
+                                b"tab" => sink("\t"),
+                                _ => {}
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                if ns == Some(NS_M) && local == b"oMath" {
+                    math = Some(MathCapture { depth: 1, ..Default::default() });
+                    continue;
+                }
+                if is_properties_element(local) {
+                    props += 1;
+                    continue;
+                }
+                if props > 0 {
+                    // Read `w:pStyle` even though it lives inside `w:pPr` —
+                    // it is a DECLARATION we want, not content.
+                    if ns == Some(NS_W) && local == b"pStyle" {
+                        if let Some(v) = e
+                            .attributes()
+                            .flatten()
+                            .find(|a| a.key.local_name().as_ref() == b"val")
+                        {
+                            if let Ok(s) = String::from_utf8(v.value.to_vec()) {
+                                style(s);
+                            }
+                        }
+                    }
+                    continue;
+                }
+                match (ns, local) {
+                    (Some(NS_W), b"t") => in_wt = true,
+                    (Some(NS_W), b"tab") => sink("\t"),
+                    (Some(NS_W), b"br") | (Some(NS_W), b"cr") => sink("\n"),
+                    _ => {}
+                }
             }
-            Ok(Event::Empty(e)) | Ok(Event::Start(e)) => match e.local_name().as_ref() {
-                b"tab" => out.push('\t'),
-                b"br" | b"cr" => out.push('\n'),
-                _ => {}
-            },
-            // paragraph end → blank line so the section splitter sees breaks
-            Ok(Event::End(e)) if e.local_name().as_ref() == b"p" => out.push_str("\n\n"),
-            Ok(Event::Eof) => break,
+
+            Ok((rs, Event::Empty(e))) => {
+                let ns = ns_uri(&rs);
+                let local = e.local_name();
+                let local = local.as_ref();
+                if let Some(m) = math.as_mut() {
+                    if ns == Some(NS_M) && !omml_is_flat(local) {
+                        m.structural = true;
+                    } else if props == 0 && ns == Some(NS_W) {
+                        // See the `Event::Start` arm: Word whitespace, not
+                        // OMML structure.
+                        match local {
+                            b"br" | b"cr" => sink("\n"),
+                            b"tab" => sink("\t"),
+                            _ => {}
+                        }
+                    }
+                    continue;
+                }
+                if props > 0 {
+                    if ns == Some(NS_W) && local == b"pStyle" {
+                        if let Some(v) = e
+                            .attributes()
+                            .flatten()
+                            .find(|a| a.key.local_name().as_ref() == b"val")
+                        {
+                            if let Ok(s) = String::from_utf8(v.value.to_vec()) {
+                                style(s);
+                            }
+                        }
+                    }
+                    continue;
+                }
+                match (ns, local) {
+                    (Some(NS_W), b"tab") => sink("\t"),
+                    (Some(NS_W), b"br") | (Some(NS_W), b"cr") => sink("\n"),
+                    _ => {}
+                }
+            }
+
+            Ok((_, Event::Text(t))) if in_wt => {
+                let s = t.unescape().unwrap_or_default();
+                match math.as_mut() {
+                    Some(m) => m.text.push_str(&s),
+                    None => sink(&s),
+                }
+            }
+
+            Ok((rs, Event::End(e))) => {
+                let ns = ns_uri(&rs);
+                let local = e.local_name();
+                let local = local.as_ref();
+                if local == b"t" {
+                    in_wt = false;
+                }
+                if is_properties_element(local) {
+                    props = props.saturating_sub(1);
+                }
+                if let Some(m) = math.as_mut() {
+                    if ns == Some(NS_M) && local == b"oMath" {
+                        m.depth -= 1;
+                        if m.depth == 0 {
+                            let rendered = m.render();
+                            math = None;
+                            sink(&rendered);
+                        }
+                    }
+                    continue;
+                }
+                if ns == Some(NS_W) && local == b"p" {
+                    end_paragraph();
+                }
+            }
+
+            Ok((_, Event::Eof)) => break,
+            Ok(_) => {}
             Err(e) => return Err(GaplyError::Internal(format!("docx xml error: {e}"))),
-            _ => {}
         }
+    }
+    Ok(())
+}
+
+/// Extract text from a DOCX (a zip of XML). Paragraphs (`<w:p>`) become
+/// blank-line-separated blocks; `<w:tab>`/`<w:br>` become whitespace.
+///
+/// Equations become [`EQUATION_PLACEHOLDER`] unless flattening them is lossless
+/// — see the module section above.
+pub fn parse_docx(bytes: &[u8]) -> Result<String, GaplyError> {
+    let xml = docx_document_xml(bytes)?;
+    let mut out = String::new();
+    {
+        let out = std::cell::RefCell::new(&mut out);
+        walk_docx_body(
+            &xml,
+            |s| out.borrow_mut().push_str(s),
+            // paragraph end → blank line so the section splitter sees breaks
+            || out.borrow_mut().push_str("\n\n"),
+            |_| {},
+        )?;
     }
     Ok(out)
 }
 
 /// Parse a `.docx` into one block per Word paragraph, carrying its style.
 ///
-/// [`parse_docx`] harvests `<w:t>` text and discards everything else, which is
+/// [`parse_docx`] harvests text and discards everything else, which is
 /// the right shape for the plain-text callers. This keeps the paragraph
 /// boundaries and the `w:pStyle` beside each one, so the pre-pass can read the
 /// document's own headings and table cells instead of inferring them.
@@ -721,62 +997,34 @@ pub fn parse_docx(bytes: &[u8]) -> Result<String, GaplyError> {
 /// Deliberately a SIBLING rather than a rewrite: `parse_docx` has callers whose
 /// contract is "the text, blank-line separated", and changing that to serve this
 /// would ripple through the reference-list scanner and the chunker for no gain.
+/// They now share [`walk_docx_body`], so the SIBLING relationship costs no
+/// second copy of the namespace rules.
 pub fn parse_docx_blocks(bytes: &[u8]) -> Result<Vec<PagedBlock>, GaplyError> {
-    let cursor = std::io::Cursor::new(bytes);
-    let mut zip = zip::ZipArchive::new(cursor)
-        .map_err(|e| GaplyError::Validation(format!("not a valid docx (zip): {e}")))?;
-    let mut xml = String::new();
-    zip.by_name("word/document.xml")
-        .map_err(|e| GaplyError::Validation(format!("docx missing document.xml: {e}")))?
-        .read_to_string(&mut xml)?;
+    let xml = docx_document_xml(bytes)?;
 
-    let mut reader = Reader::from_str(&xml);
-    let cfg = reader.config_mut();
-    cfg.trim_text(false);
-    cfg.check_end_names = false;
+    let out: std::cell::RefCell<Vec<PagedBlock>> = std::cell::RefCell::new(Vec::new());
+    let text = std::cell::RefCell::new(String::new());
+    let style: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
 
-    let mut out: Vec<PagedBlock> = Vec::new();
-    let mut text = String::new();
-    let mut style: Option<String> = None;
-    let mut in_text = false;
+    walk_docx_body(
+        &xml,
+        |s| text.borrow_mut().push_str(s),
+        || {
+            let t = text.borrow().split_whitespace().collect::<Vec<_>>().join(" ");
+            if !t.is_empty() {
+                out.borrow_mut().push(PagedBlock {
+                    page: None,
+                    style: style.borrow().clone(),
+                    text: t,
+                });
+            }
+            text.borrow_mut().clear();
+            *style.borrow_mut() = None;
+        },
+        |s| *style.borrow_mut() = Some(s),
+    )?;
 
-    loop {
-        match reader.read_event() {
-            Ok(Event::Start(e)) if e.local_name().as_ref() == b"t" => in_text = true,
-            Ok(Event::End(e)) if e.local_name().as_ref() == b"t" => in_text = false,
-            Ok(Event::Text(t)) if in_text => {
-                text.push_str(&t.unescape().unwrap_or_default());
-            }
-            Ok(Event::Empty(e)) | Ok(Event::Start(e)) => {
-                match e.local_name().as_ref() {
-                    b"tab" => text.push('\t'),
-                    b"br" | b"cr" => text.push('\n'),
-                    // <w:pStyle w:val="Heading2"/> — the declaration this
-                    // whole function exists to keep.
-                    b"pStyle" => {
-                        if let Some(v) = e.attributes().flatten().find(|a| {
-                            a.key.local_name().as_ref() == b"val"
-                        }) {
-                            style = String::from_utf8(v.value.to_vec()).ok();
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Ok(Event::End(e)) if e.local_name().as_ref() == b"p" => {
-                let t = text.split_whitespace().collect::<Vec<_>>().join(" ");
-                if !t.is_empty() {
-                    out.push(PagedBlock { page: None, style: style.clone(), text: t });
-                }
-                text.clear();
-                style = None;
-            }
-            Ok(Event::Eof) => break,
-            Err(e) => return Err(GaplyError::Internal(format!("docx xml error: {e}"))),
-            _ => {}
-        }
-    }
-    Ok(out)
+    Ok(out.into_inner())
 }
 
 #[cfg(test)]
@@ -1008,6 +1256,175 @@ mod tests {
         assert!(text.contains("paired t-test"));
         // blank line between paragraphs
         assert!(text.contains("Introduction\n\n"));
+    }
+
+    /// Build a .docx around a raw `<w:body>` payload, so a test can place OMML,
+    /// properties and alternative namespace prefixes exactly where Word does.
+    fn make_docx_body(body: &str, extra_ns: &str) -> Vec<u8> {
+        let doc = format!(
+            "<?xml version=\"1.0\"?><w:document \
+             xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" \
+             xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\"{extra_ns}>\
+             <w:body>{body}</w:body></w:document>"
+        );
+        let mut buf = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zip.start_file("word/document.xml", opts).unwrap();
+            zip.write_all(doc.as_bytes()).unwrap();
+            zip.finish().unwrap();
+        }
+        buf
+    }
+
+    /// `m:r`/`m:t` run, the OMML leaf.
+    fn mrun(t: &str) -> String {
+        format!("<m:r><w:rPr><w:rFonts w:ascii=\"Cambria Math\"/></w:rPr><m:t>{t}</m:t></m:r>")
+    }
+
+    // -----------------------------------------------------------------
+    // Namespace collapse — `m:t` is not `w:t`, a tab stop is not a tab
+    // -----------------------------------------------------------------
+
+    /// **The fabricated-number pin.** Verbatim OMML shape from
+    /// `Corrected_Chapters_3_4_Jitesh_Agarwal.docx` §3.8.1 (Slovin's formula):
+    /// `n = 237,000 / (1 + 237,000(0.04)²)`. Flattening the leaves concatenates
+    /// the numerator and the denominator's first token into `237,0001`, a
+    /// number that is nowhere in the manuscript.
+    ///
+    /// This is a NEGATIVE structural assertion as well as a positive one: the
+    /// positive half (`contains("[equation]")`) would pass on a reader that
+    /// also emitted the fabricated digits alongside it.
+    #[test]
+    fn a_structured_equation_never_reaches_the_prose_stream_as_digits() {
+        let body = format!(
+            "<w:p><w:r><w:t>Equation 1:</w:t></w:r></w:p>\
+             <w:p><m:oMathPara><m:oMath>{n_eq}<m:f><m:fPr><m:ctrlPr/></m:fPr>\
+             <m:num>{num}</m:num><m:den>{den}<m:sSup><m:e>{paren}</m:e>\
+             <m:sup>{two}</m:sup></m:sSup></m:den></m:f></m:oMath></m:oMathPara></w:p>",
+            n_eq = mrun("n="),
+            num = mrun("237,000"),
+            den = mrun("1+237,000(0.04"),
+            paren = mrun(")"),
+            two = mrun("2"),
+        );
+        let text = parse_docx(&make_docx_body(&body, "")).unwrap();
+
+        assert!(text.contains("Equation 1:"), "prose around the equation must survive: {text:?}");
+        assert!(text.contains(EQUATION_PLACEHOLDER), "the equation must be anchored: {text:?}");
+        // The fabrications the old reader produced. Each is a number the
+        // document does not contain.
+        assert!(!text.contains("237,0001"), "fabricated numeral in the text stream: {text:?}");
+        assert!(!text.contains("0.042"), "fabricated numeral in the text stream: {text:?}");
+        // And no leaf of a structured equation may appear as prose at all.
+        assert!(!text.contains("237,000"), "equation leaf leaked as prose: {text:?}");
+    }
+
+    /// The other half of the placeholder decision: a bare run sequence carries
+    /// no structure, so flattening it is LOSSLESS and the symbol is kept.
+    /// Without this, `Where: N = target population` becomes
+    /// `Where: [equation] = target population`, which is worse than the truth.
+    #[test]
+    fn an_inline_math_symbol_survives_because_flattening_it_is_lossless() {
+        let body = format!(
+            "<w:p><w:r><w:t xml:space=\"preserve\">Where: </w:t></w:r>\
+             <m:oMath>{}</m:oMath>\
+             <w:r><w:t xml:space=\"preserve\"> = target population</w:t></w:r></w:p>",
+            mrun("N")
+        );
+        let text = parse_docx(&make_docx_body(&body, "")).unwrap();
+        assert!(text.contains("Where: N = target population"), "{text:?}");
+        assert!(!text.contains(EQUATION_PLACEHOLDER), "{text:?}");
+    }
+
+    /// An OMML element this code has never seen must be treated as STRUCTURAL,
+    /// not flattened. The whitelist fails in the safe direction or it is not a
+    /// whitelist.
+    #[test]
+    fn an_unknown_omml_element_is_structural_not_flattened() {
+        let body = format!(
+            "<w:p><m:oMath><m:someFutureThing>{}</m:someFutureThing></m:oMath></w:p>",
+            mrun("x")
+        );
+        let text = parse_docx(&make_docx_body(&body, "")).unwrap();
+        assert!(text.contains(EQUATION_PLACEHOLDER), "{text:?}");
+        assert!(!text.contains('x'), "{text:?}");
+    }
+
+    /// **The fabricated-whitespace pin.** `<w:tab/>` inside `<w:pPr><w:tabs>`
+    /// is a ruler setting and produces NO text. Measured on `R PAPER .docx`:
+    /// 21 such definitions, zero genuine tab runs, and the old reader emitted
+    /// 21 tabs — every one at the head of a heading that has no tab.
+    #[test]
+    fn a_tab_stop_definition_is_not_a_tab_character() {
+        let body = "<w:p><w:pPr><w:tabs>\
+                    <w:tab w:val=\"left\" w:pos=\"720\"/>\
+                    <w:tab w:val=\"right\" w:pos=\"9360\"/>\
+                    </w:tabs></w:pPr><w:r><w:t>Related Work</w:t></w:r></w:p>";
+        let text = parse_docx(&make_docx_body(body, "")).unwrap();
+        assert_eq!(text.trim(), "Related Work", "ruler settings became whitespace: {text:?}");
+        assert!(!text.contains('\t'), "{text:?}");
+    }
+
+    /// The negative control on the fix itself: suppressing property containers
+    /// must not suppress a REAL tab. A fix that deleted both would pass the
+    /// test above and be wrong.
+    #[test]
+    fn a_tab_inside_a_run_is_still_a_tab() {
+        let body = "<w:p><w:r><w:t>CHAPTER 1</w:t><w:tab/><w:t>19</w:t></w:r></w:p>";
+        let text = parse_docx(&make_docx_body(body, "")).unwrap();
+        assert_eq!(text.trim(), "CHAPTER 1\t19", "{text:?}");
+    }
+
+    /// Prefixes are a document's choice, namespaces are not. Matching the
+    /// string `w:t` would pass every test above and fail on a real file that
+    /// binds WordprocessingML to another prefix.
+    #[test]
+    fn the_wordprocessing_namespace_is_matched_by_uri_not_by_prefix() {
+        let doc = "<?xml version=\"1.0\"?><ns0:document \
+                   xmlns:ns0=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" \
+                   xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">\
+                   <ns0:body><ns0:p><ns0:r><ns0:t>Bound to ns0</ns0:t></ns0:r></ns0:p>\
+                   </ns0:body></ns0:document>";
+        let mut buf = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zip.start_file("word/document.xml", opts).unwrap();
+            zip.write_all(doc.as_bytes()).unwrap();
+            zip.finish().unwrap();
+        }
+        let text = parse_docx(&buf).unwrap();
+        assert!(text.contains("Bound to ns0"), "{text:?}");
+    }
+
+    /// `parse_docx_blocks` is a SIBLING of `parse_docx`, and the namespace
+    /// rules must not be able to drift between them.
+    #[test]
+    fn both_docx_readers_agree_about_equations_and_tab_stops() {
+        let body = format!(
+            "<w:p><w:pPr><w:pStyle w:val=\"Heading2\"/><w:tabs>\
+             <w:tab w:val=\"left\" w:pos=\"720\"/></w:tabs></w:pPr>\
+             <w:r><w:t>Method</w:t></w:r></w:p>\
+             <w:p><m:oMath><m:f><m:num>{}</m:num><m:den>{}</m:den></m:f></m:oMath></w:p>",
+            mrun("N"),
+            mrun("1+N")
+        );
+        let bytes = make_docx_body(&body, "");
+        let flat = parse_docx(&bytes).unwrap();
+        let blocks = parse_docx_blocks(&bytes).unwrap();
+
+        assert_eq!(blocks.len(), 2, "{blocks:?}");
+        assert_eq!(blocks[0].text, "Method");
+        assert_eq!(blocks[0].style.as_deref(), Some("Heading2"));
+        assert_eq!(blocks[1].text, EQUATION_PLACEHOLDER);
+        assert!(!blocks[0].text.contains('\t'), "{blocks:?}");
+        // The fabrication the old reader produced in BOTH readers.
+        assert!(!flat.contains("N1+N"), "{flat:?}");
+        assert!(!blocks[1].text.contains("N1+N"), "{blocks:?}");
     }
 
     #[test]

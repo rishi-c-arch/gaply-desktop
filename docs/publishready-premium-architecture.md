@@ -582,7 +582,31 @@ Method → Equation { variables, parameters, assumptions, units }
 - There is **no OMML reader anywhere**. `gaply-core/src/extract/docparse.rs` extracts `<w:t>` text only — no `m:oMath` handling. Math in an uploaded `.docx` is flattened or dropped before anything sees it.
 - The code that does exist sits on the side §11 declares must never do extraction.
 
-So equation extraction is **net-new work on the ingest path**, and it is the gating item for this whole subsystem: the `EquationGraph` has nothing to build from until `docparse.rs` can read `m:oMath` (and the PDF/LaTeX equivalents). Equations, once extracted, are canonicalised and stored as nodes with their variables bound to research-state fields where the binding is unambiguous.
+So equation extraction is **net-new work on the ingest path**, and it is the gating item for this whole subsystem: the `EquationGraph` has nothing to build from until the ingest path can read equations. Equations, once extracted, are canonicalised and stored as nodes with their variables bound to research-state fields where the binding is unambiguous.
+
+**[v6 — measured 14 Sep 2026, and it moves the gating item. The corpus does not write its mathematics in OMML.]** `gaply-core/examples/equation_survey.rs` and `textmath_scan.rs` run the real `docparse` over the six manuscripts:
+
+| | OMML (`m:oMath`) | equation-shaped lines surviving `docparse` |
+|---|---:|---:|
+| chapter3 .docx | 0 | 16 |
+| final final L.pdf | — | 3 |
+| IJAS … haemolymph.pdf | — | 0 |
+| Lake Chapter 1.docx | 0 | 0 |
+| R PAPER .docx | 0 | 0 |
+| Revised Health Economics FINAL .docx | 0 | 2 |
+| **total** | **0** | **21** |
+
+**21 equation-shaped lines reach the parser intact; zero lines of OMML exist in any of the six.** No `w:object`, no `EQ` field, no `word/embeddings/` either, across all 17 real `.docx` on the machine. What researchers in this corpus actually type is linear text, units included — `DO (mg/L) = (Vtitrant × N × 8000) / Vsample`, `Chlorophyll a (mg/L) = (12.7 × A₆₆₃) − (2.69 × A₆₄₅)`, `Weighted provision = (0.108 × 0.78) + … = 21.9%`.
+
+So **the gating item is a LINEAR-TEXT equation parser**, not an OMML reader. It is the only thing that unlocks any equation in the named corpus, and it is what the dimensional check needs: the units are written in the prose (`mg/L`) and are not in the OMML at all.
+
+**The OMML reader is a smaller, later piece, and its priority is a CORRECTNESS argument rather than a coverage one.** It covers 3 of 17 documents (~18%) — see the fix recorded below.
+
+**[v6 — the "flattened or dropped" above was half right, and the wrong half was shipping.]** Measured, not read: `parse_docx` matched elements by `local_name()`, which discards the namespace, so `<m:t>` fell into the `<w:t>` arm. Math was **flattened, never dropped** — and flattening is the worse failure. `n = N/(1+Ne²)` came out `n=N1+Ne2`; `n = 237,000/(1+379.2) = 623.36` came out `n=237,0001+379.2=623.36`. **`237,0001` is a number that is not in the manuscript**, in the text stream the statistic extractor, the AI-detection lane and the plagiarism lane all read. A dropped equation is a hole; this was fabricated data shaped like data.
+
+The same collapse had a second victim nobody was looking for. `<w:tab/>` in a run is a tab; `<w:tab w:val="left" w:pos="720"/>` inside `<w:pPr><w:tabs>` is a **ruler setting** that produces no text. The old loop fired on both. `R PAPER .docx` — the instrument most of §11's numbers were taken on — has **21 tab-stop definitions and zero genuine tab runs**, and the parser emitted exactly 21 tabs, each at the head of a heading with no tab (`"\tRelated Work"`). `Jitesh Agarwal .docx`: 493 of 986 fabricated. `Disha Correction .docx`: 145 of 284.
+
+Fixed by resolving namespaces (`NsReader::read_resolved_event`) instead of matching prefixes as strings, and by refusing to emit content from inside OOXML property containers. An `m:oMath` now becomes `docparse::EQUATION_PLACEHOLDER` (`[equation]`) when flattening would lose structure, and keeps its text only when the element is a bare run sequence, where flattening is provably lossless — so `Where: N = target population` stays readable while `n=N1+Ne2` cannot occur. Seven pins guard it, and each was **confirmed to go red** against a deliberate reinstatement of its own defect: the fabricated-digit pin reproduces `n=237,0001+237,000(0.04)2` verbatim, and the namespace pin is caught by nothing else. After the fix, `R PAPER` is exactly −21 characters and every other line of the six is byte-identical.
 
 ### 6b.2 What it checks, deterministically
 
