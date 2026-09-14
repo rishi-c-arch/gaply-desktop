@@ -11,6 +11,7 @@ pub mod release_gate;
 mod logging;
 pub mod models;
 pub mod journal_crawl;
+pub mod journal_openalex;
 pub mod journal_registry;
 pub mod journal_site_summary;
 pub mod journal_verify;

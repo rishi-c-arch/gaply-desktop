@@ -33,11 +33,21 @@
     "  entry path (/author-instructions/JHP) names the SECTION first and the",
     "  journal second. Both are left absent, which scopes them to the whole",
     "  host and shows up as off-journal pages in the crawl list — visible,",
-    "  which is the property that makes this rule acceptable at all."
+    "  which is the property that makes this rule acceptable at all.",
+    "",
+    "corpus_bounds: the comparable corpus's size. Below `minimum` a convention",
+    "  is UNAVAILABLE however good the data looks — an inference from six",
+    "  papers is not an inference. `target` is what a build aims for and",
+    "  `maximum` caps the fetch. Prompt 5 requires all three in config."
   ],
   "max_pages": 120,
   "max_rate_wait_ticks": 24,
   "max_depth": 3,
+  "corpus_bounds": {
+    "minimum": 10,
+    "target": 50,
+    "maximum": 200
+  },
   "journal_path_segments": {
     "journals.plos.org": 1,
     "www.nature.com": 1,

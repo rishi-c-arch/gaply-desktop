@@ -67,8 +67,16 @@ pub struct ReqwestFetcher {
 
 /// The honest identification. See the module header for why it is not dressed
 /// up as a browser.
-pub const USER_AGENT: &str =
-    concat!("Gaply/", env!("CARGO_PKG_VERSION"), " (research-integrity; +https://gaply.in)");
+/// OpenAlex asks bulk callers for a contact address and routes identified
+/// traffic to a faster pool. It is also the honest thing for a tool making
+/// repeated requests of a free public service.
+pub const CONTACT: &str = "mailto:rishirajsharma8055@gmail.com";
+
+pub const USER_AGENT: &str = concat!(
+    "Gaply/",
+    env!("CARGO_PKG_VERSION"),
+    " (research-integrity; +https://gaply.in; mailto:rishirajsharma8055@gmail.com)"
+);
 
 /// The header set a publisher's filter expects on a document navigation.
 ///

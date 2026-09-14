@@ -39,6 +39,7 @@
 use rusqlite::params;
 
 use crate::error::GaplyError;
+use crate::journal_corpus::{ConventionStatus, DerivedConvention};
 use crate::journal_extract::{ExtractedRequirement, RequirementKind};
 use crate::Database;
 
@@ -179,6 +180,55 @@ pub fn store_requirements(
 
     tx.commit()?;
     Ok(out)
+}
+
+/// Store a journal's convention profile.
+///
+/// **Every metric is written, including the `Unavailable` ones.** §3.4 requires
+/// absence to be a status rather than a silence, and a table that held only the
+/// computable metrics could not distinguish "we looked and the source does not
+/// carry it" from "nobody asked". The schema enforces the other half: an
+/// `inferred` row with `n = 0` is unstorable (`migrations` v23).
+pub fn store_conventions(
+    db: &Database,
+    journal_key: &str,
+    corpus_run_id: &str,
+    conventions: &[DerivedConvention],
+    computed_at: i64,
+) -> Result<usize, GaplyError> {
+    let mut conn = db.conn()?;
+    let tx = conn.transaction()?;
+    // A convention profile REPLACES its predecessor for a run: a journal has
+    // one current profile, and keeping every run would make "the median" a
+    // question about which row a reader picked.
+    tx.execute("DELETE FROM journal_conventions WHERE journal_key = ?1", params![journal_key])?;
+    let mut n = 0usize;
+    for c in conventions {
+        tx.execute(
+            "INSERT INTO journal_conventions
+               (journal_key, metric, median, iqr_low, iqr_high, n, detail, status,
+                corpus_run_id, computed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                journal_key,
+                c.metric.as_str(),
+                c.median,
+                c.iqr_low,
+                c.iqr_high,
+                c.n as i64,
+                c.detail,
+                match c.status {
+                    ConventionStatus::Inferred => "inferred",
+                    ConventionStatus::Unavailable => "unavailable",
+                },
+                corpus_run_id,
+                computed_at,
+            ],
+        )?;
+        n += 1;
+    }
+    tx.commit()?;
+    Ok(n)
 }
 
 /// One stored requirement, as a reader gets it.
@@ -453,6 +503,84 @@ mod tests {
         let out3 = store_requirements(&db, "nm", "https://j.test/b",
             &[req(RequirementKind::WordLimit, "3000", None, "s")], 4).unwrap();
         assert_eq!(out3.new_conflicts, 1);
+    }
+
+    /// **Every metric is stored, including the ones the source cannot supply**,
+    /// and the schema refuses an `inferred` row with no `n`.
+    #[test]
+    fn a_convention_profile_stores_its_unavailable_metrics_too() {
+        use crate::journal_corpus::{derive_conventions, CorpusBounds, PublishedPaper};
+        let db = db();
+        // A journal that identifies articles by number: no length, but a
+        // statistical style.
+        let papers: Vec<PublishedPaper> = (0..20)
+            .map(|i| PublishedPaper {
+                id: format!("W{i}"),
+                title: "t".into(),
+                abstract_text: "The hazard ratio was 1.4 (95% CI 1.1-1.8), p = 0.01.".into(),
+                publication_date: "2025-06-01".into(),
+                work_type: "article".into(),
+                first_page: Some(format!("e03{i:05}")),
+                last_page: Some(format!("e03{i:05}")),
+            })
+            .collect();
+        let cs = derive_conventions(&papers, &CorpusBounds { minimum: 10, target: 50, maximum: 200 });
+        let n = store_conventions(&db, "plos-one", "run-1", &cs, 1).unwrap();
+        assert_eq!(n, 5, "all five metrics written");
+
+        let conn = db.conn().unwrap();
+        let unavailable: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM journal_conventions WHERE journal_key='plos-one'                  AND status='unavailable'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(unavailable, 4, "length plus the three OpenAlex cannot supply");
+
+        // The schema refuses an inference from nothing.
+        assert!(conn
+            .execute(
+                "INSERT INTO journal_conventions
+                   (journal_key, metric, n, status, corpus_run_id, computed_at)
+                 VALUES ('x','length',0,'inferred','r',1)",
+                [],
+            )
+            .is_err());
+    }
+
+    /// A second run REPLACES the profile: a journal has one current answer to
+    /// "what is the typical length", not a history a reader has to pick from.
+    #[test]
+    fn a_second_corpus_run_replaces_the_profile() {
+        use crate::journal_corpus::{ConventionMetric, DerivedConvention};
+        let db = db();
+        let one = DerivedConvention {
+            metric: ConventionMetric::Length,
+            median: Some(9.0),
+            iqr_low: Some(8.0),
+            iqr_high: Some(12.0),
+            n: 41,
+            detail: "PAGES per recently published RESEARCH paper".into(),
+            status: ConventionStatus::Inferred,
+        };
+        store_conventions(&db, "nm", "run-1", std::slice::from_ref(&one), 1).unwrap();
+        let two = DerivedConvention { median: Some(10.0), n: 55, ..one.clone() };
+        store_conventions(&db, "nm", "run-2", std::slice::from_ref(&two), 2).unwrap();
+
+        let conn = db.conn().unwrap();
+        let (n, median): (i64, f64) = conn
+            .query_row(
+                "SELECT n, median FROM journal_conventions WHERE journal_key='nm' AND metric='length'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((n, median), (55, 10.0));
+        let rows: i64 = conn
+            .query_row("SELECT count(*) FROM journal_conventions WHERE journal_key='nm'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 1, "one profile, not two");
     }
 
     /// A re-crawl of the same page is not new evidence.
