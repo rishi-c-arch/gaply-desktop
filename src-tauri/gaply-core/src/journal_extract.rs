@@ -38,6 +38,39 @@
 //! A heading that names no article type leaves `article_type` ABSENT rather
 //! than defaulting to "the journal" — §6b.3's refusal-over-inference rule in a
 //! second place.
+//!
+//! **[MEASURED — Nature Medicine, 14 Sep 2026.]** 120 pages crawled, 51
+//! classified as guideline content, and of those:
+//!
+//! | | |
+//! |---|---:|
+//! | pages yielding ≥ 1 requirement by pattern | **12** |
+//! | pages yielding ZERO | **39** |
+//! | requirements extracted | **68** |
+//! | of which bound to an article type | **25** |
+//!
+//! By kind: 23 word limits, 15 reporting standards, 11 figure limits, 11 data
+//! policies, 4 abstract limits, 3 reference limits, 1 reference style.
+//!
+//! **The 39 are mostly the MODEL's future work, not the gate's mistakes**, and
+//! that distinction is the whole point of measuring rather than guessing. Of
+//! the first 20 listed, **15 sit under the journal's own `/submission-guidelines/`
+//! or `/editorial-policies/` paths** — authorship criteria, competing
+//! interests, image integrity, ORCID — real author requirements stated as
+//! prose. Only five are not the journal's guidance at all (the homepage, a
+//! news index, a paid editing service).
+//!
+//! That is the number `guidelines::classify_page`'s precision should be
+//! revisited on, and on this evidence tuning it would have cost real pages to
+//! remove little noise.
+//!
+//! **A known gap, visible rather than silent.** `Analysis` and `Resource` are
+//! Nature article types and are not in [`ARTICLE_TYPES`], so their 4,000-word
+//! limits come out with `article_type: None` while `source_heading` reads
+//! "Analysis". The binding is ABSENT and the heading is recorded beside it, so
+//! a reader can see what was not bound — unlike the crawl lexicon, whose
+//! failure produced nothing at all. Extending the list is a data change; the
+//! requirement is not lost meanwhile.
 
 use serde::{Deserialize, Serialize};
 
