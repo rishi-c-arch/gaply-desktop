@@ -22,6 +22,7 @@ pub mod consistency;
 pub mod page_locate;
 pub mod db;
 pub mod embed;
+pub mod equation;
 pub mod error;
 pub mod escalation;
 pub mod evidence;
