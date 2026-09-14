@@ -460,6 +460,56 @@ time injection.
     not flagged at all, because it felt measured: a command had been run and had
     genuinely exited 1. Confidence tracks *having measured something*, not
     *having measured the right thing*, so it is the weaker signal of the two.
+- **AGREEMENT BETWEEN A SPEC, ITS IMPLEMENTATION AND ITS TEST IS EVIDENCE THAT
+  THEY WERE DERIVED FROM ONE ANOTHER, NOT THAT ANY OF THEM IS CORRECT.
+  Re-reading any one confirms the other two.**
+
+  **A different family from the four entries around it.** Those are instruments
+  that LIED — a swallowed exit status, a pattern matching its own watcher, a
+  batch whose harness was broken, a calibration reference carrying the defect it
+  was measuring. **This one is every instrument telling the truth about a false
+  premise.** Nothing malfunctioned. The spec said a thing, the code did that
+  thing, the test asserted the code did it, and all three were wrong together.
+
+  Measured 13 Sep 2026, building the agent graph:
+
+  1. **The spec.** `docs/publishready-premium-architecture.md` §3.1 gave the
+     Manuscript layer a "Privacy class" of *"premium, `Manuscript` consent"* —
+     under a column heading reading **"Who may read it"**.
+  2. **The implementation followed it exactly.** `agent_graph.rs`'s first
+     consent rule was `layer.is_premium_consented() && requires_consent.is_none()`
+     → error, for any agent, cloud or local.
+  3. **The test pinned the implementation and passed.**
+     `reading_the_manuscript_layer_without_consent_is_rejected` asserted
+     precisely that behaviour.
+
+  Read as a read-permission, §3.1 **would have required premium consent to parse
+  a file the user had just opened** — the free tier's entire extraction path.
+  Three artefacts in perfect agreement, and no amount of re-reading any of them
+  would have surfaced it, because each was consistent with the other two.
+
+  **WHAT BROKE THE LOOP WAS A CASE THE RULE HAD TO DECIDE.** Writing a real
+  graph for the six existing lanes, the validator rejected `extraction` — a
+  local, deterministic pass that reads the manuscript and transmits nothing. The
+  rejection was *obviously* wrong, and that absurdity is what made the premise
+  visible. The correct rule fell out immediately: privacy classes are about
+  EGRESS, not reading — any agent may read any layer; a CLOUD agent may only
+  send a layer needing consent if it declares a scope COVERING it.
+
+  **So: the thing that tests a premise is a case it has to rule on, not another
+  reading of it.** When a spec, its code and its test agree, the question is not
+  whether they are consistent — they will be, that is what derivation does. The
+  question is **whether anything has ever forced the rule to decide something
+  real**. If the only inputs it has seen were constructed from the same
+  understanding that produced it, it has never been tested at all.
+
+  Corollary for this repo's habits: a hand-written fixture inherits the author's
+  premise, so it can only confirm it. The first REAL input — the actual six
+  lanes, an actual manuscript, the actual committed graph — is where a premise
+  gets its first independent vote. Build that input early, and treat a result
+  that looks absurd as information rather than as something to special-case
+  around.
+
 - **BEFORE CALIBRATING A FIX AGAINST A "CLEAN" REFERENCE IN THE SAME CODEBASE,
   VERIFY THE REFERENCE IS CLEAN. A reference point inside the system under
   measurement is a MEASUREMENT, not a constant, and it needs the same scrutiny
