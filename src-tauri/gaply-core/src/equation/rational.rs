@@ -208,6 +208,44 @@ impl Rational {
     }
 }
 
+/// Decimal places shown for a value whose decimal expansion does not
+/// terminate. Five is enough for a reader to re-do the division by hand and
+/// recognise the number, and the result is ALWAYS marked with `…` so a
+/// truncation can never be mistaken for the exact value.
+const NON_TERMINATING_DISPLAY_DECIMALS: u32 = 5;
+
+impl Rational {
+    /// The rendering shown to an author in a finding.
+    ///
+    /// An exact terminating decimal where one exists; otherwise a truncation
+    /// MARKED as one. `237,000/380.2` is `1185000/1901` exactly, and a finding
+    /// that printed that would be correct and useless — the author wrote
+    /// `623.36` and needs to see `623.35613…`.
+    ///
+    /// The mark is not decoration. This is a Tier-0 engine, and an unmarked
+    /// `623.35613` would assert an exactness the value does not have.
+    pub fn to_display_string(self) -> String {
+        if self.terminates() {
+            self.to_string()
+        } else {
+            format!("{}…", self.to_decimal_string(NON_TERMINATING_DISPLAY_DECIMALS))
+        }
+    }
+
+    /// Does the decimal expansion terminate? It does exactly when the reduced
+    /// denominator has no prime factor but 2 and 5.
+    pub fn terminates(&self) -> bool {
+        let mut d = self.den;
+        while d % 2 == 0 {
+            d /= 2;
+        }
+        while d % 5 == 0 {
+            d /= 5;
+        }
+        d == 1
+    }
+}
+
 impl std::fmt::Display for Rational {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.den == 1 {
@@ -324,6 +362,21 @@ mod tests {
         assert_ne!(sum, stated);
         // At the stated three decimals the products give 0.220, not 0.219.
         assert_eq!(sum.round_to(3).unwrap().to_decimal_string(3), "0.220");
+    }
+
+    #[test]
+    fn a_non_terminating_value_is_shown_truncated_and_MARKED() {
+        // 237,000 / 380.2 — the Slovin computation.
+        let v = Rational::from_int(237_000)
+            .div(Rational::parse_decimal("380.2").unwrap().0)
+            .unwrap();
+        assert!(!v.terminates());
+        assert_eq!(v.to_string(), "1185000/1901", "exact, and unreadable");
+        assert_eq!(v.to_display_string(), "623.35613…");
+        // The mark is what stops a truncation reading as an exact value.
+        assert!(v.to_display_string().ends_with('…'));
+        // A terminating value carries no mark.
+        assert_eq!(Rational::parse_decimal("0.219").unwrap().0.to_display_string(), "0.219");
     }
 
     #[test]

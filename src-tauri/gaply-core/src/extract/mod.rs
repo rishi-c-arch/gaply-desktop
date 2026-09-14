@@ -11,6 +11,7 @@ pub mod claims;
 pub mod datasets;
 pub mod docparse;
 pub mod methods;
+pub mod omml;
 pub mod persist;
 pub mod sections;
 pub mod sentence;

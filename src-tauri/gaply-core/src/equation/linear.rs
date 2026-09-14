@@ -624,6 +624,20 @@ fn parse_side(text: &str) -> Result<Side, ParseError> {
     Ok(Side { expr: e, text: raw.to_string(), unit: None })
 }
 
+/// Does this text parse, complete, as an expression?
+///
+/// The OMML reader asks this before bracketing a sub-part. Word's tree does
+/// not always align with mathematical grouping — a text run can span a bracket
+/// — so a fragment that is not an expression must not be wrapped as one.
+pub fn parses_as_expression(s: &str) -> bool {
+    let Ok(toks) = tokenize(s.trim()) else { return false };
+    if toks.is_empty() {
+        return false;
+    }
+    let mut p = P { t: &toks, i: 0 };
+    matches!(p.expr(), Ok(_) if p.i == toks.len())
+}
+
 /// Parse one line of manuscript text as an equation (or a chain of them).
 ///
 /// Deterministic and total: every failure is a typed [`ParseError`], never a

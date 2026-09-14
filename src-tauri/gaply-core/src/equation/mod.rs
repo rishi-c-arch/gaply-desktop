@@ -56,6 +56,9 @@
 //! the structural cause is checkable, deterministic, and fails on the exact
 //! edit that would break it.
 
+pub mod check;
+pub mod equiv;
 pub mod expr;
+pub mod interval;
 pub mod linear;
 pub mod rational;
