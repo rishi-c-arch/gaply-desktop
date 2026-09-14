@@ -633,12 +633,57 @@ time injection.
   real**. If the only inputs it has seen were constructed from the same
   understanding that produced it, it has never been tested at all.
 
-  Corollary for this repo's habits: a hand-written fixture inherits the author's
-  premise, so it can only confirm it. The first REAL input — the actual six
-  lanes, an actual manuscript, the actual committed graph — is where a premise
-  gets its first independent vote. Build that input early, and treat a result
-  that looks absurd as information rather than as something to special-case
-  around.
+  **THE COMMONEST FORM HAS NO SPEC IN IT AT ALL — just a function and its
+  fixtures — which is why it is the easiest to miss.** The agent-graph case
+  above needed three artefacts to agree; this needs two, so it is both more
+  common and quieter.
+
+  **Second instance, 14 Sep 2026**, and it is the cheap version: the negation
+  guard in `journal_extract::states_a_required_statement` was written against
+  one real sentence — *"The section should also not be used to declare
+  competing interests"* — and pinned by a test built from that same sentence.
+  Both passed. **Deleting the guard entirely left the test GREEN**, because an
+  earlier guard rejects that sentence first. The pin had never exercised the
+  thing it named. A scan then asked the corpus how many sentences reach the
+  guard at all: zero. It is kept, with a test that genuinely reaches it and a
+  doc comment saying it is predicted rather than measured.
+
+  **Third instance, same day, and the expensive version:**
+  `journal_expect::is_reviewer_guidance` decides whether a
+  guideline page is addressed to reviewers or to authors. Its four tests pass.
+  They are hand-written strings — *"Guidelines for Reviewers"*, an author
+  instruction about competing interests — written by the same author, in the
+  same sitting, from the same idea of what a reviewer page looks like. Nothing
+  disagreed with anything, and there was no spec to be wrong; the premise lived
+  only in the function and was copied into the fixtures.
+
+  Run over a real crawl it returns `true` for **20 of Nature Medicine's 36
+  admitted pages**: the five genuine reviewer pages, and fifteen author pages
+  with them — `preparing-your-submission`, `aip-and-formatting`,
+  `matters-arising`, `clinicalresearch`, `ethics-and-biosecurity`,
+  `aims/fasttrack`. **Precision 5/20, recall 5/5: a filter that catches
+  everything.** The cause is one clause — `mentions >= 2 && contains("review")`
+  over whole page text — and every page on a journal's site discusses peer
+  review somewhere. It was about to be wired into the requirement path as a
+  fix, where it would have suppressed 14 of 18 extracted rows, twelve of them
+  true (§11 D163).
+
+  **What broke the loop was the corpus, as in both cases above.** Not a
+  re-read, not a more careful fixture — the function was simply pointed at 36
+  real pages and asked to rule on each. Note what caught the second instance,
+  though: **deleting the guard and predicting a red test.** That is cheaper
+  than a corpus and available immediately, and it is the same move as the
+  lint-gate entry's "predict the failure before you claim the gate". Run it on
+  every guard you add; run the corpus on every classifier you trust.
+
+  **So, operationally: A HAND-WRITTEN FIXTURE INHERITS THE AUTHOR'S PREMISE.
+  ITS FIRST INDEPENDENT VOTE IS THE CORPUS.** The first REAL input — the actual
+  six lanes, an actual manuscript, the actual committed graph, 36 fetched pages
+  — is where a premise gets a vote it did not write. Build that input early,
+  run every classifier and gate over it before trusting the green suite, and
+  treat a result that looks absurd as information rather than as something to
+  special-case around. A green test tells you the function does what its author
+  thought; only the corpus tells you whether that was right.
 
 - **BEFORE CALIBRATING A FIX AGAINST A "CLEAN" REFERENCE IN THE SAME CODEBASE,
   VERIFY THE REFERENCE IS CLEAN. A reference point inside the system under
