@@ -10573,3 +10573,66 @@ family is printing rows with their spans, not counts — a span is the one field
 that cannot be plausible and wrong at the same time, because it quotes the
 source verbatim and the source says what it is.
 
+
+### D162 — the span said "we recommend" and the checklist said "requires"
+
+**14 Sep 2026.** Item 7's deliverable — a checklist built from Nature Medicine's
+own crawled sentences against a real manuscript — came out with 13 items, and
+every reporting-standard row read *"this journal requires X reporting"*. Twelve
+of them were right. One was not:
+
+```
+[PASS] ARRIVE applies to a animal study
+    if your study is a animal study, this journal requires ARRIVE reporting.
+    journal says : "We recommend following the ARRIVE 2.0 reporting guidelines
+                    when documenting animal studies"
+```
+
+**The span and the sentence above it disagreed, in the same seven lines of
+output.** Nature Medicine writes *"Observational studies … **must** be reported
+according to the STROBE statement"* and *"We **recommend** following the ARRIVE
+2.0 reporting guidelines"* on the same site, and `checklist_from_requirements`
+flattened both to `requires`. That is the app telling an author a journal
+demands something it merely suggests — a fabricated obligation, and exactly the
+class §7 separates requirements from conventions to prevent.
+
+**The fix reads the modality out of the span** rather than assuming it:
+`must` / `is required` / `are required` / `shall` → *requires*; anything else →
+*recommends*. On the real crawl this moves **two of thirteen** rows, and the
+second one was not the one that prompted the fix — CONSORT for randomised
+trials is bound by *"Authors … **should refer to** the CONSORT Statement for
+recommendations"*, which is also not a requirement and was also being reported
+as one. A rule derived from one case corrected a second case nobody had looked
+at, which is the weak evidence that it is a rule rather than a patch.
+
+The negative control: reinstating the flattening (`else { "requires" }`) fails
+`a_recommended_standard_is_not_reported_as_required` with the offending string
+printed; restoring it passes.
+
+**What made it visible was printing the span next to the claim.** The defect is
+invisible in a count — thirteen items, all PASS — and invisible in the item text
+alone, which reads perfectly. It is only visible when the journal's own sentence
+sits beside the sentence Gaply wrote about it, where the two can be read against
+each other. That is the third time in this phase the span has been the thing
+that caught it (D155, D161, here), and it is the argument for the span norm now
+in CLAUDE.md rather than a reporting convenience.
+
+**A second, smaller thing in the same output, fixed and worth separating from
+the first because it is NOT the same kind of error.** *"ARRIVE applies to a
+animal study"* and *"a observational study"* were ungrammatical — an a/an rule
+on the design's first letter. That is a presentation bug: it makes the output
+look unfinished but it never says anything false. The modality one looks
+perfectly finished and says something false. **Output that reads well is not
+evidence that it is true, and output that reads badly is not evidence that it
+is wrong** — the two failures are independent, and the one that is harder to
+see is the one that matters.
+
+**And a third thing the same run corrected, in the probe rather than the
+product.** The data-availability row's span was being clipped at 150 characters
+and read as fast-track boilerplate with no mention of data availability, so the
+item looked unsupported. The full span contains *"…must include the following:
+Complete manuscript files, including disclosure of competing interests, funding
+statement, **a data availability statement**…"* — the item was correct and the
+instrument had hidden the evidence for it. A truncated span is not a span: its
+whole purpose is to be checkable, and a clipped quote cannot be checked. The
+probe now prints spans whole.

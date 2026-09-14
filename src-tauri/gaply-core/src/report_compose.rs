@@ -919,6 +919,9 @@ mod tests {
             passed: true,
             detail: "d".into(),
             guideline_source: source.map(String::from),
+            source_span: None,
+            article_type: None,
+            checked_field: None,
         }
     }
 

@@ -1147,6 +1147,22 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
     /// If this fails, the derivation is not additive. Regenerating the fixture
     /// to make it pass is the wrong move unless the report is MEANT to change,
     /// in which case say so in the commit and record why.
+    ///
+    /// **[REGENERATED ONCE, 14 Sep 2026 — Prompt 5 item 12.]** `ChecklistItem`
+    /// gained `source_span`, `article_type` and `checked_field`, so a checklist
+    /// item can show the journal's own sentence and the field it read. That is
+    /// a deliberate wire change, not drift.
+    ///
+    /// **The diff was confirmed before regenerating, not after:** the only keys
+    /// added are those three, no key was removed, and every other value is
+    /// identical. The check that established it had its own bug first — a
+    /// `unicode_escape` decode mangled every em-dash and made the values look
+    /// changed — which is why the comparison was re-run with a correct decode
+    /// rather than the first result believed.
+    ///
+    /// The fields are `Option` + `serde(default)` so `CACHED_REPORT_V2` still
+    /// deserializes, exactly as `Finding::location` is, and
+    /// `CACHED_REPORT_SCHEMA_VERSION` is NOT bumped — a compatible addition.
     #[test]
     fn the_report_is_byte_identical_to_the_pre_research_state_capture() {
         use std::cell::RefCell;

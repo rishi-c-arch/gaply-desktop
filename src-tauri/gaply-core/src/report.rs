@@ -192,6 +192,24 @@ pub struct ChecklistItem {
     /// Provenance of the guideline this item was derived from (RAG source
     /// URL), or None for the always-on structural checks.
     pub guideline_source: Option<String>,
+    /// **The journal's own sentence.** Prompt 5 item 12: a checklist item shows
+    /// which requirement it came from. A rule without its sentence has to be
+    /// trusted; one with it can be checked in a glance (CLAUDE.md's span rule).
+    ///
+    /// `Option` + `serde(default)` because `CACHED_REPORT_V2` predates it — the
+    /// same shape `Finding::location` uses, and for the same reason: a required
+    /// field breaks every stored report.
+    #[serde(default)]
+    pub source_span: Option<String>,
+    /// The article type the requirement was bound to, where the journal said.
+    /// `None` means NOT STATED, never "applies to everything".
+    #[serde(default)]
+    pub article_type: Option<String>,
+    /// Which extraction / research-state field this item read. Named so an
+    /// item with nothing to read is visibly unevaluable rather than silently
+    /// passing.
+    #[serde(default)]
+    pub checked_field: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1545,6 +1563,191 @@ pub fn build_checklist(
     Ok(checklist_from_guidelines(extraction, manuscript_text, &hits))
 }
 
+/// **A checklist built from a journal's OWN extracted requirements.**
+///
+/// Prompt 5 item 7: point `build_checklist` at `journal_requirements` and the
+/// standard bindings. Item 12: each item shows which requirement it came from,
+/// with the source sentence, and which field it checked.
+///
+/// # THE WORD LIMIT IS RE-ENABLED, AND WHY THAT IS SAFE NOW
+///
+/// `checklist_from_guidelines` disabled its word-limit detector, and the
+/// comment there records exactly why: fed real PLOS ONE guideline text it
+/// emitted *"word limit (300 words) — manuscript has 5144 words (limit 300)"*.
+/// PLOS ONE has no 300-word manuscript limit; 300 is the ABSTRACT limit,
+/// scraped from an abstract-context chunk and applied to the whole manuscript.
+///
+/// That detector read RAG chunks — a window of text with no structure — so it
+/// could not tell which artefact a number governed. This one reads
+/// `journal_requirements`, where the distinction is a column:
+/// `journal_extract` classifies a limit whose sentence mentions the abstract as
+/// `abstract_limit`, and `a_journal_with_no_length_limit_yields_no_word_limit`
+/// pins that against PLOS ONE's own sentence. The fabrication is prevented at
+/// the source, not filtered here.
+///
+/// **Where the journal states limits for several article types, no item is
+/// emitted.** Nature Medicine binds 4,000 words to Article and 2,000 to Brief
+/// Communication; nothing in the pipeline knows which the manuscript is, and
+/// picking one would be the choice the CONFLICTED rule refuses one layer up.
+/// The item says both and passes no verdict.
+pub fn checklist_from_requirements(
+    extraction: &ExtractionResult,
+    manuscript_words: usize,
+    requirements: &[crate::journal_store::StoredRequirement],
+    bindings: &[crate::journal_standards::StandardBinding],
+) -> Vec<ChecklistItem> {
+    use crate::journal_extract::RequirementKind;
+    let mut items = Vec::new();
+
+    // --- word limit ------------------------------------------------------
+    let word_limits: Vec<&crate::journal_store::StoredRequirement> =
+        requirements.iter().filter(|r| r.kind == RequirementKind::WordLimit).collect();
+    match word_limits.len() {
+        0 => {}
+        1 => {
+            let r = word_limits[0];
+            if let Ok(limit) = r.value.parse::<usize>() {
+                let passed = manuscript_words <= limit;
+                items.push(ChecklistItem {
+                    requirement: format!("word limit: {limit}"),
+                    passed,
+                    detail: format!(
+                        "manuscript has {manuscript_words} words against a stated limit of {limit}"
+                    ),
+                    guideline_source: Some(r.source_url.clone()),
+                    source_span: Some(r.source_span.clone()),
+                    article_type: r.article_type.clone(),
+                    checked_field: Some("manuscript word count".into()),
+                });
+            }
+        }
+        _ => {
+            // Several limits, one per article type. Report them; judge nothing.
+            let stated = word_limits
+                .iter()
+                .map(|r| {
+                    format!("{} ({})", r.value, r.article_type.as_deref().unwrap_or("type not stated"))
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            items.push(ChecklistItem {
+                requirement: "word limit depends on article type".into(),
+                passed: true,
+                detail: format!(
+                    "the journal states {} word limits — {stated}. Your manuscript has \
+                     {manuscript_words} words; which limit applies depends on the article type \
+                     you are submitting, which this analysis does not know.",
+                    word_limits.len()
+                ),
+                guideline_source: Some(word_limits[0].source_url.clone()),
+                source_span: Some(word_limits[0].source_span.clone()),
+                article_type: None,
+                checked_field: Some("manuscript word count".into()),
+            });
+        }
+    }
+
+    // --- abstract limit --------------------------------------------------
+    if let Some(r) = requirements.iter().find(|r| r.kind == RequirementKind::AbstractLimit) {
+        if let Ok(limit) = r.value.parse::<usize>() {
+            let abstract_words = extraction
+                .sections
+                .iter()
+                .filter(|s| s.kind == SectionKind::Abstract)
+                .flat_map(|s| s.paragraphs.iter())
+                .map(|p| p.split_whitespace().count())
+                .sum::<usize>();
+            // An abstract the extractor did not find is not an abstract over
+            // the limit. Absence is UNEVALUABLE, not a failure.
+            if abstract_words > 0 {
+                items.push(ChecklistItem {
+                    requirement: format!("abstract limit: {limit} words"),
+                    passed: abstract_words <= limit,
+                    detail: format!("abstract has {abstract_words} words against a limit of {limit}"),
+                    guideline_source: Some(r.source_url.clone()),
+                    source_span: Some(r.source_span.clone()),
+                    article_type: r.article_type.clone(),
+                    checked_field: Some("extraction.sections[Abstract]".into()),
+                });
+            }
+        }
+    }
+
+    // --- data availability ------------------------------------------------
+    if let Some(r) = requirements.iter().find(|r| r.kind == RequirementKind::DataPolicy) {
+        let present = extraction
+            .sections
+            .iter()
+            .any(|s| s.heading.to_lowercase().contains("data availability"));
+        items.push(ChecklistItem {
+            requirement: "data availability statement".into(),
+            passed: present,
+            detail: if present {
+                "a data availability heading was found".into()
+            } else {
+                "no data availability heading was found in the manuscript".into()
+            },
+            guideline_source: Some(r.source_url.clone()),
+            source_span: Some(r.source_span.clone()),
+            article_type: r.article_type.clone(),
+            checked_field: Some("extraction.sections[heading]".into()),
+        });
+    }
+
+    // --- reporting standards ----------------------------------------------
+    //
+    // One item per BOUND standard. An unbound mention selects nothing — see
+    // `journal_standards`: a standard named is not a standard bound.
+    let mut seen: std::collections::BTreeSet<(&str, &str)> = std::collections::BTreeSet::new();
+    for b in bindings {
+        if !seen.insert((b.standard.as_str(), b.design.as_str())) {
+            continue;
+        }
+        let items_count = crate::journal_standards::items_for(b.standard).len();
+        let published = crate::journal_standards::published_item_count(b.standard);
+        // **A journal that RECOMMENDS a standard has not REQUIRED it.** Nature
+        // Medicine writes "We recommend following the ARRIVE 2.0 reporting
+        // guidelines" and "Observational studies must be reported according to
+        // the STROBE statement" on the same site; rendering both as "requires"
+        // overstates one of them. The span carries the modality and the item
+        // must not flatten it — §7's requirement/convention/expectation
+        // separation is about exactly this kind of upgrade.
+        let span_lower = b.source_span.to_lowercase();
+        let mandatory = span_lower.contains("must ")
+            || span_lower.contains("are required")
+            || span_lower.contains("is required")
+            || span_lower.contains("shall ");
+        let verb = if mandatory { "requires" } else { "recommends" };
+        let article = if b.design.starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" };
+        items.push(ChecklistItem {
+            requirement: format!("{} applies to {article} {}", b.standard.as_str(), b.design),
+            // Whether the manuscript IS that design is not known here, so this
+            // reports the binding rather than judging compliance.
+            passed: true,
+            detail: match published {
+                Some(total) => format!(
+                    "if your study is {article} {}, this journal {verb} {} reporting. Gaply \
+                     evaluates {items_count} of the standard's {total} items.",
+                    b.design,
+                    b.standard.as_str()
+                ),
+                None => format!(
+                    "if your study is {article} {}, this journal {verb} {} reporting. Gaply \
+                     has no evaluator for this standard yet.",
+                    b.design,
+                    b.standard.as_str()
+                ),
+            },
+            guideline_source: None,
+            source_span: Some(b.source_span.clone()),
+            article_type: None,
+            checked_field: Some("research_state.science.methods (study design)".into()),
+        });
+    }
+
+    items
+}
+
 /// Deterministic checklist core (separated for direct testing).
 pub fn checklist_from_guidelines(
     extraction: &ExtractionResult,
@@ -1570,6 +1773,10 @@ pub fn checklist_from_guidelines(
                 format!("{name} section missing")
             },
             guideline_source: None,
+            source_span: None,
+            article_type: None,
+            // A structural check reads the extraction's own section list.
+            checked_field: Some("extraction.sections".into()),
         });
     }
 
@@ -1621,6 +1828,9 @@ pub fn checklist_from_guidelines(
                     "no abstract section found".into()
                 },
                 guideline_source: src.clone(),
+                source_span: None,
+                article_type: None,
+                checked_field: None,
             });
         }
         // conflict-of-interest declaration
@@ -1635,6 +1845,9 @@ pub fn checklist_from_guidelines(
                     "no conflict-of-interest statement found".into()
                 },
                 guideline_source: src.clone(),
+                source_span: None,
+                article_type: None,
+                checked_field: None,
             });
         }
         // numbered (Vancouver) reference style
@@ -1655,6 +1868,9 @@ pub fn checklist_from_guidelines(
                 passed,
                 detail: format!("{numbered}/{total} reference entries are numbered"),
                 guideline_source: src.clone(),
+                source_span: None,
+                article_type: None,
+                checked_field: None,
             });
         }
     }

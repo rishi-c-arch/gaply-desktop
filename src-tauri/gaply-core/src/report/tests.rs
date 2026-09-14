@@ -1839,3 +1839,50 @@ fn a_passing_authorship_opinion_is_unchanged() {
     let f = report.findings.iter().find(|f| f.claim == ClaimKind::AuthorshipSignal).unwrap();
     assert_eq!(f.severity, FindingSeverity::Info);
 }
+
+// --- the checklist must not upgrade the journal's own modality -------------
+//
+// Nature Medicine's real pages carry both forms. "Observational studies …
+// must be reported according to the STROBE statement" is a requirement;
+// "We recommend following the ARRIVE 2.0 reporting guidelines" is not.
+// Rendering both as "requires" states something the journal did not.
+#[test]
+fn a_recommended_standard_is_not_reported_as_required() {
+    use crate::journal_standards::{Standard, StandardBinding};
+
+    let bindings = vec![
+        StandardBinding {
+            standard: Standard::Strobe,
+            design: "observational study".into(),
+            source_span: "Observational studies (cohort, case-control or cross-sectional \
+                          designs) must be reported according to the STROBE statement."
+                .into(),
+        },
+        StandardBinding {
+            standard: Standard::Arrive,
+            design: "animal study".into(),
+            source_span: "We recommend following the ARRIVE 2.0 reporting guidelines when \
+                          documenting animal studies"
+                .into(),
+        },
+    ];
+    let ex = ExtractionResult::default();
+    let items = crate::report::checklist_from_requirements(&ex, 1000, &[], &bindings);
+
+    let strobe = items.iter().find(|i| i.requirement.starts_with("STROBE")).unwrap();
+    assert!(strobe.detail.contains("requires STROBE"), "{}", strobe.detail);
+
+    let arrive = items.iter().find(|i| i.requirement.starts_with("ARRIVE")).unwrap();
+    assert!(
+        arrive.detail.contains("recommends ARRIVE"),
+        "a recommendation was reported as a requirement: {}",
+        arrive.detail
+    );
+    // And the article agrees with the design it introduces.
+    assert!(arrive.requirement.contains("an animal study"), "{}", arrive.requirement);
+    assert!(
+        strobe.requirement.contains("an observational study"),
+        "{}",
+        strobe.requirement
+    );
+}
