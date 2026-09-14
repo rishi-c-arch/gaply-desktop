@@ -99,6 +99,39 @@ pub enum RequirementKind {
 }
 
 impl RequirementKind {
+    /// **Is a journal allowed only ONE value of this kind per article type?**
+    ///
+    /// This decides what counts as a conflict, and getting it wrong the first
+    /// time produced a spectacular false positive: Nature Medicine's six
+    /// reporting standards — CONSORT for trials, PRISMA for systematic reviews,
+    /// STROBE for observational studies, STARD for biomarkers, TRIPOD for
+    /// prediction models, ARRIVE for animal work — were stored as ONE
+    /// CONFLICTED FACT, as though the journal could not make up its mind.
+    ///
+    /// The spans said otherwise in plain English: *"Observational studies …
+    /// must be reported according to the STROBE"*, *"Systematic reviews and
+    /// meta-analyses must follow the PRISMA guidelines."* A journal binds many
+    /// standards, each to a design, and a second one does not contradict the
+    /// first. The same is true of data policies.
+    ///
+    /// A word limit is different: one article type has one. Two different
+    /// values for it IS a disagreement, and that is the case Prompt 5's
+    /// conflict rule is for.
+    pub fn is_single_valued(&self) -> bool {
+        match self {
+            RequirementKind::WordLimit
+            | RequirementKind::AbstractLimit
+            | RequirementKind::FigureLimit
+            | RequirementKind::ReferenceLimit
+            | RequirementKind::ReferenceStyle => true,
+            // Many per journal, by design.
+            RequirementKind::ReportingStandard
+            | RequirementKind::DataPolicy
+            | RequirementKind::SectionRequired
+            | RequirementKind::Other => false,
+        }
+    }
+
     /// The exact string the schema's CHECK accepts.
     pub fn as_str(&self) -> &'static str {
         match self {

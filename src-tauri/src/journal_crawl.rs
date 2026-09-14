@@ -40,7 +40,7 @@
 //! Its `<a>` elements belong to the challenge page, and following them spends
 //! the budget on a vendor's error furniture. They are not enqueued.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -136,6 +136,9 @@ pub struct CrawlOutcome {
     pub lexicon_misses: usize,
     /// Candidates still queued when the crawl ended.
     pub unvisited: usize,
+    /// Pages fetched whose CONTENT was byte-identical to a page already seen
+    /// under a different URL. Counted, not hidden: they cost a request.
+    pub duplicate_content: usize,
     /// The crawl gave up waiting for a rate-limit token. Like `Budget`, this
     /// means the journal is not covered.
     pub rate_limited: bool,
@@ -154,6 +157,10 @@ const LEXICON: &[&str] = &[
     "authorship", "figure", "reference", "word limit", "scope", "publication",
     "open access", "copyright", "permission", "supporting information", "for-authors",
 ];
+
+fn hit_of(url: &str, anchor: &str) -> bool {
+    lexicon_hit(url, anchor)
+}
 
 fn lexicon_hit(url: &str, anchor: &str) -> bool {
     let hay = format!("{url} {anchor}").to_lowercase();
@@ -185,6 +192,17 @@ const NEVER_FOLLOW: &[&str] = &[
     // whole publisher website, so without this a crawl of The Lancet reaches
     // `elsevier.com/legal/privacy-policy` — measured.
     "/legal/", "/privacy", "/terms", "/about-us", "/careers", "/contact",
+    // **PAID SERVICES SOLD TO AUTHORS (§11 D161).** A publisher's author-services site
+    // mixes guidance with commerce, and its marketing copy is full of numbers
+    // that look exactly like requirements. Measured, and it reached the
+    // database: `authorservices.springernature.com` put
+    // "Premium Chinese Translation … 1,500 words" and "… 12,000 words" into
+    // Nature Medicine's `journal_requirements` as WORD LIMITS, beside the real
+    // 4,000. A price list is not a requirement, and a requirement invented
+    // from one is §11 D155's fabrication with a different surface.
+    "/translation", "/academic-translation", "/pricing", "/scientific-editing",
+    "/language-editing", "/english-editing", "/illustration", "/poster",
+    "/infographic", "/reprints", "/shop", "/order",
 ];
 
 fn never_follow(url: &str) -> bool {
@@ -331,6 +349,13 @@ pub fn crawl(
     };
 
     let mut entry_interstitial: Option<String> = None;
+    // **Dedup on CONTENT, not on URL.** `nature.com/nm/content` and
+    // `nature.com/nm/about/content` are one page under two paths; URL dedup
+    // cannot see that, and the first fingerprint build stored twelve
+    // requirements twice and reported them as twelve per "source document" for
+    // two documents. Two URLs serving identical bytes is one document, and a
+    // hash says so at the cost of one pass over text already in memory.
+    let mut content_seen: BTreeMap<[u8; 32], String> = BTreeMap::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
     seen.insert(normalise(entry));
     // Two queues, so a lexicon hit is fetched FIRST without ever being the
@@ -349,6 +374,7 @@ pub fn crawl(
         errors: 0,
         lexicon_misses: 0,
         unvisited: 0,
+        duplicate_content: 0,
         rate_limited: false,
         stopped_by: StoppedBy::FrontierExhausted,
         pages: Vec::new(),
@@ -425,6 +451,35 @@ pub fn crawl(
             continue;
         }
         let text = html_to_text_public(&resp.body);
+
+        // Hash the EXTRACTED TEXT, not the raw body: two URLs for one page
+        // differ in their own canonical link and nav highlighting while the
+        // guidance is identical, and it is the guidance that decides whether
+        // this is a second document.
+        let digest: [u8; 32] = {
+            use sha2::Digest;
+            let mut h = sha2::Sha256::new();
+            h.update(text.as_bytes());
+            h.finalize().into()
+        };
+        if let Some(first) = content_seen.get(&digest) {
+            out.duplicate_content += 1;
+            out.pages.push(CrawledPage {
+                url: url.clone(),
+                anchor: anchor.clone(),
+                depth,
+                verdict: "duplicate",
+                chars: text.chars().count(),
+                obligations: 0,
+                requirements: 0,
+                lexicon_hit: hit_of(&url, &anchor),
+            });
+            tracing::debug!(url = %url, first = %first, "same content under a second url");
+            // Its links are the first copy's links and are already queued.
+            continue;
+        }
+        content_seen.insert(digest, url.clone());
+
         let verdict = classify_page(&html_title(&resp.body), &text);
         let hit = lexicon_hit(&url, &anchor);
         let (label, ob, rq) = match &verdict {
@@ -522,9 +577,14 @@ mod tests {
         RateLimiter::new(1000.0, 1000.0)
     }
     /// A page that classifies as guideline content.
+    /// **The title is repeated IN THE BODY on purpose.** `html_to_text` strips
+    /// `<head>`, so a fixture whose only difference is its `<title>` is a
+    /// byte-identical document — and the content dedup correctly calls it one.
+    /// Two fixtures meant to be different pages have to differ where a reader
+    /// would see it.
     fn guideline_body(title: &str, extra_links: &str) -> String {
         format!(
-            "<html><head><title>{title}</title></head><body>\
+            "<html><head><title>{title}</title></head><body><h1>{title}</h1>\
              Authors must declare all competing interests. Manuscripts should be submitted \
              through the online system. Please ensure the data availability statement is \
              complete. Authors are required to register trials prospectively. {extra_links}\
@@ -698,7 +758,13 @@ mod tests {
     /// `lexicon_misses` mean what it claims.
     #[test]
     fn research_content_and_taxonomies_are_never_followed() {
+        // A publisher's paid services — measured reaching the database as
+        // Nature Medicine "word limits" of 1,500 and 12,000.
         for u in [
+            "https://authorservices.springernature.com/academic-translation-services/",
+            "https://authorservices.springernature.com/pricing/",
+            "https://authorservices.springernature.com/translation",
+            "https://authorservices.springernature.com/scientific-editing/",
             "https://www.elsevier.com/legal/privacy-policy",
             "https://onlinelibrary.wiley.com/termsAndConditions",
             "https://journals.plos.org/plosone/article?id=10.1371/journal.pgen.1012293",
@@ -829,6 +895,61 @@ mod tests {
         assert_eq!(out.fetched, 2, "{:#?}", out.pages);
         assert_eq!(out.guideline, 1);
         assert_eq!(out.lexicon_misses, 0);
+    }
+
+    /// **Two URLs serving identical bytes is ONE document.** Measured on
+    /// Nature Medicine: `/nm/content` and `/nm/about/content` are the same
+    /// page, and the first fingerprint build stored its twelve requirements
+    /// twice and reported them as twelve per "source document" for two
+    /// documents. URL dedup cannot see this; a content hash can.
+    #[test]
+    fn the_same_page_under_two_paths_is_one_document() {
+        // One document, served at two paths — identical bytes, as Nature does.
+        let body = guideline_body("Content Types", "");
+        let entry = nav_body(
+            "Home",
+            r#"<a href="https://j.test/content">Content types</a>
+               <a href="https://j.test/about/content">Content types</a>"#,
+        );
+        let f = MockHttpFetcher::new()
+            .route("j.test/for-authors", 200, &entry)
+            .route("j.test/content", 200, &body)
+            .route("j.test/about/content", 200, &body);
+        let out = crawl(&f, &roomy(), &budget(10, 2), "https://j.test/for-authors").unwrap();
+
+        // Both were FETCHED — a duplicate still costs a request, and hiding
+        // that would understate what the crawl spent.
+        assert_eq!(out.fetched, 3);
+        assert_eq!(out.duplicate_content, 1);
+        // …but only ONE is guideline content, so nothing downstream stores it
+        // twice.
+        assert_eq!(out.guideline, 1, "{:#?}", out.pages);
+        assert_eq!(out.lexicon_misses, 1, "and the miss is not double-counted");
+        assert!(out.pages.iter().any(|p| p.verdict == "duplicate"));
+    }
+
+    /// Different content under similar URLs is NOT a duplicate — the hash must
+    /// not collapse two real pages.
+    #[test]
+    fn two_different_pages_are_not_collapsed_by_the_hash() {
+        let entry = nav_body(
+            "Home",
+            // NOTE the paths do not prefix one another: `MockHttpFetcher`
+            // routes by substring, so `/author-guidelines` would also answer
+            // for `/author-guidelines-2` and the second fixture would never be
+            // served — a harness artefact that looks exactly like a hash
+            // collision.
+            r#"<a href="https://j.test/author-guidelines">Authors</a>
+               <a href="https://j.test/formatting">Formatting</a>"#,
+        );
+        let f = MockHttpFetcher::new()
+            .route("j.test/home", 200, &entry)
+            .route("j.test/author-guidelines", 200, &guideline_body("One", ""))
+            .route("j.test/formatting", 200,
+                   &guideline_body("Two", "<p>Authors must also register the trial prospectively.</p>"));
+        let out = crawl(&f, &roomy(), &budget(10, 2), "https://j.test/home").unwrap();
+        assert_eq!(out.duplicate_content, 0, "{:#?}", out.pages);
+        assert_eq!(out.guideline, 2);
     }
 
     #[test]

@@ -10480,3 +10480,96 @@ After the fixes, on the same budget: **fetched 361, guideline 94 → 163, and
 lexicon misses 44 → 9, every one of them a real guideline page.** Fewer misses
 and more guidance, which is what a metric measuring the right thing looks like.
 
+
+---
+
+### D161 — an allowlisted domain is a whole website, and the publisher sells things on it
+
+**THE RULE, STATED FIRST:**
+
+> **Allowlisting a domain admits everything on it, including the parts that are
+> not the thing you allowlisted it for.** A publisher's author-services site
+> carries real guidance AND sells translation, editing and reprints to the same
+> authors. Guidance and commerce share a host, and the commerce is full of
+> numbers shaped exactly like requirements.
+
+**Same family as §11 D155, different surface.** There, a parser that discarded
+a namespace put `237,0001` into the text stream — a number not in the
+manuscript. Here, a crawler that allowlisted a domain put **1,500** and
+**12,000** into `journal_requirements` as Nature Medicine word limits. Neither
+is a parse error in the ordinary sense; both are a boundary drawn one level too
+wide, and both produce data that is well-formed, plausible, and not the
+journal's.
+
+#### What reached the database
+
+The first end-to-end fingerprint build — crawl, extract, store — put 46 rows
+into `journal_requirements` for Nature Medicine. Among the `word_limit` rows:
+
+| value | span | source |
+|---:|---|---|
+| **4000** | *Format Main text – up to 4,000 words (excluding abstract, online Methods…)* | `nature.com/nm/content` ✓ |
+| **1500** | *Premium Chinese Translation includes unlimited free re-editing of your translated text…* | `authorservices.springernature.com/translation` |
+| **12000** | *Features: Translation by a native Chinese speaker with an advanced degree…* | `authorservices.springernature.com/academic-translation-services/` |
+| **100** | *individual words, concepts and quotes up to 100 words per matching sentence may be…* | `…/self-archiving-and-license-to-publish` |
+
+**A price list for a paid translation service, stored as a journal's word
+limit.** The extractor did its job — *"up to 1,500 words"* is exactly the shape
+it looks for, and the span quotes it faithfully. The defect is upstream: the
+page should never have been fetched as guidance.
+
+`authorservices.springernature.com` is on the crawl's `author_services_hosts`
+allowlist, and belongs there — §3.4 requires the publisher's author-services
+domain, because that is where several publishers keep their real formatting and
+ethics guidance. The allowlist is right and its GRANULARITY was wrong.
+
+#### The fix, and why it is a path rule rather than a smarter classifier
+
+Excluded by path: `/translation`, `/academic-translation`, `/pricing`,
+`/scientific-editing`, `/language-editing`, `/english-editing`, `/illustration`,
+`/poster`, `/infographic`, `/reprints`, `/shop`, `/order`. The measured URLs are
+in the test.
+
+A classifier was the obvious alternative and is the wrong tool: a sales page for
+an editing service reads exactly like guidance — it is written to, obliges, and
+quotes limits. `classify_page` admits it correctly on every signal it has. What
+distinguishes it is not how it reads but WHAT IT IS, and the publisher's own URL
+scheme says so. Cost rules belong where the cost is decided.
+
+#### The second conflict this run exposed, recorded here because it is the same shape one layer up
+
+Nature Medicine's six reporting standards — CONSORT for trials, PRISMA for
+systematic reviews, STROBE for observational studies, STARD for biomarkers,
+TRIPOD for prediction models, ARRIVE for animal work — were stored as **ONE
+CONFLICTED FACT**, as though the journal could not decide.
+
+The spans said otherwise in plain English: *"Observational studies … must be
+reported according to the STROBE"*, *"Systematic reviews and meta-analyses must
+follow the PRISMA guidelines."* A journal binds MANY standards, each to a
+design, and a second one does not contradict the first.
+
+The conflict rule had assumed every requirement kind is single-valued.
+`RequirementKind::is_single_valued` now says which are: word, abstract, figure
+and reference limits, and reference style. Reporting standards, data policies
+and required sections are not. **The rule narrowed rather than disappeared** — a
+second word limit for the same article type still conflicts, and that is pinned.
+
+#### The generalisation worth keeping
+
+Three boundaries were drawn too wide in this phase and each produced data that
+was not the journal's:
+
+1. **Host** — `journals.plos.org` is every PLOS journal, so a crawl of PLOS ONE
+   reached PLOS Genetics (§11 D160).
+2. **Domain** — `authorservices.springernature.com` is a shop as well as a
+   guidance site (this entry).
+3. **Kind** — `reporting_standard` is not one value, so two of them read as a
+   dispute (this entry).
+
+**Each was invisible in the totals and obvious in a row.** 46 requirements and
+3 conflicts is a plausible-looking summary; `word_limit = 12000, span: "Features:
+Translation by a native Chinese speaker…"` is not. The habit that catches this
+family is printing rows with their spans, not counts — a span is the one field
+that cannot be plausible and wrong at the same time, because it quotes the
+source verbatim and the source says what it is.
+
