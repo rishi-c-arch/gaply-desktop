@@ -26,7 +26,7 @@
 //! carries the basis ALONGSIDE the dimension, and the two are compared
 //! separately.
 //!
-//! # What is NOT checked, stated rather than implied
+//! # What is NOT checked, stated rather than implied (§11 D158)
 //!
 //! **Magnitude.** `mg/L` and `kg/m³` have the same dimension and differ by a
 //! factor of a thousand. This module answers §6b.2's question — whether the

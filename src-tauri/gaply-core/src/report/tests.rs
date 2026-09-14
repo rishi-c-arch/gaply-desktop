@@ -122,7 +122,7 @@ fn golden_report_for_sample_manuscript() {
     );
     let checklist = checklist_from_guidelines(&extraction, MANUSCRIPT, &[guideline]);
 
-    let report = compile_report(&outcome, &validation, Some(&verification), Some(&plag), None, TEST_YEAR, checklist, &[]);
+    let report = compile_report(&outcome, &validation, Some(&verification), Some(&plag), None, TEST_YEAR, checklist, &[], &[]);
 
     // Golden expectations (stable, structural — not a brittle full snapshot).
     assert_eq!(report.verdict, ANSWER_PASS);
@@ -186,7 +186,7 @@ fn hard_constraint_findings_rank_first_regardless_of_soft_confidence() {
     let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
     // Synthetic plagiarism OPINION only (no PlagiarismReport) → no per-match
     // findings; the opinion still votes in consensus but yields no finding.
-    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[], &[]);
 
     // THE PROPERTY: hard-constraint findings lead, ahead of 1.0-confidence soft
     // findings. The EPISTEMIC marker is the tier, not the severity.
@@ -345,7 +345,7 @@ fn every_finding_carries_provenance_and_correct_tier_including_reconsidered() {
     let validation = crate::validate::validate(&crate::extract::extract_from_text(
         "T\n\nAbstract\nNo stats here.\n",
     ));
-    let report = compile_report(&outcome, &validation, Some(&final_verification), None, None, TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, Some(&final_verification), None, None, TEST_YEAR, vec![], &[], &[]);
 
     // EVERY finding: non-empty provenance + a label matching its tier.
     assert!(!report.findings.is_empty());
@@ -414,7 +414,7 @@ fn plagiarism_matches_fan_into_per_match_findings() {
     let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
     let validation =
         crate::validate::validate(&crate::extract::extract_from_text("T\n\nAbstract\nNo stats.\n"));
-    let report = compile_report(&outcome, &validation, None, Some(&pr), None, TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, Some(&pr), None, TEST_YEAR, vec![], &[], &[]);
 
     let plag: Vec<_> = report.findings.iter().filter(|f| f.agent == AgentKind::Plagiarism).collect();
     // One finding PER MATCH (2), aggregate opinion NOT double-counted.
@@ -453,7 +453,7 @@ fn empty_plagiarism_yields_zero_findings() {
     let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
     let validation =
         crate::validate::validate(&crate::extract::extract_from_text("T\n\nAbstract\nNo stats.\n"));
-    let report = compile_report(&outcome, &validation, None, Some(&pr), None, TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, Some(&pr), None, TEST_YEAR, vec![], &[], &[]);
     // No matches ⇒ no plagiarism findings (a non-event is not a finding).
     assert!(
         !report.findings.iter().any(|f| f.agent == AgentKind::Plagiarism),
@@ -474,7 +474,7 @@ fn compile_report_produces_evidence_1to1_with_correct_kinds() {
     let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
     let validation =
         crate::validate::validate(&crate::extract::extract_from_text("T\n\nAbstract\nNo stats.\n"));
-    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[], &[]);
 
     // 1:1, same order; ids are f1..fN.
     assert_eq!(report.evidence.len(), report.findings.len());
@@ -536,8 +536,8 @@ fn extraction_none_adds_no_findings() {
         "T\n\nAbstract\nNo stats.\n\nResults\nTable 1 Outcomes by arm\n",
     );
     let validation = crate::validate::validate(&ex);
-    let without = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
-    let with = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[]);
+    let without = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[], &[]);
+    let with = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[], &[]);
     assert!(
         with.findings.len() > without.findings.len(),
         "passing the extraction must ADD findings, else the wiring is dead"
@@ -560,7 +560,7 @@ fn table_findings_count_captions_and_stay_structural() {
         "T\n\nAbstract\nA.\n\nResults\nTable 1 Outcomes by arm\n\nTable 2\n",
     );
     let validation = crate::validate::validate(&ex);
-    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[], &[]);
     let tables = by_signal(&report, "tables");
     assert_eq!(tables.len(), 1, "exactly one aggregate table finding");
     let f = tables[0];
@@ -581,7 +581,7 @@ fn table_findings_count_captions_and_stay_structural() {
     // No tables -> no finding (a non-event is not a finding).
     let ex2 = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nNo tables here.\n");
     let v2 = crate::validate::validate(&ex2);
-    let r2 = compile_report(&outcome, &v2, None, None, Some(&ex2), TEST_YEAR, vec![], &[]);
+    let r2 = compile_report(&outcome, &v2, None, None, Some(&ex2), TEST_YEAR, vec![], &[], &[]);
     assert!(by_signal(&r2, "tables").is_empty(), "zero tables must produce zero findings");
 }
 
@@ -602,7 +602,7 @@ fn reference_recency_counts_old_and_undated_separately() {
                 5. Nodate E. Undated work.\n";
     let ex = crate::extract::extract_from_text(text);
     let validation = crate::validate::validate(&ex);
-    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[], &[]);
 
     let hits = by_signal(&report, "citation_recency");
     assert_eq!(hits.len(), 1, "one aggregate recency finding");
@@ -627,13 +627,13 @@ fn reference_recency_counts_old_and_undated_separately() {
                  2. New B. Recent work. 2023.\n";
     let ex2 = crate::extract::extract_from_text(fresh);
     let v2 = crate::validate::validate(&ex2);
-    let r2 = compile_report(&outcome, &v2, None, None, Some(&ex2), TEST_YEAR, vec![], &[]);
+    let r2 = compile_report(&outcome, &v2, None, None, Some(&ex2), TEST_YEAR, vec![], &[], &[]);
     assert_eq!(by_signal(&r2, "citation_recency")[0].severity, FindingSeverity::Info);
 
     // No reference list -> no finding (the structural checklist covers that).
     let ex3 = crate::extract::extract_from_text("T\n\nAbstract\nA.\n");
     let v3 = crate::validate::validate(&ex3);
-    let r3 = compile_report(&outcome, &v3, None, None, Some(&ex3), TEST_YEAR, vec![], &[]);
+    let r3 = compile_report(&outcome, &v3, None, None, Some(&ex3), TEST_YEAR, vec![], &[], &[]);
     assert!(by_signal(&r3, "citation_recency").is_empty());
 }
 
@@ -655,7 +655,7 @@ fn stylometry_findings_are_coarse_soft_signals() {
     );
     let ex = crate::extract::extract_from_text(&text);
     let validation = crate::validate::validate(&ex);
-    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[], &[]);
 
     let stylo: Vec<&Finding> =
         report.findings.iter().filter(|f| f.agent == AgentKind::AiDetection).collect();
@@ -704,7 +704,7 @@ fn stylometry_findings_are_coarse_soft_signals() {
     let uncited = format!("T\n\nAbstract\nA study.\n\nResults\n{body}\n");
     let ex2 = crate::extract::extract_from_text(&uncited);
     let v2 = crate::validate::validate(&ex2);
-    let r2 = compile_report(&outcome, &v2, None, None, Some(&ex2), TEST_YEAR, vec![], &[]);
+    let r2 = compile_report(&outcome, &v2, None, None, Some(&ex2), TEST_YEAR, vec![], &[], &[]);
     let d2 = by_signal(&r2, "citation_density");
     assert_eq!(d2.len(), 1, "an uncited document still reports density");
     assert_eq!(d2[0].severity, FindingSeverity::Minor, "genuinely uncited is Minor, not Info");
@@ -725,7 +725,7 @@ fn extraction_derived_findings_carry_only_structured_provenance() {
                 References\n1. A. Work. 1998.\n";
     let ex = crate::extract::extract_from_text(text);
     let validation = crate::validate::validate(&ex);
-    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[], &[]);
 
     let derived: Vec<&Finding> = report
         .findings
@@ -854,7 +854,7 @@ fn the_uncited_reference_finding_is_not_emitted_by_compile_report() {
     );
     let validation = crate::validate::validate(&ex);
     let report = compile_report(
-        &minimal_outcome(), &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[],
+        &minimal_outcome(), &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[], &[],
     );
     assert!(
         !report.findings.iter().any(|f| f.provenance.iter().any(|p| p == "signal:uncited_reference")),
@@ -921,7 +921,7 @@ fn the_citation_count_summary_is_descriptive_and_states_what_it_omits() {
     let registry = vec![rv(&raws[0], None, Some(42)), rv(&raws[1], None, None)];
     let validation = crate::validate::validate(&ex);
     let report = compile_report(
-        &minimal_outcome(), &validation, None, None, Some(&ex), TEST_YEAR, vec![], &registry,
+        &minimal_outcome(), &validation, None, None, Some(&ex), TEST_YEAR, vec![], &registry, &[],
     );
     let f = finding_with_signal(&report, "citation_count").expect("missing finding");
     assert_eq!(f.severity, FindingSeverity::Info, "descriptive only — never above Info");
@@ -937,7 +937,7 @@ fn no_registry_evidence_produces_no_citation_count_finding() {
     let ex = extraction_with_two_dated_references();
     let validation = crate::validate::validate(&ex);
     let report = compile_report(
-        &minimal_outcome(), &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[],
+        &minimal_outcome(), &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[], &[],
     );
     assert!(finding_with_signal(&report, "citation_count").is_none());
 }
@@ -968,7 +968,7 @@ fn many_unknown_verdicts_collapse_into_one_finding() {
     let ex = extraction_with_uncaptioned_table();
     let validation = crate::validate::validate(&ex);
     let report = compile_report(
-        &minimal_outcome(), &validation, Some(&v), None, Some(&ex), TEST_YEAR, vec![], &[],
+        &minimal_outcome(), &validation, Some(&v), None, Some(&ex), TEST_YEAR, vec![], &[], &[],
     );
     let unchecked: Vec<&Finding> = report
         .findings
@@ -1004,7 +1004,7 @@ fn refuted_and_supported_still_fan_out_per_citation() {
     let ex = extraction_with_uncaptioned_table();
     let validation = crate::validate::validate(&ex);
     let report = compile_report(
-        &minimal_outcome(), &validation, Some(&v), None, Some(&ex), TEST_YEAR, vec![], &[],
+        &minimal_outcome(), &validation, Some(&v), None, Some(&ex), TEST_YEAR, vec![], &[], &[],
     );
     // Per-citation fan-out survives; the TITLES no longer name c1/c2.
     assert!(
@@ -1035,7 +1035,7 @@ fn the_collapse_preserves_evidence_grounding() {
     let ex = extraction_with_uncaptioned_table();
     let validation = crate::validate::validate(&ex);
     let report = compile_report(
-        &minimal_outcome(), &validation, Some(&v), None, Some(&ex), TEST_YEAR, vec![], &[],
+        &minimal_outcome(), &validation, Some(&v), None, Some(&ex), TEST_YEAR, vec![], &[], &[],
     );
     let f = report
         .findings
@@ -1083,7 +1083,7 @@ fn extraction_derived_findings_yield_to_more_urgent_findings_at_the_reviewer_cap
     // cap, so every Info/Minor extraction-derived finding must be squeezed out.
     let crowded = plagiarism_with_n_major_matches(14);
     let report_a =
-        compile_report(&outcome, &validation, None, Some(&crowded), Some(&ex), TEST_YEAR, vec![], &[]);
+        compile_report(&outcome, &validation, None, Some(&crowded), Some(&ex), TEST_YEAR, vec![], &[], &[]);
 
     // The finding EXISTS locally — this test is about the payload, not the report.
     assert_eq!(by_signal(&report_a, "tables").len(), 1, "the table finding is in the local report");
@@ -1119,7 +1119,7 @@ fn extraction_derived_findings_yield_to_more_urgent_findings_at_the_reviewer_cap
     // 2 Major findings, so the extraction-derived families fit under the cap.
     let sparse = plagiarism_with_n_major_matches(2);
     let report_b =
-        compile_report(&outcome, &validation, None, Some(&sparse), Some(&ex), TEST_YEAR, vec![], &[]);
+        compile_report(&outcome, &validation, None, Some(&sparse), Some(&ex), TEST_YEAR, vec![], &[], &[]);
     assert!(
         report_b.findings.len() <= REVIEWER_MAX_FINDINGS,
         "fixture must fit under the cap, got {}",
@@ -1170,7 +1170,7 @@ fn severity_beats_insertion_order_for_extraction_derived_findings() {
         0.6,
     )))];
     let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
-    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[], &[]);
 
     let major = report
         .findings
@@ -1307,6 +1307,7 @@ fn validation_findings_carry_the_location_their_rule_evaluated() {
         TEST_YEAR,
         vec![],
         &[],
+        &[],
     );
 
     let mut from_findings: Vec<Location> =
@@ -1393,6 +1394,7 @@ fn only_located_families_carry_a_location() {
         TEST_YEAR,
         vec![],
         &[],
+        &[],
     );
 
     let mut families: Vec<(AgentKind, bool)> =
@@ -1446,6 +1448,7 @@ fn a_findings_location_never_reaches_the_reviewer_payload() {
         TEST_YEAR,
         vec![],
         &[],
+        &[],
     );
     assert!(
         report.findings.iter().any(|f| f.location.is_some()),
@@ -1489,7 +1492,7 @@ fn a_citation_finding_names_the_reference_not_its_index() {
     };
     let reg = vec![rv("Smith J. 2020. A paper about things. Journal of Things 1: 1-9.", None, None)];
     let report = compile_report(
-        &minimal_outcome(), &validation, Some(&verdicts), None, None, TEST_YEAR, vec![], &reg);
+        &minimal_outcome(), &validation, Some(&verdicts), None, None, TEST_YEAR, vec![], &reg, &[]);
 
     let title = report
         .findings
@@ -1519,7 +1522,7 @@ fn an_unresolvable_citation_id_yields_a_typed_absence_not_an_index() {
         warnings: vec![],
     };
     let report = compile_report(
-        &minimal_outcome(), &validation, Some(&verdicts), None, None, TEST_YEAR, vec![], &[]);
+        &minimal_outcome(), &validation, Some(&verdicts), None, None, TEST_YEAR, vec![], &[], &[]);
     let title = report
         .findings
         .iter()
@@ -1557,7 +1560,7 @@ fn the_disclaimer_omits_the_revision_tier_when_nothing_was_revised() {
     );
     let ex = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nR.\n");
     let validation = crate::validate::validate(&ex);
-    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[], &[]);
 
     assert!(
         !report.disclaimer.contains("reconsidered after peer review"),
@@ -1627,7 +1630,7 @@ fn the_disclaimer_restores_the_revision_tier_when_an_agent_revises() {
 
     let ex = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nR.\n");
     let validation = crate::validate::validate(&ex);
-    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[], &[]);
     assert!(
         report.disclaimer.contains("reconsidered after peer review"),
         "a revised run must explain the tier its findings carry: {:?}",
@@ -1667,7 +1670,7 @@ fn a_gate_rejection_becomes_a_harness_note_and_never_a_finding() {
 
     let ex = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nR.\n");
     let validation = crate::validate::validate(&ex);
-    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[], &[]);
 
     // Not in the findings list, by title or by provenance.
     assert!(
@@ -1709,7 +1712,7 @@ fn a_run_with_no_rejections_has_no_harness_notes() {
     let outcome = minimal_outcome();
     let ex = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nR.\n");
     let validation = crate::validate::validate(&ex);
-    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[], &[]);
     assert!(report.harness_notes.is_empty());
 }
 
@@ -1754,7 +1757,7 @@ fn an_authorship_concern_is_capped_at_info() {
     let outcome = outcome_with_an_ai_concern();
     let ex = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nR.\n");
     let validation = crate::validate::validate(&ex);
-    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[], &[]);
 
     let f = report
         .findings
@@ -1792,7 +1795,7 @@ fn the_cap_does_not_touch_stylometry_findings_from_the_same_agent() {
     let ex = crate::extract::extract_from_text(&repetitive);
     let validation = crate::validate::validate(&ex);
     let report =
-        compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[]);
+        compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[], &[]);
 
     let stylo: Vec<&Finding> = report
         .findings
@@ -1832,7 +1835,7 @@ fn a_passing_authorship_opinion_is_unchanged() {
     let outcome = run_debate(&mut agents, &DebateConfig::default()).unwrap();
     let ex = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nR.\n");
     let validation = crate::validate::validate(&ex);
-    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[]);
+    let report = compile_report(&outcome, &validation, None, None, None, TEST_YEAR, vec![], &[], &[]);
     let f = report.findings.iter().find(|f| f.claim == ClaimKind::AuthorshipSignal).unwrap();
     assert_eq!(f.severity, FindingSeverity::Info);
 }

@@ -622,6 +622,14 @@ Every one of these is Tier 0. The output is a finding with `EpistemicStatus`, ev
 
 ### 6b.3 What it does not do
 
+**[v6 — the dimensional check is largely unreachable on real manuscripts, and §6b.2 implies otherwise.]** §6b.2 asks for *"units on both sides of every equation"*. Measured (`examples/unit_scan.rs`, `examples/equation_graph_probe.rs`, §11 D158): in `chapter3 .docx`, the units-richest of the six, **17 units known, 14 formulas, ONE check performed**; across nine documents, 8 consistent, 0 inconsistent, **23 unverified**.
+
+The obstacle is not the checker. **Real manuscripts state dimensioned constants in prose** — *"8000 = milliequivalent weight of O₂ × 1000"*, *"50,000 = conversion factor for CaCO₃ equivalent"* — because the reader is a chemist. There is no markup for that, and no parser recovers a unit from it without making a chemistry judgement. Nor can the symbol beside them be admitted: `N` is normality here and the newton in SI, and admitting it while the constants stay unitless derives `N·L⁻³` against a declared `M·L⁻³` and **reports a correct formula as wrong**. A partial unit system manufactures dimensional findings.
+
+So the check's real scope is **derived quantities whose inputs are themselves defined in the document** — `Magnesium Hardness = Total Hardness − Calcium Hardness`, where every operand traces to a labelled definition. That is a smaller claim than §6b.2 makes and it is the one the corpus supports.
+
+Note also that **36% of the unit annotations carry a BASIS rather than a unit** (`as CaCO₃`). Two quantities both in `mg/L` on different bases are dimensionally identical and not interchangeable, so a dimensions-only system is not merely incomplete here — it is wrong.
+
 It does not execute uploaded code (§11, §12 Phase 8). It reads the analysis record — the parsed, static account of what the code does and what outputs it produced — and reasons over that. Where the record is insufficient to bind an equation's inputs, the check is `UNVERIFIED`, stated as such, never guessed.
 
 ---

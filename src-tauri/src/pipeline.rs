@@ -632,6 +632,12 @@ fn run_pipeline_inner(
         // (stylometry, tables, reference recency) — pure, no model, no network.
         // `current_year` is injected rather than read inside the core so
         // compile_report stays deterministic (the `now_epoch()` convention).
+        // The Tier-0 equation engine (§6b) reads the manuscript's own lines:
+        // deterministic, exact-rational, and with no model, network or I/O on
+        // the path (`tests/equation_is_llm_free.rs` enforces that). It runs
+        // here rather than in the extraction lane because it is a CHECK, not an
+        // extraction — the report is where its findings belong.
+        let manuscript_lines: Vec<String> = text.lines().map(str::to_string).collect();
         Ok(compile_report(
             &outcome,
             &validation,
@@ -641,6 +647,7 @@ fn run_pipeline_inner(
             current_year(),
             checklist,
             &registry,
+            &manuscript_lines,
         ))
     })();
 
@@ -789,6 +796,158 @@ The results are consistent with a consolidation account of sleep.
 Conclusion
 A night of sleep improved memory consolidation in this sample.
 ";
+
+    /// **The same manuscript with one real equation in it**, taken verbatim
+    /// from `Revised Health Economics Paper FINAL (1).docx` §5.8.
+    ///
+    /// The golden capture's manuscript contains no equations, so the
+    /// byte-identity test proves the wiring is ADDITIVE and nothing more — a
+    /// green result there says only that reports without equations did not
+    /// move. This fixture is the other half: it is the input that must make a
+    /// finding appear, and without the wiring in `compile_report` it does not.
+    const MANUSCRIPT_WITH_EQUATION: &str = "\
+Title: Employer Health Insurance Provision
+
+Abstract
+We examined formal health-insurance provision among employers.
+
+Introduction
+Prior work suggests firm size predicts provision.
+
+Methods
+We surveyed 222 firms and applied post-stratification weights.
+
+Results
+Sleep significantly improved recall (t(47) = 3.2, p = 0.002, d = 0.46).
+Weighted provision = (0.108 × 0.78) + (0.500 × 0.13) + (0.769 × 0.06) + (0.810 × 0.03) = 0.084 + 0.065 + 0.046 + 0.024 = 21.9%
+
+Discussion
+The weighted estimate is lower than the unweighted one.
+
+Conclusion
+Firm size is associated with provision.
+";
+
+    /// **The Tier-0 equation engine reaches the report.**
+    ///
+    /// Drives the WHOLE production path — `run_pipeline_inner` over a file on
+    /// disk — rather than calling `compile_report` directly, because the
+    /// question is whether a researcher sees this, and the answer depends on
+    /// every hop between the two.
+    ///
+    /// The arithmetic: the manuscript's own products come to 0.21968 and its
+    /// next line writes 0.219. Read as exact values the chain is false; read as
+    /// roundings the sides overlap, and which the author meant is not
+    /// recoverable from the text — so it is a question, not a verdict.
+    #[test]
+    fn an_equation_finding_reaches_the_report_with_its_tier_and_trail() {
+        use std::cell::RefCell;
+        force_heuristic();
+        let db = Arc::new(Database::in_memory().expect("in-memory db"));
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+        let path = std::env::temp_dir().join(format!("gaply_eq_{}.txt", std::process::id()));
+        std::fs::write(&path, MANUSCRIPT_WITH_EQUATION).expect("write temp manuscript");
+
+        let events: RefCell<Vec<AnalysisEvent>> = RefCell::new(Vec::new());
+        let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
+        let out = run_pipeline_inner(
+            db.clone(),
+            embedder,
+            path.to_string_lossy().to_string(),
+            Some("eq".into()),
+            None,
+            None,
+            NetworkConsent::Denied,
+            &emit,
+        )
+        .expect("pipeline completes");
+        let _ = std::fs::remove_file(&path);
+
+        let f = out
+            .report
+            .findings
+            .iter()
+            .find(|f| f.provenance.iter().any(|p| p == "signal:equation-arithmetic"))
+            .unwrap_or_else(|| {
+                panic!(
+                    "no equation finding in the report; titles were {:?}",
+                    out.report.findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+                )
+            });
+
+        // Tier 0 — §4.4's tier that overrides everything above it.
+        assert_eq!(f.tier, gaply_core::report::CertaintyTier::MathematicallyCertain);
+        assert_eq!(f.certainty_label, f.tier.label());
+        assert_eq!(f.agent, gaply_core::swarm::AgentKind::ValidationMaths);
+
+        // The EpistemicStatus stays VISIBLE — it is a different axis from tier
+        // and from severity, and this one is a QUESTION, not a verdict.
+        assert!(
+            f.provenance.iter().any(|p| p == "epistemic:requires_author_confirmation"),
+            "{:?}",
+            f.provenance
+        );
+        assert!(f.title.contains("requires author confirmation"), "{}", f.title);
+        // Severity tracks the status, not the tier: certain, and not urgent.
+        assert_eq!(f.severity, gaply_core::report::FindingSeverity::Minor);
+
+        // BOTH readings reach the report, always both.
+        assert!(f.provenance.iter().any(|p| p == "reading:as_written=fails"), "{:?}", f.provenance);
+        assert!(f.provenance.iter().any(|p| p == "reading:as_rounded=holds"), "{:?}", f.provenance);
+
+        // Evidence pointers to both sides, and the numbers named.
+        assert!(f.detail.contains("0.21968"), "{}", f.detail);
+        assert!(f.detail.contains("0.219"), "{}", f.detail);
+        assert!(f.detail.contains("0.00068"), "{}", f.detail);
+
+        // §6b's reviewer verification trail, carried rather than summarised.
+        assert!(f.detail.contains("To check this by hand:"), "{}", f.detail);
+        assert!(f.detail.contains("displayed roundings"), "{}", f.detail);
+
+        // And the evidence vector stays in lockstep with the findings vector —
+        // these went through `paired` like every other finding.
+        assert_eq!(out.report.findings.len(), out.report.evidence.len());
+
+    }
+
+    /// **The negative control for the same path.** The manuscript WITHOUT an
+    /// equation must produce no equation finding — otherwise the test above is
+    /// satisfied by something that fires on everything.
+    #[test]
+    fn a_manuscript_with_no_equation_produces_no_equation_finding() {
+        use std::cell::RefCell;
+        force_heuristic();
+        let db = Arc::new(Database::in_memory().expect("in-memory db"));
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+        let path = std::env::temp_dir().join(format!("gaply_noeq_{}.txt", std::process::id()));
+        std::fs::write(&path, MANUSCRIPT).expect("write temp manuscript");
+
+        let events: RefCell<Vec<AnalysisEvent>> = RefCell::new(Vec::new());
+        let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
+        let out = run_pipeline_inner(
+            db.clone(),
+            embedder,
+            path.to_string_lossy().to_string(),
+            Some("noeq".into()),
+            None,
+            None,
+            NetworkConsent::Denied,
+            &emit,
+        )
+        .expect("pipeline completes");
+        let _ = std::fs::remove_file(&path);
+
+        // The line `Sleep significantly improved recall (t(47) = 3.2, …)` has an
+        // `=` in it and is prose. It must not become an equation.
+        assert!(
+            !out.report.findings.iter().any(|f| f
+                .provenance
+                .iter()
+                .any(|p| p.starts_with("signal:equation-"))),
+            "prose became an equation finding: {:?}",
+            out.report.findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
 
     /// A manuscript WITH a References section, so the verification lane has
     /// something to look up. Used only by the consent tests below, which assert

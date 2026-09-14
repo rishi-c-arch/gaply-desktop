@@ -10175,3 +10175,99 @@ the guard has to be structural — here, the disjoint-variables test — because
 confidence score would have been high on this one. It was not an uncertain
 answer. It was a certain answer to a question nobody asked.
 
+
+---
+
+### D158 — a partial unit system manufactures dimensional findings
+
+**THE RULE, STATED FIRST:**
+
+> **A checker that knows SOME of a formula's units will derive a wrong
+> dimension for it and report a correct formula as wrong.** Admitting a symbol
+> whose companions stay unknown is not partial coverage; it is a defect that
+> only appears once coverage improves. The honest state of a half-known formula
+> is `UNVERIFIED`, and refusing a symbol you could plausibly guess is what keeps
+> it that way.
+
+This is §11 D157's shape in a second domain. There the engine gave a *certain
+answer to a question nobody asked*; here it would give a *certain answer from
+inputs it only half had*. Both wear the Tier-0 badge, which is the one thing in
+the system that overrides model consensus (§4.4).
+
+#### What the corpus carries, measured before the design
+
+`examples/unit_scan.rs` over the six manuscripts: **14 unit annotations in three
+forms** — `mg/L` ×9, `as CaCO₃` ×3, `mg/L as CaCO₃` ×2.
+
+**Five of fourteen — 36% — carry a BASIS, which is not a unit.** `as CaCO₃` says
+the quantity is expressed as the equivalent mass of calcium carbonate. Two
+quantities both in `mg/L`, one on a CaCO₃ basis and one not, have identical
+dimensions and cannot be added, and no exponent vector can say so. A system
+built only from dimensions has two options on this corpus and both are wrong:
+refuse 36% of what it meets, or drop the qualifier and treat unlike quantities
+as like. So `Unit` carries the basis ALONGSIDE the dimension and the two are
+compared separately.
+
+#### The honest coverage, stated rather than buried
+
+In `chapter3 .docx`, the units-richest document in the corpus:
+
+| | |
+|---|---:|
+| units known after reading annotations and `where` clauses | **17** |
+| formulas | **14** |
+| dimensional checks actually performed | **1** |
+
+The one is `Magnesium Hardness = Total Hardness − Calcium Hardness` →
+`M·L⁻³ as CaCO₃`, and it needs both the basis field and unit propagation
+through a definition. The other thirteen are `UNVERIFIED`.
+
+**Across all nine documents: 8 consistent, 0 inconsistent, 23 unverified.**
+
+#### Why the thirteen stay unverified, and why that is the right answer
+
+One symbol. **`N` is normality throughout this corpus and the newton in SI**, so
+the unit table refuses it and every formula containing it is unverifiable.
+
+Admitting it is the obvious improvement and it is a trap. Ten of the fourteen
+formulas would become *apparently* checkable while their dimensioned constants
+stayed unitless — 8000, 50,000 and 35.45, each stated only in prose as
+*"milliequivalent weight of O₂ × 1000"*, *"conversion factor for CaCO₃
+equivalent"*, *"equivalent weight of chloride"*. Then:
+
+```text
+DO (mg/L) = (Vtitrant × N × 8000) / Vsample
+            (L³   ×  N·L⁻³ ×  1  ) /  L³     =  N·L⁻³
+declared:                                        M·L⁻³
+```
+
+→ a **dimensional mismatch reported on a correct formula**, because the
+constant that converts equivalents to milligrams was read as dimensionless. The
+engine would be arithmetically right and factually wrong, with a legible
+derivation a reviewer could follow and confirm — D157's dangerous shape exactly.
+
+So the refusal stays. `N` supplies nothing, the constants supply nothing, and
+the formula is `UNVERIFIED`.
+
+#### The limit belongs to the DOMAIN, not to the checker
+
+This is the part §6b needs to record. **Real manuscripts state dimensioned
+constants in prose**, because the reader is a chemist and the sentence
+*"8000 = milliequivalent weight of O₂ × 1000"* is perfectly clear to one. There
+is no markup for it, in `.docx` or anywhere else, and no parser recovers a unit
+from that sentence without deciding what "milliequivalent weight" is
+dimensionally — which is a chemistry judgement, not a parse.
+
+So dimensional verification is **largely unreachable on real analytical
+methods sections**, and will stay so until an author states a constant's units
+machine-readably or the research record carries them. §6b.2 presents the check
+as though it applies to *"every equation"*; §6b.3 has been corrected to say
+where it does not, because a document that implies full coverage invites exactly
+the partial-admission fix this entry rules out.
+
+**What it IS good for, on this evidence:** derived quantities whose inputs are
+themselves defined in the document — the `Magnesium Hardness` case, where every
+operand traces back to a labelled definition. That is a real family and the
+propagation-to-a-fixed-point exists to serve it. It is a smaller claim than §6b
+made, and it is the one the measurement supports.
+

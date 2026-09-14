@@ -24,6 +24,7 @@ pub mod db;
 pub mod embed;
 pub mod epistemic;
 pub mod equation;
+pub mod equation_report;
 pub mod error;
 pub mod escalation;
 pub mod evidence;

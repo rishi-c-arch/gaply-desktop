@@ -484,7 +484,12 @@ pub fn compile_report(
     // Per-reference registry evidence from the verification lane. Empty when
     // verification did not run. See `registry_year_findings`.
     registry: &[ReferenceVerification],
+    // The manuscript's lines, for the Tier-0 equation engine (§6b). Empty when
+    // the caller has no text — every existing caller passes `&[]` and the
+    // report is byte-identical for them, which is what the golden capture pins.
+    manuscript_lines: &[String],
 ) -> PublishReadyReport {
+    let equations = manuscript_lines;
     let mut items: Vec<ReportFinding> = Vec::new();
 
     // --- deterministic rule flags -------------------------------------------
@@ -742,6 +747,18 @@ pub fn compile_report(
         items.extend(reference_recency_findings(ex, current_year));
     }
 
+    // --- Tier-0 equation findings (§6b) ---------------------------------------
+    //
+    // Deterministic: exact rational arithmetic over equations the manuscript
+    // wrote, with no model, no network and no I/O on the path — enforced by
+    // `tests/equation_is_llm_free.rs`, not by this comment. The mapping onto
+    // `Finding` lives in `crate::equation_report` so the whole translation is
+    // in one auditable place; the pairing stays here so these cannot become a
+    // second hand-set construction site for an `EvidenceRecord`.
+    for finding in equation_findings(equations) {
+        items.push(paired(finding, 1.0));
+    }
+
     // --- soft round-table opinions (Verification + Plagiarism are covered in
     //     detail above, so their aggregate opinions are skipped here) -----------
     for op in &outcome.opinions {
@@ -860,6 +877,39 @@ pub fn compile_report(
         // field cannot disagree about whether anything was revised.
         disclaimer: disclaimer_for(!outcome.revised_agents.is_empty()),
     }
+}
+
+/// Run the Tier-0 equation engine over the manuscript and return whatever it
+/// found worth reporting.
+///
+/// **Empty lines in, empty findings out, and that is load-bearing.** Every
+/// caller that predates this passes `&[]`, so their reports are byte-identical
+/// — which is what makes the golden capture a check on this change rather than
+/// a fixture to regenerate.
+fn equation_findings(lines: &[String]) -> Vec<Finding> {
+    if lines.is_empty() {
+        return Vec::new();
+    }
+    let graph = crate::equation::graph::graph_from_lines(lines);
+    let values = graph.bound_values();
+    let env = graph.unit_env();
+    let mut out = Vec::new();
+    for node in &graph.nodes {
+        for f in crate::equation::check::check_equation(&node.equation, &values) {
+            if let Some(finding) = crate::equation_report::arithmetic_finding(&f) {
+                out.push(finding);
+            }
+        }
+        for (l, r) in node.equation.claims() {
+            let v = crate::equation::units::check_sides(&l.expr, &r.expr, &env);
+            if let Some(finding) =
+                crate::equation_report::dimension_finding(&node.equation.text, &v)
+            {
+                out.push(finding);
+            }
+        }
+    }
+    out
 }
 
 // ============================================================================
