@@ -1,0 +1,21 @@
+/* Gaply — checklist display. A met item is visually quiet: it is not a
+ * finding and must not read as one. */
+.cd-counts { display: flex; gap: 10px; margin-bottom: 12px; font-size: 12px; }
+.cd-count { padding: 2px 8px; border-radius: 3px; }
+.cd-count--fail { background: #fee2e2; color: #991b1b; font-weight: 600; }
+.cd-count--pass { background: #f1f5f9; color: #475569; }
+.cd-list { list-style: none; margin: 0; padding: 0; }
+.cd-item { padding: 10px 0; border-bottom: 1px solid #f1f5f9; }
+/* A structural item carries no journal authority and is drawn without it. */
+.cd-item--structural { border-left: 3px dashed #cbd5e1; padding-left: 10px; }
+.cd-item__head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.cd-mark { font-size: 10px; padding: 1px 6px; border-radius: 3px; letter-spacing: 0.05em; }
+.cd-mark--pass { background: #f1f5f9; color: #475569; }
+.cd-mark--fail { background: #fee2e2; color: #991b1b; font-weight: 700; }
+.cd-requirement { font-weight: 600; font-size: 14px; }
+.cd-structural { font-size: 11px; padding: 1px 6px; border-radius: 3px; background: #f8fafc; color: #64748b; }
+.cd-detail { font-size: 13px; color: #334155; margin: 4px 0 0; }
+.cd-checked { font-size: 11px; color: #64748b; margin: 3px 0 0; }
+.cd-checked code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.cd-nojournal { font-size: 11px; color: #94a3b8; font-style: italic; margin: 4px 0 0; }
+.cd-passed summary { font-size: 13px; color: #475569; cursor: pointer; padding: 6px 0; }

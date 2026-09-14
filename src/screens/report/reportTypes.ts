@@ -45,6 +45,17 @@ export interface ChecklistItem {
   passed: boolean;
   detail: string;
   guideline_source: string | null;
+  /** The journal's own sentence this item came from (Prompt 5 item 12).
+   *  `null` for a STRUCTURAL item, which is how the display tells the two
+   *  apart — a structural check has no journal behind it and must not look
+   *  as though it does. Rust: `ChecklistItem::source_span`. */
+  source_span?: string | null;
+  /** Which submission type the requirement governs, when the journal said.
+   *  `null` means NOT STATED — never "applies to everything". */
+  article_type?: string | null;
+  /** Which ResearchState / extraction field was actually checked. Item 12
+   *  requires this so a passed item is auditable rather than trusted. */
+  checked_field?: string | null;
 }
 
 export interface DebateSummary {
