@@ -10378,3 +10378,105 @@ not through curl, because a finding about curl is not a finding about the app:
 **11 of 11 pages now return 200, 8 classify as guideline content, and both
 journal-homepage controls are correctly refused as navigation.**
 
+
+---
+
+### D160 — the optimisation was suppressing the evidence that justified it
+
+**THE RULE, STATED FIRST:**
+
+> **When a design is justified by a number, check that the design is not the
+> reason the number is small.** An ordering heuristic that fetches the
+> interesting case LAST, under a budget that stops before it, produces a
+> measurement indistinguishable from "the interesting case does not exist".
+
+#### The design, and why it looked right
+
+§3.4's discovery rule was inverted (§11 D159, §3.4 v6): the topic lexicon stopped
+being an admission test and became crawl ORDER. The justification is a number
+reported per journal — `lexicon_misses`, pages classified `Guideline` that no
+lexicon term would have admitted. Every one is a page the old rule would have
+skipped silently.
+
+The ordering was implemented as two queues: a lexicon hit to the front, anything
+else to the back, front drained first. That is "order, not admission" made
+structural — there is no comparator to tune until non-matching links stop being
+reached.
+
+**It is also wrong, and wrong in the precise direction that hides the problem.**
+Draining the hit queue completely puts every lexicon MISS behind every hit AT ANY
+DEPTH. Under a page budget the misses are what gets cut off — so the crawl
+systematically failed to reach the pages whose existence is the entire argument
+for the inversion.
+
+#### How it was caught
+
+**Not by the totals.** The 10-journal run reported `lexicon_misses=9`, all nine
+genuine, which reads as a modest but real result. Nature Medicine reported **0**.
+
+That is the number that should have been impossible. `https://www.nature.com/nm/content`
+is the single page carrying every extractable Nature Medicine requirement, its
+anchor text is *"Content types"*, and no lexicon term matches it — it is the
+worked example in §3.4 and the reason the inversion exists. A crawl of Nature
+Medicine reporting zero lexicon misses is either a bug or a refutation.
+
+A single-journal crawl with every page printed settled it in one run: 40 pages
+fetched, budget exhausted, `/nm/content` never reached. It sat in the back queue
+behind 40 depth-1-through-3 lexicon hits.
+
+**The general form: a per-case check on the case the design was argued from.**
+Totals cannot do this. `lexicon_misses=9` across ten journals is consistent with
+the crawler working and with the crawler being blind in exactly the way that
+matters; only asking *"did it find THAT page"* separates them.
+
+#### The fix
+
+**Depth is the outer key, the lexicon the inner one.** A link one hop from the
+author-guidelines page is likelier to be guidance than a lexicon match three hops
+away, so the frontier is breadth-first by depth with lexicon ordering within a
+level. `/nm/content` is a depth-1 link from `/nm/for-authors` and is now reached.
+
+`a_near_lexicon_miss_beats_a_distant_lexicon_hit` pins it, and was confirmed red
+against a reinstatement of the drain-hits-first rule.
+
+**The fix costs yield, which is worth stating rather than burying:** Nature
+Medicine's guideline count fell from 27 to 17 for the same 40-page budget,
+because depth-1 breadth includes more navigation than a lexicon-ranked mixture
+does. The crawl now finds fewer guideline pages and finds the right ones. That
+trade is only defensible because `StoppedBy::Budget` already says the coverage
+claim is unavailable either way.
+
+#### Two other defects the same run exposed, both of the same family
+
+1. **A shared host is not a journal.** `journals.plos.org` serves every PLOS
+   journal; the PLOS ONE crawl wandered into PLOS Genetics, Pathogens and
+   Biology, spending one journal's budget on six. Scope is now the journal's
+   leading path segments, per-host and **in config**, because how many segments
+   identify a journal is publisher knowledge.
+
+   **This is the same KIND of per-publisher knowledge the lexicon was, and the
+   difference is the one that matters: its failure is visible.** Too narrow
+   shows up as a low guideline count with candidates left unvisited; too wide
+   shows up as another journal's URLs in the page list. The lexicon's failure
+   showed up as nothing at all.
+
+2. **A crawl reported success having fetched nothing.** Nature Communications,
+   immediately after Nature Medicine's 40 requests to `www.nature.com`: the
+   per-host rate limiter was empty, and the loop pushed the candidate back and
+   BROKE OUT when it was the only one left — reporting `FrontierExhausted` with
+   `fetched=0`. Waiting for a token is not giving up. The crawl now waits a
+   configured bound and sets `rate_limited`, because a crawl that fetched
+   nothing must say why.
+
+#### And the first run's headline number was contaminated
+
+Before the scope and never-follow fixes, `lexicon_misses` was **44**. Of those,
+23 were research articles and subject taxonomies (`article?id=…`,
+`/topic/browse/…`) and ~13 were site furniture (sitemap, accessibility, news).
+**Eight were genuine.** The number was measuring the crawler wandering, not the
+lexicon failing — a metric promised as evidence, reporting something else.
+
+After the fixes, on the same budget: **fetched 361, guideline 94 → 163, and
+lexicon misses 44 → 9, every one of them a real guideline page.** Fewer misses
+and more guidance, which is what a metric measuring the right thing looks like.
+

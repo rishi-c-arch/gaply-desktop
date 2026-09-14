@@ -1,0 +1,767 @@
+//! **Journal guideline discovery: FETCH-AND-CLASSIFY, not match-a-lexicon.**
+//!
+//! # The inversion, and the evidence for it (§3.4 v6, §11 D159, D160)
+//!
+//! §3.4 and Prompt 5 both specify discovery as *"follow only links whose anchor
+//! text or path names a guideline topic"*. That rule has a failure mode with no
+//! symptom: a crawl that skipped the one page with the numbers on it looks
+//! exactly like a crawl that found everything.
+//!
+//! **The evidence is Nature Medicine.** Every extractable requirement it
+//! publishes — main-text limits of 4,000 / 2,000 / 1,000 words, abstract 150,
+//! references 10, display items 2, each already bound to an article type — is on
+//! ONE page: `https://www.nature.com/nm/content`. Its path is `/nm/content` and
+//! its anchor text is *"Content types"*. Neither names a guideline topic. A
+//! 30-term lexicon written by reading PLOS does not contain the phrase, and
+//! PLOS has no equivalent page to learn it from.
+//!
+//! The deciding argument is not that a lexicon is incomplete — every heuristic
+//! is — but that **its completeness is unknowable for a publisher you have not
+//! read, and its failure is silent.** So the lexicon is demoted to CRAWL ORDER:
+//! it decides what to fetch first, never what to fetch at all. What admits a
+//! page is [`crate::guidelines::classify_page`], which reads the page itself.
+//!
+//! **The standing evidence is [`CrawlOutcome::lexicon_misses`]** — pages
+//! classified `Guideline` that no lexicon term would have admitted. It is
+//! reported for every crawl, and every one of them is a page the old rule would
+//! have dropped without saying so.
+//!
+//! # What makes this affordable
+//!
+//! Fetch-and-classify costs one request per candidate, so the bounds are the
+//! whole difference between crawling a journal and crawling a publisher. Both
+//! live in `config/journal-crawl.json` and neither has a default in code: a
+//! missing or malformed config is an error, because a budget that silently
+//! falls back to a compiled-in number is a budget nobody set.
+//!
+//! # An interstitial's links are the bot-wall's, not the journal's
+//!
+//! [`PageVerdict::Interstitial`] means the request never reached the journal.
+//! Its `<a>` elements belong to the challenge page, and following them spends
+//! the budget on a vendor's error furniture. They are not enqueued.
+
+use std::collections::{BTreeSet, VecDeque};
+
+use serde::{Deserialize, Serialize};
+use url::Url;
+
+use gaply_core::ratelimit::RateLimiter;
+use gaply_core::refverify::{HttpFetcher, HttpRequest};
+use gaply_core::GaplyError;
+
+use crate::guidelines::{classify_page, html_title, html_to_text_public, PageVerdict};
+
+/// Cost bounds. Deserialised from `config/journal-crawl.json`; **no `Default`
+/// impl, deliberately** — see the module header.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CrawlBudget {
+    /// Hard cap on pages FETCHED. A crawl that ends here has not covered the
+    /// journal, and [`CrawlOutcome::stopped_by`] says so.
+    pub max_pages: usize,
+    /// 0 = the entry page alone.
+    pub max_depth: usize,
+    /// Publisher-wide guideline hosts, allowlisted rather than inferred.
+    #[serde(default)]
+    pub author_services_hosts: Vec<String>,
+    /// Hosts that serve MANY journals, and how many leading path segments
+    /// identify one. Absent host = the host is the journal.
+    #[serde(default)]
+    pub journal_path_segments: std::collections::BTreeMap<String, usize>,
+    /// Half-second ticks the crawl waits for a rate-limit token before
+    /// recording that it could not proceed. In config because it is a cost
+    /// bound like the others.
+    #[serde(default)]
+    pub max_rate_wait_ticks: u32,
+}
+
+impl CrawlBudget {
+    pub fn from_json(s: &str) -> Result<CrawlBudget, GaplyError> {
+        let b: CrawlBudget = serde_json::from_str(s)
+            .map_err(|e| GaplyError::Config(format!("journal-crawl.json is not valid: {e}")))?;
+        if b.max_pages == 0 {
+            return Err(GaplyError::Config("max_pages must be > 0".into()));
+        }
+        Ok(b)
+    }
+}
+
+/// Why the crawl ended. **`Budget` is a coverage claim you cannot make.**
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StoppedBy {
+    /// Every reachable candidate within the depth bound was fetched.
+    FrontierExhausted,
+    /// The page budget ran out with candidates still queued. The journal is
+    /// NOT covered and any count derived from this crawl is a lower bound.
+    Budget,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CrawledPage {
+    pub url: String,
+    pub anchor: String,
+    pub depth: usize,
+    pub verdict: &'static str,
+    pub chars: usize,
+    pub obligations: usize,
+    pub requirements: usize,
+    /// Would the lexicon have admitted this link? `false` on a `Guideline` page
+    /// is a page the old discovery rule would have silently skipped.
+    pub lexicon_hit: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CrawlOutcome {
+    pub entry: String,
+    pub host: String,
+    pub fetched: usize,
+    pub guideline: usize,
+    pub navigation: usize,
+    pub interstitial: usize,
+    pub errors: usize,
+    /// **The standing evidence for the inversion.** Pages classified
+    /// `Guideline` whose link no lexicon term would have matched.
+    pub lexicon_misses: usize,
+    /// Candidates still queued when the crawl ended.
+    pub unvisited: usize,
+    /// The crawl gave up waiting for a rate-limit token. Like `Budget`, this
+    /// means the journal is not covered.
+    pub rate_limited: bool,
+    pub stopped_by: StoppedBy,
+    pub pages: Vec<CrawledPage>,
+}
+
+/// Topic terms. **Crawl ORDER only.** Adding a term changes what is fetched
+/// first; it can never change what is admitted, so a term missing here costs
+/// latency rather than coverage — which is the entire point of the inversion.
+const LEXICON: &[&str] = &[
+    "author", "submission", "guideline", "instruction", "format", "style", "ethic",
+    "data availability", "data-availability", "reporting", "standard", "checklist",
+    "policy", "policies", "conflict", "competing interest", "preprint", "licens",
+    "article type", "article-type", "manuscript", "peer review", "trial registration",
+    "authorship", "figure", "reference", "word limit", "scope", "publication",
+    "open access", "copyright", "permission", "supporting information", "for-authors",
+];
+
+fn lexicon_hit(url: &str, anchor: &str) -> bool {
+    let hay = format!("{url} {anchor}").to_lowercase();
+    LEXICON.iter().any(|t| hay.contains(t))
+}
+
+/// URL shapes that cannot carry author requirements, whatever they link to.
+///
+/// **This is a COST rule and it DROPS candidates, so it is confined to things
+/// that are never guidance.** A research article, a table of contents and a
+/// subject taxonomy are not author instructions in any journal.
+///
+/// The first list was too narrow and the measurement showed it: a 10-journal
+/// crawl spent 23 of its 44 lexicon-misses on research articles
+/// (`article?id=10.1371/journal.pgen.1012293`) and subject browse pages
+/// (`/topic/browse/000079`). Those are pages the lexicon would have RIGHTLY
+/// skipped, so counting them as evidence against the lexicon was wrong — the
+/// number measured the crawler wandering, not the lexicon failing.
+const NEVER_FOLLOW: &[&str] = &[
+    "/login", "/register", "/subscribe", "/cart", "/search", "/rss", ".pdf", ".zip",
+    "javascript:", "mailto:",
+    // research content
+    "/article/", "/articles/", "article?id=", "/doi/", "/lookup/", "/content/early",
+    // tables of contents, issues, taxonomies
+    "/toc/", "/issue/", "/topic/", "/subject/", "/results/", "/browse",
+    // site furniture
+    "/sitemap", "/accessibility", "/advertis", "/permissions", "/alerts", "/cookies",
+    // legal and corporate pages. An allowlisted author-services host is the
+    // whole publisher website, so without this a crawl of The Lancet reaches
+    // `elsevier.com/legal/privacy-policy` — measured.
+    "/legal/", "/privacy", "/terms", "/about-us", "/careers", "/contact",
+];
+
+fn never_follow(url: &str) -> bool {
+    let u = url.to_lowercase();
+    if NEVER_FOLLOW.iter().any(|p| u.contains(p)) {
+        return true;
+    }
+    // `/content/12345` is an article; `/content` and `/content-types` are not.
+    if let Some(rest) = u.split("/content/").nth(1) {
+        return rest.starts_with(|c: char| c.is_ascii_digit());
+    }
+    false
+}
+
+/// **The journal's own corner of a shared host.**
+///
+/// "Bounded to the journal's own domain" is not enough where the domain IS the
+/// publisher. `journals.plos.org` serves every PLOS journal, and a crawl of
+/// PLOS ONE measured here wandered into PLOS Genetics, PLOS Pathogens and PLOS
+/// Biology — spending a budget meant for one journal on six.
+///
+/// **How many leading segments identify a journal is per-publisher knowledge,
+/// so it lives in config rather than being guessed from the URL.** One for
+/// `journals.plos.org/plosone/…`, two for
+/// `frontiersin.org/journals/public-health/…`, none for a host that serves a
+/// single journal.
+///
+/// **This is the same KIND of per-publisher knowledge as the lexicon, and the
+/// difference is that its failure is visible.** A scope too narrow shows up as
+/// a low guideline count with candidates left unvisited; too wide shows up as
+/// other journals' URLs in the page list. The lexicon's failure showed up as
+/// nothing at all, which is why that one had to go and this one can stay.
+fn journal_scope(entry: &Url, budget: &CrawlBudget) -> Option<Vec<String>> {
+    let host = entry.host_str()?;
+    let n = *budget.journal_path_segments.get(host)?;
+    if n == 0 {
+        return None;
+    }
+    let segs: Vec<String> = entry
+        .path_segments()?
+        .filter(|s| !s.is_empty())
+        .take(n)
+        .map(|s| s.to_string())
+        .collect();
+    (segs.len() == n).then_some(segs)
+}
+
+fn in_scope(u: &Url, scope: &Option<Vec<String>>) -> bool {
+    let Some(want) = scope else { return true };
+    let Some(segs) = u.path_segments() else { return false };
+    let got: Vec<&str> = segs.filter(|s| !s.is_empty()).take(want.len()).collect();
+    got.len() == want.len() && got.iter().zip(want).all(|(a, b)| a == b)
+}
+
+/// Extract `(absolute_url, anchor_text)` for every `<a href>`.
+fn links(html: &str, base: &Url) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let bytes = html.as_bytes();
+    let mut i = 0usize;
+    while let Some(rel) = html[i..].find("<a ") {
+        let start = i + rel;
+        let Some(close) = html[start..].find('>').map(|k| start + k) else { break };
+        let tag = &html[start..close];
+        i = close + 1;
+        let Some(h) = find_attr(tag, "href") else { continue };
+        let Some(end) = html[i..].find("</a>").map(|k| i + k) else { continue };
+        let anchor = strip_tags_inline(&html[i..end]);
+        let _ = bytes;
+        if let Ok(abs) = base.join(&h) {
+            let mut abs = abs;
+            abs.set_fragment(None);
+            out.push((abs.to_string(), anchor));
+        }
+    }
+    out
+}
+
+fn find_attr(tag: &str, name: &str) -> Option<String> {
+    let lower = tag.to_lowercase();
+    let at = lower.find(&format!("{name}="))? + name.len() + 1;
+    let rest = &tag[at..];
+    let quote = rest.chars().next()?;
+    if quote == '"' || quote == '\'' {
+        let end = rest[1..].find(quote)? + 1;
+        Some(rest[1..end].to_string())
+    } else {
+        let end = rest.find([' ', '>']).unwrap_or(rest.len());
+        Some(rest[..end].to_string())
+    }
+}
+
+fn strip_tags_inline(s: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0i32;
+    for c in s.chars() {
+        match c {
+            '<' => depth += 1,
+            '>' => depth -= 1,
+            _ if depth <= 0 => out.push(c),
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn normalise(u: &str) -> String {
+    u.trim_end_matches('/').to_string()
+}
+
+/// Crawl one journal's guideline ecosystem from an entry URL.
+pub fn crawl(
+    fetcher: &dyn HttpFetcher,
+    limiter: &RateLimiter,
+    budget: &CrawlBudget,
+    entry: &str,
+) -> Result<CrawlOutcome, GaplyError> {
+    let entry_url =
+        Url::parse(entry).map_err(|e| GaplyError::Validation(format!("bad entry url: {e}")))?;
+    let host = entry_url.host_str().unwrap_or_default().to_string();
+
+    let scope = journal_scope(&entry_url, budget);
+    let allowed = |u: &Url| -> bool {
+        let h = u.host_str().unwrap_or_default();
+        if budget.author_services_hosts.iter().any(|a| a == h) && h != host {
+            // An allowlisted publisher host carries requirements for many
+            // journals; the journal-segment scope does not apply to it.
+            return true;
+        }
+        h == host && in_scope(u, &scope)
+    };
+
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    seen.insert(normalise(entry));
+    // Two queues, so a lexicon hit is fetched FIRST without ever being the
+    // condition for being fetched at all.
+    let mut priority: VecDeque<(String, String, usize)> = VecDeque::new();
+    let mut rest: VecDeque<(String, String, usize)> = VecDeque::new();
+    priority.push_back((entry.to_string(), String::new(), 0));
+
+    let mut out = CrawlOutcome {
+        entry: entry.to_string(),
+        host: host.clone(),
+        fetched: 0,
+        guideline: 0,
+        navigation: 0,
+        interstitial: 0,
+        errors: 0,
+        lexicon_misses: 0,
+        unvisited: 0,
+        rate_limited: false,
+        stopped_by: StoppedBy::FrontierExhausted,
+        pages: Vec::new(),
+    };
+
+    while out.fetched < budget.max_pages {
+        // **DEPTH DOMINATES, the lexicon orders WITHIN a depth.**
+        //
+        // The first version drained the lexicon-hit queue completely before
+        // touching the rest, which put every lexicon MISS behind every hit at
+        // any depth — so under a budget the pages the inversion exists to find
+        // were the first to be cut off. Measured: a 40-page crawl of Nature
+        // Medicine never reached `/nm/content`, the one page carrying every one
+        // of its extractable requirements and the case this whole design is
+        // justified by. **The mechanism that made the crawl efficient was
+        // suppressing the evidence for it.**
+        //
+        // A link one hop from the author-guidelines page is likelier to be
+        // guidance than a lexicon match three hops away, so depth is the outer
+        // key and the lexicon the inner one.
+        let take_priority = match (priority.front(), rest.front()) {
+            (Some((_, _, dp)), Some((_, _, dr))) => dp <= dr,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => break,
+        };
+        let Some((url, anchor, depth)) =
+            (if take_priority { priority.pop_front() } else { rest.pop_front() })
+        else {
+            break;
+        };
+        // **Waiting for a token is not the same as giving up.** The first
+        // version pushed the candidate back and broke out when it was the only
+        // one left; because the limiter is per-host and shared across journals,
+        // a crawl of a second journal on the same host began with an empty
+        // bucket and ended having fetched ZERO pages while reporting
+        // `FrontierExhausted`. Measured: Nature Communications, immediately
+        // after Nature Medicine's 40 requests to `www.nature.com`.
+        let mut waited = 0u32;
+        while !limiter.try_consume(&host).allowed {
+            if waited >= budget.max_rate_wait_ticks {
+                out.rate_limited = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            waited += 1;
+        }
+        if out.rate_limited {
+            rest.push_front((url, anchor, depth));
+            break;
+        }
+        let resp = match fetcher.get(&HttpRequest::get(&url)) {
+            Ok(r) => r,
+            Err(_) => {
+                out.errors += 1;
+                out.fetched += 1;
+                continue;
+            }
+        };
+        out.fetched += 1;
+        if resp.status != 200 {
+            out.errors += 1;
+            continue;
+        }
+        let text = html_to_text_public(&resp.body);
+        let verdict = classify_page(&html_title(&resp.body), &text);
+        let hit = lexicon_hit(&url, &anchor);
+        let (label, ob, rq) = match &verdict {
+            PageVerdict::Guideline { obligations, requirements } => {
+                out.guideline += 1;
+                if !hit {
+                    // The page the lexicon would have skipped.
+                    out.lexicon_misses += 1;
+                }
+                ("guideline", *obligations, *requirements)
+            }
+            PageVerdict::Navigation { obligations, requirements } => {
+                out.navigation += 1;
+                ("navigation", *obligations, *requirements)
+            }
+            PageVerdict::Interstitial { .. } => {
+                out.interstitial += 1;
+                ("interstitial", 0, 0)
+            }
+        };
+        out.pages.push(CrawledPage {
+            url: url.clone(),
+            anchor: anchor.clone(),
+            depth,
+            verdict: label,
+            chars: text.chars().count(),
+            obligations: ob,
+            requirements: rq,
+            lexicon_hit: hit,
+        });
+
+        // **An interstitial's links are the bot-wall's.** Never enqueued.
+        if matches!(verdict, PageVerdict::Interstitial { .. }) || depth >= budget.max_depth {
+            continue;
+        }
+        let Ok(base) = Url::parse(&url) else { continue };
+        for (abs, anchor_text) in links(&resp.body, &base) {
+            let key = normalise(&abs);
+            if seen.contains(&key) || never_follow(&abs) {
+                continue;
+            }
+            let Ok(parsed) = Url::parse(&abs) else { continue };
+            if !allowed(&parsed) {
+                continue;
+            }
+            seen.insert(key);
+            let item = (abs.clone(), anchor_text.clone(), depth + 1);
+            if lexicon_hit(&abs, &anchor_text) {
+                priority.push_back(item);
+            } else {
+                rest.push_back(item);
+            }
+        }
+    }
+
+    out.unvisited = priority.len() + rest.len();
+    if out.unvisited > 0 && out.fetched >= budget.max_pages {
+        out.stopped_by = StoppedBy::Budget;
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gaply_core::refverify::MockHttpFetcher;
+
+    fn budget(max_pages: usize, max_depth: usize) -> CrawlBudget {
+        CrawlBudget {
+            max_pages,
+            max_depth,
+            author_services_hosts: vec![],
+            journal_path_segments: Default::default(),
+            max_rate_wait_ticks: 0,
+        }
+    }
+    fn roomy() -> RateLimiter {
+        RateLimiter::new(1000.0, 1000.0)
+    }
+    /// A page that classifies as guideline content.
+    fn guideline_body(title: &str, extra_links: &str) -> String {
+        format!(
+            "<html><head><title>{title}</title></head><body>\
+             Authors must declare all competing interests. Manuscripts should be submitted \
+             through the online system. Please ensure the data availability statement is \
+             complete. Authors are required to register trials prospectively. {extra_links}\
+             </body></html>"
+        )
+    }
+    fn nav_body(title: &str, extra_links: &str) -> String {
+        format!("<html><head><title>{title}</title></head><body>Latest content Archive Jobs \
+                 {extra_links}</body></html>")
+    }
+
+    /// **THE INVERSION, as a test.** The requirements page is linked with an
+    /// anchor no lexicon term matches — Nature Medicine's real case, where
+    /// `/nm/content` / "Content types" carries every extractable limit. It must
+    /// still be fetched, still be classified `Guideline`, and be COUNTED as a
+    /// lexicon miss.
+    #[test]
+    fn a_page_no_lexicon_term_would_admit_is_still_found_and_counted() {
+        let entry = nav_body(
+            "For authors",
+            r#"<a href="https://j.test/content">Content types</a>"#,
+        );
+        let content = guideline_body("Content Types", "");
+        let f = MockHttpFetcher::new()
+            .route("j.test/for-authors", 200, &entry)
+            .route("j.test/content", 200, &content);
+        let out = crawl(&f, &roomy(), &budget(10, 2), "https://j.test/for-authors").unwrap();
+
+        assert_eq!(out.guideline, 1, "{:#?}", out.pages);
+        let page = out.pages.iter().find(|p| p.url.contains("/content")).expect("fetched");
+        assert_eq!(page.verdict, "guideline");
+        assert!(!page.lexicon_hit, "the whole point: no lexicon term matches it");
+        assert_eq!(out.lexicon_misses, 1, "the standing evidence for the inversion");
+    }
+
+    /// **Depth dominates the lexicon.** A lexicon miss one hop away must be
+    /// fetched before a lexicon hit three hops away — otherwise a budget cuts
+    /// off exactly the pages fetch-and-classify exists to find. Measured:
+    /// before this, a 40-page crawl of Nature Medicine never reached
+    /// `/nm/content`.
+    #[test]
+    fn a_near_lexicon_miss_beats_a_distant_lexicon_hit() {
+        let entry = nav_body(
+            "For authors",
+            r#"<a href="https://j.test/content">Content types</a>
+               <a href="https://j.test/author-guidelines">Author guidelines</a>"#,
+        );
+        // The guidelines page links onward to more lexicon hits at depth 2.
+        let deep: String = (0..10)
+            .map(|i| format!(r#"<a href="https://j.test/author-deep{i}">Author formatting {i}</a>"#))
+            .collect();
+        let mut f = MockHttpFetcher::new()
+            .route("j.test/for-authors", 200, &entry)
+            .route("j.test/author-guidelines", 200, &guideline_body("Guidelines", &deep))
+            .route("j.test/content", 200, &guideline_body("Content Types", ""));
+        for i in 0..10 {
+            f = f.route(&format!("j.test/author-deep{i}"), 200, &guideline_body("Deep", ""));
+        }
+        // A budget that cannot hold everything: entry + both depth-1 pages + some.
+        let out = crawl(&f, &roomy(), &budget(4, 3), "https://j.test/for-authors").unwrap();
+        assert_eq!(out.stopped_by, StoppedBy::Budget);
+        assert!(
+            out.pages.iter().any(|p| p.url.ends_with("/content")),
+            "the depth-1 lexicon miss must be reached before depth-2 hits: {:#?}",
+            out.pages.iter().map(|p| (&p.url, p.depth)).collect::<Vec<_>>()
+        );
+        assert_eq!(out.lexicon_misses, 1);
+    }
+
+    /// The lexicon still ORDERS the crawl: a matching link is fetched before a
+    /// non-matching one at the same depth.
+    #[test]
+    fn the_lexicon_decides_order_and_never_admission() {
+        let entry = nav_body(
+            "Home",
+            r#"<a href="https://j.test/zzz">Content types</a>
+               <a href="https://j.test/author-guidelines">Author guidelines</a>"#,
+        );
+        let f = MockHttpFetcher::new()
+            .route("j.test/home", 200, &entry)
+            .route("j.test/zzz", 200, &guideline_body("Content Types", ""))
+            .route("j.test/author-guidelines", 200, &guideline_body("Guidelines", ""));
+        let out = crawl(&f, &roomy(), &budget(10, 2), "https://j.test/home").unwrap();
+        let order: Vec<&str> = out.pages.iter().map(|p| p.url.as_str()).collect();
+        let g = order.iter().position(|u| u.contains("author-guidelines")).unwrap();
+        let z = order.iter().position(|u| u.contains("zzz")).unwrap();
+        assert!(g < z, "the lexicon hit should be fetched first: {order:?}");
+        // And both were fetched, which is what "order, not admission" means.
+        assert_eq!(out.guideline, 2);
+    }
+
+    /// **An interstitial's links are the bot-wall's.** The challenge page links
+    /// to a page that would classify as guideline content; it must never be
+    /// fetched, because the request never reached the journal.
+    #[test]
+    fn links_from_an_interstitial_are_not_followed() {
+        let challenge = format!(
+            "<html><head><title>Client Challenge</title></head><body>\
+             A required part of this site couldn't load.\
+             <a href=\"https://j.test/vendor-help\">Help</a></body></html>"
+        );
+        let f = MockHttpFetcher::new()
+            .route("j.test/guidelines", 200, &challenge)
+            .route("j.test/vendor-help", 200, &guideline_body("Help", ""));
+        let out = crawl(&f, &roomy(), &budget(10, 3), "https://j.test/guidelines").unwrap();
+        assert_eq!(out.interstitial, 1);
+        assert_eq!(out.fetched, 1, "the challenge page's links must not be followed");
+        assert!(out.pages.iter().all(|p| !p.url.contains("vendor-help")), "{:#?}", out.pages);
+    }
+
+    /// A navigation page's links ARE followed — it is the journal's page, just
+    /// not guidance. Without this the crawl stops at every hub.
+    #[test]
+    fn links_from_a_navigation_page_are_followed() {
+        let entry = nav_body("Home", r#"<a href="https://j.test/author-guidelines">Authors</a>"#);
+        let f = MockHttpFetcher::new()
+            .route("j.test/home", 200, &entry)
+            .route("j.test/author-guidelines", 200, &guideline_body("Guidelines", ""));
+        let out = crawl(&f, &roomy(), &budget(10, 2), "https://j.test/home").unwrap();
+        assert_eq!(out.navigation, 1);
+        assert_eq!(out.guideline, 1);
+    }
+
+    /// **A crawl stopped by its budget is a coverage claim you cannot make**,
+    /// and the outcome has to say so.
+    #[test]
+    fn a_crawl_stopped_by_the_budget_says_so() {
+        let many: String = (0..30)
+            .map(|i| format!(r#"<a href="https://j.test/p{i}">Author guidelines {i}</a>"#))
+            .collect();
+        let mut f = MockHttpFetcher::new().route("j.test/home", 200, &nav_body("Home", &many));
+        for i in 0..30 {
+            f = f.route(&format!("j.test/p{i}"), 200, &guideline_body("Guidelines", ""));
+        }
+        let out = crawl(&f, &roomy(), &budget(5, 3), "https://j.test/home").unwrap();
+        assert_eq!(out.fetched, 5, "the budget is a HARD cap");
+        assert_eq!(out.stopped_by, StoppedBy::Budget);
+        assert!(out.unvisited > 0, "candidates were left queued");
+
+        // And the same crawl with room finishes, so the flag tracks the budget
+        // rather than always being set.
+        let out2 = crawl(&f, &roomy(), &budget(100, 3), "https://j.test/home").unwrap();
+        assert_eq!(out2.stopped_by, StoppedBy::FrontierExhausted);
+        assert_eq!(out2.unvisited, 0);
+    }
+
+    /// **A shared host is not a journal.** `journals.plos.org` serves every
+    /// PLOS journal; a crawl of PLOS ONE that wanders into PLOS Genetics is
+    /// spending one journal's budget on six. Measured before this rule existed.
+    #[test]
+    fn a_crawl_stays_inside_the_journals_own_path_segment() {
+        let entry = nav_body(
+            "Submission guidelines",
+            r#"<a href="https://j.test/plosone/s/tables">Tables</a>
+               <a href="https://j.test/plosgenetics/s/tables">Tables</a>"#,
+        );
+        let f = MockHttpFetcher::new()
+            .route("j.test/plosone/s/submission-guidelines", 200, &entry)
+            .route("j.test/plosone/s/tables", 200, &guideline_body("Tables", ""))
+            .route("j.test/plosgenetics/s/tables", 200, &guideline_body("Tables", ""));
+        let mut b = budget(10, 2);
+        b.journal_path_segments.insert("j.test".into(), 1);
+        let out =
+            crawl(&f, &roomy(), &b, "https://j.test/plosone/s/submission-guidelines").unwrap();
+        assert_eq!(out.fetched, 2, "{:#?}", out.pages);
+        assert!(out.pages.iter().all(|p| !p.url.contains("plosgenetics")), "{:#?}", out.pages);
+    }
+
+    /// Research articles and subject taxonomies are never author guidance, and
+    /// following them spends the budget on content. This is the rule that made
+    /// `lexicon_misses` mean what it claims.
+    #[test]
+    fn research_content_and_taxonomies_are_never_followed() {
+        for u in [
+            "https://www.elsevier.com/legal/privacy-policy",
+            "https://onlinelibrary.wiley.com/termsAndConditions",
+            "https://journals.plos.org/plosone/article?id=10.1371/journal.pgen.1012293",
+            "https://onlinelibrary.wiley.com/topic/browse/000079",
+            "https://onlinelibrary.wiley.com/toc/10970258/current",
+            "https://www.bmj.com/content/378/bmj-2021-069048",
+            "https://www.bmj.com/lookup/ijlink/abc",
+            "https://onlinelibrary.wiley.com/sitemap",
+        ] {
+            assert!(never_follow(u), "should not be followed: {u}");
+        }
+        // …and the shapes that LOOK similar but are guidance.
+        for u in [
+            "https://www.nature.com/nm/content",
+            "https://www.thelancet.com/what-we-publish",
+            "https://journals.plos.org/plosone/s/tables",
+        ] {
+            assert!(!never_follow(u), "must still be followed: {u}");
+        }
+    }
+
+    /// **Waiting for a token is not giving up.** The first version broke out of
+    /// the loop when the limiter refused the last queued candidate, so a
+    /// second journal on the same host could report `FrontierExhausted` having
+    /// fetched nothing. Measured on Nature Communications.
+    #[test]
+    fn an_exhausted_rate_limiter_is_reported_not_silently_treated_as_finished() {
+        let entry = nav_body("Home", r#"<a href="https://j.test/author-guidelines">Authors</a>"#);
+        let f = MockHttpFetcher::new()
+            .route("j.test/home", 200, &entry)
+            .route("j.test/author-guidelines", 200, &guideline_body("G", ""));
+        // A limiter with no tokens and no refill within the wait window.
+        // One token, no refill: the entry is fetched, the next candidate is not.
+        let empty = RateLimiter::new(1.0, 0.000_01);
+        let out = crawl(&f, &empty, &budget(10, 2), "https://j.test/home").unwrap();
+        assert_eq!(out.fetched, 1);
+        assert!(out.rate_limited, "a crawl that fetched nothing must say why");
+        assert!(out.unvisited > 0, "the entry is still queued, not consumed");
+    }
+
+    #[test]
+    fn the_depth_bound_holds_and_zero_means_the_entry_page_alone() {
+        let entry = nav_body("Home", r#"<a href="https://j.test/author-guidelines">Authors</a>"#);
+        let f = MockHttpFetcher::new()
+            .route("j.test/home", 200, &entry)
+            .route("j.test/author-guidelines", 200, &guideline_body("G", ""));
+        let out = crawl(&f, &roomy(), &budget(10, 0), "https://j.test/home").unwrap();
+        assert_eq!(out.fetched, 1);
+        assert_eq!(out.stopped_by, StoppedBy::FrontierExhausted);
+    }
+
+    #[test]
+    fn the_crawl_stays_on_the_journals_domain_unless_a_host_is_allowlisted() {
+        let entry = nav_body(
+            "Home",
+            r#"<a href="https://elsewhere.test/author-guidelines">Authors</a>"#,
+        );
+        let f = MockHttpFetcher::new()
+            .route("j.test/home", 200, &entry)
+            .route("elsewhere.test/author-guidelines", 200, &guideline_body("G", ""));
+        let out = crawl(&f, &roomy(), &budget(10, 2), "https://j.test/home").unwrap();
+        assert_eq!(out.fetched, 1, "off-domain must not be followed");
+
+        let mut b = budget(10, 2);
+        b.author_services_hosts = vec!["elsewhere.test".into()];
+        let out2 = crawl(&f, &roomy(), &b, "https://j.test/home").unwrap();
+        assert_eq!(out2.fetched, 2, "an allowlisted publisher host is followed");
+    }
+
+    #[test]
+    fn a_page_is_fetched_once_however_many_times_it_is_linked() {
+        let entry = nav_body(
+            "Home",
+            r#"<a href="https://j.test/g">Authors</a><a href="https://j.test/g/">Authors</a>
+               <a href="https://j.test/g#section">Authors</a>"#,
+        );
+        let f = MockHttpFetcher::new()
+            .route("j.test/home", 200, &entry)
+            .route("j.test/g", 200, &guideline_body("G", ""));
+        let out = crawl(&f, &roomy(), &budget(10, 2), "https://j.test/home").unwrap();
+        assert_eq!(out.fetched, 2, "{:#?}", out.pages);
+    }
+
+    // ---- the budget lives in config, not code -------------------------
+
+    #[test]
+    fn the_budget_is_read_from_config_and_has_no_compiled_in_default() {
+        let b = CrawlBudget::from_json(
+            r#"{"max_pages": 7, "max_depth": 2, "author_services_hosts": ["x.test"]}"#,
+        )
+        .unwrap();
+        assert_eq!(b.max_pages, 7);
+        assert_eq!(b.max_depth, 2);
+        // A budget of zero is a configuration error, not "crawl nothing".
+        assert!(CrawlBudget::from_json(r#"{"max_pages": 0, "max_depth": 2}"#).is_err());
+        assert!(CrawlBudget::from_json("not json").is_err());
+    }
+
+    /// The shipped config must parse, or the crawl has no bounds at runtime.
+    #[test]
+    fn the_shipped_config_file_parses() {
+        let s = include_str!("../config/journal-crawl.json");
+        let b = CrawlBudget::from_json(s).expect("config/journal-crawl.json");
+        assert!(b.max_pages >= 1 && b.max_depth <= 5, "{b:?}");
+        assert!(!b.author_services_hosts.is_empty());
+        assert!(b.max_rate_wait_ticks > 0, "a zero wait gives up on the first refusal");
+        assert!(b.journal_path_segments.contains_key("journals.plos.org"), "{b:?}");
+    }
+
+    #[test]
+    fn links_are_resolved_relative_to_the_page_they_were_found_on() {
+        let base = Url::parse("https://j.test/a/b").unwrap();
+        let got = links(
+            r#"<a href="../c">C</a><a href="/d">D</a><a href="https://j.test/e">E</a>"#,
+            &base,
+        );
+        let urls: Vec<&str> = got.iter().map(|(u, _)| u.as_str()).collect();
+        assert_eq!(urls, vec!["https://j.test/c", "https://j.test/d", "https://j.test/e"]);
+        assert_eq!(got[0].1, "C");
+    }
+}

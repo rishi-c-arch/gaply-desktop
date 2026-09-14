@@ -1,0 +1,51 @@
+{
+  "_comment": [
+    "The journal crawl's cost bounds. THESE LIVE HERE, NOT IN CODE (Prompt 5).",
+    "Discovery is fetch-and-classify: every candidate link costs one request,",
+    "so these two numbers are the entire difference between crawling a journal",
+    "and crawling a publisher. Changing them must not need a recompile.",
+    "",
+    "max_pages: hard budget per journal. A crawl that stops here has NOT",
+    "  covered the journal, and the outcome says so — see StoppedBy::Budget.",
+    "max_depth: 0 is the entry page alone; 3 is §3.4's stated bound.",
+    "author_services_hosts: publisher-wide guideline domains, which are not the",
+    "  journal's own host but do carry its requirements. Allowlisted, never",
+    "  inferred, because 'the publisher's domain' is not something a crawler can",
+    "  derive from a URL without wandering.",
+    "",
+    "journal_path_segments: how many leading path segments identify the JOURNAL",
+    "  on a host that serves many. journals.plos.org/plosone/... is one;",
+    "  frontiersin.org/journals/public-health/... is two; a host that serves one",
+    "  journal is absent from this map and scopes to the whole host.",
+    "  Measured: without it, a crawl of PLOS ONE wandered into PLOS Genetics,",
+    "  PLOS Pathogens and PLOS Biology and spent one journal's budget on six;",
+    "  and a crawl of The Lancet reached six sibling Lancet journals' homepages.",
+    "",
+    "  IT DOES NOT FIT EVERY PUBLISHER, and that is a limit of the approach",
+    "  rather than a missing entry. Wiley identifies a journal by an id that",
+    "  appears at varying path positions (/page/journal/10970258/... and",
+    "  /journal/10970258/...), so no leading-segment prefix isolates it; SAGE's",
+    "  entry path (/author-instructions/JHP) names the SECTION first and the",
+    "  journal second. Both are left absent, which scopes them to the whole",
+    "  host and shows up as off-journal pages in the crawl list — visible,",
+    "  which is the property that makes this rule acceptable at all."
+  ],
+  "max_pages": 40,
+  "max_rate_wait_ticks": 24,
+  "max_depth": 3,
+  "journal_path_segments": {
+    "journals.plos.org": 1,
+    "www.nature.com": 1,
+    "www.frontiersin.org": 2,
+    "www.thelancet.com": 1,
+    "link.springer.com": 2
+  },
+  "author_services_hosts": [
+    "authorservices.springernature.com",
+    "authorservices.wiley.com",
+    "authorservices.taylorandfrancis.com",
+    "www.elsevier.com",
+    "journals.plos.org",
+    "www.biomedcentral.com"
+  ]
+}

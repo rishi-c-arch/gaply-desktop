@@ -50,6 +50,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Measured 14 Sep 2026 — see `http_fetcher.rs`.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking", "cookies", "gzip", "brotli"] }
 tokio = { version = "1", features = ["full"] }
+# Journal crawl: resolving relative hrefs and comparing hosts. Already in the
+# lock file via reqwest, so this adds no download — declared directly because a
+# dependency of a dependency is not in scope for this crate.
+url = "2"
 
 # Supplementary-file parsing (PublishReady, APP-CRATE ONLY — gaply-core stays
 # pure). calamine: pure-Rust Excel reader (xlsx/xls/ods), no C libs, no OpenSSL.

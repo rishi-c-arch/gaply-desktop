@@ -297,7 +297,21 @@ And the pipeline v4 said did not exist is wired end to end:
             → article-type binding → JournalFingerprint
   ```
 
-  Discovery is bounded to the journal's own domain and the publisher's author-services domain, follows only links whose anchor text or path names a guideline topic, and stops at a depth of three. Every fetched document passes the injection guards (strip_hidden, denylist, perplexity, quarantine); they stay and are extended per §11. The output is a **source tree**, and every extracted requirement records its `source_document`, `source_heading` and `source_span` — the exact sentence — not just a URL.
+  Discovery is bounded to the journal's own domain and the publisher's author-services domain, and stops at a depth of three.
+
+  **[v6 — THE DISCOVERY RULE IS INVERTED. v5 said "follows only links whose anchor text or path names a guideline topic"; that is now crawl ORDER, never admission.]**
+
+  **The evidence is Nature Medicine.** Every extractable requirement it publishes — main-text limits of 4,000 / 2,000 / 1,000 words, abstract 150, references 10, display items 2, each already bound to an article type — is on ONE page: `https://www.nature.com/nm/content`. Its path is `/nm/content`; its anchor text is *"Content types"*. Neither names a guideline topic. A 30-term lexicon written by reading PLOS does not contain that phrase, and PLOS has no equivalent page to learn it from — its article types are inside the submission-guidelines page.
+
+  The deciding argument is not that a lexicon is incomplete; every heuristic is. It is that **a lexicon's completeness is unknowable for a publisher nobody has read, and its failure is silent** — a crawl that skipped the only page with numbers on it looks exactly like a crawl that found everything.
+
+  So discovery is **fetch-and-classify**: follow links on the journal's own domain within the depth bound, fetch the page, and let `guidelines::classify_page` decide what it is. The lexicon orders the frontier, so a missing term costs latency rather than coverage.
+
+  **The standing evidence is a number, reported per journal: `lexicon_misses`** — pages classified `Guideline` that no lexicon term would have admitted. Every one is a page the v5 rule would have dropped without saying so.
+
+  **Two bounds, in `config/journal-crawl.json` and not in code, because fetch-and-classify costs one request per candidate and the bounds are the whole difference between crawling a journal and crawling a publisher:** `max_pages` and `max_depth`. There is no compiled-in default — a missing or malformed config is an error, since a budget that silently falls back to a constant is a budget nobody set. **A crawl that ends on `max_pages` is reported as `StoppedBy::Budget`, and any count derived from it is a lower bound rather than a coverage claim.**
+
+  **Links from an `Interstitial` are never followed.** A bot challenge or cookie wall returned with HTTP 200 means the request did not reach the journal; its `<a>` elements are the vendor's error furniture, and following them spends the budget on a wall. Every fetched document passes the injection guards (strip_hidden, denylist, perplexity, quarantine); they stay and are extended per §11. The output is a **source tree**, and every extracted requirement records its `source_document`, `source_heading` and `source_span` — the exact sentence — not just a URL.
 - **Every journal fact carries a status**, and the product never flattens them into "the journal requires…":
 
   | Status | Meaning | Example |
