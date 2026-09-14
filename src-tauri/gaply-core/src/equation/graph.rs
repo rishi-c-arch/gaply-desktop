@@ -74,8 +74,9 @@ use std::collections::BTreeMap;
 
 use super::check::BoundValues;
 use super::expr::Expr;
-use super::linear::{parse_equation, Equation};
+use super::linear::{parse_equation, parse_equation_with, Equation};
 use super::rational::Rational;
+use super::units::{parse_unit, Unit, UnitEnv};
 
 /// Where a binding came from. Never merged — a reader must be able to see
 /// whether a value was derived from the mathematics or read from a sentence.
@@ -137,6 +138,10 @@ pub struct EquationGraph {
     pub nodes: Vec<EquationNode>,
     pub bindings: Vec<Binding>,
     pub refused: Vec<Refusal>,
+    /// Units read from prose definitions in declaration blocks. A LABELLED
+    /// definition's own annotation overrides these — the manuscript's formal
+    /// statement outranks its gloss.
+    pub prose_units: UnitEnv,
 }
 
 impl EquationGraph {
@@ -158,6 +163,68 @@ impl EquationGraph {
 
     pub fn binding(&self, name: &str) -> Option<&Binding> {
         self.bindings.iter().find(|b| b.name == name)
+    }
+
+    /// What each named quantity is measured in.
+    ///
+    /// **A manuscript states a quantity's units on the LEFT of its own defining
+    /// equation** — `Total Hardness (mg/L as CaCO₃) = (V × N × 50,000)/Vsample`
+    /// — and nowhere else. So the environment is exactly the set of labelled
+    /// definitions, and a unit annotation the table cannot read is dropped with
+    /// its name rather than guessed at.
+    pub fn unit_env(&self) -> UnitEnv {
+        let mut env = self.prose_units.clone();
+        for n in &self.nodes {
+            let Some(side) = n.equation.sides.first() else { continue };
+            let (Expr::Var(name), Some(text)) = (&side.expr, &side.unit) else { continue };
+            if let Ok(u) = parse_unit(text) {
+                env.insert(name.clone(), u);
+            }
+        }
+        // **A definition gives its left side the unit its right side derives.**
+        // `Magnesium Hardness = Total Hardness − Calcium Hardness` states no
+        // unit on the left, and both operands are `mg/L as CaCO₃`, so the
+        // quantity IS `mg/L as CaCO₃`. Without this the equation reads as
+        // unverifiable when the manuscript has in fact determined it.
+        //
+        // Iterated to a fixed point, because one definition can supply the
+        // input to another, and bounded by the node count so a circular pair
+        // cannot spin.
+        for _ in 0..self.nodes.len() {
+            let mut learned = false;
+            for n in &self.nodes {
+                let Some(side) = n.equation.sides.first() else { continue };
+                let Expr::Var(name) = &side.expr else { continue };
+                if env.contains_key(name) {
+                    continue;
+                }
+                let Some(rhs) = n.equation.sides.get(1) else { continue };
+                if let Ok(u) = super::units::unit_of(&rhs.expr, &env) {
+                    if u.dimension.is_some() {
+                        env.insert(name.clone(), u);
+                        learned = true;
+                    }
+                }
+            }
+            if !learned {
+                break;
+            }
+        }
+        env
+    }
+
+    /// Multi-word names this document DECLARED, by defining them. The parser
+    /// joins adjacent identifiers only into one of these.
+    pub fn declared_names(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for n in &self.nodes {
+            if let Some(Expr::Var(name)) = n.equation.sides.first().map(|s| &s.expr) {
+                if name.contains(' ') && !out.contains(name) {
+                    out.push(name.clone());
+                }
+            }
+        }
+        out
     }
 
     fn record(&mut self, name: String, value: Rational, decimals: u32, source: BindingSource) {
@@ -338,6 +405,71 @@ fn consistent_restatement(expr: &Expr) -> Option<(Rational, u32)> {
     None
 }
 
+/// **A prose definition that supplies a UNIT rather than a value.**
+///
+/// `chapter3 .docx` declares 11 quantities with `(mg/L)` on the left of their
+/// formulas and then states every right-hand variable in prose:
+///
+/// ```text
+/// where Vtitrant = mL of Na₂S₂O₃ used; N = normality of thiosulphate;
+///       V = volume of EDTA used (mL); L = path length (cm);
+///       t = duration of the reaction (min)
+/// ```
+///
+/// Without these the dimensional check is `UNVERIFIED` on every real formula
+/// in the document richest in units — measured: 11 units declared, 0 checks
+/// performed.
+///
+/// **The predicate.** A definition supplies a unit when the prose either
+/// BEGINS with a known unit symbol (`Vtitrant = mL of …`) or ENDS with a
+/// parenthetical whose entire content is one (`V = volume of EDTA used (mL)`).
+/// Nothing else. The symbol must be in the unit table, so
+/// `N = normality of thiosulphate` and `N = normality of AgNO₃ (0.0141 N)`
+/// supply NOTHING — `N` is normality here and the newton in SI, and the table
+/// refuses it (see [`super::units`]).
+///
+/// Note it reads the UNIT, never the name: `L = path length (cm)` gives `L` the
+/// unit centimetre, and the fact that `L` is also the symbol for litre is
+/// irrelevant because only the right-hand side is consulted.
+pub fn unit_declaration(line: &str) -> Option<(String, Unit)> {
+    let (head, rest) = line.split_once('=')?;
+    // A `where` block runs as one line: `where Vtitrant = mL …; and 8000 = …`.
+    // The introducer and the conjunction belong to the SENTENCE, not the name.
+    let mut name = head.trim();
+    for lead in ["where ", "Where ", "in which ", "and ", "with "] {
+        if let Some(r) = name.strip_prefix(lead) {
+            name = r.trim();
+        }
+    }
+    if name.is_empty()
+        || name.chars().count() > 24
+        || !name.chars().next()?.is_alphabetic()
+        || !name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c.is_whitespace() || ('\u{2080}'..='\u{2089}').contains(&c))
+    {
+        return None;
+    }
+    let rest = rest.trim().trim_end_matches('.').trim();
+    // Form B: a trailing parenthetical that is entirely a unit.
+    if rest.ends_with(')') {
+        if let Some(o) = rest.rfind('(') {
+            let inner = rest[o + 1..rest.len() - 1].trim();
+            if let Ok(u) = parse_unit(inner) {
+                if u.dimension.is_some() {
+                    return Some((name.to_string(), u));
+                }
+            }
+        }
+    }
+    // Form A: the prose begins with a unit.
+    let first = rest.split_whitespace().next()?;
+    match parse_unit(first) {
+        Ok(u) if u.dimension.is_some() => Some((name.to_string(), u)),
+        _ => None,
+    }
+}
+
 /// Does this line declare a value, under conditions 1, 2 and 5?
 ///
 /// Conditions 3 (scope) and 4 (uniqueness) are the caller's, because neither is
@@ -444,13 +576,26 @@ pub fn unify(
 /// Equations become nodes; the block after each equation is read for
 /// declarations of the names THAT equation uses.
 pub fn graph_from_lines(lines: &[String]) -> EquationGraph {
+    // FIRST PASS with no vocabulary, to learn which multi-word names the
+    // document declares; SECOND PASS with them, so `Total Hardness − Calcium
+    // Hardness` reads as two quantities rather than failing on adjacent
+    // identifiers. Only names the document introduced are ever joined.
+    let first = build(lines, &[]);
+    let names = first.declared_names();
+    if names.is_empty() {
+        return first;
+    }
+    build(lines, &names)
+}
+
+fn build(lines: &[String], names: &[String]) -> EquationGraph {
     let mut g = EquationGraph::default();
     let mut equation_at: Vec<usize> = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         if declaration_binding(line).is_some() {
             continue;
         }
-        if let Ok(eq) = parse_equation(line) {
+        if let Ok(eq) = parse_equation_with(line, names) {
             let needs_check = eq.sides.iter().skip(1).any(|s| !s.expr.variables().is_empty())
                 || eq.sides.len() > 2;
             if needs_check {
@@ -470,6 +615,14 @@ pub fn graph_from_lines(lines: &[String]) -> EquationGraph {
             .collect();
         let block = DeclarationBlock::following(lines, *line_index, Some(*line_index));
         g.bind_from_declarations(&block, &names);
+        for line in &block.lines {
+            // `where` blocks are semicolon-separated in this corpus.
+            for clause in line.split(';') {
+                if let Some((n, u)) = unit_declaration(clause) {
+                    g.prose_units.entry(n).or_insert(u);
+                }
+            }
+        }
         for n in names {
             if !all_names.contains(&n) {
                 all_names.push(n);
@@ -739,6 +892,56 @@ mod tests {
             .collect();
         assert!(!found.is_empty(), "a wrong value must be caught");
         assert_eq!(found[0].status, EpistemicStatus::Detected);
+    }
+
+    /// A definition whose right side has a derivable unit gives its left side
+    /// that unit — the graph doing what §6b.1 describes.
+    #[test]
+    fn a_definition_propagates_its_unit_to_the_quantity_it_defines() {
+        let src = lines(&[
+            "Total Hardness (mg/L as CaCO₃) = (V × N × 50,000) / Vsample",
+            "Calcium Hardness (mg/L as CaCO₃) = (V × N × 50,000) / Vsample",
+            "Magnesium Hardness = Total Hardness − Calcium Hardness",
+        ]);
+        let g = graph_from_lines(&src);
+        let env = g.unit_env();
+        let m = env.get("Magnesium Hardness").expect("propagated from the subtraction");
+        assert_eq!(m.basis.as_deref(), Some("CaCO₃"));
+        assert_eq!(m.dimension.unwrap().render(), "M·L⁻³");
+    }
+
+    /// A prose `where` clause supplies units for the variables a formula uses.
+    #[test]
+    fn a_where_clause_supplies_units_under_the_stated_predicate() {
+        // Form A: the prose begins with the unit.
+        let (n, u) = unit_declaration("Vtitrant = mL of Na₂S₂O₃ used").expect("form A");
+        assert_eq!(n, "Vtitrant");
+        assert_eq!(u.dimension.unwrap().render(), "L³");
+        // Form B: a trailing parenthetical that is entirely a unit.
+        let (n, u) = unit_declaration("V = volume of EDTA used (mL)").expect("form B");
+        assert_eq!(n, "V");
+        assert_eq!(u.dimension.unwrap().render(), "L³");
+        // The introducer belongs to the sentence, not the name.
+        assert_eq!(unit_declaration("where Vtitrant = mL of X").unwrap().0, "Vtitrant");
+        // It reads the UNIT, never the name: `L` here is a path length in cm.
+        let (n, u) = unit_declaration("L = path length (cm)").expect("a name that looks like a unit");
+        assert_eq!(n, "L");
+        assert_eq!(u.dimension.unwrap().render(), "L");
+    }
+
+    /// **`N` supplies nothing, and that is deliberate.** It is normality here
+    /// and the newton in SI. Admitting it would make ten of `chapter3 .docx`'s
+    /// fourteen formulas *appear* checkable while their dimensioned constants
+    /// (8000, 50,000, 35.45) stayed unitless — and a partial unit system
+    /// manufactures mismatches on correct formulas.
+    #[test]
+    fn a_prose_definition_with_no_machine_readable_unit_supplies_nothing() {
+        assert_eq!(unit_declaration("N = normality of thiosulphate"), None);
+        assert_eq!(unit_declaration("N = normality of AgNO₃ (0.0141 N)"), None);
+        assert_eq!(unit_declaration("ε = molar extinction coefficient"), None);
+        assert_eq!(unit_declaration("8000 = milliequivalent weight of O₂ × 1000"), None);
+        // And a value declaration is not a unit declaration.
+        assert_eq!(unit_declaration("N = 237,000"), None);
     }
 
     /// Unbound names are RECORDED as unbound, not silently dropped.

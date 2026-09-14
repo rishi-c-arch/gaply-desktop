@@ -5,11 +5,13 @@
 //! overrides every model in the system.
 use gaply_core::equation::check::check_equation;
 use gaply_core::equation::graph::{graph_from_lines, BindingSource};
+use gaply_core::equation::units::{check_sides, DimensionVerdict};
 use gaply_core::extract::{docparse, omml};
 use std::path::Path;
 
 fn main() {
     let (mut bound, mut refused, mut findings) = (0usize, 0usize, 0usize);
+    let (mut consistent, mut dim_findings, mut unverified) = (0usize, 0usize, 0usize);
     for a in std::env::args().skip(1) {
         let p = Path::new(&a);
         let name = p.file_name().and_then(|s| s.to_str()).unwrap_or(&a);
@@ -74,6 +76,35 @@ fn main() {
             }
             refused += 1;
         }
+        for n in &g.nodes {
+            println!("  EQ      {}", n.equation.text); // EQLIST
+        }
+        // Dimensional consistency, over the units the manuscript declares.
+        let env = g.unit_env();
+        if !env.is_empty() {
+            println!("  units declared: {}", env.len());
+        }
+        for n in &g.nodes {
+            for (l, r) in n.equation.claims() {
+                match check_sides(&l.expr, &r.expr, &env) {
+                    DimensionVerdict::Consistent { unit } => {
+                        consistent += 1;
+                        println!("  DIM ok   [{unit}]  {}", n.equation.text);
+                    }
+                    DimensionVerdict::Inconsistent { detail, .. } => {
+                        dim_findings += 1;
+                        println!("  DIM BAD  {detail}");
+                        println!("           {}", n.equation.text);
+                    }
+                    DimensionVerdict::Unverified { reason } => {
+                        unverified += 1;
+                        println!("  DIM ?    {reason}");
+                        println!("           {}", n.equation.text);
+                    }
+                }
+            }
+        }
+
         let vals = g.bound_values();
         for n in &g.nodes {
             for c in check_equation(&n.equation, &vals) {
@@ -85,5 +116,8 @@ fn main() {
             }
         }
     }
-    println!("\ntotal bound={bound}  refused={refused}  reportable findings={findings}");
+    println!(
+        "\ntotal bound={bound}  refused={refused}  arithmetic findings={findings}\n\
+         dimensions: consistent={consistent}  inconsistent={dim_findings}  unverified={unverified}"
+    );
 }

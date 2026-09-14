@@ -63,3 +63,4 @@ pub mod graph;
 pub mod interval;
 pub mod linear;
 pub mod rational;
+pub mod units;

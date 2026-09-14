@@ -629,6 +629,10 @@ fn as_label_phrase(s: &str) -> Option<String> {
 }
 
 fn parse_side(text: &str) -> Result<Side, ParseError> {
+    parse_side_with(text, &[])
+}
+
+fn parse_side_with(text: &str, names: &[String]) -> Result<Side, ParseError> {
     let raw = text.trim();
     if raw.is_empty() {
         return Err(ParseError::EmptySide);
@@ -643,12 +647,83 @@ fn parse_side(text: &str) -> Result<Side, ParseError> {
     if toks.is_empty() {
         return Err(ParseError::EmptySide);
     }
+    let (toks, spaced) = join_known_names(toks, spaced, names);
     let mut p = P { t: &toks, spaced: &spaced, i: 0 };
     let e = p.expr()?;
     if p.i != toks.len() {
         return Err(ParseError::UnexpectedToken(format!("{:?}", toks[p.i])));
     }
     Ok(Side { expr: e, text: raw.to_string(), unit: None })
+}
+
+/// **Join adjacent identifiers into a name the DOCUMENT declared.**
+///
+/// `Magnesium Hardness = Total Hardness − Calcium Hardness` is a real line from
+/// `chapter3 .docx`, and `Total Hardness` is one quantity. The parser refuses
+/// adjacent identifiers by default because joining them freely turns
+/// `The bootstrapped indirect effect was a × b = 0.413` into an equation whose
+/// left side is a six-word variable — prose wearing the shape of mathematics.
+///
+/// The safe form is a VOCABULARY: a run of identifiers joins only when the
+/// result is a name the document itself introduced, by defining it
+/// (`Total Hardness (mg/L as CaCO₃) = …`). Nothing is invented; the document's
+/// own declarations decide what is a name. Longest match wins, so
+/// `Total Hardness` beats `Total`.
+fn join_known_names(toks: Vec<Tok>, spaced: Vec<bool>, names: &[String]) -> (Vec<Tok>, Vec<bool>) {
+    if names.is_empty() {
+        return (toks, spaced);
+    }
+    let max_words = names
+        .iter()
+        .map(|n| n.split_whitespace().count())
+        .max()
+        .unwrap_or(1)
+        .min(8);
+    let mut out = Vec::with_capacity(toks.len());
+    let mut out_spaced = Vec::with_capacity(toks.len());
+    let mut i = 0usize;
+    while i < toks.len() {
+        let mut matched = None;
+        if matches!(toks[i], Tok::Ident(_)) {
+            for run in (2..=max_words).rev() {
+                if i + run > toks.len() {
+                    continue;
+                }
+                let mut parts = Vec::with_capacity(run);
+                let mut ok = true;
+                for t in &toks[i..i + run] {
+                    match t {
+                        Tok::Ident(w) => parts.push(w.clone()),
+                        _ => {
+                            ok = false;
+                            break;
+                        }
+                    }
+                }
+                if !ok {
+                    continue;
+                }
+                let joined = parts.join(" ");
+                if names.iter().any(|n| *n == joined) {
+                    matched = Some((joined, run));
+                    break;
+                }
+            }
+        }
+        match matched {
+            Some((joined, run)) => {
+                out.push(Tok::Ident(joined));
+                out_spaced.push(spaced.get(i).copied().unwrap_or(false));
+                i += run;
+            }
+            None => {
+                out.push(toks[i].clone());
+                out_spaced.push(spaced.get(i).copied().unwrap_or(false));
+                i += 1;
+            }
+        }
+    }
+    (out, out_spaced)
 }
 
 /// Does this text parse, complete, as an expression?
@@ -689,6 +764,12 @@ pub fn parses_as_expression(s: &str) -> bool {
 /// It is bounded by [`MAX_LINE`] and it never lengthens a parse — a line that
 /// parses whole is tried first and wins.
 pub fn parse_equation(line: &str) -> Result<Equation, ParseError> {
+    parse_equation_with(line, &[])
+}
+
+/// Parse with a vocabulary of multi-word names the document declared.
+/// See [`join_known_names`] for why a vocabulary rather than free joining.
+pub fn parse_equation_with(line: &str, names: &[String]) -> Result<Equation, ParseError> {
     let line = line.trim();
     if line.chars().count() > MAX_LINE {
         return Err(ParseError::TooLong);
@@ -696,7 +777,7 @@ pub fn parse_equation(line: &str) -> Result<Equation, ParseError> {
     if !line.contains('=') {
         return Err(ParseError::NotAnEquation);
     }
-    let full = parse_exact(line);
+    let full = parse_exact_with(line, names);
     if full.is_ok() {
         return full;
     }
@@ -710,7 +791,7 @@ pub fn parse_equation(line: &str) -> Result<Equation, ParseError> {
         if truncation_would_drop_mathematics(&line[end..]) {
             continue;
         }
-        if let Ok(eq) = parse_exact(candidate) {
+        if let Ok(eq) = parse_exact_with(candidate, names) {
             return Ok(eq);
         }
     }
@@ -770,7 +851,7 @@ fn truncation_would_drop_mathematics(remainder: &str) -> bool {
 }
 
 /// Parse a string that must be an equation in its entirety.
-fn parse_exact(line: &str) -> Result<Equation, ParseError> {
+fn parse_exact_with(line: &str, names: &[String]) -> Result<Equation, ParseError> {
     let line = line.trim();
     if !line.contains('=') {
         return Err(ParseError::NotAnEquation);
@@ -805,7 +886,7 @@ fn parse_exact(line: &str) -> Result<Equation, ParseError> {
     }
     let mut sides = Vec::with_capacity(parts.len());
     for p in &parts {
-        sides.push(parse_side(p)?);
+        sides.push(parse_side_with(p, names)?);
     }
     // **An equation with no arithmetic on any side is not an equation.**
     // `Weighted provision = (0.108 × 0.78) + …` is a claim this engine can
