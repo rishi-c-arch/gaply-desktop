@@ -278,6 +278,26 @@ pub fn requirements_for(
     Ok(rows)
 }
 
+/// How many of a journal's requirements came from `pattern` vs `model`.
+///
+/// **The split §3.4 asks to be reported per journal.** It is a count over
+/// `extracted_by`, which is a CHECK-constrained column rather than a
+/// convention, so a third value cannot appear without a migration.
+pub fn count_by_extractor(
+    db: &Database,
+    journal_key: &str,
+    extracted_by: &str,
+) -> Result<usize, GaplyError> {
+    let conn = db.conn()?;
+    let n: i64 = conn.query_row(
+        "SELECT count(*) FROM journal_requirements
+          WHERE journal_key = ?1 AND extracted_by = ?2",
+        params![journal_key, extracted_by],
+        |r| r.get(0),
+    )?;
+    Ok(n as usize)
+}
+
 fn kind_from_str(s: &str) -> RequirementKind {
     match s {
         "word_limit" => RequirementKind::WordLimit,

@@ -72,6 +72,25 @@ pub struct CrawlBudget {
     /// bound like the others.
     #[serde(default)]
     pub max_rate_wait_ticks: u32,
+    /// The journals §3.4 names, as (key, display name, crawl entry).
+    ///
+    /// **Config, not code, for the same reason as the bounds** — and because
+    /// the list previously lived in `examples/journal_crawl_probe.rs`, an
+    /// example binary the app cannot read, so the picker had no way to offer
+    /// "the ten profiled journals" the architecture document describes.
+    #[serde(default)]
+    pub profiled_journals: Vec<ProfiledJournal>,
+}
+
+/// One entry of [`CrawlBudget::profiled_journals`].
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+pub struct ProfiledJournal {
+    /// Primary key of every `journal_*` table. Changing it orphans that
+    /// journal's stored rows.
+    pub key: String,
+    pub name: String,
+    /// Where a crawl starts. Not a page to scrape — an entry point (§3.4 v6).
+    pub entry: String,
 }
 
 impl CrawlBudget {
@@ -585,6 +604,9 @@ mod tests {
             author_services_hosts: vec![],
             journal_path_segments: Default::default(),
             max_rate_wait_ticks: 0,
+            // The crawl does not read this; it is the picker's list. Empty here
+            // so a test cannot accidentally depend on the shipped ten.
+            profiled_journals: vec![],
         }
     }
     fn roomy() -> RateLimiter {

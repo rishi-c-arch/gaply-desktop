@@ -35,6 +35,7 @@ pub mod journal_corpus;
 pub mod journal_expect;
 pub mod journal_extract;
 pub mod journal_standards;
+pub mod journal_fingerprint;
 pub mod journal_store;
 pub mod memory;
 pub mod import_guard;

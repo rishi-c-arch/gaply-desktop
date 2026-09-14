@@ -493,6 +493,102 @@ pub async fn ingest_guidelines(
     .map_err(|e| GaplyError::Internal(format!("ingest guidelines task panicked: {e}")))?
 }
 
+/// One row of the journal picker (Prompt 5 item 9).
+///
+/// **Everything here is known BEFORE a run starts**, which is the item's whole
+/// requirement: a user picking a journal sees what the checklist will be built
+/// from rather than discovering it in the report. `ingested: false` is the
+/// honest answer for a journal nobody has crawled, and the screen offers a
+/// structural-only run labelled as such rather than pretending.
+#[derive(Debug, Serialize)]
+pub struct JournalProfileRow {
+    pub key: String,
+    pub name: String,
+    pub entry: String,
+    /// False when no crawl has ever stored a fingerprint for this key.
+    pub ingested: bool,
+    pub requirement_count: usize,
+    /// Requirements that DISAGREE, counted as disputes rather than as rows —
+    /// two conflicting rows are one conflicted fact.
+    pub conflict_count: usize,
+    pub convention_count: usize,
+    pub expectation_count: usize,
+    pub standard_count: usize,
+    /// **The pattern/model split (§3.4).** `by_model` is 0 today because no
+    /// model-backed extractor exists yet; the field is reported rather than
+    /// omitted so that a future non-zero value is visible the day it appears.
+    pub by_pattern: usize,
+    pub by_model: usize,
+    pub version: Option<i64>,
+    pub fetched_at: Option<i64>,
+    pub quarantine_reason: Option<String>,
+}
+
+/// The ten profiled journals with what ingestion found for each.
+///
+/// Read-only and offline, like `journal_fingerprint`. The list comes from
+/// `config/journal-crawl.json`, so adding a journal is a config change.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn journal_profiles(
+    state: State<'_, AppState>,
+) -> Result<Vec<JournalProfileRow>, GaplyError> {
+    let budget = crate::journal_crawl::CrawlBudget::from_json(include_str!(
+        "../config/journal-crawl.json"
+    ))?;
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut out = Vec::new();
+        for j in &budget.profiled_journals {
+            let fp = gaply_core::journal_fingerprint::fingerprint_for(&db, &j.key)?;
+            let by_pattern =
+                gaply_core::journal_store::count_by_extractor(&db, &j.key, "pattern")?;
+            let by_model = gaply_core::journal_store::count_by_extractor(&db, &j.key, "model")?;
+            out.push(JournalProfileRow {
+                key: j.key.clone(),
+                name: j.name.clone(),
+                entry: j.entry.clone(),
+                ingested: fp.provenance.is_some(),
+                requirement_count: fp.requirements.len(),
+                conflict_count: fp.conflicts.len(),
+                convention_count: fp.conventions.len(),
+                expectation_count: fp.expectations.len(),
+                standard_count: fp.standards.len(),
+                by_pattern,
+                by_model,
+                version: fp.provenance.as_ref().map(|p| p.version),
+                fetched_at: fp.provenance.as_ref().map(|p| p.fetched_at),
+                quarantine_reason: fp.provenance.and_then(|p| p.quarantine_reason),
+            });
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("journal profiles task panicked: {e}")))?
+}
+
+/// **Read one journal's `JournalFingerprint` (Prompt 5 items 9-12).**
+///
+/// Read-only and offline: it opens the database and returns what a previous
+/// crawl stored. It fetches nothing, so calling it cannot change what the
+/// screen shows — which is the backend half of item 8's invariant. A journal
+/// that has never been crawled comes back with `provenance: None` and empty
+/// vectors rather than an error; "nothing ingested" is a state the picker
+/// renders, not a failure.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn journal_fingerprint(
+    state: State<'_, AppState>,
+    journal_key: String,
+) -> Result<gaply_core::journal_fingerprint::JournalFingerprint, GaplyError> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        gaply_core::journal_fingerprint::fingerprint_for(&db, &journal_key)
+    })
+    .await
+    .map_err(|e| GaplyError::Internal(format!("journal fingerprint task panicked: {e}")))?
+}
+
 /// PublishReady result: the local report, the (cloud) reviewer evaluation, and
 /// the exact structured payload sent to the proxy (exposed so the UI/tests can
 /// prove it carries no manuscript text).

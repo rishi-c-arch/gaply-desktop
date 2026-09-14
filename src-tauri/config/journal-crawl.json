@@ -46,6 +46,13 @@
     "    The number that decides it is the host's requirement precision. At 0/N",
     "    the unit is the host, not the path (D163).",
     "",
+    "profiled_journals: the ten §3.4 names, as (key, display name, crawl entry).",
+    "  MOVED HERE from a const in examples/journal_crawl_probe.rs, which is an",
+    "  example binary the app cannot read — so the picker had no way to offer",
+    "  'the ten profiled journals' that the architecture document describes.",
+    "  The `key` is the primary key of every journal_* table and of the",
+    "  fingerprint's provenance row; changing one orphans that journal's rows.",
+    "",
     "journal_path_segments: how many leading path segments identify the JOURNAL",
     "  on a host that serves many. journals.plos.org/plosone/... is one;",
     "  frontiersin.org/journals/public-health/... is two; a host that serves one",
@@ -76,6 +83,18 @@
     "target": 50,
     "maximum": 200
   },
+  "profiled_journals": [
+    { "key": "plos-one",        "name": "PLOS ONE",                   "entry": "https://journals.plos.org/plosone/s/submission-guidelines" },
+    { "key": "plos-medicine",   "name": "PLOS Medicine",              "entry": "https://journals.plos.org/plosmedicine/s/submission-guidelines" },
+    { "key": "nature-medicine", "name": "Nature Medicine",            "entry": "https://www.nature.com/nm/for-authors" },
+    { "key": "nature-comms",    "name": "Nature Communications",      "entry": "https://www.nature.com/ncomms/submission-guidelines" },
+    { "key": "bmj",             "name": "The BMJ",                    "entry": "https://www.bmj.com/about-bmj/resources-authors" },
+    { "key": "lancet",          "name": "The Lancet",                 "entry": "https://www.thelancet.com/lancet/information-for-authors" },
+    { "key": "stat-med",        "name": "Statistics in Medicine",     "entry": "https://onlinelibrary.wiley.com/page/journal/10970258/homepage/forauthors.html" },
+    { "key": "front-pubhealth", "name": "Frontiers in Public Health", "entry": "https://www.frontiersin.org/journals/public-health/for-authors/author-guidelines" },
+    { "key": "jhp-sage",        "name": "J. Health Psychology",       "entry": "https://journals.sagepub.com/author-instructions/JHP" },
+    { "key": "bmc-pubhealth",   "name": "BMC Public Health",          "entry": "https://bmcpublichealth.biomedcentral.com/submission-guidelines" }
+  ],
   "journal_path_segments": {
     "journals.plos.org": 1,
     "www.nature.com": 1,

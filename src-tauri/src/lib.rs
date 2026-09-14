@@ -209,6 +209,8 @@ pub fn run() {
             commands::get_report,
             commands::sample_manuscript_path,
             commands::ingest_guidelines,
+            commands::journal_fingerprint,
+            commands::journal_profiles,
             commands::run_publishready,
             commands::reviewer_letter_availability,
             commands::run_copilot_chat,
