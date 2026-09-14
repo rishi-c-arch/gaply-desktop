@@ -480,11 +480,12 @@ time injection.
   | `word_limit = 100` | *"In the case of text-mining, individual words, concepts and quotes up to 100 words per matching sentence…"* — a re-use licence, not a submission limit |
 
   "46 requirements, 3 conflicts" is a plausible summary, and both of its
-  numbers were wrong — 29 and 1 once the rows were read. **No count caught any of these; printing rows with their
-  spans caught all four.** So: when a pipeline produces facts, make the probe
-  print rows, not totals — and pick the row the pipeline itself would surface,
-  not one you chose. The text-mining quota was found because the probe prints
-  the NEWEST `word_limit` and that happened to be the bad one.
+  numbers were wrong — 29 and 1 once the rows were read. **No count caught any
+  of these; printing rows with their spans caught all four.** So: when a
+  pipeline produces facts, make the probe print rows, not totals — and pick the
+  row the pipeline itself would surface, not one you chose. The text-mining
+  quota was found because the probe prints the NEWEST `word_limit`, and that
+  happened to be the bad one.
 
   **FOUR BOUNDARIES WERE DRAWN TOO WIDE IN ONE PHASE, and each produced data
   that was not the journal's:** the HOST (`journals.plos.org` is every PLOS
