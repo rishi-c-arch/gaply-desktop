@@ -373,6 +373,53 @@ fn host_of(url: &str) -> String {
 // boilerplate stripping needs improving — deliberately avoided here to add no
 // new dependency.
 
+/// Split a page into blocks under their nearest heading.
+///
+/// The Tier-0 extractor ([`gaply_core::journal_extract`]) binds a requirement
+/// to an article type through the heading it sits under, and a flat string
+/// cannot carry that. `nature.com/nm/content` states `up to 4,000 words` under
+/// *Article* and `up to 2,000 words` under *Brief Communication*; the two are
+/// identical in shape and mean different things.
+///
+/// Splitting on `<h1>`–`<h4>` rather than on styling: a heading LEVEL is
+/// declared by the document, where "the bold line above" is a guess about
+/// rendering.
+pub fn html_to_blocks(html: &str) -> Vec<gaply_core::journal_extract::GuidelineBlock> {
+    use gaply_core::journal_extract::GuidelineBlock;
+    let mut out = Vec::new();
+    let lower = html.to_lowercase();
+    let mut heading = String::new();
+    let mut cursor = 0usize;
+    loop {
+        // Find the next heading open tag at or after `cursor`.
+        let next = ["<h1", "<h2", "<h3", "<h4"]
+            .iter()
+            .filter_map(|t| lower[cursor..].find(t).map(|i| (cursor + i, *t)))
+            .min_by_key(|(i, _)| *i);
+        let Some((at, tag)) = next else {
+            let text = html_to_text(&html[cursor..]);
+            if !text.trim().is_empty() {
+                out.push(GuidelineBlock { heading: heading.clone(), text });
+            }
+            break;
+        };
+        let body = html_to_text(&html[cursor..at]);
+        if !body.trim().is_empty() {
+            out.push(GuidelineBlock { heading: heading.clone(), text: body });
+        }
+        // The heading's own text, then continue after its close tag.
+        let close = format!("</{}>", &tag[1..]);
+        let Some(open_end) = lower[at..].find('>').map(|i| at + i + 1) else { break };
+        let Some(close_at) = lower[open_end..].find(&close).map(|i| open_end + i) else {
+            cursor = open_end;
+            continue;
+        };
+        heading = html_to_text(&html[open_end..close_at]);
+        cursor = close_at + close.len();
+    }
+    out
+}
+
 /// `html_to_text` for probes outside this module (`examples/journal_reach_probe.rs`),
 /// so a live measurement runs the SAME extraction the ingest path uses.
 pub fn html_to_text_public(html: &str) -> String {
@@ -766,6 +813,28 @@ mod tests {
             classify_page("Editorial policies | Nature Medicine", &real),
             PageVerdict::Guideline { .. }
         ));
+    }
+
+    /// Blocks carry the heading their text sat under, so the extractor can
+    /// bind a limit to an article type.
+    #[test]
+    fn blocks_carry_the_heading_their_text_sits_under() {
+        let html = "<html><body><p>Intro text here for the page.</p>\
+            <h2>Article</h2><p>Main text - up to 4,000 words.</p>\
+            <h2>Brief Communication</h2><p>Main text - up to 2,000 words.</p></body></html>";
+        let blocks = html_to_blocks(html);
+        let find = |h: &str| blocks.iter().find(|b| b.heading == h).map(|b| b.text.clone());
+        assert!(find("Article").unwrap().contains("4,000"), "{blocks:#?}");
+        assert!(find("Brief Communication").unwrap().contains("2,000"), "{blocks:#?}");
+        // Text before any heading belongs to no heading — not to the first one.
+        assert!(blocks.iter().any(|b| b.heading.is_empty() && b.text.contains("Intro")));
+
+        // End to end: the extractor binds each limit to its own type.
+        let reqs = gaply_core::journal_extract::extract_requirements(&blocks);
+        let pairs: Vec<(&str, Option<&str>)> =
+            reqs.iter().map(|r| (r.value.as_str(), r.article_type.as_deref())).collect();
+        assert!(pairs.contains(&("4000", Some("Article"))), "{pairs:?}");
+        assert!(pairs.contains(&("2000", Some("Brief Communication"))), "{pairs:?}");
     }
 
     #[test]

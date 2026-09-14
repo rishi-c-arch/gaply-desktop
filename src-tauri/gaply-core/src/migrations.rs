@@ -891,6 +891,122 @@ pub const MIGRATIONS: &[Migration] = &[
             DROP TABLE consent_records;
         ",
     },
+    Migration {
+        version: 23,
+        name: "journal_fingerprint",
+        // §7 / Prompt 5 item 1 — the JournalFingerprint's three parts.
+        //
+        // THEY SHARE NO FIELDS AND SIT IN SEPARATE TABLES, and that is the
+        // whole design. §7: a requirement, a convention and an expectation are
+        // "three different kinds of knowledge" and a finding cites exactly one.
+        // Column sets that cannot be confused are how that survives contact
+        // with a later JOIN — a requirement has a `source_span`, a convention
+        // has an `n` and a distribution, an expectation has a `frequency`.
+        // Nothing has all three, so a row cannot be read as the wrong kind.
+        //
+        // journal_guidelines (migration 3) is NOT reused. It is the vestigial
+        // table §3.4 records as never having been written to; building on it
+        // would inherit a schema nobody designed for this.
+        //
+        // EVERY FACT CARRIES A STATUS (Prompt 5 item 2b), CHECKed at the schema
+        // so a row cannot exist without one — the D110 discipline: the
+        // vocabulary lives where the data does.
+        //
+        // `verified` requires a span. A requirement that claims the journal
+        // states something, and cannot quote the sentence, is an assertion
+        // rather than evidence; the CHECK makes that unstorable rather than
+        // merely discouraged.
+        //
+        // `conflicted` facts are stored as TWO ROWS sharing a conflict_id, both
+        // marked conflicted. Prompt 5: "store BOTH, mark the fact CONFLICTED,
+        // show both to the user, choose neither." A single row with two values
+        // would need a winner to render, which is the choice being refused.
+        up: "
+            CREATE TABLE journal_requirements (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                journal_key     TEXT NOT NULL,
+                kind            TEXT NOT NULL CHECK (kind IN (
+                                    'word_limit','abstract_limit','section_required',
+                                    'reference_style','reference_limit','data_policy',
+                                    'reporting_standard','figure_limit','other')),
+                value           TEXT NOT NULL,
+                article_type    TEXT,
+                status          TEXT NOT NULL CHECK (status IN (
+                                    'verified','inferred','unavailable','conflicted')),
+                source_url      TEXT NOT NULL,
+                source_heading  TEXT NOT NULL DEFAULT '',
+                source_span     TEXT NOT NULL,
+                extracted_by    TEXT NOT NULL CHECK (extracted_by IN ('pattern','model')),
+                conflict_id     TEXT,
+                fetched_at      INTEGER NOT NULL,
+                CHECK (status <> 'verified' OR length(source_span) > 0),
+                CHECK (status <> 'conflicted' OR conflict_id IS NOT NULL)
+            );
+            CREATE INDEX idx_journal_requirements_journal
+                ON journal_requirements(journal_key, kind);
+            CREATE INDEX idx_journal_requirements_conflict
+                ON journal_requirements(conflict_id);
+
+            CREATE TABLE journal_conventions (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                journal_key   TEXT NOT NULL,
+                metric        TEXT NOT NULL CHECK (metric IN (
+                                  'length','section_set','figure_count',
+                                  'methods_position','stats_style')),
+                median        REAL,
+                iqr_low       REAL,
+                iqr_high      REAL,
+                n             INTEGER NOT NULL CHECK (n >= 0),
+                detail        TEXT NOT NULL DEFAULT '',
+                status        TEXT NOT NULL CHECK (status IN ('inferred','unavailable')),
+                corpus_run_id TEXT NOT NULL,
+                computed_at   INTEGER NOT NULL,
+                CHECK (status <> 'inferred' OR n > 0)
+            );
+            CREATE INDEX idx_journal_conventions_journal
+                ON journal_conventions(journal_key, metric);
+
+            CREATE TABLE journal_expectations (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                journal_key    TEXT NOT NULL,
+                claim          TEXT NOT NULL,
+                frequency_k    INTEGER,
+                frequency_n    INTEGER,
+                status         TEXT NOT NULL CHECK (status IN (
+                                   'verified','inferred','unavailable','conflicted')),
+                source_url     TEXT NOT NULL CHECK (length(source_url) > 0),
+                source_span    TEXT NOT NULL CHECK (length(source_span) > 0),
+                fetched_at     INTEGER NOT NULL,
+                CHECK (frequency_n IS NULL OR frequency_n > 0),
+                CHECK (frequency_k IS NULL OR frequency_n IS NOT NULL)
+            );
+            CREATE INDEX idx_journal_expectations_journal
+                ON journal_expectations(journal_key);
+
+            CREATE TABLE journal_standard_bindings (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                journal_key  TEXT NOT NULL,
+                design       TEXT NOT NULL,
+                standard     TEXT NOT NULL CHECK (standard IN (
+                                 'CONSORT','PRISMA','STROBE','ARRIVE','TRIPOD',
+                                 'CHEERS','SPIRIT','STARD')),
+                source_url   TEXT NOT NULL,
+                source_span  TEXT NOT NULL CHECK (length(source_span) > 0),
+                fetched_at   INTEGER NOT NULL,
+                UNIQUE (journal_key, design, standard)
+            );
+        ",
+        down: "
+            DROP TABLE journal_standard_bindings;
+            DROP INDEX idx_journal_expectations_journal;
+            DROP TABLE journal_expectations;
+            DROP INDEX idx_journal_conventions_journal;
+            DROP TABLE journal_conventions;
+            DROP INDEX idx_journal_requirements_conflict;
+            DROP INDEX idx_journal_requirements_journal;
+            DROP TABLE journal_requirements;
+        ",
+    },
 ];
 
 pub fn latest_version() -> i64 {
@@ -997,6 +1113,11 @@ mod tests {
             "documents",
             "chunks",
             "consent_records",
+            // §7's three parts, plus the standard bindings (Prompt 5 item 5).
+            "journal_requirements",
+            "journal_conventions",
+            "journal_expectations",
+            "journal_standard_bindings",
         ] {
             assert!(tables.iter().any(|t| t == expected), "missing table {expected}: {tables:?}");
         }
@@ -1035,6 +1156,7 @@ mod tests {
         assert_eq!(
             reverted,
             vec![
+                "journal_fingerprint",
                 "consent_records",
                 "ai_jobs_source_path",
                 "audit_staged_sources",
@@ -1132,7 +1254,8 @@ mod tests {
                 "citation_library_retraction_outcome",
                 "audit_staged_sources",
                 "ai_jobs_source_path",
-                "consent_records"
+                "consent_records",
+                "journal_fingerprint"
             ]
         );
         assert_eq!(current_version(&conn).unwrap(), latest_version());
@@ -1184,7 +1307,8 @@ mod tests {
                 "citation_library_retraction_outcome",
                 "audit_staged_sources",
                 "ai_jobs_source_path",
-                "consent_records"
+                "consent_records",
+                "journal_fingerprint"
             ]
         );
         assert!(column_names(&conn, "plagiarism_library").iter().any(|c| c == "citation_id"));
@@ -1211,7 +1335,7 @@ mod tests {
 
         // apply v11 (+ v12 rides along; it does not touch citation_library)
         let applied = migrate_up(&mut conn).unwrap();
-        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only", "citation_library_retraction_outcome", "audit_staged_sources", "ai_jobs_source_path", "consent_records"]);
+        assert_eq!(applied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only", "citation_library_retraction_outcome", "audit_staged_sources", "ai_jobs_source_path", "consent_records", "journal_fingerprint"]);
         assert_eq!(current_version(&conn).unwrap(), latest_version());
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(column_names(&conn, "citation_library").iter().any(|n| n == c), "missing column {c}");
@@ -1241,7 +1365,7 @@ mod tests {
 
         // down to v10 peels v12 (evidence_store) then v11 (the subject here).
         let reverted = migrate_down(&mut conn, 10).unwrap();
-        assert_eq!(reverted, vec!["consent_records", "ai_jobs_source_path", "audit_staged_sources", "citation_library_retraction_outcome", "documents_abstract_only", "citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1", "evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
+        assert_eq!(reverted, vec!["journal_fingerprint", "consent_records", "ai_jobs_source_path", "audit_staged_sources", "citation_library_retraction_outcome", "documents_abstract_only", "citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1", "evidence_claim_kind", "evidence_store", "citation_library_verification_persist"]);
         for c in ["retracted", "source", "verify_provenance", "verify_outcome", "verified_at"] {
             assert!(!column_names(&conn, "citation_library").iter().any(|n| n == c), "{c} should be dropped");
         }
@@ -1249,7 +1373,7 @@ mod tests {
 
         // re-applies cleanly (idempotent up after a partial down): v11 + v12
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only", "citation_library_retraction_outcome", "audit_staged_sources", "ai_jobs_source_path", "consent_records"]);
+        assert_eq!(reapplied, vec!["citation_library_verification_persist", "evidence_store", "evidence_claim_kind", "ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only", "citation_library_retraction_outcome", "audit_staged_sources", "ai_jobs_source_path", "consent_records", "journal_fingerprint"]);
     }
 
     /* ------------------------- v14: AI engine, Phase 1 --------------------- */
@@ -1282,7 +1406,7 @@ mod tests {
 
         // down → every ai_ table is gone, everything else survives
         let reverted = migrate_down(&mut conn, 13).unwrap();
-        assert_eq!(reverted, vec!["consent_records", "ai_jobs_source_path", "audit_staged_sources", "citation_library_retraction_outcome", "documents_abstract_only", "citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1"]);
+        assert_eq!(reverted, vec!["journal_fingerprint", "consent_records", "ai_jobs_source_path", "audit_staged_sources", "citation_library_retraction_outcome", "documents_abstract_only", "citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2", "ai_engine_phase1"]);
         assert_eq!(current_version(&conn).unwrap(), 13);
         for t in AI_TABLES {
             assert!(!table_names(&conn).iter().any(|n| n == t), "{t} survived the down migration");
@@ -1292,7 +1416,7 @@ mod tests {
 
         // and re-applies cleanly
         let reapplied = migrate_up(&mut conn).unwrap();
-        assert_eq!(reapplied, vec!["ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only", "citation_library_retraction_outcome", "audit_staged_sources", "ai_jobs_source_path", "consent_records"]);
+        assert_eq!(reapplied, vec!["ai_engine_phase1", "ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only", "citation_library_retraction_outcome", "audit_staged_sources", "ai_jobs_source_path", "consent_records", "journal_fingerprint"]);
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "{t} missing after re-apply");
         }
@@ -1386,14 +1510,14 @@ mod tests {
         assert!(table_names(&conn).iter().any(|t| t == "ai_chunks_fts"));
 
         let reverted = migrate_down(&mut conn, 14).unwrap();
-        assert_eq!(reverted, vec!["consent_records", "ai_jobs_source_path", "audit_staged_sources", "citation_library_retraction_outcome", "documents_abstract_only", "citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2"]);
+        assert_eq!(reverted, vec!["journal_fingerprint", "consent_records", "ai_jobs_source_path", "audit_staged_sources", "citation_library_retraction_outcome", "documents_abstract_only", "citation_document_links", "ai_engine_phase8_jobs", "ai_engine_phase2"]);
         assert!(!table_names(&conn).iter().any(|t| t == "ai_chunks_fts"), "fts survived the down");
         assert!(!column_names(&conn, "ai_chunk_embeddings").iter().any(|c| c == "preprocessing_version"));
         // v14's tables are all still there — the down is scoped to v15.
         for t in AI_TABLES {
             assert!(table_names(&conn).iter().any(|n| n == t), "{t} lost by the v15 down");
         }
-        assert_eq!(migrate_up(&mut conn).unwrap(), vec!["ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only", "citation_library_retraction_outcome", "audit_staged_sources", "ai_jobs_source_path", "consent_records"]);
+        assert_eq!(migrate_up(&mut conn).unwrap(), vec!["ai_engine_phase2", "ai_engine_phase8_jobs", "citation_document_links", "documents_abstract_only", "citation_library_retraction_outcome", "audit_staged_sources", "ai_jobs_source_path", "consent_records", "journal_fingerprint"]);
     }
 
     #[test]
@@ -1510,7 +1634,7 @@ mod tests {
         .unwrap();
 
         let applied = migrate_up(&mut conn).unwrap();
-        assert_eq!(applied, vec!["documents_abstract_only", "citation_library_retraction_outcome", "audit_staged_sources", "ai_jobs_source_path", "consent_records"]);
+        assert_eq!(applied, vec!["documents_abstract_only", "citation_library_retraction_outcome", "audit_staged_sources", "ai_jobs_source_path", "consent_records", "journal_fingerprint"]);
         assert!(column_names(&conn, "documents").iter().any(|c| c == "abstract_only"));
         assert!(index_exists(&conn, "idx_documents_abstract_only"));
 
@@ -1532,7 +1656,7 @@ mod tests {
         assert!(column_names(&conn, "documents").iter().any(|c| c == "abstract_only"));
 
         let reverted = migrate_down(&mut conn, 17).unwrap();
-        assert_eq!(reverted, vec!["consent_records", "ai_jobs_source_path", "audit_staged_sources", "citation_library_retraction_outcome", "documents_abstract_only"]);
+        assert_eq!(reverted, vec!["journal_fingerprint", "consent_records", "ai_jobs_source_path", "audit_staged_sources", "citation_library_retraction_outcome", "documents_abstract_only"]);
         assert!(!column_names(&conn, "documents").iter().any(|c| c == "abstract_only"));
         assert!(!index_exists(&conn, "idx_documents_abstract_only"));
         // The table itself is untouched by the rollback.
@@ -1587,6 +1711,157 @@ mod tests {
 
         assert!(column_names(&conn, "ai_jobs").iter().any(|c| c == "summary_json"));
         assert!(column_names(&conn, "ai_job_items").iter().any(|c| c == "result_json"));
+    }
+
+    // -----------------------------------------------------------------
+    // §7's three kinds of knowledge, kept apart AT THE SCHEMA
+    // -----------------------------------------------------------------
+
+    /// **The three tables share no field that would let a row be read as the
+    /// wrong kind.** §7: a requirement, a convention and an expectation are
+    /// three different kinds of knowledge and "must never be mixed". Prompt 5
+    /// asks for a test that no code path reads two of them into one finding;
+    /// the strongest version of that is making the rows structurally
+    /// distinguishable, so a JOIN that mixed them could not produce a coherent
+    /// record.
+    #[test]
+    fn the_three_fingerprint_tables_share_no_distinguishing_column() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        let cols = |t: &str| -> std::collections::BTreeSet<String> {
+            column_names(&conn, t).into_iter().collect()
+        };
+        let req = cols("journal_requirements");
+        let con = cols("journal_conventions");
+        let exp = cols("journal_expectations");
+
+        // A requirement quotes a sentence; a convention counts a corpus.
+        assert!(req.contains("source_span") && !con.contains("source_span"));
+        assert!(con.contains("n") && !req.contains("n") && !exp.contains("n"));
+        assert!(con.contains("median") && !req.contains("median") && !exp.contains("median"));
+        // An expectation is a FREQUENCY, never a rule and never a distribution.
+        assert!(exp.contains("frequency_k") && !req.contains("frequency_k"));
+        assert!(req.contains("kind") && !exp.contains("kind") && !con.contains("kind"));
+
+        // What they DO share is only the join key and the timestamps, which
+        // name no kind of knowledge.
+        let shared: Vec<&String> = req.intersection(&exp).collect();
+        for c in shared {
+            assert!(
+                ["id", "journal_key", "status", "source_url", "source_span", "fetched_at"]
+                    .contains(&c.as_str()),
+                "requirements and expectations share `{c}`, which could blur the two"
+            );
+        }
+    }
+
+    /// **`verified` without a span is unstorable, not merely discouraged.** A
+    /// claim that the journal states something, which cannot quote the
+    /// sentence, is an assertion rather than evidence.
+    #[test]
+    fn a_verified_requirement_cannot_be_stored_without_its_source_sentence() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        let insert = |status: &str, span: &str| {
+            conn.execute(
+                "INSERT INTO journal_requirements
+                   (journal_key, kind, value, status, source_url, source_span, extracted_by, fetched_at)
+                 VALUES ('j', 'word_limit', '4000', ?1, 'http://x', ?2, 'pattern', 1)",
+                params![status, span],
+            )
+        };
+        assert!(insert("verified", "").is_err(), "verified with no span must be rejected");
+        assert!(insert("verified", "Main text – up to 4,000 words.").is_ok());
+        // `unavailable` is the honest state for a fact nobody found, and it
+        // needs no span precisely because there is nothing to quote.
+        assert!(insert("unavailable", "").is_ok());
+    }
+
+    /// **A conflict is TWO ROWS, neither preferred.** Prompt 5: "store BOTH,
+    /// mark the fact CONFLICTED, show both to the user, choose neither." One
+    /// row with two values would need a winner to render, which is the choice
+    /// being refused.
+    #[test]
+    fn a_conflicted_fact_is_two_rows_sharing_an_id_and_neither_is_marked_the_winner() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        for value in ["250", "300"] {
+            conn.execute(
+                "INSERT INTO journal_requirements
+                   (journal_key, kind, value, status, source_url, source_span, extracted_by,
+                    conflict_id, fetched_at)
+                 VALUES ('j', 'abstract_limit', ?1, 'conflicted', 'http://x', 'span', 'pattern',
+                         'c-1', 1)",
+                params![value],
+            )
+            .unwrap();
+        }
+        let n: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM journal_requirements WHERE conflict_id = 'c-1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 2);
+        // There is no column that could hold a preference.
+        let cols = column_names(&conn, "journal_requirements");
+        for forbidden in ["preferred", "winner", "primary", "chosen", "resolved"] {
+            assert!(!cols.iter().any(|c| c == forbidden), "`{forbidden}` would let one win");
+        }
+        // And `conflicted` without a conflict_id is unstorable — a conflict
+        // with nothing to pair it to is half a fact.
+        assert!(conn
+            .execute(
+                "INSERT INTO journal_requirements
+                   (journal_key, kind, value, status, source_url, source_span, extracted_by, fetched_at)
+                 VALUES ('j', 'abstract_limit', '400', 'conflicted', 'http://x', 's', 'pattern', 1)",
+                [],
+            )
+            .is_err());
+    }
+
+    /// An expectation without a source is not storable — §7: "never as a rule",
+    /// and Prompt 5: "NEVER stored without a source".
+    #[test]
+    fn an_expectation_without_a_source_is_rejected() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        let insert = |url: &str, span: &str, k: Option<i64>, n: Option<i64>| {
+            conn.execute(
+                "INSERT INTO journal_expectations
+                   (journal_key, claim, frequency_k, frequency_n, status, source_url,
+                    source_span, fetched_at)
+                 VALUES ('j', 'external validation is expected', ?3, ?4, 'verified', ?1, ?2, 1)",
+                params![url, span, k, n],
+            )
+        };
+        assert!(insert("", "span", None, None).is_err(), "no url");
+        assert!(insert("http://x", "", None, None).is_err(), "no span");
+        assert!(insert("http://x", "18 of 25 include external validation", Some(18), Some(25)).is_ok());
+        // A numerator with no denominator is not a frequency.
+        assert!(insert("http://x", "span", Some(18), None).is_err());
+    }
+
+    /// A convention that claims to be `inferred` must say how many papers it
+    /// rests on. §7 renders conventions "with the count".
+    #[test]
+    fn an_inferred_convention_must_carry_its_n() {
+        let mut conn = test_connection();
+        migrate_up(&mut conn).unwrap();
+        let insert = |status: &str, n: i64| {
+            conn.execute(
+                "INSERT INTO journal_conventions
+                   (journal_key, metric, median, n, status, corpus_run_id, computed_at)
+                 VALUES ('j', 'length', 4620.0, ?2, ?1, 'run-1', 1)",
+                params![status, n],
+            )
+        };
+        assert!(insert("inferred", 0).is_err(), "an inference from nothing is not an inference");
+        assert!(insert("inferred", 25).is_ok());
+        // Below the corpus minimum a convention is UNAVAILABLE, and that state
+        // needs no n.
+        assert!(insert("unavailable", 0).is_ok());
     }
 
     #[test]

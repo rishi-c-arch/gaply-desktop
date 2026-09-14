@@ -29,6 +29,7 @@ fn main() {
     let limiter = RateLimiter::new(2.0, 2.0);
 
     let (mut tot_f, mut tot_g, mut tot_m, mut budget_bound) = (0, 0, 0, Vec::new());
+    let mut unreachable: Vec<(&str, String)> = Vec::new();
     println!(
         "{:<28}{:>7}{:>11}{:>10}{:>9}{:>9}  {}",
         "JOURNAL", "FETCH", "GUIDELINE", "LEX-MISS", "NAV", "INTER", "STOPPED BY"
@@ -45,12 +46,16 @@ fn main() {
                 if o.stopped_by == StoppedBy::Budget {
                     budget_bound.push((*name, o.unvisited));
                 }
+                if let StoppedBy::EntryUnreachable { reason } = &o.stopped_by {
+                    unreachable.push((*name, reason.clone()));
+                }
                 println!(
                     "{:<28}{:>7}{:>11}{:>10}{:>9}{:>9}  {}",
                     name, o.fetched, o.guideline, o.lexicon_misses, o.navigation, o.interstitial,
-                    match o.stopped_by {
+                    match &o.stopped_by {
                         StoppedBy::Budget => format!("BUDGET ({} left)", o.unvisited),
                         StoppedBy::FrontierExhausted => "domain exhausted".into(),
+                        StoppedBy::EntryUnreachable { .. } => "ENTRY UNREACHABLE".into(),
                     }
                 );
                 for p in o.pages.iter().filter(|p| p.verdict == "guideline" && !p.lexicon_hit) {
@@ -62,6 +67,12 @@ fn main() {
         }
     }
     println!("\nTOTAL fetched={tot_f}  guideline={tot_g}  lexicon-misses={tot_m}");
+    if !unreachable.is_empty() {
+        println!("ENTRY NEVER RESOLVED (not a coverage result at all):");
+        for (n, r) in &unreachable {
+            println!("  {n} — {r}");
+        }
+    }
     if budget_bound.is_empty() {
         println!("No crawl was ended by its budget — every journal's domain was exhausted.");
     } else {

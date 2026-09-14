@@ -85,15 +85,27 @@ impl CrawlBudget {
     }
 }
 
-/// Why the crawl ended. **`Budget` is a coverage claim you cannot make.**
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
+/// Why the crawl ended. **Only `FrontierExhausted` supports a coverage claim.**
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StoppedBy {
     /// Every reachable candidate within the depth bound was fetched.
     FrontierExhausted,
     /// The page budget ran out with candidates still queued. The journal is
     /// NOT covered and any count derived from this crawl is a lower bound.
     Budget,
+    /// **The entry URL never resolved to a page of the journal's.**
+    ///
+    /// A third state, because the first two could not tell it apart from
+    /// success: Nature Communications' entry 303s to
+    /// `?error=cookies_not_supported`, the crawl fetched one page, found no
+    /// links, and reported `FrontierExhausted` — the same verdict as a journal
+    /// whose entire guideline tree had been read. *"Nothing to crawl"* and
+    /// *"crawled everything"* are opposite outcomes and were one word.
+    ///
+    /// It is the [`PageVerdict::Interstitial`] / [`PageVerdict::Navigation`]
+    /// distinction one level up: did the request reach the thing at all.
+    EntryUnreachable { reason: String },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -278,8 +290,22 @@ fn strip_tags_inline(s: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// The dedup key for a fetched page.
+///
+/// **The scheme is dropped, and that is not cosmetic.** Journals link the same
+/// page as both `http://` and `https://` — PLOS does it throughout its own
+/// guideline tree — and the http form 301s to the https one. Keeping the scheme
+/// in the key fetched every such page TWICE: measured at a 120-page budget,
+/// PLOS ONE reported 52 guideline pages and 23 lexicon misses where the real
+/// figures are roughly half that, with `…/s/tables` appearing at depth 1 as
+/// https and depth 2 as http.
+///
+/// The inflation is the dangerous part: it lands on `guideline` and
+/// `lexicon_misses`, the two numbers this crawl is judged by, and it inflates
+/// them in the flattering direction.
 fn normalise(u: &str) -> String {
-    u.trim_end_matches('/').to_string()
+    let no_scheme = u.strip_prefix("https://").or_else(|| u.strip_prefix("http://")).unwrap_or(u);
+    no_scheme.trim_end_matches('/').to_lowercase()
 }
 
 /// Crawl one journal's guideline ecosystem from an entry URL.
@@ -304,6 +330,7 @@ pub fn crawl(
         h == host && in_scope(u, &scope)
     };
 
+    let mut entry_interstitial: Option<String> = None;
     let mut seen: BTreeSet<String> = BTreeSet::new();
     seen.insert(normalise(entry));
     // Two queues, so a lexicon hit is fetched FIRST without ever being the
@@ -373,17 +400,28 @@ pub fn crawl(
             rest.push_front((url, anchor, depth));
             break;
         }
+        let is_entry = depth == 0;
         let resp = match fetcher.get(&HttpRequest::get(&url)) {
             Ok(r) => r,
-            Err(_) => {
+            Err(e) => {
                 out.errors += 1;
                 out.fetched += 1;
+                if is_entry {
+                    out.stopped_by = StoppedBy::EntryUnreachable { reason: e.to_string() };
+                    break;
+                }
                 continue;
             }
         };
         out.fetched += 1;
         if resp.status != 200 {
             out.errors += 1;
+            if is_entry {
+                out.stopped_by = StoppedBy::EntryUnreachable {
+                    reason: format!("the entry URL answered http {}", resp.status),
+                };
+                break;
+            }
             continue;
         }
         let text = html_to_text_public(&resp.body);
@@ -402,8 +440,11 @@ pub fn crawl(
                 out.navigation += 1;
                 ("navigation", *obligations, *requirements)
             }
-            PageVerdict::Interstitial { .. } => {
+            PageVerdict::Interstitial { signature } => {
                 out.interstitial += 1;
+                if is_entry {
+                    entry_interstitial = Some((*signature).to_string());
+                }
                 ("interstitial", 0, 0)
             }
         };
@@ -443,9 +484,23 @@ pub fn crawl(
     }
 
     out.unvisited = priority.len() + rest.len();
-    if out.unvisited > 0 && out.fetched >= budget.max_pages {
+    if let Some(sig) = entry_interstitial {
+        // The entry was a bot wall. Its links were never followed (they are the
+        // wall's), so an empty frontier here says nothing about the journal.
+        out.stopped_by = StoppedBy::EntryUnreachable {
+            reason: format!("the entry URL returned an interstitial ({sig:?})"),
+        };
+    } else if !matches!(out.stopped_by, StoppedBy::EntryUnreachable { .. })
+        && out.unvisited > 0
+        && out.fetched >= budget.max_pages
+    {
         out.stopped_by = StoppedBy::Budget;
     }
+    // NOTE the state deliberately NOT added: an entry that answers 200 with a
+    // real page carrying no guidance and no links HAS resolved. Reporting that
+    // as unreachable would hide a true result — "we read the journal's entry
+    // and it has nothing" — behind a transport failure. `FrontierExhausted`
+    // with `guideline == 0` is the honest verdict there.
     Ok(out)
 }
 
@@ -684,6 +739,49 @@ mod tests {
         assert!(out.unvisited > 0, "the entry is still queued, not consumed");
     }
 
+    /// **"Nothing to crawl" and "crawled everything" were one word.**
+    /// Measured on Nature Communications: its entry 303s to a cookie-error URL,
+    /// the crawl fetched one page, found no links, and reported
+    /// `FrontierExhausted` — the same verdict as a journal whose entire
+    /// guideline tree had been read.
+    #[test]
+    fn an_entry_that_never_resolved_is_its_own_outcome() {
+        // 1. The entry answers a non-200.
+        let f = MockHttpFetcher::new().route("j.test/submit", 303, "");
+        let out = crawl(&f, &roomy(), &budget(10, 2), "https://j.test/submit").unwrap();
+        match &out.stopped_by {
+            StoppedBy::EntryUnreachable { reason } => assert!(reason.contains("303"), "{reason}"),
+            other => panic!("expected EntryUnreachable, got {other:?}"),
+        }
+
+        // 2. The entry is a bot wall. Its links are the wall's, so an empty
+        //    frontier afterwards says nothing about the journal.
+        let wall = "<html><head><title>Client Challenge</title></head><body>\
+                    <a href=\"https://j.test/x\">x</a></body></html>";
+        let f2 = MockHttpFetcher::new().route("j.test/guidelines", 200, wall);
+        let out2 = crawl(&f2, &roomy(), &budget(10, 2), "https://j.test/guidelines").unwrap();
+        assert!(matches!(out2.stopped_by, StoppedBy::EntryUnreachable { .. }), "{:?}", out2.stopped_by);
+
+        // 3. THE BOUNDARY, in the other direction. A 200 with a real page that
+        //    happens to carry no guidance and no links HAS resolved, and is
+        //    reported as exhausted — not as unreachable. Calling it unreachable
+        //    would hide a true result behind a transport failure.
+        let f3 = MockHttpFetcher::new()
+            .route("j.test/empty", 200, "<html><head><title>J</title></head><body>.</body></html>");
+        let out3 = crawl(&f3, &roomy(), &budget(10, 2), "https://j.test/empty").unwrap();
+        assert_eq!(out3.stopped_by, StoppedBy::FrontierExhausted);
+        assert_eq!(out3.guideline, 0, "and the emptiness is visible in the count");
+
+        // …and a real crawl still reports FrontierExhausted, so the new state
+        // is not simply swallowing the old one.
+        let entry = nav_body("Home", r#"<a href="https://j.test/author-guidelines">Authors</a>"#);
+        let f4 = MockHttpFetcher::new()
+            .route("j.test/home", 200, &entry)
+            .route("j.test/author-guidelines", 200, &guideline_body("G", ""));
+        let out4 = crawl(&f4, &roomy(), &budget(10, 2), "https://j.test/home").unwrap();
+        assert_eq!(out4.stopped_by, StoppedBy::FrontierExhausted);
+    }
+
     #[test]
     fn the_depth_bound_holds_and_zero_means_the_entry_page_alone() {
         let entry = nav_body("Home", r#"<a href="https://j.test/author-guidelines">Authors</a>"#);
@@ -711,6 +809,26 @@ mod tests {
         b.author_services_hosts = vec!["elsewhere.test".into()];
         let out2 = crawl(&f, &roomy(), &b, "https://j.test/home").unwrap();
         assert_eq!(out2.fetched, 2, "an allowlisted publisher host is followed");
+    }
+
+    /// **`http://` and `https://` are the same page.** Journals link both, the
+    /// http form redirects to the https one, and fetching each twice inflates
+    /// exactly the two numbers this crawl is judged by.
+    #[test]
+    fn the_same_page_over_http_and_https_is_fetched_once() {
+        let entry = nav_body(
+            "Home",
+            r#"<a href="https://j.test/author-guidelines">Authors</a>
+               <a href="http://j.test/author-guidelines">Authors</a>
+               <a href="https://j.test/author-guidelines/">Authors</a>"#,
+        );
+        let f = MockHttpFetcher::new()
+            .route("j.test/home", 200, &entry)
+            .route("j.test/author-guidelines", 200, &guideline_body("G", ""));
+        let out = crawl(&f, &roomy(), &budget(10, 2), "https://j.test/home").unwrap();
+        assert_eq!(out.fetched, 2, "{:#?}", out.pages);
+        assert_eq!(out.guideline, 1);
+        assert_eq!(out.lexicon_misses, 0);
     }
 
     #[test]
@@ -750,6 +868,7 @@ mod tests {
         assert!(b.max_pages >= 1 && b.max_depth <= 5, "{b:?}");
         assert!(!b.author_services_hosts.is_empty());
         assert!(b.max_rate_wait_ticks > 0, "a zero wait gives up on the first refusal");
+        assert!(b.max_pages >= 120, "the measured bound, raised from 40: {b:?}");
         assert!(b.journal_path_segments.contains_key("journals.plos.org"), "{b:?}");
     }
 

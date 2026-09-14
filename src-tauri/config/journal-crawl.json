@@ -7,6 +7,11 @@
     "",
     "max_pages: hard budget per journal. A crawl that stops here has NOT",
     "  covered the journal, and the outcome says so — see StoppedBy::Budget.",
+    "  Raised 40 -> 120 on 14 Sep 2026: at 40, nine of ten journals ended on",
+    "  the budget with 48-464 candidates unvisited, and 40 had been chosen",
+    "  before the crawl stopped wandering into research articles and sibling",
+    "  journals. Which journals still end on the budget at 120 is the number",
+    "  that says whether the bound or the domain is the limit.",
     "max_depth: 0 is the entry page alone; 3 is §3.4's stated bound.",
     "author_services_hosts: publisher-wide guideline domains, which are not the",
     "  journal's own host but do carry its requirements. Allowlisted, never",
@@ -30,7 +35,7 @@
     "  host and shows up as off-journal pages in the crawl list — visible,",
     "  which is the property that makes this rule acceptable at all."
   ],
-  "max_pages": 40,
+  "max_pages": 120,
   "max_rate_wait_ticks": 24,
   "max_depth": 3,
   "journal_path_segments": {
