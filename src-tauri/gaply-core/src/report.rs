@@ -1694,6 +1694,37 @@ pub fn checklist_from_requirements(
         });
     }
 
+    // --- other required statements (§11 D163) -----------------------------
+    //
+    // The same check as data availability, for the statements the generalised
+    // rule now finds. `journal_extract::REQUIRED_STATEMENTS` carries the
+    // heading substring that satisfies each; the value is the statement name
+    // as the journal stated it.
+    let mut seen_stmt: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for r in requirements.iter().filter(|r| r.kind == RequirementKind::SectionRequired) {
+        let Some(needle) = crate::journal_extract::heading_for_statement(&r.value) else {
+            continue;
+        };
+        if !seen_stmt.insert(needle) {
+            continue;
+        }
+        let present =
+            extraction.sections.iter().any(|s| s.heading.to_lowercase().contains(needle));
+        items.push(ChecklistItem {
+            requirement: r.value.clone(),
+            passed: present,
+            detail: if present {
+                format!("a heading matching \"{needle}\" was found")
+            } else {
+                format!("no heading matching \"{needle}\" was found in the manuscript")
+            },
+            guideline_source: Some(r.source_url.clone()),
+            source_span: Some(r.source_span.clone()),
+            article_type: r.article_type.clone(),
+            checked_field: Some("extraction.sections[heading]".into()),
+        });
+    }
+
     // --- reporting standards ----------------------------------------------
     //
     // One item per BOUND standard. An unbound mention selects nothing — see

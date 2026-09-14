@@ -64,6 +64,30 @@ const ASSESSMENT_VERB: &[&str] = &[
 /// **Both are guideline pages and only one populates this table.** An author
 /// instruction filed as an expectation would be a requirement wearing the wrong
 /// label — §7's separation lost at the first step.
+/// **MEASURED AGAINST A REAL CRAWL AND IT OVER-FIRES. Do not gate anything on
+/// this without reading the numbers below (§11 D163).**
+///
+/// Across Nature Medicine's 36 admitted pages it returns `true` for **20**:
+/// all five genuine reviewer pages (`/for-reviewers/*` and
+/// `editorial-policies/peer-review`) and **fifteen author pages with them** —
+/// `preparing-your-submission`, `aip-and-formatting`, `matters-arising`,
+/// `clinicalresearch`, `competing-interests`, `ethics-and-biosecurity`,
+/// `aims/fasttrack` among them. Precision 5/20; recall 5/5. It is a filter
+/// that catches everything.
+///
+/// The cause is the second condition: `mentions >= 2 && contains("review")`
+/// over the WHOLE page text. Every page on a journal's site discusses peer
+/// review somewhere, so the text half fires everywhere and only the url/title
+/// half discriminates.
+///
+/// **This was nearly wired into the requirement path as a fix for reviewer
+/// pages polluting `SectionRequired`, and it would have suppressed 14 of the
+/// 18 rows the rule produces — twelve of them true.** The function's own tests
+/// pass because they are hand-written fixtures built from the same premise as
+/// the function; the crawl is its first independent vote (CLAUDE.md, "agreement
+/// between a spec, its implementation and its test"). Reproduce with
+/// `examples/journal_statement_audit.rs`, which prints the verdict for every
+/// admitted page.
 pub fn is_reviewer_guidance(url: &str, title: &str, text: &str) -> bool {
     let hay = format!("{url} {title}").to_lowercase();
     if ["reviewer", "referee", "peer-review", "peer review", "for-reviewers"]
@@ -153,6 +177,24 @@ mod tests {
             "Reviewers are asked to comment on novelty. Each referee receives the full text \
              for review."
         ));
+    /// The over-firing is PINNED, not merely described: an author-facing page
+    /// whose prose mentions reviewers and review is classified as reviewer
+    /// guidance. If someone narrows the rule, this test tells them they changed
+    /// the behaviour the doc comment measures.
+    #[test]
+    fn an_author_page_that_discusses_review_is_currently_misclassified() {
+        assert!(
+            is_reviewer_guidance(
+                "https://www.nature.com/nm/submission-guidelines/aip-and-formatting",
+                "Formatting your submission | Nature Medicine",
+                "Any relevant funding should be declared in a separate funding statement. \
+                 Manuscripts sent out for review are assessed by referees, and the reviewer \
+                 reports are returned to the editor who handles the review.",
+            ),
+            "the measured over-firing has changed — update the doc comment's numbers"
+        );
+    }
+
         assert!(!is_reviewer_guidance(
             "https://j.test/s/submission-guidelines",
             "Submission Guidelines",

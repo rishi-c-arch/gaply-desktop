@@ -361,11 +361,131 @@ pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequireme
                      "data availability statement required".to_string(),
                      &article_type, block, sentence);
             }
+
+            // The same shape, generalised to the other statements a journal
+            // requires (§11 D163). `SectionRequired` rather than a new kind:
+            // these ARE required manuscript elements, and the checklist checks
+            // them the way it checks data availability — by heading presence.
+            for (needle, value, _) in REQUIRED_STATEMENTS {
+                if states_a_required_statement(&lower, needle) {
+                    push(&mut out, RequirementKind::SectionRequired, (*value).to_string(),
+                         &article_type, block, sentence);
+                    break;
+                }
+            }
         }
     }
     out.sort();
     out.dedup();
     out
+}
+
+/// **Statements a manuscript must CONTAIN, and the heading that satisfies each.**
+///
+/// `DataPolicy` above is one instance of this shape — a named statement plus a
+/// modal — and reading Nature Medicine's 37 admitted-but-barren pages found
+/// four more of exactly it: competing interests, funding, author contributions,
+/// AI use. This is that rule generalised, not nine new patterns (§11 D163).
+///
+/// `(needle, canonical value, heading substring the manuscript must carry)`.
+const REQUIRED_STATEMENTS: &[(&str, &str, &str)] = &[
+    ("competing interest", "competing interests statement", "competing interest"),
+    ("conflict of interest", "competing interests statement", "competing interest"),
+    ("funding statement", "funding statement", "funding"),
+    ("author contribution", "author contributions statement", "author contribution"),
+    ("code availability", "code availability statement", "code availability"),
+    ("ethics statement", "ethics statement", "ethic"),
+    ("ethics approval", "ethics approval statement", "ethic"),
+    ("informed consent", "informed consent statement", "consent"),
+];
+
+/// Words that turn an obligation into a PROHIBITION.
+///
+/// **The defect this exists for, caught in the scan before the rule shipped.**
+/// Nature Medicine's acknowledgements page says *"The section should also NOT
+/// be used to declare competing interests"* — a sentence carrying a statement
+/// name and a modal, meaning the exact opposite of a requirement. Storing it
+/// would be §11 D155's fabrication with a new surface: a real sentence, read
+/// backwards.
+const NEGATIONS: &[&str] = &[" not ", " never ", "n't ", " cannot ", " no longer ", " neither "];
+
+/// Is this sentence a requirement to INCLUDE `needle`, rather than a
+/// prohibition, a link label, or a mention?
+///
+/// Three conditions, each earning itself against a real false positive:
+///
+/// 1. **A modal.** Without one the sentence is describing, not requiring.
+/// 2. **The literal word "statement" or "declaration".** This is what
+///    separates a requirement from a NAVIGATION LIST: `/nm/editorial-policies`
+///    concatenates its link labels into *"…should read and follow these
+///    policies: Authorship Acknowledgements Funding Competing interests
+///    Confidentiality…"*, which carries a modal and three statement names and
+///    requires none of them. It contains no "statement".
+/// 3. **No negation NEXT TO THE MODAL.** See `NEGATIONS`.
+///
+/// **Condition 3's window is the part that had to be measured rather than
+/// guessed.** The first version looked for a negation anywhere between the
+/// modal and the statement name, and it refused the single strongest true
+/// positive in the corpus: *"all authors … are required to include a statement
+/// at the end of their published article to declare **whether or not** they
+/// have any competing interests."* That `not` sits 95 characters from the
+/// modal and belongs to a different clause entirely.
+///
+/// A prohibition negates the MODAL — *"should not be used"*, *"must not"*,
+/// *"is not required"* — so the window is the modal's own neighbourhood:
+/// `NEGATION_BEFORE` characters before it and `NEGATION_AFTER` after. The
+/// acknowledgements prohibition puts `not` 6 characters after `should`; the
+/// competing-interests requirement puts it 95 after `required`. Nothing in the
+/// corpus falls between, but the numbers are stated here rather than tuned,
+/// so a case that does can be argued about against a sentence.
+///
+/// A genuine double negative (*"must not omit a competing interests
+/// statement"*) is still refused. Failing to extract a real requirement is
+/// recoverable; storing one the journal never made is not.
+///
+/// **THIS GUARD IS PREDICTED, NOT MEASURED, and that distinction is recorded
+/// here rather than left for someone to assume either way.**
+/// `examples/journal_negation_scan.rs` asks the corpus directly how many real
+/// sentences name a required statement, carry the word "statement", and negate
+/// their modal. Across Nature Medicine's full crawl the answer is **ZERO** —
+/// the one real prohibition is stopped by the "statement"/"declaration"
+/// condition before it ever reaches here. So this is a guard against a
+/// sentence that other journals plausibly write (*"A competing interests
+/// statement is not required for Correspondence"*) and that this corpus does
+/// not contain. Re-run the scan on a new publisher before concluding it is
+/// dead code; do not remove it on the strength of one journal.
+const NEGATION_BEFORE: usize = 16;
+const NEGATION_AFTER: usize = 24;
+
+fn states_a_required_statement(lower: &str, needle: &str) -> bool {
+    if !lower.contains(needle) {
+        return false;
+    }
+    if !(lower.contains("statement") || lower.contains("declaration")) {
+        return false;
+    }
+    let Some((modal_at, modal_len)) = ["must", "required", "should", "are expected to", "need to"]
+        .iter()
+        .filter_map(|m| lower.find(m).map(|i| (i, m.len())))
+        .min()
+    else {
+        return false;
+    };
+    let lo = modal_at.saturating_sub(NEGATION_BEFORE);
+    let hi = (modal_at + modal_len + NEGATION_AFTER).min(lower.len());
+    // Character boundaries: the haystack is lowercased UTF-8, not ASCII.
+    let lo = (0..=lo).rev().find(|i| lower.is_char_boundary(*i)).unwrap_or(0);
+    let hi = (hi..=lower.len()).find(|i| lower.is_char_boundary(*i)).unwrap_or(lower.len());
+    !NEGATIONS.iter().any(|n| lower[lo..hi].contains(n))
+}
+
+/// The manuscript heading that satisfies a stored statement requirement.
+///
+/// The checklist needs this and the extractor owns the table, so the mapping
+/// lives with the table rather than being restated at the far end where it
+/// could drift.
+pub fn heading_for_statement(value: &str) -> Option<&'static str> {
+    REQUIRED_STATEMENTS.iter().find(|(_, v, _)| *v == value).map(|(_, _, h)| *h)
 }
 
 fn push(
@@ -617,4 +737,100 @@ mod tests {
             );
         }
     }
+    // --- the generalised required-statement rule (§11 D163) ----------------
+    //
+    // Every case below is a REAL sentence from Nature Medicine's crawl, and the
+    // three negatives are the false positives the scan surfaced before the rule
+    // shipped.
+
+    #[test]
+    fn a_required_statement_is_extracted() {
+        for (sentence, expected) in [
+            ("A competing interests statement is required.", "competing interests statement"),
+            ("An author contributions statement is required.", "author contributions statement"),
+            (
+                "Any relevant funding should be declared in a separate funding statement.",
+                "funding statement",
+            ),
+            (
+                "If custom code was used in the study, a separate Code Availability Statement \
+                 must also be provided.",
+                "code availability statement",
+            ),
+            (
+                "In addition to any declarations in submission systems or forms, all authors \
+                 regardless of peer review model are required to include a statement at the end \
+                 of their published article to declare whether or not they have any competing \
+                 interests.",
+                "competing interests statement",
+            ),
+        ] {
+            let out = extract_requirements(&[b("Policy", sentence)]);
+            assert!(
+                out.iter().any(|r| r.kind == RequirementKind::SectionRequired
+                    && r.value == expected),
+                "{sentence:?} did not yield {expected:?}: {out:#?}"
+            );
+        }
+    }
+
+    /// **A PROHIBITION IS NOT A REQUIREMENT** (§11 D155's family).
+    ///
+    /// The real sentence that prompted this — Nature Medicine's *"The section
+    /// should also not be used to declare competing interests"* — is in the
+    /// second case below, and it is NOT what exercises the negation guard: it
+    /// carries no "statement"/"declaration", so the navigation-list guard
+    /// rejects it first. Removing the negation guard entirely left this test
+    /// GREEN, which is how that was found.
+    ///
+    /// The first case is the one that reaches the guard, and it is
+    /// CONSTRUCTED. See `states_a_required_statement`: zero sentences in the
+    /// measured corpus get that far.
+    #[test]
+    fn a_prohibition_is_not_read_as_a_requirement() {
+        for sentence in [
+            // Reaches the negation guard — nothing earlier rejects it.
+            "A competing interests statement is not required for Correspondence.",
+            // Real, but stopped one guard earlier.
+            "The section should also not be used to declare competing interests, including any \
+             related to funding sources that may gain or lose financially through this \
+             publication.",
+        ] {
+            let out = extract_requirements(&[b("Acknowledgements", sentence)]);
+            assert!(
+                out.iter().all(|r| r.kind != RequirementKind::SectionRequired),
+                "a prohibition was stored as a requirement: {sentence:?} -> {out:#?}"
+            );
+        }
+    }
+
+    /// A page's NAVIGATION concatenated into one sentence carries a modal and
+    /// three statement names and requires none of them.
+    #[test]
+    fn a_navigation_list_of_policy_names_is_not_a_requirement() {
+        let out = extract_requirements(&[b(
+            "Editorial Policies",
+            "BEFORE SUBMISSION All prospective authors should read and follow these policies: \
+             Authorship Acknowledgements Funding Competing interests Confidentiality \
+             Corrections, Retractions and Matters Arising Research Ethics Image integrity",
+        )]);
+        assert!(
+            out.iter().all(|r| r.kind != RequirementKind::SectionRequired),
+            "a link list was stored as a requirement: {out:#?}"
+        );
+    }
+
+    /// Naming a statement is not requiring one.
+    #[test]
+    fn a_bare_mention_of_a_statement_is_not_a_requirement() {
+        let out = extract_requirements(&[b(
+            "Funding",
+            "Our funding statement policy page explains how declarations are displayed.",
+        )]);
+        assert!(
+            out.iter().all(|r| r.kind != RequirementKind::SectionRequired),
+            "a mention was stored as a requirement: {out:#?}"
+        );
+    }
+
 }

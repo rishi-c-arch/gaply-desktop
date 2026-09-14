@@ -10636,3 +10636,149 @@ statement, **a data availability statement**…"* — the item was correct and t
 instrument had hidden the evidence for it. A truncated span is not a span: its
 whole purpose is to be checkable, and a clipped quote cannot be checked. The
 probe now prints spans whole.
+
+### D163 — when a source has 0/N precision, the unit is the source
+
+**14 Sep 2026.** The deferred measurement from Prompt 5 item 3: read the pages
+`classify_page` admitted that yielded no requirement, and classify each rather
+than tuning the gate to examples just read. Nature Medicine, 44 admitted,
+7 fertile, **37 barren**, every one read:
+
+| kind | count | share |
+|---|---:|---:|
+| real guidance the EXTRACTOR missed | 9 | 24% |
+| not guidance at all — a gate error | 11 | 30% |
+| guidance that correctly yields nothing | 17 | 46% |
+
+**The plurality is the third kind, so the yield ratio is the wrong metric.**
+Seventeen pages are the journal correctly telling authors things that are not
+manuscript requirements — the appeals procedure, the media embargo, the OA
+route, and seven pages of reviewer guidance (`peer-review` alone carries 54
+obligation-shaped sentences, every one addressed to reviewers). A gate that
+excluded them would be wrong.
+
+#### The lesson: a path list cannot enumerate a naming scheme you do not control
+
+**Eight of the eleven gate errors are ONE HOST** —
+`authorservices.springernature.com`: the storefront root, four paid-service
+sales pages, three marketing blog posts. And on the fertile side that host
+contributed **9 requirements, all nine false** (translation turnaround times and
+pricing tiers stored as word limits). **0/9.**
+
+**D161 already fixed this, at exactly this host, and eight pages walked past
+it.** That entry added `/translation`, `/pricing`, `/scientific-editing`,
+`/language-editing` to `NEVER_FOLLOW`. Then:
+
+| page | why the path list missed it |
+|---|---|
+| `/english-language-editing/` | does not contain `/english-editing` |
+| `/formatting/` | never named |
+| `/figure-and-table-formatting/` | never named — and states "Minimum 200 dpi", the SERVICE's spec |
+| `/research-promotion/` | never named |
+| `/featured-articles/…` ×3 | never named |
+| `/` (bare host root) | never named |
+
+**A site names its own pages.** Enumerating the names is a losing game because
+the other party controls the vocabulary and adds to it whenever they like. When
+a source's measured precision is 0/N, the unit that closes it is the SOURCE, not
+the path — so `authorservices.springernature.com` came out of
+`author_services_hosts` and the path list stays only as depth for hosts still
+worth crawling. The config now records the difference between **"checked and
+kept"** and **"never looked at"**: the other five entries are marked UNMEASURED
+by name, with the two probes to run before trusting or dropping any of them. One
+publisher's result does not transfer — Wiley's author-services site may be
+genuinely instructional where Springer Nature's is a shop.
+
+#### Two candidate content signals, both measured, both refuted
+
+The negative page-content signal deferred from the morning was attempted against
+the real corpus and **failed twice**, which is why it is not being built.
+
+*Prose per heading* — listings should be many headings, little text:
+
+```
+169  news-and-comment     (LISTING)    166  initial-formatting   (guidance)
+226  /nm homepage         (LISTING)    209  acknowledgements     (guidance)
+255  volumes/32/issues/7  (LISTING)    228  confidentiality      (guidance)
+```
+
+*Fraction of links going to articles* — listings should link to content:
+
+```
+37%  volumes/32/issues/7  (LISTING)
+26%  editorial-policies/peer-review             <- real guidance
+22%  /nm homepage         (LISTING)
+21%  editorial-policies/reporting-standards     <- FERTILE, 15 reporting standards
+```
+
+Any cut catching the homepage at 22% kills `reporting-standards` at 21%, the most
+productive page in the crawl. Both tables are kept as probes
+(`journal_shape_probe`, `journal_linkshape_probe`) so a future content-shape
+heuristic has to beat them rather than re-derive the impression they refute.
+
+Only `/volumes/` was added to `NEVER_FOLLOW` — Nature's spelling of `/issue/`,
+already there. The homepage and news index stay admitted: 2 pages of a 120
+budget, zero false requirements between them, and the homepage is the crawl
+entry for several journals.
+
+#### The 9 extractor gaps were one rule, not nine
+
+`DataPolicy` is six lines — a named statement plus a modal. Four of the nine
+gaps are that shape with a different name, so it was generalised into
+`REQUIRED_STATEMENTS` rather than written nine times. **18 rows on the real
+crawl, 16 of which read true against their own spans**; the two questionable
+ones both say "via declarations in the manuscript submission system" or "in
+their cover letter", which are real obligations about the wrong artefact.
+
+Three guards, each earning itself against a real false positive, and the middle
+one is the interesting one:
+
+1. **A modal.** Without one the sentence describes rather than requires.
+2. **The literal word "statement"/"declaration".** This is what rejects a
+   NAVIGATION LIST: `/nm/editorial-policies` concatenates its link labels into
+   *"…should read and follow these policies: Authorship Acknowledgements Funding
+   Competing interests…"* — a modal and three statement names, requiring none.
+3. **No negation next to the modal.**
+
+**Guard 3's window had to be measured, not guessed.** The first version looked
+for a negation anywhere between the modal and the statement name, and it refused
+the strongest true positive in the corpus: *"all authors … are required to
+include a statement at the end of their published article to declare **whether
+or not** they have any competing interests."* That `not` is 95 characters from
+the modal and belongs to another clause. A prohibition negates the MODAL, so the
+window is the modal's neighbourhood — 16 characters before, 24 after. The real
+prohibition puts `not` 6 characters after `should`.
+
+**And guard 3's test passed for the wrong reason.** The sentence it was written
+against — *"The section should also not be used to declare competing
+interests"* — contains no "statement"/"declaration", so guard 2 rejects it
+first. Deleting guard 3 entirely left the test GREEN. A scan asked the corpus
+how many real sentences actually reach guard 3: **zero**. The guard is kept,
+the test now uses a constructed sentence that genuinely exercises it, and the
+doc comment says plainly that this guard is **predicted, not measured** — the
+same "checked and kept" vs "never looked at" distinction the config now carries.
+
+#### The instrument named as the fix was itself broken
+
+The proposal that preceded this work said the reviewer-page residue would be
+handled by `is_reviewer_guidance`, built in item 4. **That claim was wrong.**
+Run across the crawl it returns `true` for **20 of 36 admitted pages**: all five
+genuine reviewer pages, and fifteen author pages with them —
+`preparing-your-submission`, `aip-and-formatting`, `matters-arising`,
+`clinicalresearch`, `competing-interests`, `ethics-and-biosecurity`,
+`aims/fasttrack`. Precision 5/20, recall 5/5: a filter that catches everything.
+The cause is `mentions >= 2 && contains("review")` over whole page text, and
+every page on a journal's site discusses peer review somewhere.
+
+Wiring it in would have suppressed **14 of the 18 statement rows, twelve of them
+true.** It has no production caller, so nothing shipped is affected — but its own
+tests pass, because they are hand-written fixtures built from the same premise as
+the function. The crawl was its first independent vote and it failed. The
+measurement is now in its doc comment and pinned by a test, so nobody wires it in
+on the strength of the proposal that named it.
+
+**Fourth phase running, same result: most of what needed fixing was the
+instrument.** The gate was mostly right (46% correctly barren), the corpus was
+fine, and the defects were a host allowlist, a path list that could not win, a
+negation window tuned to one example, a test green for the wrong reason, and a
+classifier that classified nothing.

@@ -184,8 +184,10 @@ const NEVER_FOLLOW: &[&str] = &[
     "javascript:", "mailto:",
     // research content
     "/article/", "/articles/", "article?id=", "/doi/", "/lookup/", "/content/early",
-    // tables of contents, issues, taxonomies
-    "/toc/", "/issue/", "/topic/", "/subject/", "/results/", "/browse",
+    // tables of contents, issues, taxonomies. `/volumes/` is Nature's spelling
+    // of `/issue/` — `nature.com/nm/volumes/32/issues/7` was admitted as
+    // guidance and is 74 blocks of article titles (§11 D163).
+    "/toc/", "/issue/", "/volumes/", "/topic/", "/subject/", "/results/", "/browse",
     // site furniture
     "/sitemap", "/accessibility", "/advertis", "/permissions", "/alerts", "/cookies",
     // legal and corporate pages. An allowlisted author-services host is the
@@ -200,6 +202,18 @@ const NEVER_FOLLOW: &[&str] = &[
     // Nature Medicine's `journal_requirements` as WORD LIMITS, beside the real
     // 4,000. A price list is not a requirement, and a requirement invented
     // from one is §11 D155's fabrication with a different surface.
+    //
+    // **THESE PATHS ARE NOT THE FIX, AND SAYING SO HERE IS THE POINT (D163).**
+    // D161 added exactly this list at exactly this problem, and EIGHT pages of
+    // the same host walked past it: `/english-language-editing/` does not
+    // contain `/english-editing`, and `/formatting/`,
+    // `/figure-and-table-formatting/`, `/research-promotion/`,
+    // `/featured-articles/…` and the bare host root were never named. A site
+    // names its own pages; a path list is an attempt to enumerate a naming
+    // scheme nobody here controls. The host itself was removed from
+    // `author_services_hosts` on a measured 0/9 precision, and THAT is what
+    // closed it. This list stays as depth for publishers that mix commerce
+    // into a host still worth crawling — it is not load-bearing on its own.
     "/translation", "/academic-translation", "/pricing", "/scientific-editing",
     "/language-editing", "/english-editing", "/illustration", "/poster",
     "/infographic", "/reprints", "/shop", "/order",
@@ -773,6 +787,9 @@ mod tests {
             "https://www.bmj.com/content/378/bmj-2021-069048",
             "https://www.bmj.com/lookup/ijlink/abc",
             "https://onlinelibrary.wiley.com/sitemap",
+            // Nature's spelling of an issue table of contents. Admitted as
+            // guidance before D163; 74 blocks of article titles.
+            "https://www.nature.com/nm/volumes/32/issues/7",
         ] {
             assert!(never_follow(u), "should not be followed: {u}");
         }
