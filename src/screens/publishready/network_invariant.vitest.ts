@@ -109,10 +109,18 @@ function argsAt(code: string, open: number): string {
 /** Absolute non-app origins named in `text`. */
 function externalHosts(text: string): string[] {
   const out: string[] = [];
-  for (const m of text.matchAll(/https?:\/\/([^\s'"`)/$}]+)/g)) {
+  // An `exec` loop rather than `matchAll`: this project targets es5, where
+  // iterating an IterableIterator needs `downlevelIteration` and the CRA
+  // production build fails without it (TS2802). Vitest's esbuild transform is
+  // happy with either, so the suite is green and the shipped build is not.
+  const re = /https?:\/\/([^\s'"`)/$}]+)/g;
+  let m: RegExpExecArray | null = re.exec(text);
+  while (m !== null) {
     const host = m[1];
-    if (host === 'localhost' || host.startsWith('127.') || host.endsWith('gaply.in')) continue;
-    out.push(host);
+    if (!(host === 'localhost' || host.startsWith('127.') || host.endsWith('gaply.in'))) {
+      out.push(host);
+    }
+    m = re.exec(text);
   }
   return out;
 }
