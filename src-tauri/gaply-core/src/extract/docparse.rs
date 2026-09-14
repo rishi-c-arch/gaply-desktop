@@ -672,7 +672,7 @@ pub fn parse_pdf_bytes(bytes: &[u8]) -> Result<String, GaplyError> {
 // DOCX — namespace-aware text harvesting
 // ---------------------------------------------------------------------------
 //
-// ACCURACY CORRECTION (measured 14 Sep 2026). Both DOCX readers matched
+// ACCURACY CORRECTION (§11 D155, measured 14 Sep 2026). Both DOCX readers matched
 // elements by LOCAL NAME (`e.local_name()`), which discards the namespace
 // prefix. `w:t` and `m:t` are then the same match, and so are a tab CHARACTER
 // and a tab-STOP DEFINITION. Two distinct defects, one symptom: text that

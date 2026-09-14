@@ -9812,3 +9812,146 @@ not the same as having guarded it**, which is the §11 D128/D121 lesson arriving
 in a third place.
 
 `a_manuscript_with_no_references_still_refuses_when_consent_is_absent` is the pin.
+
+---
+
+### D155 — `local_name()` made `m:t` into `w:t`, and a ruler setting into a tab
+
+**THE RULE, STATED FIRST:**
+
+> **A parser that discards a namespace has not lost information, it has invented
+> it.** Dropping an element leaves a hole, and a hole is visible to the next
+> reader. Merging two elements because they share a local name produces text
+> that parses cleanly, reads as prose, and says something the document does not
+> — and nothing downstream can tell that apart from data.
+
+#### What was fabricated, and where
+
+`extract/docparse.rs`'s two DOCX readers matched elements with
+`e.local_name()`, which strips the namespace prefix. One mistake, two victims.
+
+**1. OMML flattened into prose.** `<m:t>` — an equation leaf — fell into the
+`<w:t>` arm. The leaf text was concatenated and the structure that gives it
+meaning (the fraction bar, the superscript, the radical) was thrown away,
+because that structure lives in the MARKUP and never in the text. Measured
+against `Corrected_Chapters_3_4_Jitesh_Agarwal.docx` §3.8.1, Slovin's formula:
+
+| in the manuscript | in the text stream every lane reads |
+|---|---|
+| `n = N/(1 + Ne²)` | `n=N1+Ne2` |
+| `n = 237,000/(1 + 237,000(0.04)²) = 237,000/(1+379.2) = 237,000/380.2 = 623.36` | `n=237,0001+237,000(0.04)2=237,0001+379.2=237,000380.2=623.36` |
+
+**`237,0001` and `237,000380.2` are numbers that are not in the manuscript.**
+They are in the stream the statistic extractor, the AI-detection lane and the
+plagiarism lane all consume. Three documents on this machine carry it today —
+19, 19 and 39 `m:t` elements.
+
+§6b.1 of the premium architecture had said math was *"flattened or dropped"*.
+Those are different failures and the shipping one was the worse of the two; the
+document did not say which, and nobody had measured.
+
+**2. A ruler setting emitted as a tab character.** This one was not on the list
+of things to look for. `<w:tab/>` inside a run is a tab; `<w:tab w:val="left"
+w:pos="720"/>` inside `<w:pPr><w:tabs>` is a **tab-stop definition** — a ruler
+setting that produces no text at all. The old loop fired on both, because they
+are the same element name in different positions.
+
+| document | `w:tab` total | inside `<w:tabs>` | genuine runs | tabs emitted (old) |
+|---|---:|---:|---:|---:|
+| `R PAPER .docx` | 21 | **21** | **0** | **21** |
+| `Jitesh Agarwal .docx` | 986 | 493 | 493 | 986 |
+| `Disha Correction .docx` | 284 | 145 | 139 | 284 |
+
+**`R PAPER .docx` is the repo's primary measurement instrument** — §11 D58,
+D65, D67, the 97.6% anchoring figure, the `citation_need` calibration set. It
+has **zero** genuine tab runs. So, stated plainly:
+
+> **Every measurement taken on `R PAPER .docx` before bcb3d2a was taken on a
+> text stream containing 21 characters the document does not contain**, one at
+> the head of each heading (`"\tRelated Work"`).
+
+Nothing in this entry claims those measurements are wrong — a leading tab is
+unlikely to move a citation-resolution count. The point is narrower and it is
+the point: **the figure was never what it said it was, and no run could have
+told anyone**, because a fabricated tab and a real one are the same character.
+
+#### The fix, and the one rule in it worth transferring
+
+Resolve namespaces (`NsReader::read_resolved_event`) rather than match prefixes
+as strings — a document may bind WordprocessingML to any prefix, and a test
+that matched `"w:t"` would have passed every other pin here. Stop emitting
+content from inside OOXML property containers (the `…Pr` suffix is a convention
+of the format, not a guess; `w:tabs` sits inside `w:pPr` and is covered by its
+parent). Both readers now share one walk, so the SIBLING relationship §11 D59
+established between them can no longer cost a second copy of the rules.
+
+**An `m:oMath` becomes `EQUATION_PLACEHOLDER` (`[equation]`) when flattening
+would lose structure, and keeps its text only when the element is a bare run
+sequence — where flattening is provably lossless.** That predicate is what lets
+`Where: N = target population` stay readable while `n=N1+Ne2` cannot occur;
+dropping equations wholesale would have replaced one fabrication (`237,0001`)
+with a smaller one (a dangling `= target population`).
+
+**THE WHITELIST FAILS TOWARD THE PLACEHOLDER, AND THAT DIRECTION IS THE WHOLE
+DESIGN.** The lossless set is enumerated — `oMath`, `oMathPara`, `r`, `t`,
+`rPr`, `sty`, `ctrlPr`, `argPr` — and *every other OMML element, including every
+element this code has never seen*, is structural. A blacklist of known
+structural elements (`m:f`, `m:sSup`, `m:rad`, `m:nary`, `m:d`, `m:m`) would
+have been shorter, would have passed the same tests, and would flatten the next
+unfamiliar construct silently — which is the defect this entry is about,
+re-armed for the next OMML feature Word emits. A guard whose unknown case is
+"do the thing that broke" is not a guard.
+
+#### The three reinstated defects, and what each caught
+
+A green pin proves nothing about whether it gates (§11's negative-control rule,
+and CLAUDE.md's "predict the failure before you claim the gate"). Each defect
+was put back deliberately and the pins watched:
+
+| reinstated | what went red | what stayed green |
+|---|---|---|
+| `m:t` matched as `w:t` again (no math capture) | `a_structured_equation_never_reaches_the_prose_stream_as_digits`, reproducing `n=237,0001+237,000(0.04)2` **verbatim**; `an_unknown_omml_element_is_structural_not_flattened`; the sibling-agreement pin | both tab pins, the namespace pin |
+| property containers no longer suppressed | `a_tab_stop_definition_is_not_a_tab_character`; the sibling-agreement pin | every equation pin |
+| namespace resolved by matching the literal `w:` prefix | `the_wordprocessing_namespace_is_matched_by_uri_not_by_prefix`, and **nothing else** | all six others |
+
+The third row is the one that justifies its own pin existing. Prefix matching
+fixes both shipped defects and passes every test written about them; only a
+document that binds the namespace to another prefix distinguishes it, and that
+document had to be written on purpose.
+
+The positive controls matter as much. `a_tab_inside_a_run_is_still_a_tab`
+exists because a "fix" that deleted all tabs would pass the tab-stop pin and be
+wrong, and `an_inline_math_symbol_survives_because_flattening_it_is_lossless`
+exists because a fix that placeholdered every equation would pass the
+fabrication pin and be wrong.
+
+#### The residue, and the one character that found the last defect
+
+After the fix: `R PAPER .docx` is **exactly −21 characters**, matching its 21
+fabricated tabs; four of the six manuscripts are byte-identical; the OMML
+document's entire diff is its two structured equations (8→10 and 60→10
+characters).
+
+**That last figure was −51 before it was −48, and the three-character gap is
+the transferable part of this section.** The hand-accounting predicted −50; the
+measurement said −51. A one-character discrepancy in a fix about fabricated
+characters is exactly the size that gets rounded away as a rounding artefact,
+and chasing it instead found a third, smaller defect of the same family: a
+`<w:br/>` inside `m:oMath` was being swallowed along with the equation, so the
+real line break in `Where:` / `N = target population` collapsed to
+`Where:N= target population`. Word whitespace inside an equation is Word
+CONTENT, not OMML structure — swallowing it is the same namespace confusion
+running the other way. With that corrected the diff reduced to the two
+equations and nothing else, and the arithmetic closed exactly.
+
+**So: reconcile the residue to the character, and treat a discrepancy smaller
+than the effect as a finding rather than as noise.** A defect that hides inside
+a rounding error is a defect that ships; this one had already shipped once.
+
+#### What this entry does not cover
+
+`<w:object>` OLE Equation Editor 3.0 objects: zero across all 17 real `.docx` on
+this machine, so untested and untouched. DrawingML `a:t` (text boxes, charts,
+SmartArt): the namespace fix means it now correctly does *not* reach the prose
+stream, but no document in this corpus exercises it, so that is reasoned, not
+measured.
