@@ -10271,3 +10271,110 @@ operand traces back to a labelled definition. That is a real family and the
 propagation-to-a-fixed-point exists to serve it. It is a smaller claim than §6b
 made, and it is the one the measurement supports.
 
+
+---
+
+### D159 — a length threshold cannot tell a guideline page from a failure page
+
+**THE RULE, STATED FIRST:**
+
+> **A liveness check that measures SIZE answers a question nobody asked.** Every
+> way a fetch can fail while returning HTTP 200 — a bot challenge, a cookie
+> wall, a browser banner, a homepage — produces a page with characters in it.
+> The check has to ask what the page IS.
+
+#### What the old gate admitted, and what it cost
+
+`guidelines.rs` refused a page below `MIN_GUIDELINE_CHARS = 200`. Measured
+against the live corpus and against nine publishers on 14 Sep 2026, that
+admitted three distinct failures:
+
+| shape | chars | cleared 200? |
+|---|---:|---|
+| nature.com's no-JavaScript banner | 368 | yes — **it is document 1 in the corpus, `status='ingested'`** |
+| Springer's bot interstitial, `<title>Client Challenge</title>` | ~226 | yes |
+| a journal HOMEPAGE — `https://www.bmj.com`, news headlines | 10,875 | comfortably |
+
+**So the `journal_guideline` corpus is 2 real guideline pages, not 6.** Four of
+the six rows are homepages or a browser banner; only the two PLOS rows carry
+guidance. §3.4 has been corrected.
+
+**This is the second time this number has been wrong in the same direction**,
+and the shape repeats exactly. v4 reported *"`journal_guidelines` has 0 rows"*;
+v5 corrected it to *"a count of a table nothing writes to"* — a count of ROWS
+read as a count of GUIDELINES. v5 then wrote *"six ingested guideline pages"*,
+which is the same substitution one level down: six rows, two guidelines. **A
+count of records is not a count of the thing the records are about, and the only
+cure is to open them.**
+
+#### The gate that replaced it
+
+Two rules, deliberately of different kinds, because the two failures have
+different consequences.
+
+1. **Interstitial — EXACT, and read from the `<title>`.** `Client Challenge`,
+   `Just a moment`, `Error - Cookies Turned Off`, `Attention Required`, … The
+   request never reached the journal, so there are no links of the journal's to
+   follow either.
+2. **Guideline vs navigation — a heuristic over obligation language and stated
+   requirements.** Obligation markers (*must*, *should*, *is required*,
+   *please …*) count sentences; explicit limits (*up to 4,000 words*) and named
+   reporting standards (CONSORT, PRISMA, …) count separately, because
+   `nature.com/nm/content` states every one of Nature Medicine's requirements
+   telegraphically and carries almost no modal verbs. Three pieces of evidence
+   admit a page.
+
+**THE FIRST VERSION OF RULE 1 REJECTED AN ENTIRE PUBLISHER, and the measurement
+that caught it was the false-NEGATIVE one.** It matched signatures in the BODY,
+and listed nature.com's banner — *"You are using a browser version with limited
+support for CSS"* — which nature.com serves as furniture on **every page,
+including every real guideline page**. Result: 5 of 5 Nature Medicine guideline
+pages classified as interstitial, silently, with the corpus simply missing a
+publisher. A signature a publisher prints on everything is not a signature; the
+title is the field that says what the response IS.
+
+That is the whole argument for testing the direction where nothing appears.
+Checking that the gate refused the four bad rows would have passed, and the bug
+was on the other side.
+
+#### What it cannot catch, stated plainly
+
+- **The margin between navigation and guideline is thin: 3 against 2.** Over 12
+  measured pages the weakest real guideline page scores 3
+  (`nm/submission-guidelines/initial-formatting`, 1,183 chars) and the strongest
+  navigation page scores 2 (`nature.com/nm`). One extra *"please"* on a homepage
+  crosses it. Tolerable because of WHICH boundary it is — misfiling navigation
+  adds noise, misfiling an interstitial adds a bot challenge — so the exact rule
+  guards the expensive side and the heuristic guards the cheap one.
+- **A guideline page in a language the obligation markers do not cover** scores
+  zero and reads as navigation. The markers are English.
+- **A well-formed page that is genuinely wrong** — outdated guidance, a
+  mirrored copy — passes. This gate is about whether the fetch arrived, not
+  whether the journal is right.
+
+#### The other half: the fetcher was measuring itself
+
+The gate is only reached by pages that were fetched, and the old client could
+not fetch most of them. `ReqwestFetcher` sent `Gaply/0.1.0 (research-integrity)`
+and nothing else — no `Accept`, no `Accept-Language`, no `Sec-Fetch-*`, no
+cookie store. **Five of the nine largest academic publishers answered 403**:
+Elsevier, Wiley, Taylor & Francis, SAGE, and BMJ intermittently.
+
+**The UA was not the problem, and that was worth measuring before assuming.**
+Three UA strings were compared against the full header set — a bare `Gaply/…`,
+a `Mozilla/5.0 (compatible; Gaply/…)` wrapper, and a real Chrome string. **All
+three returned 200 from all nine.** So the honest string is kept; impersonation
+would have bought nothing, and a research tool should say what it is.
+
+**It is the COMPLETENESS of the header set, not any one header.** Ablated
+against the four publishers that refused the old client: `Accept` alone 403,
+plus `Accept-Language` 403, plus a cookie store 403; `Accept-Encoding` alone,
+`Sec-Fetch-*` alone, `Upgrade-Insecure-Requests` alone — 403, 403, 403. **All
+together: 200.** There is no smaller subset to ship, and no single line a later
+edit can remove without silently losing publishers.
+
+Measured through `ReqwestFetcher` itself (`examples/journal_reach_probe.rs`),
+not through curl, because a finding about curl is not a finding about the app:
+**11 of 11 pages now return 200, 8 classify as guideline content, and both
+journal-homepage controls are correctly refused as navigation.**
+

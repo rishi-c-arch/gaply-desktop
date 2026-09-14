@@ -256,7 +256,23 @@ select source_type, count(*) from documents group by 1;        -> journal_guidel
 select count(*) from chunks;                                   -> 59
 ```
 
-`journal_guidelines` is a migration-3 vestigial table, sibling of `reference_styles`, which `migrations.rs:93` labels *"SUPERSEDED (reserved, intentionally unused)"*. Its only mention outside `migrations.rs` is a provenance **string literal** at `guidelines.rs:166` — never a SQL write. The real corpus holds **six ingested guideline pages** (Nature Medicine, BMJ ×2, BMC Public Health, PLOS ONE, PLOS Medicine), all `status='ingested'`, 59 chunks.
+`journal_guidelines` is a migration-3 vestigial table, sibling of `reference_styles`, which `migrations.rs:93` labels *"SUPERSEDED (reserved, intentionally unused)"*. Its only mention outside `migrations.rs` is a provenance **string literal** at `guidelines.rs:166` — never a SQL write. The corpus holds **six rows**, all `status='ingested'`, 59 chunks.
+
+**[v6 — and six rows is not six guideline pages. THE SAME SUBSTITUTION AS v4's, ONE LEVEL DOWN.]** Opened, on 14 Sep 2026:
+
+| doc | entry URL | chars | what it actually is |
+|---|---|---:|---|
+| 1 | `https://www.nature.com/nm` | **368** | nature.com's no-JavaScript banner — *"You are using a browser version with limited support for CSS…"* |
+| 2, 3 | `https://www.bmj.com` | 10,875 / 10,883 | the BMJ **homepage** — news headlines |
+| 4 | `https://bmcpublichealth.biomedcentral.com` | 5,085 | the journal **homepage** — navigation |
+| 5 | `journals.plos.org/plosone/s/submission-guidelines` | 98,882 | **real guidelines**, 29 chunks |
+| 6 | `journals.plos.org/plosmedicine/s/submission-guidelines` | 64,395 | **real guidelines**, 19 chunks |
+
+**The corpus is TWO guideline pages.** Four of the six entry URLs are journal homepages — the URLs are literally `https://www.bmj.com` and `https://www.nature.com/nm` — and one of those is 368 characters of a browser warning.
+
+**Why they were stored as `ingested`:** the liveness check was `MIN_GUIDELINE_CHARS = 200`, a rule about LENGTH. Every way a fetch fails while returning HTTP 200 clears it — a browser banner at 368, a bot interstitial at ~226, a homepage at 10,875. Replaced (§11 D159) with a check that asks what the page IS: an exact title rule for interstitials, and obligation-plus-requirement evidence for guideline content.
+
+v4 said *"0 rows"*; v5 corrected that to *"a count of a table nothing writes to"* and then wrote *"six ingested guideline pages"*. **That is the same error twice, in the same direction: a count of records read as a count of the thing the records are about.** The number to beat is 2.
 
 And the pipeline v4 said did not exist is wired end to end:
 

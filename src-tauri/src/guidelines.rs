@@ -38,9 +38,152 @@ use gaply_core::{now_epoch, Database, GaplyError};
 
 use crate::http_fetcher::ReqwestFetcher;
 
-/// Below this many characters of extracted text, a page is treated as having no
-/// substantive guideline content (non-HTML, paywall splash, empty).
-const MIN_GUIDELINE_CHARS: usize = 200;
+// ---------------------------------------------------------------------------
+// Is this a guideline page? (replaces a length threshold — §11 D159)
+// ---------------------------------------------------------------------------
+//
+// **A character count cannot tell a guideline page from a failure page, and
+// measuring said so.** `MIN_GUIDELINE_CHARS = 200` admitted:
+//
+//   * nature.com's no-JavaScript banner — 368 characters, stored as
+//     `status='ingested'` and still in the corpus as document 1;
+//   * Springer's bot interstitial (`<title>Client Challenge</title>`) at ~226;
+//   * a journal HOMEPAGE — `https://www.bmj.com` at 10,875 characters of news
+//     headlines, which any length rule passes comfortably.
+//
+// Four of the six rows in the live `journal_guideline` corpus are pages of that
+// kind. The question to ask is not "is this long" but "is this a guideline
+// page", and the two failure modes need different answers.
+
+/// What a fetched page turns out to be.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PageVerdict {
+    /// The request never reached the page: a bot challenge, a cookie wall, a
+    /// 403 body served with a 200 status. Do not follow its links; there are
+    /// none of the journal's.
+    Interstitial { signature: &'static str },
+    /// A real page of the journal's, carrying navigation rather than guidance —
+    /// a homepage, a hub of links. **Worth crawling, not worth ingesting.**
+    Navigation { obligations: usize, requirements: usize },
+    /// Guideline content.
+    Guideline { obligations: usize, requirements: usize },
+}
+
+/// Titles that mean the response is not the page that was asked for.
+///
+/// **The TITLE, not the body, and that distinction is load-bearing.** The first
+/// version of this used body text and listed nature.com's banner string — which
+/// appears on EVERY nature.com page, including every real guideline page, so it
+/// rejected an entire publisher. Measured: 5 of 5 Nature Medicine guideline
+/// pages classified as interstitial. A signature that a publisher serves as
+/// furniture is not a signature.
+const INTERSTITIAL_TITLES: &[&str] = &[
+    "client challenge",
+    "just a moment",
+    "attention required",
+    "access denied",
+    "request rejected",
+    "error - cookies turned off",
+    "are you a robot",
+    "security check",
+    "403 forbidden",
+    "page not found",
+];
+
+/// Obligation language — what a page telling an author what to do sounds like.
+const OBLIGATION_MARKERS: &[&str] = &[
+    "must ", "must not", "should ", "should not", "shall ", "may not", "cannot ",
+    "is required", "are required", "will be required", "required to", "requires ",
+    "need to", "needs to", "expected to", "please ", "ensure that", "mandatory",
+];
+
+/// Requirement EVIDENCE — a limit or a named standard is guideline content even
+/// where the prose is telegraphic. `nm/content` states *"Main text – up to
+/// 4,000 words"* with almost no modal verbs, and it is the single page carrying
+/// every one of Nature Medicine's extractable requirements.
+const REQUIREMENT_UNITS: &[&str] =
+    &["words", "figures", "tables", "references", "items", "pages"];
+const REQUIREMENT_LEADS: &[&str] =
+    &["no more than", "maximum of", "up to", "limited to", "at least", "not exceed"];
+const STANDARD_NAMES: &[&str] = &[
+    "CONSORT", "PRISMA", "STROBE", "ARRIVE", "TRIPOD", "CHEERS", "SPIRIT", "STARD",
+];
+
+/// Combined obligation + requirement evidence at or above which a page counts
+/// as guideline content.
+///
+/// **The margin here is thin and stated rather than hidden.** Measured over 12
+/// pages: the weakest real guideline page scores 3
+/// (`nm/submission-guidelines/initial-formatting`) and the strongest navigation
+/// page scores 2 (`nature.com/nm`). One extra "please" on a homepage crosses
+/// it.
+///
+/// That is tolerable because of WHICH boundary it is. Misfiling a navigation
+/// page as guideline content adds noise to the corpus; misfiling an
+/// interstitial would add a bot challenge to it. The interstitial rule is exact
+/// (a title match) and the guideline/navigation rule is a heuristic, which is
+/// the right way round.
+const MIN_GUIDELINE_EVIDENCE: usize = 3;
+
+/// Count sentences carrying obligation language.
+fn obligation_count(text: &str) -> usize {
+    let lower = text.to_lowercase();
+    lower
+        .split_inclusive(['.', '!', '?'])
+        .filter(|s| {
+            let n = s.chars().count();
+            (25..500).contains(&n) && OBLIGATION_MARKERS.iter().any(|m| s.contains(m))
+        })
+        .count()
+}
+
+/// Count explicit limits (`up to 4,000 words`) and named reporting standards.
+fn requirement_count(text: &str) -> usize {
+    let lower = text.to_lowercase();
+    let mut n = 0usize;
+    for lead in REQUIREMENT_LEADS {
+        let mut from = 0usize;
+        while let Some(i) = lower[from..].find(lead) {
+            let at = from + i + lead.len();
+            let tail: String = lower[at..].chars().take(40).collect();
+            let has_number = tail.trim_start().starts_with(|c: char| c.is_ascii_digit());
+            if has_number && REQUIREMENT_UNITS.iter().any(|u| tail.contains(u)) {
+                n += 1;
+            }
+            from = at;
+        }
+    }
+    n + STANDARD_NAMES.iter().filter(|s| text.contains(**s)).count()
+}
+
+/// Classify a fetched page. `title` comes from the RAW html — [`html_to_text`]
+/// strips `<head>`, so the title is gone by the time the body text exists.
+pub fn classify_page(title: &str, text: &str) -> PageVerdict {
+    let t = title.to_lowercase();
+    if let Some(sig) = INTERSTITIAL_TITLES.iter().find(|s| t.contains(**s)) {
+        return PageVerdict::Interstitial { signature: sig };
+    }
+    let obligations = obligation_count(text);
+    let requirements = requirement_count(text);
+    if obligations + requirements >= MIN_GUIDELINE_EVIDENCE {
+        PageVerdict::Guideline { obligations, requirements }
+    } else {
+        PageVerdict::Navigation { obligations, requirements }
+    }
+}
+
+/// The `<title>` of a raw HTML document, collapsed. Empty when absent.
+pub fn html_title(html: &str) -> String {
+    let lower = html.to_lowercase();
+    let Some(start) = lower.find("<title") else { return String::new() };
+    let Some(open_end) = lower[start..].find('>').map(|i| start + i + 1) else {
+        return String::new();
+    };
+    let Some(end) = lower[open_end..].find("</title>").map(|i| open_end + i) else {
+        return String::new();
+    };
+    collapse_ws(&decode_entities(&strip_tags(&html[open_end..end])))
+}
 
 /// Per-URL ingestion outcome.
 #[derive(Debug, Clone, Serialize)]
@@ -157,8 +300,19 @@ fn fetch_and_ingest_one(
     }
 
     let text = html_to_text(&resp.body);
-    if text.trim().chars().count() < MIN_GUIDELINE_CHARS {
-        return unavailable("no substantive guideline text (non-HTML / paywalled / empty)".to_string());
+    // Ask what this page IS, not how long it is. See `classify_page`.
+    match classify_page(&html_title(&resp.body), &text) {
+        PageVerdict::Interstitial { signature } => {
+            return unavailable(format!(
+                "the response is an interstitial, not the page (title says {signature:?}) —                  the request did not reach the journal"
+            ));
+        }
+        PageVerdict::Navigation { obligations, requirements } => {
+            return unavailable(format!(
+                "the page carries navigation, not guidance ({obligations} obligation                  sentence(s), {requirements} stated requirement(s)) — a homepage or a hub                  of links rather than author guidelines"
+            ));
+        }
+        PageVerdict::Guideline { .. } => {}
     }
 
     // UNTRUSTED: third-party web text → injection scan before it goes anywhere.
@@ -218,6 +372,12 @@ fn host_of(url: &str) -> String {
 // HTML parser. A richer extractor (e.g. `scraper`) is the upgrade path if
 // boilerplate stripping needs improving — deliberately avoided here to add no
 // new dependency.
+
+/// `html_to_text` for probes outside this module (`examples/journal_reach_probe.rs`),
+/// so a live measurement runs the SAME extraction the ingest path uses.
+pub fn html_to_text_public(html: &str) -> String {
+    html_to_text(html)
+}
 
 pub(crate) fn html_to_text(html: &str) -> String {
     let mut s = html.to_string();
@@ -393,10 +553,55 @@ mod tests {
         let fetcher = MockHttpFetcher::new().route("guidelines", 200, "{}"); // tiny, non-HTML
         let out =
             ingest_with(&fetcher, &roomy(), &db, &emb, None, Some("http://journal.test/guidelines"));
-        assert!(matches!(
-            &out.results[0],
-            GuidelineIngest::Unavailable { reason, .. } if reason.contains("no substantive")
-        ));
+        // The reason changed with the gate (§11 D159): a page is refused for
+        // WHAT IT IS, not for being short. A body of `{}` carries no obligation
+        // and no requirement, so it is navigation-or-nothing — and the message
+        // now says which of the two failure modes it was, which the old
+        // "no substantive guideline text" could not.
+        assert!(
+            matches!(
+                &out.results[0],
+                GuidelineIngest::Unavailable { reason, .. }
+                    if reason.contains("navigation, not guidance")
+            ),
+            "{:?}",
+            out.results[0]
+        );
+    }
+
+    /// The two refusals must be DISTINGUISHABLE in the reason, because they
+    /// mean different things to a crawler: an interstitial means the request
+    /// never arrived (do not follow its links); navigation means it did (follow
+    /// them, just do not ingest the text).
+    #[test]
+    fn an_interstitial_and_a_navigation_page_are_refused_with_different_reasons() {
+        let db = db();
+        let emb = embedder();
+        let challenge = "<html><head><title>Client Challenge</title></head><body>\
+            A required part of this site couldn't load. Please check your connection.\
+            </body></html>";
+        let out = ingest_with(
+            &MockHttpFetcher::new().route("guidelines", 200, challenge),
+            &roomy(), &db, &emb, None, Some("http://journal.test/guidelines"),
+        );
+        let interstitial_reason = match &out.results[0] {
+            GuidelineIngest::Unavailable { reason, .. } => reason.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert!(interstitial_reason.contains("interstitial"), "{interstitial_reason}");
+        assert!(interstitial_reason.contains("did not reach"), "{interstitial_reason}");
+
+        let out2 = ingest_with(
+            &MockHttpFetcher::new().route("guidelines", 200, "<html><head><title>The BMJ</title>\
+                </head><body>Latest content Research Education News Archive Jobs</body></html>"),
+            &roomy(), &db, &emb, None, Some("http://journal.test/guidelines"),
+        );
+        let nav_reason = match &out2.results[0] {
+            GuidelineIngest::Unavailable { reason, .. } => reason.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert!(nav_reason.contains("navigation"), "{nav_reason}");
+        assert_ne!(interstitial_reason, nav_reason);
     }
 
     #[test]
@@ -481,6 +686,94 @@ mod tests {
             out.note,
             out.results
         );
+    }
+
+    // -----------------------------------------------------------------
+    // The guideline-page gate (§11 D159)
+    // -----------------------------------------------------------------
+
+    /// **The four bad rows already in the live corpus.** Their stored text is
+    /// reproduced here — not paraphrased — so the gate is tested against what
+    /// actually got in, and each one is a different way of getting past a
+    /// length threshold.
+    #[test]
+    fn the_four_bad_rows_in_the_live_corpus_are_all_refused_now() {
+        // doc 1 — nature.com/nm, 368 chars, `status='ingested'`.
+        let nature_banner = "Skip to main content Thank you for visiting nature.com. You are             using a browser version with limited support for CSS. To obtain the best experience,             we recommend you use a more up to date browser (or turn off compatibility mode in             Internet Explorer). In the meantime, to ensure continued support, we are displaying             the site without styles and JavaScript.";
+        assert!(
+            nature_banner.chars().count() > 200,
+            "the old length rule passed this: {} chars",
+            nature_banner.chars().count()
+        );
+        assert!(matches!(
+            classify_page("Nature Medicine", nature_banner),
+            PageVerdict::Navigation { .. }
+        ));
+
+        // docs 2 and 3 — https://www.bmj.com, ~10,875 chars of news headlines.
+        let bmj_home = "Intended for healthcare professionals Our Company Subscribe My Account             Login Fauci's Senate hearing: Why he refused to answer questions, and whether his             Biden pardon could shield him from legal threats. Latest content Research Education             News and views Campaigns Archive For authors Hosted Jobs.";
+        assert!(matches!(classify_page("The BMJ", bmj_home), PageVerdict::Navigation { .. }));
+
+        // doc 4 — BMC Public Health homepage nav.
+        let bmc_home = "Skip to main content BMC journals have moved to Springer Nature Link.             Learn more about website changes. Log in BMC Public Health Publishing model : Open             access Submit your manuscript Save journal View saved research Journal menu Overview.";
+        assert!(matches!(classify_page("BMC Public Health", bmc_home), PageVerdict::Navigation { .. }));
+
+        // The interstitial the old rule would also have taken, at ~226 chars.
+        let challenge = "Client Challenge A required part of this site couldn't load. This may             be due to a browser extension, network issues, or browser settings. Please check             your connection and try again.";
+        match classify_page("Client Challenge", challenge) {
+            PageVerdict::Interstitial { signature } => assert_eq!(signature, "client challenge"),
+            other => panic!("a bot challenge must not be ingestible: {other:?}"),
+        }
+    }
+
+    /// **The other side, which is where the first version of this gate failed.**
+    /// Real guideline pages must pass — including the terse ones and the one
+    /// whose requirements are telegraphic rather than prose.
+    #[test]
+    fn real_guideline_pages_pass_including_the_terse_ones() {
+        // nature.com/nm/submission-guidelines/initial-formatting — 1,183 chars,
+        // the WEAKEST real page measured. Note it carries the same nature.com
+        // banner as document 1 above; a body-text signature would reject it,
+        // which is why the interstitial rule reads the title.
+        let terse = "Thank you for visiting nature.com. You are using a browser version with             limited support for CSS. Formatting your initial submission. Your initial submission             does not need to be specially formatted, as long as the study is described in a way             that is suitable for editorial assessment and peer review. We accept initial             submissions in PDF, Word or TeX/LaTeX formats; if you are using TeX/LaTeX, please             submit compiled PDFs. Please note, further formatting of all text and images will be             required if your manuscript is accepted for publication.";
+        assert!(
+            matches!(classify_page("Formatting your initial submission | Nature Medicine", terse),
+                     PageVerdict::Guideline { .. }),
+            "{:?}",
+            classify_page("Formatting your initial submission | Nature Medicine", terse)
+        );
+
+        // nature.com/nm/content — the single page carrying every extractable
+        // Nature Medicine requirement, stated with almost no modal verbs.
+        let article_types = "Content Types. Article. Format Main text – up to 4,000 words,             excluding abstract, Methods, references and figure legends. Abstract – up to 150             words, unreferenced. Display items – up to 6 items. References – up to 50 references.             Brief Communication. Main text – up to 2,000 words, including abstract.";
+        match classify_page("Content Types | Nature Medicine", article_types) {
+            PageVerdict::Guideline { requirements, .. } => {
+                assert!(requirements >= 3, "telegraphic limits must count: {requirements}");
+            }
+            other => panic!("the article-type page must be guideline content: {other:?}"),
+        }
+    }
+
+    /// A body-text signature that a publisher serves on EVERY page is not a
+    /// signature. This pins the bug the first version of the gate had.
+    #[test]
+    fn a_publisher_wide_banner_does_not_reject_that_publisher() {
+        let banner = "You are using a browser version with limited support for CSS.";
+        let real = format!(
+            "{banner} Authors must declare all competing interests. Manuscripts should be              submitted through the online system. Please ensure that the data availability              statement is complete. Authors are required to register trials prospectively."
+        );
+        assert!(matches!(
+            classify_page("Editorial policies | Nature Medicine", &real),
+            PageVerdict::Guideline { .. }
+        ));
+    }
+
+    #[test]
+    fn the_title_is_read_from_raw_html_before_the_head_is_stripped() {
+        let html = "<html><head><title>Client  Challenge</title></head><body>x</body></html>";
+        assert_eq!(html_title(html), "Client Challenge");
+        assert_eq!(html_to_text(html).find("Client"), None, "html_to_text strips <head>");
+        assert_eq!(html_title("<html><body>no title</body></html>"), "");
     }
 
     #[test]

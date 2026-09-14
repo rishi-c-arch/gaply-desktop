@@ -45,7 +45,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # is synchronous by design (the core crate is sync); the blocking client gives
 # a sync API backed by rustls. The verify stage runs under spawn_blocking so it
 # never blocks the async runtime thread.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+# `cookies` and `gzip`/`brotli` are not conveniences: journal publishers behind
+# Cloudflare-style filters reject a request whose header set is incomplete.
+# Measured 14 Sep 2026 — see `http_fetcher.rs`.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking", "cookies", "gzip", "brotli"] }
 tokio = { version = "1", features = ["full"] }
 
 # Supplementary-file parsing (PublishReady, APP-CRATE ONLY — gaply-core stays
