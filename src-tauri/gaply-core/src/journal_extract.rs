@@ -243,6 +243,30 @@ fn number_after(s: &str, at: usize) -> Option<String> {
     (!digits.is_empty()).then_some(digits)
 }
 
+/// **A word limit is about a PART OF THE MANUSCRIPT.** Measured, and it reached
+/// the database: Nature Medicine's licensing page says
+///
+/// > *"In the case of text-mining, individual words, concepts and quotes up to
+/// > 100 words per matching sentence may be used…"*
+///
+/// and that was stored as a `word_limit` of 100, in conflict with the real
+/// 4,000. It is a text-mining quota in a re-use licence — a real sentence on a
+/// real guidance page, saying nothing about how long a submission may be.
+///
+/// So a numeric word limit is admitted only when its sentence names a part of
+/// the manuscript, OR its heading names an article type. The second clause is
+/// not slack: `nature.com/nm/content` says *"Format Length – up to 4,000
+/// words."* under the heading **Perspective**, which names no manuscript part
+/// and is unambiguously a limit because of where it sits.
+const MANUSCRIPT_PARTS: &[&str] = &[
+    "main text", "manuscript", "article", "paper", "submission", "abstract",
+    "summary", "text is", "length", "body", "contribution", "letter", "report",
+];
+
+fn is_about_the_manuscript(sentence_lower: &str, article_type: &Option<String>) -> bool {
+    article_type.is_some() || MANUSCRIPT_PARTS.iter().any(|p| sentence_lower.contains(p))
+}
+
 const LIMIT_LEADS: &[&str] = &[
     "up to", "no more than", "maximum of", "a maximum", "not exceed", "limited to",
     "must not exceed", "should not exceed", "fewer than", "at most",
@@ -305,6 +329,13 @@ pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequireme
                     } else {
                         kind
                     };
+                    // A count of words that is not about the manuscript is not
+                    // a word limit. See `MANUSCRIPT_PARTS`.
+                    if matches!(kind, RequirementKind::WordLimit | RequirementKind::AbstractLimit)
+                        && !is_about_the_manuscript(&lower, &article_type)
+                    {
+                        continue;
+                    }
                     push(&mut out, kind, value, &article_type, block, sentence);
                 }
             }
@@ -488,6 +519,44 @@ mod tests {
         assert!(got
             .iter()
             .any(|r| r.kind == RequirementKind::AbstractLimit && r.value == "300"));
+    }
+
+    /// **A text-mining quota in a licence is not a word limit.** Verbatim from
+    /// `nature.com/nm/editorial-policies/self-archiving-and-license-to-publish`,
+    /// and it reached the database as a `word_limit` of 100 conflicting with
+    /// the real 4,000.
+    #[test]
+    fn a_word_count_that_is_not_about_the_manuscript_is_not_a_word_limit() {
+        let got = extract_requirements(&[b(
+            "Wholesale re-publishing is prohibited",
+            "In the case of text-mining, individual words, concepts and quotes up to 100 words              per matching sentence may be used, whereas longer paragraphs of text and images              cannot.",
+        )]);
+        assert!(
+            got.iter().all(|r| r.kind != RequirementKind::WordLimit),
+            "a licensing quota became a word limit: {got:#?}"
+        );
+    }
+
+    /// The second clause is not slack. `Format Length – up to 4,000 words.`
+    /// names no manuscript part and IS a limit, because its heading names an
+    /// article type.
+    #[test]
+    fn a_limit_under_an_article_type_heading_needs_no_manuscript_noun() {
+        let got = extract_requirements(&[b("Perspective", "Format Length – up to 4,000 words.")]);
+        assert_eq!(got.len(), 1, "{got:#?}");
+        assert_eq!(got[0].kind, RequirementKind::WordLimit);
+        assert_eq!(got[0].article_type.as_deref(), Some("Perspective"));
+
+        // …and the same sentence with no heading at all still counts, because
+        // "Length" is itself a manuscript part.
+        assert!(!extract_requirements(&[b("", "Format Length – up to 4,000 words.")]).is_empty());
+        // But a bare count under a non-article heading does not.
+        assert!(extract_requirements(&[b(
+            "Permissions",
+            "Reuse of up to 250 words per request is permitted.",
+        )])
+        .iter()
+        .all(|r| r.kind != RequirementKind::WordLimit));
     }
 
     #[test]
