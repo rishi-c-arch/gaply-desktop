@@ -27,6 +27,50 @@
 //! the schema enforces it: `migrations` v23 refuses an `inferred` row with
 //! `n = 0`.
 //!
+//! # WHAT THE MISSING THREE WOULD COST, AND WHETHER THEY WOULD BE HONEST
+//!
+//! **Estimated, not built.** Measured 14 Sep 2026 on four real PLOS ONE OA
+//! PDFs: mean **1.48 MB and 2.2 s** to fetch, plus **0.15–0.8 s** to parse
+//! (`pdf-extract`, 0.84 MB paper, 0.78 s wall). So per paper ≈ **2.7 s and
+//! 1.5 MB**:
+//!
+//! | | requests | time | bytes |
+//! |---|---:|---:|---:|
+//! | 50-paper corpus, one journal | 50 | **~2.3 min** | ~74 MB |
+//! | ten journals | 500 | **~23 min** | **~0.7 GB** |
+//!
+//! Affordable as a quarterly background job; not affordable inside an
+//! interactive run. That is a scheduling question, and it is the smaller half.
+//!
+//! **THE LARGER HALF IS WHETHER THE RESULT WOULD DESCRIBE THE JOURNAL.**
+//! Full text is only available where the paper is open access, so a figure
+//! count derived from it describes the OA SUBSET. Measured over research
+//! papers (not all records — see the correction below):
+//!
+//! | | OA pdf available |
+//! |---|---:|
+//! | PLOS ONE | **95%** (188 of 197) |
+//! | Nature Medicine | **68%** (54 of 79) |
+//!
+//! At 95% the subset is the journal. **At 68% a third of the research papers
+//! are absent, and whether that third differs is UNTESTED**: the only
+//! comparable signal is page count, and the non-OA papers carrying one number
+//! 10. Their median is 10 pages against the OA subset's 9 — a direction, not a
+//! finding, on a sample that cannot support one.
+//!
+//! So the honest position is that this is **not proven to be a second mixture
+//! and not proven not to be**, and the test that would settle it does not
+//! exist yet. Before building these three, measure whether OA and non-OA
+//! papers differ on something the source already carries; a convention that
+//! silently describes 68% of a journal is the defect
+//! [`is_research_paper`] was added to fix, wearing different clothes.
+//!
+//! **A correction to an earlier figure in this module's own history:** the
+//! first note said 74% / 36%. Those were `has_fulltext` over ALL records,
+//! short-form items included. Over research papers the figures are 95% / 68%.
+//! Two different denominators, and the second is the one that bears on whether
+//! a convention is representative.
+//!
 //! # `length` IS A PAGE COUNT, AND §7 IMPLIES A WORD COUNT
 //!
 //! §7's example is *"Median recent paper is 4,620 words."* What the source
@@ -296,9 +340,13 @@ pub fn derive_conventions(papers: &[PublishedPaper], bounds: &CorpusBounds) -> V
     for (metric, why) in [
         (ConventionMetric::SectionSet,
          "OpenAlex carries no section structure. Deriving it needs the open-access full text \
-          parsed, available for 74% of PLOS ONE and 36% of Nature Medicine recent papers."),
+          parsed: ~2.7 s and 1.5 MB per paper, so ~2.3 min for a 50-paper corpus and ~23 min \
+          for ten journals. It would also describe the OPEN-ACCESS SUBSET — 95% of PLOS ONE's \
+          research papers but 68% of Nature Medicine's — and whether the missing third differs \
+          is untested."),
         (ConventionMetric::FigureCount,
-         "OpenAlex carries no figure count. Same full-text requirement as the section set."),
+         "OpenAlex carries no figure count. Same full-text cost and the same open-access \
+          subset question as the section set."),
         (ConventionMetric::MethodsPosition,
          "Methods position is a property of the section order, which OpenAlex does not carry."),
     ] {

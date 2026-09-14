@@ -741,8 +741,14 @@ Never one pool. An agent that could read another cluster's memory is an agent th
 | Kind | Example | Source | How it may be stated |
 |---|---|---|---|
 | **Requirement** | *"Maximum 5,000 words."* | the author guidelines | as a rule; violation is blocking |
-| **Convention** | *"Median recent paper is 4,620 words."* | 50 recently published articles | as a comparison, with the count |
+| **Convention** | *"Median recent paper is 9 PAGES (n = 41)."* | recently published research papers | as a comparison, with the count AND ITS UNIT |
 | **Expectation** | *"18 of 25 comparable papers include external validation."* | recent-paper analysis, editor statements, public reviewer guidance | as a frequency, with the evidence, never as a rule |
+
+**[v6 — the convention example was a WORD count and what the source supplies is PAGES. Corrected, because the gap is not cosmetic.]** v5 wrote *"Median recent paper is 4,620 words."* OpenAlex carries `biblio.first_page`/`last_page` and no word count; the derived metric is a page count, and only for journals that paginate — PLOS ONE identifies articles as `e0319586` and supplies no length at all (§11's corpus entry, measured 14 Sep 2026).
+
+**A manuscript's word count cannot be compared against a page median.** Pages per word vary with template, figure area, font and column count, and the ratio is a property of the journal's typesetting rather than of the writing. A reader shown "your manuscript is 6,200 words; the journal's median is 9" will do arithmetic nobody sanctioned and reach a number neither side supports. So the metric renders its unit, and until a word count exists the comparison a report may draw is *"9 pages (n = 41)"* stated beside the manuscript's own length in its own unit — never a ratio between them.
+
+Three of the five conventions are also **not derivable from the source at all** — `section_set`, `figure_count` and `methods_position` need the open-access full text parsed. They are `UNAVAILABLE`, with the cost and the coverage question recorded in `gaply-core/src/journal_corpus.rs`.
 
 A finding cites which kind it rests on. *"Too long"* against a requirement is a different finding from *"longer than most"* against a convention, and the report says which.
 
