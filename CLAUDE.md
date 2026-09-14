@@ -460,6 +460,46 @@ time injection.
     not flagged at all, because it felt measured: a command had been run and had
     genuinely exited 1. Confidence tracks *having measured something*, not
     *having measured the right thing*, so it is the weaker signal of the two.
+- **NEVER CHECK A FETCH WITH `curl`. Use the app's own fetcher through a probe.**
+
+  `ReqwestFetcher` sends the same headers and the same User-Agent as a careful
+  curl invocation. What differs is the **TLS and HTTP/2 fingerprint** —
+  `reqwest` + `rustls` against curl's stack — and that is precisely what a
+  Cloudflare-class filter keys on. So **a curl 403 is a fact about curl, and a
+  curl 200 is a fact about curl.** Neither is evidence about what Gaply can
+  reach.
+
+  **It produced three wrong findings in one day (14 Sep 2026), all about the
+  journal layer:**
+
+  | claimed | actual |
+  |---|---|
+  | *"5 of 9 publishers return 403 to us"* | an artefact of a minimal header set; caught before it shipped |
+  | *"BMJ and SAGE are blocked"* | both answer 200 to the app; caught only by re-checking |
+  | *"6 of 10 journals publish no reviewer guidance"* | four of the zeros were crawl-budget and curl 403s; BMC demonstrably publishes it |
+
+  Measured through `ReqwestFetcher` itself
+  (`examples/fetch_stability_probe.rs`): **75 requests — five targets, five
+  rounds over four minutes, a fresh client, a shared client and a warmed
+  client — 75 × 200, not one 403.** Not intermittent, not rate-limited, not
+  varying by hour. The publishers were never the problem.
+
+  **The tell was the same all three times: a UNIFORM result across targets that
+  should differ.** Elsevier, Wiley, Taylor & Francis and SAGE are four
+  companies with four infrastructures; they do not decide to refuse the same
+  research tool on the same afternoon. When every row of a table says the same
+  thing, suspect the column.
+
+  That puts this with the batch-known-good entry and the piped-exit-status
+  entry: **an instrument reporting a property of itself as a property of the
+  world.** The remedy is the same one — run the thing you are actually asking
+  about, not a convenient stand-in for it. If a fetch needs checking, write the
+  four-line example that calls `ReqwestFetcher`; it costs one `cargo build` and
+  it answers the question asked.
+
+  **And do not build retries around a 403 until you know which kind it is.** A
+  retry loop against a fingerprint spends the budget and changes nothing.
+
 - **A SPAN IS THE ONE FIELD THAT CANNOT BE PLAUSIBLE AND WRONG AT THE SAME
   TIME, because it quotes the source and the source says what it is.**
 
