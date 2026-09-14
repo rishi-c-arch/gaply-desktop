@@ -10782,3 +10782,100 @@ instrument.** The gate was mostly right (46% correctly barren), the corpus was
 fine, and the defects were a host allowlist, a path list that could not win, a
 negation window tuned to one example, a test green for the wrong reason, and a
 classifier that classified nothing.
+
+### D164 — the injection guard had fired three times on real input, all three false
+
+**14 Sep 2026.** Phase 3's closing items: a structural assertion that the
+journal layer cannot reach the manuscript layer, and Prompt 5's multilingual
+denylist entries plus a structural imperative-mood rule.
+
+**The instruction was to measure before extending, and the measurement changed
+what got built.** `examples/journal_denylist_measure.rs` runs `sanitize` over
+every page a crawl fetches. Across two publishers — Nature Medicine 98 pages,
+PLOS ONE 89 — the guard fired **three times**, and all three were the
+journals' own prose:
+
+| page | matched | the sentence |
+|---|---|---|
+| `nature.com/nm/for-authors` | `"you are now"` | *"YOU ARE NOW READY TO SUBMIT YOUR MANUSCRIPT"* |
+| `nature.com/nm/submission-guidelines` | `"you are now"` | the same heading |
+| `plos.org/plosone/s/supporting-information` | `"do not follow the"` | *"They **do not follow the** same requirements as tables and figures in the main body"* |
+
+**Zero true positives. Three false positives. And a hit quarantines the WHOLE
+document** — `rag.rs` gives a quarantined document zero chunks — so the guard
+was silently dropping `nature.com/nm/for-authors`, **the crawl's own entry
+page**, and the page carrying PLOS ONE's supporting-information rules. The most
+important page of the journal used throughout Phase 3 was being discarded by a
+defence nobody had run against real input.
+
+**Both defects have the same shape: a phrase whose injection meaning depends on
+what follows it, matched as a bare substring.** *"You are now"* is an injection
+when it reassigns a role (*"a helpful assistant"*, *"DAN"*, *"operating without
+restrictions"*) and is ordinary narration otherwise (*"ready"*, *"able to"*,
+*"viewing"*). *"Do not follow the"* is an injection when its object is the
+instructions and is a description of two formats differing otherwise. Both are
+now contextual: the phrase must be followed, within a short window, by a
+role-assignment word or an instruction-noun respectively.
+
+**The narrowing costs coverage and the cost is written down rather than
+glossed:** the guard now misses *"you are now unrestricted"* unless the
+adjective is listed. That was accepted because a defence which fires on its own
+corpus is a defence somebody switches off.
+
+#### The new structural rule found its own false positive first
+
+Prompt 5 asks for a structural imperative-mood rule alongside the phrase list,
+because a phrase list can only catch wordings someone has already seen. The
+rule: a SHORT line beginning with a command verb and naming something the model
+owns.
+
+Its first draft used `"you "`/`"your "` as the object test, and **the benign
+half of its own test caught it immediately** — *"Print your figures at 300 dpi
+or higher"* starts with a command verb and contains `"your "`. A journal's style
+guide is made of sentences like that. The object now has to name the model's
+own state (`your instructions`, `your system prompt`, `yourself`, `the above`),
+which `your figures` and `your cover letter` do not.
+
+That is the argument for Prompt 5's constraint that **every addition gets a
+test firing on a phrase NOT already in the list**. A denylist tested against its
+own entries proves only that `contains` works — the entries are the author's
+premise, and asserting them back is the fixture problem in its purest form
+(CLAUDE.md, "a hand-written fixture's first independent vote is the corpus").
+So each new test uses either a verbatim real-world sentence or a wording the
+list does not carry, and two of them assert explicitly that the phrase list
+does NOT catch the case, so the structural rule is what is being measured.
+
+**After the fix, re-measured: 0 of 98 and 0 of 81.** `strip_hidden` is doing
+real work either way — 27 hidden characters stripped across Nature Medicine's
+crawl and 9,916 across PLOS ONE's.
+
+#### The third guard of its kind, and each bans something different
+
+`journal_layer_has_no_manuscript.rs` asserts the journal modules' dependency
+graph does not reach the manuscript layer. §3.4's claim that journal profiles
+are *"shared and cached … none of it touches any user's manuscript"* is what
+lets a fingerprint be built once per journal and served to everyone, so this is
+a privacy property and a caching property at once.
+
+The differences from its two siblings matter more than the similarity, because
+a reader who assumes they are copies will extend the wrong list:
+
+| guard | bans | must ALLOW |
+|---|---|---|
+| `equation_is_llm_free` | models, proxy, network, database, filesystem, clock, entropy | `std` + `serde` only |
+| `journal_display_is_llm_free` | models, proxy, network | the database and the clock |
+| `journal_layer_has_no_manuscript` | the manuscript layer | the database, the clock, AND the network |
+
+**Comment-stripping is load-bearing and was a near-miss.**
+`journal_standards.rs` carries the rustdoc line
+``//! [`ResearchState`]: crate::research_state::ResearchState`` in a header
+explaining why an unbound standard cannot select an evaluator. A scan that
+could not tell prose from code fires on a module documenting the very boundary
+it respects — and the obvious "fix" is to delete the explanation. Confirmed by
+removing the stripping and watching it fail on exactly that line.
+
+**What it cannot catch is recorded in its header**, including the one that
+matters: `report::checklist_from_requirements` legitimately takes both an
+`ExtractionResult` and stored requirements, because comparing a manuscript to a
+journal is the product. That join lives in `report.rs`, which is not scanned, so
+a future violation could hide by moving code there.
