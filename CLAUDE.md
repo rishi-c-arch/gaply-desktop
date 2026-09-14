@@ -460,6 +460,55 @@ time injection.
     not flagged at all, because it felt measured: a command had been run and had
     genuinely exited 1. Confidence tracks *having measured something*, not
     *having measured the right thing*, so it is the weaker signal of the two.
+- **A SPAN IS THE ONE FIELD THAT CANNOT BE PLAUSIBLE AND WRONG AT THE SAME
+  TIME, because it quotes the source and the source says what it is.**
+
+  Any extracted fact that carries its sentence can be checked by a human in one
+  glance. Any that carries only a value has to be trusted. That is the whole
+  argument for storing the sentence beside the number — not provenance for its
+  own sake, but the difference between a record a reader can refute and one
+  they can only believe.
+
+  **It earned itself four times in one afternoon (14 Sep 2026, the journal
+  layer), and every one was invisible in a count and obvious in a row:**
+
+  | what the count said | what the row said |
+  |---|---|
+  | `word_limit = 12000` | *"Features: Translation by a native Chinese speaker with an advanced degree…"* — a price list from the publisher's paid translation service |
+  | `1 conflicted fact` | CONSORT / PRISMA / STROBE / STARD / TRIPOD / ARRIVE, each span naming the study design it applies to — six requirements, not one dispute |
+  | `12 requirements per source document` ×2 | `/nm/content` and `/nm/about/content` — one page under two paths |
+  | `word_limit = 100` | *"In the case of text-mining, individual words, concepts and quotes up to 100 words per matching sentence…"* — a re-use licence, not a submission limit |
+
+  "46 requirements, 3 conflicts" is a plausible summary, and both of its
+  numbers were wrong — 29 and 1 once the rows were read. **No count caught any of these; printing rows with their
+  spans caught all four.** So: when a pipeline produces facts, make the probe
+  print rows, not totals — and pick the row the pipeline itself would surface,
+  not one you chose. The text-mining quota was found because the probe prints
+  the NEWEST `word_limit` and that happened to be the bad one.
+
+  **FOUR BOUNDARIES WERE DRAWN TOO WIDE IN ONE PHASE, and each produced data
+  that was not the journal's:** the HOST (`journals.plos.org` is every PLOS
+  journal, so a crawl of PLOS ONE reached PLOS Genetics), the DOMAIN (a
+  publisher's author-services site sells translation and editing to the same
+  authors it advises), the requirement KIND (`reporting_standard` is not
+  single-valued, so a second one read as a contradiction), and WHAT A NUMBER
+  COUNTS (a licence's quota is not a manuscript limit). §11 D160, D161.
+
+  **And the majority of what needed fixing was in the INSTRUMENT, not the
+  corpus — for the third phase running.** The journal crawler wandered into
+  research articles, deduplicated on URL where pages differ only by scheme,
+  gave up on a rate limiter and called it success, and ordered its frontier so
+  that the pages justifying its own design were the first to be cut off. Part
+  D's equation engine had the same shape: four fabricated Tier-0 findings, all
+  from the checker rather than the manuscripts (§11 D157). Before that, a
+  performance prediction was 20–100x wrong because the calibration file carried
+  the defect being measured.
+
+  The habit that follows is not "distrust the corpus" — it is the opposite.
+  **Run against real inputs early, print what the machinery actually produced,
+  and expect the first few rounds of findings to be about your own tools.** A
+  clean first result on real data is the thing to be suspicious of.
+
 - **A PURITY CLAIM IN A DOC COMMENT IS NOT A GUARD. Counted 14 Sep 2026:
   `validate.rs`, `stats_verify.rs` and `stats_verdict.rs` each state "no model,
   no proxy, no network, no I/O" in their module headers — three claims, ZERO
