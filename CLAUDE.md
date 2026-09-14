@@ -509,6 +509,16 @@ time injection.
   own sake, but the difference between a record a reader can refute and one
   they can only believe.
 
+  **A TRUNCATED SPAN IS NOT A SPAN.** The same rule fails from the display side
+  as easily as from the storage side. The checklist's data-availability item was
+  correct and its span was clipped at 150 characters by the probe that printed
+  it, so it read as fast-track boilerplate with no mention of data availability
+  — the item looked unsupported, and the instrument had hidden the evidence for
+  it. The full sentence contains *"…funding statement, **a data availability
+  statement** and in the case of studies involved custom code…"*. A span exists
+  to be checked, and a clipped one cannot be: stored whole and printed short is
+  the same defect as never stored at all, from the reader's side.
+
   **It earned itself four times in one afternoon (14 Sep 2026, the journal
   layer), and every one was invisible in a count and obvious in a row:**
 
