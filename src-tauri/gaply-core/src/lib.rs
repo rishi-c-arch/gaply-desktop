@@ -16,6 +16,7 @@ pub mod analysis;
 pub mod specialist;
 pub mod consent;
 pub mod research_state;
+pub mod chat_scope;
 pub mod chunk;
 pub mod citation_links;
 pub mod citation_library;

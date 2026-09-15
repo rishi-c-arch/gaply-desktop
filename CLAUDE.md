@@ -755,6 +755,36 @@ time injection.
   lint-gate entry's "predict the failure before you claim the gate". Run it on
   every guard you add; run the corpus on every classifier you trust.
 
+  **A DELETION TEST THAT GOES GREEN IS NOT A FAILED CHECK — IT IS A FINDING
+  ABOUT THE TEST.** The move was introduced to prove a guard gates. Measured
+  across one session of 39 deletion tests, it did that 36 times and **three
+  times told me something else entirely: the test could not reach its guard.**
+
+  | guard deleted | why the test stayed green |
+  |---|---|
+  | cue-stripping in `states_its_scope` | no cue in the list could reach it — and investigating that found a real bug, `contains("in ")` matching inside `rema`**`in `**`unexplored` |
+  | a declined specialist earning a strength | the criterion had a second source that had also not run, so the assertion held on the wrong reason |
+  | the span fix for reporting-standard absences | the evidence policy refused the span-less concern first, so the invariant held trivially |
+  | an unanchored concern being dropped | the fixture had no unanchored MINOR concerns, so a severity-selective drop was invisible |
+
+  **Every one of those is a test that would have passed forever while the thing
+  it names stopped being true.** Two of them were guards overlapping — defence
+  in depth, which is good — but a test that cannot tell which of two guards is
+  holding is not a test of either, and it reports green when one is removed.
+
+  So the rule has a second half. **When a deletion test goes green, do not
+  shrug and move on: find out why, and fix the TEST.** The repair is usually
+  one of three —
+  * the fixture does not exercise the branch (add the case: the unanchored
+    MINOR, the second source that DID run);
+  * another guard catches it first (assert the other guard stayed quiet too —
+    `policy_rejected.is_empty()` beside "every concern has a span");
+  * the guard is genuinely unreachable today (keep it, and pin the PREMISE that
+    makes it unreachable, so the day that premise changes the test goes red).
+
+  Predicting red and getting green is the same class of signal as the
+  negative-control entry above: **a measurement result, not a non-event.**
+
   **So, operationally: A HAND-WRITTEN FIXTURE INHERITS THE AUTHOR'S PREMISE.
   ITS FIRST INDEPENDENT VOTE IS THE CORPUS.** The first REAL input — the actual
   six lanes, an actual manuscript, the actual committed graph, 36 fetched pages
@@ -967,6 +997,43 @@ time injection.
   you expect is the one to re-run**, because agreement is what removes the
   prompt to check. The verification that worked here was the cheapest possible:
   ask the API again, directly, and read the three rows.
+
+  **AN INSTRUMENT THAT ASSERTS ITS OWN ANSWER — the fifth instance, and the
+  only one where the DOCUMENTATION is the dangerous part.** 15 Sep 2026, in a
+  probe measuring which chat modes a stored run could answer:
+
+  ```rust
+  fn exists(_needle: &str) -> bool {
+      // Checked by grep at build time, not at runtime — this probe does no I/O
+      // over the source tree. Every one of these was ABSENT when measured
+      // 15 Sep 2026; the row is here so the claim is visible, not computed.
+      false
+  }
+  ```
+
+  It printed a table of four "ABSENT" rows about types the codebase might
+  contain. **It had checked nothing.** The answers happened to be right — a
+  real grep returned 0 hits for all four — which is exactly what makes it worth
+  recording: a fabricated instrument that agrees with reality teaches you
+  nothing and will not be questioned.
+
+  **The comment is the defect, not the `false`.** A bare `false` invites the
+  question *"is that measured?"*. A comment saying *"checked by grep at build
+  time … measured 15 Sep 2026"* answers that question before a reader asks it,
+  with a claim that is not true. **It pre-empts the check it should have
+  prompted** — and it would have survived into a decision record as a measured
+  row, in a file whose whole discipline is that numbers name the run that
+  produced them.
+
+  This is the same shape as §11 D123's constants and D166's carried-in figures:
+  a statement that is true SOMEWHERE re-aimed at a question it never answered.
+  The difference is that those were re-aimed by a human reading them, and this
+  one was written into the instrument.
+
+  **The rule: a probe measures or it says nothing.** If the check belongs in the
+  shell, run it in the shell and paste the output; do not stub it in the probe
+  and narrate the result. And when you write a comment asserting that something
+  was measured, the comment is a claim — it needs the same evidence as a number.
 
 - **A Bash call refused by the permission classifier runs NOTHING, including the
   parts you later assume ran. `git status` is the only thing that catches it.**

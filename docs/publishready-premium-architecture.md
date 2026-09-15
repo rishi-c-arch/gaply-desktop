@@ -1263,6 +1263,62 @@ Scoped exactly as the audit's chat was scoped, because that scoping was right:
 
 Multilingual replies are fine — Qwen and OpenAI both handle it — with the rule the audit chat set: names, numbers and quoted text stay exactly as stored; only the explanation is translated.
 
+**[v8 — TWO MODES SHIP, TWO ARE DECLINED. `gaply-core/src/chat_scope.rs`.]**
+
+Measured before wiring anything (`examples/chat_scope_audit.rs`), over **137
+findings from 20 real manuscripts**:
+
+| mode | answerable from the verdict layer | by |
+|---|---:|---|
+| **Explain** | **137 of 137** | `summary` + `trail[severity]` + `uncertainty` |
+| **Evidence** | **137 of 137** | `spans`, stored whole |
+| Correction | **0 of 137** | nothing stores a suggested edit |
+| Challenge | **0 of 137** | no `Decision` row, and no graph-driven re-run |
+
+Explain and evidence are answerable for every finding and not by luck: they rest
+on fields the lens layer already enforces — `citation_required` refuses a
+span-less concern, and every concern's trail carries a `severity` step naming
+the risk-table cell. §10's rule that *the model phrases, it does not compute* is
+satisfiable because the numbers, spans and severities are stored fields. The
+firewall is `chat_agent`'s, reused unchanged rather than rebuilt.
+
+**CORRECTION — declined, and `required_revision` is the reason it is 0 rather
+than 137.** Every concern carries a `required_revision`, and it is NOT an answer
+to *"what would fix it"*. It is the reviewer document's generic **Action:** text
+for the criterion — *"Use reference manager tools (EndNote, Zotero) with the
+journal's style file"* — advice about the criterion, not a fix for this
+manuscript. Offering it as a computed correction would be **a well-formed answer
+to a question the system cannot answer**, which is exactly the fabrication
+§11 D166 declined the scientific layer over: plausible, specific, and not
+derived from anything. §9's *"suggested edits where the finding is mechanical"*
+was never built, and until it is, the honest response shows the finding's span
+and the document's action text, each labelled as what it is.
+
+**CHALLENGE — declined, and its dependency chain is four layers deep with the
+bottom one unbuilt.** Stated here in one place so a session proposing challenge
+mode meets the chain rather than reassembling it:
+
+```text
+§10 challenge mode        "I disagree; the 24 were excluded per protocol"
+  → a Decision ledger     a row: what, why, user-confirmed, evidence pointer,
+                          and which research-state fields it affects
+    → §5.5 incremental    compute which fields changed, which agents read them,
+       re-analysis        re-run only that subgraph
+      → §12.1 item 2      the graph DESCRIBES the lanes; it does not DRIVE
+                          them. `run_pipeline_inner` executes a hardcoded
+                          sequence, so there is no subgraph to re-run.
+```
+
+Measured by grep over the tree, not asserted: `struct Decision` **0 hits**,
+`CREATE TABLE decision` **0**, `revision_history` **0**.
+
+**The order matters.** A Decision ledger could be built tomorrow and challenge
+mode would still not work, because §10 promises *"the affected subgraph
+re-runs"* and nothing can re-run a subgraph. Building the ledger first would
+ship a mode that records a disagreement and changes nothing — worse than
+declining it, because the researcher would reasonably expect the finding to be
+re-evaluated and would watch it not be.
+
 ---
 
 ## 11. Security
