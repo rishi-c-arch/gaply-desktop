@@ -1886,3 +1886,431 @@ fn a_recommended_standard_is_not_reported_as_required() {
         strobe.requirement
     );
 }
+
+/// **Every item row carries the coverage fraction, in the row.**
+///
+/// The fraction used to live in one binding row's prose. A reader who scrolled
+/// past it then saw "STROBE item 16a — passed" and had been told the manuscript
+/// met STROBE, when 20 of its 22 items were never read. Restating the fraction
+/// on every row is what makes that reading unavailable.
+#[test]
+fn every_standard_item_row_states_the_fraction_of_the_standard_checked() {
+    use crate::journal_standards::{Standard, StandardBinding};
+
+    let bindings = vec![StandardBinding {
+        standard: Standard::Strobe,
+        design: "cross-sectional study".into(),
+        source_span: "Observational studies (cohort, case-control or cross-sectional designs) \
+                      must be reported according to the STROBE statement."
+            .into(),
+    }];
+    let ex = crate::extract::extract_from_text(
+        "Abstract\n\nMethods: Cross-sectional employer survey (n = 222). Multivariable \
+         logistic regression was used.\n\nResults\n\nProvision was 36.5% (95% CI: \
+         30.2-43.1%).\n",
+    );
+    let items = crate::report::checklist_from_requirements(&ex, 1000, &[], &bindings);
+
+    let rows: Vec<&crate::report::ChecklistItem> =
+        items.iter().filter(|i| i.requirement.contains("STROBE item")).collect();
+    assert_eq!(rows.len(), 5, "one row per item, not one row per standard");
+    for r in &rows {
+        assert!(
+            r.requirement.contains("checks 2 of STROBE's 22 numbered items"),
+            "the fraction must be in the ROW, not only in a header: {}",
+            r.requirement
+        );
+        // The journal's own sentence travels with every item it justifies.
+        assert!(
+            r.source_span.as_deref().is_some_and(|s| s.contains("must be reported")),
+            "every item must carry the binding sentence: {:?}",
+            r.source_span
+        );
+    }
+
+    // **`Unevaluable` must not render as passed.** Three of STROBE's five items
+    // read only the declined layer; a tick on any of them is a compliance claim
+    // nobody made.
+    let passed: Vec<&str> = rows
+        .iter()
+        .filter(|r| r.passed)
+        .map(|r| r.requirement.as_str())
+        .collect();
+    assert_eq!(passed.len(), 2, "only the two decidable items may pass: {passed:?}");
+    for r in rows.iter().filter(|r| r.detail.contains("not checked")) {
+        assert!(!r.passed, "an unevaluable item rendered as passed: {}", r.requirement);
+    }
+
+    // And a met row shows the manuscript sentence that decided it.
+    let met = rows.iter().find(|r| r.passed && r.requirement.contains("16a")).unwrap();
+    assert!(met.detail.contains("95% CI"), "a met row must show its evidence: {}", met.detail);
+}
+
+mod evaluator_tests {
+    #![allow(clippy::module_inception)]
+    //! **The manuscript text here is from the real corpus**, not invented to
+    //! match: the Methods and Results sentences are `Revised Health Economics
+    //! Paper FINAL (1).docx`'s own, which is the manuscript the probe runs on.
+
+    use crate::extract;
+    use crate::journal_standards::{items_for, Standard};
+    use crate::report::{evaluate, ItemStatus};
+
+    const REAL: &str = "Abstract\n\nMethods: Cross-sectional employer survey (n = 222) \
+        conducted prior to full Dhamani enforcement, using stratified purposive sampling by \
+        firm size and sector. Multivariable logistic regression and bootstrapped mediation \
+        analysis were used.\n\nResults\n\nFormal provision was 36.5% overall (95% CI: \
+        30.2-43.1%), ranging from 10.8% among micro-enterprises to 81.0% among large firms.\n";
+
+    fn ex(text: &str) -> extract::ExtractionResult {
+        extract::extract_from_text(text)
+    }
+
+    /// **The coverage number is EVALUABLE over PUBLISHED, not implemented over
+    /// published.** STROBE ships 5 items and can decide 2; saying "5 of 22"
+    /// would overstate the examination by 2.5x, and it is the number a reader
+    /// uses to decide how much a pass is worth.
+    #[test]
+    fn the_coverage_phrase_counts_what_can_be_decided_not_what_is_listed() {
+        let e = evaluate(Standard::Strobe, &ex(REAL));
+        assert_eq!(e.items_implemented, 5, "five items are listed");
+        assert_eq!(e.items_evaluable, 2, "two can actually be decided");
+        assert_eq!(e.published_items.unwrap().numbered, 22);
+        // **The unit is named, and the mismatch is declared rather than hidden.**
+        // STROBE's sub-item total is not recorded here, and Gaply's items
+        // include sub-items (`6a`, `12a`, `16a`), so the denominator on offer is
+        // the wrong unit — the phrase says so instead of inventing a number.
+        let phrase = e.coverage_phrase();
+        assert_eq!(
+            phrase,
+            "checks 2 of STROBE's 22 numbered items — Gaply's items include sub-items, so the true fraction is smaller"
+        );
+        assert!(
+            !phrase.contains("of STROBE's 5"),
+            "the listed count must not become the numerator: {phrase}"
+        );
+    }
+
+    /// Per standard, so the ratio is visible as data rather than as prose.
+    /// **Four of five standards can decide two items or fewer.**
+    #[test]
+    fn the_evaluable_fraction_is_small_and_stated_per_standard() {
+        let expected = [
+            (Standard::Consort, 4, 25),
+            (Standard::Prisma, 2, 27),
+            (Standard::Strobe, 2, 22),
+            (Standard::Arrive, 2, 21),
+            (Standard::Tripod, 1, 22),
+        ];
+        for (s, evaluable, published) in expected {
+            let e = evaluate(s, &ex(REAL));
+            assert_eq!(e.items_evaluable, evaluable, "{s:?} evaluable");
+            assert_eq!(e.published_items.unwrap().numbered, published, "{s:?} numbered");
+        }
+    }
+
+    /// **`Unevaluable` is not `NotFound`.** "We looked and it is missing" and
+    /// "we cannot look" are opposite messages to a researcher, and collapsing
+    /// them invents a compliance failure.
+    #[test]
+    fn an_item_reading_only_the_declined_layer_is_unevaluable_not_missing() {
+        let e = evaluate(Standard::Strobe, &ex(REAL));
+        let v = e.verdicts.iter().find(|v| v.item == "4").expect("STROBE 4");
+        assert_eq!(v.status, ItemStatus::Unevaluable);
+        assert_ne!(v.status, ItemStatus::NotFound, "absence of a check is not absence of evidence");
+        assert!(v.detail.contains("D165"), "the reason must name the record: {}", v.detail);
+        assert!(v.evidence_span.is_none(), "nothing to quote, so nothing is quoted");
+    }
+
+    /// A met item carries the paragraph it was decided from, whole.
+    #[test]
+    fn a_met_item_carries_its_manuscript_span() {
+        let e = evaluate(Standard::Strobe, &ex(REAL));
+        let v = e.verdicts.iter().find(|v| v.item == "16a").expect("STROBE 16a");
+        assert_eq!(v.status, ItemStatus::Met, "a 95% CI is reported: {}", v.detail);
+        let span = v.evidence_span.as_ref().expect("a met item must quote its evidence");
+        assert!(span.contains("95% CI"), "the span must contain the evidence: {span}");
+        assert!(
+            span.len() > 60,
+            "the span is the paragraph, not a fragment — a truncated span is not a span: {span}"
+        );
+    }
+
+    /// The negative control for the pair above: with no interval reported, the
+    /// same item is `NotFound` and quotes nothing.
+    #[test]
+    fn the_same_item_is_not_found_when_the_evidence_is_absent() {
+        let bare = "Abstract\n\nWe surveyed firms.\n\nResults\n\nProvision was common.\n";
+        let e = evaluate(Standard::Strobe, &ex(bare));
+        let v = e.verdicts.iter().find(|v| v.item == "16a").unwrap();
+        assert_eq!(v.status, ItemStatus::NotFound);
+        assert!(v.evidence_span.is_none(), "nothing found, so nothing quoted");
+        assert_eq!(e.met(), 0, "and nothing is met on a manuscript carrying no statistics");
+    }
+
+    /// **No check may read the declined layer.** The guard, rather than the
+    /// convention: an item added later with a `science.*` check would put a
+    /// compliance verdict on a Turnitin page footer (§11 D165).
+    #[test]
+    fn no_implemented_check_sources_evidence_from_the_declined_layer() {
+        for s in [
+            Standard::Consort,
+            Standard::Prisma,
+            Standard::Strobe,
+            Standard::Arrive,
+            Standard::Tripod,
+        ] {
+            for it in items_for(s) {
+                if it.check.is_evaluable() {
+                    assert!(
+                        it.reads.iter().any(|f| !f.starts_with("science.")),
+                        "{s:?} item {} has a check but reads only {:?} — it would decide from \
+                         the declined layer",
+                        it.item,
+                        it.reads
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// **A standard the journal did not bind is reported, and the two shapes differ.**
+///
+/// The spans are Nature Medicine's own, from the 15 Sep 2026 crawl: STARD is
+/// named with mandatory force and binds nothing because "biomarkers" is not a
+/// design phrase; STROBE binds normally on the same site.
+mod unbound_standards {
+    use crate::journal_extract::RequirementKind;
+    use crate::journal_standards::{Standard, StandardBinding};
+    use crate::journal_store::StoredRequirement;
+
+    fn req(value: &str, span: &str) -> StoredRequirement {
+        StoredRequirement {
+            kind: RequirementKind::ReportingStandard,
+            value: value.into(),
+            article_type: None,
+            status: "VERIFIED".into(),
+            source_url: "https://www.nature.com/nm/editorial-policies/clinicalresearch".into(),
+            source_heading: "Reporting guidelines".into(),
+            source_span: span.into(),
+            conflict_id: None,
+        }
+    }
+
+    const STARD_SPAN: &str = "Studies reporting biomarkers in association with clinical \
+                              outcomes must follow the STARD guidelines or relevant STARD \
+                              extensions.";
+    const STROBE_SPAN: &str = "Observational studies (cohort, case-control or cross-sectional \
+                               designs) must be reported according to the STROBE statement.";
+
+    fn run(reqs: &[StoredRequirement], bindings: &[StandardBinding]) -> Vec<crate::report::ChecklistItem> {
+        let ex = crate::extract::extract_from_text("Abstract\n\nA paper.\n");
+        crate::report::checklist_from_requirements(&ex, 1000, reqs, bindings)
+    }
+
+    /// Named, mandatory, and unroutable: reported with the journal's sentence so
+    /// a reader can check whether we read it wrong.
+    #[test]
+    fn a_standard_named_without_a_design_is_reported_with_its_sentence() {
+        let items = run(&[req("STARD", STARD_SPAN)], &[]);
+        let row = items
+            .iter()
+            .find(|i| i.requirement.starts_with("STARD:"))
+            .expect("STARD must be reported");
+        assert!(row.requirement.contains("no study design stated"), "{}", row.requirement);
+        assert_eq!(
+            row.source_span.as_deref(),
+            Some(STARD_SPAN),
+            "the journal's own sentence must travel with the finding"
+        );
+        assert!(row.detail.contains("we read it wrong"), "the finding must invite correction");
+        // It is NOT a compliance failure against the manuscript.
+        assert!(row.passed, "a statement about the journal must not mark the manuscript down");
+    }
+
+    /// Never named, and we could have checked it: a fact about the journal,
+    /// with the page count that makes it checkable.
+    #[test]
+    fn a_standard_never_named_is_reported_as_not_required_with_the_page_count() {
+        let items = run(&[req("STROBE", STROBE_SPAN)], &[]);
+        let row = items
+            .iter()
+            .find(|i| i.requirement.starts_with("CONSORT:"))
+            .expect("CONSORT must be reported as not required");
+        assert!(row.requirement.contains("not required by this journal"), "{}", row.requirement);
+        assert!(row.detail.contains("1 page(s) we read"), "{}", row.detail);
+        assert!(row.source_span.is_none(), "there is no sentence to quote for an absence");
+    }
+
+    /// **The negative control.** A BOUND standard must produce no such row, or
+    /// the finding fires on every journal and means nothing — the filter that
+    /// catches everything.
+    #[test]
+    fn a_bound_standard_produces_no_absence_finding() {
+        let bindings = vec![StandardBinding {
+            standard: Standard::Strobe,
+            design: "cross-sectional study".into(),
+            source_span: STROBE_SPAN.into(),
+        }];
+        let items = run(&[req("STROBE", STROBE_SPAN)], &bindings);
+        assert!(
+            !items.iter().any(|i| i.requirement.starts_with("STROBE:")),
+            "STROBE is bound; an absence finding for it would be false"
+        );
+        // And the others still report, so the suppression is specific.
+        assert!(items.iter().any(|i| i.requirement.starts_with("CONSORT:")));
+    }
+
+    /// A standard with no evaluator and no mention is NOT reported. Saying
+    /// "this journal does not require CHEERS" when nothing could have checked
+    /// CHEERS is clutter, not information.
+    #[test]
+    fn a_standard_with_no_evaluator_and_no_mention_is_not_reported() {
+        let items = run(&[req("STROBE", STROBE_SPAN)], &[]);
+        assert!(!items.iter().any(|i| i.requirement.starts_with("CHEERS")), "CHEERS has no evaluator");
+        assert!(!items.iter().any(|i| i.requirement.starts_with("SPIRIT")), "SPIRIT has no evaluator");
+    }
+
+    /// **With nothing read, "this journal does not require X" is a claim about
+    /// an empty crawl wearing a claim about a journal.**
+    #[test]
+    fn nothing_is_claimed_when_no_page_was_read() {
+        let items = run(&[], &[]);
+        assert!(
+            !items.iter().any(|i| i.requirement.contains("not required by this journal")),
+            "an empty crawl must assert nothing about the journal"
+        );
+    }
+}
+
+/// **Three defects found by running node 2 against a real journal, pinned.**
+///
+/// Nature Medicine binds CONSORT to three designs through six sentences, and the
+/// manuscript under test is a cross-sectional survey. Each assertion below
+/// corresponds to a row that was wrong on the first real run.
+#[test]
+fn standard_item_rows_are_evaluated_once_carry_the_conditional_and_do_not_flag_the_undecided() {
+    use crate::journal_standards::{Standard, StandardBinding};
+
+    let span = "Randomized trials must conform to CONSORT 2025 guidelines.";
+    let bindings: Vec<StandardBinding> = ["clinical trial", "randomised trial", "trial protocol"]
+        .iter()
+        .map(|d| StandardBinding {
+            standard: Standard::Consort,
+            design: (*d).into(),
+            source_span: span.into(),
+        })
+        .collect();
+    let ex = crate::extract::extract_from_text(
+        "Abstract\n\nA cross-sectional employer survey (n = 222).\n\nResults\n\nProvision was \
+         36.5% (95% CI: 30.2-43.1%).\n",
+    );
+    let items = crate::report::checklist_from_requirements(&ex, 1000, &[], &bindings);
+    let rows: Vec<&crate::report::ChecklistItem> =
+        items.iter().filter(|i| i.requirement.contains("CONSORT item")).collect();
+
+    // 1. ONE evaluation per standard, not one per binding. Three bindings
+    //    previously produced fifteen rows, ten of them identical.
+    assert_eq!(rows.len(), 5, "CONSORT's five items, once: got {}", rows.len());
+
+    // 2. Every item row carries the conditional, naming ALL three designs —
+    //    whether the manuscript IS one of them is not knowable here.
+    for r in &rows {
+        for d in ["clinical trial", "randomised trial", "trial protocol"] {
+            assert!(
+                r.requirement.contains(d),
+                "item row must name every design the standard binds: {}",
+                r.requirement
+            );
+        }
+        assert!(r.requirement.contains("if your study is"), "{}", r.requirement);
+    }
+
+    // 3. An undecidable item is UNEVALUABLE, not failed. `passed: false` alone
+    //    renders as a flag against a manuscript that has done nothing wrong.
+    let six_a = rows.iter().find(|r| r.requirement.contains("item 6a")).expect("CONSORT 6a");
+    assert!(six_a.unevaluable, "6a reads only the declined layer, so it cannot be decided");
+    assert!(!six_a.passed, "and it is not a pass either");
+
+    let one_b = rows.iter().find(|r| r.requirement.contains("item 1b")).expect("CONSORT 1b");
+    assert!(one_b.passed, "an Abstract is present");
+    assert!(!one_b.unevaluable, "a decided item is never unevaluable");
+
+    // The negative control for the flag: a decidable item with absent evidence
+    // is failed AND evaluable — the state `unevaluable` must not swallow.
+    let seventeen_a =
+        rows.iter().find(|r| r.requirement.contains("item 17a")).expect("CONSORT 17a");
+    assert!(!seventeen_a.passed, "no effect size is reported");
+    assert!(
+        !seventeen_a.unevaluable,
+        "an effect-size check CAN be decided; calling it unevaluable would hide a real gap"
+    );
+}
+
+/// **A three-state value must be three states AT THE WIRE, and the test is
+/// rendering the default rather than trusting it.**
+///
+/// `ChecklistItem` carries compliance in two bools: `passed` and `unevaluable`.
+/// A stored report written before `unevaluable` existed has no such key, so
+/// `serde(default)` supplies `false` — and an item that was never decided then
+/// deserialises as `passed: false, unevaluable: false`, which every renderer
+/// reads as **FAIL**. A missing value read as a stated one; the third time this
+/// week.
+///
+/// This does not assert the default is `false` — that is trusting it. It
+/// deserialises a payload with the key ABSENT and asserts what a renderer would
+/// draw, which is the only form of this test that can fail.
+#[test]
+fn an_absent_unevaluable_key_renders_as_a_verdict_and_the_risk_is_named() {
+    // A row as an older report stored it: no `unevaluable` key at all.
+    let legacy = r#"{
+        "requirement": "CONSORT item 6a: pre-specified outcome measures",
+        "passed": false,
+        "detail": "not checked",
+        "guideline_source": null
+    }"#;
+    let item: crate::report::ChecklistItem =
+        serde_json::from_str(legacy).expect("legacy rows must still parse");
+
+    // What a renderer draws, computed the way a renderer computes it.
+    fn render(i: &crate::report::ChecklistItem) -> &'static str {
+        if i.unevaluable {
+            "UNEVALUABLE"
+        } else if i.passed {
+            "OK"
+        } else {
+            "FAIL"
+        }
+    }
+    assert_eq!(
+        render(&item),
+        "FAIL",
+        "this is the DEFECT, pinned rather than hidden: an undecided item in a pre-`unevaluable` \
+         report renders as a compliance failure, because two bools cannot carry three states \
+         across a wire where one of them may be absent"
+    );
+
+    // The containment: no such report exists. `unevaluable` shipped WITH the
+    // evaluator, so every stored report predating the key also predates any
+    // item that could be undecided. If an evaluator is ever added whose items
+    // can be undecided while this type still carries two bools, that is the
+    // moment this becomes live — and this test is where it is written down.
+    let current = serde_json::to_string(&crate::report::ChecklistItem {
+        requirement: "x".into(),
+        passed: false,
+        detail: "not checked".into(),
+        guideline_source: None,
+        source_span: None,
+        article_type: None,
+        checked_field: None,
+        unevaluable: true,
+    })
+    .unwrap();
+    assert!(
+        current.contains("\"unevaluable\":true"),
+        "a TRUE flag must always reach the wire, or the state is unrecoverable: {current}"
+    );
+    let round: crate::report::ChecklistItem = serde_json::from_str(&current).unwrap();
+    assert_eq!(render(&round), "UNEVALUABLE", "and it must survive the round trip");
+}

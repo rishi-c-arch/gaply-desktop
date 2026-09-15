@@ -966,6 +966,7 @@ We recruited 48 participants and analysed recall with a paired t-test.
 
 Results
 Sleep significantly improved recall (t(47) = 3.2, p = 0.002, d = 0.46).
+Recall after sleep was higher than recall after an equal period awake.
 
 Discussion
 The results are consistent with a consolidation account of sleep.
@@ -1205,10 +1206,65 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
         assert!(!out.research_state.structure.is_empty());
     }
 
+    /// **The scientific layer is NOT derived, and §11 D165 is why.**
+    ///
+    /// This asserts the whole chain is OFF — graph declaration, the
+    /// `requires_scientific_extraction` gate in `run_pipeline_inner`, and the
+    /// field itself — because the graph half alone was once true while the
+    /// field stayed empty, and asserting one end proves nothing about the other.
+    ///
+    /// The layer is declined on measurement, not deferred for want of a reader:
+    /// 9 of 152 `Method` objects across six real manuscripts have a span that
+    /// is a genuine method statement (5.9%), against a 50% no-skill baseline.
+    /// `examples/methods_precision_probe.rs` is the hand-check.
+    #[test]
+    fn a_real_pipeline_run_does_not_derive_the_declined_scientific_layer() {
+        use std::cell::RefCell;
+        assert!(
+            !gaply_core::agent_graph::shipped_graph().requires_scientific_extraction(),
+            "precondition: no shipped agent declares it (§11 D165)"
+        );
+        force_heuristic();
+        let db = Arc::new(Database::in_memory().expect("in-memory db"));
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+        let path = std::env::temp_dir().join(format!("gaply_sci_{}.txt", std::process::id()));
+        std::fs::write(&path, MANUSCRIPT_WITH_REFS).expect("write temp manuscript");
+        let events: RefCell<Vec<AnalysisEvent>> = RefCell::new(Vec::new());
+        let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
+        let out = run_pipeline_inner(
+            db.clone(),
+            embedder,
+            path.to_string_lossy().to_string(),
+            Some("sci".into()),
+            None,
+            None,
+            NetworkConsent::Denied,
+            &emit,
+        )
+        .expect("pipeline completes");
+        let _ = std::fs::remove_file(&path);
+
+        assert!(out.extraction.scientific.is_none(), "the pipeline must not run the four passes");
+        assert!(
+            out.research_state.science.is_none(),
+            "and the research state must carry typed absence, not an empty layer"
+        );
+        assert!(
+            !out.research_state.carries_manuscript_prose(),
+            "with the layer off, the state is the gate-safe layer §3.1 describes"
+        );
+    }
+
     /// The privacy-class property from §3.1, asserted rather than assumed: the
     /// research state is "structured, gate-safe" while the manuscript layer is
     /// premium-consented. A state carrying prose would quietly move text into a
     /// layer that is allowed to travel.
+    ///
+    /// **It now runs with the scientific layer ON, which changes what it is
+    /// testing.** `ScientificClaim::statement` is a manuscript sentence, or part
+    /// of one, so the layer being derived is exactly how prose could enter a
+    /// gate-safe layer. The assertion is unchanged and is now load-bearing in a
+    /// way it was not while `science` was always `None`.
     #[test]
     fn the_research_state_carries_no_manuscript_prose() {
         use std::cell::RefCell;
@@ -1233,8 +1289,6 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
         let _ = std::fs::remove_file(&path);
 
         let json = serde_json::to_string(&out.research_state).expect("state serialises");
-        // A distinctive sentence from the body, present in the manuscript and in
-        // no heading, caption, statistic or reference.
         let body_sentence = "Prior work suggests that sleep supports the consolidation";
         assert!(
             out.text.contains(body_sentence),
@@ -1243,6 +1297,21 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
         assert!(
             !json.contains(body_sentence),
             "manuscript prose reached the research state, which is the gate-safe layer"
+        );
+
+        // **This test was once green for the wrong reason and would be again.**
+        // While the scientific layer is off it cannot see the route prose would
+        // actually take — claim statements, which are manuscript substrings.
+        // Rather than assert a precondition that cannot hold (§11 D165 declines
+        // the layer), it names the predicate that DOES cover that route and
+        // `carries_manuscript_prose_when_the_layer_is_present` in
+        // `gaply_core::research_state` exercises it directly. If the layer is
+        // ever reopened, that unit test is already armed and this one regains
+        // its teeth automatically.
+        assert!(
+            !out.research_state.carries_manuscript_prose(),
+            "no scientific layer, so no claim statements — the only route prose has into \
+             this type"
         );
     }
 

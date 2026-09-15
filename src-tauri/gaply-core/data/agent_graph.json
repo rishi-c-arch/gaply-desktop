@@ -3,59 +3,152 @@
   "agents": [
     {
       "id": "extraction",
-      "reads": ["manuscript"],
+      "reads": [
+        "manuscript"
+      ],
       "requires_consent": null,
       "after": [],
       "model": "none",
       "trust_tier": "deterministic",
       "hard_constraint": false,
-      "may_revise": false
+      "may_revise": false,
+      "cluster": "ingestion"
     },
     {
       "id": "validation_maths",
-      "reads": ["research_state"],
-      "after": ["extraction"],
+      "reads": [
+        "research_state"
+      ],
+      "after": [
+        "extraction"
+      ],
       "model": "none",
       "trust_tier": "deterministic",
       "hard_constraint": true,
-      "may_revise": false
+      "may_revise": false,
+      "cluster": "methodological_soundness"
     },
     {
       "id": "ai_detection",
-      "reads": ["research_state"],
-      "after": ["extraction"],
-      "model": {"local": "perplexity"},
+      "reads": [
+        "research_state"
+      ],
+      "after": [
+        "extraction"
+      ],
+      "model": {
+        "local": "perplexity"
+      },
       "trust_tier": "evidence_reasoning",
       "hard_constraint": false,
-      "may_revise": false
+      "may_revise": false,
+      "cluster": "integrity"
     },
     {
       "id": "plagiarism",
-      "reads": ["research_state", "external_evidence"],
-      "after": ["extraction"],
+      "reads": [
+        "research_state",
+        "external_evidence"
+      ],
+      "after": [
+        "extraction"
+      ],
       "model": "none",
       "trust_tier": "deterministic",
       "hard_constraint": false,
-      "may_revise": false
+      "may_revise": false,
+      "cluster": "integrity"
     },
     {
       "id": "rag",
-      "reads": ["research_state", "journal"],
-      "after": ["extraction"],
+      "reads": [
+        "research_state",
+        "journal"
+      ],
+      "after": [
+        "extraction"
+      ],
       "model": "none",
       "trust_tier": "rule",
       "hard_constraint": false,
-      "may_revise": false
+      "may_revise": false,
+      "cluster": "journal_fit"
     },
     {
       "id": "verification",
-      "reads": ["research_state", "external_evidence"],
-      "after": ["extraction"],
+      "reads": [
+        "research_state",
+        "external_evidence"
+      ],
+      "after": [
+        "extraction"
+      ],
       "model": "cloud",
       "trust_tier": "evidence_reasoning",
       "hard_constraint": false,
       "may_revise": true,
-      "requires_consent": "external_evidence"
+      "requires_consent": "external_evidence",
+      "cluster": "integrity"
+    },
+    {
+      "id": "frequentist_stats",
+      "cluster": "methodological_soundness",
+      "reads": [
+        "manuscript",
+        "research_state"
+      ],
+      "requires": [],
+      "after": [
+        "extraction"
+      ],
+      "model": "none",
+      "trust_tier": "rule",
+      "hard_constraint": false,
+      "may_revise": false,
+      "requires_consent": null,
+      "evidence_policy": {
+        "min_sources": 1,
+        "permitted_sources": [
+          "manuscript_span",
+          "analysis_record_entry"
+        ],
+        "citation_required": true,
+        "uncertainty_required": true
+      },
+      "optional": [
+        "analysis_record",
+        "scientific_extraction"
+      ]
+    },
+    {
+      "id": "ml_methodology",
+      "cluster": "methodological_soundness",
+      "reads": [
+        "manuscript",
+        "research_state"
+      ],
+      "requires": [],
+      "after": [
+        "extraction"
+      ],
+      "model": "none",
+      "trust_tier": "rule",
+      "hard_constraint": false,
+      "may_revise": false,
+      "requires_consent": null,
+      "evidence_policy": {
+        "min_sources": 1,
+        "permitted_sources": [
+          "manuscript_span",
+          "analysis_record_entry"
+        ],
+        "citation_required": true,
+        "uncertainty_required": true
+      },
+      "optional": [
+        "analysis_record",
+        "scientific_extraction"
+      ]
     }
   ]
 }

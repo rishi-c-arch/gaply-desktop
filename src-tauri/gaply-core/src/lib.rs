@@ -12,6 +12,8 @@ pub mod audit_report;
 pub mod cache;
 pub mod chat_agent;
 pub mod agent_graph;
+pub mod analysis;
+pub mod specialist;
 pub mod consent;
 pub mod research_state;
 pub mod chunk;

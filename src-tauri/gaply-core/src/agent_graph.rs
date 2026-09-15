@@ -29,6 +29,27 @@
 //! * derivable + required by a scheduled agent -> the harness computes it;
 //! * supplied + absent -> the agent is not invoked.
 //!
+//! # A THIRD KIND, which Phase 4 forced and §4.3 does not have
+//!
+//! **Neither kind above fits the analysis record for a methodological
+//! specialist, and writing the first two specialists is what made that visible.**
+//! The frequentist specialist is BETTER with the record — it can then check that
+//! a test the paper reports appears among the procedures actually run, which §1
+//! calls the differentiator — and it is perfectly useful without it, because the
+//! p-values, tests and intervals it reasons over are in the manuscript.
+//!
+//! Declared under `requires`, the record is SUPPLIED and absent on every run, so
+//! the specialist is never invoked at all. Left out entirely, the evidence
+//! policy may not permit `AnalysisRecordEntry`, so the one record-backed check
+//! is rejected at the gate the moment a record does arrive. Both readings of a
+//! two-kind rule are wrong, which is what says the rule needs a third kind.
+//!
+//! [`AgentSpec::optional`] is it: an artifact that ENRICHES an agent without
+//! gating it. Scheduling ignores it; the evidence policy may name it. The
+//! validator was the thing that surfaced this — it rejected the first graph
+//! written, the same way it rejected `extraction` and exposed §3.1's egress
+//! confusion. **A case the rule has to decide is what tests a premise.**
+//!
 //! This is what makes the scientific layer a DEPENDENCY rather than a flag.
 //! Measured (`examples/scientific_cost_probe.rs`), that layer costs 2.8–150 ms;
 //! a lane that declares no need for it pays none of that, and nobody maintains
@@ -132,6 +153,107 @@ pub enum TrustTier {
     Synthesis,
 }
 
+/// §4.1's six clusters. An agent belongs to exactly one, and the cluster is
+/// what §4.2 fans out inside.
+///
+/// This is DECLARATION, not dispatch: nothing routes on it yet, and saying so
+/// is the point — `run_pipeline_inner` still executes a fixed sequence
+/// (§12.1 item 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Cluster {
+    Ingestion,
+    MethodologicalSoundness,
+    ReportingStandards,
+    JournalFit,
+    Integrity,
+    Synthesis,
+}
+
+/// Where a piece of evidence can come from.
+///
+/// Deliberately NOT a free string: the validator's job below is to check that
+/// an agent which permits a source kind has actually declared the artifact that
+/// kind arrives in, and it cannot do that over prose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceSource {
+    /// A span of the manuscript — a sentence, a table cell, a reported statistic.
+    ManuscriptSpan,
+    /// An item of the derived scientific layer: a claim, variable, method, dataset.
+    ScientificItem,
+    /// A procedure recovered from an uploaded analysis file.
+    AnalysisRecordEntry,
+    /// An ingested journal requirement or convention.
+    JournalRequirement,
+    /// A retrieved external work — a reference, an OA full text, a retraction record.
+    ExternalWork,
+}
+
+impl EvidenceSource {
+    /// The artifact this kind of evidence ARRIVES IN, if any. `None` means the
+    /// layer declaration alone suffices.
+    ///
+    /// TOTAL on purpose: a new source kind must decide where it comes from, or
+    /// the validator below silently stops checking it.
+    pub fn arrives_in(self) -> Option<Artifact> {
+        match self {
+            EvidenceSource::ScientificItem => Some(Artifact::ScientificExtraction),
+            EvidenceSource::AnalysisRecordEntry => Some(Artifact::AnalysisRecord),
+            EvidenceSource::JournalRequirement => Some(Artifact::JournalFingerprint),
+            EvidenceSource::ManuscriptSpan | EvidenceSource::ExternalWork => None,
+        }
+    }
+}
+
+/// §4.3: *"minimum sources, permitted source types, citation required,
+/// uncertainty required"*.
+///
+/// **What it is for**: stopping a model producing a sophisticated conclusion
+/// from insufficient evidence. An opinion emitted without its policy satisfied
+/// is rejected at the gate with the reason recorded.
+///
+/// **What is checkable at BUILD time, and what is not.** The validator can only
+/// check the policy is SATISFIABLE — that it does not demand evidence from an
+/// artifact the agent never asked for, and does not demand a positive number of
+/// sources while permitting no kind. Whether a given finding actually carried
+/// its evidence is a runtime question, and [`EvidencePolicy::admits`] is the
+/// one predicate both halves use so they cannot drift.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct EvidencePolicy {
+    /// How many distinct pieces of evidence a finding must carry. `0` means the
+    /// agent may speak from the structure alone — correct for a deterministic
+    /// pass whose finding IS the computation.
+    ///
+    /// The `Default` is the permissive one (0 / none / false / false), so the
+    /// five existing lanes keep their behaviour when this field is added to a
+    /// graph file that does not carry it. A lane that has always spoken from its
+    /// own computation is not suddenly required to cite.
+    #[serde(default)]
+    pub min_sources: usize,
+    /// The kinds that count towards `min_sources`. Empty with
+    /// `min_sources > 0` is unsatisfiable and rejected.
+    #[serde(default)]
+    pub permitted_sources: Vec<EvidenceSource>,
+    /// Every finding must quote the span or work it rests on.
+    #[serde(default)]
+    pub citation_required: bool,
+    /// Every finding must state what it could not determine.
+    #[serde(default)]
+    pub uncertainty_required: bool,
+}
+
+impl EvidencePolicy {
+    /// **Does this policy admit a finding carrying these sources?**
+    ///
+    /// ONE predicate, used by the build-time satisfiability check and by the
+    /// runtime gate. §34.3's producer-and-checker shape: a gate that rejected
+    /// what the validator had accepted would be two rules wearing one name.
+    pub fn admits(&self, carried: &[EvidenceSource]) -> bool {
+        carried.iter().filter(|s| self.permitted_sources.contains(s)).count() >= self.min_sources
+    }
+}
+
 /// What an agent needs to run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -148,12 +270,24 @@ pub enum ModelRequirement {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSpec {
     pub id: AgentId,
+    /// §4.1's cluster. Defaults to `Ingestion` only so the six shipped lanes,
+    /// which predate the field, keep parsing; every node added from Phase 4 on
+    /// names it.
+    #[serde(default = "default_cluster")]
+    pub cluster: Cluster,
     /// Layers this agent may read. Reading outside them is the error the
     /// declaration exists to make visible.
     pub reads: Vec<Layer>,
-    /// Artifacts it needs. See [`Artifact::is_derivable`].
+    /// Artifacts it needs. Absent-and-supplied means the agent is not invoked;
+    /// absent-and-derivable means the harness computes it. See
+    /// [`Artifact::is_derivable`].
     #[serde(default)]
     pub requires: Vec<Artifact>,
+    /// Artifacts that ENRICH this agent without gating it — see the module
+    /// header for why a two-kind `requires` could not express this. Scheduling
+    /// ignores these; [`EvidencePolicy`] may name them.
+    #[serde(default)]
+    pub optional: Vec<Artifact>,
     /// Agents that must run before it. The cycle check is over these edges.
     #[serde(default)]
     pub after: Vec<AgentId>,
@@ -168,6 +302,13 @@ pub struct AgentSpec {
     /// The consent scope a cloud agent needs. `None` for non-cloud agents.
     #[serde(default)]
     pub requires_consent: Option<ConsentScopeName>,
+    /// §4.3's evidence policy. Defaults permissive — see [`EvidencePolicy`].
+    #[serde(default)]
+    pub evidence_policy: EvidencePolicy,
+}
+
+fn default_cluster() -> Cluster {
+    Cluster::Ingestion
 }
 
 /// The consent scope named in the graph, as a string the graph file can carry.
@@ -209,6 +350,11 @@ pub enum GraphError {
     PremiumLayerWithoutConsent { agent: AgentId, layer: Layer },
     /// An agent that declares no layers at all.
     ReadsNothing(AgentId),
+    /// An evidence policy that demands sources while permitting no kind.
+    EvidencePolicyUnsatisfiable(AgentId),
+    /// An evidence policy permitting a source kind that arrives in an artifact
+    /// the agent never declared.
+    EvidencePolicyNeedsArtifact { agent: AgentId, source: EvidenceSource, artifact: Artifact },
 }
 
 impl ConsentScopeName {
@@ -261,6 +407,18 @@ impl std::fmt::Display for GraphError {
             GraphError::ReadsNothing(id) => {
                 write!(f, "agent `{id}` declares no layers — it cannot read anything")
             }
+            GraphError::EvidencePolicyUnsatisfiable(id) => write!(
+                f,
+                "agent `{id}` requires evidence but permits no source kind — a policy no \
+                 finding can satisfy silently disables the agent instead of constraining it"
+            ),
+            GraphError::EvidencePolicyNeedsArtifact { agent, source, artifact } => write!(
+                f,
+                "agent `{agent}` permits {source:?} evidence, which arrives in {artifact:?}, \
+                 but declares it in neither `requires` nor `optional` — the policy would admit \
+                 evidence the harness was never asked to produce. Use `requires` if the agent \
+                 cannot run without it, `optional` if it is an enrichment"
+            ),
         }
     }
 }
@@ -320,6 +478,31 @@ impl AgentGraph {
                     agent: a.id.clone(),
                     model: a.model.clone(),
                 });
+            }
+
+            // --- the evidence policy must be SATISFIABLE.
+            //
+            // Two ways it is not, and they fail in opposite directions. A policy
+            // demanding sources while permitting no kind can never be met, so
+            // the agent is disabled rather than constrained. A policy permitting
+            // a kind that arrives in an undeclared artifact demands evidence the
+            // harness was never asked to derive — the Phase-4 shape exactly:
+            // a methodological specialist permitting `AnalysisRecordEntry` while
+            // forgetting to require the record.
+            let pol = &a.evidence_policy;
+            if pol.min_sources > 0 && pol.permitted_sources.is_empty() {
+                errors.push(GraphError::EvidencePolicyUnsatisfiable(a.id.clone()));
+            }
+            for src in &pol.permitted_sources {
+                if let Some(art) = src.arrives_in() {
+                    if !a.requires.contains(&art) && !a.optional.contains(&art) {
+                        errors.push(GraphError::EvidencePolicyNeedsArtifact {
+                            agent: a.id.clone(),
+                            source: *src,
+                            artifact: art,
+                        });
+                    }
+                }
             }
 
             // --- a CLOUD agent reading a premium layer needs a consent that
@@ -472,14 +655,17 @@ mod tests {
     fn agent(id: &str) -> AgentSpec {
         AgentSpec {
             id: AgentId(id.into()),
+            cluster: Cluster::Ingestion,
             reads: vec![Layer::ResearchState],
             requires: Vec::new(),
+            optional: Vec::new(),
             after: Vec::new(),
             model: ModelRequirement::None,
             trust_tier: TrustTier::Deterministic,
             hard_constraint: false,
             may_revise: false,
             requires_consent: None,
+            evidence_policy: EvidencePolicy::default(),
         }
     }
 
@@ -744,6 +930,129 @@ mod tests {
 
     /// A SUPPLIED artifact is never something the harness produces — the
     /// distinction §4.3's single `requires` kind cannot express.
+    // --- RULE: the evidence policy must be satisfiable ----------------------
+
+    /// A policy demanding evidence while permitting no kind can never be met.
+    /// The failure mode is the quiet one: the agent is DISABLED rather than
+    /// constrained, and nothing says so.
+    #[test]
+    fn a_policy_that_permits_no_source_but_demands_one_is_rejected() {
+        let mut a = agent("a");
+        a.evidence_policy =
+            EvidencePolicy { min_sources: 2, permitted_sources: vec![], ..Default::default() };
+        let errs = graph(vec![a]).validate().expect_err("unsatisfiable policy must be rejected");
+        assert!(
+            errs.contains(&GraphError::EvidencePolicyUnsatisfiable(AgentId("a".into()))),
+            "expected EvidencePolicyUnsatisfiable, got {errs:?}"
+        );
+    }
+
+    /// **The Phase-4 shape.** A methodological specialist that permits evidence
+    /// from the analysis record and forgets to `require` it would demand
+    /// evidence the harness was never asked to produce — and, because the
+    /// record is SUPPLIED rather than derivable, would be silently starved on
+    /// every real run rather than failing.
+    #[test]
+    fn a_policy_naming_an_undeclared_artifact_is_rejected_and_the_artifact_is_named() {
+        let mut a = agent("a");
+        a.evidence_policy = EvidencePolicy {
+            min_sources: 1,
+            permitted_sources: vec![EvidenceSource::AnalysisRecordEntry],
+            ..Default::default()
+        };
+        let errs = graph(vec![a]).validate().expect_err("must be rejected");
+        assert!(
+            errs.contains(&GraphError::EvidencePolicyNeedsArtifact {
+                agent: AgentId("a".into()),
+                source: EvidenceSource::AnalysisRecordEntry,
+                artifact: Artifact::AnalysisRecord,
+            }),
+            "the error must name the ARTIFACT, or the fix is a guess: {errs:?}"
+        );
+    }
+
+    /// The positive control for the rule above: declaring the artifact makes the
+    /// same policy legal. Without this, the rule could be rejecting everything.
+    #[test]
+    fn the_same_policy_is_accepted_once_the_artifact_is_declared() {
+        let mut a = agent("a");
+        a.requires = vec![Artifact::AnalysisRecord];
+        a.evidence_policy = EvidencePolicy {
+            min_sources: 1,
+            permitted_sources: vec![EvidenceSource::AnalysisRecordEntry],
+            ..Default::default()
+        };
+        assert_eq!(graph(vec![a]).validate(), Ok(()));
+    }
+
+    /// **The third kind, and the case that forced it.** A methodological
+    /// specialist is better with the analysis record and useful without it.
+    /// Under `requires` it would never be invoked (supplied + absent); left out
+    /// it could not cite the record when one arrived. `optional` is the only
+    /// declaration that is true of it.
+    #[test]
+    fn an_optional_artifact_satisfies_the_policy_without_gating_the_agent() {
+        let mut a = agent("a");
+        a.optional = vec![Artifact::AnalysisRecord];
+        a.evidence_policy = EvidencePolicy {
+            min_sources: 1,
+            permitted_sources: vec![EvidenceSource::AnalysisRecordEntry],
+            ..Default::default()
+        };
+        assert_eq!(graph(vec![a.clone()]).validate(), Ok(()), "optional satisfies the policy");
+        assert!(
+            !a.requires.contains(&Artifact::AnalysisRecord),
+            "and does NOT gate: scheduling reads `requires`, which is empty"
+        );
+        // The negative control for the pair: moving it back out of both lists
+        // must fail again, or `optional` is not what made it pass.
+        let mut b = a.clone();
+        b.optional.clear();
+        assert!(graph(vec![b]).validate().is_err(), "with neither list, it must be rejected");
+    }
+
+    /// `ManuscriptSpan` and `ExternalWork` arrive in no artifact, so permitting
+    /// them requires nothing. A rule that demanded an artifact for every source
+    /// kind would reject every honest policy.
+    #[test]
+    fn a_source_kind_that_arrives_in_no_artifact_needs_no_declaration() {
+        let mut a = agent("a");
+        a.evidence_policy = EvidencePolicy {
+            min_sources: 1,
+            permitted_sources: vec![
+                EvidenceSource::ManuscriptSpan,
+                EvidenceSource::ExternalWork,
+            ],
+            ..Default::default()
+        };
+        assert_eq!(graph(vec![a]).validate(), Ok(()));
+        assert_eq!(EvidenceSource::ManuscriptSpan.arrives_in(), None);
+        assert_eq!(EvidenceSource::ExternalWork.arrives_in(), None);
+    }
+
+    /// **`admits` is ONE predicate, and this is the test that says so.** The
+    /// build-time check and the runtime gate both call it; a second
+    /// implementation at either end is the drift this exists to prevent.
+    #[test]
+    fn admits_counts_only_permitted_kinds() {
+        let pol = EvidencePolicy {
+            min_sources: 2,
+            permitted_sources: vec![EvidenceSource::ManuscriptSpan, EvidenceSource::ScientificItem],
+            ..Default::default()
+        };
+        assert!(pol.admits(&[EvidenceSource::ManuscriptSpan, EvidenceSource::ScientificItem]));
+        assert!(
+            !pol.admits(&[EvidenceSource::ManuscriptSpan, EvidenceSource::ExternalWork]),
+            "an unpermitted kind must not count towards the minimum"
+        );
+        assert!(!pol.admits(&[EvidenceSource::ManuscriptSpan]), "one is fewer than two");
+        assert!(
+            EvidencePolicy::default().admits(&[]),
+            "the permissive default admits a finding carrying nothing — that is what \
+             keeps the five deterministic lanes working"
+        );
+    }
+
     #[test]
     fn a_supplied_artifact_is_not_derivable() {
         let mut a = agent("a");
@@ -799,7 +1108,7 @@ mod shipped {
     #[test]
     fn the_shipped_graph_validates() {
         let g = shipped_graph();
-        assert_eq!(g.agents.len(), 6, "the six existing lanes");
+        assert_eq!(g.agents.len(), 8, "the six pipeline lanes plus the two Phase-4 specialists");
     }
 
     /// **The graph's order must be the order the pipeline actually runs.**
@@ -824,10 +1133,33 @@ mod shipped {
                 "ai_detection",
                 "plagiarism",
                 "rag",
-                "verification"
+                "verification",
+                "frequentist_stats",
+                "ml_methodology",
             ],
             "the graph must describe the order run_pipeline_inner really uses"
         );
+    }
+
+    /// **The six PIPELINE lanes, still in the pipeline's order, before anything
+    /// else.** The test above now mixes two populations: the lanes
+    /// `run_pipeline_inner` executes, and the specialists it does not. This one
+    /// keeps the original guarantee separately, so adding a ninth agent cannot
+    /// quietly reorder the six that a hardcoded sequence actually runs.
+    #[test]
+    fn the_six_pipeline_lanes_keep_their_order_and_come_first() {
+        let g = shipped_graph();
+        let lanes = [
+            "extraction",
+            "validation_maths",
+            "ai_detection",
+            "plagiarism",
+            "rag",
+            "verification",
+        ];
+        let order: Vec<String> =
+            g.execution_order().expect("validates").iter().map(|a| a.id.0.clone()).collect();
+        assert_eq!(&order[..6], &lanes[..], "run_pipeline_inner's sequence, unchanged");
     }
 
     /// Verification is the ONLY cloud agent and the ONLY reviser — the two
@@ -865,21 +1197,78 @@ mod shipped {
         assert_eq!(hard[0].trust_tier, TrustTier::Deterministic);
     }
 
-    /// **No shipped agent requires the scientific layer, so the harness must
-    /// not derive it.** That is the measured decision (2.8–150 ms for something
-    /// nothing reads) expressed as data rather than as a flag someone has to
-    /// remember. When the first specialist declares it, this test changes and
-    /// the layer switches on for that graph — with no list to maintain.
+    /// **THE SCIENTIFIC LAYER IS DECLINED, NOT PENDING — §11 D165.**
+    ///
+    /// This test has now been written three ways, and the history is the point.
+    /// It first asserted nothing required the layer because nothing had been
+    /// built to read it. It then asserted `frequentist_stats` required it,
+    /// because a specialist existed. It now asserts the requirement is ABSENT
+    /// again, for a reason neither earlier version had: **the layer was
+    /// measured, and it fabricates.**
+    ///
+    /// Hand-checked, not sampled — all 152 `Method` objects across the six real
+    /// manuscripts (`examples/methods_precision_probe.rs`):
+    ///
+    /// ```text
+    /// span is a genuine method statement          9 / 152   5.9%
+    ///   ... and `design` is correct               3 / 152   2.0%
+    ///   ... and `n` and `software` are too        1 / 152   0.66%
+    /// NO-SKILL (first paragraph of each Methods
+    ///           section, 12 guesses)              6 /  12   50%
+    /// ```
+    ///
+    /// **A one-line heuristic outscores nine hand-written regexes by 8.5x.**
+    /// That is D128's shape and a starker version of it: D128 withdrew a lane
+    /// at 18.3% against an 18.0% baseline, a difference of noise. This is a
+    /// difference of an order of magnitude, in the baseline's favour.
+    ///
+    /// Turning the layer on would put 0.85-confidence structured claims about a
+    /// manuscript's methodology in front of a researcher, sourced from table
+    /// cells, Turnitin page footers and an author's middle initial. The
+    /// condition that reopens it is D128's: a labelled set, a measured
+    /// precision, and a no-skill comparison it beats.
     #[test]
-    fn nothing_shipped_requires_the_scientific_layer_yet() {
+    fn the_scientific_layer_is_declined_and_nothing_requires_it() {
         let g = shipped_graph();
         assert!(
             !g.requires_scientific_extraction(),
-            "a shipped agent now declares ScientificExtraction — the harness will start \
-             deriving it, which is correct, but the cost is 2.8-150 ms per manuscript \
-             (examples/scientific_cost_probe.rs) and this test is where that becomes \
-             deliberate"
+            "a shipped agent declares ScientificExtraction. The layer is DECLINED (§11 D165) \
+             at 5.9% precision against a 50% no-skill baseline, not merely unbuilt — \
+             reopening it needs a labelled set and a measured precision, which is the bar \
+             D128 applied to citation_need"
         );
-        assert!(g.derivable_requirements().is_empty());
+        assert!(
+            g.derivable_requirements().is_empty(),
+            "the harness must derive nothing: there is no derivable artifact it has evidence for"
+        );
+    }
+
+    /// **The analysis record gates nothing, and must not.** Declared under
+    /// `requires` it is supplied-and-absent, so both specialists would be
+    /// skipped on every real run — measured: no upload path in the app accepts
+    /// an analysis file, and the researcher corpus contains none.
+    #[test]
+    fn the_analysis_record_is_optional_for_both_specialists_and_gates_neither() {
+        let g = shipped_graph();
+        for id in ["frequentist_stats", "ml_methodology"] {
+            let a = g.agents.iter().find(|a| a.id.0 == id).expect("present");
+            assert!(
+                a.optional.contains(&Artifact::AnalysisRecord),
+                "{id} must declare the record OPTIONAL so its evidence policy may cite it"
+            );
+            assert!(
+                !a.requires.contains(&Artifact::AnalysisRecord),
+                "{id} must NOT require it — supplied + absent means the agent is never invoked, \
+                 and it is absent on every run"
+            );
+            // The scientific layer is optional for the same structural reason
+            // and a different evidential one: the record has no INPUT (no
+            // upload path), the layer has no CREDIBILITY (§11 D165). Both
+            // belong in `optional`, and neither may gate.
+            assert!(
+                !a.requires.contains(&Artifact::ScientificExtraction),
+                "{id} must not require the declined layer"
+            );
+        }
     }
 }

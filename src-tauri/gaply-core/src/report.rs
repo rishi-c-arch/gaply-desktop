@@ -210,6 +210,27 @@ pub struct ChecklistItem {
     /// passing.
     #[serde(default)]
     pub checked_field: Option<String>,
+    /// **`passed` is a bool and compliance has three states.**
+    ///
+    /// `passed: false` means "we looked and it is missing". An item nobody
+    /// could decide is neither passed nor failed, and rendering it as `false`
+    /// tells a researcher their manuscript failed a check that was never run.
+    /// Measured on a real Nature Medicine run: CONSORT 6a reads only the
+    /// declined scientific layer (§11 D165) and printed as a flag against a
+    /// manuscript that had done nothing wrong.
+    ///
+    /// `#[serde(default)]` because stored reports predate it — the same shape
+    /// `source_span` uses, for the same reason.
+    ///
+    /// **`skip_serializing_if` is load-bearing, not tidiness.** The golden
+    /// report is pinned byte-for-byte
+    /// (`the_report_is_byte_identical_to_the_pre_research_state_capture`) and a
+    /// field emitted unconditionally changes every stored report's bytes for a
+    /// flag that is false almost everywhere. Written only when TRUE, the wire
+    /// format stays additive: a report with no undecidable item is unchanged,
+    /// and one that has them says so.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unevaluable: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1618,6 +1639,7 @@ pub fn checklist_from_requirements(
                     source_span: Some(r.source_span.clone()),
                     article_type: r.article_type.clone(),
                     checked_field: Some("manuscript word count".into()),
+                    unevaluable: false,
                 });
             }
         }
@@ -1643,6 +1665,7 @@ pub fn checklist_from_requirements(
                 source_span: Some(word_limits[0].source_span.clone()),
                 article_type: None,
                 checked_field: Some("manuscript word count".into()),
+                unevaluable: false,
             });
         }
     }
@@ -1668,6 +1691,7 @@ pub fn checklist_from_requirements(
                     source_span: Some(r.source_span.clone()),
                     article_type: r.article_type.clone(),
                     checked_field: Some("extraction.sections[Abstract]".into()),
+                    unevaluable: false,
                 });
             }
         }
@@ -1691,6 +1715,7 @@ pub fn checklist_from_requirements(
             source_span: Some(r.source_span.clone()),
             article_type: r.article_type.clone(),
             checked_field: Some("extraction.sections[heading]".into()),
+            unevaluable: false,
         });
     }
 
@@ -1722,6 +1747,7 @@ pub fn checklist_from_requirements(
             source_span: Some(r.source_span.clone()),
             article_type: r.article_type.clone(),
             checked_field: Some("extraction.sections[heading]".into()),
+            unevaluable: false,
         });
     }
 
@@ -1730,12 +1756,25 @@ pub fn checklist_from_requirements(
     // One item per BOUND standard. An unbound mention selects nothing — see
     // `journal_standards`: a standard named is not a standard bound.
     let mut seen: std::collections::BTreeSet<(&str, &str)> = std::collections::BTreeSet::new();
+    // **A standard's ITEMS are evaluated once, however many designs bind it.**
+    // Nature Medicine binds CONSORT to three designs through six sentences. The
+    // binding rows differ and all are worth showing; the item verdicts do not
+    // depend on the design, so emitting them per binding produced ten identical
+    // rows on a real run.
+    let mut evaluated: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     for b in bindings {
         if !seen.insert((b.standard.as_str(), b.design.as_str())) {
             continue;
         }
-        let items_count = crate::journal_standards::items_for(b.standard).len();
-        let published = crate::journal_standards::published_item_count(b.standard);
+        // **Evaluate, do not merely announce.** This used to emit one row per
+        // binding saying the standard applied, with the coverage buried in its
+        // prose. It now runs the standard's items against the manuscript and
+        // emits one row each — and every row carries the coverage fraction,
+        // because a reader who sees "2 met" and no denominator has been told
+        // the manuscript passed STROBE when 20 of its 22 items were never read.
+        let eval = evaluate(b.standard, extraction);
+        let coverage = eval.coverage_phrase();
+        let published = eval.published_items;
         // **A journal that RECOMMENDS a standard has not REQUIRED it.** Nature
         // Medicine writes "We recommend following the ARRIVE 2.0 reporting
         // guidelines" and "Observational studies must be reported according to
@@ -1756,11 +1795,11 @@ pub fn checklist_from_requirements(
             // reports the binding rather than judging compliance.
             passed: true,
             detail: match published {
-                Some(total) => format!(
-                    "if your study is {article} {}, this journal {verb} {} reporting. Gaply \
-                     evaluates {items_count} of the standard's {total} items.",
+                Some(_) => format!(
+                    "if your study is {article} {}, this journal {verb} {} reporting. Gaply {}.",
                     b.design,
-                    b.standard.as_str()
+                    b.standard.as_str(),
+                    coverage
                 ),
                 None => format!(
                     "if your study is {article} {}, this journal {verb} {} reporting. Gaply \
@@ -1772,11 +1811,167 @@ pub fn checklist_from_requirements(
             guideline_source: None,
             source_span: Some(b.source_span.clone()),
             article_type: None,
-            checked_field: Some("research_state.science.methods (study design)".into()),
+            // The BINDING is what this row reports, and the binding comes from
+            // the journal's sentence. It used to name
+            // `research_state.science.methods`, which is now a declined layer
+            // (§11 D165) and was never what decided this row anyway.
+            checked_field: Some("journal_requirements.reporting_standard (binding)".into()),
+            unevaluable: false,
         });
+
+        // --- one row per item, each carrying the fraction -------------------
+        if !evaluated.insert(b.standard.as_str()) {
+            continue;
+        }
+        let applies = {
+            let mut d: Vec<&str> = bindings
+                .iter()
+                .filter(|o| o.standard == b.standard)
+                .map(|o| o.design.as_str())
+                .collect();
+            d.sort_unstable();
+            d.dedup();
+            format!("if your study is a {}", d.join(", a "))
+        };
+        for v in &eval.verdicts {
+            items.push(ChecklistItem {
+                // **THE FRACTION IS IN THE ROW.** Not a footnote, not a header
+                // the reader scrolled past: every item restates how much of the
+                // standard was examined, so no single row can be read as a
+                // verdict on the standard.
+                // **The conditional is on EVERY item row, not only the binding
+                // row.** Whether the manuscript IS that design is not knowable
+                // here — study design lives in the declined scientific layer —
+                // so an unconditional "CONSORT item 1b: MET" on a
+                // cross-sectional survey asserts compliance with a standard that
+                // may not apply to it at all. Measured on a real run.
+                requirement: format!(
+                    "{} item {} ({applies}; {coverage}): {}",
+                    v.standard.as_str(),
+                    v.item,
+                    v.requirement
+                ),
+                // `Unevaluable` is NOT passed. An item nobody could decide must
+                // not render as a tick; that is the difference between "we
+                // looked and it is there" and "we cannot look".
+                passed: v.status == ItemStatus::Met,
+                unevaluable: v.status == ItemStatus::Unevaluable,
+                detail: match (&v.evidence_span, v.status) {
+                    (Some(span), ItemStatus::Met) => format!("{} — {span}", v.detail),
+                    _ => v.detail.clone(),
+                },
+                guideline_source: None,
+                // The JOURNAL's sentence — the one that bound this standard to
+                // this design, and the reason the item is being applied at all.
+                source_span: Some(b.source_span.clone()),
+                article_type: None,
+                checked_field: Some(v.reads.join(" / ")),
+            });
+        }
     }
 
+    items.extend(unbound_standard_findings(requirements, &seen));
     items
+}
+
+/// **A standard this journal did not bind is a FINDING about the journal, not a
+/// silent omission by the product.**
+///
+/// A researcher submitting a randomised trial who sees no CONSORT rows has two
+/// possible explanations — Gaply cannot evaluate CONSORT, or this journal never
+/// asked for it — and they are opposite messages. Only the second is checkable,
+/// and stating it plainly invites the correction that a guess would not: the
+/// researcher can open the page and tell us we read it wrong.
+///
+/// Two shapes, because they mean different things:
+///
+/// * **named, but no design stated.** Measured on Nature Medicine, 15 Sep 2026:
+///   *"Studies reporting biomarkers in association with clinical outcomes must
+///   follow the STARD guidelines"* is a requirement with mandatory force, and
+///   `bindings_from` produced nothing from it because "biomarkers" is not a
+///   design phrase it knows. **The lexicon is NOT extended from this one
+///   sentence** — a list written from one observation is the mistake the
+///   heading-vocabulary measurement caught — so the product reports what it saw
+///   and says it could not route it.
+/// * **never named at all**, and only for standards that have an evaluator.
+///   Saying "this journal does not require CHEERS" when nothing could have
+///   checked CHEERS anyway is clutter, not information.
+fn unbound_standard_findings(
+    requirements: &[crate::journal_store::StoredRequirement],
+    bound: &std::collections::BTreeSet<(&str, &str)>,
+) -> Vec<ChecklistItem> {
+    use crate::journal_extract::RequirementKind;
+    use crate::journal_standards::{items_for, Standard};
+
+    let bound_standards: std::collections::BTreeSet<&str> =
+        bound.iter().map(|(s, _)| *s).collect();
+    let pages: std::collections::BTreeSet<&str> =
+        requirements.iter().map(|r| r.source_url.as_str()).collect();
+    // With nothing read, "this journal does not require X" is a claim about an
+    // empty crawl wearing a claim about a journal.
+    if pages.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out = Vec::new();
+    for s in [
+        Standard::Consort,
+        Standard::Prisma,
+        Standard::Strobe,
+        Standard::Arrive,
+        Standard::Tripod,
+        Standard::Cheers,
+        Standard::Spirit,
+        Standard::Stard,
+    ] {
+        if bound_standards.contains(s.as_str()) {
+            continue;
+        }
+        let named = requirements.iter().find(|r| {
+            r.kind == RequirementKind::ReportingStandard
+                && Standard::parse(&r.value) == Some(s)
+        });
+        let has_evaluator = !items_for(s).is_empty();
+
+        let (requirement, detail, span, url) = match named {
+            Some(r) => (
+                format!("{}: named by this journal, but no study design stated", s.as_str()),
+                format!(
+                    "This journal's guidance names {} without stating which study designs it                      applies to, so Gaply could not select it. If your study is one it covers,                      apply the checklist yourself — and if the sentence below does name a                      design, we read it wrong and would like to know.",
+                    s.as_str()
+                ),
+                Some(r.source_span.clone()),
+                Some(r.source_url.clone()),
+            ),
+            None if has_evaluator => (
+                format!("{}: not required by this journal", s.as_str()),
+                format!(
+                    "This journal does not state a {} requirement on the {} page(s) we read.                      Gaply can evaluate {}, so this is a fact about the journal's published                      guidance rather than a gap in the check — and it is checkable: if the                      journal requires it somewhere we did not read, please tell us.",
+                    s.as_str(),
+                    pages.len(),
+                    s.as_str()
+                ),
+                None,
+                None,
+            ),
+            None => continue,
+        };
+
+        out.push(ChecklistItem {
+            requirement,
+            // Neither shape is a compliance failure. `passed` is the wrong axis
+            // for a statement about what the journal asked, and `false` would
+            // render as a red mark against a manuscript that did nothing wrong.
+            passed: true,
+            detail,
+            guideline_source: url,
+            source_span: span,
+            article_type: None,
+            checked_field: Some("journal_requirements.reporting_standard (absence)".into()),
+            unevaluable: false,
+        });
+    }
+    out
 }
 
 /// Deterministic checklist core (separated for direct testing).
@@ -1808,6 +2003,7 @@ pub fn checklist_from_guidelines(
             article_type: None,
             // A structural check reads the extraction's own section list.
             checked_field: Some("extraction.sections".into()),
+            unevaluable: false,
         });
     }
 
@@ -1862,6 +2058,7 @@ pub fn checklist_from_guidelines(
                 source_span: None,
                 article_type: None,
                 checked_field: None,
+                unevaluable: false,
             });
         }
         // conflict-of-interest declaration
@@ -1879,6 +2076,7 @@ pub fn checklist_from_guidelines(
                 source_span: None,
                 article_type: None,
                 checked_field: None,
+                unevaluable: false,
             });
         }
         // numbered (Vancouver) reference style
@@ -1902,6 +2100,7 @@ pub fn checklist_from_guidelines(
                 source_span: None,
                 article_type: None,
                 checked_field: None,
+                unevaluable: false,
             });
         }
     }
@@ -1957,3 +2156,234 @@ fn extract_word_limit(guideline_lower: &str) -> Option<usize> {
 
 #[cfg(test)]
 mod tests;
+
+// ---------------------------------------------------------------------------
+// Reporting-standard evaluation — THE MANUSCRIPT x JOURNAL JOIN
+// ---------------------------------------------------------------------------
+//
+// **This lives in `report.rs` because it is the only place it may.**
+//
+// `tests/journal_layer_has_no_manuscript.rs` refuses any `journal_*` module a
+// route to the manuscript layer: a `JournalFingerprint` is built once per
+// journal and served to every user, so a journal fact depending on one user's
+// manuscript could neither be shared nor kept private. The first draft of this
+// evaluator was written in `journal_standards.rs` and **that guard failed the
+// build**, correctly — `evaluate` reads one user's `ExtractionResult`.
+//
+// The guard's own header names `report::checklist_from_requirements` as the
+// legitimate join, and warns that a future violation could hide by moving code
+// into `report.rs` because `report.rs` is not scanned. So this note is the
+// compensating record: the join is here DELIBERATELY, it is the sanctioned
+// location, and `journal_standards.rs` keeps only what is true of a standard
+// independent of any manuscript — the item lists, the bindings, the published
+// counts, and `ItemCheck`, which names the EVIDENCE an item needs without
+// naming a manuscript type.
+
+/// What an item's test decided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemStatus {
+    /// The evidence the item asks for is present.
+    Met,
+    /// The item could be decided and the evidence is absent.
+    NotFound,
+    /// **The item was not decided.** Distinct from `NotFound`, and the
+    /// distinction is the whole point: *"we looked and it is missing"* and
+    /// *"we cannot look"* are opposite messages to a researcher, and an
+    /// evaluator that renders the second as the first invents a compliance
+    /// failure.
+    Unevaluable,
+}
+
+/// One item's verdict, with the manuscript evidence it rests on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ItemVerdict {
+    pub standard: crate::journal_standards::Standard,
+    pub item: &'static str,
+    pub requirement: &'static str,
+    pub status: ItemStatus,
+    pub reads: &'static [&'static str],
+    /// The manuscript sentence or paragraph the verdict rests on, **whole**.
+    /// `None` for `NotFound` and `Unevaluable` — there is nothing to quote, and
+    /// a fabricated quotation would be worse than none.
+    pub evidence_span: Option<String>,
+    pub location: Option<Location>,
+    /// Why, in one sentence, for a reader who will not read the code.
+    pub detail: String,
+}
+
+/// A standard evaluated against one manuscript.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StandardEvaluation {
+    pub standard: crate::journal_standards::Standard,
+    pub verdicts: Vec<ItemVerdict>,
+    /// Items this engine carries at all.
+    pub items_implemented: usize,
+    /// Items it can actually decide — `items_implemented` minus those whose
+    /// evidence lives only in a field the project does not produce.
+    pub items_evaluable: usize,
+    /// What the PUBLISHED standard has, WITH ITS UNIT — see
+    /// [`crate::journal_standards::PublishedCount`]. `None` for standards with
+    /// no evaluator.
+    pub published_items: Option<crate::journal_standards::PublishedCount>,
+}
+
+impl StandardEvaluation {
+    pub fn met(&self) -> usize {
+        self.verdicts.iter().filter(|v| v.status == ItemStatus::Met).count()
+    }
+    pub fn not_found(&self) -> usize {
+        self.verdicts.iter().filter(|v| v.status == ItemStatus::NotFound).count()
+    }
+
+    /// **The fraction, phrased for the ROW rather than for a footnote.**
+    ///
+    /// The number that belongs beside a verdict is not how many items this
+    /// engine ships — it is how many it could DECIDE, over how many the
+    /// published standard has. Those differ by more than half: CONSORT ships 5
+    /// items of 25 and can decide 4; TRIPOD ships 5 of 22 and can decide 1.
+    ///
+    /// **A passing evaluator is not a passed checklist**, and this sentence is
+    /// the only thing standing between the two for a reader who sees "3 of 4
+    /// met" and stops there.
+    pub fn coverage_phrase(&self) -> String {
+        let Some(count) = self.published_items else {
+            return format!("no evaluator for {}", self.standard.as_str());
+        };
+        let name = self.standard.as_str();
+        match (count.sub_items, self.standard.items_are_sub_items()) {
+            // The unit matches: both sides count checklist rows.
+            (Some(rows), _) => {
+                format!("checks {} of {name}'s {rows} checklist rows", self.items_evaluable)
+            }
+            // The numerator counts sub-items and the only denominator recorded
+            // counts numbered items. **Say so rather than pick a number**: a
+            // fabricated sub-item total would look precise and be unsourced.
+            (None, true) => format!(
+                "checks {} of {name}'s {} numbered items — Gaply's items include sub-items, so the true fraction is smaller",
+                self.items_evaluable, count.numbered
+            ),
+            (None, false) => format!(
+                "checks {} of {name}'s {} numbered items",
+                self.items_evaluable, count.numbered
+            ),
+        }
+    }
+}
+
+/// **Evaluate a standard against a manuscript. Deterministic, no model.**
+///
+/// Reads [`ExtractionResult`] only — never the scientific layer
+/// (§11 D165). Every `Met` carries the paragraph it was decided from, so a
+/// reader can refute it; `NotFound` and `Unevaluable` carry none, because there
+/// is nothing honest to quote.
+pub fn evaluate(
+    standard: crate::journal_standards::Standard,
+    extraction: &ExtractionResult,
+) -> StandardEvaluation {
+    use crate::extract::stats::Stat;
+
+    use crate::journal_standards::{items_for, published_item_count, ItemCheck};
+    let items = items_for(standard);
+    let mut verdicts = Vec::with_capacity(items.len());
+
+    // The first statistic of each kind, with where it was found. Computed once
+    // rather than per item — four passes over the same vector for the same
+    // answer is the mistake the regex-caching entry records.
+    //
+    // **A statistic whose paragraph does not RESOLVE is skipped, not quoted
+    // empty.** 41 of 301 spans in this corpus fail to resolve and 159 name an
+    // ambiguous `SectionKind` (§12.1's `Location` defect). `Some("")` would be a
+    // verdict claiming evidence and showing none — the shape a truncated span
+    // already cost this project once — so the search moves to the next
+    // statistic of that kind and reports `NotFound` if none of them resolves.
+    let first = |pred: &dyn Fn(&Stat) -> bool| {
+        extraction.statistics.iter().filter(|s| pred(&s.stat)).find_map(|s| {
+            crate::extract::paragraph_at(extraction, &s.location)
+                .filter(|p| !p.trim().is_empty())
+                .map(|p| (p.to_string(), s.location.clone()))
+        })
+    };
+
+    for it in items {
+        let (status, evidence, location, detail) = match it.check {
+            ItemCheck::NotImplemented => (
+                ItemStatus::Unevaluable,
+                None,
+                None,
+                format!(
+                    "not checked: the evidence for this item lives only in {}, which Gaply \
+                     does not produce (§11 D165)",
+                    it.reads.join(" / ")
+                ),
+            ),
+            ItemCheck::AbstractPresent => section_check(extraction, SectionKind::Abstract),
+            ItemCheck::ResultsSectionPresent => section_check(extraction, SectionKind::Results),
+            ItemCheck::SampleSizeReported => decide(
+                first(&|s| matches!(s, Stat::SampleSize { .. })),
+                "an explicit sample size is reported",
+                "no explicit sample size (`n = …`) was found anywhere in the manuscript",
+            ),
+            ItemCheck::StatisticalTestReported => decide(
+                first(&|s| matches!(s, Stat::Test { .. } | Stat::TestStatistic { .. })),
+                "a named statistical test is reported",
+                "no named statistical test or test statistic was found",
+            ),
+            ItemCheck::EffectSizeReported => decide(
+                first(&|s| matches!(s, Stat::EffectSize { .. })),
+                "an effect size is reported with its value",
+                "no effect size with a value was found",
+            ),
+            ItemCheck::ConfidenceIntervalReported => decide(
+                first(&|s| matches!(s, Stat::ConfidenceInterval { .. })),
+                "a confidence interval is reported",
+                "no confidence interval was found",
+            ),
+        };
+
+        verdicts.push(ItemVerdict {
+            standard,
+            item: it.item,
+            requirement: it.requirement,
+            status,
+            reads: it.reads,
+            evidence_span: evidence,
+            location,
+            detail,
+        });
+    }
+
+    StandardEvaluation {
+        standard,
+        items_implemented: items.len(),
+        items_evaluable: items.iter().filter(|i| i.check.is_evaluable()).count(),
+        published_items: published_item_count(standard),
+        verdicts,
+    }
+}
+
+type Decided = (ItemStatus, Option<String>, Option<Location>, String);
+
+fn decide(
+    found: Option<(String, Location)>,
+    met: &str,
+    missing: &str,
+) -> Decided {
+    match found {
+        Some((span, loc)) => (ItemStatus::Met, Some(span), Some(loc), met.to_string()),
+        None => (ItemStatus::NotFound, None, None, missing.to_string()),
+    }
+}
+
+
+fn section_check(extraction: &ExtractionResult, kind: SectionKind) -> Decided {
+    match extraction.sections.iter().find(|s| s.kind == kind && !s.paragraphs.is_empty()) {
+        Some(sec) => (
+            ItemStatus::Met,
+            sec.paragraphs.first().cloned(),
+            Some(Location { section: kind, paragraph: 0 }),
+            format!("a {kind:?} section is present with content"),
+        ),
+        None => (ItemStatus::NotFound, None, None, format!("no {kind:?} section with content was found")),
+    }
+}

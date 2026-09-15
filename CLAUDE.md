@@ -537,6 +537,85 @@ time injection.
   quota was found because the probe prints the NEWEST `word_limit`, and that
   happened to be the bad one.
 
+  **A FRACTION IS A CLAIM, AND ITS DENOMINATOR IS THE HALF NOBODY CHECKS.**
+
+  The numerator gets read, argued about and tested. The denominator is
+  furniture. **Measured 15 Sep 2026**, in the reporting-standard evaluator:
+
+  ```
+  published_item_count(Consort) -> 25          // CONSORT's NUMBERED items
+  items_for(Consort)            -> 1b 6a 7a 12a 17a   // five SUB-items
+  row: "checks 4 of CONSORT's 25 published items"     // 16%
+  truth:                          4 of 37             // 11%
+  ```
+
+  **The unit of the numerator was not the unit of the denominator**, and
+  `items_for`'s own doc comment three lines above `published_item_count` had
+  said so since it was written: *"CONSORT 2010 has 25 items and 37 sub-items."*
+  The evidence was in the file, adjacent, and the fraction was still wrong.
+
+  **What makes it the same family as the truncated span**: the row's ONLY JOB is
+  to show how little was checked — it exists so a passing evaluator is not read
+  as a passed checklist — and it understated the gap by a third. A guard that is
+  wrong in the direction it was built to guard against is worse than no guard,
+  because its presence is what stops anyone looking.
+
+  It was **plausible and displayed**, which is the pair to watch for: 16% reads
+  like a small honest number, so nothing about it invites a second look. Compare
+  §11 D163's `word_limit = 12000` — plausible, displayed, and a translation
+  price list.
+
+  The fix is not a better number, it is **a unit on the number**:
+  `PublishedCount { numbered, sub_items }`, and `coverage_phrase` compares like
+  with like. Where the sub-item total is not recorded, it says so —
+  *"checks 2 of STROBE's 22 numbered items — Gaply's items include sub-items, so
+  the true fraction is smaller"* — rather than inventing a denominator that
+  would look precise and be unsourced. **Four of the five standards are in that
+  state, and that is the honest report**: only CONSORT's 37 had a source.
+
+  So: when you print `N of M`, say what M counts, and check that the thing
+  producing N counts the same thing. If you cannot source M, print the mismatch
+  rather than a number.
+
+  **A THREE-STATE VALUE MUST BE THREE STATES AT THE WIRE — AND THE TEST IS
+  RENDERING THE DEFAULT, NOT TRUSTING IT.**
+
+  Third time this week a MISSING value was read as a STATED one, and the
+  cheapest of the three to have caught. `ChecklistItem` carries compliance in
+  two bools, `passed` and `unevaluable`. A stored report written before
+  `unevaluable` existed has no such key, `serde(default)` supplies `false`, and
+  an item that was never decided arrives as `passed: false, unevaluable: false`
+  — which every renderer draws as **FAIL**. A researcher would see a compliance
+  failure on a check that was never run.
+
+  The other two the same week: `ResearchState::science` being `None` meant *"the
+  extractor was never asked"* and read as *"the paper has no claims"*; and a
+  privacy test passed because its fixture produced zero claims, so `science:
+  None` stood in for "no prose leaked".
+
+  **Two bools cannot carry three states across a wire where one of them may be
+  absent.** The representation that cannot fail is one three-valued field. Where
+  the wire contract makes that too expensive — `ChecklistItem` is rendered by the
+  frontend — the obligation moves to the test, and the test has a specific
+  shape:
+
+  - **Deserialise a payload with the key ABSENT**, not one you constructed with
+    the default.
+  - **Assert what a RENDERER draws**, computed the way the renderer computes it
+    — not that the field equals `false`. Asserting the default is trusting it;
+    the defect lives in what the default MEANS downstream.
+  - **Pin the defect rather than hide it.** The test asserts `FAIL` is what a
+    legacy row renders as, and names the containment in the same breath:
+    `unevaluable` shipped WITH the evaluator, so no stored report predating the
+    key can contain an undecidable item. The day that stops being true, the
+    test is where it is written down.
+
+  `skip_serializing_if` is what keeps the true state recoverable — a `true` flag
+  always reaches the wire — and it was added for a different reason (the golden
+  report is pinned byte-for-byte). Two requirements, one mechanism; note both
+  where it is declared, or the next person removes it for the reason you did not
+  write down.
+
   **FOUR BOUNDARIES WERE DRAWN TOO WIDE IN ONE PHASE, and each produced data
   that was not the journal's:** the HOST (`journals.plos.org` is every PLOS
   journal, so a crawl of PLOS ONE reached PLOS Genetics), the DOMAIN (a

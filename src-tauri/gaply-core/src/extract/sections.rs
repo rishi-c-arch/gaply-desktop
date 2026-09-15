@@ -61,6 +61,17 @@ pub(crate) fn detect_heading(line: &str) -> Option<(SectionKind, String)> {
     classify_heading(&phrase).map(|kind| (kind, trimmed.to_string()))
 }
 
+/// [`detect_heading`], reachable from a probe.
+///
+/// `detect_heading` is `pub(crate)` and must stay that way — it is an internal
+/// step of `split_document`, not an API. `examples/heading_vocab_probe.rs` needs
+/// exactly it, though: a probe that reimplemented the shape gate would be
+/// measuring its own copy of the rule against the corpus, and would agree with
+/// the classifier by construction.
+pub fn detect_heading_for_probe(line: &str) -> Option<(SectionKind, String)> {
+    detect_heading(line)
+}
+
 /// Split a body block into paragraphs: separated by blank lines, with
 /// wrapped lines inside a paragraph re-joined by spaces.
 fn paragraphs_of(lines: &[&str]) -> Vec<String> {

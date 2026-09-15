@@ -10879,3 +10879,143 @@ matters: `report::checklist_from_requirements` legitimately takes both an
 `ExtractionResult` and stored requirements, because comparing a manuscript to a
 journal is the product. That join lives in `report.rs`, which is not scanned, so
 a future violation could hide by moving code there.
+
+---
+
+### D165 — the scientific layer is DECLINED, at 5.9% against a 50% no-skill baseline
+
+**THE SENTENCE THAT DECIDES IT, STATED FIRST:**
+
+> **Taking the first paragraph of each Methods section scores 50% precision on
+> this corpus. Nine hand-written regexes score 5.9%.**
+
+Not a marginal lane. **A one-line heuristic outperforms the extractor by 8.5x.**
+
+This is D128's shape, and a starker version of it. D128 withdrew `citation_need`
+at 18.3% weighted precision against an 18.0% no-skill baseline — a difference of
+noise, which is what made it withdrawable. Here the difference is an order of
+magnitude and it runs the *other way*: the no-skill rule is not tied with the
+extractor, it beats it decisively.
+
+#### The measurement
+
+**Hand-checked, not sampled.** All 152 `Method` objects produced by
+`ExtractOptions::with_scientific()` across the six real manuscripts were read
+against their spans, one at a time (`examples/methods_precision_probe.rs`). There
+is no labelled set and none was invented; the adjudication is a reading of each
+span, and the probe prints every row so it can be re-read.
+
+| criterion | count | precision |
+|---|---|---|
+| the span is a genuine statement of THIS study's methodology | 9 / 152 | **5.9%** |
+| …and `design` is correct rather than `Other("analytical")` | 3 / 152 | **2.0%** |
+| …and `n` and `software` are also correct | 1 / 152 | **0.66%** |
+| **NO-SKILL** — first paragraph of each Methods section, 12 guesses | 6 / 12 | **50%** |
+
+**The 0.66% is the number to quote when someone proposes consuming a `Method`
+object whole.** One object in 152 is correct in every field a specialist would
+read. The 5.9% is the number to quote about the layer as a source of spans.
+
+Per paper, the extractor's real-method count: IJAS **0/2**, Lake Chapter 1
+**0/4**, chapter3 **0/10**, R PAPER **2/30**, Revised Health Economics **5/27**,
+final final L **2/79**. Three of six manuscripts yield nothing at all.
+
+#### What the 143 wrong ones are, with their spans
+
+Not near-misses. The failures are categorical, and each is a span anyone can
+check:
+
+| what it is | what the extractor made of it |
+|---|---|
+| a Turnitin page footer — *"Page 58 of 401 - Integrity Submission Submission ID trn:oid:::3117:616484955"* | a `Method` with `n = Some(189)` |
+| a table data row — *"pH 6.48 1.14 5.18 6.37 8.39 Temperature (°C) 25.72…"* | a `Method` with `n = Some(12)`. Nine consecutive rows, nine `Method` objects |
+| a hyperparameter table's cells — `"23 tokens"`, `"Population size"`, `"30"`, `"HEFCSO"`, `"Max iterations"`, `"128"` | six `Method` objects, one per cell |
+| the manuscript's TITLE — *"FIREFLY-CROW SEARCH OPTIMIZED BIDIRECTIONAL LSTM…"* | a `Method` |
+| the Keywords line | a `Method`, `design: MachineLearningPipeline` |
+| the **Authorship Contribution Statement** — *"A R Rather: conceptualisation, conduct of the rearing…"* | a `Method` with `software: ["R"]`. **The R is the author's middle initial.** |
+| *"qualitative appreciation is no substitute for measurement"* | a `Method`, `design: Qualitative`. The sentence says the opposite of what was extracted. |
+| *"the survey of Mysore commissioned at the start of the nineteenth century"* | a `Method`, `design: Survey`. A nineteenth-century land survey read as this study's design. |
+| *"…will require longitudinal tracking"* (future work, in a cross-sectional paper) | a `Method`, `design: Longitudinal` |
+| a table caption — *"Table 1. Formal Health-Insurance Provision Rates by Firm Size (N = 222)"* | a `Method`. Five more from five more captions. |
+| a covariate-justification sentence | a `Method` with **`n = Some(0)`** |
+
+`software: ["R"]` appears on 11 objects across five manuscripts. **In none of
+them is R the software used**: the token is a bare capital `R` anywhere in the
+paragraph — an author's initial, `AOR`, `reference =`. One object claims `SAS`
+on a turbidity paragraph that names no software at all.
+
+#### Why this is a design problem and not an accuracy problem
+
+The instinct is to fix the patterns. It is the wrong instinct, for three reasons
+the table above makes visible:
+
+1. **The failures are not pattern misses, they are category errors.** No
+   refinement of a regex distinguishes a manuscript title from a methods
+   sentence, because the regex never sees that it is looking at a title. The
+   extractor has no notion of what kind of text it is reading — a `Method` is
+   emitted wherever a cue word lands, and cue words land in captions, footers,
+   keyword lists and author statements.
+2. **Every object carries `confidence: 0.85`.** A hardcoded constant, identical
+   on the object built from the Turnitin footer and the one built from
+   *"Cross-sectional employer survey (n = 222)"*. A consumer cannot rank, filter
+   or threshold, because the field that would let it do so carries no
+   information. **A confidence that is the same for every output is not a
+   confidence.**
+3. **A reader cannot tell a real method from a section heading**, which is the
+   property that makes the layer unusable rather than merely weak. §11's span
+   rule exists because a fact carrying its sentence can be refuted in a glance —
+   and it works here, in the wrong direction: the spans are what proved the
+   layer fabricates. A layer whose own provenance mechanism is the thing that
+   condemns it should not be shipped behind a confidence score.
+
+**And the span problem compounds it.** 41 of 301 spans do not resolve at all and
+159 name an ambiguous `SectionKind` (§12.1's `Location` defect), so a further
+tranche of objects cannot be checked by a reader even in principle. Of
+final final L's 79 methods, **17 are `<UNRESOLVED>`**.
+
+#### The decision
+
+**`requires_scientific_extraction()` stays `false`, and no agent declares
+`Artifact::ScientificExtraction`.** The layer is not unpopulated pending Phase 4.
+It is **declined**: measured, found to fabricate, and withheld.
+
+This is deliberately the same action D128 took against `citation_need` and for
+the same reason — *a lane that would ship a number nobody has evidence for*. The
+difference is that `citation_need` had been measured three times before anyone
+computed a baseline; this was measured before it shipped to anyone.
+
+#### What reopens it
+
+The bar is D128's, stated so a future session has to argue against it rather
+than rediscover it:
+
+1. **A labelled set** — method statements marked by a reader, across manuscripts
+   the extractor was not tuned on. Not fixtures written by whoever writes the
+   extractor; §11's standing lesson is that a hand-written fixture inherits its
+   author's premise and its first independent vote is the corpus.
+2. **A measured precision** on that set, reported per stratum, not pooled (D126,
+   D123).
+3. **A no-skill comparison it beats.** The 50% first-paragraph rule is the
+   incumbent and it is cheap; anything proposed has to be better than it, not
+   better than nothing.
+4. **A confidence that varies.** While `confidence` is a constant, no consumer
+   can compensate for low precision by filtering, so precision is the only
+   number and it has to stand alone.
+
+Until then, `Artifact::ScientificExtraction` is declared `optional` on the two
+methodological specialists — the same slot as `AnalysisRecord`, for a different
+reason. The record has no INPUT; the layer has no CREDIBILITY. Neither may gate,
+and neither may be consumed as evidence.
+
+#### What this costs, stated plainly
+
+The two Phase-4 specialists shipped in this phase read `ExtractionResult`
+directly — sections, and `StatClaim`s with their locations — and **not** the
+scientific layer, which is why declining it costs them nothing. That was not
+foresight; it was the yield measurement arriving before the specialists were
+written. Had they been scoped to §4.2's `&[Claim]`, this decision would have
+withdrawn their only input.
+
+**§4.2's specialist fan-out is scoped to a layer that produces nothing
+trustworthy**, and that is the part of the architecture this record invalidates.
+What Phase 4 can still build is in the architecture document's Phase 4 note.

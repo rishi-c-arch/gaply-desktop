@@ -158,6 +158,48 @@ pub struct StandardItem {
     /// what the verdict rests on** — and so an item with nothing to read is
     /// visibly unevaluable rather than silently passing.
     pub reads: &'static [&'static str],
+    /// The deterministic test this item performs.
+    /// [`ItemCheck::NotImplemented`] is the honest state for an item whose
+    /// evidence lives only in a field the project does not produce.
+    pub check: ItemCheck,
+}
+
+/// **The deterministic tests an item can perform, and nothing else.**
+///
+/// A closed enum rather than a function pointer, so the set of things this
+/// engine can actually decide is READABLE — `items_for` becomes a list anyone
+/// can audit against the published checklist, and an item whose evidence is not
+/// obtainable says [`ItemCheck::NotImplemented`] rather than quietly passing.
+///
+/// Every variant reads `ExtractionResult` and nothing else. **No variant reads
+/// `science.*`**: that layer is declined (§11 D165) at 5.9% precision against a
+/// 50% no-skill baseline, and an evaluator sourcing a compliance verdict from it
+/// would be reporting a Turnitin page footer as a study design.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemCheck {
+    /// No test. The evidence lives only in a field this project does not
+    /// produce — today that means the declined scientific layer.
+    NotImplemented,
+    /// A structured abstract exists and carries content.
+    AbstractPresent,
+    /// A results section exists and carries content.
+    ResultsSectionPresent,
+    /// An explicit sample size (`n = 222`) is reported somewhere.
+    SampleSizeReported,
+    /// A named statistical test or test statistic is reported.
+    StatisticalTestReported,
+    /// An effect size is reported with its value.
+    EffectSizeReported,
+    /// A confidence interval is reported.
+    ConfidenceIntervalReported,
+}
+
+impl ItemCheck {
+    /// Can this item be decided at all?
+    pub fn is_evaluable(self) -> bool {
+        !matches!(self, ItemCheck::NotImplemented)
+    }
 }
 
 /// The five most common standards, as item lists.
@@ -180,57 +222,95 @@ pub fn items_for(standard: Standard) -> &'static [StandardItem] {
 }
 
 const CONSORT: &[StandardItem] = &[
-    StandardItem { item: "1b", requirement: "Structured summary of trial design, methods, results, and conclusions", reads: &["structure", "sections"] },
-    StandardItem { item: "6a", requirement: "Completely defined pre-specified primary and secondary outcome measures", reads: &["science.variables"] },
-    StandardItem { item: "7a", requirement: "How sample size was determined", reads: &["science.methods", "statistics"] },
-    StandardItem { item: "12a", requirement: "Statistical methods used to compare groups for primary and secondary outcomes", reads: &["science.methods", "statistics"] },
-    StandardItem { item: "17a", requirement: "For each outcome, results for each group and the estimated effect size and its precision", reads: &["statistics"] },
+    StandardItem { item: "1b", requirement: "Structured summary of trial design, methods, results, and conclusions", reads: &["structure", "sections"], check: ItemCheck::AbstractPresent },
+    StandardItem { item: "6a", requirement: "Completely defined pre-specified primary and secondary outcome measures", reads: &["science.variables"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "7a", requirement: "How sample size was determined", reads: &["science.methods", "statistics"], check: ItemCheck::SampleSizeReported },
+    StandardItem { item: "12a", requirement: "Statistical methods used to compare groups for primary and secondary outcomes", reads: &["science.methods", "statistics"], check: ItemCheck::StatisticalTestReported },
+    StandardItem { item: "17a", requirement: "For each outcome, results for each group and the estimated effect size and its precision", reads: &["statistics"], check: ItemCheck::EffectSizeReported },
 ];
 
 const PRISMA: &[StandardItem] = &[
-    StandardItem { item: "5", requirement: "Specify the inclusion and exclusion criteria for the review", reads: &["science.methods"] },
-    StandardItem { item: "6", requirement: "Specify all databases and registers searched, with the date last searched", reads: &["science.datasets", "science.methods"] },
-    StandardItem { item: "7", requirement: "Present the full search strategy for at least one database", reads: &["science.methods"] },
-    StandardItem { item: "16a", requirement: "Describe the results of the search and selection process", reads: &["structure", "statistics"] },
-    StandardItem { item: "20b", requirement: "Present results of all statistical syntheses conducted", reads: &["statistics"] },
+    StandardItem { item: "5", requirement: "Specify the inclusion and exclusion criteria for the review", reads: &["science.methods"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "6", requirement: "Specify all databases and registers searched, with the date last searched", reads: &["science.datasets", "science.methods"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "7", requirement: "Present the full search strategy for at least one database", reads: &["science.methods"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "16a", requirement: "Describe the results of the search and selection process", reads: &["structure", "statistics"], check: ItemCheck::ResultsSectionPresent },
+    StandardItem { item: "20b", requirement: "Present results of all statistical syntheses conducted", reads: &["statistics"], check: ItemCheck::StatisticalTestReported },
 ];
 
 const STROBE: &[StandardItem] = &[
-    StandardItem { item: "4", requirement: "Present key elements of study design early in the paper", reads: &["science.methods"] },
-    StandardItem { item: "6a", requirement: "Give the eligibility criteria, and the sources and methods of selection of participants", reads: &["science.methods"] },
-    StandardItem { item: "7", requirement: "Clearly define all outcomes, exposures, predictors, and potential confounders", reads: &["science.variables"] },
-    StandardItem { item: "12a", requirement: "Describe all statistical methods, including those used to control for confounding", reads: &["science.methods", "statistics"] },
-    StandardItem { item: "16a", requirement: "Give unadjusted and confounder-adjusted estimates and their precision", reads: &["statistics"] },
+    StandardItem { item: "4", requirement: "Present key elements of study design early in the paper", reads: &["science.methods"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "6a", requirement: "Give the eligibility criteria, and the sources and methods of selection of participants", reads: &["science.methods"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "7", requirement: "Clearly define all outcomes, exposures, predictors, and potential confounders", reads: &["science.variables"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "12a", requirement: "Describe all statistical methods, including those used to control for confounding", reads: &["science.methods", "statistics"], check: ItemCheck::StatisticalTestReported },
+    StandardItem { item: "16a", requirement: "Give unadjusted and confounder-adjusted estimates and their precision", reads: &["statistics"], check: ItemCheck::ConfidenceIntervalReported },
 ];
 
 const ARRIVE: &[StandardItem] = &[
-    StandardItem { item: "1", requirement: "The study design, including the number of experimental and control groups", reads: &["science.methods"] },
-    StandardItem { item: "2a", requirement: "The experimental unit and the total number of animals used", reads: &["science.methods", "statistics"] },
-    StandardItem { item: "3", requirement: "Inclusion and exclusion criteria for animals and data points", reads: &["science.methods"] },
-    StandardItem { item: "5", requirement: "The statistical methods used for each analysis", reads: &["science.methods", "statistics"] },
-    StandardItem { item: "7", requirement: "Details of the animals used, including species, strain, sex and age", reads: &["science.variables"] },
+    StandardItem { item: "1", requirement: "The study design, including the number of experimental and control groups", reads: &["science.methods"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "2a", requirement: "The experimental unit and the total number of animals used", reads: &["science.methods", "statistics"], check: ItemCheck::SampleSizeReported },
+    StandardItem { item: "3", requirement: "Inclusion and exclusion criteria for animals and data points", reads: &["science.methods"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "5", requirement: "The statistical methods used for each analysis", reads: &["science.methods", "statistics"], check: ItemCheck::StatisticalTestReported },
+    StandardItem { item: "7", requirement: "Details of the animals used, including species, strain, sex and age", reads: &["science.variables"], check: ItemCheck::NotImplemented },
 ];
 
 const TRIPOD: &[StandardItem] = &[
-    StandardItem { item: "4a", requirement: "Describe the study design or source of data", reads: &["science.datasets", "science.methods"] },
-    StandardItem { item: "5a", requirement: "Specify key elements of the study setting", reads: &["science.methods"] },
-    StandardItem { item: "7a", requirement: "Clearly define all predictors used in the model", reads: &["science.variables"] },
-    StandardItem { item: "10b", requirement: "Specify the type of model, all model-building procedures, and the method for internal validation", reads: &["science.methods"] },
-    StandardItem { item: "16", requirement: "Report performance measures for the prediction model, with confidence intervals", reads: &["statistics"] },
+    StandardItem { item: "4a", requirement: "Describe the study design or source of data", reads: &["science.datasets", "science.methods"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "5a", requirement: "Specify key elements of the study setting", reads: &["science.methods"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "7a", requirement: "Clearly define all predictors used in the model", reads: &["science.variables"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "10b", requirement: "Specify the type of model, all model-building procedures, and the method for internal validation", reads: &["science.methods"], check: ItemCheck::NotImplemented },
+    StandardItem { item: "16", requirement: "Report performance measures for the prediction model, with confidence intervals", reads: &["statistics"], check: ItemCheck::ConfidenceIntervalReported },
 ];
 
-/// How many items the published standard actually has, so a report can say
-/// what fraction is being evaluated. **A passing evaluator is not a passed
-/// checklist**, and the only defence against reading it as one is the ratio.
-pub fn published_item_count(standard: Standard) -> Option<usize> {
+/// **How many items the published standard has — AND IN WHICH UNIT.**
+///
+/// # The denominator had the wrong unit, three lines below the comment saying so
+///
+/// This returned a bare `25` for CONSORT while `items_for(Consort)` lists
+/// `1b`, `6a`, `7a`, `12a`, `17a` — **five SUB-items**. The doc comment on
+/// `items_for` already said *"CONSORT 2010 has 25 items and 37 sub-items"*. So
+/// the numerator counted sub-items, the denominator counted numbered items, and
+/// the row said *"checks 4 of CONSORT's 25 published items"* — 16% where the
+/// truth is 4/37 = 11%.
+///
+/// **In a row whose only job is to show how little was checked**, and it
+/// understated the gap by a third. A fraction is a claim and its denominator is
+/// the half nobody checks.
+///
+/// So the count carries its unit. `sub_items` is `Some` only where a figure is
+/// actually recorded — CONSORT's 37 comes from this module's own long-standing
+/// comment. **The other four are NOT invented to make the arithmetic tidy**:
+/// where the sub-item total is unknown, [`StandardEvaluation::coverage_phrase`]
+/// says the denominator is numbered items and that the numerator is not, so the
+/// reader knows the fraction flatters rather than being handed a fabricated
+/// denominator that looks precise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PublishedCount {
+    /// Top-level numbered items (CONSORT 1..25).
+    pub numbered: usize,
+    /// Checklist rows including sub-items (CONSORT 1a, 1b, 2a…), where recorded.
+    pub sub_items: Option<usize>,
+}
+
+pub fn published_item_count(standard: Standard) -> Option<PublishedCount> {
     Some(match standard {
-        Standard::Consort => 25,
-        Standard::Prisma => 27,
-        Standard::Strobe => 22,
-        Standard::Arrive => 21,
-        Standard::Tripod => 22,
+        // 37 is this module's own figure, stated on `items_for` since it was
+        // written. Every Gaply CONSORT item is a sub-item, so 37 is the unit
+        // that matches the numerator.
+        Standard::Consort => PublishedCount { numbered: 25, sub_items: Some(37) },
+        Standard::Prisma => PublishedCount { numbered: 27, sub_items: None },
+        Standard::Strobe => PublishedCount { numbered: 22, sub_items: None },
+        Standard::Arrive => PublishedCount { numbered: 21, sub_items: None },
+        Standard::Tripod => PublishedCount { numbered: 22, sub_items: None },
         _ => return None,
     })
+}
+
+impl Standard {
+    /// Do this engine's items for the standard include sub-item labels
+    /// (`6a`, `10b`)? If so, a denominator of numbered items is the wrong unit.
+    pub fn items_are_sub_items(self) -> bool {
+        items_for(self).iter().any(|i| i.item.chars().any(|c| c.is_ascii_alphabetic()))
+    }
 }
 
 #[cfg(test)]
@@ -313,13 +393,26 @@ mod tests {
             let items = items_for(s);
             let published = published_item_count(s).expect("a published count");
             assert!(!items.is_empty(), "{} has no evaluator", s.as_str());
+            // Compare like with like: if this engine's items are sub-items, the
+            // denominator must be the sub-item total where one is recorded.
+            let denom = published.sub_items.unwrap_or(published.numbered);
             assert!(
-                items.len() < published,
-                "{}: {} items claimed against {published} published — an evaluator must not \
+                items.len() < denom,
+                "{}: {} items claimed against {denom} published — an evaluator must not \
                  claim to be the whole checklist",
                 s.as_str(),
                 items.len()
             );
+            // **The unit guard.** A sub-item numerator against a numbered-item
+            // denominator is the defect this carries a unit to prevent: it read
+            // "4 of CONSORT's 25" where the honest figure is 4 of 37.
+            if published.sub_items.is_some() {
+                assert!(
+                    published.sub_items.unwrap() >= published.numbered,
+                    "{}: sub-items cannot be fewer than numbered items",
+                    s.as_str()
+                );
+            }
             // Every item names what it reads, so a verdict's basis is visible.
             for i in items {
                 assert!(!i.reads.is_empty(), "{} item {} reads nothing", s.as_str(), i.item);

@@ -922,6 +922,7 @@ mod tests {
             source_span: None,
             article_type: None,
             checked_field: None,
+            unevaluable: false,
         }
     }
 

@@ -45,6 +45,7 @@
 |---|---|---|---|
 | Manuscript | yes | .docx, .pdf, .tex, .md | Manuscript layer (§3) |
 | Supporting analysis | no | .py .R .m .sps .ipynb .csv .xlsx, lab notebook PDFs, zip | Analysis layer, parsed per type |
+| | | **[v7] THE APP ACCEPTS NONE OF THESE.** Every picker is `pdf, docx, txt, md` (`AnalysisTheaterPage.tsx:105`, `AiCheckPage.tsx:368`, `GapFinderPage.tsx:175`). So the analysis layer has no input, and *"supporting analysis is the differentiator"* below describes a capability with no way in. `AnalysisRecord` and the SPSS parser now exist (`gaply-core/src/analysis/`); **the upload path does not, and building it is the next thing this differentiator needs.** | |
 | Target journal | yes | pick from registry, or paste a URL to author guidelines | Journal layer |
 | Field / subfield | inferred, confirmable | from manuscript + journal | routes the specialist cluster |
 
@@ -52,7 +53,11 @@
 
 Before any cluster wakes, a deterministic-first classifier produces a `ResearchProfile`: study design, domain, analysis types present, data modalities, article type, and the reporting standards the journal binds to that design. Specialists activate against the profile, so a systematic review wakes PRISMA, search-strategy and risk-of-bias specialists; a wet-lab paper wakes controls, replicates, blinding and image-integrity; an ML paper wakes leakage, baselines, ablation and external validation. **Agent count is a consequence of the research, not a product requirement** — one paper may activate 25 specialists and another 60.
 
-**Supporting analysis is the differentiator.** A reviewer who can see the code checks the statistics against what was actually run. Nobody else offers this because nobody else has the analysis. Per-type parsers produce a normalised *analysis record*: which tests were run, on what variables, with what parameters, producing what outputs. That record is what the methodological cluster reasons over — not the raw script.
+**Supporting analysis is the differentiator.** A reviewer who can see the code checks the statistics against what was actually run.
+
+**[v7 — measured before writing the parsers, and only one of the three ships.]** The phase asked for Python, R and SPSS parsers. Measured first: the researcher corpus (`~/Desktop`, `~/Documents`, `~/Downloads`, depth 3–4) holds **zero** analysis files of any kind against 29 `.docx`; the only real analysis artefact on the machine is **SPSS's own journal, 12.7 KB, five `FACTOR` procedures over 37 variables** with their rotation, extraction and missing-data options. So SPSS syntax is the only one of the three with a real input, and it is the only one built — against that file, recovering **82 commands, 5 statistical, 0 unrecognised, and 5 unparsed lines that are exactly the 5 human date lines SPSS writes between sessions.** Python and R are deliberately not built: a parser whose only inputs are fixtures its author wrote inherits its author's premise, which this project has recorded three times, and with no upload path no parser of any language has an input. The `.py` and `.R` files that ARE on the machine are IBM's bundled extension source — plotting plumbing, not anyone's analysis, and measuring against them would be §11 D160's boundary-drawn-too-wide again.
+
+**The SPSS parser's own first result was wrong, and the count is what caught it.** It reported 53 commands, **0 unrecognised** and 34 unparsed lines. Twenty-nine of those 34 were real commands: a one-word command IS its own terminator, so the token arrives as `EXECUTE.` and failed an alphabetic keyword test. The kinds table looked perfect either way. **A parser that discards what it cannot read reports a clean record of a file it mostly failed to parse**, which is why `unparsed_lines` and `Unrecognised(keyword)` are both carried and both printed. Nobody else offers this because nobody else has the analysis. Per-type parsers produce a normalised *analysis record*: which tests were run, on what variables, with what parameters, producing what outputs. That record is what the methodological cluster reasons over — not the raw script.
 
 ---
 
@@ -172,8 +177,22 @@ agent that declares `JournalResearch` and then sends the manuscript.
 | **Analysis** | the analysis record parsed from code/SPSS/MATLAB/notebooks; raw data structure | `AnalysisCode` / `AnalysisData` to leave — code and data are more sensitive than prose | methodological specialists |
 | **Journal** | ingested guidelines, scope, recent-paper corpus, reporting-standard bindings — the `JournalFingerprint` (§7) | none — public, shared across users | journal-fit and reporting specialists |
 | **External evidence** | cited works, retraction records, OA full texts, public literature the research agent gathers | `ExternalEvidence` — public, cached, injection-guarded, but the SELECTION is about this manuscript | integrity and literature specialists |
-| **Research state** | the machine-readable study: question, hypotheses, design, population, variables, outcomes, claims, methods, analyses, results, table/figure POINTERS, references, uncertainties | none — structured, gate-safe, carries no prose | every agent |
+| **Research state** | the machine-readable study: question, hypotheses, design, population, variables, outcomes, claims, methods, analyses, results, table/figure POINTERS, references, uncertainties | **[v7] CONDITIONAL — see below.** None while the scientific layer is absent; `Manuscript` once it is derived | every agent |
 | **Verdict** | findings with epistemic status, evidence, per-agent opinions, revision history, disagreement map, consensus, decision ledger | never leaves | synthesis, chat |
+
+#### [v7] THE RESEARCH STATE'S CLASS IS NOT A PROPERTY OF THE LAYER
+
+**Switching the scientific layer on (Phase 4, §12.1 item 3) made "carries no prose" false**, and this is a correction to this document rather than a note about the code. `ScientificClaim::statement` is a manuscript sentence or a span of one:
+
+```text
+manuscript:       "Treated larvae showed values appreciably higher than the
+                   untreated control across both seasons."
+claim.statement:  "higher than the untreated control across both seasons."
+```
+
+A verbatim substring of the manuscript, inside a layer this table said may travel without `Manuscript` consent. Everything `research_state.rs` composes ITSELF is still prose-free — `SectionSummary` carries a paragraph COUNT and never a paragraph — and that guarantee does not extend to the layer it composes by `Arc`. So the egress question is per-STATE, not per-LAYER: `ResearchState::carries_manuscript_prose()`.
+
+**The test meant to catch this was green, and green for the wrong reason.** `the_research_state_carries_no_manuscript_prose` ran while `science` was always `None` and its fixture produced **zero claims** — it could not have failed however much prose a derived layer carried. It now asserts its own precondition (claims > 0) and failed immediately when that precondition was added, which is how this was found. **A privacy assertion that cannot reach the thing it guards is not a weaker guard; it is no guard, wearing a green tick** — the same shape as the XML containment assertions in §11 that were satisfied by a document Word refused to open.
 
 #### [v6] HOW THIS WAS FOUND — three things agreeing, and all three wrong
 
@@ -345,6 +364,15 @@ So: not fifty agents. **Six clusters, each with a defined artefact, containing s
 
 ### 4.2 Specialists inside a cluster
 
+> **[v7] BEFORE THE LIST: four of these nodes have inputs and seven do not.**
+> The seven are not unbuilt, they are **declined**, each against a named empty
+> layer — the scientific layer (§11 D165, 5.9% precision against a 50% no-skill
+> baseline) or the analysis record (no upload path). Phase 4's real shape is in
+> §12; read it first, or this list reads as eleven things waiting to be built.
+>
+> **Shipping:** frequentist inference · machine learning · reporting standards ·
+> journal requirements.
+
 Methodological soundness is the one that fans out, because analysis types differ:
 
 - Frequentist inference (t-tests, ANOVA, regression assumptions, multiple comparisons)
@@ -356,6 +384,14 @@ Methodological soundness is the one that fans out, because analysis types differ
 - Computational **consistency** (do the code's stated operations account for the numbers in the paper — not reproduction; the code is never executed, see §11)
 
 Each is one specialist with the same interface: `fn assess(record: &AnalysisRecord, claims: &[Claim]) -> Vec<Opinion>`. Adding a specialist is adding a node with declared layers and tools. The harness routes by the analysis record's detected type, so a paper with no code never wakes the reproducibility specialist.
+
+**[v7 — BUILT, and all three parts of that signature are wrong about the code. `gaply-core/src/specialist/`.]** Measured 15 Sep 2026 while building the first two:
+
+1. **`record: &AnalysisRecord` makes the record MANDATORY, and it is absent on every real run.** No upload path in the app accepts an analysis file — every picker is `pdf, docx, txt, md` — and the researcher corpus contains **zero** `.R`, `.py`, `.sps`, `.sav`, `.ipynb`, `.csv` or `.xlsx` against 29 `.docx`. The record is a SUPPLIED artifact, so a specialist declaring it in `requires` is *not invoked*: **written to this signature, the frequentist specialist would never run at all.** It is `Option<&AnalysisRecord>`, and the specialist must have something to say without it.
+2. **`claims: &[Claim]` is not enough, because of what the claims are.** With the layer on across the six real manuscripts: **123 claims, 109 of them (89%) sentence fragments** — *"higher than the untreated control."*, *"compared to unidirectional models."* — because `claims.rs:255` slices `sentence[cue_start..next_cue]` and keeps the tail. And the cross-links a methodological specialist would navigate are **hardcoded empty at construction** (`claims.rs:277-279`): claim→variable **0 of 123**, claim→method **0 of 123**, claim→dataset **0 of 123**. `SpecialistInput` therefore carries the whole `ExtractionResult`; the scientific layer is an enrichment beside it, not the substrate.
+3. **`-> Vec<Opinion>` cannot be honoured, and should not be.** `Opinion` carries an `AgentKind` — a closed six-variant enum with **321 references** and a frontend wire contract. Adding forty specialists to it is the change §11 D156 already declined for `CertaintyTier`. Specialists emit `specialist::Finding`; a `swarm::adapters`-shaped mapping is the seam if the round-table ever needs one.
+
+**The "harness routes by the analysis record's detected type" is also not the mechanism.** `run_pipeline_inner` still executes a hardcoded sequence (§12.1 item 2). What decides whether a specialist speaks is `Specialist::applies_to` — and it must exist, because four of the six real manuscripts are not ML papers and an ML specialist without a gate reports "no baseline comparison" on a silkworm paper, correctly and uselessly.
 
 Reporting standards fan out per standard (CONSORT, PRISMA, STROBE, ARRIVE, CHEERS, SRQR, TRIPOD, MOOSE…). Each is a *deterministic* checklist evaluator over the derived layer, because the standards are checklists. No model.
 
@@ -386,6 +422,10 @@ struct AgentSpec {
 This is AgentFlow's DSL applied. The graph is data (a `.ron` or `.json` file), validated at build time: no cycle, every `reads` is a layer that exists, every cloud agent has a consent gate upstream, every `hard_constraint` agent has `model: None`.
 
 **[BUILT — `gaply-core/src/agent_graph.rs` + `data/agent_graph.json`. Three corrections came out of building it.]**
+
+**[v7] 0. `requires` needs THREE kinds, and the two below are not enough either.** Writing the first two specialists produced a case neither kind can express. A methodological specialist is BETTER with the analysis record — it can then check that a test the paper reports appears among the procedures actually run, which §1 calls the differentiator — and is perfectly useful without it, because the p-values and tests it reasons over are in the manuscript. Declared under `requires` the record is supplied-and-absent, so the specialist is **never invoked**; left out entirely, its `evidence_policy` may not permit `AnalysisRecordEntry`, so the one record-backed check is **rejected at the gate** the moment a record arrives. Both readings of a two-kind rule are wrong, which is what says the rule needs a third. `AgentSpec::optional` is it: an artifact that ENRICHES without gating. Scheduling ignores it; the evidence policy may name it. **The validator surfaced this by rejecting the first graph written** — the same way it rejected `extraction` and exposed the egress confusion below. A case the rule has to decide is what tests a premise.
+
+**[v7] 0b. `evidence_policy` did not exist on `AgentSpec` until now**, though §4.3 has always listed it. Nor do `tools`, `budget`, `timeout`, `cluster` or `emits`: of the twelve fields §4.3 names, the built struct carried **five**. `cluster` and `evidence_policy` are now real, with two validator rules broken on purpose — a policy demanding sources while permitting no kind (unsatisfiable, so it DISABLES the agent rather than constraining it), and a policy permitting a source kind that arrives in an artifact the agent declared in neither list. `tools`, `budget`, `timeout` and `emits` remain unbuilt and are listed here so they are not read as shipped.
 
 **1. `requires` needs two kinds, and §4.3 only has one.** It is defined here as *"absent → agent is not invoked"*, which is right for `AnalysisRecord` — the researcher uploaded code or did not, and absence is a fact about the submission. It is wrong for `ScientificExtraction`, which the harness can PRODUCE from the manuscript it already parsed. `Artifact::is_derivable` splits them: derivable-and-required → the harness computes it; supplied-and-absent → the agent is not invoked. Conflating them gives either an agent that never runs because nobody set a flag, or a harness trying to conjure an analysis record out of prose.
 
@@ -983,7 +1023,7 @@ Four things, each verified against the tree on 14 Sep 2026 rather than copied fr
 
 1. **`run_premium_gate` has no production runner.** It exists and is tested; every caller is a test. §4.3's *"every cloud agent has a `Tier::Premium` gate upstream"* is a static declaration plus a runtime gate nothing in production invokes.
 2. **The lanes are described by the graph, not driven by it.** `run_pipeline_inner` still executes six lanes in a hardcoded sequence; the graph supplies the declaration of record and the derivable-artifact decision, with the order pinned against the executor. A graph-driven executor is a separate change, and the golden test cannot cover it — byte-identity proves the report did not move, not that the mechanism producing it is the one the graph describes.
-3. **Nothing declares `ScientificExtraction`, so the layer stays off.** The MECHANISM is wired — `graph.requires_scientific_extraction()` gates the call in `pipeline.rs` — and no shipped agent declares the requirement, so `ResearchState::science` is `None` on every real run. This is now a one-line change in a graph file rather than a cost decision; the cost was measured and fixed (30.4 s → 196 ms across six manuscripts, §11's regex-caching entry).
+3. **Nothing declares `ScientificExtraction`, and as of [v7] nothing should — the layer is DECLINED, not pending (§11 D165).** It was switched on, measured, and switched back off. All 152 `Method` objects across the six real manuscripts were hand-checked, not sampled: **9 have a span that is a genuine method statement (5.9%), 3 also have a correct `design` (2.0%), and 1 is correct in every field (0.66%)** — against a **50%** no-skill baseline (the first paragraph of each Methods section, 6 of 12). A one-line heuristic beats nine hand-written regexes by 8.5x. The failures are categorical rather than marginal: Turnitin page footers with `n = Some(189)`, nine table data rows as nine `Method` objects, six hyperparameter cells as six more, the manuscript title, the Keywords line, and an Authorship Contribution Statement whose `software: ["R"]` is the author's middle initial. Every object carries `confidence: 0.85`, a hardcoded constant, so a consumer cannot filter. **This is D128's shape and D128's action** — a lane that would ship a number nobody has evidence for. The condition that reopens it is D128's bar: a labelled set, a measured precision reported per stratum, a no-skill comparison it beats, and a confidence that varies.
 4. **Equation findings carry `location: None`.** The OMML reader knows the `.docx` paragraph index and `extract::Location`'s `paragraph` is an index WITHIN a section — the two do not compose yet. So a researcher gets the equation quoted verbatim and no anchor into their manuscript, which §9's *"every finding carries a locator"* expects. Marked GAP at the construction site in `equation_report.rs`, and listed here so it is not rediscovered.
 
 **Phase 2b — the benchmark (in parallel, ongoing).** The first fifty labelled cases across the six families, with population estimates. Nothing in Phase 4 ships without a score on it.
@@ -1001,6 +1041,93 @@ Four things, each verified against the tree on 14 Sep 2026 rather than copied fr
 If a `journal_guidelines` row is ever written, that is a decision to revive a superseded table and needs its own note saying what now reads it.
 
 **Phase 4 — the clusters (3–4 weeks).** Methodological specialists, starting with frequentist and ML because they cover most submissions. Reporting-standard evaluators. Journal-fit. Each specialist ships with its accuracy stated or its output marked unmeasured.
+
+**[v7 — WHAT PHASE 4 IS. Not a plan with exceptions: this is the phase.]**
+
+**Four nodes shipping, two ready after known work, seven declined.** Each
+declined node names the empty layer it was scoped against, so nobody rebuilds it
+without first filling that layer.
+
+| | node | input | state |
+|---|---|---|---|
+| 1 | **frequentist inference** | `StatClaim`s + section text | **SHIPPING** — 4/4 precision on six real manuscripts, recall unmeasured |
+| 2 | **machine learning** | manuscript sentences | **SHIPPING** — declines on the four non-ML manuscripts rather than firing uselessly |
+| 3 | **reporting standards** | journal bindings + `statistics` / `sections` | **SHIPPING** — coverage fraction in every row, with its unit |
+| 4 | **journal requirements** | stored requirements with spans | **SHIPPING** — 46 rows from 36 real guideline pages |
+| 5 | reviewer lenses (§4.5) | the four above | **READY AFTER KNOWN WORK** — shapes existing findings into a lens; no new extraction. Phase 4b. |
+| 6 | editor layer (§5.7) | findings from 1–4 | **READY AFTER KNOWN WORK** — deterministic severity precedence over what exists. Phase 5. |
+| 7 | Bayesian analysis | `&[Claim]` | **DECLINED** — scientific layer, §11 D165 |
+| 8 | qualitative methods | `&[Claim]`, `science.methods` | **DECLINED** — scientific layer, §11 D165 |
+| 9 | survey / psychometric | `&[Claim]`, `science.variables` | **DECLINED** — scientific layer, §11 D165 |
+| 10 | lab / wet-bench | `science.methods` | **DECLINED** — scientific layer, §11 D165 |
+| 11 | computational consistency | `AnalysisRecord` | **DECLINED** — no upload path; parser and record exist |
+| 12 | novelty, claim-by-claim (§4.6) | novelty claims from `&[Claim]` | **DECLINED** — scientific layer, §11 D165 |
+| 13 | claim–evidence strength (§4.6) | claim ↔ analysis links | **DECLINED** — **0 of 123 claims link to a variable, method or dataset**; `claims.rs:277-279` writes `Vec::new()` |
+
+**Two changes unblock most of the declined seven, and neither is a specialist.**
+An upload path accepting `.py` / `.R` / `.sps` unblocks node 11 — the parser and
+the `AnalysisRecord` type already exist and are guarded against executing
+anything. A scientific layer that clears D128's bar (a labelled set, a measured
+precision per stratum, a no-skill comparison it beats, and a confidence that
+varies) unblocks 7–10 and 12. Until one of those lands, building any declined
+node means building on an empty layer.
+
+**Each shipping node ships with a number, or its output is marked unmeasured**,
+which is what this phase was asked for:
+
+| node | measured | not measured |
+|---|---|---|
+| frequentist | precision 4/4 on six manuscripts; 8 correct suppressions, including `final final L.pdf`'s 74 p-values correctly silent because the paper names Holm | recall — no labelled set exists |
+| machine learning | 2/2 admitted findings true on `R PAPER .docx`; correctly silent on baseline and cross-validation, which that paper does name | recall |
+| reporting standards | coverage per standard: CONSORT 4, PRISMA 2, STROBE 2, ARRIVE 2, TRIPOD 1 — against published totals, with the unit stated | whether an item's verdict matches a human reviewer's |
+| journal requirements | 36 guideline pages → 41 requirements → 15 bindings → 46 rows, every row carrying the journal's own sentence | requirement recall against the full site |
+
+**[v7 — the first two specialists are BUILT, with what each corrected. `gaply-core/src/specialist/`.]**
+
+| what shipped | where |
+|---|---|
+| the scientific layer switched on, end to end | §12.1 item 3, now closed |
+| `AgentSpec` gains `cluster` and `evidence_policy`, plus a third kind of `requires` | §4.3 [v7] 0 and 0b |
+| `specialist::run` — the evidence GATE, which is the deliverable rather than the checks | below |
+| `frequentist_stats` (Tier 1, four checks) and `ml_methodology` (Tier 1, four checks) | §4.2 [v7] |
+| `analysis::` — the `AnalysisRecord` type and an SPSS syntax parser, with a no-execution guard | §1 [v7] |
+
+**The score, on the six real manuscripts, adjudicated row by row against the manuscripts themselves.** There is no labelled set — Phase 2b's fifty cases do not exist — so **precision is measured and recall is not claimed**:
+
+| | |
+|---|---|
+| admitted findings | **4, all four true on adjudication** |
+| correct suppressions | **8**, including the discriminating one: `final final L.pdf` reports **74 p-values**, the highest count in the corpus, and the multiple-comparisons check stays silent because the paper names Holm. A filter that caught everything would fire there. |
+| known miss | **1** — a true `parametric_test_assumptions_unstated` on `R PAPER .docx` (ANOVA and t-test named, zero assumption terms), **rejected at the gate because its span did not resolve** |
+| recall against an expert review | **unmeasured** |
+
+**The reporting-standard node, and the number it ships with.** `journal_standards::evaluate` runs a bound standard's items against the manuscript — deterministic, `model: None`, reading `ExtractionResult` only and never the declined layer (a test enforces that, not a comment). Each item carries `ItemCheck`, so what the engine can decide is a readable list rather than a function nobody audits, and the three statuses are kept apart: `Met` carries the paragraph that decided it, `NotFound` means the engine looked, `Unevaluable` means it could not — **and `Unevaluable` never renders as passed**, because a tick on an item nobody decided is a compliance claim nobody made.
+
+**The measured number is the coverage, and it is smaller than the item lists suggest:**
+
+| standard | items listed | **can be decided** | published |
+|---|---|---|---|
+| CONSORT | 5 | **4** | 25 |
+| PRISMA | 5 | **2** | 27 |
+| STROBE | 5 | **2** | 22 |
+| ARRIVE | 5 | **2** | 21 |
+| TRIPOD | 5 | **1** | 22 |
+
+`published_item_count` already exposed the denominator; what was wrong was the numerator. The old row said *"Gaply evaluates 5 of the standard's 22 items"* — 2.5x what it can actually decide, because 3 of STROBE's 5 read only `science.*`. **The fraction now appears in every item row**, not in a header a reader scrolls past: `STROBE item 16a (checks 2 of STROBE's 22 published items): …`. Pinned by `every_standard_item_row_states_the_fraction_of_the_standard_checked`, and confirmed by deleting each of the three rules and watching the predicted test go red.
+
+**Node 2 — journal requirements — end to end on a real journal.** Nature Medicine crawled through `ReqwestFetcher` (never curl, §11): **97 pages, 36 classified as guidance, 41 stored requirements, 15 bindings, 46 checklist rows** against `Revised Health Economics Paper FINAL (1).docx`. Every row carries the journal's own sentence.
+
+**Three defects the first real run exposed, all in the product rather than the corpus, all now pinned:**
+
+1. **`ChecklistItem.passed` is a bool and compliance has three states.** CONSORT 6a reads only the declined layer, so it could not be decided — and printed as a FLAG against a manuscript that had done nothing wrong. `unevaluable` is now a separate field, `skip_serializing_if` so the golden report stays byte-identical. The run is now **24 OK · 8 FLAG · 14 UNEVALUABLE**; before, those 14 were flags.
+2. **A standard bound to three designs was evaluated three times.** Nature Medicine binds CONSORT to clinical trial, randomised trial and trial protocol through six sentences. The item verdicts do not depend on the design, so the checklist carried **ten identical rows**. One evaluation per standard took the report from 76 rows to 46.
+3. **The design conditional was on the binding row only.** *"CONSORT item 1b: MET"* appeared unconditionally on a cross-sectional survey, because Gaply cannot know the manuscript's design — study design lives in the declined layer. Every item row now reads *"if your study is a clinical trial, a randomised trial, a trial protocol; checks 4 of CONSORT's 25 published items"*.
+
+**An unbound standard is now a FINDING about the journal, not a silent omission.** Measured: Nature Medicine names STARD with mandatory force — *"Studies reporting biomarkers in association with clinical outcomes must follow the STARD guidelines"* — and `bindings_from` produces nothing, because "biomarkers" is not a design phrase it knows. **The lexicon is NOT extended from that one sentence**; the product reports what it saw and invites correction: *"names STARD without stating which study designs it applies to… if the sentence below does name a design, we read it wrong and would like to know."* A standard never named at all, and that Gaply could have evaluated, reports as *"not required by this journal on the N page(s) we read"*. Both suppressed when the crawl read nothing, because an empty crawl asserting a fact about a journal is a claim about the instrument.
+
+**A correction to this document's own premise, made by the crawl.** It was expected that Nature Medicine bound four standards and not CONSORT. It binds **five — CONSORT, PRISMA, STROBE, ARRIVE, TRIPOD** — and CONSORT is the most heavily bound of them, with six separate sentences including *"Randomized trials must conform to CONSORT 2025 guidelines."* The gap was STARD, not CONSORT.
+
+**That one rejection is the measured cost of a defect in the extraction model, and it is the finding of this phase.** `Location.paragraph` is an index WITHIN a section and `paragraph_at` resolves a repeated `SectionKind` to the FIRST section of that kind. `R PAPER .docx` has two `Methods` sections (66 and 126 paragraphs); `chapter3 .docx` has **four** (84, 366, 8, 169). Across the six manuscripts, of 301 scientific-layer spans: **41 (14%) fail to resolve, and 159 (53%) name an ambiguous kind** — the other 118 resolve SILENTLY to a paragraph in the wrong section. `paragraph_at`'s own doc comment calls this deliberate, and the argument it gives is sound for `validate.rs`, where producer and consumer resolve identically. It does not hold for the scientific layer, whose passes build `paragraph` per-section and whose consumer resolves against the first. **The gate refusing an anchorless finding is correct behaviour; the reason it had to is not.** Fixing it is a change to `Location`, which is why it is recorded here rather than done inside this phase.
 
 **Phase 4b — reviewer lenses, novelty, significance, claim strength (2 weeks).** The six lenses over the Phase 4 specialists, each producing a reviewer report in the real shape. The novelty pipeline claim-by-claim. Significance as its own Tier 3 output. Claim–evidence strength with the causal-overclaim check. Deliverable: six independent reports on a golden manuscript, and one novelty claim correctly narrowed against a real prior work.
 

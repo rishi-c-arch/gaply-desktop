@@ -38,11 +38,39 @@
 //! paper have" deserves "we do not extract figures" rather than a missing field
 //! it might read as "none".
 //!
-//! **The scientific layer, usually.** `ExtractOptions::scientific` is opt-in and
-//! **no production caller opts in**; `extract_from_text` passes
-//! `ExtractOptions::base()`. So [`ResearchState::science`] is `None` on every
-//! real run today. That is typed absence, not emptiness: `None` means the
-//! extractor was never asked, NOT that the paper has no claims.
+//! **The scientific layer — no longer usually absent, as of Phase 4.**
+//! `ExtractOptions::scientific` is a dependency of `frequentist_stats` and
+//! `ml_methodology` in `data/agent_graph.json`, so `run_pipeline_inner` derives
+//! it and [`ResearchState::science`] is `Some` on a real run. `None` remains
+//! typed absence — the extractor was never asked, NOT "the paper has no claims"
+//! — for the callers that construct a state without it.
+//!
+//! # AND THAT SWITCH-ON MAKES THE "NO PROSE" CLAIM ABOVE CONDITIONAL
+//!
+//! **§3.1 gives the research state an egress class of "none — structured,
+//! gate-safe, carries no prose". With the scientific layer derived, that is no
+//! longer true of every state**, and this is a correction to the architecture
+//! rather than a note about the code. [`crate::scientific_model::ScientificClaim`]
+//! carries `statement`, which is a manuscript sentence or a span of one:
+//!
+//! ```text
+//! manuscript: "Treated larvae showed values appreciably higher than the
+//!              untreated control across both seasons."
+//! claim.statement: "higher than the untreated control across both seasons."
+//! ```
+//!
+//! That is a verbatim substring of the manuscript inside a layer §3.1 says may
+//! travel without `Manuscript` consent. The prose-free guarantee survives for
+//! everything this module composes itself — [`SectionSummary`] still carries a
+//! paragraph COUNT and never a paragraph — and it does not survive the composed
+//! scientific layer.
+//!
+//! [`ResearchState::carries_manuscript_prose`] is therefore the egress question,
+//! answered per state rather than per layer, and
+//! `the_research_state_carries_prose_only_through_the_scientific_layer` is where
+//! it is pinned. **The test that was supposed to catch this passed while the
+//! layer was off and its fixture produced zero claims** — green for the old
+//! reason, not the new one, which is why it now asserts its own precondition.
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -255,6 +283,27 @@ impl ResearchState {
 
     /// Recompute and compare — the check that a state has not been mutated
     /// since it was derived.
+    /// **Does this state carry manuscript prose, and so need `Manuscript`
+    /// consent to leave?**
+    ///
+    /// §3.1's egress classes are per-LAYER and this one is per-STATE, because
+    /// the answer depends on whether the scientific layer was derived. A state
+    /// without it is gate-safe as §3.1 describes; a state with it carries claim
+    /// statements, which are manuscript sentences.
+    ///
+    /// Callers on the boundary must ask this rather than assume the layer's
+    /// class — `Layer::ResearchState::needs_consent_to_leave()` is `false` and
+    /// is a statement about the layer's OWN fields, not about what it composes.
+    pub fn carries_manuscript_prose(&self) -> bool {
+        self.science.as_ref().is_some_and(|s| {
+            !s.claims.is_empty()
+                || !s.contributions.is_empty()
+                || !s.limitations.is_empty()
+                || !s.questions.is_empty()
+                || !s.hypotheses.is_empty()
+        })
+    }
+
     pub fn hash_matches(&self) -> bool {
         self.compute_hash() == self.content_hash
     }
@@ -501,5 +550,57 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
                 "an edge names a claim that is not in the layer: {id}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod egress_tests {
+    //! **The prose predicate, exercised directly.**
+    //!
+    //! `pipeline.rs`'s `the_research_state_carries_no_manuscript_prose` runs
+    //! against a pipeline that does not derive the scientific layer (§11 D165),
+    //! so it cannot reach the route prose actually takes into this type. This
+    //! does, by constructing the layer explicitly. **It is the armed half of
+    //! that guard**: if the layer is ever reopened, this already fails if a
+    //! claim statement stops being manuscript text, and the assertion that
+    //! matters does not wait on the reopening.
+
+    use super::*;
+    use crate::extract;
+
+    const TEXT: &str = "Introduction\n\nBackground.\n\nResults\n\nTreated larvae showed values \
+                        appreciably higher than the untreated control across both seasons.\n";
+
+    #[test]
+    fn a_state_without_the_layer_is_gate_safe() {
+        let ex = extract::extract_from_text(TEXT);
+        let s = ResearchState::from_extraction(&ex);
+        assert!(s.science.is_none(), "extract_from_text uses ExtractOptions::base()");
+        assert!(!s.carries_manuscript_prose());
+    }
+
+    /// **The route, demonstrated.** A claim statement is a verbatim substring of
+    /// the manuscript, so a state carrying claims is NOT the "structured,
+    /// gate-safe, carries no prose" layer §3.1 describes.
+    #[test]
+    fn carries_manuscript_prose_when_the_layer_is_present() {
+        let ex = extract::extract_from_text_with(TEXT, extract::ExtractOptions::with_scientific());
+        let sci = ex.scientific.as_ref().expect("the layer was asked for");
+        assert!(!sci.claims.is_empty(), "the fixture must produce a claim, or this proves nothing");
+
+        let statement = sci.claims[0].statement.trim();
+        assert!(
+            TEXT.contains(statement),
+            "`{statement}` must be verbatim manuscript text — that is WHY the state stops \
+             being gate-safe, and if it changes this test should be rewritten, not deleted"
+        );
+
+        let s = ResearchState::from_extraction(&ex);
+        assert!(
+            s.carries_manuscript_prose(),
+            "a state with claims must declare that it carries prose"
+        );
+        let json = serde_json::to_string(&s).expect("serialises");
+        assert!(json.contains(statement), "and the sentence really is in the serialised payload");
     }
 }
