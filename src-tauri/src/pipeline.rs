@@ -1164,7 +1164,7 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
     /// **[REGENERATED A SECOND TIME, 15 Sep 2026 — §11 D167.]**
     /// `report::table_findings` was WITHDRAWN: its count came from
     /// `extract::detect_table`, which fires on any paragraph opening `Table N`,
-    /// so a contents page inflated it (237 of 414 detections over 20 real
+    /// so a contents page inflated it (178 of 414 detections over 20 real
     /// manuscripts) and the caption tally was corrupted the same way. A
     /// deliberate removal, not drift.
     ///

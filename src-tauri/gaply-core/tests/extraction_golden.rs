@@ -15,6 +15,19 @@
 //! what an additive field must look like, and a walk of both trees is the only
 //! thing that can say so about a 6 KB JSON document — a visual scan of 31
 //! scattered insertions cannot.
+//!
+//! # [REGENERATED AGAIN, same day — §11 D169, the guard's eight]
+//!
+//! `tests/location_is_unambiguous.rs` was written straight after D169 and
+//! **failed on its first run**, naming eight production sites still building
+//! ambiguous locations — the D169 commit had fixed the EXTRACTION producers and
+//! its message said "every producer", which was not the same claim.
+//! `extract::claims.rs` was one of them, and the scientific layer's claims carry
+//! `source_span: Point(loc)`, so fixing it moved this fixture again.
+//!
+//! **Diff, structural as before: 2 differences, both an added `section_index`
+//! on a claim's `source_span.Point`** — the two claims this manuscript
+//! produces. No value, length or type changed.
 
 use gaply_core::extract::{extract_from_text_with, ExtractOptions};
 

@@ -11232,11 +11232,19 @@ exist at all), `table_body_rows.rs` (print the flattened body verbatim),
 | | count |
 |---|---:|
 | tables `extract::detect_table` reports | **414** |
-| list-of-tables front matter, no body | **237** (57%) |
-| real tables with a cell run | **177** |
-| grid recovered | **49** (28%) |
-| **with an explicit totals row** | **2** |
-| with a column summing to ~100 | 2 — the same two |
+| list-of-tables front matter, no body | **178** (43%) |
+| real tables with a cell run | **236** |
+| grid recovered | **69** (29%) |
+| **with an explicit totals row** | **3 detections, 2 DISTINCT** |
+| with a column summing to ~100 | 4 |
+
+> **[CORRECTED — §11 D168-C.]** The figures first recorded here were 237 / 177 /
+> 49 / 2 / 2, measured through probes that resolved a `Location` with
+> `find(kind)` — the D169 defect. Re-derived on the correct resolver. **The
+> decline is unchanged**: still two DISTINCT tables with a totals row (the third
+> detection is one thesis appearing twice in the corpus), still eleven numeric
+> columns, still four that a naive sum would fire on, still three of those four
+> untunable. The extra ~100 column is another rounding case with no totals row.
 
 **`TableRef` carrying no cells is not the binding constraint.** `docparse`
 flattens a .docx table to **one cell per paragraph**, row-major, with no row
@@ -11337,11 +11345,13 @@ would matter if RT4 had never existed, and burying them inside a declined lane
 is how a real bug becomes invisible.
 
 1. **`detect_table` matches a contents page.** It fires on any paragraph opening
-   `Table N`, so a thesis list-of-tables is a run of matches: **237 of 414
-   detections, 57%**, are front-matter entries with no body — `"Table 2:Evolution
+   `Table N`, so a thesis list-of-tables is a run of matches: **178 of 414
+   detections, 43%** (corrected — §11 D168-C), are front-matter entries with no
+   body — `"Table 2:Evolution
    of Small-Scale Industry Definition in India 47"`, where 47 is a page number.
    Anything reading `ExtractionResult::tables` as a table COUNT is reading a
-   number that is 2.3x too large. `report::table_findings` does exactly that
+   number that is 1.75x too large (corrected — §11 D168-C).
+   `report::table_findings` does exactly that
    (*"{total} table(s) detected, {captioned} with captions"*).
 2. **Prefix captioning swallows a prose paragraph.** The caption is taken as the
    remainder of any paragraph starting `Table N`, so *"Table 2 presents mediation
@@ -11387,7 +11397,8 @@ measurement, and it is what reopens the finding.
 ### D168 — `detect_table`'s body-follows fix is REVERTED, and the prediction is what found the defect
 
 **Date:** 15 Sep 2026. Follows **D167**, which recorded `detect_table`'s
-over-detection (237 of 414 detections were contents-page rows) and withdrew the
+over-detection (178 of 414 detections were contents-page rows — corrected in
+§11 D168-C from the 237 first recorded) and withdrew the
 finding that showed the inflated count to users. This is the attempt to fix the
 extractor itself, and the measurement that stopped it shipping.
 
@@ -11665,3 +11676,69 @@ corpus of probes reading through the defective resolver, which is why its
 prediction (177) missed. Re-running that experiment is a separate change, and it
 should start by re-deriving the 414/237/177 split now that a location resolves
 to the section it came from.
+
+---
+
+### D168-C — D168's split RE-DERIVED on the correct resolver: 237/177 was 178/236, and the extractor's answer was right all along
+
+**Date:** 15 Sep 2026. **A correction to D168 and D167**, not a new decision.
+Both recorded a table census taken through probes that resolved a `Location`
+with `find(kind)` — the defect D169 then fixed. **A measurement taken through a
+broken instrument and left standing in this log is the same shape as the figures
+D166 had to correct**, so the probes were re-pointed at
+`Location::section_index` and the census re-run over the same 20 manuscripts.
+
+#### The corrected census
+
+| | as recorded (D167 / D168) | **corrected** |
+|---|---:|---:|
+| tables `detect_table` reports | 414 | 414 |
+| list-of-tables / no body | 237 (57%) | **178 (43%)** |
+| real tables with a cell run | 177 | **236** |
+| grid recovered | 49 | **69** |
+| with an explicit totals row | 2 | **3 detections, 2 DISTINCT** |
+| column summing to ~100 | 2 | **4** |
+
+**The third totals row is not a third table.** It is Jitesh's Table 20 again:
+the corpus holds the same thesis twice, as `Corrected_Chapters_3_4_Jitesh_
+Agarwal.docx` and as the full `Jitesh Agarwal .docx`. Reporting "3" without that
+sentence would inflate RT4's evidence base by 50% on a duplicate — the D160
+boundary error in miniature, where the unit counted is not the unit meant.
+
+#### What this does to D168's conclusion: it CONFIRMS and sharpens it
+
+D168 predicted 177, measured 236 from the body-follows extractor, and concluded
+the gap was the instrument. **The corrected probe now independently yields 236 —
+the extractor's number, exactly.** So the `detect_table` rule was RIGHT about
+`.docx` all along, and the 59-table "gap" was entirely the probe reading the
+wrong sections. Two instruments that disagreed now agree, and the one that was
+wrong was the one used to grade the other.
+
+This does **not** reopen D168's revert. The rule still zeroes every PDF (53 → 0),
+every `.docx` whose parse lost the table, and every table under six cells —
+`BAD_TOTALS`'s five-row table included. **The reason for the revert was never the
+count; it was format coverage**, and that is unchanged.
+
+#### What this does to D167's decline: nothing
+
+D167 declined the table-total check on two distinct tables with a totals row.
+**Still two distinct tables.** The extra pct column (Disha Table 3,
+`"Percentage"`, five rows summing to 100.10) is another rounding case with no
+totals row, which adds a fourth instance of the failure mode D167 already
+records as the only tunable one. The eleven numeric columns, the four that a
+naive sum would fire on, and the three untunable causes — a rate column, a
+subtotal excluded from one column and counted in the total, and
+`"600 (+30 pilot)"` — are unchanged.
+
+**The decline stands, and its reopening condition is unchanged:** a corpus large
+enough for a rate is still the binding requirement, and 20 manuscripts producing
+two distinct checkable tables is still the measurement that says so.
+
+#### The prose figures corrected at their sites
+
+`237 of 414 (57%)` appeared in four places beyond this log — `detect_table`'s
+header, `report::table_findings`' comment, §12's v8 block, and D167 itself. All
+now read **178 of 414 (43%)**, and the derived claim *"a table count roughly 2.3x
+too large"* becomes **1.75x**. `report::table_findings` stays WITHDRAWN: 1.75x is
+not a number to show a researcher either, and the caption tally is corrupted by
+the same defect regardless of the multiplier.

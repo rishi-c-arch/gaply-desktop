@@ -300,12 +300,12 @@ fn is_a_declaration(sentence_lower: &str) -> bool {
 pub fn extract_claims(result: &ExtractionResult) -> Vec<NoveltyClaim> {
     let mut out: Vec<NoveltyClaim> = Vec::new();
 
-    for section in &result.sections {
+    for (sec_idx, section) in result.sections.iter().enumerate() {
         if section.kind == SectionKind::References {
             continue;
         }
         for (p_idx, paragraph) in section.paragraphs.iter().enumerate() {
-            let loc = Location { section: section.kind, paragraph: p_idx, section_index: None };
+            let loc = Location::in_section(section.kind, sec_idx, p_idx);
             for sentence in crate::extract::sentence::sentences_in(paragraph) {
                 let lower = sentence.to_lowercase();
                 let Some(cue) = NOVELTY_CUES.iter().find(|c| lower.contains(**c)) else {

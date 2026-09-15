@@ -289,21 +289,21 @@ pub fn is_machine_learning_paper(lowercased_body: &str) -> bool {
     ML_TERMS.iter().filter(|t| lowercased_body.contains(**t)).count() >= 2
 }
 
-fn lowercased(sentences: &[(SectionKind, usize, String)]) -> String {
-    sentences.iter().map(|(_, _, t)| t.to_lowercase()).collect::<Vec<_>>().join("\n")
+fn lowercased(sentences: &[(Location, String)]) -> String {
+    sentences.iter().map(|(_, t)| t.to_lowercase()).collect::<Vec<_>>().join("\n")
 }
 
 /// Body sentences with their locations. References are excluded: a reference
 /// list names every method in the field.
-fn body_sentences(input: &SpecialistInput<'_>) -> Vec<(SectionKind, usize, String)> {
+fn body_sentences(input: &SpecialistInput<'_>) -> Vec<(Location, String)> {
     let mut out = Vec::new();
-    for sec in &input.extraction.sections {
+    for (sec_idx, sec) in input.extraction.sections.iter().enumerate() {
         if sec.kind == SectionKind::References {
             continue;
         }
         for (p_idx, para) in sec.paragraphs.iter().enumerate() {
             for s in sentence::sentences_in(para) {
-                out.push((sec.kind, p_idx, s.trim().to_string()));
+                out.push((Location::in_section(sec.kind, sec_idx, p_idx), s.trim().to_string()));
             }
         }
     }
@@ -312,17 +312,13 @@ fn body_sentences(input: &SpecialistInput<'_>) -> Vec<(SectionKind, usize, Strin
 
 /// The first sentence containing any of `terms`, with the term that matched.
 fn first_match(
-    sentences: &[(SectionKind, usize, String)],
+    sentences: &[(Location, String)],
     terms: &[&str],
 ) -> Option<(String, Location, String)> {
-    for (kind, p_idx, text) in sentences {
+    for (loc, text) in sentences {
         let lower = text.to_lowercase();
         if let Some(t) = terms.iter().find(|t| lower.contains(**t)) {
-            return Some((
-                (*t).to_string(),
-                Location { section: *kind, paragraph: *p_idx, section_index: None },
-                text.clone(),
-            ));
+            return Some(((*t).to_string(), loc.clone(), text.clone()));
         }
     }
     None

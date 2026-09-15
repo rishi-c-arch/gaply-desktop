@@ -15,7 +15,10 @@ fn main() {
         }
         println!("\n######## {name}  ({} detected) ########", ex.tables.len());
         for tb in ex.tables.iter().take(show) {
-            let Some(sec) = ex.sections.iter().find(|s| s.kind == tb.location.section) else {
+            // §11 D169: resolve by the PRODUCER'S index. `find(kind)` returned
+            // the first section of the kind, which is what made D168's 414 /
+            // 237 / 177 split a measurement through a broken instrument.
+            let Some(sec) = tb.location.section_index.and_then(|i| ex.sections.get(i)) else {
                 continue;
             };
             println!("\n  LABEL   {}", tb.label);

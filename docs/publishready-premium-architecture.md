@@ -1608,12 +1608,16 @@ with known totals"* as the requirement. That corpus now exists, over the same 20
 manuscripts as D165 and D166, and the finding is not the one the gap
 anticipated.
 
-**The input census.** 414 tables reported by `detect_table`; **237 (57%) are
-list-of-tables front matter with no body**; 177 real cell runs; 49 grids
-recovered; **2 with an explicit totals row.** `TableRef` carrying no cells is
+**The input census** *(corrected in §11 D168-C — the figures first recorded
+here were measured through probes carrying the D169 resolver defect)*. 414
+tables reported by `detect_table`; **178 (43%) are
+list-of-tables front matter with no body**; 236 real cell runs; 69 grids
+recovered; **3 detections of 2 DISTINCT tables with an explicit totals row** —
+the corpus holds one thesis twice, so the third is a duplicate and not new
+evidence. `TableRef` carrying no cells is
 not the binding constraint — `docparse` flattens a .docx table to ONE CELL PER
 PARAGRAPH with no row delimiter, so the column count must be inferred.
-**The 28% grid recovery is the probe's heuristic yield, not a property of
+**The 29% grid recovery is the probe's heuristic yield, not a property of
 manuscripts**: an extractor reading the .docx table XML would recover far more,
 and nothing here licenses "72% of real tables are unparseable".
 

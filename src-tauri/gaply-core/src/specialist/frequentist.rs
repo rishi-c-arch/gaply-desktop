@@ -301,7 +301,7 @@ fn first_parametric_test(
 /// quoting 400 words around it makes the reader hunt for the eight that matter.
 fn marginal_phrases(input: &SpecialistInput<'_>) -> Vec<(String, Location, String)> {
     let mut out = Vec::new();
-    for sec in &input.extraction.sections {
+    for (sec_idx, sec) in input.extraction.sections.iter().enumerate() {
         if sec.kind == crate::extract::SectionKind::References {
             continue;
         }
@@ -311,7 +311,7 @@ fn marginal_phrases(input: &SpecialistInput<'_>) -> Vec<(String, Location, Strin
                 if let Some(phrase) = MARGINAL_PHRASES.iter().find(|p| lower.contains(**p)) {
                     out.push((
                         (*phrase).to_string(),
-                        Location { section: sec.kind, paragraph: p_idx, section_index: None },
+                        Location::in_section(sec.kind, sec_idx, p_idx),
                         sent.trim().to_string(),
                     ));
                 }

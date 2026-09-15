@@ -315,7 +315,7 @@ pub fn read_design(r: &ExtractionResult) -> DesignReading {
         limiting_span: None,
         limiting_location: None,
     };
-    for section in &r.sections {
+    for (sec_idx, section) in r.sections.iter().enumerate() {
         if section.kind == SectionKind::References {
             continue;
         }
@@ -333,7 +333,7 @@ pub fn read_design(r: &ExtractionResult) -> DesignReading {
                 if reading.limiting_span.is_none() {
                     // The SENTENCE, not the paragraph: the paragraph is what the
                     // matcher saw, the sentence is what a reader checks.
-                    let loc = Location { section: section.kind, paragraph: p_idx, section_index: None };
+                    let loc = Location::in_section(section.kind, sec_idx, p_idx);
                     if let Some(s) = sentence::sentences_in(para)
                         .into_iter()
                         .find(|s| s.to_lowercase().contains(*m))
@@ -359,9 +359,11 @@ pub fn assess_claims(r: &ExtractionResult) -> Vec<ClaimAssessment> {
     let design = read_design(r);
     let mut out = Vec::new();
 
-    for section in r.sections.iter().filter(|s| is_concluding(s.kind)) {
+    for (sec_idx, section) in
+        r.sections.iter().enumerate().filter(|(_, s)| is_concluding(s.kind))
+    {
         for (p_idx, para) in section.paragraphs.iter().enumerate() {
-            let loc = Location { section: section.kind, paragraph: p_idx, section_index: None };
+            let loc = Location::in_section(section.kind, sec_idx, p_idx);
             let stats_here =
                 r.statistics.iter().filter(|s| s.location == loc).count();
             for sent in sentence::sentences_in(para) {

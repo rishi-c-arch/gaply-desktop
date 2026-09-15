@@ -1226,7 +1226,7 @@ fn stylometry_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
 /// structural count over `ExtractionResult.tables`. **The count is wrong, and
 /// wrong in a way a user cannot see.** `extract::detect_table` fires on any
 /// paragraph opening `Table N`, so a thesis list-of-tables is a run of matches:
-/// measured over 20 real manuscripts, **237 of 414 detections (57%) were
+/// measured over 20 real manuscripts, **178 of 414 detections (43%) were
 /// front-matter rows with no body**. A researcher whose paper has six tables
 /// was being told it has fourteen.
 ///
@@ -2520,13 +2520,16 @@ fn section_check(
     kind: SectionKind,
     words: &[&str],
 ) -> Decided {
-    if let Some(sec) =
-        extraction.sections.iter().find(|s| s.kind == kind && !s.paragraphs.is_empty())
+    if let Some((sec_idx, sec)) = extraction
+        .sections
+        .iter()
+        .enumerate()
+        .find(|(_, s)| s.kind == kind && !s.paragraphs.is_empty())
     {
         return (
             ItemStatus::Met,
             sec.paragraphs.first().cloned(),
-            Some(Location { section: kind, paragraph: 0, section_index: None }),
+            Some(Location::in_section(kind, sec_idx, 0)),
             format!("a {kind:?} section is present with content"),
         );
     }

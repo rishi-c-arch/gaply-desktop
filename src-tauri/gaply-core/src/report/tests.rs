@@ -552,7 +552,8 @@ fn extraction_none_adds_no_findings() {
 /// It used to assert the count and the caption tally. Both were wrong in the
 /// same way and neither was visibly wrong: `extract::detect_table` fires on any
 /// paragraph opening `Table N`, so a thesis contents page is a run of matches
-/// (237 of 414 detections over 20 real manuscripts), and each such row carries
+/// (178 of 414 detections over 20 real manuscripts — §11 D168-C corrects the
+/// 237 first recorded), and each such row carries
 /// the rest of its line as a "caption" — so `complete` could read TRUE on a
 /// document whose real tables have none.
 ///

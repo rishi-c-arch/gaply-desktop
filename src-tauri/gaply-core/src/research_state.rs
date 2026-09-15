@@ -369,7 +369,20 @@ fn build_graph(s: &ResearchState) -> EvidenceGraph {
                 // with every statistic in all three, which is a broader claim
                 // than "these appear together".
                 crate::scientific_model::SourceSpan::Range(r) => {
-                    Location { section: r.section, paragraph: r.start_paragraph, section_index: None }
+                    // AMBIGUOUS BY NECESSITY, and unreachable today — §11 D169.
+                    // `scientific_model::Span` carries `{ section, start_paragraph,
+                    // end_paragraph }` and no section index, so a `Location`
+                    // derived from it cannot have one. **Nothing in the crate
+                    // constructs `SourceSpan::Range`** — every producer emits
+                    // `Point(loc)`, which carries a full `Location` — so this arm
+                    // is defensive rather than live, and that is why `Span` was
+                    // not widened alongside `Location`.
+                    //
+                    // The day something does produce a `Range`, `Span` needs the
+                    // index FIRST; the allowlist entry in
+                    // `tests/location_is_unambiguous.rs` names this line so that
+                    // decision is forced rather than inherited.
+                    Location::by_kind(r.section, r.start_paragraph)
                 }
             };
             for (si, st) in s.statistics.iter().enumerate() {

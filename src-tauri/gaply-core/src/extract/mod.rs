@@ -201,7 +201,7 @@ pub fn locate_line(result: &ExtractionResult, line: &str) -> Option<Location> {
         return None;
     }
     let mut found: Option<Location> = None;
-    for section in &result.sections {
+    for (sec_idx, section) in result.sections.iter().enumerate() {
         for (i, para) in section.paragraphs.iter().enumerate() {
             if para.contains(needle) {
                 if found.is_some() {
@@ -210,7 +210,7 @@ pub fn locate_line(result: &ExtractionResult, line: &str) -> Option<Location> {
                     // of inherited.
                     return None;
                 }
-                found = Some(Location { section: section.kind, paragraph: i, section_index: None });
+                found = Some(Location::in_section(section.kind, sec_idx, i));
             }
         }
     }
@@ -443,11 +443,13 @@ pub fn extract_from_text_with(text: &str, opts: ExtractOptions) -> ExtractionRes
 ///
 /// 1. **A contents page is a run of matches.** Any paragraph opening `Table N`
 ///    qualifies, so a thesis list-of-tables produces one `TableRef` per entry:
-///    **237 of 414 detections (57%)** across the corpus were front-matter rows
+///    **178 of 414 detections (43%)** across the corpus were front-matter rows
 ///    such as `"Table 2:Evolution of Small-Scale Industry Definition in India
 ///    47"`, where `47` is a page number and no body follows. Anything reading
 ///    `ExtractionResult::tables` as a TABLE COUNT is reading a number roughly
-///    2.3x too large — `report::table_findings` does exactly that.
+///    1.75x too large — `report::table_findings` did exactly that until it was
+///    withdrawn. (Both figures corrected in §11 D168-C: the originals, 237 and
+///    2.3x, were measured through probes carrying the D169 resolver defect.)
 /// 2. **Prefix captioning swallows prose.** The caption is the remainder of the
 ///    matching paragraph, so *"Table 2 presents mediation pathway coefficients.
 ///    In Path A, each one-level increase…"* — 500 characters of Results prose —
