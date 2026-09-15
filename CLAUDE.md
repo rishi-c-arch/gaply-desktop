@@ -990,6 +990,44 @@ time injection.
   applies to any wait: count what you are waiting FOR, not what you are waiting
   to stop seeing.
 
+  **POSITIVE-COUNT WAS RIGHT AND INCOMPLETE. Verify the SELECTOR returns
+  something before you wait on it.** 15 Sep 2026, waiting on CI for `766e57a`
+  with the corrected form above:
+
+  ```bash
+  gh run list --repo … --commit 766e57a     -> 0 runs      # the waiter's query
+  gh run list --repo … --commit 766e57ad…   -> 3 runs      # full 40-char SHA
+  ```
+
+  **`gh run list --commit` does EXACT matching, not prefix matching.** A short
+  SHA selects nothing, so the count was `0` — through all three workflows
+  starting, running and finishing `success`, and forever after. The loop was
+  unsatisfiable from the first iteration.
+
+  **The correction to the rule above, stated precisely because the rule is not
+  wrong.** Positive-count did what it was written to do: `0` is not `3`, so it
+  could not invert the way `grep -qv` did on empty input. **It failed SAFE
+  rather than GREEN**, which is a real improvement and the reason to keep it.
+  But a selector that can never match makes failing safe
+  **indistinguishable from a slow build** — and the build in question was a
+  full Tauri Windows job, so "still going" was entirely plausible. That is
+  where forty minutes went.
+
+  **The check is the batch entry's known-good case, applied to the QUERY rather
+  than the loop.** Before waiting, run the selector once against an input whose
+  answer already exists — the previous commit's SHA, which has three completed
+  runs. It returns `0` for a short SHA there too, and the waiter is wrong in one
+  second instead of indefinitely. Prefer a selector with no free parameter at
+  all (`--limit 8` and read the `headSha` column) when one is available.
+
+  **A count is a fraction with an unchecked numerator too.** The denominator
+  entry above says to check what `M` counts; this says the same of `N`. Both
+  halves of the CI wait were verified — three workflows expected, with
+  `latex-compile` correctly path-excluded and `package-release` dispatch-only —
+  and the query producing `N` was never asked whether it could return anything
+  at all. Verifying the denominator carefully is what made the numerator feel
+  settled.
+
   **And it reached a draft message before a live check caught it** — the same
   path the conversation-sourced figures took in §11 D166, which were tabulated
   and nearly recorded before being measured. Both were plausible, both matched
