@@ -48,6 +48,20 @@
 //! silently stops matching does not loosen a check, it tightens it into noise,
 //! and the reverse — an allowlist that silently matches too much — would have
 //! been invisible. Paths are compared on a normalised string now.
+//!
+//! **`windows-build-check` IS THE ONLY INSTRUMENT IN THIS SYSTEM THAT CAN
+//! VERIFY THIS FILE'S PATH HANDLING.** Everything else you would reach for runs
+//! on macOS: `cargo test --workspace`, `cargo test -p gaply_core --test
+//! location_is_unambiguous`, and `scripts/verify-clean-checkout.sh` — which
+//! builds a throwaway worktree and is the strongest local check there is. **All
+//! three were green on the broken version**, and the clean-checkout guard
+//! reported `is GOOD` on the exact commit Windows then rejected.
+//!
+//! So if you touch the path handling here — `rust_files`, the `rel` string, an
+//! `ALLOWED` entry's spelling — a green local run is not evidence. Push it and
+//! read `windows-build-check`, or reason about `\` by hand. This note exists
+//! because the obvious inference from a green local suite is the one that put
+//! this defect on `main`.
 
 use std::path::Path;
 

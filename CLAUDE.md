@@ -990,6 +990,49 @@ time injection.
   `1811 passed` are answers to different questions, and only one of them is the
   suite.
 
+  **A GREEN RUN ON THE WRONG PLATFORM IS THE SAME ERROR ONE DIMENSION OVER, and
+  these two belong together.** 15 Sep 2026, the `Location` ambiguity guard
+  (`gaply-core/tests/location_is_unambiguous.rs`). It scans source files and
+  exempts two lines by path. The scan builds paths from `read_dir`; **Windows
+  yields `src\extract\mod.rs`** while the allowlist is written with `/`, so
+  `ends_with` matched nothing, both exemptions evaporated, and the two
+  legitimately-exempt lines were reported as violations. `windows-build-check`
+  went red on a commit that was already pushed.
+
+  **Everything local was green, including the strongest local check there is.**
+  `cargo test --workspace`: 1812 passed. The single test, run directly: passed.
+  `scripts/verify-clean-checkout.sh`, which builds a throwaway worktree from the
+  committed tree: **`is GOOD`, 1361 tests**, on the exact commit Windows then
+  rejected. None of them was capable of seeing it — they all run on macOS, where
+  the separator is `/`.
+
+  **What makes this and the package-vs-workspace case ONE family, distinct from
+  every other entry here:** those are instruments reporting a WRONG answer — a
+  swallowed exit status, a pattern matching its own watcher, a negative grep
+  inverting on empty input. **These two report a CORRECT answer to a question
+  nobody meant to ask.** `-p gaply_core report::` was accurately green about a
+  package while the workspace was red. `cargo test` was accurately green about
+  macOS while the file it checked could not work on Windows. Nothing
+  malfunctioned and nothing lied; the scope of the question silently differed
+  from the scope of the claim — by PACKAGE in one case, by PLATFORM in the
+  other.
+
+  **The rule: before trusting a green run, ask what the run did not cover, and
+  name the instrument that would.** For scope the answer is `--workspace`. For
+  platform, in this repo, the answer is **`windows-build-check` and nothing
+  else** — no local command reaches it, so path handling, separators, line
+  endings and case-sensitivity are verified by pushing and reading that job, or
+  not at all. Write that instrument's name into the file it guards, as
+  `location_is_unambiguous.rs` now does, because the next person will otherwise
+  run the local suite, see green, and draw the same conclusion.
+
+  **And note the direction this failed in, because it was the lucky one.** An
+  allowlist that silently stops matching TIGHTENS the check into noise, which is
+  loud and immediate. The inverse — an allowlist that silently matches too much
+  — would have passed on every platform and quietly exempted whole files. A
+  guard's own failure modes are not symmetric, and the quiet one is the one to
+  design against.
+
   **A NEGATIVE GREP AS A LOOP CONDITION INVERTS ON EMPTY INPUT — the fourth
   instance, and a mechanism the other three do not have.** 15 Sep 2026, waiting
   on three CI workflows for one SHA:
