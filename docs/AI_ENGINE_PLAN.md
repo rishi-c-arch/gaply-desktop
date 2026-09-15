@@ -11349,5 +11349,35 @@ is how a real bug becomes invisible.
    of Results prose — became Table 2's caption in the Revised Health Economics
    paper. A caption field that can hold a whole paragraph is not a caption.
 
-Both are visible in `examples/table_grid_scan.rs`'s census output and neither is
-fixed here; fixing them is extractor work with its own before/after measurement.
+Both are visible in `examples/table_grid_scan.rs`'s census output. **Neither is
+FIXED here — but the second one's consequence is no longer shown.**
+
+`report::table_findings` is **WITHDRAWN**. It displayed *"{total} table(s)
+detected, {captioned} with captions"*, and a researcher whose paper has six
+tables was being told it has fourteen. The caption half was the more misleading
+of the two: a contents-page row carries the rest of its line as a "caption", so
+those entries count as captioned and `complete` can read TRUE on a document
+whose real tables have none — which decides the finding's severity.
+
+**Withdrawn rather than annotated, and that is the point.** A source comment
+saying the number is untrustworthy does not reach the person reading the report.
+A wrong number displayed with confidence is worse than one absent: it is D163's
+shape — plausible and displayed — and its presence is what stops anyone looking.
+Honest silence beats a confident count.
+
+The function body is kept, unreachable behind an early return, so restoring it
+is deleting three lines rather than rewriting the finding from a doc comment.
+`the_table_finding_is_withdrawn_and_the_extraction_is_not` pins both halves: no
+count reaches the report, AND `ExtractionResult::tables` is untouched — the
+withdrawal is at the report layer, and the lens layer and RT4's own precondition
+still read the extraction.
+
+**The old test is worth recording as its own instance of the hand-written-fixture
+family.** It asserted the count and the caption tally on
+`"Results\nTable 1 Outcomes by arm\n\nTable 2\n"` — two real tables, in a Results
+section, with no front matter. It agreed with the function because both were
+built from the same idea of what a document looks like, and it passed for as
+long as it existed. The corpus disagreed on the first run.
+
+Fixing the two extractor defects is separate work with its own before/after
+measurement, and it is what reopens the finding.

@@ -547,42 +547,57 @@ fn extraction_none_adds_no_findings() {
     }
 }
 
-/// Tables: a structural COUNT under Extraction — NoSignal/HeldOut by
-/// construction, 0.0 confidence (never a number implying precision), Minor only
-/// when a caption is missing, and NOTHING at all when there are no tables.
+/// **The table finding is WITHDRAWN, and this pins the withdrawal — §11 D167.**
+///
+/// It used to assert the count and the caption tally. Both were wrong in the
+/// same way and neither was visibly wrong: `extract::detect_table` fires on any
+/// paragraph opening `Table N`, so a thesis contents page is a run of matches
+/// (237 of 414 detections over 20 real manuscripts), and each such row carries
+/// the rest of its line as a "caption" — so `complete` could read TRUE on a
+/// document whose real tables have none.
+///
+/// **The fixture below is why the old test never caught it.** Its two tables
+/// ARE both real, in a Results section, with no front matter — a hand-written
+/// input carrying its author's premise, which is the CLAUDE.md entry's exact
+/// shape. It agreed with the function because it was built from the same idea
+/// of what a document looks like. The corpus disagreed.
+///
+/// So this asserts the two things that must stay true while the finding is
+/// gone, and names what restores it:
+///
+/// 1. **Nothing reaches the report**, on a document where the old finding
+///    definitely fired — not on an empty one, which would pass vacuously.
+/// 2. **The extractor still populates `tables`.** The withdrawal is at the
+///    REPORT layer; `ExtractionResult::tables` is unchanged and other readers
+///    (the lens layer, RT4's precondition) still see it. A withdrawal that
+///    silently emptied the extraction would be a different and larger change.
 #[test]
-fn table_findings_count_captions_and_stay_structural() {
-    use crate::evidence::{ConfidenceKind, RoutingHint};
+fn the_table_finding_is_withdrawn_and_the_extraction_is_not() {
     let outcome = minimal_outcome();
 
-    // Two tables, one captioned -> Minor.
+    // The fixture the OLD test used, and on which it asserted a Minor finding.
     let ex = crate::extract::extract_from_text(
         "T\n\nAbstract\nA.\n\nResults\nTable 1 Outcomes by arm\n\nTable 2\n",
     );
-    let validation = crate::validate::validate(&ex);
-    let report = compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[], &[]);
-    let tables = by_signal(&report, "tables");
-    assert_eq!(tables.len(), 1, "exactly one aggregate table finding");
-    let f = tables[0];
-    assert_eq!(f.agent, AgentKind::Extraction);
-    assert_eq!(f.severity, FindingSeverity::Minor, "a missing caption is Minor");
-    assert_eq!(f.confidence, 0.0, "a count is not a probability");
-    assert!(f.title.contains("2 table(s)"), "title reports the count: {}", f.title);
-    assert!(
-        f.provenance.iter().any(|p| p.starts_with("evidence:tables=2;captioned=")),
-        "structured count in provenance: {:?}",
-        f.provenance
-    );
-    // The EvidenceRecord's kind/hint are DERIVED from the agent, not hand-set.
-    let i = report.findings.iter().position(|x| std::ptr::eq(x, f)).unwrap();
-    assert_eq!(report.evidence[i].confidence_kind, ConfidenceKind::NoSignal);
-    assert_eq!(report.evidence[i].routing_hint, RoutingHint::HeldOut);
+    // (2) precondition AND the containment: extraction is untouched.
+    assert_eq!(ex.tables.len(), 2, "the extractor still finds both tables");
 
-    // No tables -> no finding (a non-event is not a finding).
-    let ex2 = crate::extract::extract_from_text("T\n\nAbstract\nA.\n\nResults\nNo tables here.\n");
-    let v2 = crate::validate::validate(&ex2);
-    let r2 = compile_report(&outcome, &v2, None, None, Some(&ex2), TEST_YEAR, vec![], &[], &[]);
-    assert!(by_signal(&r2, "tables").is_empty(), "zero tables must produce zero findings");
+    let validation = crate::validate::validate(&ex);
+    let report =
+        compile_report(&outcome, &validation, None, None, Some(&ex), TEST_YEAR, vec![], &[], &[]);
+
+    // (1) and nothing about them reaches the user.
+    assert!(
+        by_signal(&report, "tables").is_empty(),
+        "the table finding is withdrawn — if a table finding is being shown again, \
+         D167 must be reopened with the extractor fix and its measurement: {:?}",
+        report.findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+    );
+    assert!(
+        !report.findings.iter().any(|f| f.title.contains("table(s) detected")),
+        "no table COUNT may be shown under any signal: {:?}",
+        report.findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+    );
 }
 
 /// Reference recency: deterministic arithmetic over locally-parsed
@@ -1086,7 +1101,17 @@ fn extraction_derived_findings_yield_to_more_urgent_findings_at_the_reviewer_cap
         compile_report(&outcome, &validation, None, Some(&crowded), Some(&ex), TEST_YEAR, vec![], &[], &[]);
 
     // The finding EXISTS locally — this test is about the payload, not the report.
-    assert_eq!(by_signal(&report_a, "tables").len(), 1, "the table finding is in the local report");
+    //
+    // This used the TABLE finding as its Info/Minor exemplar. That finding was
+    // withdrawn (§11 D167 — its count was inflated by contents-page rows), so
+    // the exemplar is now `citation_density`, which this fixture still
+    // produces as Minor. The property under test is unchanged: an Info/Minor
+    // extraction-derived family must yield at the cap and arrive under it.
+    assert_eq!(
+        by_signal(&report_a, "citation_density").len(),
+        1,
+        "the citation-density finding is in the local report"
+    );
     assert!(
         report_a.findings.len() > REVIEWER_MAX_FINDINGS,
         "fixture must exceed the cap to test it, got {}",
@@ -1108,7 +1133,7 @@ fn extraction_derived_findings_yield_to_more_urgent_findings_at_the_reviewer_cap
             "the top-12 must be the urgent band, got {f:?}"
         );
     }
-    for family in ["tables", "citation_recency", "citation_density"] {
+    for family in ["citation_recency", "citation_density"] {
         assert!(
             !payload_has_signal(&payload_a, family),
             "{family} is Info/Minor and must NOT displace a Major finding at the cap"
@@ -1134,8 +1159,8 @@ fn extraction_derived_findings_yield_to_more_urgent_findings_at_the_reviewer_cap
         "nothing omitted when everything fits"
     );
     assert!(
-        payload_has_signal(&payload_b, "tables"),
-        "with room to spare the table finding MUST reach the reviewer: {:?}",
+        payload_has_signal(&payload_b, "citation_density"),
+        "with room to spare the Minor extraction-derived finding MUST reach the reviewer: {:?}",
         payload_b["summary"]["findings"]
     );
 }
@@ -1177,11 +1202,14 @@ fn severity_beats_insertion_order_for_extraction_derived_findings() {
         .iter()
         .position(|f| f.severity == FindingSeverity::Major)
         .expect("the soft concern must compile to a Major finding");
+    // Was `signal:tables`; that finding is withdrawn (§11 D167). Any
+    // extraction-derived Minor serves — the property is severity-before-
+    // insertion-order, not which family sits below the Major.
     let table = report
         .findings
         .iter()
-        .position(|f| f.provenance.iter().any(|p| p == "signal:tables"))
-        .expect("the table finding must be present");
+        .position(|f| f.provenance.iter().any(|p| p == "signal:citation_density"))
+        .expect("an extraction-derived Minor finding must be present");
     assert!(
         major < table,
         "a Major finding compiled AFTER the extraction block must still SORT before its \

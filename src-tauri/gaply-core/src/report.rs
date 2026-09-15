@@ -1220,15 +1220,40 @@ fn stylometry_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
     out
 }
 
-/// Table presence + caption completeness. A structural COUNT over
-/// `ExtractionResult.tables`, which extraction has always produced and nothing
-/// has ever surfaced. No table content is read — only the label and whether a
-/// caption was detected.
+/// **WITHDRAWN — this finding is no longer shown. §11 D167.**
 ///
-/// `AgentKind::Extraction` is the accurate producer, and its
-/// `ConfidenceKind::NoSignal` / `RoutingHint::HeldOut` mapping is correct by
-/// construction: a count is not a probability, and the record says so.
+/// It reported *"{total} table(s) detected, {captioned} with captions"* as a
+/// structural count over `ExtractionResult.tables`. **The count is wrong, and
+/// wrong in a way a user cannot see.** `extract::detect_table` fires on any
+/// paragraph opening `Table N`, so a thesis list-of-tables is a run of matches:
+/// measured over 20 real manuscripts, **237 of 414 detections (57%) were
+/// front-matter rows with no body**. A researcher whose paper has six tables
+/// was being told it has fourteen.
+///
+/// **The caption half is corrupted by the same defect and was the more
+/// misleading of the two.** A contents-page row carries the rest of its line as
+/// a "caption", so those entries count as captioned; `complete` can therefore
+/// read TRUE on a document whose real tables have no captions at all, and the
+/// finding's severity — `Info` when complete, `Minor` when not — is decided by
+/// front matter.
+///
+/// **Withdrawn rather than annotated.** A source comment saying the number is
+/// untrustworthy does not reach the person reading the report, and a wrong
+/// number displayed with confidence is worse than a number absent: it is the
+/// §11 D163 shape, plausible and displayed. Honest silence beats a confident
+/// count.
+///
+/// **What restores it:** the two `detect_table` defects fixed, with a
+/// before/after measurement over this corpus showing the count matches a hand
+/// count. The body below is kept — unreachable but intact — so restoring is
+/// deleting the early return, not rewriting the finding from the doc comment.
 fn table_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
+    // THE WITHDRAWAL. Everything below is dead until the extractor is fixed.
+    if true {
+        return Vec::new();
+    }
+
+    #[allow(unreachable_code)]
     let total = ex.tables.len();
     if total == 0 {
         // A paper with no tables is not a finding.

@@ -1161,6 +1161,22 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
     /// changed — which is why the comparison was re-run with a correct decode
     /// rather than the first result believed.
     ///
+    /// **[REGENERATED A SECOND TIME, 15 Sep 2026 — §11 D167.]**
+    /// `report::table_findings` was WITHDRAWN: its count came from
+    /// `extract::detect_table`, which fires on any paragraph opening `Table N`,
+    /// so a contents page inflated it (237 of 414 detections over 20 real
+    /// manuscripts) and the caption tally was corrupted the same way. A
+    /// deliberate removal, not drift.
+    ///
+    /// **Confirmed before regenerating, again, and structurally rather than by
+    /// eye:** top-level keys identical; every non-`findings`/`evidence` value
+    /// identical; `findings` 6 -> 5 with the ONLY difference
+    /// `"1 table(s) detected, 1 with captions"` removed and the order of the
+    /// survivors preserved; `evidence` 6 -> 5 with only `f6` (`signal:tables`)
+    /// removed and every surviving record byte-equal. One removal, nothing
+    /// else — which is what a withdrawal should look like and is the reason
+    /// this fixture is worth keeping.
+    ///
     /// The fields are `Option` + `serde(default)` so `CACHED_REPORT_V2` still
     /// deserializes, exactly as `Finding::location` is, and
     /// `CACHED_REPORT_SCHEMA_VERSION` is NOT bumped — a compatible addition.
