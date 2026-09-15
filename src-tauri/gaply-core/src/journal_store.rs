@@ -231,6 +231,170 @@ pub fn store_conventions(
     Ok(n)
 }
 
+/// Store a journal's reporting-standard bindings.
+///
+/// # This table had a READER AND NO WRITER — §11 D170
+///
+/// `journal_fingerprint::fingerprint_for` has queried
+/// `journal_standard_bindings` since it was written, and until now the only
+/// things that ever inserted a row were migration 23 and one unit test.
+/// `journal_standards::bindings_from` produced the values and every caller
+/// dropped them on the floor, so a fingerprint's `standards` field was
+/// permanently empty and looked merely unpopulated.
+///
+/// **That is the exact defect this module's own header says it exists to
+/// prevent** — *"a schema with no producer is the same artefact §3.4 spent a
+/// page correcting"* — and it sat in two of the four tables this module serves.
+/// `tests/journal_tables_have_writers.rs` is what now makes the rule cost
+/// something.
+///
+/// # Idempotent by `UNIQUE (journal_key, design, standard)`
+///
+/// A crawl re-run must not multiply rows, and a second page stating the same
+/// binding is corroboration rather than a new fact — the same position
+/// [`store_requirements`] takes. `INSERT OR IGNORE` keeps the FIRST span,
+/// because the span is evidence and the earliest source is the one already
+/// cited elsewhere. The return value is rows actually inserted, so a caller can
+/// tell a new binding from a repeat.
+pub fn store_standard_bindings(
+    db: &Database,
+    journal_key: &str,
+    source_url: &str,
+    bindings: &[crate::journal_standards::StandardBinding],
+    fetched_at: i64,
+) -> Result<usize, GaplyError> {
+    let mut conn = db.conn()?;
+    let tx = conn.transaction()?;
+    let mut inserted = 0usize;
+    for b in bindings {
+        let n = tx.execute(
+            "INSERT OR IGNORE INTO journal_standard_bindings
+               (journal_key, design, standard, source_url, source_span, fetched_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                journal_key,
+                b.design,
+                b.standard.as_str(),
+                source_url,
+                b.source_span,
+                fetched_at,
+            ],
+        )?;
+        inserted += n;
+    }
+    tx.commit()?;
+    Ok(inserted)
+}
+
+/// Store a journal's reviewer expectations.
+///
+/// # Also a reader with no writer — §11 D170, same as the bindings above
+///
+/// # `status` is always `inferred` from this path, and that is a claim
+///
+/// §7: an expectation is *"a frequency, with the evidence, never as a rule"*.
+/// `journal_expect::extract_expectations` reads a reviewer-guidance page and
+/// returns the sentence; it does NOT count how many papers exhibit the
+/// behaviour, so `frequency_k`/`frequency_n` are `None` and the status cannot be
+/// `verified`. Writing `verified` here would promote a sentence to a measured
+/// frequency, which is the mixing §7 forbids.
+///
+/// The schema refuses the incoherent shapes itself — `frequency_k` without
+/// `frequency_n`, and `frequency_n = 0` — so a future counted path cannot store
+/// a frequency that means nothing.
+pub fn store_expectations(
+    db: &Database,
+    journal_key: &str,
+    source_url: &str,
+    expectations: &[crate::journal_expect::ExtractedExpectation],
+    fetched_at: i64,
+) -> Result<usize, GaplyError> {
+    let mut conn = db.conn()?;
+    let tx = conn.transaction()?;
+    let mut inserted = 0usize;
+    for e in expectations {
+        // An expectation with no sentence is an assertion; the schema's
+        // `length(source_span) > 0` refuses it, and skipping here means a bad
+        // row cannot abort a whole crawl's worth of good ones.
+        if e.source_span.trim().is_empty() || e.claim.trim().is_empty() {
+            continue;
+        }
+        tx.execute(
+            "INSERT INTO journal_expectations
+               (journal_key, claim, frequency_k, frequency_n, status, source_url,
+                source_span, fetched_at)
+             VALUES (?1, ?2, ?3, ?4, 'inferred', ?5, ?6, ?7)",
+            params![
+                journal_key,
+                e.claim,
+                e.frequency_k,
+                e.frequency_n,
+                source_url,
+                e.source_span,
+                fetched_at,
+            ],
+        )?;
+        inserted += 1;
+    }
+    tx.commit()?;
+    Ok(inserted)
+}
+
+/// Record that a journal's fingerprint was built — the provenance row.
+///
+/// # The third reader-without-writer, and the one a hand survey missed
+///
+/// §11 D170 was opened after finding `journal_standard_bindings` and
+/// `journal_expectations` in that state. Both were found by grepping four table
+/// names. `tests/journal_tables_have_writers.rs` enumerates the tables from the
+/// SCHEMA instead, and immediately named a fifth: `journal_fingerprints`
+/// (migration 24), read by `journal_fingerprint::fingerprint_for` and written
+/// by nothing. **A list you write by hand inherits what you already believe is
+/// there; a list derived from the schema does not.**
+///
+/// # Without this row a fingerprint cannot say WHEN it was built
+///
+/// `JournalFingerprint::provenance` is `Option`, and its own doc says `None`
+/// means *"the journal has never been crawled"* and that a screen must render
+/// that state rather than an empty fingerprint that looks fetched. With no
+/// writer, **every** fingerprint was `None` — so a fully crawled journal and an
+/// unknown one were the same value, and the distinction the `Option` exists to
+/// carry could not be made.
+///
+/// # `refetch_after` is a caller's decision, not a default here
+///
+/// The schema enforces `refetch_after > fetched_at` and nothing else. §7 says
+/// profiles are rebuilt *"once per journal per quarter"*, which is a policy, and
+/// a policy belongs where it can be changed and measured rather than hidden in
+/// a store call. Callers pass both timestamps.
+pub fn store_fingerprint_provenance(
+    db: &Database,
+    p: &crate::journal_fingerprint::FingerprintProvenance,
+) -> Result<(), GaplyError> {
+    let conn = db.conn()?;
+    // REPLACE: one current provenance row per journal, keyed by `journal_key`.
+    // A re-crawl supersedes its predecessor — keeping both would make "when was
+    // this built" a question about which row a reader picked, the same reason
+    // `store_conventions` deletes before inserting.
+    conn.execute(
+        "INSERT OR REPLACE INTO journal_fingerprints
+           (journal_key, version, content_hash, fetched_at, refetch_after,
+            source_count, quarantined_at, quarantine_reason)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            p.journal_key,
+            p.version,
+            p.content_hash,
+            p.fetched_at,
+            p.refetch_after,
+            p.source_count,
+            p.quarantined_at,
+            p.quarantine_reason,
+        ],
+    )?;
+    Ok(())
+}
+
 /// One stored requirement, as a reader gets it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredRequirement {
@@ -615,4 +779,166 @@ mod tests {
         assert_eq!(second.duplicates, 1);
         assert_eq!(requirements_for(&db, "j").unwrap().len(), 1);
     }
+    // ---------------------------------------------------------------------
+    // §11 D170 — the three writers that did not exist
+    // ---------------------------------------------------------------------
+
+    fn binding(std_: crate::journal_standards::Standard, design: &str, span: &str)
+        -> crate::journal_standards::StandardBinding
+    {
+        crate::journal_standards::StandardBinding {
+            standard: std_,
+            design: design.to_string(),
+            source_span: span.to_string(),
+        }
+    }
+
+    /// The fingerprint's `standards` field was permanently empty, and empty is
+    /// how "this journal binds no standards" renders. The round trip is the
+    /// assertion: store, then read back through the REAL reader.
+    #[test]
+    fn a_stored_binding_reaches_the_fingerprint() {
+        use crate::journal_standards::Standard;
+        let db = db();
+
+        // BEFORE — and this is the state every journal was in.
+        let before = crate::journal_fingerprint::fingerprint_for(&db, "j").unwrap();
+        assert!(before.standards.is_empty(), "precondition: nothing stored yet");
+
+        let n = store_standard_bindings(
+            &db,
+            "j",
+            "https://j.test/authors",
+            &[
+                binding(Standard::Consort, "randomised trial",
+                        "Randomised trials must follow CONSORT."),
+                binding(Standard::Strobe, "cohort study",
+                        "Observational studies (cohort, case-control) follow STROBE."),
+            ],
+            1,
+        )
+        .unwrap();
+        assert_eq!(n, 2);
+
+        let after = crate::journal_fingerprint::fingerprint_for(&db, "j").unwrap();
+        assert_eq!(after.standards.len(), 2, "{:#?}", after.standards);
+        // The SPAN travels — a binding without its sentence is an assertion.
+        assert!(
+            after.standards.iter().any(|s| s.source_span.contains("must follow CONSORT")),
+            "{:#?}", after.standards
+        );
+    }
+
+    /// A re-crawl must not multiply rows. The UNIQUE constraint is the
+    /// mechanism; this pins that the SECOND run reports 0 inserted rather than
+    /// failing, so a caller can tell a new binding from a repeat.
+    #[test]
+    fn re_storing_the_same_binding_inserts_nothing_and_does_not_error() {
+        use crate::journal_standards::Standard;
+        let db = db();
+        let b = [binding(Standard::Prisma, "systematic review", "Reviews follow PRISMA.")];
+        assert_eq!(store_standard_bindings(&db, "j", "https://j.test/a", &b, 1).unwrap(), 1);
+        assert_eq!(
+            store_standard_bindings(&db, "j", "https://j.test/b", &b, 2).unwrap(),
+            0,
+            "a second page stating the same binding is corroboration, not a new fact"
+        );
+        let fp = crate::journal_fingerprint::fingerprint_for(&db, "j").unwrap();
+        assert_eq!(fp.standards.len(), 1);
+        assert!(
+            fp.standards[0].source_url.ends_with("/a"),
+            "the FIRST span is kept: {:?}", fp.standards[0]
+        );
+    }
+
+    /// §7: an expectation is a frequency with its evidence, never a rule. This
+    /// path counts nothing, so it may not claim `verified`.
+    #[test]
+    fn a_stored_expectation_is_inferred_and_never_verified() {
+        let db = db();
+        let e = crate::journal_expect::ExtractedExpectation {
+            claim: "Reviewers are asked to comment on statistical rigour.".into(),
+            source_span: "Reviewers are asked to comment on the statistical rigour of the work."
+                .into(),
+            source_heading: "For reviewers".into(),
+            frequency_k: None,
+            frequency_n: None,
+        };
+        assert_eq!(store_expectations(&db, "j", "https://j.test/reviewers", &[e], 1).unwrap(), 1);
+
+        let fp = crate::journal_fingerprint::fingerprint_for(&db, "j").unwrap();
+        assert_eq!(fp.expectations.len(), 1);
+        assert_eq!(
+            fp.expectations[0].status, "inferred",
+            "an uncounted claim must not be stored as a measured frequency"
+        );
+        assert!(fp.expectations[0].frequency_n.is_none());
+    }
+
+    /// A span-less expectation is an assertion; it is skipped rather than
+    /// allowed to abort the crawl that produced its neighbours.
+    #[test]
+    fn a_span_less_expectation_is_skipped_not_stored() {
+        let db = db();
+        let bad = crate::journal_expect::ExtractedExpectation {
+            claim: "Something".into(),
+            source_span: "   ".into(),
+            source_heading: String::new(),
+            frequency_k: None,
+            frequency_n: None,
+        };
+        assert_eq!(store_expectations(&db, "j", "https://j.test/r", &[bad], 1).unwrap(), 0);
+        assert!(crate::journal_fingerprint::fingerprint_for(&db, "j").unwrap().expectations.is_empty());
+    }
+
+    /// `provenance: None` is documented to mean "never crawled". With no writer
+    /// it meant that for every journal, including fully crawled ones — so this
+    /// pins that the distinction can now be made at all.
+    #[test]
+    fn provenance_distinguishes_a_crawled_journal_from_an_unknown_one() {
+        let db = db();
+        assert!(
+            crate::journal_fingerprint::fingerprint_for(&db, "unknown").unwrap().provenance.is_none(),
+            "an uncrawled journal has no provenance"
+        );
+
+        let p = crate::journal_fingerprint::FingerprintProvenance {
+            journal_key: "j".into(),
+            version: 1,
+            content_hash: "abc123".into(),
+            fetched_at: 1_000,
+            refetch_after: 2_000,
+            source_count: 7,
+            quarantined_at: None,
+            quarantine_reason: None,
+        };
+        store_fingerprint_provenance(&db, &p).unwrap();
+
+        let got = crate::journal_fingerprint::fingerprint_for(&db, "j").unwrap().provenance;
+        let got = got.expect("a crawled journal HAS provenance");
+        assert_eq!(got.source_count, 7);
+        assert_eq!(got.content_hash, "abc123");
+    }
+
+    /// A re-crawl supersedes; one current row per journal.
+    #[test]
+    fn re_storing_provenance_replaces_rather_than_accumulates() {
+        let db = db();
+        let mk = |n: i64| crate::journal_fingerprint::FingerprintProvenance {
+            journal_key: "j".into(),
+            version: 1,
+            content_hash: format!("hash{n}"),
+            fetched_at: n,
+            refetch_after: n + 1_000,
+            source_count: n,
+            quarantined_at: None,
+            quarantine_reason: None,
+        };
+        store_fingerprint_provenance(&db, &mk(1_000)).unwrap();
+        store_fingerprint_provenance(&db, &mk(5_000)).unwrap();
+        let got = crate::journal_fingerprint::fingerprint_for(&db, "j").unwrap().provenance.unwrap();
+        assert_eq!(got.fetched_at, 5_000, "the later crawl wins");
+        assert_eq!(got.content_hash, "hash5000");
+    }
+
 }

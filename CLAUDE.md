@@ -990,6 +990,37 @@ time injection.
   `1811 passed` are answers to different questions, and only one of them is the
   suite.
 
+  **AND GIVE EVERY RUN ITS OWN LOG FILE. `> /tmp/suite.log` twice is two writers
+  on one file, and the result is a plausible wrong number.** 15–16 Sep 2026, and
+  it happened TWICE — the second time within an hour of writing this entry, which
+  is why the fix is a shell habit and not a resolution to be careful.
+
+  | run | reported | truth |
+  |---|---|---|
+  | two `--workspace` runs -> `/tmp/final.log` | 1814 passed, 14 targets | 1811, 16 |
+  | two `--workspace` runs -> `/tmp/f2.log` | 1403 passed, 14 targets | 1819, 18 |
+
+  Interleaved writes drop whole `Running` lines and double-count others, so the
+  sum over `test result: ok` is wrong in *either* direction. The first time it
+  looked exactly like **a test target silently no longer running** — the most
+  alarming thing a suite can report — and cost a full investigation to rule out.
+
+  `CARGO_EXIT` and a `grep -c "test result: FAILED"` survive interleaving,
+  because they turn on the presence of a string rather than a sum. **The pass
+  count does not.** So:
+
+  ```bash
+  # WRONG — a second run, or a stale background one, shares the file
+  cargo test --workspace > /tmp/suite.log 2>&1
+
+  # RIGHT — the log cannot be shared, and the name says which run it was
+  LOG=/tmp/suite_$(date +%s).log; cargo test --workspace > "$LOG" 2>&1
+  ```
+
+  And check the arithmetic reconciles before quoting it: 17 targets + 1 new guard
+  = 18, and 1812 + 6 new tests + 1 = 1819. A count that does not reconcile with
+  what you just added is the count to re-run, not to report.
+
   **A GREEN RUN ON THE WRONG PLATFORM IS THE SAME ERROR ONE DIMENSION OVER, and
   these two belong together.** 15 Sep 2026, the `Location` ambiguity guard
   (`gaply-core/tests/location_is_unambiguous.rs`). It scans source files and
@@ -1194,6 +1225,47 @@ time injection.
   first `chat_scope` fix checked the fields someone had listed, and two of three
   leaks survived it. Serialise the thing and scan the bytes, so a field added
   tomorrow is covered by a test nobody updates.
+
+- **A MODULE HEADER THAT STATES A RULE IS NOT A GUARD, AND A HAND-WRITTEN LIST
+  INHERITS WHAT YOU ALREADY BELIEVE IS THERE. Two guards, two days, and both
+  found more than their author expected on their FIRST run.**
+
+  This is the enforcement half of the purity-claim entry above. That one says a
+  doc comment is not a test. These two are what happened when the tests were
+  finally written — and in both cases the rule had been stated, in prose, in the
+  module it governs, by someone who then broke it.
+
+  | guard | the rule, already written down | what the first run found |
+  |---|---|---|
+  | `location_is_unambiguous.rs` | §11 D169's fix, and a commit message an hour earlier saying *"every producer now uses `in_section`"* | **8 more production sites** still building ambiguous locations |
+  | `journal_tables_have_writers.rs` | `journal_store.rs`'s own header: *"a schema with no producer is the same artefact §3.4 spent a page correcting"* | **3 tables** read and never written, one of which a hand survey had missed entirely |
+
+  **The second one is the sharper lesson, and it is about the LIST.** The survey
+  that opened §11 D170 grepped **four** table names — the four I knew the module
+  served — and found two offenders. The guard enumerates tables from
+  `CREATE TABLE` in `migrations.rs` and found **six**, naming a fifth I had never
+  checked: `journal_fingerprints`.
+
+  **And that fifth was the one that mattered.** `JournalFingerprint::provenance`
+  is `Option<FingerprintProvenance>`, and its own doc says `None` means *"the
+  journal has never been crawled"* and that a screen must render that state
+  rather than an empty fingerprint that looks fetched. With no writer, **every**
+  fingerprint was `None` — so a fully crawled journal and an unknown one were the
+  same value, and **the distinction the `Option` exists to carry could not be
+  made at all**. A three-state value collapsed to one, which is the wire-contract
+  entry above arriving from the storage side instead of the serde side.
+
+  **So: derive the list from the artefact, not from memory.** Tables from the
+  schema, producers from the source, routes from the dependency graph. A list you
+  type is a list of what you already thought of, and the thing that bites is the
+  item that never entered your head — which is precisely the item a scan of the
+  real artefact returns and a careful reading does not.
+
+  Both guards were deletion-tested in both directions: break the thing, predict
+  red, get red; and break the ENUMERATION, confirm the guard fails vacuously
+  rather than passing (`only 0 journal_* tables found`). A guard whose input can
+  silently become empty passes forever, and that is the failure mode to test for
+  second.
 
 - **A Bash call refused by the permission classifier runs NOTHING, including the
   parts you later assume ran. `git status` is the only thing that catches it.**

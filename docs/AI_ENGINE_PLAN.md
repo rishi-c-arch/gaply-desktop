@@ -11742,3 +11742,183 @@ now read **178 of 414 (43%)**, and the derived claim *"a table count roughly 2.3
 too large"* becomes **1.75x**. `report::table_findings` stays WITHDRAWN: 1.75x is
 not a number to show a researcher either, and the caption tally is corrupted by
 the same defect regardless of the multiplier.
+
+---
+
+### D170 — three `journal_*` tables had a reader and no writer, and the one a hand survey missed collapsed an `Option`'s two meanings into one
+
+**Date:** 16 Sep 2026. Found while establishing the before-state for Stage 2.
+
+`journal_store.rs`'s own header says why the module exists: *"§3.4's biggest
+correction was that `journal_guidelines` had 0 rows after 27 manuscripts and
+that the count was a count of a table nothing writes to… a schema with no
+producer is the same artefact §3.4 spent a page correcting."* **Three of the
+tables that module serves were in exactly that state.**
+
+| table | before | after |
+|---|---|---|
+| `journal_requirements` | r1 w1 | r1 w1 |
+| `journal_conventions` | r2 w1 | r2 w1 |
+| `journal_standard_bindings` | **r1 w0** | r1 w1 |
+| `journal_expectations` | **r1 w0** | r1 w1 |
+| `journal_fingerprints` | **r1 w0** | r1 w1 |
+
+`journal_standards::bindings_from` and `journal_expect::extract_expectations`
+both ran, produced values, and every caller dropped them — so a fingerprint's
+`standards` and `expectations` were permanently empty and **indistinguishable
+from "this journal has none"**.
+
+#### The fifth table, and why the LIST is the lesson
+
+The survey that opened this entry grepped **four table names** — the four I knew
+the module served — and found two offenders. `tests/journal_tables_have_writers.rs`
+enumerates tables from `CREATE TABLE` in `migrations.rs`, found **six**, and
+named a fifth I had never checked: `journal_fingerprints` (migration 24).
+
+**That fifth was the one that mattered.** `JournalFingerprint::provenance` is
+`Option<FingerprintProvenance>` and its own doc says `None` means *"the journal
+has never been crawled"*, with a screen obliged to render that state rather than
+an empty fingerprint that looks fetched. With no writer, **every** fingerprint
+was `None`: a fully crawled journal and an unknown one were the same value, and
+the distinction the `Option` exists to carry could not be made at all. That is
+the three-state-value rule arriving from the storage side rather than the serde
+side.
+
+**A hand-written list inherits what you already believe is there.** Derive it
+from the artefact — tables from the schema, producers from the source.
+
+#### The guard, and what each writer asserts
+
+Deletion-tested in both directions: removing each writer fails the guard naming
+that table, and breaking the ENUMERATION fails it with *"only 0 journal_* tables
+found"* rather than passing vacuously. Six round-trip tests store through the new
+writers and read back through `fingerprint_for`, the real reader.
+
+`store_expectations` writes `status = 'inferred'` and never `'verified'`: §7 says
+an expectation is *"a frequency, with the evidence, never as a rule"*, and this
+path extracts a sentence without counting anything, so `frequency_k`/`_n` are
+`None` and a `verified` status would promote a sentence to a measured frequency.
+
+---
+
+### D171 — Stage 2: ten journal fingerprints stored, and the conflict rate it was built to produce is 0 of 200, not 21.5%
+
+**Date:** 16 Sep 2026. **Instrument:** `examples/journal_stage2_build.rs`, into a
+fresh on-disk database at `/tmp/stage2.db`. **The live application database was
+not touched** — applying migrations 22–24 to a real user's data is a separate
+decision and is not folded into a measurement run.
+
+#### The before-state, and a correction to §7 and §12
+
+Both sections said *"ten journal fingerprints needed, one exists"*. **One did not
+exist.** Measured from the live database:
+
+* it is at migration **21**; the code defines **24**, and migration 23 is
+  `journal_fingerprint` — so `journal_requirements`, `journal_conventions`,
+  `journal_standard_bindings` and `journal_expectations` **did not exist as
+  tables**;
+* every Phase-3 measurement ran through `Database::in_memory()` inside a probe,
+  so **nothing was ever persisted**;
+* `documents` where `source_type='journal_guideline'` held **6** rows across
+  **5 distinct hosts** (`bmj.com` twice), every title the generic string
+  `"Author guidelines"`.
+
+**A measurement taken in a probe is not a stored fingerprint**, and conflating
+the two is what let this sit unnoticed. The sections now say so.
+
+#### The run
+
+```
+journal                  pages  guid  reqs  confl  conv  bind expct  prov
+plos-one                    87    26    39      4     5    10    44   yes
+plos-medicine              120    27    35      8     5    10    38   yes
+nature-medicine             99    36    41      2     5    11    75   yes
+nature-communications        1     0     0      0     5     0     0    NO
+bmj                        120    16     0      0     5     0     0    NO
+lancet                     120    85     4      0     5     1    68   yes
+statistics-in-medicine     120    35    10      0     5     2    15   yes
+frontiers-public-health    120    11    63     25     5     3    14   yes
+j-health-psychology        120     6     6      4     5     0     3   yes
+bmc-public-health           59     1     2      0     5     0     0   yes
+
+requirements 200 · conventions 50 · bindings 37 · ISSN resolved 10/10
+```
+
+**Provenance does the job the fifth writer bought.** Eight journals carry a
+provenance row; `nature-communications` (1 page fetched, 0 guideline) and `bmj`
+(120 pages, 0 requirements stored) do not. Those two are now distinguishable from
+the eight, which was impossible before D170.
+
+#### THE CENTRE: 21.5% measured the extractor, not the journals
+
+43 conflicted rows across 5 of 10 journals — a **21.5% conflict rate**. Nine
+conflict groups. **All nine were read. None survived.**
+
+| group | values | what the SPAN says |
+|---|---|---|
+| frontiers `figure_limit` | 10, 15, 2, 4, 5 | **five article types** — Conceptual Analysis 10, Data Reports 2, Brief Research Reports 4, Community Case Study 5 |
+| plos-medicine `abstract_limit` | 300, 500 | **one sentence**: *"prefers abstract submissions not exceed 300 words, with a maximum of 500 words allowed"* |
+| nature-medicine `figure_limit` | 10, 6 | *"10 Extended Data display figures"* vs *"up to 6 display items"* — two senses of "figure" |
+| j-health-psych `word_limit` | 500, 800 | letters unrelated to an article vs letters pertaining to one |
+| plos-medicine `word_limit` | 2000, 3000 | same page, `/other-article-types` — two types, unbound |
+| plos-one, plos-medicine, j-health-psych, frontiers `reference_style` | Vancouver, Harvard, author-date | see the substring defect below |
+
+**Not one is a journal stating two different values for the same requirement and
+the same article type.** So the number this phase was built to produce is
+**0 conflicts in 200 requirements**, and 21.5% is a measurement of four extractor
+defects.
+
+**Reporting 21.5% without reading the rows would have been this phase's own
+defect** — the D163 failure repeated by the person who wrote D163. A conflict
+rate is exactly the kind of figure that gets quoted downstream, and *"5 of 10
+journals contradict themselves"* is a plausible, memorable, entirely false claim
+about ten real publishers.
+
+#### Three extractor defects, with counts
+
+1. **Article-type binding fails on 41 of 43 conflicted rows.** They are stored
+   UNBOUND, so per-type limits collapse into one bucket and read as mutual
+   contradiction — the failure `journal_extract`'s binding exists to prevent, and
+   which `journal_store.rs`'s header names explicitly. **14 of those 41 have a
+   span that literally names the article type**, so the sentence carries what the
+   binding did not attach.
+2. **One sentence becomes two conflicting rows.** *"prefers…not exceed 300 words,
+   with a maximum of 500 words allowed"* yields `300` and `500`, which then
+   disagree with each other. A preference and a hard cap are one fact with two
+   numbers; the extractor has no way to say so.
+3. **`reference_style` matches "Harvard" inside proper nouns — 5 of 8 rows.** A
+   repository list (`Dryad … DANS figshare H[arvard Dataverse]`, PLOS ×2), an
+   author biography (*"Fulbright postdoctoral fellowship in MGH-Harvard Medical
+   School"*, Lancet), and two editorial-board affiliations (*"Professor of
+   Biostatistics at the Harvard T.H. Chan…"*, *"Harvard University Boston,
+   Massachusetts"*, Statistics in Medicine). Only 3 of 8 are real.
+
+   **This is D163's shape in a new column.** There it was `word_limit = 12000`
+   from a translation price list; here it is a reference style from an author's
+   alma mater. Both are a value matched without asking what the sentence is
+   about, both were plausible, and both were caught by printing the row.
+
+#### `expectations = 257` is UNVERIFIED and must not be quoted as a result
+
+The count exists; its meaning does not. `journal_expect::is_reviewer_guidance`
+is **already measured at 5/20 precision in D163** — it returned `true` for 20 of
+Nature Medicine's 36 pages, of which 5 were genuine reviewer guidance. Every
+expectation here passed through that gate, and a four-row sample immediately
+shows an author instruction filed as a reviewer expectation:
+
+> *"Study Protocols must also comply with general PLOS One criteria for
+> publication…"*
+
+That is §7's separation lost at the first step — an author requirement wearing an
+expectation's label. **A count produced by a classifier with known 25% precision
+is not evidence**, and recording that now is cheaper than retracting it after it
+has been quoted. Establishing what fraction of the 257 are real is its own
+measurement and has not been done.
+
+#### What Stage 2 now needs
+
+Ten journals have stored fingerprints, so §12's gating condition is met on
+count. It is **not** met on quality: the requirement corpus carries a substring
+defect and an unbound-article-type defect, and the expectation corpus is
+unmeasured. Each is a separate change with its own before/after, and each should
+state its precision the way D128 requires.

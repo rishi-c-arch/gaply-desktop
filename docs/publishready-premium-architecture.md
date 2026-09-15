@@ -1107,6 +1107,12 @@ For a named journal, the fingerprint holds:
 
 Journal profiles are **shared and cached** — the same journal serves every user, and building the profile once per journal per quarter is cheap. This is also the only part of the system that is a genuine data asset: the more journals profiled, the better the product, and none of it touches any user's manuscript.
 
+**[v9 — "one journal exists" was wrong, and the way it was wrong is the point. §11 D170, D171.]** Earlier drafts of this section and of §12 said ten fingerprints were needed and one existed. **None existed.** The live database was at migration 21 while the code defined 24, so the four fingerprint tables had never been created; every Phase-3 figure was produced through `Database::in_memory()` inside a probe and **nothing was ever persisted**. Three of the five tables also had a reader and no writer, so even a run against a migrated database would have stored no bindings, no expectations and no provenance.
+
+**A measurement taken in a probe is not a stored fingerprint.** Conflating the two is what let this sit unnoticed across a whole phase, and it is why the deliverable below is stated as rows in a named database rather than as a number someone once printed.
+
+**Ten now exist** (D171): 200 requirements, 50 conventions, 37 standard bindings, 8 of 10 carrying provenance — the two without it, `nature-communications` and `bmj`, stored no requirement and are correctly distinguishable from the eight that did. **The corpus is not yet trustworthy**: `reference_style` matches "Harvard" inside proper nouns (5 of 8 rows), article-type binding fails on 41 of 43 conflicted rows, and the 257 stored expectations came through a classifier measured at 5/20 precision in D163. Counts are met; quality is a separate change.
+
 ---
 
 ## 8. The estimate — rubric now, probability when earned
@@ -1592,6 +1598,8 @@ which is what this phase was asked for:
 **Phase 6 — chat (1 week).** Verdict-layer only, every number from a query.
 
 **Phase 7 — the estimate.** Stage 1 ships with Phase 5. Stage 2 when ten journals have fingerprints. Stage 3 never, until the outcome dataset exists — and the test that blocks it is written in Phase 5.
+
+**[v9 — the count is met and the condition is not. §11 D171.]** Ten journals now have STORED fingerprints, in a real on-disk database rather than a probe's in-memory one; before this, the number was **zero**, not the "one" this document claimed (§7's v9 note explains why). But the gate was never meant to be a row count. **The conflict rate this phase exists to produce is 0 of 200 requirements, not the 21.5% the raw counter reported** — all nine conflict groups were read and none survived: five article types sharing one unbound kind, one sentence split into two disagreeing rows, two senses of "figure", and a substring match on an author's alma mater. Stage 2 waits on the extractor defects D171 names, each with its own before/after and its precision stated.
 
 **Phase 7b — full-system red team (1 week, before any researcher).** Adversarial manuscripts: injection in a PDF; a guideline page that instructs; a table designed to mislead; a "first to show" claim that is false; an SPSS file that contradicts the paper. Every one must produce the right finding or an honest `UNVERIFIED`, and none may reach a wrong `CONFIRMED`.
 
