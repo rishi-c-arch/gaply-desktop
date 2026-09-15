@@ -35,6 +35,19 @@
 //!    catches the common shape of that mistake at runtime, not here.
 //! 3. **A helper in another module that returns an ambiguous location.** The
 //!    scan sees the construction site, which is where the decision is made.
+//!
+//! # It failed on Windows before it failed on anything real
+//!
+//! The first CI run went red on `windows-build-check` with BOTH allowlist
+//! entries reported as violations. The scan builds a path from `read_dir`,
+//! which on Windows yields `src\extract\mod.rs`, while `ALLOWED` is written
+//! with `/` — so `ends_with` matched nothing and every exemption evaporated.
+//! macOS passed, and so did `verify-clean-checkout.sh`, because both use `/`.
+//!
+//! Worth keeping because the failure mode is the guard's own: an allowlist that
+//! silently stops matching does not loosen a check, it tightens it into noise,
+//! and the reverse — an allowlist that silently matches too much — would have
+//! been invisible. Paths are compared on a normalised string now.
 
 use std::path::Path;
 
@@ -117,7 +130,13 @@ fn no_production_path_constructs_an_ambiguous_location() {
 
     for f in &files {
         let src = std::fs::read_to_string(f).expect("read");
-        let rel = f.to_string_lossy().to_string();
+        // NORMALISED. Windows yields `src\\extract\\mod.rs`; the ALLOWED entries
+        // are written with `/`. Without this, `ends_with` misses on Windows and
+        // every allowed line reads as a violation — which is exactly how this
+        // guard failed its first CI run while passing on macOS and in the
+        // clean-checkout worktree. A path comparison is a portability decision,
+        // and a test that only runs on the author's platform is not a guard.
+        let rel = f.to_string_lossy().replace('\\', "/");
         for (lineno, code) in production_lines(f, &src) {
             let Some(pat) = AMBIGUOUS.iter().find(|p| code.contains(**p)) else {
                 continue;
