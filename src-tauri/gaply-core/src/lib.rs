@@ -65,6 +65,7 @@ pub mod report_compose;
 pub mod report_model;
 pub mod report_html;
 pub mod report_pdf;
+pub mod red_team;
 pub mod refverify;
 pub mod reviewer_agent;
 pub mod reviewer_harness;

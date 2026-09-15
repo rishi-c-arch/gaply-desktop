@@ -252,8 +252,11 @@ mod tests {
         assert_eq!(v["guidelines_url"]["status"], "unavailable");
         assert_eq!(v["guidelines_url"]["requires"], "not_supplied");
         // The interpretation key for summary_digest travels WITH it — a digest
-        // without its format version is not comparable to anything.
-        assert_eq!(v["summary_format_version"], 1);
+        // without its format version is not comparable to anything. 1 -> 2 when
+        // every payload string moved to `reviewer_agent::safe` (llm_safe then
+        // clamp); this pin is what made the bump obligation cost something
+        // rather than being a sentence in a doc comment.
+        assert_eq!(v["summary_format_version"], 2);
         assert_eq!(v["schema_version"], 4);
         let _ = std::fs::remove_dir_all(&dir);
     }

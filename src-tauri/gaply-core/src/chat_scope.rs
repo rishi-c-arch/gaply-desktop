@@ -24,9 +24,25 @@
 //! # THE FIREWALL IS [`crate::chat_agent`]'S, NOT A SECOND ONE
 //!
 //! This module builds the CONTEXT a turn is answered from. The pre-filter, the
-//! system instruction, the post-filter and the `llm_safe` discipline all live
-//! in `chat_agent` and are reused unchanged. A second firewall would be a
-//! second thing to keep correct, and §11 D129's shape.
+//! system instruction and the post-filter live in `chat_agent` and are reused
+//! unchanged. A second firewall would be a second thing to keep correct, and
+//! §11 D129's shape.
+//!
+//! **The `llm_safe` half was CLAIMED here before it was implemented, and the
+//! Phase 7b red team found it.** The first version of this module copied
+//! `summary` and `spans` straight off the concern while this header said the
+//! `llm_safe` discipline was "reused unchanged" — a documented safety property
+//! the code did not have. The fixture that exposed it is
+//! `red_team::INJECTION_INSIDE_A_QUOTED_SPAN`: an instruction placed inside a
+//! sentence that a finding QUOTES rides three findings' spans into this
+//! context. Two earlier injection fixtures passed only because they sat where
+//! no finding cited them, which proved nothing.
+//!
+//! Every manuscript-derived string now goes through [`UntrustedText::llm_safe`]
+//! — THE mechanism, not a parallel one — with the same synthetic provenance
+//! `chat_agent::safe_clamp` uses. A span flagged as injection is WITHHELD, and
+//! [`ChatFinding::quarantined`] says so, because a silently-empty span reads as
+//! a finding that quotes nothing.
 //!
 //! # WHAT IS DECLINED, AND WHY EACH
 //!
@@ -36,6 +52,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::refverify::{Provenance, UntrustedText};
 use crate::review_lens::{Concern, ReviewerReport};
 
 /// §10's *"four modes, one scope"*.
@@ -162,6 +179,10 @@ pub struct ChatFinding {
     /// The reviewer document's action text for this criterion. **Labelled, and
     /// never presented as a correction** — see [`CORRECTION_BLOCKER`].
     pub criterion_action: String,
+    /// **Set when a manuscript-derived string was withheld as injection.**
+    /// Never silent: an empty span and a quarantined one mean opposite things
+    /// to a reader, and to a model.
+    pub quarantined: Vec<String>,
 }
 
 /// The context a turn is answered from.
@@ -178,18 +199,38 @@ pub fn context_from(reports: &[ReviewerReport]) -> ChatContext {
     let mut findings = Vec::new();
     for r in reports {
         for c in r.major_concerns.iter().chain(r.minor_concerns.iter()) {
+            let mut quarantined = Vec::new();
+            let summary = safe(&c.summary, "report", &mut quarantined, "summary");
+            let spans: Vec<String> = c
+                .spans
+                .iter()
+                .enumerate()
+                .map(|(i, s)| safe(s, "manuscript", &mut quarantined, &format!("span {}", i + 1)))
+                .collect();
             findings.push(ChatFinding {
                 id: format!("f{}", findings.len() + 1),
                 lens: r.lens.as_str().to_string(),
                 criterion: c.criterion.clone(),
                 code: c.code.clone(),
                 severity: c.severity.as_str().to_string(),
-                summary: c.summary.clone(),
+                summary,
                 severity_reason: severity_reason(c),
                 uncertainty: c.uncertainty.clone(),
-                spans: c.spans.clone(),
-                how_to_check: c.trail.iter().map(|t| format!("{}: {}", t.stage, t.detail)).collect(),
+                spans,
+                // **The trail carries the spans too.** Sanitising `spans` and
+                // not this left the instruction reaching the context through
+                // the `evidence` step, which quotes every span back. The red
+                // team found the first leak; re-running it found this one.
+                how_to_check: c
+                    .trail
+                    .iter()
+                    .map(|t| {
+                        let d = safe(&t.detail, "report", &mut quarantined, &t.stage);
+                        format!("{}: {}", t.stage, d)
+                    })
+                    .collect(),
                 criterion_action: c.required_revision.clone(),
+                quarantined,
             });
         }
     }
@@ -201,6 +242,38 @@ pub fn context_from(reports: &[ReviewerReport]) -> ChatContext {
             .map(|m| (m.as_str().to_string(), m.blocker().unwrap().to_string()))
             .collect(),
     }
+}
+
+/// **Run one manuscript-derived string through the firewall.**
+///
+/// `UntrustedText::llm_safe` withholds the whole string when the injection
+/// scanner flags it, so a flagged span never reaches a model. The synthetic
+/// provenance matches `chat_agent::safe_clamp`'s: this text came from a parsed
+/// document, not a fetch, and there is no URL to record.
+fn safe(raw: &str, source: &str, quarantined: &mut Vec<String>, what: &str) -> String {
+    let prov = Provenance {
+        source: source.to_string(),
+        url: String::new(),
+        fetched_at: 0,
+        checksum: String::new(),
+        from_cache: false,
+    };
+    let t = UntrustedText::new(raw, prov);
+    if t.is_suspicious() {
+        // **The reason names a COUNT, not the matched pattern.** The first
+        // version interpolated `injection_flags()`, which put the trigger
+        // string back into the payload the withholding exists to protect — the
+        // quarantine notice re-introducing what it quarantined. Caught by
+        // scanning the whole serialised context rather than field by field.
+        // The flags remain available on the `UntrustedText` for anything
+        // server-side that needs them; they do not travel to a model.
+        quarantined.push(format!(
+            "{what} withheld: {} injection pattern(s) detected in manuscript-derived text. \
+             The pattern itself is deliberately not repeated here.",
+            t.injection_flags().len()
+        ));
+    }
+    t.llm_safe()
 }
 
 /// The trail step that explains the severity, which is what EXPLAIN turns on.
@@ -352,8 +425,61 @@ mod tests {
         );
     }
 
+    /// **The WHOLE serialised context is scanned, not a field at a time.**
+    ///
+    /// Sanitising `summary` and `spans` still leaked, because the trail's
+    /// `evidence` step quotes every span back. Checking one field at a time is
+    /// how that survived the first fix; this asserts the property over the
+    /// whole artefact, so the next field added is covered by construction.
+    #[test]
+    fn no_injection_pattern_survives_anywhere_in_the_serialised_context() {
+        for text in [
+            crate::red_team::INJECTION_INSIDE_A_QUOTED_SPAN,
+            crate::red_team::CAPTION_INJECTION,
+        ] {
+            let (_, reports, _) = crate::red_team::run_pipeline(text, None);
+            let c = context_from(&reports);
+            let json = serde_json::to_string(&c).unwrap();
+            let hits = crate::sanitize::scan_injections(&json);
+            assert!(
+                hits.is_empty(),
+                "an injection pattern survived into the context: {hits:?}"
+            );
+        }
+    }
+
+    /// **An instruction inside a quoted span never reaches the chat context.**
+    ///
+    /// The Phase 7b fixture that exposed the original defect: this module
+    /// claimed the `llm_safe` discipline was reused and copied spans raw. Two
+    /// earlier injection fixtures passed only because they sat where no finding
+    /// cited them.
+    #[test]
+    fn an_injection_inside_a_quoted_span_is_withheld_from_the_context() {
+        let text = crate::red_team::INJECTION_INSIDE_A_QUOTED_SPAN;
+        let (_, reports, _) = crate::red_team::run_pipeline(text, None);
+        let leaked = crate::red_team::injection_reaches_a_finding(&reports);
+        assert!(!leaked.is_empty(), "precondition: the finding spans DO carry it: {leaked:?}");
+
+        let c = context_from(&reports);
+        let json = serde_json::to_string(&c).unwrap();
+        assert!(
+            !json.to_lowercase().contains("ignore previous instructions"),
+            "the instruction reached the chat context"
+        );
+        assert!(
+            c.findings.iter().any(|f| !f.quarantined.is_empty()),
+            "and the withholding is stated, not silent: {:?}",
+            c.findings.iter().map(|f| &f.quarantined).collect::<Vec<_>>()
+        );
+    }
+
     /// **Nothing in the context is computed.** §10: the model phrases, it does
-    /// not compute. Every field is a copy of a stored one.
+    /// not compute. Every field is a copy of a stored one — passed through the
+    /// firewall, which returns the text unchanged unless the injection scanner
+    /// flags it. This fixture carries no injection, so copy-equality is the
+    /// right assertion here; `no_injection_pattern_survives_anywhere_in_the_serialised_context`
+    /// covers the flagged case.
     #[test]
     fn every_context_field_is_copied_from_the_stored_run() {
         let ex = crate::extract::extract_from_text(PAPER);

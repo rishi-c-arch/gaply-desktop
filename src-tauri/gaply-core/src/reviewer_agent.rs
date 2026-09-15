@@ -247,12 +247,53 @@ impl ReviewerEvaluation {
     }
 }
 
+/// Length only. **Not a sanitiser** — see [`safe`], which is what every payload
+/// field goes through. Kept separate so the two jobs cannot be confused: this
+/// one bounds cost, that one bounds trust.
 fn clamp(s: &str) -> String {
     if s.chars().count() <= FIELD_CLAMP {
         s.to_string()
     } else {
         s.chars().take(FIELD_CLAMP).collect()
     }
+}
+
+/// llm_safe THEN clamp — the function every string in a model payload goes
+/// through, whatever we believe its origin to be.
+///
+/// # This replaced a per-field judgement that was wrong about one field
+///
+/// The payload builders used to apply plain [`clamp`] to `title`, `requirement`,
+/// `overall_verdict` and the journal name, on the stated premise that those are
+/// GAPLY'S OWN strings — `detail`, the field holding manuscript excerpts, is
+/// never read into the payload, and that sentence was in the code as a comment.
+/// It was true of every finding family except one. `equation_report`'s
+/// `arithmetic_finding` and `dimension_finding` build their titles as
+/// `format!("Arithmetic {}: {}", status, truncate(&f.source_line, …))` — the
+/// manuscript's own equation LINE, verbatim, in the title.
+///
+/// **Measured (red team RT2b, `examples/rt2b_payload_probe.rs`):** a manuscript
+/// carrying `ignore previous instructions = 36.5 + 28.2 + 20.1 = 100.0` — an
+/// equation whose left-hand LABEL is the injected instruction, which is the one
+/// shape of six tried that survives the equation parser intact — produced
+/// `[Major] Arithmetic detected: ignore previous instructions = 36.5 + 28.2 +
+/// 20.1 = 100.0`, and a scan of the SERIALISED payload returned one hit. The
+/// instruction reached the model as a finding title.
+///
+/// So the rule is not "sanitise the untrusted fields". It is **sanitise the
+/// payload**, because which fields are untrusted is a property of every
+/// finding constructor in the crate and cannot be settled by reading this file.
+/// `llm_safe` on a string we did write is the identity (bar zero-width
+/// stripping), so the cost of applying it everywhere is nothing.
+fn safe(s: &str) -> String {
+    let prov = Provenance {
+        source: "report".to_string(),
+        url: String::new(),
+        fetched_at: 0,
+        checksum: String::new(),
+        from_cache: false,
+    };
+    clamp(&UntrustedText::new(s, prov).llm_safe())
 }
 
 use crate::evidence::{is_structured_provenance, ClaimKind};
@@ -373,7 +414,16 @@ fn build_supplementary(supplementary: &[Value]) -> (Value, Vec<String>) {
 /// The obligation is enforced by `summary_shape_is_pinned_to_the_format_version`,
 /// which pins the exact key set at every level. Adding a field fails that test,
 /// and its message names this constant.
-pub const SUMMARY_FORMAT_VERSION: u32 = 1;
+///
+/// * **1 → 2** — every payload string now goes through [`safe`] (llm_safe, then
+///   clamp) rather than plain [`clamp`]. On a manuscript containing no injection
+///   pattern the bytes are identical, which is exactly why this needs the bump
+///   and not a shrug: on the manuscripts where it DOES differ, the same review
+///   serialises differently before and after, so historical `summary_digest`
+///   values for those runs are not comparable to new ones. The key set is
+///   unchanged, so the pin test does not catch this — the obligation is the
+///   sentence above, and this is it being honoured.
+pub const SUMMARY_FORMAT_VERSION: u32 = 2;
 
 /// sha256 over the ORDERED `(id, severity, title)` tuples actually forwarded to
 /// the wholesale reviewer.
@@ -508,7 +558,7 @@ pub fn build_review_payload(
             .provenance
             .iter()
             .filter(|p| is_structured_provenance(p))
-            .map(|p| clamp(p))
+            .map(|p| safe(p))
             .collect();
         payload_findings.push(json!({
             "id": id,
@@ -516,7 +566,7 @@ pub fn build_review_payload(
             "tier": f.tier,
             "severity": f.severity,
             // title only — `detail` is deliberately never read (privacy).
-            "title": clamp(&f.title),
+            "title": safe(&f.title),
             "confidence": f.confidence,
             "evidence": evidence,
         }));
@@ -533,7 +583,7 @@ pub fn build_review_payload(
         let id = format!("chk{}", i + 1);
         checklist.push(json!({
             "id": id,
-            "requirement": clamp(&c.requirement),
+            "requirement": safe(&c.requirement),
             "passed": c.passed,
         }));
         checklist_ids.push(id);
@@ -549,11 +599,11 @@ pub fn build_review_payload(
         // Metering: one run = one metered use (server dedups by run_id). Stamped
         // on the wholesale call too, so it unifies with the escalation + shadow
         // calls of the same run — otherwise a live run could meter as 2 uses.
-        "run_id": clamp(run_id),
+        "run_id": safe(run_id),
         "instruction": REVIEWER_INSTRUCTION,
         "summary": {
-            "journal": { "name": clamp(&journal.name), "quartile": clamp(&journal.quartile) },
-            "overall_verdict": clamp(&report.verdict),
+            "journal": { "name": safe(&journal.name), "quartile": safe(&journal.quartile) },
+            "overall_verdict": safe(&report.verdict),
             "findings_omitted": dropped_findings,
             "findings": payload_findings,
             "checklist": checklist,
@@ -1257,7 +1307,7 @@ pub fn build_reviewer_request(input: &ReviewerInput) -> ReviewerRequest {
             .evidence_refs
             .iter()
             .filter(|p| is_structured_provenance(p))
-            .map(|p| clamp(p))
+            .map(|p| safe(p))
             .collect();
         payload_findings.push(json!({
             "id": f.id,
@@ -1267,9 +1317,9 @@ pub fn build_reviewer_request(input: &ReviewerInput) -> ReviewerRequest {
             "agent": f.agent.map(agent_wire_form).unwrap_or_default(),
             "severity": f.severity,
             "confidence": f.confidence,
-            "title": clamp(&f.title),
+            "title": safe(&f.title),
             // AS DECIDED — the model explains these facts, never overturns them.
-            "verdict": f.verdict.as_deref().map(clamp),
+            "verdict": f.verdict.as_deref().map(safe),
             "verification_state": f.verification_state(),
             "evidence": evidence,
         }));
@@ -1286,7 +1336,7 @@ pub fn build_reviewer_request(input: &ReviewerInput) -> ReviewerRequest {
         let id = format!("chk{}", i + 1);
         checklist.push(json!({
             "id": id,
-            "requirement": clamp(c["requirement"].as_str().unwrap_or("")),
+            "requirement": safe(c["requirement"].as_str().unwrap_or("")),
             "passed": c["passed"],
         }));
         checklist_ids.push(id);
@@ -1298,11 +1348,11 @@ pub fn build_reviewer_request(input: &ReviewerInput) -> ReviewerRequest {
     let payload = json!({
         "task": "publishready_review",
         // Metering: one run = one metered use (server dedups by run_id).
-        "run_id": clamp(&input.metadata.run_id),
+        "run_id": safe(&input.metadata.run_id),
         "instruction": REVIEWER_SYNTHESIS_INSTRUCTION,
         "summary": {
-            "journal": { "name": clamp(&input.journal.name), "quartile": clamp(&input.journal.quartile) },
-            "overall_verdict": clamp(&input.metadata.overall_verdict),
+            "journal": { "name": safe(&input.journal.name), "quartile": safe(&input.journal.quartile) },
+            "overall_verdict": safe(&input.metadata.overall_verdict),
             "findings_omitted": findings_omitted,
             "findings": payload_findings,
             "checklist": checklist,
@@ -1880,7 +1930,11 @@ mod tests {
             ["items", "note", "present"],
             "{}", bump("summary.supplementary")
         );
-        assert_eq!(SUMMARY_FORMAT_VERSION, 1, "{}", bump("the pinned shape"));
+        // 1 -> 2: every payload string moved from plain `clamp` to `safe`
+        // (llm_safe, then clamp). The KEY SET is unchanged, so this line is the
+        // only part of the pin that moved — which is the point of keeping the
+        // version in the assertion rather than only the shape.
+        assert_eq!(SUMMARY_FORMAT_VERSION, 2, "{}", bump("the pinned shape"));
     }
 
     /// The two digests answer different questions and must not be conflated: the

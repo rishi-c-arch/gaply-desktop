@@ -1035,6 +1035,50 @@ time injection.
   and narrate the result. And when you write a comment asserting that something
   was measured, the comment is a claim — it needs the same evidence as a number.
 
+  **A COMMENT'S JURISDICTION IS THE FILE IT SITS IN — the sixth instance, and
+  the one that makes no false claim about itself at all.** 15 Sep 2026,
+  red-teaming the reviewer payload. `reviewer_agent::build_review_payload`
+  applied a plain length `clamp` to `title` under this:
+
+  ```rust
+  // title only — `detail` is deliberately never read (privacy).
+  ```
+
+  Every word of that is true **of that file**. The builder does read only
+  `title`, and `detail` — the field holding manuscript excerpts — never enters
+  the payload. What it asserts, silently, is a fact about the CRATE: that no
+  finding constructor anywhere puts manuscript text in a title. **That is false,
+  in `equation_report.rs`**, whose Tier-0 titles are `format!("Arithmetic {}:
+  {}", status, truncate(&f.source_line, …))` — the manuscript's own line,
+  verbatim. A paper whose equation LABEL is `ignore previous instructions =
+  36.5 + 28.2 + 20.1 = 100.0` put that instruction into the model payload as a
+  finding title.
+
+  **The difference from the `exists()` entry above is the whole reason this is
+  a separate variant.** That one asserted its own answer and its comment lied
+  about having measured. This comment lies about nothing — it describes its own
+  file accurately, and I had read and approved it two commits earlier while
+  looking for exactly this class of problem. **No amount of re-reading
+  `reviewer_agent.rs` could have found it, because the falsifying fact is in
+  another file.** It is the spec/impl/test agreement entry's shape with the
+  artefacts reduced to one: a statement consistent with everything in view.
+
+  **Second instance, same week:** `chat_scope`'s header said it *"reuses the
+  `llm_safe` firewall unchanged"* — true of the field it was written about, and
+  false of the three the module also copied. Both were headers I had approved.
+
+  **The rule: a claim about what OTHER code does or does not produce is a claim
+  about the crate, and only a fixture that runs the crate can check it.**
+  Operationally — when a comment says *"X never contains Y"*, that is a testable
+  assertion about the system, so write the test. **If it cannot be written as a
+  test, it should not be written as a statement of fact**; write what the file
+  itself does and stop at its boundary.
+
+  And the test has to be a WHOLE-ARTEFACT scan, not a field-by-field one: the
+  first `chat_scope` fix checked the fields someone had listed, and two of three
+  leaks survived it. Serialise the thing and scan the bytes, so a field added
+  tomorrow is covered by a test nobody updates.
+
 - **A Bash call refused by the permission classifier runs NOTHING, including the
   parts you later assume ran. `git status` is the only thing that catches it.**
   13 Sep 2026: a single call combined a `python3` patch of `orchestrator.rs`

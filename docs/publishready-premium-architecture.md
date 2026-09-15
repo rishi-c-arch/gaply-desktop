@@ -1595,6 +1595,65 @@ which is what this phase was asked for:
 
 **Phase 7b — full-system red team (1 week, before any researcher).** Adversarial manuscripts: injection in a PDF; a guideline page that instructs; a table designed to mislead; a "first to show" claim that is false; an SPSS file that contradicts the paper. Every one must produce the right finding or an honest `UNVERIFIED`, and none may reach a wrong `CONFIRMED`.
 
+**[v8 — PHASE 7b RAN. SEVEN FIXTURES, SIX PASSES, ONE NAMED GAP THAT BLOCKS
+RELEASE, AND ONE WRONG CLAIM THAT WAS DOCUMENTARY.]**
+`gaply-core/src/red_team.rs`, `examples/red_team.rs`.
+
+**The gap: RT4, the misleading table, is UNCHECKED — no checker exists.**
+`BAD_TOTALS` is a table whose column sums to 97.2 and whose Total row says
+100.0. The extractor finds the table (`ex.tables.len() == 1`); nothing then
+reads its numbers. The pipeline produces no finding about it, and because
+§12's own standard is *"the right finding or an honest `UNVERIFIED`"*, a
+silence here is a failure and not a pass. `rt4_no_table_total_check_exists_
+and_the_gap_is_declared` asserts the absence, so it fails the day a checker
+is added and the fixture must then be rewritten to assert the finding.
+
+**What it would take, stated so the person who picks it up meets the real
+requirement.** The sum check itself is an hour. The work is the validation,
+and it is the same bar as D128 and D166: **a corpus of real published tables
+with known totals**, large enough to establish how often a genuine table fails
+a naive sum — rounding to one decimal, percentages over a subgroup rather than
+the sample, weighted totals, a footnote saying "column may not sum to 100 due
+to rounding". A checker built and shipped without that corpus does not detect
+misleading tables; it emits a false BLOCKING finding on the ordinary rounding
+of an honest paper, which is the D157 failure (four fabricated Tier-0 findings,
+all from the checker rather than the manuscripts) repeated in a place where
+the finding accuses an author of misrepresentation. Until that corpus exists,
+the gap stays open and declared.
+
+**The one wrong claim the red team found was documentary.** RT2b — an
+injection inside a sentence a finding quotes — was swept against
+`reviewer_agent::build_review_payload` as a **whole-artefact scan**: build the
+real payload, serialise it, run `sanitize::scan_injections` over the bytes.
+It came back with one hit. The builder sanitised its supplementary evidence
+and applied a plain length `clamp` to `title`, on a premise written into the
+code as a comment — *"title only — `detail` is deliberately never read
+(privacy)"*. That sentence is true of every finding family except one:
+`equation_report`'s Tier-0 titles are `format!("Arithmetic {}: {}", status,
+truncate(&f.source_line, …))` — the manuscript's own line, verbatim. A
+manuscript whose equation LABEL is the instruction (`ignore previous
+instructions = 36.5 + 28.2 + 20.1 = 100.0`, the only one of six shapes that
+survives the equation parser intact) put that instruction into the model
+payload as a finding title.
+
+**That is the argument for the phase existing, and it matters more than the
+six passes.** The header making the false claim had been read and approved two
+commits earlier, in §5.7 and §9 work, by someone looking for exactly this
+class of problem. Nothing in the file was inconsistent; the comment described
+the builder accurately and was wrong about the crate. No amount of re-reading
+`reviewer_agent.rs` would have surfaced it, because the fact that falsifies it
+lives in `equation_report.rs`. **The fix is not to sanitise the untrusted
+fields but to sanitise the payload** — `reviewer_agent::safe` (llm_safe, then
+clamp) now wraps every string in both builders, so which fields are
+manuscript-derived stops being a question this file has to answer correctly.
+`SUMMARY_FORMAT_VERSION` 1 → 2, and `harness_log`'s pin is what made that
+bump cost something.
+
+**And field-by-field was the method that failed here before.** Two of the
+three `chat_scope` leaks survived the first fix because each was a field
+nobody had listed. Both red-team payload tests therefore serialise the whole
+artefact and scan the bytes.
+
 **Phase 8 — execution sandbox (not v1, possibly not v2).** Running uploaded code in isolation to genuinely reproduce results. This reintroduces process execution into a product whose security posture rests on its absence. It needs its own threat model, its own review, and probably its own binary. Recorded so it is not rediscovered as "just add a runner."
 
 Roughly three months to Phase 6. The forty agents arrive in Phase 4 as specialists, not as a headcount.
