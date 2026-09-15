@@ -1595,31 +1595,66 @@ which is what this phase was asked for:
 
 **Phase 7b — full-system red team (1 week, before any researcher).** Adversarial manuscripts: injection in a PDF; a guideline page that instructs; a table designed to mislead; a "first to show" claim that is false; an SPSS file that contradicts the paper. Every one must produce the right finding or an honest `UNVERIFIED`, and none may reach a wrong `CONFIRMED`.
 
-**[v8 — PHASE 7b RAN. SEVEN FIXTURES, SIX PASSES, ONE NAMED GAP THAT BLOCKS
-RELEASE, AND ONE WRONG CLAIM THAT WAS DOCUMENTARY.]**
+**[v8 — PHASE 7b RAN. SEVEN FIXTURES, SIX PASSES, ONE LANE DECLINED ON ITS OWN
+CORPUS, AND ONE WRONG CLAIM THAT WAS DOCUMENTARY.]**
 `gaply-core/src/red_team.rs`, `examples/red_team.rs`.
 
-**The gap: RT4, the misleading table, is UNCHECKED — no checker exists.**
+**RT4, the misleading table, is DECLINED — §11 D167. The corpus was built and
+it answered a different question than the one asked.**
 `BAD_TOTALS` is a table whose column sums to 97.2 and whose Total row says
-100.0. The extractor finds the table (`ex.tables.len() == 1`); nothing then
-reads its numbers. The pipeline produces no finding about it, and because
-§12's own standard is *"the right finding or an honest `UNVERIFIED`"*, a
-silence here is a failure and not a pass. `rt4_no_table_total_check_exists_
-and_the_gap_is_declared` asserts the absence, so it fails the day a checker
-is added and the fixture must then be rewritten to assert the finding.
+100.0. The extractor finds the table; nothing reads its numbers. §12 previously
+recorded this as a named gap blocking release, with *"a corpus of real tables
+with known totals"* as the requirement. That corpus now exists, over the same 20
+manuscripts as D165 and D166, and the finding is not the one the gap
+anticipated.
 
-**What it would take, stated so the person who picks it up meets the real
-requirement.** The sum check itself is an hour. The work is the validation,
-and it is the same bar as D128 and D166: **a corpus of real published tables
-with known totals**, large enough to establish how often a genuine table fails
-a naive sum — rounding to one decimal, percentages over a subgroup rather than
-the sample, weighted totals, a footnote saying "column may not sum to 100 due
-to rounding". A checker built and shipped without that corpus does not detect
-misleading tables; it emits a false BLOCKING finding on the ordinary rounding
-of an honest paper, which is the D157 failure (four fabricated Tier-0 findings,
-all from the checker rather than the manuscripts) repeated in a place where
-the finding accuses an author of misrepresentation. Until that corpus exists,
-the gap stays open and declared.
+**The input census.** 414 tables reported by `detect_table`; **237 (57%) are
+list-of-tables front matter with no body**; 177 real cell runs; 49 grids
+recovered; **2 with an explicit totals row.** `TableRef` carrying no cells is
+not the binding constraint — `docparse` flattens a .docx table to ONE CELL PER
+PARAGRAPH with no row delimiter, so the column count must be inferred.
+**The 28% grid recovery is the probe's heuristic yield, not a property of
+manuscripts**: an extractor reading the .docx table XML would recover far more,
+and nothing here licenses "72% of real tables are unparseable".
+
+**No false-positive rate is reported, and that is the point.** Four of eleven
+numeric columns across the two tables would fail a naive sum. **4/11 is
+precise enough to quote and too small to mean anything** — one table either way
+moves it fifteen points. That is D166's own correction applied to this phase's
+number, so two anecdotes are recorded as two anecdotes.
+
+**What the two tables do settle.** All four predicted failure modes appear, and
+**all four are the checker's error on papers that are correct.** Only one is a
+tolerance problem — `Pop. Weight` at 99.90 vs 100.0. The other three cannot be
+tuned: a **rate column cannot be summed at all** (`Provision %` is 12/111,
+32/64, …; the stated 36.5 is 81/222, and the 218.70 a naive sum produces is an
+artefact of treating rates as shares); a **subtotal excluded from one column and
+included in the total needs the row's meaning** (a pilot row showing `–` under
+`Sample %` and 30 under `Total Sample (n)`); and the reconciliation can be
+**written in prose inside the cell** — `"600 (+30 pilot)"`.
+
+**So the finding is not that the check is hard to tune. The check's real input
+is COLUMN SEMANTICS — count, share, rate, weight — and that layer does not
+exist.** A sum check without it is not a weak check; it is an operation applied
+where the operation is undefined. Same shape as D165's analysis records and
+D166's scientific layer: the layer beneath is thinner than the design assumed.
+
+**Reopening condition — all three, the first two prerequisites of the third.**
+(1) a table extractor reading .docx table XML rather than the flattened
+paragraph stream; (2) a way to tell a count column from a rate column, clearing
+D128's bar, since header text alone does not do it — `Sample %` and
+`Pop. Weight` are both percentages and only one is a share; (3) a corpus large
+enough for a rate, where twenty manuscripts produced two checkable tables.
+
+`red_team.rs` asserts RT4's silence rather than skipping it, the same treatment
+as RT5's novelty lane.
+
+**Two extractor defects found on the way, recorded separately in D167 because
+they are defects in shipping code independent of RT4.** `detect_table` fires on
+any paragraph opening `Table N`, so a contents page is a run of matches — 237 of
+414, and `report::table_findings` reports that inflated number to the user as a
+table count. And prefix captioning takes the remainder of such a paragraph as
+the caption, so 500 characters of Results prose became one table's caption.
 
 **The one wrong claim the red team found was documentary.** RT2b — an
 injection inside a sentence a finding quotes — was swept against

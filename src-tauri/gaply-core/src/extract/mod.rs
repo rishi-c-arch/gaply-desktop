@@ -347,6 +347,28 @@ pub fn extract_from_text_with(text: &str, opts: ExtractOptions) -> ExtractionRes
 }
 
 /// A paragraph that begins "Table N ..." is treated as that table's caption.
+///
+/// # TWO MEASURED DEFECTS, recorded in §11 D167 and NOT fixed here
+///
+/// Both were found building RT4's corpus over 20 real manuscripts. They are
+/// defects in this function, independent of the lane that surfaced them.
+///
+/// 1. **A contents page is a run of matches.** Any paragraph opening `Table N`
+///    qualifies, so a thesis list-of-tables produces one `TableRef` per entry:
+///    **237 of 414 detections (57%)** across the corpus were front-matter rows
+///    such as `"Table 2:Evolution of Small-Scale Industry Definition in India
+///    47"`, where `47` is a page number and no body follows. Anything reading
+///    `ExtractionResult::tables` as a TABLE COUNT is reading a number roughly
+///    2.3x too large — `report::table_findings` does exactly that.
+/// 2. **Prefix captioning swallows prose.** The caption is the remainder of the
+///    matching paragraph, so *"Table 2 presents mediation pathway coefficients.
+///    In Path A, each one-level increase…"* — 500 characters of Results prose —
+///    became that table's caption. A caption field that can hold a paragraph is
+///    not a caption.
+///
+/// Fixing either is extractor work needing its own before/after measurement:
+/// the discriminator for (1) is whether a BODY follows, which this function
+/// cannot see from one paragraph.
 fn detect_table(paragraph: &str, loc: &Location) -> Option<TableRef> {
     let re = &stats::regexes().table_caption;
     let caps = re.captures(paragraph.trim())?;

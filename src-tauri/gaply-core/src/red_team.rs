@@ -64,6 +64,15 @@ pub enum Expectation {
     /// FAILURE, not a pass: *"a silent absence — the pipeline said nothing
     /// where it should have — is the same failure"*. Recorded so the silence is
     /// visible as itself; what a fixture in this state blocks is release.
+    ///
+    /// **Currently unused, deliberately kept.** RT4 was the only fixture in this
+    /// state; building its corpus moved it to [`Expectation::HonestSilence`]
+    /// (§11 D167). The variant stays because the DISTINCTION is the vocabulary's
+    /// point: an unchecked gap blocks release and a declined lane does not, and
+    /// a suite that can only say the second will quietly record the first as the
+    /// second. The next fixture whose check has simply not been written needs
+    /// this to exist.
+    #[allow(dead_code)]
     UncheckedGap { needs: &'static str },
 }
 
@@ -252,14 +261,10 @@ pub fn fixtures() -> Vec<Fixture> {
             id: "RT4",
             what: "table totals that do not sum",
             attack: Attack::MisleadingArithmetic,
-            expectation: Expectation::UncheckedGap {
-                needs: "a deterministic table-total check. `table_findings` counts tables and \
-                        captions and checks no arithmetic; `TableRef` carries label, caption \
-                        and location but no cells, so the rows would have to be read from the \
-                        paragraph text. Building it needs its own corpus validation before it \
-                        ships: a naive sum check fires on rounding, on subtotals, and on \
-                        percentages taken of different bases, and a check that reports a \
-                        correct table as wrong is worse than none",
+            expectation: Expectation::HonestSilence {
+                lane: "table_totals",
+                decline: "§11 D167 — 2 tables with a totals row in 20 manuscripts, and all 4 \
+                          naive-sum failures were the checker's error on correct papers",
             },
         },
         Fixture {
@@ -489,15 +494,27 @@ mod tests {
         );
     }
 
-    /// **RT4 — the table-total check does not exist, and the silence is
-    /// recorded rather than passed.**
+    /// **RT4 — the table-total lane is DECLINED, and the silence is asserted
+    /// rather than skipped.**
     ///
-    /// §12: *"Every one must produce the right finding or an honest
-    /// `UNVERIFIED`."* This produces neither. The test asserts the gap so it is
-    /// visible in the suite, and **fails the day a checker is added** — at
-    /// which point the fixture must be rewritten to assert the finding instead.
+    /// This was an UNCHECKED GAP until its corpus was built. §11 D167 records
+    /// what the corpus said: **2 tables with a totals row across 20
+    /// manuscripts**, and all four naive-sum failures in them were the
+    /// CHECKER'S error on papers that are correct — a rate column summed as if
+    /// it were a share, a pilot subtotal excluded from one column and counted
+    /// in the total, a reconciliation written in prose inside the cell
+    /// (`"600 (+30 pilot)"`), and one genuine rounding case at 0.10.
+    ///
+    /// Only the last is a tolerance problem. The others need to know what each
+    /// column IS — count, share, rate, weight — and that layer does not exist.
+    /// So this is a declined LANE, the same treatment as RT5's novelty, not an
+    /// unbuilt check.
+    ///
+    /// Deletion-test note: the silence assertion below is not vacuous only
+    /// because the table IS extracted (`ex.tables.len() == 1`). Without that
+    /// precondition this would pass on a manuscript containing no table.
     #[test]
-    fn rt4_no_table_total_check_exists_and_the_gap_is_declared() {
+    fn rt4_the_table_total_lane_is_declined_and_says_so() {
         let (ex, reports, _) = run_pipeline(BAD_TOTALS, None);
         assert_eq!(ex.tables.len(), 1, "precondition: a table IS extracted");
         let found = codes(&reports);
@@ -506,15 +523,20 @@ mod tests {
                 let l = c.to_lowercase();
                 l.contains("total") || l.contains("arith") || l.contains("sum")
             }),
-            "a table-total check now exists — rewrite RT4 to assert the finding: {found:?}"
+            "a table-total check now exists — D167 is reopened, so rewrite RT4 \
+             to assert the finding: {found:?}"
         );
         let f = fixtures();
         let rt4 = f.iter().find(|x| x.id == "RT4").unwrap();
         match &rt4.expectation {
-            Expectation::UncheckedGap { needs } => {
-                assert!(needs.contains("corpus validation"), "{needs}")
+            Expectation::HonestSilence { lane, decline } => {
+                assert_eq!(*lane, "table_totals");
+                // The decline names its measurement, not just its existence —
+                // a reader meeting this should meet the number.
+                assert!(decline.contains("D167"), "{decline}");
+                assert!(decline.contains("20 manuscripts"), "{decline}");
             }
-            other => panic!("RT4 must declare its gap, not claim a finding: {other:?}"),
+            other => panic!("RT4 must declare its decline, not claim a finding: {other:?}"),
         }
     }
 

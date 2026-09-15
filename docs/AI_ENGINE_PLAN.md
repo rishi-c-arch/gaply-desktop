@@ -11212,3 +11212,142 @@ expensive one:
    This is the extractor D165 already declined, and it would have to clear
    D128's bar — a labelled set, a measured precision per stratum, a no-skill
    comparison it beats, and a confidence that varies.
+
+---
+
+### D167 — the table-total check is DECLINED: 2 checkable tables in 20 manuscripts, and all four failures are the checker's
+
+**Date:** 15 Sep 2026. **Supersedes** §12's RT4 entry, which recorded this as a
+named gap blocking release with "a corpus of real tables with known totals" as
+its requirement. The corpus was built. It yields **two tables**, and the finding
+is not the one the gap anticipated.
+
+**Instruments:** `gaply-core/examples/table_totals_scan.rs` (does a totals row
+exist at all), `table_body_rows.rs` (print the flattened body verbatim),
+`table_grid_scan.rs` (the census and the per-column verdict). Corpus: the same
+20 manuscripts as D165 and D166.
+
+#### 1. The input census
+
+| | count |
+|---|---:|
+| tables `extract::detect_table` reports | **414** |
+| list-of-tables front matter, no body | **237** (57%) |
+| real tables with a cell run | **177** |
+| grid recovered | **49** (28%) |
+| **with an explicit totals row** | **2** |
+| with a column summing to ~100 | 2 — the same two |
+
+**`TableRef` carrying no cells is not the binding constraint.** `docparse`
+flattens a .docx table to **one cell per paragraph**, row-major, with no row
+delimiter, so the column count must be inferred and 128 of 177 resist it —
+merged cells, wrapped cells, footnote rows.
+
+**The 28% is THIS PROBE'S HEURISTIC YIELD, not a property of manuscripts.** A
+table extractor reading the .docx table XML would recover far more. Nothing here
+licenses the sentence "72% of tables in real manuscripts are unparseable"; what
+it licenses is "the flattened paragraph stream loses the grid, and rebuilding it
+from cell counts fails most of the time".
+
+#### 2. Why no false-positive rate is reported
+
+**n = 2.** Four of eleven numeric columns across the two tables would fail a
+naive sum, and **4/11 = 36% is exactly the kind of number this log has already
+corrected twice.** It is precise enough to quote and too small to mean anything:
+one table either way moves it by fifteen points. D166's correction — a figure
+that arrives from somewhere other than a measurement large enough to support it
+— applies here to this phase's own number, so the rate is deliberately NOT
+recorded as a rate. Two anecdotes are recorded as two anecdotes.
+
+#### 3. What the two tables show — the part that IS conclusive
+
+All four failure modes §12 predicted appear, in two tables, and **all four are
+the checker's error on papers that are correct**:
+
+```
+[Jitesh, Table 20 — 8 cols]
+  ["Pilot Study","–","–","–","–","30","–","Pre-test only"]
+  ["TOTAL","144","178","134","114","600 (+30 pilot)","100.0%","100.0%"]
+
+  col 1–4                  EXACT
+  col 5 Total Sample (n)   stated "600 (+30 pilot)" IS NOT A NUMBER
+  col 6 Sample %           95.00 vs 100.00   -> would fire
+  col 7 Pop. Weight        99.90 vs 100.00   -> rounding
+
+[Revised Health Economics, Table 1 — 6 cols]
+  ["Total","222","100.0","81","36.5","30.2–43.1"]
+  col 1 n            222.00 vs 222.00   EXACT
+  col 2 % of sample  100.00 vs 100.00   EXACT
+  col 3 Insured n     81.00 vs  81.00   EXACT
+  col 4 Provision %  218.70 vs  36.50   -> would fire
+```
+
+**Only one of the four is a tolerance problem.** `Pop. Weight` is rounding at
+0.10, and a tolerance fixes it. The other three cannot be tuned:
+
+* **A rate column cannot be summed at all.** `Provision %` is 12/111, 32/64,
+  20/26, 17/21 — per-row rates. The stated 36.5 is 81/222. The 218.70 is an
+  artefact of treating rates as shares; no tolerance reaches it, because the
+  operation was wrong before the arithmetic started.
+* **A subtotal excluded from one column and included in the total needs the
+  ROW'S MEANING.** The pilot row shows `–` under `Sample %` but 30 under
+  `Total Sample (n)`: 570 district units + 30 pilot = 600. The table is
+  internally consistent. A naive check drops the `–` row from the sum and then
+  compares against a total that counts it.
+* **The reconciliation can be written in prose INSIDE the cell.**
+  `"600 (+30 pilot)"` is the author explaining the discrepancy in the one place
+  a parser will not look.
+
+#### The finding
+
+**It is not that the check is hard to tune. It is that the check's real input is
+COLUMN SEMANTICS — is this column a count, a share, a rate, a weight — and that
+layer does not exist.** A sum check without it is not a weak check; it is an
+operation applied to columns where the operation is undefined.
+
+That is the same shape as **D165** (the scientific layer declined because the
+extractor beneath it scored 5.9% against a 50% no-skill baseline) and **D166**
+(novelty declined because the claims it reasons over are 0.1 per manuscript).
+In all three the layer beneath is thinner than the design assumed, and in all
+three the honest move is to decline the feature rather than ship it over a gap.
+
+#### The condition that reopens it
+
+Three requirements, all of them, and the first two are prerequisites of the
+third rather than alternatives to it:
+
+1. **A table extractor reading .docx table XML**, not the flattened paragraph
+   stream — so rows and columns are structure rather than inference.
+2. **A way to tell a count column from a rate column.** Header text is a start
+   (`n`, `%`, `Provision %`) and is not sufficient: `Sample %` and `Pop. Weight`
+   are both percentages and only one is a share of the sample. Whatever supplies
+   this must clear D128's bar — a labelled set, measured precision, a no-skill
+   comparison it beats.
+3. **A corpus large enough for a rate.** Twenty manuscripts produced two
+   checkable tables. A corpus that produces two hundred is what makes a
+   false-positive rate a rate.
+
+Until then RT4 is a **declined lane**, and `red_team.rs` asserts the silence
+rather than skipping the case — the same treatment as RT5's novelty lane.
+
+#### Two extractor defects found on the way, recorded separately
+
+**These are defects in shipping code and are NOT part of the decline.** They
+would matter if RT4 had never existed, and burying them inside a declined lane
+is how a real bug becomes invisible.
+
+1. **`detect_table` matches a contents page.** It fires on any paragraph opening
+   `Table N`, so a thesis list-of-tables is a run of matches: **237 of 414
+   detections, 57%**, are front-matter entries with no body — `"Table 2:Evolution
+   of Small-Scale Industry Definition in India 47"`, where 47 is a page number.
+   Anything reading `ExtractionResult::tables` as a table COUNT is reading a
+   number that is 2.3x too large. `report::table_findings` does exactly that
+   (*"{total} table(s) detected, {captioned} with captions"*).
+2. **Prefix captioning swallows a prose paragraph.** The caption is taken as the
+   remainder of any paragraph starting `Table N`, so *"Table 2 presents mediation
+   pathway coefficients. In Path A, each one-level increase…"* — 500 characters
+   of Results prose — became Table 2's caption in the Revised Health Economics
+   paper. A caption field that can hold a whole paragraph is not a caption.
+
+Both are visible in `examples/table_grid_scan.rs`'s census output and neither is
+fixed here; fixing them is extractor work with its own before/after measurement.
