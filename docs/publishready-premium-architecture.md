@@ -459,6 +459,28 @@ Every output carries a tier. The tier decides what may override what, and the re
 
 **Deterministic evidence outranks model consensus.** Eight agents agreeing an equation is correct is not evidence about the equation. The existing `hard_constraint` flag is Tier 0 and Tier 1; this table is the general form.
 
+**[v8 — THE BLOCKING TIER HAS FOUR CODES AND TWO OF THEM CANNOT FIRE. Read four as the count and the tier looks twice as wide as it is.]**
+
+`review_lens::SEVERITY_POLICY` maps four finding codes to `Blocking`:
+
+| code | reachable? |
+|---|---|
+| `TestGroupMismatch` (`validate.rs`) | **yes** |
+| `SmallSampleCausalClaim` (`validate.rs`) | **yes** |
+| `test_claimed_but_absent_from_analysis` | **no** — it compares the paper's reported tests against an uploaded `AnalysisRecord`, and no picker accepts an analysis file. The parser and the record type both exist; the upload path is the missing half |
+| `PRIOR_WORK_EXISTS` | **no** — the novelty pipeline is declined (§11 D166) |
+
+**So the tier that outranks everything rests on two deterministic statistical
+rules.** Measured across 20 real manuscripts it fired **twice**, both
+`SmallSampleCausalClaim`, on 2 of 20 papers. `Blocking: 0` therefore means those
+two rules did not fire — **not that nothing fatal is present**, and the rubric
+prints that sentence every time rather than leaving the reader to infer it.
+
+This is the same treatment the declined lenses get and for the same reason: a
+count that includes unreachable members overstates coverage, and the two
+unreachable codes have different reopening conditions — an upload path for the
+first, and D166's corpus measurement for the second.
+
 ### 4.5 Reviewer lenses
 
 Specialists produce opinions. Reviewers produce *reports*. The attached reviewer-criteria document describes what a Q1 reviewer actually evaluates, and it does not map one-to-one onto specialists — a methodology reviewer reads the statistics specialist's output *and* the design specialist's *and* the ethics evaluator's, and forms a view.
@@ -839,6 +861,49 @@ The editor reads all reviewer reports, the disagreement map, the journal fingerp
 
 The editor is Tier 4 and overrides nothing below it. It orders and frames; it does not re-decide a Tier 0 finding.
 
+**[v8 — BUILT, and §5.7 names four inputs of which the editor reads three. `gaply-core/src/editor.rs`.]**
+
+| §5.7 says it reads | measured |
+|---|---|
+| all reviewer reports | **real** — four lenses (§4.5 [v8]) |
+| the journal fingerprint | **real** — from a crawl |
+| Tier 0/1 findings | **real** — `validate.rs`, the equation engine |
+| **the disagreement map** | **nothing produces one** |
+
+**The disagreement map does not exist, and this is a correction to this section
+rather than a note about the code.** §5.3 specifies it — *"identifies which
+claims have opinions that differ by more than a threshold, and only those go to
+a second round"* — and §5.3 is unbuilt: the round-table has never run past round
+one, because until `RevisingVerificationAgent` shipped nothing could revise, and
+nothing since has produced a map. `EditorInput` therefore has no field for it,
+and every rubric names it in `not_read` so a reader is not left assuming the
+editor weighed a disagreement it never saw.
+
+**Severity precedence does not need it, and saying why matters.** Precedence is
+a function of the severities already attached to concerns: the most severe tier
+with any member decides, and nothing below it softens the result. That is
+computable from the four reports alone, and `one_blocking_finding_outranks_a_hundred_major_ones`
+is the test. **So the editor's ordering job is whole.**
+
+**WHAT IS LOST IS NOT THE ORDERING — IT IS THE STEP BEFORE IT.** §5.7's own
+pipeline is *"reviewer reports → disagreement map → targeted re-analysis →
+adjudication → EDITOR"*. The map exists to decide **what gets re-analysed**:
+without it there is no targeted second round, so every concern reaching the
+editor is a first-pass concern that no second agent has examined. Concretely:
+
+* **Nothing is adjudicated.** Two lenses reaching opposite conclusions about the
+  same sentence would both arrive, and the editor would count both. It cannot
+  today, because the four lenses partition the finding codes — `every_shipped_finding_code_is_claimed_by_exactly_one_criterion`
+  enforces exactly one owner per code — so **disagreement is currently
+  impossible by construction, not resolved**. That is why its absence costs
+  nothing yet, and it is also the reason the absence is easy to miss.
+* **Nothing is re-examined.** §5.3's economy — *"the revision that happens is the
+  revision that matters"* — buys nothing when no revision happens at all.
+
+The map becomes load-bearing the moment two lenses can speak to one code, which
+is the moment the code-ownership test above has to be relaxed. Until then the
+editor reads three of four inputs and says so.
+
 ### 5.8 Model scheduling
 
 The 8 GB constraint is real. The harness owns it:
@@ -1063,6 +1128,59 @@ Primary causes:     1. Statistical methodology (Statistics lens, 4 major)
 ```
 
 Every count links to its findings. Every cause names its lens and its evidence. No percent sign. The posture is what a reviewer-criteria document calls the outcome; the probability of *that journal* reaching it is Stage 3.
+
+**[v8 — BUILT (`gaply-core/src/editor.rs`), and MEASURED UNINFORMATIVE. The number belongs here, where the posture is defined.]**
+
+Across 20 real manuscripts the posture was:
+
+| posture | manuscripts |
+|---|---:|
+| MAJOR REVISION | **18 of 20** |
+| REJECT | 2 of 20 |
+| MINOR REVISION | 0 |
+| ACCEPT | 0 |
+
+**This is a property of the corpus and of the tiers, not a defect in the
+rubric.** Two facts explain all of it:
+
+1. **20 of 20 manuscripts carry at least one MAJOR concern** — the smallest
+   count on any paper was three. These are real submissions, and MAJOR REVISION
+   is the correct verdict for each of them.
+2. **No manuscript in the corpus is MINOR-only.** `MINOR REVISION` is reachable
+   — it is what the rule returns when no blocking or major concern exists — and
+   nothing in these 20 reached it.
+
+**The boundary is NOT moved to create spread.** Redefining what separates MAJOR
+from MINOR so that 20 papers distribute across four postures would be fitting
+the scale to the sample: the verdicts would differ while the evidence behind
+them did not. A rubric that separates manuscripts the evidence does not separate
+is inventing a distinction, which is the thing every declined lane in this
+document was declined for.
+
+**THE POSTURE'S USEFULNESS IS DOWNSTREAM OF §11 D165 AND D166, NOT OF THIS
+RUBRIC.** The posture becomes informative when the BLOCKING tier widens, and
+§4.4 [v8] measured that tier at **two reachable codes of four** — both
+`validate.rs` rules, firing twice in 20 manuscripts. The two that cannot fire
+are each tied to a declined layer:
+
+| unreachable blocking code | what would reopen it |
+|---|---|
+| `test_claimed_but_absent_from_analysis` | an upload path accepting `.py` / `.R` / `.sps`; the parser and `AnalysisRecord` already exist |
+| `PRIOR_WORK_EXISTS` | **§11 D166** — novelty is declined at 2 real claims in 20 manuscripts |
+
+And the analysis-record path is the one **§11 D165** left standing when it
+declined the scientific layer. So the dependency runs: *fill a declined layer →
+the blocking tier widens → the posture starts to separate manuscripts*. Tuning
+the rubric does none of that, and anyone reaching for the rubric to fix the
+spread is reaching at the wrong layer.
+
+**WHAT A REPORT LEADS WITH.** Not the posture. It is true, it is correct on
+every one of the 20, and it is the same sentence on 18 of them — so a reader who
+sees it first has learned nothing about their manuscript. **The primary causes
+lead, and the posture is a line beneath them**, which is the order
+`examples/lens_review_probe.rs` prints and the order the exports inherit. The
+posture is a summary of the causes, and a summary that never varies belongs
+after the thing it summarises.
 
 ### Stage 2 — Comparative position (when the corpus exists)
 

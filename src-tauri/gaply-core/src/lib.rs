@@ -23,6 +23,7 @@ pub mod config;
 pub mod consistency;
 pub mod page_locate;
 pub mod db;
+pub mod editor;
 pub mod embed;
 pub mod epistemic;
 pub mod equation;

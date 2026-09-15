@@ -1972,7 +1972,7 @@ mod evaluator_tests {
     /// uses to decide how much a pass is worth.
     #[test]
     fn the_coverage_phrase_counts_what_can_be_decided_not_what_is_listed() {
-        let e = evaluate(Standard::Strobe, &ex(REAL));
+        let e = evaluate(Standard::Strobe, &ex(REAL), REAL);
         assert_eq!(e.items_implemented, 5, "five items are listed");
         assert_eq!(e.items_evaluable, 2, "two can actually be decided");
         assert_eq!(e.published_items.unwrap().numbered, 22);
@@ -2003,7 +2003,7 @@ mod evaluator_tests {
             (Standard::Tripod, 1, 22),
         ];
         for (s, evaluable, published) in expected {
-            let e = evaluate(s, &ex(REAL));
+            let e = evaluate(s, &ex(REAL), REAL);
             assert_eq!(e.items_evaluable, evaluable, "{s:?} evaluable");
             assert_eq!(e.published_items.unwrap().numbered, published, "{s:?} numbered");
         }
@@ -2014,7 +2014,7 @@ mod evaluator_tests {
     /// them invents a compliance failure.
     #[test]
     fn an_item_reading_only_the_declined_layer_is_unevaluable_not_missing() {
-        let e = evaluate(Standard::Strobe, &ex(REAL));
+        let e = evaluate(Standard::Strobe, &ex(REAL), REAL);
         let v = e.verdicts.iter().find(|v| v.item == "4").expect("STROBE 4");
         assert_eq!(v.status, ItemStatus::Unevaluable);
         assert_ne!(v.status, ItemStatus::NotFound, "absence of a check is not absence of evidence");
@@ -2025,7 +2025,7 @@ mod evaluator_tests {
     /// A met item carries the paragraph it was decided from, whole.
     #[test]
     fn a_met_item_carries_its_manuscript_span() {
-        let e = evaluate(Standard::Strobe, &ex(REAL));
+        let e = evaluate(Standard::Strobe, &ex(REAL), REAL);
         let v = e.verdicts.iter().find(|v| v.item == "16a").expect("STROBE 16a");
         assert_eq!(v.status, ItemStatus::Met, "a 95% CI is reported: {}", v.detail);
         let span = v.evidence_span.as_ref().expect("a met item must quote its evidence");
@@ -2041,7 +2041,7 @@ mod evaluator_tests {
     #[test]
     fn the_same_item_is_not_found_when_the_evidence_is_absent() {
         let bare = "Abstract\n\nWe surveyed firms.\n\nResults\n\nProvision was common.\n";
-        let e = evaluate(Standard::Strobe, &ex(bare));
+        let e = evaluate(Standard::Strobe, &ex(bare), bare);
         let v = e.verdicts.iter().find(|v| v.item == "16a").unwrap();
         assert_eq!(v.status, ItemStatus::NotFound);
         assert!(v.evidence_span.is_none(), "nothing found, so nothing quoted");
@@ -2405,4 +2405,75 @@ fn a_statement_that_is_genuinely_absent_is_still_flagged_with_its_lexicon() {
     let da = items.iter().find(|i| i.requirement == "data availability statement").unwrap();
     assert!(!da.passed);
     assert!(da.detail.contains("phrasings was found"), "{}", da.detail);
+}
+
+
+/// **A heading the classifier does not know is not a missing section.**
+///
+/// Measured over 20 real manuscripts: 29 section-absence verdicts, 11 of them
+/// contradicted by the manuscript's own text. Every string below is one of
+/// those manuscripts' own heading lines, and each became a MAJOR concern in the
+/// reviewer report.
+#[test]
+fn a_heading_the_classifier_does_not_know_is_not_a_missing_section() {
+    use crate::journal_standards::Standard;
+    use crate::report::ItemStatus;
+
+    for (heading, body) in [
+        ("IV. EXPERIMENTS AND RESULTS", "Accuracy reached 96.42% on the combined set."),
+        ("4.8 INTERPRETATION OF RESULTS", "Provision rose with firm size."),
+    ] {
+        let text = format!("A Title\n\n1. Background\n\nSome prose.\n\n{heading}\n{body}\n");
+        let ex = crate::extract::extract_from_text(&text);
+        assert!(
+            !ex.sections.iter().any(|s| s.kind == crate::extract::SectionKind::Results),
+            "precondition: the classifier misses {heading:?}"
+        );
+        let e = crate::report::evaluate(Standard::Prisma, &ex, &text);
+        let v = e.verdicts.iter().find(|v| v.item == "16a").expect("PRISMA 16a");
+        assert_eq!(
+            v.status,
+            ItemStatus::Met,
+            "{heading:?} is a Results heading: {}",
+            v.detail
+        );
+        assert!(
+            v.detail.contains("fact about the extractor"),
+            "and the row says whose fact it is: {}",
+            v.detail
+        );
+    }
+}
+
+/// The other direction: a manuscript with genuinely no Results section is still
+/// `NotFound`, and the row says what it searched for.
+#[test]
+fn a_manuscript_with_no_results_heading_anywhere_is_still_not_found() {
+    use crate::journal_standards::Standard;
+    use crate::report::ItemStatus;
+    let text = "A Title\n\n1. Background\n\nThis chapter reviews the literature on \
+                sediment chemistry and says nothing about what was measured.\n";
+    let ex = crate::extract::extract_from_text(text);
+    let e = crate::report::evaluate(Standard::Prisma, &ex, text);
+    let v = e.verdicts.iter().find(|v| v.item == "16a").expect("PRISMA 16a");
+    assert_eq!(v.status, ItemStatus::NotFound, "{}", v.detail);
+    assert!(v.detail.contains("no heading-shaped line matching"), "{}", v.detail);
+}
+
+/// **A sentence mentioning results is not a heading.** The fallback scan has to
+/// be heading-SHAPED or it re-admits everything it was added to exclude.
+#[test]
+fn a_sentence_mentioning_results_is_not_a_heading() {
+    use crate::journal_standards::Standard;
+    use crate::report::ItemStatus;
+    for prose in [
+        "The results of the survey were inconclusive and are discussed below.",
+        "Table 3 summarises our findings for each of the three lakes studied.",
+    ] {
+        let text = format!("A Title\n\n1. Background\n\n{prose}\n");
+        let ex = crate::extract::extract_from_text(&text);
+        let e = crate::report::evaluate(Standard::Prisma, &ex, &text);
+        let v = e.verdicts.iter().find(|v| v.item == "16a").expect("PRISMA 16a");
+        assert_eq!(v.status, ItemStatus::NotFound, "{prose:?} -> {}", v.detail);
+    }
 }

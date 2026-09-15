@@ -26,7 +26,8 @@ use gaply_core::novelty::{self, NoveltyAssessment};
 use gaply_core::ratelimit::RateLimiter;
 use gaply_core::refverify::{ApiRateLimiters, HttpFetcher, HttpRequest, VerifyContext};
 use gaply_core::report::{checklist_from_requirements, evaluate, ChecklistItem, StandardEvaluation};
-use gaply_core::review_lens::{lenses, review, CriterionState, LensInput, DECLINED_LENSES};
+use gaply_core::editor::{decide, EditorInput};
+use gaply_core::review_lens::{lenses, review, CriterionState, LensInput, ReviewerReport, DECLINED_LENSES};
 use gaply_core::specialist::{self, SpecialistInput};
 use gaply_core::Database;
 
@@ -82,7 +83,7 @@ fn main() {
     let validity = gaply_core::validate::validate(&ex);
     // **Only the standards the journal actually binds.** Evaluating all five
     // against a journal that binds two would report items no journal asked for.
-    let standards: Vec<StandardEvaluation> = bound.iter().map(|s| evaluate(*s, &ex)).collect();
+    let standards: Vec<StandardEvaluation> = bound.iter().map(|s| evaluate(*s, &ex, &text)).collect();
 
     let dir = std::env::temp_dir().join("gaply-lens-review");
     std::fs::create_dir_all(&dir).unwrap();
@@ -139,9 +140,11 @@ fn main() {
     };
 
     let mut first_surfaced: Option<(String, gaply_core::review_lens::Concern)> = None;
+    let mut all_reports: Vec<ReviewerReport> = Vec::new();
 
     for l in lenses() {
         let r = review(&l, &input);
+        all_reports.push(r.clone());
         println!("\n{}", "=".repeat(78));
         println!("REVIEWER REPORT — {} lens", r.lens.as_str().to_uppercase());
         println!("{}", "=".repeat(78));
@@ -192,6 +195,46 @@ fn main() {
                 first_surfaced = Some((r.lens.as_str().to_string(), c.clone()));
             }
         }
+    }
+
+    // ---- §5.7 the editor, over every reviewer report
+    let rubric = decide(&EditorInput {
+        reports: &all_reports,
+        journal: journal.as_ref().map(|(k, _)| k.as_str()),
+    });
+    println!("\n{}", "=".repeat(78));
+    println!("EDITORIAL RUBRIC  (§5.7 editor, §8 Stage 1)");
+    println!("{}", "=".repeat(78));
+    // **Causes first, posture after** — `rubric.display_order`. Measured: the
+    // posture is MAJOR REVISION on 18 of 20 real manuscripts, so leading with
+    // it opens with the same sentence for almost every researcher.
+    println!("\n  PRIMARY CAUSES");
+    if rubric.primary_causes.is_empty() {
+        println!("    (none — no concern was raised by the lenses that ran)");
+    }
+    for (i, c) in rubric.primary_causes.iter().enumerate() {
+        println!(
+            "    {}. [{}] {} — {}  ({} lens)",
+            i + 1,
+            c.severity.as_str(),
+            c.criterion,
+            c.code,
+            c.lens.as_str()
+        );
+        println!("       {} x {}", c.occurrences, c.occurrence_unit);
+        if let Some(sp) = &c.span {
+            println!("       {}", wrap(sp));
+        }
+    }
+
+    println!("\n  Editorial posture:  {}", rubric.posture.as_str());
+    println!("    Blocking {}  ·  Major {}  ·  Minor {}", rubric.blocking, rubric.major, rubric.minor);
+    println!("    {}", wrap(&rubric.why));
+
+    println!("\n  PRECEDENCE: {}", wrap(&rubric.precedence_note));
+    println!("\n  WHAT THE EDITOR DID NOT READ:");
+    for x in &rubric.not_read {
+        println!("    - {}", wrap(x));
     }
 
     println!("\n{}", "=".repeat(78));

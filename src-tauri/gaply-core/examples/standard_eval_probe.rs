@@ -42,7 +42,7 @@ fn main() {
 
     let mut any_met = false;
     for s in standards {
-        let e = evaluate(s, &ex);
+        let e = evaluate(s, &ex, &text);
         println!(
             "=== {} — {} | met {} · not found {} · unevaluable {}",
             s.as_str(),

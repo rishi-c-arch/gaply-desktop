@@ -925,6 +925,49 @@ time injection.
   an artefact that should have existed and did not. Trust the artefact over the
   status.
 
+  **A NEGATIVE GREP AS A LOOP CONDITION INVERTS ON EMPTY INPUT — the fourth
+  instance, and a mechanism the other three do not have.** 15 Sep 2026, waiting
+  on three CI workflows for one SHA:
+
+  ```bash
+  # WRONG — exits the loop the first time the API returns nothing
+  while gh run list ... --jq '...status' | grep -qv completed; do sleep 30; done
+  echo "ALL DONE"
+  ```
+
+  `grep -qv completed` means *"some line is not finished"*. An empty list has no
+  line that is not finished, so `grep` fails, the loop exits, and `ALL DONE`
+  prints — **while two of the three runs were still `in_progress`**. One slow or
+  failed API call is enough. A second waiter written the same afternoon had the
+  same inversion (`! ... | grep -q "in_progress\|queued"`).
+
+  **The distinction from the three above is worth keeping.** `|| true` swallowed
+  a STATUS; the pipe reported the wrong stage's STATUS; `pkill -f` matched the
+  wrong TARGET. This one inverted a MEANING: the condition was correct about
+  full input and said the opposite of what it meant about empty input. Nothing
+  was swallowed and nothing mismatched — the predicate was read backwards by the
+  absence of data.
+
+  **The rule: wait on a POSITIVE COUNT, never on the absence of a pattern.**
+
+  ```bash
+  # RIGHT — an empty or failed response leaves n empty, which is not "3"
+  n=$(gh run list ... --jq "[.[] | select(.status==\"completed\")] | length")
+  if [ "$n" = "3" ]; then echo "ALL 3 COMPLETED"; fi
+  ```
+
+  `completed_count == 3` cannot be satisfied by an empty response. The same
+  applies to any wait: count what you are waiting FOR, not what you are waiting
+  to stop seeing.
+
+  **And it reached a draft message before a live check caught it** — the same
+  path the conversation-sourced figures took in §11 D166, which were tabulated
+  and nearly recorded before being measured. Both were plausible, both matched
+  what was expected, and both were wrong. **An instrument that agrees with what
+  you expect is the one to re-run**, because agreement is what removes the
+  prompt to check. The verification that worked here was the cheapest possible:
+  ask the API again, directly, and read the three rows.
+
 - **A Bash call refused by the permission classifier runs NOTHING, including the
   parts you later assume ran. `git status` is the only thing that catches it.**
   13 Sep 2026: a single call combined a `python3` patch of `orchestrator.rs`

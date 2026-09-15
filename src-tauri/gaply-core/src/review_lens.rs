@@ -809,6 +809,29 @@ pub struct SeverityRule {
     pub why: &'static str,
 }
 
+/// **THE BLOCKING TIER HAS FOUR CODES AND TWO CANNOT FIRE.**
+///
+/// Stated here, at the table, so a reader counting `Blocking` entries does not
+/// take four as the reachable count:
+///
+/// | code | reachable |
+/// |---|---|
+/// | `TestGroupMismatch` | **yes** — `validate.rs` |
+/// | `SmallSampleCausalClaim` | **yes** — `validate.rs` |
+/// | `test_claimed_but_absent_from_analysis` | **no** — needs an uploaded `AnalysisRecord`; no picker accepts an analysis file |
+/// | `PRIOR_WORK_EXISTS` | **no** — the novelty pipeline is declined (§11 D166) |
+///
+/// Measured over 20 real manuscripts the tier fired **twice**, both
+/// `SmallSampleCausalClaim`, on 2 of 20 papers. The two unreachable codes have
+/// different reopening conditions — an upload path for the first, D166's corpus
+/// measurement for the second — so they are kept rather than deleted, the same
+/// way the declined lenses are kept.
+///
+/// `editor::PRECEDENCE_NOTE` carries this onto every rubric, because
+/// `Blocking: 0` read as "nothing fatal is present" is the failure it prevents.
+pub const REACHABLE_BLOCKING_CODES: &[&str] =
+    &["TestGroupMismatch", "SmallSampleCausalClaim"];
+
 /// §4.5's `severity_policy`, as data.
 ///
 /// **Every shipped finding code appears here**, pinned by
@@ -1668,6 +1691,12 @@ pub struct Concern {
     pub code: String,
     pub severity: ReviewSeverity,
     pub summary: String,
+    /// **What [`Self::occurrences`] counts.** §11 D161: when you print N, say
+    /// what N counts. For a reporting-standard code it counts STANDARD ITEMS
+    /// asking for the same manuscript property, not places in the manuscript —
+    /// six standards each asking for a named statistical test is one property,
+    /// asked six times.
+    pub occurrence_unit: String,
     /// **How many times this check fired under this criterion.**
     ///
     /// Grouped, because a reviewer writes *"effect sizes are absent at eight
@@ -1720,6 +1749,16 @@ pub struct ReviewerReport {
     /// that found nothing. This is where the D157 ratio becomes visible —
     /// refusals beside findings, in the same report.
     pub absence_rejected: Vec<AbsenceRejected>,
+    /// **Concerns the lens's own `evidence_policy` refused**, with the reason.
+    ///
+    /// §4.3: *"An opinion emitted without its policy satisfied is rejected at
+    /// the gate with the reason recorded."* The lens carried an
+    /// `evidence_policy` field and **never applied it** — declared and
+    /// unenforced, which §4.3 had already recorded once as *"a policy nothing
+    /// enforces is a comment"*. The consequence was visible on the first real
+    /// editor run: a MAJOR concern reached the rubric's primary causes with no
+    /// span, from a reporting-standard absence.
+    pub policy_rejected: Vec<String>,
 }
 
 /// Everything the lenses read. One struct so adding a source is a change here
@@ -1882,6 +1921,7 @@ pub fn review(lens: &ReviewLens, input: &LensInput<'_>) -> ReviewerReport {
         criteria: Vec::new(),
         not_applicable: None,
         absence_rejected: Vec::new(),
+        policy_rejected: Vec::new(),
     };
 
     // A lens with no shipping source at all declares itself rather than
@@ -2004,6 +2044,7 @@ pub fn review(lens: &ReviewLens, input: &LensInput<'_>) -> ReviewerReport {
                 } else {
                     format!("{} (raised at {} places; all are quoted)", r.summary, same.len())
                 },
+                occurrence_unit: occurrence_unit(r.source).to_string(),
                 occurrences: same.len(),
                 spans: spans.clone(),
                 locations: same.iter().filter_map(|x| x.location.clone()).collect(),
@@ -2124,6 +2165,31 @@ pub fn review(lens: &ReviewLens, input: &LensInput<'_>) -> ReviewerReport {
             }
             acc
         });
+
+    // **The lens's own evidence policy, applied.** `citation_required` is the
+    // half that bites: a concern with no span asks the reader to take it on
+    // trust, and a reviewer report is the last artefact that should.
+    let policy = &lens.evidence_policy;
+    if policy.citation_required {
+        let refuse = |v: &mut Vec<Concern>, out: &mut Vec<String>| {
+            v.retain(|c| {
+                if c.spans.is_empty() {
+                    out.push(format!(
+                        "{} / {}: refused — this lens requires every concern to quote what it \
+                         rests on, and this one carried nothing",
+                        c.criterion, c.code
+                    ));
+                    false
+                } else {
+                    true
+                }
+            });
+        };
+        let mut refused = Vec::new();
+        refuse(&mut report.major_concerns, &mut refused);
+        refuse(&mut report.minor_concerns, &mut refused);
+        report.policy_rejected = refused;
+    }
 
     for (code, field, reason) in &refusals {
         let criterion = lens
@@ -2483,7 +2549,15 @@ fn collect(input: &LensInput<'_>) -> Collected {
                         v.requirement,
                         v.detail
                     ),
-                    span: v.evidence_span.clone(),
+                    // **An absence has no sentence, so it quotes what was looked
+                    // for** — the same shape the full-text checks use. Without
+                    // this a `NotFound` verdict reached the editor's primary
+                    // causes carrying no evidence at all, while the lens's own
+                    // `evidence_policy` declared `citation_required: true`.
+                    span: v
+                        .evidence_span
+                        .clone()
+                        .or_else(|| Some(format!("WHAT WAS LOOKED FOR: {}", v.detail))),
                     location: v.location.clone(),
                     uncertainty: Some(format!(
                         "The engine {}. Whether this item's verdict matches a human \
@@ -2527,6 +2601,27 @@ fn codes_of(s: SourceId) -> &'static [&'static str] {
 /// number. `CONSORT 7a` and `ARRIVE 2a` are the same question about the same
 /// manuscript field, and routing by item number would file them under different
 /// criteria.
+/// What an occurrence count means, per source.
+///
+/// **Measured, and it is why this exists.** On 11 of 20 real manuscripts the
+/// editor's top primary cause was `StatisticalTestReported x6` — the same
+/// conclusion ("no named statistical test was found") reached once per bound
+/// standard. Six standards asking for one property is not six problems, and
+/// ordering causes by a raw occurrence count put that repetition ahead of
+/// `MissingEffectSize x42`, which really is 42 places in the manuscript.
+pub fn occurrence_unit(source: LensSource) -> &'static str {
+    match source {
+        LensSource::Specialist(SourceId::ReportingStandards) => {
+            "standard items asking for the same manuscript property — not places in the \
+             manuscript"
+        }
+        LensSource::Specialist(SourceId::JournalRequirements) => "journal requirements",
+        LensSource::State(StateField::FullText) => "phrase searches over the whole manuscript",
+        LensSource::State(StateField::ReferenceYears) => "reference lists",
+        _ => "places in the manuscript",
+    }
+}
+
 fn check_code(v: &crate::report::ItemVerdict) -> String {
     // The reads list is the check's own declaration of what it looked at.
     match v.reads {
@@ -3475,6 +3570,118 @@ mod tests {
             assert!(
                 !(attributed.contains(c) && elsewhere),
                 "`{c}` is claimed by a specialist AND by something else"
+            );
+        }
+    }
+
+    /// **The lens's `evidence_policy` is APPLIED, not just declared.**
+    ///
+    /// It carried the field and never used it, which §4.3 had already recorded
+    /// once as *"a policy nothing enforces is a comment"*. The consequence
+    /// showed up on the first real editor run: a reporting-standard absence
+    /// reached the rubric's primary causes with no span.
+    #[test]
+    fn a_concern_that_quotes_nothing_is_refused_by_the_lenss_own_policy() {
+        let r = crate::extract::extract_from_text("Results\n\nThe mean was 4.2 (p = 0.03).\n");
+        // A specialist report whose finding carries no span at all.
+        let naked = specialist::SpecialistReport {
+            specialist: "frequentist_stats".into(),
+            admitted: vec![crate::specialist::Finding {
+                specialist: "frequentist_stats".into(),
+                code: "multiple_comparisons_uncorrected".into(),
+                severity: crate::report::FindingSeverity::Major,
+                status: crate::epistemic::EpistemicStatus::Detected,
+                summary: "something".into(),
+                span: None,
+                location: None,
+                evidence: vec![crate::agent_graph::EvidenceSource::ManuscriptSpan],
+                uncertainty: Some("u".into()),
+            }],
+            rejected: Vec::new(),
+            not_applicable: None,
+        };
+        let lenses = lenses();
+        let stats = lenses.iter().find(|l| l.id == LensId::Statistics).unwrap();
+        assert!(stats.evidence_policy.citation_required, "precondition");
+        let report = review(
+            stats,
+            &LensInput {
+                extraction: &r,
+                full_text: None,
+                this_year: 2026,
+                specialists: Some(std::slice::from_ref(&naked)),
+                validity: None,
+                standards: Some(&[]),
+                checklist: None,
+                novelty: None,
+            },
+        );
+        assert!(
+            report.major_concerns.iter().all(|c| c.code != "multiple_comparisons_uncorrected"),
+            "{report:?}"
+        );
+        assert_eq!(report.policy_rejected.len(), 1, "{:?}", report.policy_rejected);
+        assert!(
+            report.policy_rejected[0].contains("carried nothing"),
+            "and the refusal says why: {:?}",
+            report.policy_rejected
+        );
+    }
+
+    /// **Every concern a lens emits quotes something.** The invariant the
+    /// policy exists to hold, asserted over all four lenses on one input.
+    #[test]
+    fn every_concern_from_every_lens_carries_at_least_one_span() {
+        let text = "Abstract\n\nA cross-sectional employer survey of 222 firms.\n\n\
+                    Results\n\nProvision was 36.5% (t = 2.1, p = 0.04).\n\n\
+                    Discussion\n\nCapacity causes higher provision among firms.\n";
+        let r = crate::extract::extract_from_text(text);
+        let input = SpecialistInput { extraction: &r, science: None, analysis: None };
+        let reports: Vec<_> =
+            specialist::shipped().iter().map(|s| specialist::run(s.as_ref(), &input)).collect();
+        let standards: Vec<crate::report::StandardEvaluation> = [
+            crate::journal_standards::Standard::Consort,
+            crate::journal_standards::Standard::Strobe,
+        ]
+        .iter()
+        .map(|s| crate::report::evaluate(*s, &r, text))
+        .collect();
+
+        for l in lenses() {
+            let report = review(
+                &l,
+                &LensInput {
+                    extraction: &r,
+                    full_text: Some(text),
+                    this_year: 2026,
+                    specialists: Some(&reports),
+                    validity: Some(&crate::validate::validate(&r)),
+                    standards: Some(&standards),
+                    checklist: None,
+                    novelty: None,
+                },
+            );
+            for c in report.major_concerns.iter().chain(report.minor_concerns.iter()) {
+                assert!(
+                    !c.spans.is_empty(),
+                    "{:?} / {} / {} quotes nothing",
+                    l.id,
+                    c.criterion,
+                    c.code
+                );
+            }
+            // **And nothing had to be REFUSED for lacking one.** Without this
+            // the assertion above holds trivially when the policy strips a
+            // span-less concern before it is counted: a deletion test on the
+            // span fix went GREEN because the policy caught what the fix would
+            // have let through. Two guards covering one property is defence in
+            // depth; a test that cannot tell them apart is not a test of
+            // either.
+            assert!(
+                report.policy_rejected.is_empty(),
+                "{:?} produced a concern its own policy had to refuse: {:?}",
+                l.id,
+                report.policy_rejected
             );
         }
     }

@@ -1849,7 +1849,7 @@ pub fn checklist_from_requirements(
         // emits one row each — and every row carries the coverage fraction,
         // because a reader who sees "2 met" and no denominator has been told
         // the manuscript passed STROBE when 20 of its 22 items were never read.
-        let eval = evaluate(b.standard, extraction);
+        let eval = evaluate(b.standard, extraction, manuscript_text);
         let coverage = eval.coverage_phrase();
         let published = eval.published_items;
         // **A journal that RECOMMENDS a standard has not REQUIRED it.** Nature
@@ -2354,9 +2354,30 @@ impl StandardEvaluation {
 /// (§11 D165). Every `Met` carries the paragraph it was decided from, so a
 /// reader can refute it; `NotFound` and `Unevaluable` carry none, because there
 /// is nothing honest to quote.
+/// # A MISSING SECTION MUST NOT BE A MISSING HEADING
+///
+/// `AbstractPresent` and `ResultsSectionPresent` used to read
+/// `extraction.sections` alone, which §4.5 [v8] classes as a MEDIATED field:
+/// `classify_heading` knows a fixed vocabulary, and a heading outside it is
+/// indistinguishable from a section that is not there.
+///
+/// **Measured over 20 real manuscripts: 29 section-absence verdicts, of which
+/// 11 (38%) are contradicted by the manuscript's own text**, every one a
+/// heading the classifier does not know:
+///
+/// ```text
+/// IV. EXPERIMENTS AND RESULTS          4.8 INTERPRETATION OF RESULTS
+/// Synopsis Abstract                    3.18 CHAPTER SUMMARY
+/// ```
+///
+/// Each became a MAJOR concern in the reviewer report. So `manuscript_text` is
+/// scanned for a HEADING-SHAPED line before `NotFound` is returned, which turns
+/// a mediated read into an exhaustive one — the same correction
+/// `checklist_from_requirements` needed for required statements.
 pub fn evaluate(
     standard: crate::journal_standards::Standard,
     extraction: &ExtractionResult,
+    manuscript_text: &str,
 ) -> StandardEvaluation {
     use crate::extract::stats::Stat;
 
@@ -2394,8 +2415,12 @@ pub fn evaluate(
                     it.reads.join(" / ")
                 ),
             ),
-            ItemCheck::AbstractPresent => section_check(extraction, SectionKind::Abstract),
-            ItemCheck::ResultsSectionPresent => section_check(extraction, SectionKind::Results),
+            ItemCheck::AbstractPresent => {
+                section_check(extraction, manuscript_text, SectionKind::Abstract, &["abstract", "summary", "synopsis"])
+            }
+            ItemCheck::ResultsSectionPresent => {
+                section_check(extraction, manuscript_text, SectionKind::Results, &["results", "findings"])
+            }
             ItemCheck::SampleSizeReported => decide(
                 first(&|s| matches!(s, Stat::SampleSize { .. })),
                 "an explicit sample size is reported",
@@ -2453,14 +2478,67 @@ fn decide(
 }
 
 
-fn section_check(extraction: &ExtractionResult, kind: SectionKind) -> Decided {
-    match extraction.sections.iter().find(|s| s.kind == kind && !s.paragraphs.is_empty()) {
-        Some(sec) => (
+/// **Is a section of this kind present?** Classifier first, then the full text.
+///
+/// The second pass is what stops a heading the classifier does not know from
+/// being reported as a missing section — see [`evaluate`]'s header for the 11
+/// of 29 that were.
+fn section_check(
+    extraction: &ExtractionResult,
+    manuscript_text: &str,
+    kind: SectionKind,
+    words: &[&str],
+) -> Decided {
+    if let Some(sec) =
+        extraction.sections.iter().find(|s| s.kind == kind && !s.paragraphs.is_empty())
+    {
+        return (
             ItemStatus::Met,
             sec.paragraphs.first().cloned(),
             Some(Location { section: kind, paragraph: 0 }),
             format!("a {kind:?} section is present with content"),
-        ),
-        None => (ItemStatus::NotFound, None, None, format!("no {kind:?} section with content was found")),
+        );
     }
+    // The classifier found nothing. Look for a HEADING-SHAPED line: short, not
+    // a sentence, containing the word. "IV. EXPERIMENTS AND RESULTS" qualifies;
+    // a sentence mentioning results does not.
+    if let Some(line) = heading_shaped_line(manuscript_text, words) {
+        return (
+            ItemStatus::Met,
+            Some(line.clone()),
+            None,
+            format!(
+                "no {kind:?} section was classified, but the manuscript carries the heading \
+                 \"{line}\" — the heading vocabulary did not recognise it, which is a fact \
+                 about the extractor and not about the manuscript"
+            ),
+        );
+    }
+    (
+        ItemStatus::NotFound,
+        None,
+        None,
+        format!(
+            "no {kind:?} section was classified and no heading-shaped line matching {words:?} \
+             was found anywhere in the manuscript"
+        ),
+    )
+}
+
+/// A line that looks like a heading and names one of `words`.
+///
+/// Heading-shaped: 60 characters or fewer, does not end in a sentence
+/// terminator, and is not a table-of-contents row (those end in a page number
+/// after a tab or a run of dots).
+fn heading_shaped_line(text: &str, words: &[&str]) -> Option<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && l.chars().count() <= 60)
+        .filter(|l| !l.ends_with(['.', '!', '?', ',', ';', ':']))
+        .filter(|l| !l.contains('\t') && !l.contains("..."))
+        .find(|l| {
+            let lower = l.to_lowercase();
+            words.iter().any(|w| lower.split_whitespace().any(|t| t.trim_matches(|c: char| !c.is_alphanumeric()) == *w))
+        })
+        .map(str::to_string)
 }
