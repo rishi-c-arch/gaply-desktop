@@ -955,6 +955,41 @@ time injection.
   an artefact that should have existed and did not. Trust the artefact over the
   status.
 
+  **A PACKAGE-SCOPED GREEN IS NOT A SUITE RESULT — the third member of this
+  family, and the one with no filter in it at all.** 15 Sep 2026: a finding was
+  withdrawn from `report.rs`, three `gaply_core` tests were repaired, and
+  `cargo test -p gaply_core report::` came back **105 passed, 0 failed**. That
+  was reported as the change being ready. `cargo test --workspace` was red.
+
+  The failure was `pipeline::tests::the_report_is_byte_identical_to_the_pre_
+  research_state_capture` — a golden capture in the **app crate** that pins the
+  whole report byte-for-byte and contained the withdrawn finding. **Nothing in
+  `gaply_core` could have caught it**, which is the exact gap the `--workspace`
+  bullet at the top of these norms already records, met from the other side: not
+  a broken `gaply_core` test hidden by the app package, but an app-crate test
+  hidden by scoping to `gaply_core`.
+
+  **Same family as the piped exit status and the filtered grep, and the
+  progression is worth seeing.** `tail -20` discarded the head of an error
+  nobody chose to hide. `grep -E "journal/"` was a filter written three minutes
+  earlier for relevance and trusted for completeness. This had **no filter at
+  all** — just a narrower question (`-p gaply_core report::`) answered
+  accurately and reported as the answer to a broader one. The narrowing was in
+  the command, deliberate, and correct for what it was for; the error was in
+  what its result was taken to mean.
+
+  **And the tell was the same as every other entry here: it agreed with what was
+  expected.** The repairs had just been made, `report::` was where they lived,
+  and green was the predicted answer. Agreement is what removes the prompt to
+  check — see the negative-grep waiter and the carried-in figures of §11 D166.
+
+  **The rule: scope the command to iterate, scope it to `--workspace` to
+  CONCLUDE.** A package- or module-scoped run is an inner-loop instrument; it
+  may never be the basis for "this is ready", a commit, or a report to anyone.
+  And say which one you ran when you quote a number — `105 passed` and
+  `1811 passed` are answers to different questions, and only one of them is the
+  suite.
+
   **A NEGATIVE GREP AS A LOOP CONDITION INVERTS ON EMPTY INPUT — the fourth
   instance, and a mechanism the other three do not have.** 15 Sep 2026, waiting
   on three CI workflows for one SHA:

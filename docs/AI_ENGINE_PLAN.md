@@ -11381,3 +11381,121 @@ long as it existed. The corpus disagreed on the first run.
 
 Fixing the two extractor defects is separate work with its own before/after
 measurement, and it is what reopens the finding.
+
+---
+
+### D168 — `detect_table`'s body-follows fix is REVERTED, and the prediction is what found the defect
+
+**Date:** 15 Sep 2026. Follows **D167**, which recorded `detect_table`'s
+over-detection (237 of 414 detections were contents-page rows) and withdrew the
+finding that showed the inflated count to users. This is the attempt to fix the
+extractor itself, and the measurement that stopped it shipping.
+
+**Instruments:** `gaply-core/examples/toc_decompose.rs`,
+`detect_disagree.rs`, `section_ambiguity_check.rs`, `table_label_census.rs`,
+`pdf_body_shape.rs`, over the same 20 manuscripts as D165, D166 and D167.
+
+#### The prediction, made before the change
+
+Decomposing D167's exclusions gave a falsifiable target:
+
+```
+total detections                              414
+  excluded: next para is another 'Table N'     67
+  excluded: cell run < 6                      170
+  kept as real                                177
+```
+
+The fix implemented **the probe's own discriminator** — next paragraph is not a
+caption, and at least six following paragraphs are neither caption nor prose —
+deliberately rather than inventing a second rule, so that the before/after would
+be one rule in two places and **any answer other than 177 would mean the
+extractor's view of a section differs from the probe's**.
+
+**Predicted 177. Measured 236.**
+
+#### The gap is the INSTRUMENT, and only a prediction could have shown it
+
+Every probe in this family resolves a table's location with
+`ex.sections.iter().find(|s| s.kind == tb.location.section)`. **`find` returns
+the FIRST section of that kind**, and a thesis has five Introductions.
+
+| | |
+|---|---:|
+| documents with a repeated section kind | **10 of 20** |
+| tables sitting in a repeated kind | **101 of 236** |
+
+`chapter3 .docx` has Methods ×4 and all 7 of its tables are affected;
+`Jitesh Agarwal` has Introduction ×5 and all 52; `Disha Correction` 20 of 24.
+The probe read paragraph *n* of the wrong section and reported `cells=0` for
+tables whose bodies were elsewhere. **So 177 was never a valid target — it was
+a number produced by a defective lookup**, and the extractor, which reads
+`section.paragraphs[p_idx + 1..]` inside the loop and performs no lookup at all,
+was right where the probe was wrong.
+
+**This is the first defect in this phase that a PREDICTION caught rather than a
+corpus.** 236 is a plausible number. Arrived at without a committed prediction it
+would have been recorded as a result, and the `find(kind)` defect — which
+silently corrupts every table measurement in the repo — would still be there.
+This is the negative-control rule from CLAUDE.md applied to a count: commit to
+the number first, and the disagreement is the finding.
+
+It is the same ambiguity `extract::paragraph_at` already carries. Nothing here
+fixes it; the probes are left using `find(kind)` with this entry as the record,
+because fixing it means deciding what a repeated `SectionKind` should resolve to,
+which is a change to the extraction contract.
+
+#### Why the fix was reverted anyway
+
+An independent check — label distribution, which uses no location lookup —
+supports the `.docx` half: `4-5.docx` shows 89 distinct labels in 89 detections,
+with near-zero duplication anywhere. But by document format:
+
+| | before | after |
+|---|---:|---:|
+| `.docx` | 361 | 236 |
+| `.pdf` | **53** | **0** |
+
+**There are three table body shapes and the rule handles one:**
+
+1. **`.docx`, cells flattened** — `Parameter` / `Physical methods` / … one cell
+   per paragraph. Handled.
+2. **PDF, the body is INSIDE the caption paragraph** — `"Table 1 Salient
+   features of Herohalli Lake Name Herohalli Geographical location North West
+   Bangalore…"`, followed by ordinary prose. Zeroed.
+3. **`.docx` where the parse lost the table** — `formulation.docx` carries a
+   literal `[table]` in its text. **That string is content in the source
+   document, not a marker this crate emits**, so keying on it would be keying on
+   one document's convention — the hand-written-fixture premise with no corpus
+   behind it. Zeroed, 5 → 0.
+
+So `236` is not "the true table count"; it is **the docx-cell-flattened lane
+only**. Trading a visible over-count for a silent under-count is the wrong
+direction: a reader can discount a count that is obviously too high, and nothing
+downstream can tell an absent table from a document that has none.
+
+#### Two guards caught it, and neither was aimed at it
+
+* **RT4's own fixture killed the rule.** `BAD_TOTALS` is a five-row table, and
+  `MIN_BODY_CELLS = 6` drops it. The change predicted "a genuine small table is
+  dropped — rare but not zero"; it is not rare, it is the canonical case, and
+  the first table the rule met was the one written to represent a real
+  misleading table.
+* **D167's withdrawal pin caught it from a different commit, a day later.**
+  `the_table_finding_is_withdrawn_and_the_extraction_is_not` asserts two halves:
+  no count reaches the report, AND `ExtractionResult::tables` is untouched. The
+  second half was written against a different failure — a withdrawal that
+  silently emptied the extraction — and it is what failed here. A pin that
+  catches something its author was not thinking about is the argument for
+  writing down the containment as well as the claim.
+
+#### What would reopen it
+
+A body-shape discriminator covering all three shapes, with the false-negative
+cost measured per format rather than corpus-wide — a rule that is correct on
+`.docx` and blind on PDF reads as a 43% improvement and is a total loss for
+three of twenty documents. `MIN_BODY_CELLS` must also be justified against real
+small tables rather than chosen to match a probe. Until then `detect_table` is
+unchanged and over-detects; the live harm is already contained, because the
+finding that showed the count to users is withdrawn (D167) and the remaining
+readers are internal.
