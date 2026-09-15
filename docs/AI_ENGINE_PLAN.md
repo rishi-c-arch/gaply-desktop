@@ -11499,3 +11499,169 @@ small tables rather than chosen to match a probe. Until then `detect_table` is
 unchanged and over-detects; the live harm is already contained, because the
 finding that showed the count to users is withdrawn (D167) and the remaining
 readers are internal.
+
+---
+
+### D169 — a `SectionKind` is not a key: `Location` gains `section_index`, and 283 of 869 Tier-0 inputs stop resolving to the wrong paragraph
+
+**Date:** 15 Sep 2026. Named as an open defect in **D168**, which found it while
+measuring something else and deliberately left it: fixing it is a change to the
+extraction contract, not a probe fix.
+
+**Instruments:** `gaply-core/examples/repeated_kind_meaning.rs` (what a repeat
+MEANS), `location_ambiguity_blast.rs` (what it costs). Corpus: the same 20
+manuscripts as D165–D168.
+
+#### 1. What a repeated kind actually means — measured before choosing
+
+| | |
+|---|---:|
+| documents | 20 |
+| with at least one repeated `SectionKind` | **10** |
+| sections inside a repeated run | 43 |
+| …where all headings are IDENTICAL | **2** |
+| …where headings DIFFER | **41** |
+
+And the headings say what they are:
+
+```
+Disha:   "2.0 Introduction" "3.0 Introduction" "4.0 Introduction"
+         "5.1 Introduction" "6.1 Introduction"
+Jitesh:  "INTRODUCTION" "Introduction" "2.1 INTRODUCTION"
+         "5.1 INTRODUCTION" "6.1 INTRODUCTION"
+L.pdf:   Abstract: "ABSTRACT" + "3.10 Summary"
+         References: "Bibliography" + "BIBLIOGRAPHY" x2
+```
+
+**This is CHAPTER STRUCTURE, not a classifier artefact.** Five real chapter
+introductions. The classifier does also err here — `"3.10 Summary"` is a chapter
+summary read as the paper's Abstract — but that is a separate defect, and even
+with perfect classification these sections are distinct. **The sections are
+real; the address was broken.**
+
+#### 2. What it cost, and it is not the table probes
+
+`validate::paragraph` is a thin wrapper over `extract::paragraph_at`, so the
+five deterministic Tier-0 rules read through the same resolver — the rules
+`swarm.rs` treats as `hard_constraint`, never voted on, always overriding every
+model in the system.
+
+| | total | ambiguous | **resolved WRONG** |
+|---|---:|---:|---:|
+| statistical claims | 869 | 314 | **283** |
+| tables | 414 | 147 | 79 |
+| citations | 2920 | 1261 | 584 |
+
+*"Resolved wrong"* = `paragraph_at` returned a paragraph not containing the item
+while another section of that kind did. **33% of all statistical claims.** D168's
+101-of-236 table figure was the small end of this.
+
+#### 3. Why it hid: the doc comment was RIGHT
+
+`paragraph_at`'s header argued the first-match resolution was deliberate —
+`validate.rs` resolves a `Location` the same way, so a repeated kind already
+makes the rule evaluate the wrong paragraph, and matching that behaviour makes
+the quotation faithful: the report shows the text the engine read.
+
+**Every word of that is true, and it is exactly why this survived.** A wrong
+finding was displayed beside the wrong paragraph that produced it, **and the two
+agreed**. There was nothing to notice. This is §14's v6 pattern — a spec, an
+implementation and a test in perfect agreement about a false premise — at the
+scale of a single finding, with the artefact internally consistent and wrong.
+
+The header is kept and re-labelled rather than deleted, because being right is
+the interesting part of it.
+
+#### 4. The contract: an index, not a path, and not a refusal
+
+`Location { section, paragraph }` gains
+`section_index: Option<usize>`. **The producer always knew it** —
+`extract_from_text_with` builds every `Location` inside a loop over sections —
+and the information was discarded at construction and guessed at read.
+
+* **A path (heading text) was rejected on the measurement.** `"Methodology:"`
+  appears twice in `chapter3.docx`; headings are not unique either.
+
+* **A REFUSAL was rejected, and this is the part worth reading, because refusal
+  is the obvious move.** `extract::locate_line` already refuses rather than
+  guessing when a line appears in two paragraphs, and that precedent argues for
+  the same here. **It is wrong here, and the measurement is what shows it.**
+  `validate::paragraph` maps an unresolvable location to `""` — and `""`
+  contains no effect size, no confidence interval, no test name. Refusing would
+  therefore fire `MissingEffectSize` and its siblings on **314 claims**, turning
+  a wrong-text error into a **FALSE TIER-0 FINDING** — a deterministic,
+  hard-constraint accusation against a paper that did report its effect size.
+  Reading the wrong paragraph is bad; confidently accusing an author on the
+  strength of an empty string is worse.
+
+* **`Option<usize>`, not a bare `usize`.** `serde(default)` for a `usize` is
+  `0`, which means *"the first section"* — so every report cached before this
+  field existed would deserialize to a confident wrong answer, and a NEW one:
+  the ambiguity would move out of `find`'s tie-break and get stamped into the
+  data. `None` marks the legacy path explicitly, and `paragraph_at` falls back
+  to the old `find` behaviour for exactly those rows and no others, so stored
+  reports resolve precisely as they did when written.
+
+Declared **last** in the struct so the derived `Ord` still orders by
+`(section, paragraph)`: `validate.rs` keys `BTreeSet`/`BTreeMap` on `Location`
+and that ordering is load-bearing for its deterministic output.
+`paragraph_at` **verifies the kind at the index** rather than trusting it, so an
+index from a different extraction cannot resolve silently to whatever happens to
+sit at that position.
+
+#### 5. Before / after
+
+```
+                       total   ambiguous   RESOLVES WRONG
+  statistical claims     869         314      283  ->  0
+  tables                 414         147       79  ->  0
+  citations             2920        1261      584  ->  0
+```
+
+**`total` and `ambiguous` are unchanged** — the sets did not move, only the
+resolution, which is the condition this was required to meet.
+
+**One row did not go to zero on the first run, and it was the instrument
+again.** A citation `(Ramachandra et al. 2016)` inside
+`"(Ramachandra et al. 2015; Ramachandra et al. 2016)"` reported as unresolved:
+for a grouped parenthetical the parser **reconstructs** the second citation's
+`raw` with parentheses the text never had, so `paragraph.contains(raw)` fails on
+a correct resolution. **`Citation::raw` is not guaranteed to be a verbatim
+slice** — a small real finding in its own right, in the truncated-span family —
+and the probe now compares on the author token, which is.
+
+#### 6. What the suite said, and what it did NOT say
+
+`CACHED_REPORT_SCHEMA_VERSION` **2 → 3**. `skip_serializing_if` keeps every
+stored report loading and `None` resolves as it always did, so this is not a
+compatibility break — but the serialized bytes of a NEW report differ, and a
+version that does not move lets two byte-different shapes claim to be the same
+schema. The log's existing rule (an optional field with a default needs no bump)
+covers a field nothing writes; this one is written on every new extraction.
+
+**Exactly one test failed: the golden capture.** The expectation going in was
+that pins encoding the first-match resolution would go red. **There were none.**
+283 wrong resolutions across 869 Tier-0 inputs, and not one test asserted the
+behaviour either way — which is the more complete answer to "why did this hide":
+it was not defended by a wrong test, it was undefended.
+
+Golden regenerated, diff confirmed structurally first (third time this
+discipline has been applied and the first time it was load-bearing): top-level
+keys identical, `checklist` identical, `findings` 5 → 5 differing **only** by
+the one finding with a location gaining `"section_index": 3`, `evidence` 5 → 5
+differing **only** by `schema_version` 2 → 3 on all five. No other value moved.
+
+#### Follow-on, recorded rather than fixed
+
+`Location::by_kind` still exists and still resolves ambiguously. It is the
+constructor for test fixtures and for decoding legacy data, and
+`Location::is_ambiguous` names the state. Every PRODUCER in the crate now uses
+`in_section`. A future guard could assert that no production path constructs a
+`by_kind` location; that is a source scan in the shape of
+`tests/equation_is_llm_free.rs` and is not written here.
+
+**And D168's `detect_table` work is now measurable.** It was graded against a
+corpus of probes reading through the defective resolver, which is why its
+prediction (177) missed. Re-running that experiment is a separate change, and it
+should start by re-deriving the 414/237/177 split now that a location resolves
+to the section it came from.

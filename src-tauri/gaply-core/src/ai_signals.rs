@@ -640,7 +640,7 @@ mod tests {
         assert_eq!(doi_syntax_validity(&refs), Some(0.5), "1 of 2 DOI-bearing refs valid");
 
         assert_eq!(citation_density(4, 2000), 2.0);
-        let loc = Location { section: crate::extract::SectionKind::Other, paragraph: 0 };
+        let loc = Location { section: crate::extract::SectionKind::Other, paragraph: 0, section_index: None };
         let ay = |style, authors: &str, year| Citation {
             style, authors: authors.into(), year: Some(year), numbers: vec![], raw: "".into(), location: loc.clone(),
         };
@@ -661,7 +661,7 @@ mod tests {
         assert_eq!(in_text_citation_count(&mixed), 4, "[1,2] contributes 2 tokens");
         // A numeric-only doc reads as STYLE-consistent (all one style).
         let all_numeric = vec![
-            Citation { style: CitationStyle::Numeric, authors: "".into(), year: None, numbers: vec![1], raw: "[1]".into(), location: Location { section: crate::extract::SectionKind::Other, paragraph: 0 } },
+            Citation { style: CitationStyle::Numeric, authors: "".into(), year: None, numbers: vec![1], raw: "[1]".into(), location: Location { section: crate::extract::SectionKind::Other, paragraph: 0, section_index: None } },
         ];
         assert_eq!(citation_style_consistency(&all_numeric), Some(1.0));
     }

@@ -295,7 +295,7 @@ mod tests {
     }
 
     fn loc(section: SectionKind, paragraph: usize) -> Option<Location> {
-        Some(Location { section, paragraph })
+        Some(Location { section, paragraph, section_index: None })
     }
 
     /// **Each located finding quotes ITS OWN paragraph.**
@@ -356,7 +356,7 @@ mod tests {
         let ex = gaply_core::extract::extract_from_text(TWO_PARAGRAPHS);
         let expected = gaply_core::extract::paragraph_at(
             &ex,
-            &Location { section: SectionKind::Results, paragraph: 0 },
+            &Location { section: SectionKind::Results, paragraph: 0, section_index: None },
         )
         .unwrap();
 

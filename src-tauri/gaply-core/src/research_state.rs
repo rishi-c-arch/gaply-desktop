@@ -369,7 +369,7 @@ fn build_graph(s: &ResearchState) -> EvidenceGraph {
                 // with every statistic in all three, which is a broader claim
                 // than "these appear together".
                 crate::scientific_model::SourceSpan::Range(r) => {
-                    Location { section: r.section, paragraph: r.start_paragraph }
+                    Location { section: r.section, paragraph: r.start_paragraph, section_index: None }
                 }
             };
             for (si, st) in s.statistics.iter().enumerate() {

@@ -36,7 +36,16 @@ use crate::swarm::AgentKind;
 ///   process-state findings would count toward the verdict — §23.4's measured
 ///   defect, reintroduced for cached data and invisible. The version is in the
 ///   report cache key, so stale entries miss and recompute.
-pub const CACHED_REPORT_SCHEMA_VERSION: u32 = 2;
+///
+/// * **2 → 3** — `extract::Location` gained `section_index: Option<usize>`
+///   (§11 D169). `skip_serializing_if` keeps every stored report loading, and
+///   `None` resolves exactly as it did when it was written — so this is not a
+///   compatibility break. **It is still a bump, because the serialized bytes of
+///   a new report differ**, and a version that does not move would let two
+///   byte-different shapes claim to be the same schema. The rule this log
+///   already states — an optional field with a default needs no bump — covers a
+///   field nothing WRITES; this one is written on every new extraction.
+pub const CACHED_REPORT_SCHEMA_VERSION: u32 = 3;
 
 /// Structured-provenance prefixes — THE canonical list (single source of truth;
 /// `reviewer_agent` imports [`is_structured_provenance`], it does not keep a copy).

@@ -1358,7 +1358,7 @@ fn validation_findings_carry_the_location_their_rule_evaluated() {
         (SectionKind::Methods, 0, "gamma marker", "ALPHAMARKER"),
     ];
     for (section, paragraph, expected, forbidden) in want {
-        let loc = Location { section, paragraph };
+        let loc = Location { section, paragraph, section_index: None };
         let text = crate::extract::paragraph_at(&ex, &loc)
             .unwrap_or_else(|| panic!("{loc:?} must resolve"));
         assert!(text.contains(expected), "{loc:?} resolved to {text:?}, missing {expected:?}");
@@ -1379,12 +1379,12 @@ fn validation_findings_carry_the_location_their_rule_evaluated() {
 fn an_unresolvable_location_resolves_to_a_typed_absence() {
     let ex = crate::extract::extract_from_text(TWO_LOCATED_PARAGRAPHS);
     assert_eq!(
-        crate::extract::paragraph_at(&ex, &Location { section: SectionKind::Results, paragraph: 99 }),
+        crate::extract::paragraph_at(&ex, &Location { section: SectionKind::Results, paragraph: 99, section_index: None }),
         None,
         "a paragraph index past the end must not resolve"
     );
     assert_eq!(
-        crate::extract::paragraph_at(&ex, &Location { section: SectionKind::Discussion, paragraph: 0 }),
+        crate::extract::paragraph_at(&ex, &Location { section: SectionKind::Discussion, paragraph: 0, section_index: None }),
         None,
         "a section the document does not have must not resolve"
     );

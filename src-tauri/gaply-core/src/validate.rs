@@ -615,8 +615,8 @@ mod tests {
         use crate::extract::{has_effect_size_in, Location, Region};
         let text = "Study\n\nResults\nThe first paragraph reports a difference                     (p = 0.01).\n\nA later paragraph reports Cohen's d = 0.42.\n";
         let ex = crate::extract::extract_from_text(text);
-        let p0 = Location { section: SectionKind::Results, paragraph: 0 };
-        let p1 = Location { section: SectionKind::Results, paragraph: 1 };
+        let p0 = Location { section: SectionKind::Results, paragraph: 0, section_index: None };
+        let p1 = Location { section: SectionKind::Results, paragraph: 1, section_index: None };
         assert!(!has_effect_size_in(&ex, &Region::paragraph(&p0)), "not in ¶1's region");
         assert!(has_effect_size_in(&ex, &Region::paragraph(&p1)), "it is in ¶2's region");
 

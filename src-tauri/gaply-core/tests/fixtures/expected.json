@@ -4,7 +4,8 @@
       "authors": "Kim",
       "location": {
         "paragraph": 0,
-        "section": "abstract"
+        "section": "abstract",
+        "section_index": 1
       },
       "numbers": [],
       "raw": "(Kim, 2018)",
@@ -15,7 +16,8 @@
       "authors": "Alvarez & Novak",
       "location": {
         "paragraph": 0,
-        "section": "abstract"
+        "section": "abstract",
+        "section_index": 1
       },
       "numbers": [],
       "raw": "(Alvarez & Novak, 2021)",
@@ -26,7 +28,8 @@
       "authors": "Okafor et al.",
       "location": {
         "paragraph": 0,
-        "section": "introduction"
+        "section": "introduction",
+        "section_index": 2
       },
       "numbers": [],
       "raw": "Okafor et al. (2019)",
@@ -37,7 +40,8 @@
       "authors": "Delgado",
       "location": {
         "paragraph": 0,
-        "section": "introduction"
+        "section": "introduction",
+        "section_index": 2
       },
       "numbers": [],
       "raw": "Delgado (2017)",
@@ -48,7 +52,8 @@
       "authors": "Okafor et al.",
       "location": {
         "paragraph": 0,
-        "section": "results"
+        "section": "results",
+        "section_index": 4
       },
       "numbers": [],
       "raw": "Okafor et al. (2019)",
@@ -59,7 +64,8 @@
       "authors": "Alvarez & Novak",
       "location": {
         "paragraph": 0,
-        "section": "discussion"
+        "section": "discussion",
+        "section_index": 5
       },
       "numbers": [],
       "raw": "(Alvarez & Novak, 2021)",
@@ -120,21 +126,24 @@
             "index": 0,
             "location": {
               "paragraph": 0,
-              "section": "abstract"
+              "section": "abstract",
+              "section_index": 1
             }
           },
           {
             "index": 1,
             "location": {
               "paragraph": 0,
-              "section": "abstract"
+              "section": "abstract",
+              "section_index": 1
             }
           },
           {
             "index": 2,
             "location": {
               "paragraph": 0,
-              "section": "abstract"
+              "section": "abstract",
+              "section_index": 1
             }
           }
         ],
@@ -169,14 +178,16 @@
             "index": 4,
             "location": {
               "paragraph": 0,
-              "section": "methods"
+              "section": "methods",
+              "section_index": 3
             }
           },
           {
             "index": 5,
             "location": {
               "paragraph": 0,
-              "section": "methods"
+              "section": "methods",
+              "section_index": 3
             }
           }
         ],
@@ -221,7 +232,8 @@
           {
             "Point": {
               "paragraph": 0,
-              "section": "abstract"
+              "section": "abstract",
+              "section_index": 1
             }
           }
         ],
@@ -232,7 +244,8 @@
               "index": 0,
               "location": {
                 "paragraph": 0,
-                "section": "abstract"
+                "section": "abstract",
+                "section_index": 1
               }
             }
           },
@@ -242,7 +255,8 @@
               "index": 1,
               "location": {
                 "paragraph": 0,
-                "section": "abstract"
+                "section": "abstract",
+                "section_index": 1
               }
             }
           },
@@ -252,7 +266,8 @@
               "index": 2,
               "location": {
                 "paragraph": 0,
-                "section": "abstract"
+                "section": "abstract",
+                "section_index": 1
               }
             }
           }
@@ -290,7 +305,8 @@
           {
             "Point": {
               "paragraph": 0,
-              "section": "methods"
+              "section": "methods",
+              "section_index": 3
             }
           }
         ],
@@ -301,7 +317,8 @@
               "index": 3,
               "location": {
                 "paragraph": 0,
-                "section": "methods"
+                "section": "methods",
+                "section_index": 3
               }
             }
           },
@@ -311,7 +328,8 @@
               "index": 4,
               "location": {
                 "paragraph": 0,
-                "section": "methods"
+                "section": "methods",
+                "section_index": 3
               }
             }
           },
@@ -321,7 +339,8 @@
               "index": 5,
               "location": {
                 "paragraph": 0,
-                "section": "methods"
+                "section": "methods",
+                "section_index": 3
               }
             }
           },
@@ -331,7 +350,8 @@
               "index": 6,
               "location": {
                 "paragraph": 0,
-                "section": "methods"
+                "section": "methods",
+                "section_index": 3
               }
             }
           }
@@ -407,7 +427,8 @@
       "kind": "p_value",
       "location": {
         "paragraph": 0,
-        "section": "abstract"
+        "section": "abstract",
+        "section_index": 1
       },
       "operator": "<",
       "raw": "p < 0.001",
@@ -419,7 +440,8 @@
       "level": 95.0,
       "location": {
         "paragraph": 0,
-        "section": "abstract"
+        "section": "abstract",
+        "section_index": 1
       },
       "low": 2.1,
       "raw": "95% CI: 2.1 to 4.8"
@@ -428,7 +450,8 @@
       "kind": "sample_size",
       "location": {
         "paragraph": 0,
-        "section": "abstract"
+        "section": "abstract",
+        "section_index": 1
       },
       "n": 96,
       "raw": "n = 96"
@@ -437,7 +460,8 @@
       "kind": "sample_size",
       "location": {
         "paragraph": 0,
-        "section": "methods"
+        "section": "methods",
+        "section_index": 3
       },
       "n": 96,
       "raw": "n = 96"
@@ -446,7 +470,8 @@
       "kind": "test",
       "location": {
         "paragraph": 0,
-        "section": "methods"
+        "section": "methods",
+        "section_index": 3
       },
       "name": "t-test",
       "raw": "independent t-test"
@@ -455,7 +480,8 @@
       "kind": "test",
       "location": {
         "paragraph": 0,
-        "section": "methods"
+        "section": "methods",
+        "section_index": 3
       },
       "name": "ANOVA",
       "raw": "one-way ANOVA"
@@ -464,7 +490,8 @@
       "kind": "test",
       "location": {
         "paragraph": 0,
-        "section": "methods"
+        "section": "methods",
+        "section_index": 3
       },
       "name": "chi-square",
       "raw": "chi-square"
@@ -473,7 +500,8 @@
       "kind": "p_value",
       "location": {
         "paragraph": 0,
-        "section": "results"
+        "section": "results",
+        "section_index": 4
       },
       "operator": "<",
       "raw": "p < 0.001",
@@ -483,7 +511,8 @@
       "kind": "p_value",
       "location": {
         "paragraph": 0,
-        "section": "results"
+        "section": "results",
+        "section_index": 4
       },
       "operator": "=",
       "raw": "p = 0.02",
@@ -495,7 +524,8 @@
       "level": 95.0,
       "location": {
         "paragraph": 0,
-        "section": "results"
+        "section": "results",
+        "section_index": 4
       },
       "low": 2.1,
       "raw": "95% CI: 2.1 to 4.8"
@@ -507,7 +537,8 @@
       "label": "Table 1",
       "location": {
         "paragraph": 0,
-        "section": "results"
+        "section": "results",
+        "section_index": 4
       }
     }
   ],

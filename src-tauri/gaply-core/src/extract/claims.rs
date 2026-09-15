@@ -239,7 +239,7 @@ pub fn extract_claims(result: &ExtractionResult) -> Vec<ScientificClaim> {
         }
 
         for (p_idx, paragraph) in section.paragraphs.iter().enumerate() {
-            let loc = Location { section: section.kind, paragraph: p_idx };
+            let loc = Location { section: section.kind, paragraph: p_idx, section_index: None };
             let sentences = sentence::sentences_in(paragraph);
 
             for (s_idx, sentence) in sentences.iter().enumerate() {

@@ -94,15 +94,12 @@ pub fn extract_datasets(
 ) -> Vec<Dataset> {
     let mut raw: Vec<RawDataset> = Vec::new();
 
-    for section in &result.sections {
+    for (sec_idx, section) in result.sections.iter().enumerate() {
         if section.kind == SectionKind::References || !dataset_sections().contains(&section.kind) {
             continue;
         }
         for (p_idx, paragraph) in section.paragraphs.iter().enumerate() {
-            let loc = Location {
-                section: section.kind,
-                paragraph: p_idx,
-            };
+            let loc = Location::in_section(section.kind, sec_idx, p_idx);
             let sentences = sentence::sentences_in(paragraph);
             for (s_idx, sentence_text) in sentences.iter().enumerate() {
                 raw.extend(extract_datasets_from_sentence(

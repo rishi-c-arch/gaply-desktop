@@ -30,10 +30,71 @@ pub use stats::{Stat, StatClaim};
 
 /// A location within the parsed document: which section, and which paragraph
 /// (0-based) inside that section.
+///
+/// # `section_index` exists because A KIND IS NOT A KEY — §11 D169
+///
+/// `SectionKind` was the whole address, and a document may hold several
+/// sections of one kind. Measured over 20 real manuscripts: **10 of 20 have at
+/// least one repeated kind**, and the repeats are chapter structure rather than
+/// a classifier artefact — `"2.0 Introduction"`, `"3.0 Introduction"`,
+/// `"4.0 Introduction"` are three real chapter introductions (41 of 43 repeated
+/// sections carry DIFFERENT headings).
+///
+/// With only the kind, [`paragraph_at`] resolved by `find`, taking the FIRST
+/// section of that kind, and **283 of 869 statistical claims resolved to a
+/// paragraph that does not contain them** — inputs to `validate.rs`'s five
+/// Tier-0 rules, which `swarm.rs` treats as `hard_constraint`, never voted on,
+/// always overriding every model.
+///
+/// **The producer always knew.** `extract_from_text_with` builds every
+/// `Location` inside a loop over sections; the index was discarded at
+/// construction and guessed at read. This field carries it.
+///
+/// # Why `Option`, and not a bare `usize` with `serde(default)`
+///
+/// A `usize` default is `0`, which means "the first section" — so every report
+/// cached before this field existed would deserialize to a CONFIDENT WRONG
+/// answer, and a new one: previously the ambiguity was only in `find`'s
+/// tie-break, now it would be stamped into the data. `Option` keeps the legacy
+/// path explicit: `None` means "written before the index existed", and
+/// [`paragraph_at`] falls back to the old `find` behaviour for exactly those,
+/// and only those.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Location {
     pub section: SectionKind,
     pub paragraph: usize,
+    /// Index into [`ExtractionResult::sections`] — the section this location was
+    /// BUILT from. `None` only for data written before this field existed.
+    ///
+    /// Declared LAST so the derived `Ord` still orders by `(section, paragraph)`
+    /// first; `validate.rs` keys `BTreeSet`/`BTreeMap` on `Location` and that
+    /// ordering is load-bearing for its deterministic output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section_index: Option<usize>,
+}
+
+impl Location {
+    /// The producer's constructor: this location was built while walking
+    /// `sections[index]`, so the index is known and recorded.
+    pub fn in_section(section: SectionKind, index: usize, paragraph: usize) -> Self {
+        Self { section, paragraph, section_index: Some(index) }
+    }
+
+    /// **The legacy/ambiguous constructor: kind only, no index.**
+    ///
+    /// [`paragraph_at`] will resolve this by `find`, taking the FIRST section of
+    /// the kind — the pre-§11-D169 behaviour, which is wrong whenever the kind
+    /// repeats. Use [`Location::in_section`] anywhere the index is available.
+    /// This exists for test fixtures and for decoding data written before
+    /// `section_index` existed.
+    pub fn by_kind(section: SectionKind, paragraph: usize) -> Self {
+        Self { section, paragraph, section_index: None }
+    }
+
+    /// True when this address cannot distinguish between sections of its kind.
+    pub fn is_ambiguous(&self) -> bool {
+        self.section_index.is_none()
+    }
 }
 
 /// The paragraph text at `loc`, or `None` if the location does not resolve.
@@ -54,23 +115,50 @@ pub struct Location {
 /// a quotation can never disagree with the finding it illustrates. §34.3's
 /// one-predicate-producer-and-checker shape, applied again.
 ///
-/// # A REPEATED `SectionKind` resolves to the FIRST section of that kind
+/// # A REPEATED `SectionKind` USED TO resolve to the FIRST section — §11 D169
 ///
 /// `split_document` emits one section per recognised heading, so a document with
-/// two headings that classify alike (`"Abstract"` + `"Summary"`,
-/// `"Introduction"` + `"Background"`) yields two sections of one kind — and a
-/// `Location` is then not a unique address. `find` takes the first.
+/// two headings that classify alike yields two sections of one kind, and a
+/// `Location` carrying only the kind is not a unique address. This resolved by
+/// `find`, taking the first.
 ///
-/// **This is deliberate.** Every rule in `validate.rs` has always resolved a
-/// `Location` this way, so a repeated kind ALREADY makes the rule evaluate the
-/// wrong paragraph. Matching that behaviour exactly is what makes the quotation
-/// faithful — it shows the text the engine read.
+/// **The paragraph that used to sit here said that was deliberate, and it was
+/// RIGHT about faithfulness — which is exactly why the defect survived.** Its
+/// argument was that `validate.rs` resolves a `Location` the same way, so a
+/// repeated kind already makes the rule evaluate the wrong paragraph, and
+/// matching that behaviour makes the quotation faithful: the report shows the
+/// text the engine read. Every word of that is true. It is also why nothing
+/// looked wrong — **a wrong finding was displayed beside the wrong paragraph
+/// that produced it, and the two agreed.** An internally consistent artefact,
+/// wrong at the premise, is the §14 v6 pattern at the scale of a single
+/// finding.
+///
+/// Measured before changing it: **283 of 869 statistical claims** across 20 real
+/// manuscripts resolved to a paragraph not containing them (also 79 of 414
+/// tables and 584 of 2920 citations). [`Location::section_index`] now carries
+/// what the producer always knew, and the `find` path above is reached only by
+/// data written before that field existed.
 ///
 /// > **The reporting layer deliberately preserves the existing `Location`
 /// > semantics and makes any repeated-`SectionKind` ambiguity VISIBLE in the
 /// > rendered report rather than silently masking it. The ambiguity originates
 /// > in the EXTRACTION MODEL, not in the reporting layer.**
 pub fn paragraph_at<'a>(result: &'a ExtractionResult, loc: &Location) -> Option<&'a str> {
+    // THE INDEX, when the producer recorded one (§11 D169). Exact, and the kind
+    // is verified rather than trusted: an index into a DIFFERENT extraction
+    // would otherwise resolve silently to whatever sits at that position.
+    if let Some(i) = loc.section_index {
+        return result
+            .sections
+            .get(i)
+            .filter(|s| s.kind == loc.section)
+            .and_then(|s| s.paragraphs.get(loc.paragraph))
+            .map(String::as_str);
+    }
+    // LEGACY ONLY — data written before `section_index` existed. Takes the first
+    // section of the kind, which is wrong whenever the kind repeats; that is the
+    // behaviour D169 measured and replaced, kept here so stored reports resolve
+    // exactly as they did when they were written.
     result
         .sections
         .iter()
@@ -122,7 +210,7 @@ pub fn locate_line(result: &ExtractionResult, line: &str) -> Option<Location> {
                     // of inherited.
                     return None;
                 }
-                found = Some(Location { section: section.kind, paragraph: i });
+                found = Some(Location { section: section.kind, paragraph: i, section_index: None });
             }
         }
     }
@@ -281,7 +369,7 @@ pub fn extract_from_text_with(text: &str, opts: ExtractOptions) -> ExtractionRes
     let mut tables = Vec::new();
     let mut references = Vec::new();
 
-    for section in &secs {
+    for (s_idx, section) in secs.iter().enumerate() {
         if section.kind == SectionKind::References {
             references = citations::parse_reference_list(section);
             // reference-list entries are parsed structurally; don't also scan
@@ -289,7 +377,7 @@ pub fn extract_from_text_with(text: &str, opts: ExtractOptions) -> ExtractionRes
             continue;
         }
         for (p_idx, paragraph) in section.paragraphs.iter().enumerate() {
-            let loc = Location { section: section.kind, paragraph: p_idx };
+            let loc = Location::in_section(section.kind, s_idx, p_idx);
             statistics.extend(stats::extract(paragraph, &loc));
             citations.extend(citations::extract_in_text(paragraph, &loc));
             if let Some(t) = detect_table(paragraph, &loc) {

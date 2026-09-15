@@ -133,7 +133,7 @@ fn audit(r: &ExtractionResult, sci: &ScientificExtraction) {
         let ok = match s {
             SourceSpan::Point(loc) => paragraph_at(r, loc).is_some(),
             SourceSpan::Range(sp) => (sp.start_paragraph..=sp.end_paragraph).all(|p| {
-                paragraph_at(r, &Location { section: sp.section, paragraph: p }).is_some()
+                paragraph_at(r, &Location { section: sp.section, paragraph: p, section_index: None }).is_some()
             }),
         };
         if !ok {
@@ -270,7 +270,7 @@ fn span_text(r: &ExtractionResult, s: &SourceSpan) -> String {
         SourceSpan::Range(sp) => {
             let mut out = format!("[{:?} ¶{}..={}] ", sp.section, sp.start_paragraph, sp.end_paragraph);
             for p in sp.start_paragraph..=sp.end_paragraph {
-                let loc = Location { section: sp.section, paragraph: p };
+                let loc = Location { section: sp.section, paragraph: p, section_index: None };
                 match paragraph_at(r, &loc) {
                     Some(t) => {
                         out.push_str(t);

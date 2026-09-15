@@ -2526,7 +2526,7 @@ fn section_check(
         return (
             ItemStatus::Met,
             sec.paragraphs.first().cloned(),
-            Some(Location { section: kind, paragraph: 0 }),
+            Some(Location { section: kind, paragraph: 0, section_index: None }),
             format!("a {kind:?} section is present with content"),
         );
     }

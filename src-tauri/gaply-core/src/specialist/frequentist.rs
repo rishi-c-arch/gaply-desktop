@@ -311,7 +311,7 @@ fn marginal_phrases(input: &SpecialistInput<'_>) -> Vec<(String, Location, Strin
                 if let Some(phrase) = MARGINAL_PHRASES.iter().find(|p| lower.contains(**p)) {
                     out.push((
                         (*phrase).to_string(),
-                        Location { section: sec.kind, paragraph: p_idx },
+                        Location { section: sec.kind, paragraph: p_idx, section_index: None },
                         sent.trim().to_string(),
                     ));
                 }

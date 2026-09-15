@@ -333,7 +333,7 @@ pub fn read_design(r: &ExtractionResult) -> DesignReading {
                 if reading.limiting_span.is_none() {
                     // The SENTENCE, not the paragraph: the paragraph is what the
                     // matcher saw, the sentence is what a reader checks.
-                    let loc = Location { section: section.kind, paragraph: p_idx };
+                    let loc = Location { section: section.kind, paragraph: p_idx, section_index: None };
                     if let Some(s) = sentence::sentences_in(para)
                         .into_iter()
                         .find(|s| s.to_lowercase().contains(*m))
@@ -361,7 +361,7 @@ pub fn assess_claims(r: &ExtractionResult) -> Vec<ClaimAssessment> {
 
     for section in r.sections.iter().filter(|s| is_concluding(s.kind)) {
         for (p_idx, para) in section.paragraphs.iter().enumerate() {
-            let loc = Location { section: section.kind, paragraph: p_idx };
+            let loc = Location { section: section.kind, paragraph: p_idx, section_index: None };
             let stats_here =
                 r.statistics.iter().filter(|s| s.location == loc).count();
             for sent in sentence::sentences_in(para) {

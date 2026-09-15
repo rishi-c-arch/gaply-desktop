@@ -164,15 +164,12 @@ pub fn extract_methods(
 ) -> Vec<Method> {
     let mut methods: Vec<Method> = Vec::new();
 
-    for section in &result.sections {
+    for (sec_idx, section) in result.sections.iter().enumerate() {
         if section.kind == SectionKind::References {
             continue;
         }
         for (p_idx, paragraph) in section.paragraphs.iter().enumerate() {
-            let loc = Location {
-                section: section.kind,
-                paragraph: p_idx,
-            };
+            let loc = Location::in_section(section.kind, sec_idx, p_idx);
             if let Some(method) = extract_method_from_paragraph(
                 paragraph, loc, result, claims, variables,
             ) {

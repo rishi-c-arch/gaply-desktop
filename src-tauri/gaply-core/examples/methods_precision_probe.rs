@@ -47,6 +47,6 @@ fn main(){
                 format!("{:?}",m.design), format!("{:?}",m.sampling.size),
                 format!("{:?}",m.software), span);
         }
-        let _ = Location{section:gaply_core::extract::SectionKind::Other,paragraph:0};
+        let _ = Location{section:gaply_core::extract::SectionKind::Other,paragraph:0,section_index:None};
     }
 }

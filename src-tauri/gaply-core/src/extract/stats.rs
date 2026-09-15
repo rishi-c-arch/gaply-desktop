@@ -347,7 +347,7 @@ mod tests {
     use crate::extract::{Location, SectionKind};
 
     fn stats_of(text: &str) -> Vec<Stat> {
-        let l = Location { section: SectionKind::Results, paragraph: 0 };
+        let l = Location { section: SectionKind::Results, paragraph: 0, section_index: None };
         extract(text, &l).into_iter().map(|c| c.stat).collect()
     }
 
@@ -403,7 +403,7 @@ mod tests {
     }
 
     fn loc() -> Location {
-        Location { section: SectionKind::Results, paragraph: 0 }
+        Location { section: SectionKind::Results, paragraph: 0, section_index: None }
     }
 
     fn pvalues(text: &str) -> Vec<(String, f64)> {
@@ -508,7 +508,7 @@ mod tests {
     // =======================================================================
 
     fn kinds(text: &str) -> Vec<String> {
-        let l = Location { section: SectionKind::Methods, paragraph: 0 };
+        let l = Location { section: SectionKind::Methods, paragraph: 0, section_index: None };
         extract(text, &l)
             .into_iter()
             .filter_map(|c| match c.stat {
@@ -583,7 +583,7 @@ mod tests {
     /// the classification changes what it MEANS, not what was read.
     #[test]
     fn a_criterion_preserves_the_value_as_written() {
-        let l = Location { section: SectionKind::Methods, paragraph: 0 };
+        let l = Location { section: SectionKind::Methods, paragraph: 0, section_index: None };
         let out = extract("Significance was determined at p < 0.05.", &l);
         match &out[0].stat {
             Stat::SignificanceThreshold { operator, value, raw } => {

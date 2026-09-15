@@ -320,7 +320,7 @@ fn first_match(
         if let Some(t) = terms.iter().find(|t| lower.contains(**t)) {
             return Some((
                 (*t).to_string(),
-                Location { section: *kind, paragraph: *p_idx },
+                Location { section: *kind, paragraph: *p_idx, section_index: None },
                 text.clone(),
             ));
         }

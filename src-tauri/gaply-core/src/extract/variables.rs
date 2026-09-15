@@ -206,15 +206,12 @@ pub fn extract_variables(
 ) -> Vec<Variable> {
     let mut raw: Vec<RawVariable> = Vec::new();
 
-    for section in &result.sections {
+    for (sec_idx, section) in result.sections.iter().enumerate() {
         if section.kind == SectionKind::References {
             continue;
         }
         for (p_idx, paragraph) in section.paragraphs.iter().enumerate() {
-            let loc = Location {
-                section: section.kind,
-                paragraph: p_idx,
-            };
+            let loc = Location::in_section(section.kind, sec_idx, p_idx);
             let sentences = sentence::sentences_in(paragraph);
             for (s_idx, sentence_text) in sentences.iter().enumerate() {
                 for rv in find_variables_in_sentence(sentence_text, loc.clone(), s_idx) {

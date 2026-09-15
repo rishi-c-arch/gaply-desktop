@@ -305,7 +305,7 @@ pub fn extract_claims(result: &ExtractionResult) -> Vec<NoveltyClaim> {
             continue;
         }
         for (p_idx, paragraph) in section.paragraphs.iter().enumerate() {
-            let loc = Location { section: section.kind, paragraph: p_idx };
+            let loc = Location { section: section.kind, paragraph: p_idx, section_index: None };
             for sentence in crate::extract::sentence::sentences_in(paragraph) {
                 let lower = sentence.to_lowercase();
                 let Some(cue) = NOVELTY_CUES.iter().find(|c| lower.contains(**c)) else {

@@ -1177,6 +1177,24 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
     /// else — which is what a withdrawal should look like and is the reason
     /// this fixture is worth keeping.
     ///
+    /// **[REGENERATED A THIRD TIME, 15 Sep 2026 — §11 D169.]**
+    /// `extract::Location` gained `section_index`, because a `SectionKind` is
+    /// not a unique address and 283 of 869 statistical claims over 20 real
+    /// manuscripts resolved to a paragraph that did not contain them. Two
+    /// deliberate wire changes, not drift.
+    ///
+    /// **Confirmed structurally before regenerating, for the third time, and
+    /// this is the run where that discipline paid:** top-level keys identical;
+    /// `checklist` identical; `findings` 5 -> 5 with the ONLY difference being
+    /// that the one finding carrying a location gained
+    /// `"section_index": 3`; `evidence` 5 -> 5 with the only difference being
+    /// `schema_version` 2 -> 3 on all five, which is
+    /// `CACHED_REPORT_SCHEMA_VERSION`'s bump arriving exactly where it should.
+    /// **No value changed that was not one of those two.** A location silently
+    /// pointing somewhere new, or a severity moving, would have shown up here
+    /// and nowhere else in the suite — this was the ONLY test that failed on
+    /// the change, because nothing else pinned the resolution at all.
+    ///
     /// The fields are `Option` + `serde(default)` so `CACHED_REPORT_V2` still
     /// deserializes, exactly as `Finding::location` is, and
     /// `CACHED_REPORT_SCHEMA_VERSION` is NOT bumped — a compatible addition.

@@ -428,7 +428,7 @@ mod tests {
     use crate::extract::SectionKind;
 
     fn loc() -> Location {
-        Location { section: SectionKind::Results, paragraph: 0 }
+        Location { section: SectionKind::Results, paragraph: 0, section_index: None }
     }
 
     // -----------------------------------------------------------------
