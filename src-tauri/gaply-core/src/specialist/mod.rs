@@ -58,6 +58,7 @@
 //! swallows what it rejects is indistinguishable from a specialist that found
 //! nothing, which is the failure this project has recorded three times.
 
+pub mod claim_strength;
 pub mod frequentist;
 pub mod ml;
 
@@ -211,6 +212,7 @@ pub fn shipped() -> Vec<Box<dyn Specialist>> {
     vec![
         Box::new(frequentist::FrequentistSpecialist),
         Box::new(ml::MachineLearningSpecialist),
+        Box::new(claim_strength::ClaimStrengthSpecialist),
     ]
 }
 

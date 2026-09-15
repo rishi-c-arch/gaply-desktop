@@ -56,7 +56,7 @@ fn main() {
     println!("journal {key}: {pages} guideline page(s), {} stored requirement(s), {} binding(s)\n",
         stored.len(), bindings.len());
 
-    let items = checklist_from_requirements(&extraction, words, &stored, &bindings);
+    let items = checklist_from_requirements(&extraction, &text, words, &stored, &bindings);
     println!("=== {} checklist row(s) ===", items.len());
     for (i, it) in items.iter().enumerate() {
         // THREE states, not two. An item nobody could decide must not print as

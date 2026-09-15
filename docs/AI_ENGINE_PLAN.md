@@ -11019,3 +11019,196 @@ withdrawn their only input.
 **§4.2's specialist fan-out is scoped to a layer that produces nothing
 trustworthy**, and that is the part of the architecture this record invalidates.
 What Phase 4 can still build is in the architecture document's Phase 4 note.
+
+
+### D166 — the novelty pipeline is DECLINED: 12 candidate sentences in 20 manuscripts, 2 of them real
+
+**THE SENTENCE THAT DECIDES IT, STATED FIRST:**
+
+> **A 31-cue scan over 20 real manuscripts — 37,557 sentences — found 12
+> candidate novelty sentences. Adjudicated one at a time, 2 are claims the
+> paper makes about its own contribution. That is 0.1 per manuscript.**
+
+§4.6 specifies a pipeline whose input is *"every novelty claim"* in the
+manuscript. The input is a tenth of a sentence per paper.
+
+This is not a retrieval problem and no better retriever changes it. Same family
+as D165: **the layer beneath is thinner than the design assumed, so the honest
+move is to narrow the claim rather than build to it.**
+
+#### What was measured over, and how the corpus was chosen
+
+**20 documents**, and they are a convenience corpus, not a sample. `~/Desktop`
+holds 43 `.docx`/`.pdf` files; the 20 are what remains after removing Gaply's own
+design documents, its exported audit reports, a quotation and a presentation
+template. They are the real research manuscripts available on this machine —
+theses, chapters and journal submissions across limnology, health economics,
+pharmaceutics, sericulture, NLP and craft-sector economics.
+
+It is the SIX-manuscript set used by D165 plus fourteen more. It is reported as
+20 rather than as six because the six yield 2 candidates, which is too small a
+denominator to say anything about density; fourteen more documents move the
+figure from 0.3 to 0.6 per paper and change no conclusion.
+
+#### The instrument
+
+`gaply-core/src/novelty.rs`'s `extract_claims`, and an independent scan in
+`examples/novelty_input_audit.rs` written to check it.
+
+* **31 cues**, far wider than the two phrasings §4.6 names — including
+  `unprecedented`, `novel approach`, `little is known`, `remains unexplored`.
+* **Whole sentences.** Not `claims.rs`'s slices, which cut at the cue and keep
+  the tail.
+* **References skipped.**
+
+**The two instruments disagreed, and the disagreement was worth a paragraph.**
+The independent scan found **13** where the extractor admitted **12**. The extra
+was a bibliography entry — *"Nanoemulsion: A novel approach for nose to brain
+drug delivery."* — a cited paper's TITLE, in the References section, which
+`extract_claims` skips and the audit did not. The audit now skips it too and
+both report 12. A count reconciled is worth more than either count alone.
+
+#### The measurement
+
+**1. Candidate density.**
+
+| | 20 manuscripts |
+|---|---:|
+| sentences scanned | 37,557 |
+| candidate sentences on 31 cues | **12** |
+| per manuscript | **0.6** |
+| manuscripts containing at least one | 6 of 20 |
+
+**2. What survives adjudication — every one of the 12 read against its span.**
+Ten are not claims the paper makes about itself:
+
+* **five** are `unprecedented` describing the world — *"China's accession to the
+  WTO in 2001 … subjected Indian small industries to unprecedented competitive
+  pressure"*; *"E-commerce and social media marketing offer unprecedented
+  opportunities"*; *"It underwent unprecedented growth during the COVID-19
+  phase"*;
+* **one** is *"for the first time"* about the SUBJECTS — *"many new
+  registrations represent young entrepreneurs entering the craft sector for the
+  first time"*;
+* **one** is a thesis originality declaration — *"This work has not previously
+  been produced or submitted for consideration by another candidate for the
+  award of the Ph.D."*;
+* **one** is a recommendation — *"A structured training programme … would
+  address this gap"*;
+* **two** more fail the same test.
+
+Requiring the sentence to be about THIS study — a self-referential cue, or a
+subject marker — leaves **2**:
+
+> *"The study established a clear experimental threshold documented
+> multi-criteria response and exhibited four identifiable eco-successional
+> stages for the first time."*
+>
+> *"To the best of our knowledge, authors are unaware of any previous work that
+> hybridizes FA with CSA for hyperparameter optimization in BiLSTM emotion
+> classification, making this the key novelty of this paper."*
+
+Precision **2/2**, adjudicated row by row. Recall is not claimed and at this
+density is not measurable. The rule costs one true claim — an author's own
+proposal stated without naming whose it is — which is pinned in a test so nobody
+loosens it without knowing what loosening re-admits.
+
+**3. A second, independent count that says the same thing.** `claims.rs`'s own
+`ClaimCategory::NoveltyClaim`, which is a different extractor with a different
+cue list: **2 of 528 claims (0.38%)** across the same 20. On the six, **1 of
+123**, and that one is the string `"for the first time."` — a fragment.
+
+**4. §4.6's own phrasings.** The section names two by example —
+*"first to demonstrate X"*, *"no prior study has…"*. Searched over the full text:
+**0 of 20 manuscripts contain either.** The worked example in §4.6 is a form of
+sentence that did not occur once.
+
+**5. And both survivors are `UNVERIFIED`.** Retrieval through
+`refverify::openalex_search`: 20 works returned, highest term overlap **3 of 7**,
+on generic terms (`optimization`, `classification`) against a survey of DNNs in
+medical imaging. OpenAlex carried an abstract for 15 of the 20. **UNVERIFIED
+2 of 2.**
+
+Points 1–4 are properties of the manuscripts and were measured without a network
+call. Point 5 is the least important of the five: a perfect retriever, given 0.1
+claims per paper, fires on one manuscript in ten.
+
+#### A number that arrived from the conversation rather than from the code
+
+**This decision was requested with five figures attached, and none of them
+reproduces.** They were put as though they were this session's measurements;
+they were recollections of earlier reports in the conversation, re-aimed at a
+question they had not been measured against. The D-number requested was D169,
+against a file whose last entry is D165.
+
+| as given | as measured |
+|---|---|
+| 165 claims | **123** on six, **528** on twenty — no corpus gives 165 |
+| zero in the novelty category | **1** on six, **2** on twenty |
+| §4.6's phrasing present in 1 of 6 | **0 of 6**, and 0 of 20 |
+| 1.4 candidate sentences per paper | **0.3** on six, **0.6** on twenty |
+| 15 of 22 candidates are section headings | **0 of 12** are heading-shaped; `extract_claims` reads `section.paragraphs` and never scans headings, so the case cannot arise |
+| record it as D169 | **D166** — D165 is the last entry in this file |
+
+**The conclusion was right and the figures were wrong in both directions**, which
+is what makes it worth recording rather than quietly fixing: 0 of 20 is starker
+than 1 of 6 and 0.6 per paper is thinner than 1.4, so the decline is better
+supported than the numbers offered for it — while 165 claims and 15 heading
+candidates would have made the input look larger than it is.
+
+**The log records this defect twice already, and both times the number was
+correct where it came from:**
+
+* **D123** — *"the number was not wrong about its sample; it was wrong about its
+  subject."* Two constants from a real eval (D78, D79) printed in every report as
+  though they described the run in front of the reader.
+* **D124** — the standing pre-commit figures, *93 s / 752 tests*, carried in the
+  project norms until re-measurement found **1302 tests**: a drift of 550.
+
+This is the third instance and the first where the number entered from the
+conversation rather than from a stale document. The correction is the same one
+in all three: **a figure is evidence only about the run that produced it, and
+re-aiming it at another question makes it an assertion.** Every number in this
+entry names the corpus, the instrument and the count that produced it, so the
+same re-aiming is visible the next time it is attempted.
+
+#### What is declined, and what is kept
+
+`SourceId::NoveltyClaims` is `Declined`. The Novelty & Literature lens keeps
+running on `reference_currency`, which reads `Reference::year` and is unaffected;
+its `Novelty & Significance` criterion reports `NoShippingSource` naming this
+record, which is a different state from *ran and found nothing* and is asserted
+as such in a test.
+
+**`gaply-core/src/novelty.rs` is KEPT**, as D165 kept the scientific layer. It is
+the instrument that produced this measurement and deleting it would make the
+decision unrepeatable. No lens consumes it.
+
+**`refverify::openalex_search` is KEPT.** It is a general retrieval connector
+sharing this module's cache, rate limiter and provenance, and it is the only way
+this crate can ask *what has been published on these terms* — which the
+comparable corpus will need. Its known-good control is
+`examples/oa_query_try.rs`: the query *"CONSORT statement reporting randomised
+trials"* must return the CONSORT 2010 statement at rank 1.
+
+**One finding from the pipeline survives and needs no retrieval at all.** Where
+an author asserts unrestricted priority, `novelty_claim_states_no_scope` says
+the claim names no population, setting or task — a PHRASING observation, minor,
+explicitly not evidence that the claim is false. It fires on 1 of the 2
+survivors.
+
+#### The condition that reopens it
+
+Two halves, and they are ordered, because the cheap one does not depend on the
+expensive one:
+
+1. **A corpus measurement showing authors write these sentences.** Density here
+   is 0.6 candidates per manuscript before adjudication and **0.1 after**. A
+   corpus where novelty claims survive adjudication at something like one per
+   paper is the evidence that the pipeline has an input. **Run this first:** if
+   authors do not write these sentences, a better extractor finds nothing.
+2. **A claim extractor that produces the novelty category.** `claims.rs` yields
+   2 novelty objects in 528 and the one in the six-manuscript set is a fragment.
+   This is the extractor D165 already declined, and it would have to clear
+   D128's bar — a labelled set, a measured precision per stratum, a no-skill
+   comparison it beats, and a confidence that varies.

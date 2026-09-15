@@ -491,15 +491,254 @@ The six lenses and their criteria, taken from the document:
 
 Each lens produces an independent **reviewer report** in the shape a real one takes: overall assessment, contribution summary, strengths, major concerns (each with its verification trail), minor concerns, journal-specific compliance, required revisions. Lenses run in parallel and do not see each other's reports until the disagreement map (§5.3).
 
+**[v8 — `reads: Vec<SpecialistId>` IS THE DEFECT, AND IT IS THIS SECTION'S, NOT THE IMPLEMENTATION'S. `gaply-core/src/review_lens.rs`.]**
+
+This is the same shape as §6b.1's gating item and §3.4's discovery rule: a
+correction to what this document specified, arrived at by measuring, not a note
+about how the code happened to be written.
+
+**The specification points the lenses at the one layer that is empty.** Measured
+15 Sep 2026 against §12's Phase-4 table: of eleven specialists, **four ship and
+seven are declined** — five against the scientific layer (§11 D165, 5.9%
+precision against a 50% no-skill baseline) and one against the absent
+analysis-file upload path. Built to the signature above, the six lenses read
+**7 shipping sources, 2 declined, 4 unbuilt**, and the arithmetic came out:
+
+| lens | criteria with a shipping SPECIALIST |
+|---|---|
+| reporting & ethics | 5 of 5 |
+| methodology | 3 of 3, every one on a partial source |
+| statistics | 2 of 2 |
+| novelty & literature | 1 of 3 |
+| general | 1 of 3 |
+| journal fit | **0 of 2** |
+
+**And the layers UNDERNEATH are populated.** `ResearchState` carries sections,
+statistics, citations, references and tables on every run; the
+`JournalFingerprint` carries 41 stored requirements and 15 bindings from a real
+Nature Medicine crawl. The emptiness is at the specialist tier only. A lens
+restricted to specialist output is starved beside a full larder.
+
+**So the correction: a lens reads the research state and the fingerprint
+DIRECTLY.** `reads: Vec<SpecialistId>` becomes `reads: Vec<LensSource>`, where a
+source is a specialist report, a research-state field, or a fingerprint field.
+Three criteria the reviewer document names were reported as unsourced under the
+old rule and are decidable under the new one without a single new extractor:
+reference currency (every `Reference` carries a `year`), ethics disclosure and
+data availability (both are phrases in the full text).
+
+**WHAT THIS COSTS, AND WHY D157 IS THE PRECEDENT.** A lens reading the research
+state directly is doing what a specialist would have done, and it has no
+`applies_to` and no specialist author standing between it and the manuscript.
+The `evidence_policy` is therefore the *only* thing between a lens and exactly
+the fabrication §11 D165 declined the scientific layer over.
+
+D157 is the precedent because it is the same problem solved once already. The
+equation binder reads a lower layer directly — the manuscript's own symbols —
+and across nine documents produced **2 bindings, 76 refusals, 1 finding**. It
+refuses by default and binds only where the document itself settles the
+question, because one manuscript declares `N` with five different values and a
+document-wide symbol table would bind the wrong one and then disprove correct
+arithmetic. A lens over the research state needs the same ratio and the same
+default.
+
+**The rule that gives it one: every field a lens reads declares what its ABSENCE
+means, and the policy rejects a finding that rests on the wrong kind.**
+
+* **Exhaustive** — the lens searched every word of the manuscript. `docparse`
+  produces the text and nothing classifies it, so a miss can only be a lexicon
+  miss, which the finding's `uncertainty` must state. *"No data availability
+  statement found"* is a finding.
+* **Mediated** — the lens searched a projection the extractor built, and the
+  projection can omit what the manuscript contains. *"No methods section
+  extracted"* is **not** a finding: the extractor is the reason, and the
+  manuscript may be perfectly fine.
+
+**Measured over the six real manuscripts, and the two kinds do not behave alike
+at all** (`examples/absence_scan.rs`):
+
+| mediated field | empty in | and the content is plainly there |
+|---|---:|---|
+| `Conclusion` section | **5 of 6** | every one of them concludes; `classify_heading` accepts three spellings |
+| `Results` section | 3 of 6 | |
+| `Discussion` section | 3 of 6 | |
+| `references` | 2 of 6 | both of those carry 15 and 165 in-text citations |
+| `title` | 2 of 6 are not titles | a Turnitin cover page; an AI-detector banner |
+
+| exhaustive field | found in | adjudication |
+|---|---:|---|
+| data-availability phrases | 1 of 6 | correct — only the health-economics paper has one |
+| ethics phrases | 1 of 6 | correct — *"ethical approval"*, *"declaration of helsinki"* |
+| randomisation phrases | 1 of 6 | correct — the randomised-block silkworm experiment |
+
+A lens allowed to conclude from a mediated absence would have reported **five of
+six manuscripts as having no conclusion**. Restricted to exhaustive fields it
+got all three of its absence questions right on all six. The rejection is
+returned with its reason, never dropped, for the reason `specialist::run`
+already returns its own.
+
+**FOUR LENSES SHIP, AND TWO ARE DECLINED FOR DIFFERENT REASONS.**
+
+| lens | state |
+|---|---|
+| **Methodology** | SHIPS — design terms, ethics and data-availability statements, all exhaustive |
+| **Statistics** | SHIPS — `statistics`, the frequentist specialist, `validate.rs` |
+| **Novelty & literature** | SHIPS — novelty claims, and reference currency from `Reference::year` |
+| **Reporting & ethics** | SHIPS — standards, and the journal's own requirement rows |
+| **Journal fit** | **DECLINED — the layer is empty.** `derive_conventions` and `PublishedPaper` exist, the OpenAlex fetch that fills them is in the APP crate where `gaply_core` cannot reach it, no `journal_papers` table exists in `migrations.rs`, and the only in-core caller is a test with twenty fabricated papers. Scope is not extracted either: `RequirementKind` has nine variants and none is scope. |
+| **General** | **DECLINED — the rule above forbids it.** Its criteria are *clarity and structure* and *title/abstract/keywords*, and both are read from mediated fields: section presence (the Conclusion heading missed 5 of 6) and `title` (not a title in 2 of 6). Every finding it could make is one the absence rule rejects. Its third criterion, *overstated conclusions*, has a real input and moves to Methodology, where §4.4 already puts "is causal language earned" at Tier 2. Prose quality is a Tier 3/4 judgement and belongs to the synthesis cluster, not to a deterministic lens. |
+
+The two declines are not the same kind and the table says which is which: one is
+a missing data path that a corpus job would fill, the other is a criterion this
+tier should not evaluate at all.
+
+**Two smaller corrections from the same build.**
+
+`severity_policy` is described above as *"the risk table: fatal / fixable /
+minor per criterion"*. The reviewer document's third column is *Low Risk (Minor
+Issue)* and **every one of its six cells describes the GOOD case** — *"Robust
+design with adequate power"*, *"Fully compliant with instructions"*. Read as
+specified, each criterion carries a minor concern whose text is a compliment.
+It feeds `strengths`. The severity vocabulary is §8's four levels, not three.
+
+*"contribution summary"* cannot be produced here. Summarising what a paper
+contributes is §4.4's Tier 4. The field states what is visible and names the
+absence rather than asserting a judgement nothing made.
+
 ### 4.6 Novelty, significance and claim strength — three separate outputs
 
 The reviewer-criteria document puts novelty and significance first. The architecture makes them explicit pipelines rather than a judgement score, and keeps them apart because a paper can be highly novel and low significance or the reverse.
 
 **Novelty, claim by claim.** Extract every novelty claim from the research state (*"first to demonstrate X", "no prior study has…"*). For each, retrieve the closest prior work through the external-evidence layer. Compare. Output per claim: the claim, the nearest prior work with what it showed and under what conditions, and a status — `NOVEL_AS_STATED`, `NOVELTY_NARROWER_THAN_STATED` (with the narrowing), `PRIOR_WORK_EXISTS` (named), `UNVERIFIED` (retrieval found nothing decisive). *"This is the first study to demonstrate X" → Study A (2024) demonstrated X under condition Y → novelty claim requires revision.* Never a number.
 
+**[v8 — DECLINED. §11 D166. The paragraph above assumes a kind of sentence this corpus does not contain.]**
+
+It reads as though novelty claims are a normal feature of a manuscript —
+*"extract EVERY novelty claim"*, with a worked example in the present tense.
+Measured, they are rare and, where present, hedged.
+
+**A 31-cue scan over 20 real research manuscripts — 37,557 sentences — found 12
+candidate sentences. Two are claims the paper makes about its own contribution.
+That is 0.1 per manuscript.** The cue list is far wider than the two phrasings
+this section names, including `unprecedented`, `novel approach` and
+`little is known`.
+
+| | 20 manuscripts |
+|---|---:|
+| candidate sentences | **12** |
+| per manuscript | **0.6** |
+| surviving adjudication as claims about THIS study | **2** |
+| manuscripts containing one | **2 of 20** |
+| `ClaimCategory::NoveltyClaim`, a second independent extractor | **2 of 528 claims** |
+| containing *"first to demonstrate"* or *"no prior study has"* | **0 of 20** |
+
+Ten of the twelve are not novelty claims: five are `unprecedented` describing a
+market or a period of history, one is *"for the first time"* about the study's
+SUBJECTS, one is a thesis originality declaration, one is a recommendation.
+
+**And the two survivors are both `UNVERIFIED`** — retrieval returned 20 works
+with a highest term overlap of 3 of 7, on generic terms. So the worked example
+above, *"Study A (2024) demonstrated X under condition Y"*, did not occur once in
+20 manuscripts. **The worked example is a form of sentence that is not in this
+corpus**: `"first to demonstrate"` and `"no prior study has"` appear in none of
+them.
+
+**What this section can honestly claim** is narrower and needs no retrieval:
+where an author DOES assert unrestricted priority, say so as a PHRASING
+observation — the claim names no population, setting or task, and therefore
+asserts priority over the whole literature — and do not present that as a finding
+about whether the claim is true. That is `novelty_claim_states_no_scope`, a minor
+concern under the Novelty & Literature lens.
+
+D166 has the corpus, the instrument, the row-by-row adjudication, and a
+reopening condition whose two halves are ordered: **measure whether authors write
+these sentences before rebuilding the extractor that would find them.**
+
+**The rest of this section is unaffected.** *Significance* was always Tier 3 and
+cloud, and is untouched. *Claim–evidence strength* reads concluding sentences and
+a design field, not the novelty category, and ships — see below.
+
 **Significance, separately.** What the contribution changes if true: field-level, practical, theoretical. Tier 3, cloud judgement, evidence-policy requires the comparable corpus so the judgement is relative to what the journal publishes.
 
 **Claim–evidence strength, on every major claim.** The evidence graph traced claim → analysis → result → conclusion, classified `SUPPORTED · PARTIALLY_SUPPORTED · UNSUPPORTED · CONTRADICTED · UNVERIFIED`. The specific check the reviewer document names: **causal overclaim** — the study supports *associated with*, the conclusion says *causes*. That is a Tier 2 finding with the sentence and the design that limits it both cited.
+
+**[v8 — SHIPS, and only because it does NOT read the claims. Measured before the report shape was chosen.]**
+
+*"On every major claim"* names the claim extractor's output as the input. Asked
+what fraction of that output this check can classify
+(`examples/claim_classifiable_audit.rs`), the answer is none:
+
+| | six manuscripts | twenty manuscripts |
+|---|---:|---:|
+| claims produced | 123 | 528 |
+| whole sentences, not fragments | 10 (8.1%) | 47 (8.9%) |
+| + in a concluding section | 2 (1.6%) | 11 (2.1%) |
+| + asserting causation | **0** | **0** |
+| + with a design to weigh against | **0** | **0** |
+
+**Scoped as this section writes it, the check classifies 0 of 528.** The 8–9%
+whole-sentence figure is `claims.rs` slicing from its cue to the next one and
+keeping the tail — the same defect §4.2 measured at 89% fragments.
+
+**What ships reads concluding SENTENCES and the design field**, both from
+`ExtractionResult`, and that input is real: **17 of 20 manuscripts state a design
+this check recognises**, and the corpus yields 6 causal sentences across 20
+papers. On it: 2 association-only designs, 0 findings, and every zero
+adjudicated as correct — the cross-sectional papers make no causal claim, and
+`Revised Health Economics Paper FINAL (1).docx` writes *"Cross-sectional design:
+No causal direction can be established."*
+
+So the same sentence that ends D165 applies here: declining the claims layer
+costs this check nothing, because it was never scoped to it. `SUPPORTED` and
+`CONTRADICTED` remain unreachable for the separate reason in the module header —
+Phase 1 built the evidence graph to emit co-location and refused to assert
+meaning, and reading co-location as support would reverse that silently.
+
+**THE TRACING, MEASURED** (`examples/claim_evidence_audit.rs`, 20 manuscripts,
+528 claims). §4.6 asks for claim → analysis → result → conclusion. The evidence
+graph emits exactly one claim→result edge, `ClaimCoLocatedWithStatistic`:
+
+| | claims | share |
+|---|---:|---:|
+| traced to a result | **65** | 12.3% |
+| `SUPPORTED` / `CONTRADICTED` | **0** | unreachable — the edge is co-location |
+| `PARTIALLY_SUPPORTED` | 65 | 12.3% |
+| **`UNVERIFIED`** | **463** | **87.7%** |
+
+**A per-claim report over this input is 463 rows saying "we could not check
+this."** That is the honest state and it is NOT a reason to loosen the tracing:
+the 87.7% is what an extractor that sees position and not meaning can say, and
+the way to move it is a real claim↔analysis link, not a weaker bar for calling
+something traced. Recorded here so the number is the thing anyone proposing to
+improve it has to beat.
+
+So the shipped output is **the causal-overclaim finding only**, and the per-claim
+distribution stays a measurement rather than a report section.
+
+**THE CAUSAL-OVERCLAIM CHECK NEEDS BOTH HALVES, AND BOTH ARE COMMON — THE
+CONJUNCTION IS NOT:**
+
+| over 20 manuscripts | |
+|---|---:|
+| state a design that admits causation | 15 |
+| state an association-only design | 2 |
+| state no design this check recognises | 3 |
+| make ≥1 causal conclusion (12 raw phrase matches, **6** after the disclaimer, idiom and `X-induced` guards) | 5 |
+| **both halves — association-only AND a causal conclusion** | **0** |
+
+**This is why the check ships where novelty was declined, and the difference is
+the shape of the scarcity.** Novelty's input was itself rare — 0.1 real claims
+per manuscript (§11 D166). Here both inputs are ordinary: 17 of 20 manuscripts
+state a design and 5 make causal conclusions. What does not occur in these 20 is
+the *pairing*, and a check that stays silent because the defect is absent is
+working. The two association-only papers make no causal claim at all, and one
+says so outright — *"Cross-sectional design: No causal direction can be
+established."*
+
+**What that costs, stated plainly: the check has never fired on real input.** Its
+precision on this corpus is not 4/4 or 0/4, it is undefined, and only a
+constructed positive control shows it can fire at all. That is a weaker claim
+than the frequentist specialist's and is reported as such.
 
 ---
 

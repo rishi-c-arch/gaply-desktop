@@ -885,6 +885,95 @@ pub fn openalex_oa_location(
     }
 }
 
+/// One candidate prior work, as OpenAlex supplies it.
+///
+/// Title and abstract are [`UntrustedText`]: they are third-party web text, and
+/// the mechanism for that in this crate is this one — never a parallel one.
+#[derive(Debug, Clone)]
+pub struct PriorWork {
+    pub openalex_id: String,
+    pub doi: Option<String>,
+    pub title: Option<UntrustedText>,
+    pub abstract_text: Option<UntrustedText>,
+    pub publication_year: Option<i32>,
+    pub cited_by_count: Option<i64>,
+    pub provenance: Provenance,
+}
+
+/// **OpenAlex free-text search — the retrieval half of the novelty pipeline.**
+///
+/// Distinct from [`openalex_lookup`], which asks *does this reference exist*.
+/// This asks *what has been published on these terms*, which is the question
+/// §4.6's novelty check needs and the one no existing connector answers.
+///
+/// Shares this module's cache, rate limiter and provenance by construction:
+/// a second retrieval path with its own budget would be the parallel mechanism
+/// `UntrustedText` exists to prevent, one layer down.
+///
+/// `query` is joined with spaces and percent-encoded. Results are capped at
+/// `per_page` (OpenAlex allows up to 200; anything above 25 is noise for this
+/// use and is clamped).
+pub fn openalex_search(
+    ctx: &VerifyContext,
+    query: &str,
+    per_page: usize,
+    now: i64,
+) -> Result<ConnectorOutcome<Vec<PriorWork>>, GaplyError> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Ok(ConnectorOutcome::NotFound);
+    }
+    let per_page = per_page.clamp(1, 25);
+    let cache_key = format!("refverify:openalex:search:{per_page}:{}", sha256_hex(q));
+    let url = format!(
+        "https://api.openalex.org/works?per-page={per_page}&search={}",
+        pct(q)
+    );
+    let req = HttpRequest::get(url);
+
+    match cached_fetch(ctx, "openalex", &cache_key, TTL_EXISTENCE, req, now)? {
+        Fetched::RateLimited { retry_after_secs } => {
+            Ok(ConnectorOutcome::RateLimited { retry_after_secs })
+        }
+        Fetched::HttpStatus { status: 404 } => Ok(ConnectorOutcome::NotFound),
+        Fetched::HttpStatus { status } => {
+            Ok(ConnectorOutcome::Unavailable { detail: format!("openalex http {status}") })
+        }
+        Fetched::Body { body, provenance } => {
+            let v = json(&body, "openalex")?;
+            let Some(results) = v["results"].as_array() else {
+                return Ok(ConnectorOutcome::NotFound);
+            };
+            let works: Vec<PriorWork> = results
+                .iter()
+                .filter_map(|w| {
+                    let id = w["id"].as_str()?.to_string();
+                    Some(PriorWork {
+                        openalex_id: id,
+                        doi: w["doi"].as_str().map(|s| s.to_string()),
+                        title: w["title"]
+                            .as_str()
+                            .map(|t| UntrustedText::new(t, provenance.clone())),
+                        abstract_text: abstract_from_inverted_index(
+                            &w["abstract_inverted_index"],
+                        )
+                        .map(|a| UntrustedText::new(a, provenance.clone())),
+                        publication_year: w["publication_year"]
+                            .as_i64()
+                            .and_then(|y| i32::try_from(y).ok()),
+                        cited_by_count: w["cited_by_count"].as_i64(),
+                        provenance: provenance.clone(),
+                    })
+                })
+                .collect();
+            if works.is_empty() {
+                return Ok(ConnectorOutcome::NotFound);
+            }
+            Ok(ConnectorOutcome::Found(works))
+        }
+    }
+}
+
 /// Retraction Watch — retraction status for a DOI. Accepts the CrossRef-Labs
 /// shape (`message.update-to[].type == "retraction"`) and a simple
 /// `{retracted, reasons, notice_url}` shape. Requires a DOI.

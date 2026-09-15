@@ -1867,7 +1867,7 @@ fn a_recommended_standard_is_not_reported_as_required() {
         },
     ];
     let ex = ExtractionResult::default();
-    let items = crate::report::checklist_from_requirements(&ex, 1000, &[], &bindings);
+    let items = crate::report::checklist_from_requirements(&ex, "", 1000, &[], &bindings);
 
     let strobe = items.iter().find(|i| i.requirement.starts_with("STROBE")).unwrap();
     assert!(strobe.detail.contains("requires STROBE"), "{}", strobe.detail);
@@ -1909,7 +1909,7 @@ fn every_standard_item_row_states_the_fraction_of_the_standard_checked() {
          logistic regression was used.\n\nResults\n\nProvision was 36.5% (95% CI: \
          30.2-43.1%).\n",
     );
-    let items = crate::report::checklist_from_requirements(&ex, 1000, &[], &bindings);
+    let items = crate::report::checklist_from_requirements(&ex, "", 1000, &[], &bindings);
 
     let rows: Vec<&crate::report::ChecklistItem> =
         items.iter().filter(|i| i.requirement.contains("STROBE item")).collect();
@@ -2106,7 +2106,7 @@ mod unbound_standards {
 
     fn run(reqs: &[StoredRequirement], bindings: &[StandardBinding]) -> Vec<crate::report::ChecklistItem> {
         let ex = crate::extract::extract_from_text("Abstract\n\nA paper.\n");
-        crate::report::checklist_from_requirements(&ex, 1000, reqs, bindings)
+        crate::report::checklist_from_requirements(&ex, "", 1000, reqs, bindings)
     }
 
     /// Named, mandatory, and unroutable: reported with the journal's sentence so
@@ -2206,7 +2206,7 @@ fn standard_item_rows_are_evaluated_once_carry_the_conditional_and_do_not_flag_t
         "Abstract\n\nA cross-sectional employer survey (n = 222).\n\nResults\n\nProvision was \
          36.5% (95% CI: 30.2-43.1%).\n",
     );
-    let items = crate::report::checklist_from_requirements(&ex, 1000, &[], &bindings);
+    let items = crate::report::checklist_from_requirements(&ex, "", 1000, &[], &bindings);
     let rows: Vec<&crate::report::ChecklistItem> =
         items.iter().filter(|i| i.requirement.contains("CONSORT item")).collect();
 
@@ -2313,4 +2313,96 @@ fn an_absent_unevaluable_key_renders_as_a_verdict_and_the_risk_is_named() {
     );
     let round: crate::report::ChecklistItem = serde_json::from_str(&current).unwrap();
     assert_eq!(render(&round), "UNEVALUABLE", "and it must survive the round trip");
+}
+
+
+/// **A required statement is decided from the FULL TEXT, not from a heading.**
+///
+/// Measured against Nature Medicine and `Revised Health Economics Paper
+/// FINAL (1).docx`: the heading check produced FOUR false compliance failures
+/// on one real manuscript, because the paper writes its statements as inline
+/// run-in labels. The strings below are that manuscript's own words.
+///
+/// §4.5 [v8] is the rule this enforces: `extraction.sections` is a MEDIATED
+/// field, and a compliance failure may not be concluded from one being empty.
+#[test]
+fn a_required_statement_written_as_a_run_in_label_is_found() {
+    use crate::journal_extract::RequirementKind;
+    use crate::journal_store::StoredRequirement;
+
+    // The manuscript's own words, verbatim. Not one of them is a heading.
+    let text = "Results\n\nThe estimate was 36.5%.\n\nEthical Approval: Ministry of \
+                Health, Oman (Grant MOH/CSR/24/29387). Conducted in accordance with the \
+                Declaration of Helsinki. Participant consent obtained prior to \
+                interview.\nData Availability: Available from the corresponding author on \
+                reasonable request.\nConflicts of Interest: The authors declare no \
+                conflicts of interest.\nFunding: Ministry of Health, Oman (Grant \
+                MOH/CSR/24/29387).\n";
+    let ex = crate::extract::extract_from_text(text);
+    assert!(
+        !ex.sections.iter().any(|s| s.heading.to_lowercase().contains("data availability")),
+        "precondition: the classifier produces no such HEADING — which is why the old \
+         check failed"
+    );
+
+    let req = |kind: RequirementKind, value: &str| StoredRequirement {
+        kind,
+        value: value.to_string(),
+        article_type: None,
+        status: "verified".into(),
+        source_url: "https://www.nature.com/nm/for-authors".into(),
+        source_heading: "Preparing your submission".into(),
+        source_span: "all submissions must include a data availability statement".into(),
+        conflict_id: None,
+    };
+    let reqs = vec![
+        req(RequirementKind::DataPolicy, "data sharing required"),
+        req(RequirementKind::SectionRequired, "competing interests statement"),
+        req(RequirementKind::SectionRequired, "funding statement"),
+    ];
+
+    let items = crate::report::checklist_from_requirements(&ex, text, 1000, &reqs, &[]);
+
+    let da = items.iter().find(|i| i.requirement == "data availability statement").unwrap();
+    assert!(da.passed, "{da:?}");
+    assert!(
+        da.detail.contains("Available from the corresponding author"),
+        "the item must quote the manuscript's own sentence, not assert: {}",
+        da.detail
+    );
+    assert_eq!(da.checked_field.as_deref(), Some("manuscript full text"));
+
+    // **The synonym case.** The journal says "competing interests"; the
+    // manuscript says "Conflicts of Interest". Checking only the journal's word
+    // reports a missing statement that is on the page.
+    let ci = items.iter().find(|i| i.requirement == "competing interests statement").unwrap();
+    assert!(ci.passed, "{ci:?}");
+    assert!(ci.detail.contains("declare no conflicts of interest"), "{}", ci.detail);
+
+    let f = items.iter().find(|i| i.requirement == "funding statement").unwrap();
+    assert!(f.passed, "{f:?}");
+}
+
+/// The other direction: a manuscript that really has no such statement is still
+/// flagged, and the item says how many phrasings were searched.
+#[test]
+fn a_statement_that_is_genuinely_absent_is_still_flagged_with_its_lexicon() {
+    use crate::journal_extract::RequirementKind;
+    use crate::journal_store::StoredRequirement;
+    let text = "Results\n\nThe estimate was 36.5%.\n";
+    let ex = crate::extract::extract_from_text(text);
+    let reqs = vec![StoredRequirement {
+        kind: RequirementKind::DataPolicy,
+        value: "data sharing required".into(),
+        article_type: None,
+        status: "verified".into(),
+        source_url: "u".into(),
+        source_heading: "h".into(),
+        source_span: "must include a data availability statement".into(),
+        conflict_id: None,
+    }];
+    let items = crate::report::checklist_from_requirements(&ex, text, 1000, &reqs, &[]);
+    let da = items.iter().find(|i| i.requirement == "data availability statement").unwrap();
+    assert!(!da.passed);
+    assert!(da.detail.contains("phrasings was found"), "{}", da.detail);
 }

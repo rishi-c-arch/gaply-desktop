@@ -1584,6 +1584,53 @@ pub fn build_checklist(
     Ok(checklist_from_guidelines(extraction, manuscript_text, &hits))
 }
 
+/// Phrasings that satisfy a data availability statement.
+const DATA_AVAILABILITY_NAMES: &[&str] =
+    &["data availability", "data availability statement", "availability of data"];
+
+/// **Synonyms, because a journal's name for a statement is not the author's.**
+///
+/// Measured on one manuscript against Nature Medicine: the journal requires a
+/// *competing interests* statement and the manuscript writes *"Conflicts of
+/// Interest: The authors declare no conflicts of interest."* Checking only the
+/// journal's word reports a missing statement that is on the page. The failure
+/// direction of a missing synonym is a false FLAG, which is the direction that
+/// costs a researcher work, so the lists err towards admitting.
+fn synonyms_for(needle: &'static str) -> Vec<&'static str> {
+    let list: &[&str] = match needle {
+        "competing interest" => {
+            &["competing interest", "conflict of interest", "conflicts of interest",
+              "declaration of interest", "disclosure statement"]
+        }
+        "data availability" => DATA_AVAILABILITY_NAMES,
+        "code availability" => &["code availability", "code is available", "software availability"],
+        "funding" => &["funding", "financial support", "grant support", "supported by a grant"],
+        "ethics" => &["ethics", "ethical approval", "ethics approval", "institutional review board",
+                      "ethics committee", "ethical clearance"],
+        "informed consent" => &["informed consent", "consent was obtained", "consent to participate"],
+        "author contribution" => &["author contribution", "authors' contribution", "credit author"],
+        // A statement with no recorded synonym is checked under the journal's
+        // own word, which is the honest default: inventing synonyms would admit
+        // statements the journal did not ask for.
+        _ => return vec![needle],
+    };
+    list.to_vec()
+}
+
+/// The sentence a statement occurs in, whole. `None` when none of `names`
+/// occurs anywhere in the manuscript.
+///
+/// **Returns the sentence rather than a bool**, because a checklist item saying
+/// *"found"* has to be checkable: the manuscript's own words are what let a
+/// reader refute it in one glance.
+fn statement_in_text(lower: &str, original: &str, names: &[&str]) -> Option<String> {
+    let at = names.iter().filter_map(|n| lower.find(n)).min()?;
+    let start = original[..at].rfind(['.', '\n']).map(|i| i + 1).unwrap_or(0);
+    let rest = &original[at..];
+    let end = rest.find(['.', '\n']).map(|i| at + i + 1).unwrap_or(original.len());
+    Some(original[start..end].trim().to_string())
+}
+
 /// **A checklist built from a journal's OWN extracted requirements.**
 ///
 /// Prompt 5 item 7: point `build_checklist` at `journal_requirements` and the
@@ -1611,8 +1658,35 @@ pub fn build_checklist(
 /// Communication; nothing in the pipeline knows which the manuscript is, and
 /// picking one would be the choice the CONFLICTED rule refuses one layer up.
 /// The item says both and passes no verdict.
+/// # A REQUIRED STATEMENT IS DECIDED FROM THE FULL TEXT, NOT FROM A HEADING
+///
+/// This function used to decide *"data availability statement"* and every other
+/// required statement by scanning `extraction.sections[heading]`. §4.5 [v8]
+/// classes `sections` as a MEDIATED field: a heading classifier that fails to
+/// recognise a heading is indistinguishable from a manuscript that has none.
+///
+/// **Measured against Nature Medicine and `Revised Health Economics Paper
+/// FINAL (1).docx`, that produced FOUR false compliance failures on one real
+/// manuscript**, because the paper writes its statements as inline run-in
+/// labels rather than as headings:
+///
+/// ```text
+/// Data Availability: Available from the corresponding author on reasonable request.
+/// Ethical Approval: Ministry of Health, Oman (Grant MOH/CSR/24/29387). …
+/// Conflicts of Interest: The authors declare no conflicts of interest.
+/// Funding: Ministry of Health, Oman (Grant MOH/CSR/24/29387).
+/// ```
+///
+/// The classifier produced eight sections and not one heading contains any of
+/// those phrases. A researcher would have been told to add four statements they
+/// had already written, against a journal that really does require them.
+///
+/// So `manuscript_text` is searched, and the item carries **the manuscript's own
+/// sentence** as the evidence — which a heading check could never supply. The
+/// heading remains as corroboration in `checked_field`, never as the decider.
 pub fn checklist_from_requirements(
     extraction: &ExtractionResult,
+    manuscript_text: &str,
     manuscript_words: usize,
     requirements: &[crate::journal_store::StoredRequirement],
     bindings: &[crate::journal_standards::StandardBinding],
@@ -1698,23 +1772,23 @@ pub fn checklist_from_requirements(
     }
 
     // --- data availability ------------------------------------------------
+    let lower_text = manuscript_text.to_lowercase();
     if let Some(r) = requirements.iter().find(|r| r.kind == RequirementKind::DataPolicy) {
-        let present = extraction
-            .sections
-            .iter()
-            .any(|s| s.heading.to_lowercase().contains("data availability"));
+        let found = statement_in_text(&lower_text, manuscript_text, DATA_AVAILABILITY_NAMES);
         items.push(ChecklistItem {
             requirement: "data availability statement".into(),
-            passed: present,
-            detail: if present {
-                "a data availability heading was found".into()
-            } else {
-                "no data availability heading was found in the manuscript".into()
+            passed: found.is_some(),
+            detail: match &found {
+                Some(sentence) => format!("found in the manuscript: {sentence}"),
+                None => format!(
+                    "none of {} phrasings was found anywhere in the manuscript",
+                    DATA_AVAILABILITY_NAMES.len()
+                ),
             },
             guideline_source: Some(r.source_url.clone()),
             source_span: Some(r.source_span.clone()),
             article_type: r.article_type.clone(),
-            checked_field: Some("extraction.sections[heading]".into()),
+            checked_field: Some("manuscript full text".into()),
             unevaluable: false,
         });
     }
@@ -1733,20 +1807,23 @@ pub fn checklist_from_requirements(
         if !seen_stmt.insert(needle) {
             continue;
         }
-        let present =
-            extraction.sections.iter().any(|s| s.heading.to_lowercase().contains(needle));
+        let names = synonyms_for(needle);
+        let found = statement_in_text(&lower_text, manuscript_text, &names);
         items.push(ChecklistItem {
             requirement: r.value.clone(),
-            passed: present,
-            detail: if present {
-                format!("a heading matching \"{needle}\" was found")
-            } else {
-                format!("no heading matching \"{needle}\" was found in the manuscript")
+            passed: found.is_some(),
+            detail: match &found {
+                Some(sentence) => format!("found in the manuscript: {sentence}"),
+                None => format!(
+                    "none of {} phrasings ({}) was found anywhere in the manuscript",
+                    names.len(),
+                    names.join(", ")
+                ),
             },
             guideline_source: Some(r.source_url.clone()),
             source_span: Some(r.source_span.clone()),
             article_type: r.article_type.clone(),
-            checked_field: Some("extraction.sections[heading]".into()),
+            checked_field: Some("manuscript full text".into()),
             unevaluable: false,
         });
     }

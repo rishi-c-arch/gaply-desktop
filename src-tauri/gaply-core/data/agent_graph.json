@@ -149,6 +149,34 @@
         "analysis_record",
         "scientific_extraction"
       ]
+    },
+    {
+      "id": "claim_evidence_strength",
+      "cluster": "methodological_soundness",
+      "reads": [
+        "manuscript",
+        "research_state"
+      ],
+      "requires": [],
+      "after": [
+        "extraction"
+      ],
+      "model": "none",
+      "trust_tier": "evidence_reasoning",
+      "hard_constraint": false,
+      "may_revise": false,
+      "requires_consent": null,
+      "evidence_policy": {
+        "min_sources": 1,
+        "permitted_sources": [
+          "manuscript_span"
+        ],
+        "citation_required": true,
+        "uncertainty_required": true
+      },
+      "optional": [
+        "scientific_extraction"
+      ]
     }
   ]
 }

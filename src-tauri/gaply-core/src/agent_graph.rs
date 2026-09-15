@@ -1108,15 +1108,30 @@ mod shipped {
     #[test]
     fn the_shipped_graph_validates() {
         let g = shipped_graph();
-        assert_eq!(g.agents.len(), 8, "the six pipeline lanes plus the two Phase-4 specialists");
+        assert_eq!(
+            g.agents.len(),
+            9,
+            "the six pipeline lanes plus the three Phase-4/4b specialists"
+        );
     }
 
-    /// **The graph's order must be the order the pipeline actually runs.**
+    /// **The graph's order must be the order the pipeline actually runs — for
+    /// the SIX LANES. For the specialists it pins something weaker, and saying
+    /// which is the point.**
     ///
     /// `run_pipeline_inner` executes extraction, validation, ai, plagiarism,
-    /// rag, verification — in that sequence, hardcoded. If the graph disagreed,
-    /// it would be a description of something that does not happen, which is
+    /// rag, verification — in that sequence, hardcoded. If the graph disagreed
+    /// about those it would describe something that does not happen, which is
     /// worse than no description: the next phase routes over it.
+    ///
+    /// `frequentist_stats`, `ml_methodology` and `claim_evidence_strength` are
+    /// **not executed by `run_pipeline_inner` at all**. Checked 15 Sep 2026:
+    /// the only callers of `specialist::run` anywhere in the tree are tests and
+    /// `examples/`. So for those three this test pins the graph's declared
+    /// topological order and nothing about execution — the same gap §12.1
+    /// item 2 records for the lanes' DRIVING, one node further along. A reader
+    /// who takes this test's name at face value would conclude the specialists
+    /// run in production. They do not.
     #[test]
     fn the_graphs_order_matches_the_pipelines_lane_order() {
         let order: Vec<String> = shipped_graph()
@@ -1136,6 +1151,7 @@ mod shipped {
                 "verification",
                 "frequentist_stats",
                 "ml_methodology",
+                "claim_evidence_strength",
             ],
             "the graph must describe the order run_pipeline_inner really uses"
         );

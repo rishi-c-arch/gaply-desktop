@@ -46,7 +46,7 @@ fn main() {
     println!("journal    : {key}");
     println!("  {} requirements stored, {} standard bindings\n", stored.len(), all_bindings.len());
 
-    let checklist = checklist_from_requirements(&extraction, words, &stored, &all_bindings);
+    let checklist = checklist_from_requirements(&extraction, &text, words, &stored, &all_bindings);
     println!("=== CHECKLIST ({} items) ===", checklist.len());
     for c in &checklist {
         println!("\n  [{}] {}", if c.passed { "PASS" } else { "FAIL" }, c.requirement);
