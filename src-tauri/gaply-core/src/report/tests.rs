@@ -2477,3 +2477,46 @@ fn a_sentence_mentioning_results_is_not_a_heading() {
         assert_eq!(v.status, ItemStatus::NotFound, "{prose:?} -> {}", v.detail);
     }
 }
+
+
+/// **§12.1's equation GAP, closed.** Equation findings shipped with
+/// `location: None`, marked GAP at the construction site: the engine works over
+/// lines and the OMML paragraph index does not compose with `Location`, whose
+/// `paragraph` is an index WITHIN a section.
+///
+/// The fix is the one that has now worked three times in this crate — search
+/// the text for the line rather than thread a second index through. The
+/// manuscript below is `Revised Health Economics Paper FINAL (1).docx`'s real
+/// defect in miniature: the products give 0.21968 where the next line writes
+/// 0.219.
+#[test]
+fn an_equation_finding_is_anchored_to_the_paragraph_that_contains_it() {
+    let text = "A Title\n\n1. Background\n\nSome prose about provision.\n\n\
+                5. Results\n\nThe indirect effect was 0.413 * 0.5317 = 0.21968.\n";
+    let ex = crate::extract::extract_from_text(text);
+    let line = "The indirect effect was 0.413 * 0.5317 = 0.21968.";
+    let at = crate::extract::locate_line(&ex, line).expect("the line is in exactly one paragraph");
+    assert_eq!(at.section, crate::extract::SectionKind::Results);
+    assert_eq!(crate::extract::paragraph_at(&ex, &at), Some(line));
+}
+
+/// **A line in two paragraphs anchors to neither.** Anchoring to the first
+/// would be `paragraph_at`'s ambiguity defect, committed here rather than
+/// inherited — and §9 [v5] already refused a reconstruction that looks subtly
+/// wrong to the person who wrote the paper.
+#[test]
+fn a_line_appearing_twice_is_refused_rather_than_anchored_to_the_first() {
+    let dup = "The conversion factor was 8000 mg per litre.";
+    let text = format!("A Title\n\n1. Background\n\n{dup}\n\n5. Results\n\n{dup}\n");
+    let ex = crate::extract::extract_from_text(&text);
+    assert!(crate::extract::locate_line(&ex, dup).is_none());
+}
+
+/// A line too short to identify a place is refused. `n = x` occurs everywhere.
+#[test]
+fn a_line_shorter_than_the_floor_is_not_anchored() {
+    let text = "A Title\n\n5. Results\n\nn = 5 and the rest of this paragraph.\n";
+    let ex = crate::extract::extract_from_text(text);
+    assert!(crate::extract::locate_line(&ex, "n = 5").is_none());
+    assert!(crate::extract::locate_line(&ex, "   ").is_none());
+}

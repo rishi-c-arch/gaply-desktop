@@ -794,7 +794,7 @@ pub fn compile_report(
     // `Finding` lives in `crate::equation_report` so the whole translation is
     // in one auditable place; the pairing stays here so these cannot become a
     // second hand-set construction site for an `EvidenceRecord`.
-    for finding in equation_findings(equations) {
+    for finding in equation_findings(equations, extraction) {
         items.push(paired(finding, 1.0));
     }
 
@@ -925,7 +925,11 @@ pub fn compile_report(
 /// caller that predates this passes `&[]`, so their reports are byte-identical
 /// — which is what makes the golden capture a check on this change rather than
 /// a fixture to regenerate.
-fn equation_findings(lines: &[String]) -> Vec<Finding> {
+/// `ex` is `None` when the caller ran no extraction. Findings are still
+/// produced — the engine reads the equation lines, not the sections — but they
+/// carry no anchor, which is the state §12.1 recorded for every equation
+/// finding before this.
+fn equation_findings(lines: &[String], ex: Option<&ExtractionResult>) -> Vec<Finding> {
     if lines.is_empty() {
         return Vec::new();
     }
@@ -935,14 +939,16 @@ fn equation_findings(lines: &[String]) -> Vec<Finding> {
     let mut out = Vec::new();
     for node in &graph.nodes {
         for f in crate::equation::check::check_equation(&node.equation, &values) {
-            if let Some(finding) = crate::equation_report::arithmetic_finding(&f) {
+            let at = ex.and_then(|e| crate::extract::locate_line(e, &f.source_line));
+            if let Some(finding) = crate::equation_report::arithmetic_finding(&f, at) {
                 out.push(finding);
             }
         }
         for (l, r) in node.equation.claims() {
             let v = crate::equation::units::check_sides(&l.expr, &r.expr, &env);
+            let at = ex.and_then(|e| crate::extract::locate_line(e, &node.equation.text));
             if let Some(finding) =
-                crate::equation_report::dimension_finding(&node.equation.text, &v)
+                crate::equation_report::dimension_finding(&node.equation.text, &v, at)
             {
                 out.push(finding);
             }

@@ -171,10 +171,7 @@ impl SourceId {
             SourceId::ReportingStandards => "reporting_standards",
             SourceId::JournalRequirements => "journal_requirements",
             SourceId::ComparableCorpus => "comparable_corpus",
-            // §11 D166: 2 novelty claims in 528 across 20 manuscripts, and none
-            // of §4.6's phrasings in any of them. Not a retrieval problem.
-            SourceId::NoveltyClaims
-            | SourceId::BayesianAnalysis => "bayesian_analysis",
+            SourceId::BayesianAnalysis => "bayesian_analysis",
             SourceId::QualitativeMethods => "qualitative_methods",
             SourceId::SurveyPsychometric => "survey_psychometric",
             SourceId::LabWetBench => "lab_wet_bench",

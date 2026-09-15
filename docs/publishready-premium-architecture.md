@@ -1198,6 +1198,49 @@ The teardown's own precedent is the model: AI Check's paraphrase distinction was
 
 The output a researcher acts on. Not a report *about* the paper — the paper, annotated.
 
+**[v8 — MEASURED. "Every finding carries a locator" is not achievable, and the reason is not a defect. `examples/anchor_audit.rs`, 20 manuscripts, 137 findings.]**
+
+| tier | findings | share |
+|---|---:|---:|
+| **NONE** — no `Location` at all | **104** | **75.9%** |
+| UNRESOLVED — has one, resolves to nothing | 0 | 0.0% |
+| AMBIGUOUS — resolves, but >1 section of that kind | 5 | 3.6% |
+| **ANCHORED** — resolves, and the kind is unique | **28** | **20.4%** |
+
+**20.4% of findings can be shown on the page.** `.pdf` 21.2%, `.docx` 20.2% —
+the formats do not differ, which is itself worth knowing given §9 [v5] expected
+them to.
+
+**THE SPLIT IS NOT RANDOM AND IT IS NOT A BUG: every finding code is either
+100% located or 0% located, and the dividing line is PRESENCE against ABSENCE.**
+
+| 0% located — the finding is about something ABSENT | 100% located — about something PRESENT |
+|---|---|
+| `AbstractPresent`, `ResultsSectionPresent`, `SampleSizeReported`, `StatisticalTestReported`, `EffectSizeReported`, `ConfidenceIntervalReported`, `no_data_availability_statement`, `no_ethics_statement_in_a_study_with_subjects`, `reference_list_is_mostly_outdated` | `MissingEffectSize`, `MissingConfidenceInterval`, `PValueOverclaim`, `multiple_comparisons_uncorrected`, `parametric_test_assumptions_unstated`, `marginal_significance_language`, `no_heldout_evaluation_named`, `no_variance_across_runs`, `resampling_not_stated_as_post_split`, `SmallSampleCausalClaim` |
+
+**You cannot point at the place where a data availability statement is not.**
+No improvement to `Location` changes that — an absence has no coordinates. So
+the real rate is the one among findings that CAN be located: **28 of 33, 84.8%**,
+with the other 5 lost to the repeated-`SectionKind` ambiguity below and **zero**
+lost to failed resolution.
+
+**A number §12.1 would have led anyone to expect, and which does not apply
+here.** §12.1 measured *41 of 301 spans fail to resolve and 159 name an
+ambiguous kind* — that was over SCIENTIFIC-LAYER spans, which no shipped finding
+uses. Over the findings that actually ship, UNRESOLVED is **0** and AMBIGUOUS is
+**5 of 33**. Section kinds do repeat — Introduction in 5 of 20 manuscripts,
+Methods in 4, Conclusion in 3 — but the findings land in sections that mostly
+do not.
+
+**WHAT THIS MAKES THE MARKED-UP MANUSCRIPT.** A smaller thing than the bullet
+below describes, and a well-defined one: **it annotates presence findings, and
+absence findings belong in the letter and the rubric, where they already read
+correctly.** "No data availability statement was found anywhere in the
+manuscript" is a sentence about the whole document; putting a margin note
+somewhere arbitrary to carry it would invent a location, which is the same
+refusal §9 [v5] already made about reconstructing `.docx` page geometry. The
+exports are scoped accordingly.
+
 - **Anchored findings.** Every finding carries a locator into the manuscript. **[v5 — corrected]** v4 cited *"the audit's D65/D92 anchoring already does this at 97.6%."* Three things are conflated. The 97.6% is **80 of 82 sentences on one paper** (`R PAPER .pdf`); it is **PDF only**; and it is in the **thesis-audit** lane, over audit items, not PublishReady findings — the anchoring does not transfer for free. D92 also **refused** `.docx` annotation on stated grounds: page geometry is not in the file, and *"a reconstruction that looks subtly wrong to the person who wrote the paper is worse than no reconstruction."* So: page + paragraph for PDF, paragraph ordinals for `.docx` (D65's substitution), and the marked-up view renders margin notes at the anchor.
 - **Epistemic status on every finding.** `DETECTED · SUPPORTED · CONFIRMED · CONTRADICTED · UNVERIFIED · REQUIRES_AUTHOR_CONFIRMATION`. The N mismatch above is `DETECTED / REQUIRES_AUTHOR_CONFIRMATION`, never *wrong* — there may be a protocol reason, and the product does not auto-correct scientifically ambiguous things. Detected is not proven.
 - **A reviewer's verification trail.** Every major finding states how a reviewer could check it independently: *examine Table 3; compare the SPSS output; read Methods ¶4.* That is the difference between *"the AI thinks your statistics are wrong"* and *"here is what a reviewer would look at."*
@@ -1381,7 +1424,7 @@ Four things, each verified against the tree on 14 Sep 2026 rather than copied fr
 1. **`run_premium_gate` has no production runner.** It exists and is tested; every caller is a test. §4.3's *"every cloud agent has a `Tier::Premium` gate upstream"* is a static declaration plus a runtime gate nothing in production invokes.
 2. **The lanes are described by the graph, not driven by it.** `run_pipeline_inner` still executes six lanes in a hardcoded sequence; the graph supplies the declaration of record and the derivable-artifact decision, with the order pinned against the executor. A graph-driven executor is a separate change, and the golden test cannot cover it — byte-identity proves the report did not move, not that the mechanism producing it is the one the graph describes.
 3. **Nothing declares `ScientificExtraction`, and as of [v7] nothing should — the layer is DECLINED, not pending (§11 D165).** It was switched on, measured, and switched back off. All 152 `Method` objects across the six real manuscripts were hand-checked, not sampled: **9 have a span that is a genuine method statement (5.9%), 3 also have a correct `design` (2.0%), and 1 is correct in every field (0.66%)** — against a **50%** no-skill baseline (the first paragraph of each Methods section, 6 of 12). A one-line heuristic beats nine hand-written regexes by 8.5x. The failures are categorical rather than marginal: Turnitin page footers with `n = Some(189)`, nine table data rows as nine `Method` objects, six hyperparameter cells as six more, the manuscript title, the Keywords line, and an Authorship Contribution Statement whose `software: ["R"]` is the author's middle initial. Every object carries `confidence: 0.85`, a hardcoded constant, so a consumer cannot filter. **This is D128's shape and D128's action** — a lane that would ship a number nobody has evidence for. The condition that reopens it is D128's bar: a labelled set, a measured precision reported per stratum, a no-skill comparison it beats, and a confidence that varies.
-4. **Equation findings carry `location: None`.** The OMML reader knows the `.docx` paragraph index and `extract::Location`'s `paragraph` is an index WITHIN a section — the two do not compose yet. So a researcher gets the equation quoted verbatim and no anchor into their manuscript, which §9's *"every finding carries a locator"* expects. Marked GAP at the construction site in `equation_report.rs`, and listed here so it is not rediscovered.
+4. **Equation findings carried `location: None` — CLOSED [v8].** The OMML reader knows the `.docx` paragraph index and `extract::Location`'s `paragraph` is an index WITHIN a section; the two still do not compose, and threading the index through was never the cheap fix. Every equation finding already carries its `source_line`, so `extract::locate_line` searches the extracted paragraphs for that text and returns the `Location` that resolves back to it — **the third time this shape has been the answer in this crate**, after required statements and the ethics subject sentence, each of which moved from a structural lookup to a text search for the same reason. A line found in two paragraphs is REFUSED rather than anchored to the first, because anchoring to the first is exactly the `paragraph_at` ambiguity defect, and a line shorter than eight characters is refused because a match then says more about how common the text is than about where the finding belongs. `an_equation_finding_is_anchored_to_the_paragraph_that_contains_it` and its two negatives pin it.
 
 **Phase 2b — the benchmark (in parallel, ongoing).** The first fifty labelled cases across the six families, with population estimates. Nothing in Phase 4 ships without a score on it.
 

@@ -32,6 +32,7 @@ pub mod error;
 pub mod escalation;
 pub mod evidence;
 pub mod evidence_store;
+pub mod exports;
 pub mod extract;
 pub mod gap_finder_agent;
 pub mod journal_corpus;

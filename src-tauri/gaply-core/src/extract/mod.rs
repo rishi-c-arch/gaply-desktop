@@ -79,6 +79,60 @@ pub fn paragraph_at<'a>(result: &'a ExtractionResult, loc: &Location) -> Option<
         .map(String::as_str)
 }
 
+/// **Where in the manuscript a given line of text sits.**
+///
+/// The inverse of [`paragraph_at`]: given text the engine worked over, find the
+/// `Location` that would resolve back to it.
+///
+/// # Why this exists — §12.1's equation GAP
+///
+/// Equation findings shipped with `location: None`, marked GAP at their
+/// construction site: the engine works over LINES and the OMML reader carries a
+/// `.docx` paragraph index, while [`Location::paragraph`] is an index WITHIN a
+/// section. The two do not compose, so a researcher got the equation quoted
+/// verbatim and no anchor into their manuscript.
+///
+/// **Threading the OMML index through was never the cheap fix.** Every
+/// equation finding already carries its `source_line` — the manuscript's own
+/// text — and a text search over the paragraphs the extractor produced answers
+/// the same question without a second index to keep in step. This is the third
+/// time this shape has been the answer in this crate: required statements and
+/// the ethics subject sentence both moved from a structural lookup to a text
+/// search, for the same reason.
+///
+/// Matching is on the TRIMMED line, and a line short enough to appear in many
+/// paragraphs is refused rather than anchored to the first — an anchor that is
+/// probably wrong is worse than none, which is §9 [v5]'s own argument for
+/// refusing `.docx` page reconstruction.
+pub fn locate_line(result: &ExtractionResult, line: &str) -> Option<Location> {
+    let needle = line.trim();
+    // Below this, a "line" is a fragment that could sit anywhere. Measured on
+    // the corpus: equation source lines run 8–120 characters, and the short end
+    // is things like `n = N/(1+Ne²)`.
+    if needle.chars().count() < MIN_LOCATABLE_LINE {
+        return None;
+    }
+    let mut found: Option<Location> = None;
+    for section in &result.sections {
+        for (i, para) in section.paragraphs.iter().enumerate() {
+            if para.contains(needle) {
+                if found.is_some() {
+                    // The same text in two places: anchoring to the first would
+                    // be the `paragraph_at` ambiguity defect, made here instead
+                    // of inherited.
+                    return None;
+                }
+                found = Some(Location { section: section.kind, paragraph: i });
+            }
+        }
+    }
+    found
+}
+
+/// The shortest line [`locate_line`] will anchor. Below it a match says more
+/// about how common the text is than about where the finding belongs.
+pub const MIN_LOCATABLE_LINE: usize = 8;
+
 /// A span of the document a rule searches — §47.1's WINDOW form, made explicit.
 ///
 /// # Why a REGION and not a `Location`

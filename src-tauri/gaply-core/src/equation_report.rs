@@ -70,7 +70,10 @@ fn severity_for(status: EpistemicStatus) -> FindingSeverity {
 /// Returns `None` for anything not reportable — `Confirmed` and `Unverified`
 /// do not reach the author, because a report listing every check that passed
 /// buries the ones that did not.
-pub fn arithmetic_finding(f: &ArithmeticFinding) -> Option<Finding> {
+pub fn arithmetic_finding(
+    f: &ArithmeticFinding,
+    location: Option<crate::extract::Location>,
+) -> Option<Finding> {
     if !f.is_reportable() {
         return None;
     }
@@ -113,12 +116,11 @@ pub fn arithmetic_finding(f: &ArithmeticFinding) -> Option<Finding> {
     }
 
     Some(Finding {
-            // GAP: the engine works over lines, and the `.docx` paragraph index
-            // the OMML reader carries has no route into `Location` yet, whose
-            // `paragraph` is an index WITHIN a section (`extract::Location`).
-            // `None` here is an absence, not a decision, and it is marked so it
-            // is not mistaken for the aggregate-finding case.
-            location: None,
+            // §12.1's GAP, CLOSED. The caller locates `source_line` with
+            // `extract::locate_line`; `None` now means the line was not found
+            // in exactly one paragraph, which is a decision rather than an
+            // absence.
+            location,
             claim: ClaimKind::ManuscriptDefect,
             severity: severity_for(f.status),
             // Tier 0 — see the module header. Never conditional.
@@ -139,13 +141,17 @@ pub fn arithmetic_finding(f: &ArithmeticFinding) -> Option<Finding> {
 
 /// Turn a dimensional verdict into a report finding. Only `Inconsistent`
 /// reports — a consistent or unverifiable one is not news.
-pub fn dimension_finding(source_line: &str, v: &DimensionVerdict) -> Option<Finding> {
+pub fn dimension_finding(
+    source_line: &str,
+    v: &DimensionVerdict,
+    location: Option<crate::extract::Location>,
+) -> Option<Finding> {
     let DimensionVerdict::Inconsistent { left, right, detail } = v else {
         return None;
     };
     Some(Finding {
-            // GAP, as above.
-            location: None,
+            // §12.1's GAP, CLOSED — see `arithmetic_finding`.
+            location,
             claim: ClaimKind::ManuscriptDefect,
             severity: FindingSeverity::Major,
             tier: CertaintyTier::MathematicallyCertain,
