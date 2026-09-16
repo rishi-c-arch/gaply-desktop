@@ -61,6 +61,8 @@ struct Row {
     issn_resolved: bool,
     papers: usize,
     provenance: bool,
+    source_count: i64,
+    crawl_ran: bool,
 }
 
 fn main() {
@@ -96,25 +98,41 @@ fn main() {
             issn_resolved: false,
             papers: 0,
             provenance: false,
+            source_count: 0,
+            crawl_ran: false,
         };
 
         // --- guidelines: requirements, bindings, expectations ---------------
         let mut hasher = Sha256::new();
+        // SOURCES CONSULTED, not sources that yielded something — §11 D173.
         let mut sources = 0usize;
         match crawl(&f, &limiter, &budget, entry) {
             Err(e) => eprintln!("    crawl failed: {e}"),
             Ok(o) => {
+                row.crawl_ran = true;
                 row.pages = o.fetched;
                 row.guideline_pages = o.guideline;
                 for p in o.pages.iter().filter(|p| p.verdict == "guideline") {
-                    let Ok(r) = f.get(&HttpRequest::get(&p.url)) else { continue };
-                    let blocks = html_to_blocks(&r.body);
+                    // THE BODY THE CRAWL ALREADY FETCHED — §11 D174. This used
+                    // to re-request every guideline URL from a host the crawl
+                    // had just pulled 120 pages from. BMJ throttles that second
+                    // pass and returns a 12,361-char stub for nearly every URL,
+                    // so the extractor saw nothing and the journal recorded zero
+                    // requirements — a defect in this runner that was read as a
+                    // defect in the extractor and then in the classifier.
+                    let Some(body) = p.body.as_deref() else { continue };
+                    let blocks = html_to_blocks(body);
                     let reqs = extract_requirements(&blocks);
+                    // A page FETCHED AND PARSED is a source, whether or not the
+                    // extractor found anything in it. Counting only productive
+                    // pages made a journal whose crawl succeeded and whose
+                    // extraction returned nothing indistinguishable from one the
+                    // crawler never reached.
+                    sources += 1;
+                    hasher.update(p.url.as_bytes());
                     if !reqs.is_empty() {
                         let out = store_requirements(&db, key, &p.url, &reqs, now).expect("store");
                         row.requirements += out.inserted;
-                        sources += 1;
-                        hasher.update(p.url.as_bytes());
                         for q in &reqs {
                             hasher.update(q.value.as_bytes());
                         }
@@ -128,8 +146,8 @@ fn main() {
                     // over-fires (§11 D163) and is used here anyway, because the
                     // alternative is filing author instructions as expectations
                     // — §7's separation lost at the first step.
-                    let title = html_title(&r.body);
-                    if is_reviewer_guidance(&p.url, &title, &r.body) {
+                    let title = html_title(body);
+                    if is_reviewer_guidance(&p.url, &title, body) {
                         let ex = extract_expectations(&blocks);
                         if !ex.is_empty() {
                             row.expectations +=
@@ -158,7 +176,17 @@ fn main() {
         }
 
         // --- provenance: the row that says this journal WAS crawled ---------
-        if sources > 0 {
+        //
+        // WRITTEN WHENEVER THE CRAWL RAN, with `source_count = 0` where that is
+        // the truth (§11 D173). The three states a reader needs:
+        //   no row            -> never crawled (the crawl errored or never ran)
+        //   row, count = 0    -> crawled, no guideline page found
+        //   row, count = N    -> crawled, N source documents consulted
+        // Gating on `sources > 0` collapsed the first two, so `bmj` — 120 pages
+        // fetched, 18 classified as guideline, zero requirements extracted —
+        // recorded identically to `nature-communications`, which fetched one
+        // page and was never really reached.
+        if row.crawl_ran {
             store_fingerprint_provenance(
                 &db,
                 &FingerprintProvenance {
@@ -179,17 +207,18 @@ fn main() {
         let fp = fingerprint_for(&db, key).expect("fingerprint");
         row.conflicted = fp.conflicts.iter().map(|c| c.values.len()).sum();
         row.provenance = fp.provenance.is_some();
+        row.source_count = fp.provenance.as_ref().map(|p| p.source_count).unwrap_or(-1);
         rows.push(row);
     }
 
     println!("\n================== STAGE 2: TEN JOURNAL FINGERPRINTS ==================");
     println!(
-        "{:<24} {:>5} {:>5} {:>5} {:>6} {:>5} {:>5} {:>5} {:>5}",
-        "journal", "pages", "guid", "reqs", "confl", "conv", "bind", "expct", "prov"
+        "{:<24} {:>5} {:>5} {:>5} {:>6} {:>5} {:>5} {:>5} {:>5} {:>6}",
+        "journal", "pages", "guid", "reqs", "confl", "conv", "bind", "expct", "prov", "srcs"
     );
     for r in &rows {
         println!(
-            "{:<24} {:>5} {:>5} {:>5} {:>6} {:>5} {:>5} {:>5} {:>5}",
+            "{:<24} {:>5} {:>5} {:>5} {:>6} {:>5} {:>5} {:>5} {:>5} {:>6}",
             r.key,
             r.pages,
             r.guideline_pages,
@@ -198,7 +227,8 @@ fn main() {
             r.conventions,
             r.bindings,
             r.expectations,
-            if r.provenance { "yes" } else { "NO" }
+            if r.provenance { "yes" } else { "NO" },
+            if r.provenance { r.source_count.to_string() } else { "-".into() }
         );
     }
 

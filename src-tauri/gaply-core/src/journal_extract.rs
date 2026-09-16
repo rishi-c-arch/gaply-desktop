@@ -229,11 +229,70 @@ fn article_type_in_sentence(sentence: &str) -> Option<String> {
     Some(joined)
 }
 
+/// Does this heading clause NAME an article type, rather than merely contain
+/// one? — §11 D173.
+///
+/// # Measured: 15 of 94 bound rows were bound by a heading that names no type
+///
+/// `article_type_of` substring-matched the heading, so over the ten stored
+/// fingerprints:
+///
+/// ```text
+/// "Article types"                                 -> Article        2 rows
+/// "Licenses for Subscription Articles"            -> Article        1
+/// "Clinical trial transparency"                   -> Clinical Trial 1
+/// "Registering clinical trials"                   -> Clinical Trial 1
+/// "Reviewing Study Protocols"                     -> Protocol       2
+/// "Availability and peer review of computer code" -> Review         2
+/// "Mandates Data Sharing and Peer Reviews Data"   -> Review         1
+/// "Writing the review"                            -> Review         4
+/// ```
+///
+/// **This is the `Harvard` defect one layer up** (§11 D172): a name matched
+/// without asking what the text is about, in the heading rather than the
+/// sentence. A section about *reviewing* protocols is not a requirement for
+/// Protocol articles, and binding it to one scopes a rule to the wrong papers.
+///
+/// # The rule, and the one case it knowingly keeps
+///
+/// A clause names a type when it ENDS with that type — the type is the head of
+/// the noun phrase — with no preposition and no leading gerund. Clauses are
+/// split on `" and "` so *"Systematic reviews and meta-analyses"* still binds
+/// through its first half; without that split it would be lost.
+///
+/// **`"Cover letter"` still binds to `Letter` (1 row).** It is a compound whose
+/// modifier changes the referent, and excluding it needs a stop-word list — a
+/// vocabulary fitted to one row of the corpus it was measured on. Recorded as
+/// residue instead.
+fn heading_names_the_type(clause: &str, ty: &str) -> bool {
+    let c = clause.trim();
+    if c.is_empty() {
+        return false;
+    }
+    let words: Vec<&str> = c.split_whitespace().collect();
+    if words.len() > 6 {
+        return false;
+    }
+    // "Registering clinical trials", "Writing the review", "Reviewing Study
+    // Protocols" — a gerund makes the heading about an ACTIVITY, not a type.
+    if words[0].ends_with("ing") && words.len() > 1 {
+        return false;
+    }
+    // "Licenses FOR Subscription Articles", "peer review OF computer code".
+    if words.iter().any(|w| matches!(*w, "for" | "of" | "in" | "on" | "with" | "about" | "to")) {
+        return false;
+    }
+    // The type must be the HEAD: the clause ends with it, bare or pluralised.
+    c == ty || c.ends_with(ty) || c.ends_with(&format!("{ty}s")) || c.ends_with(&format!("{ty}es"))
+}
+
 fn article_type_of(heading: &str) -> Option<String> {
     let h = heading.to_lowercase();
     let mut best: Option<&str> = None;
     for t in ARTICLE_TYPES {
-        if h.contains(t) && best.is_none_or(|b| t.len() > b.len()) {
+        if h.split(" and ").any(|clause| heading_names_the_type(clause, t))
+            && best.is_none_or(|b| t.len() > b.len())
+        {
             best = Some(t);
         }
     }
@@ -1170,6 +1229,58 @@ mod tests {
         )]);
         let f = got.iter().find(|r| r.kind == RequirementKind::FigureLimit).expect("a limit");
         assert_eq!(f.article_type, None, "{got:#?}");
+    }
+
+    /// **A heading that CONTAINS a type name does not always NAME one** —
+    /// §11 D173. Every heading here is real, from the ten stored fingerprints.
+    #[test]
+    fn a_heading_about_a_topic_does_not_bind_its_requirements_to_a_type() {
+        let wrong = [
+            "Article types",
+            "Licenses for Subscription Articles",
+            "Clinical trial transparency",
+            "Registering clinical trials",
+            "Reviewing Study Protocols",
+            "Availability and peer review of computer code and algorithm",
+            "Mandates Data Sharing and Peer Reviews Data",
+            "Writing the review",
+        ];
+        for h in wrong {
+            let got = extract_requirements(&[b(h, "Manuscripts must not exceed 4,000 words.")]);
+            let r = got.first().expect("a word limit");
+            assert_eq!(
+                r.article_type, None,
+                "{h:?} is a topic, not an article type — binding scopes the rule to the \
+                 wrong papers: {got:#?}"
+            );
+        }
+
+        let right = [
+            ("Article", "Article"),
+            ("Brief Communication", "Brief Communication"),
+            ("Clinical Trials", "Clinical Trial"),
+            ("Study Protocol", "Protocol"),
+            ("Mini Review", "Review"),
+            ("Systematic reviews and meta-analyses", "Systematic Review"),
+            ("Matters Arising", "Matters Arising"),
+            ("Perspectives", "Perspective"),
+        ];
+        for (h, want) in right {
+            let got = extract_requirements(&[b(h, "Manuscripts must not exceed 4,000 words.")]);
+            let r = got.first().expect("a word limit");
+            assert_eq!(r.article_type.as_deref(), Some(want), "{h:?} names a type: {got:#?}");
+        }
+    }
+
+    /// **The residue, pinned rather than special-cased.** `"Cover letter"` still
+    /// binds to `Letter`: it is a compound whose modifier changes the referent,
+    /// and excluding it needs a stop-word fitted to one row of the corpus it was
+    /// measured on. This test exists so the state is a recorded decision, and it
+    /// goes red the day someone fixes it — at which point delete it.
+    #[test]
+    fn cover_letter_still_binds_to_letter_and_that_is_known() {
+        let got = extract_requirements(&[b("Cover letter", "Manuscripts must not exceed 500 words.")]);
+        assert_eq!(got.first().expect("a limit").article_type.as_deref(), Some("Letter"));
     }
 
 }

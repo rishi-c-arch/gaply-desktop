@@ -139,6 +139,27 @@ pub struct CrawledPage {
     /// Would the lexicon have admitted this link? `false` on a `Guideline` page
     /// is a page the old discovery rule would have silently skipped.
     pub lexicon_hit: bool,
+    /// **The page body, retained for `Guideline` pages only — §11 D174.**
+    ///
+    /// # Why the crawl must hand this on rather than let a caller re-ask
+    ///
+    /// Every consumer needs `extract_requirements`, which reads BLOCKS, and
+    /// blocks are built from the raw HTML. The crawl has that HTML in hand and
+    /// used to drop it, so `journal_stage2_build` re-fetched every guideline URL
+    /// from a host it had just pulled 120 pages from.
+    ///
+    /// **That second fetch was REDUNDANT before it was HARMFUL, which is why
+    /// nobody noticed.** On a host that answers every request it is pure waste:
+    /// the same bytes twice, and identical results. It only becomes visible when
+    /// a host throttles the second pass — BMJ returned a 12,361-character stub
+    /// for seven different URLs — at which point the extractor sees nothing and
+    /// the journal reads as having no requirements. A redundancy that costs only
+    /// time draws no attention until the day it costs data.
+    ///
+    /// `None` for navigation, interstitial and duplicate pages: nothing extracts
+    /// from those, and keeping their bodies would multiply the memory a crawl
+    /// holds for no reader.
+    pub body: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -506,6 +527,7 @@ pub fn crawl(
                 obligations: 0,
                 requirements: 0,
                 lexicon_hit: hit_of(&url, &anchor),
+                body: None,
             });
             tracing::debug!(url = %url, first = %first, "same content under a second url");
             // Its links are the first copy's links and are already queued.
@@ -545,6 +567,9 @@ pub fn crawl(
             obligations: ob,
             requirements: rq,
             lexicon_hit: hit,
+            // Retained ONLY for guideline pages — see the field's docs.
+            body: matches!(verdict, PageVerdict::Guideline { .. })
+                .then(|| resp.body.clone()),
         });
 
         // **An interstitial's links are the bot-wall's.** Never enqueued.

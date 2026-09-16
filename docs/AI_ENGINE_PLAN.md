@@ -12102,3 +12102,136 @@ That is a change to the writer added in D170 and is not made here — it wants i
 own before/after against these ten, and `bmj`'s 18-guideline-pages-zero-
 requirements result wants its own investigation rather than being folded into a
 provenance change. Both are recorded rather than carried silently.
+
+---
+
+### D174 — the runner re-fetched what the crawl already had, and one symptom had three causes
+
+**Date:** 16 Sep 2026. **Corrects D171 and D172's per-journal counts**, and
+replaces the explanation D172 gave for `bmj`.
+
+#### 1. The defect: a second fetch that was redundant before it was harmful
+
+`journal_stage2_build` crawled a host, then **re-fetched every guideline URL** to
+run `extract_requirements` on it — doubling the requests per host for bodies the
+crawl had already pulled and discarded.
+
+**On a host that answers every request this is pure waste and nothing more: the
+same bytes twice, identical results. That is why it survived review.** It became
+visible only when a host throttled the second pass. BMJ returned a **12,361-
+character body for seven different URLs** (and, on an earlier run, **276
+characters for nineteen**) while the same crawl had recorded those pages at
+12836 / 96324 / 11154 / 9667 / 3074 / 12863 / 12882 / 9747 characters minutes
+before. A redundancy that costs only time draws no attention until the day it
+costs data.
+
+`CrawledPage` now carries `body: Option<String>` for guideline pages, and the
+runner extracts from it. **`CrawledPage.requirements` was NOT the answer**, and
+a claim in this log's drafting said it was: that field is
+`guidelines::requirement_count`, a classification heuristic (lead phrase +
+number + unit, plus standard names), not `extract_requirements`'s output. Two
+different functions with one name between them.
+
+#### 2. What the fix recovered — all of it BMJ
+
+```
+                 before   after
+bmj requirements      0      18
+bmj bindings          0      13
+bmj expectations      0       4
+TOTAL requirements  195     213
+TOTAL bindings       37      50
+TOTAL expectations  257     261
+conflicted rows      20      22
+```
+
+**Every other journal is byte-identical.** The defect was real, worth fixing,
+and **host-specific**.
+
+#### 3. THE PREDICTION FAILED, AND THAT IS WHAT FOUND THE SECOND CAUSE
+
+Predicted before rebuilding: *"the journals that move are exactly those with a
+high sources-to-requirements ratio."* `bmj` 19->0, `lancet` 85->2 and
+`statistics-in-medicine` 35->7 were the three poor ratios.
+
+| | predicted | measured |
+|---|---:|---:|
+| `bmj` | 25 (10–45) | **18** |
+| `lancet` | 35 (10–70) | **2 — unchanged** |
+| `statistics-in-medicine` | 12 (7–25) | **7 — unchanged** |
+| total | 270 (220–330) | **213** |
+
+**`bmj` moved; the other two did not move by one row.** The throttle model
+explained one journal and was stated as a general contamination of the corpus —
+including in a message claiming *"lancet is almost certainly the same thing"*.
+It is not.
+
+**Ruling it out took one measurement and the answer was in the URLs.** A
+re-fetch of `lancet`'s pages returns MORE content than the crawl saw, not less.
+And the pages are:
+
+```
+host                                        guid    reqs
+www.elsevier.com                              84       3
+www.thelancet.com                              1       0
+```
+
+**84 of `lancet`'s 85 "guideline" pages are Elsevier CORPORATE pages** —
+responsible-AI principles, open-access marketing, support, the homepage. The
+crawl entered `thelancet.com/lancet/information-for-authors`, followed a link
+off the journal, and spent its whole 120-page budget on the publisher's website.
+Every one of those pages is thick with obligation language, so `classify_page`
+admits them; none carries a Lancet author requirement.
+
+**That is §11 D161 recurring on a second publisher** — *"an allowlisted domain
+is a whole website, and the publisher sells things on it"* — and it is a
+CRAWL-BOUNDARY defect, not an extractor or fetch one.
+
+**One symptom, three causes**, which is the whole lesson of the failed
+prediction:
+
+| journal | symptom | cause |
+|---|---|---|
+| `bmj` | 19 srcs -> 0 reqs | the runner's re-fetch met a throttle |
+| `lancet` | 85 srcs -> 2 reqs | the crawl left the journal |
+| `nature-communications` | 1 page -> 0 | the crawl never entered |
+
+Had the prediction succeeded, one explanation would have been recorded for three
+unrelated defects and two of them would still be live. **A ratio is a symptom,
+and symptoms do not identify causes.**
+
+`statistics-in-medicine` (35 -> 7) remains unexplained and is neither of the
+first two: not throttled, and its pages are on `onlinelibrary.wiley.com`. Open.
+
+#### 4. Corrections to D171 and D172, in place
+
+Marked here rather than rewritten there, the way **D168-C** marks D168:
+
+* **D171's** *"two of the ten contributed nothing"* is wrong about `bmj`. It
+  contributed nothing **because of this runner**, not because the crawler
+  reached it and found nothing extractable. `nature-communications` stands.
+* **D171/D172's requirement totals** (200 / 194 / 193 / 198 / 195) were measured
+  through the re-fetch and are **floors**, not counts. The corrected total on the
+  fixed runner is **213**.
+* **The conflict findings STAND.** Every conflict was read as rows with spans and
+  every classification of them was made from the text, not the count. The rate
+  moves 10.26% -> 10.33% and the nine-groups analysis is unaffected; `bmj`
+  contributes 2 new conflicted rows.
+* **D172's soft/hard measurement** (*one span in 35, one journal in eight*) was
+  taken on the pre-fix corpus. BMJ's 18 recovered requirements have not been
+  re-scanned for soft/hard pairs; the decision not to add a `preferred` field is
+  unchanged but its denominator should be re-derived before it is quoted again.
+
+#### 5. And a correction about how this was reported
+
+**Every per-journal zero reasoned about in this phase was misattributed**, and
+the misattribution was built on three times: D172 recorded `bmj` as a journal
+the crawler reaches and extracts nothing from; the provenance three-state (D173)
+was justified partly by needing to distinguish that case from an unreachable
+one; and an entire investigation was scoped to ask whether BMJ's pages defeat
+the extractor. The observation — *"18 guideline pages, zero requirements"* — was
+TRUE and the instrument producing it was broken, which is the
+`instrument-lies` family arriving in a phase about something else.
+
+The provenance change remains correct and useful. But one of the two cases it
+was built to separate was not the case it was thought to be.

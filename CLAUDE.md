@@ -490,6 +490,31 @@ time injection.
   research tool on the same afternoon. When every row of a table says the same
   thing, suspect the column.
 
+  **THE UNIFORM-RESULT TELL IS NOW THE MOST RELIABLE SINGLE SIGNAL IN THIS FILE.
+  It fired twice more on 16 Sep 2026 and was read correctly both times, in
+  minutes, on evidence that admitted no other reading:**
+
+  | what was seen | what it was |
+  |---|---|
+  | 19 different BMJ URLs, each yielding **exactly 1 block of exactly 276 characters** | a throttle stub |
+  | seven different BMJ URLs, each returning **exactly 12,361 characters** | the same stub, larger |
+
+  Nineteen distinct pages of a real journal do not share a character count. The
+  second table settled it beyond argument, because the SAME crawl had recorded
+  those pages at 12836 / 96324 / 11154 / 9667 / 3074 / 12863 / 12882 / 9747
+  characters minutes earlier — real, differing content — so the uniformity was
+  provably a property of the second request rather than of the pages.
+
+  **Why it is the strongest signal: it needs no baseline, no known-good case and
+  no second instrument.** The denominator rule needs you to know what `M`
+  counts. The deletion test needs you to predict a failure. A known-good case
+  needs a prior answer. This one needs only the observation that things which
+  should differ do not — it is self-evidencing, and it has now identified a
+  fingerprint filter, a crawl-budget artefact, a curl-versus-client difference,
+  and a rate-limit stub. **When a column is constant across rows that have no
+  reason to agree, stop and find the mechanism before reading anything else in
+  the table.**
+
   That puts this with the batch-known-good entry and the piped-exit-status
   entry: **an instrument reporting a property of itself as a property of the
   world.** The remedy is the same one — run the thing you are actually asking
