@@ -12332,3 +12332,91 @@ TRUE and the instrument producing it was broken, which is the
 
 The provenance change remains correct and useful. But one of the two cases it
 was built to separate was not the case it was thought to be.
+
+---
+
+### D175 — the third cause: `classify_page` admits a journal's furniture, and the host rule that fixes `lancet` would break `statistics-in-medicine`
+
+**Date:** 16 Sep 2026. Closes the last unexplained journal in **D174**'s table.
+`statistics-in-medicine` showed 35 guideline pages yielding 7 stored
+requirements, and both known causes were ruled out by measurement: the re-fetch
+throttle (D174) does not affect Wiley, and the crawl did not leave for a
+corporate site the way `lancet` did.
+
+#### The census, and it INVERTS `lancet`
+
+```
+host                                        guid    reqs
+authorservices.wiley.com                      12      17
+onlinelibrary.wiley.com                       23       1
+```
+
+**Going off-host is where all the guidance is.** `authorservices.wiley.com` is
+Wiley's real author-services site, and the journal's own host contributes one
+requirement across 23 pages.
+
+**This is the same behaviour that is the DEFECT in `lancet`** — where 84 of 85
+guideline pages were `elsevier.com` corporate marketing — **and the RESCUE
+here.** A host restriction of the kind D161 implies, applied as a general rule,
+would have removed **17 of the 18** extractable requirements from this journal.
+The publisher's domain is where the guidance lives for Wiley and where the
+marketing lives for Elsevier, and no rule about hosts can tell those apart.
+
+#### What the 23 unproductive pages actually are
+
+```
+journal homepage · product information · funded access · publishing policies
+DMCA notification policy · site root · journal landing page · journal metrics
+editorial board · OA advantages · list of issues · special issues · tutorials
+the most-recent ARTICLE FEED (114,973 characters)
+```
+
+**Not one is author guidance.** `guidelines::classify_page` admits a page when
+`obligations + requirements >= MIN_GUIDELINE_EVIDENCE`, and every page on a
+publisher's site carries obligation language — a DMCA policy, an editorial-board
+page and a funding-access page are all full of *must*, *should* and *required*.
+
+**This is §11 D163's `is_reviewer_guidance` defect in the PAGE classifier**:
+there, 20 of Nature Medicine's 36 pages were admitted as reviewer guidance and 5
+were real, because every page on a journal's site discusses peer review
+somewhere. Here the same shape one level up. The article feed is the sharpest
+instance — 115 KB of recent-article metadata, classified as guidance.
+
+#### Three journals, three causes, and the generalisation that would have been wrong
+
+| journal | symptom | cause |
+|---|---|---|
+| `bmj` | 19 srcs -> 0 reqs | the runner re-fetched into a throttle (D174) |
+| `lancet` | 85 srcs -> 2 reqs | the crawl left the journal for corporate pages (D174) |
+| `statistics-in-medicine` | 35 srcs -> 7 reqs | **the classifier admits the journal's own furniture** |
+
+All three present as a bad sources-to-requirements ratio — the number D173's
+`source_count` made visible. **A ratio is a symptom and symptoms do not identify
+causes**; each of these needed its own measurement, and two of the three would
+still be mis-explained had the first diagnosis been generalised.
+
+#### NOT FIXED, and what fixing it requires
+
+`classify_page`'s precision here is **12 of 35 (34%)** by the only definition
+that matters downstream — pages that yield a requirement. That is a measurement
+of ONE journal, and the fix is a classifier change, which under D128's bar needs
+a labelled set across the ten journals, a measured precision per stratum, and a
+no-skill comparison it beats. **Tuning it against the 23 rows just read would be
+fitting it to its test set** — the objection that keeps `is_reviewer_guidance`
+untouched at 5/20, and it applies with more force here because a page classifier
+gates everything downstream of it.
+
+What the corpus supports saying today: **admitting a page costs a fetch and a
+parse, and admitting the wrong page costs nothing else** — the extractor finds
+nothing and stores nothing, so over-admission is a budget problem rather than a
+correctness one. The budget is real: `lancet` spent 120 pages on Elsevier's
+website and `statistics-in-medicine` spent 23 of 35 on furniture. **A crawl that
+admits everything will exhaust its budget before it reaches the guidance**, and
+that is the argument for fixing it, not a false-requirement risk.
+
+#### One check that found nothing, recorded because it was worth making
+
+The census counts 18 extractable requirements against 7 stored. The gap is not a
+defect: `extract_requirements` returns the same requirement from several blocks
+of one page and `store_requirements` deduplicates, leaving 7 rows over 5 URLs.
+Verified before writing this entry rather than assumed.

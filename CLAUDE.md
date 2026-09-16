@@ -602,6 +602,32 @@ time injection.
   producing N counts the same thing. If you cannot source M, print the mismatch
   rather than a number.
 
+  **AND A TOOL'S NUMBER IS THE TOOL'S ANSWER TO ITS OWN QUESTION, NOT TO YOURS.
+  Measured 16 Sep 2026, framing a decision about someone else's disk:**
+
+  ```
+  du -sh src-tauri/target     ->  52G
+  cargo clean                 ->  Removed 521881 files, 114.7GiB total
+  ```
+
+  **Under by more than half**, and the 52G was quoted to the user as the size of
+  what would be deleted. `du` reports what it finds by walking ONE path and
+  counting allocated blocks; `cargo` deletes everything it owns, which is a
+  different set. Neither is wrong — they answer different questions, and only one
+  of them was the question being asked.
+
+  The tell was available and not taken: **the machine had 762Mi free on a 228Gi
+  volume**, so `52G` of reclaimable build output did not account for how a
+  100%-full disk had got that way. A number that does not explain the situation
+  it is offered as an explanation for is a number to check.
+
+  This is the denominator rule applied to a tool rather than to a fraction: `du`,
+  `df`, `wc -l`, `git count-objects`, `sqlite3 count(*)` and a language server's
+  reference count all report something adjacent to what you meant. **Before
+  quoting a tool's figure as a measurement — especially to justify a destructive
+  action on someone else's machine — say which question the tool answered, and
+  prefer the number produced by the thing that will actually do the work.**
+
   **A THREE-STATE VALUE MUST BE THREE STATES AT THE WIRE — AND THE TEST IS
   RENDERING THE DEFAULT, NOT TRUSTING IT.**
 
