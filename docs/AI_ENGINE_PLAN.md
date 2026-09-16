@@ -12105,6 +12105,103 @@ provenance change. Both are recorded rather than carried silently.
 
 ---
 
+### D173 — provenance gains its third state, and a heading that CONTAINS a type does not always NAME one
+
+**Date:** 16 Sep 2026. Two fixes measured against the ten stored fingerprints,
+each predicted before it was made.
+
+#### 1. Provenance had three states to carry and carried two
+
+**D170** added `store_fingerprint_provenance` so a fingerprint could say whether
+its journal had ever been crawled — `JournalFingerprint::provenance` is
+`Option`, and its own doc says `None` means *"never crawled"*. **The writer was
+called only when a requirement had been stored**, so a journal whose crawl
+succeeded and whose extraction returned nothing was recorded identically to one
+the crawler could not open. The `Option` D170 restored two meanings to had three
+to carry:
+
+```
+no row           -> never crawled
+row, count = 0   -> crawled, no source document found
+row, count = N   -> crawled, N source documents consulted
+```
+
+`source_count` was undocumented beyond `CHECK (source_count >= 0)` — and that
+`>= 0` is itself evidence zero was always meant to be a real state. It now means
+**the number of source documents the fingerprint was built from**, not the
+number that happened to yield a requirement.
+
+| | predicted | measured |
+|---|---:|---:|
+| journals with provenance | 10 | **10** |
+| `bmj` `source_count` | ~18 | **18** |
+| `nature-communications` `source_count` | 0 | **0** |
+
+**An unpredicted consequence, and the more useful one:** `source_count` makes
+the sources-consulted-to-requirements-extracted ratio visible per journal, and
+it immediately showed a case nobody had flagged — `lancet` at **85 sources -> 3
+requirements**. Two of the ten looked wrong on a number that had not existed an
+hour earlier. **§11 D174 then found that the three bad ratios had three
+different causes**, so the field surfaced a symptom rather than a diagnosis —
+which is what a well-chosen field should do.
+
+#### 2. `article_type_of` substring-matched the heading — 15 of 94 bound rows wrong
+
+Found by writing a test for D172's sentence binder: the obvious fixture heading
+`"Article types"` binds every row under it to an article type called `Article`.
+Measured in production over the ten fingerprints:
+
+```
+"Article types"                                 -> Article        2 rows
+"Licenses for Subscription Articles"            -> Article        1
+"Clinical trial transparency"                   -> Clinical Trial 1
+"Registering clinical trials"                   -> Clinical Trial 1
+"Reviewing Study Protocols"                     -> Protocol       2
+"Availability and peer review of computer code" -> Review         2
+"Mandates Data Sharing and Peer Reviews Data"   -> Review         1
+"Writing the review"                            -> Review         4
+```
+
+**This is D172's `Harvard` defect one layer up**: a name matched without asking
+what the text is about, in the heading rather than the sentence. A section about
+*reviewing* protocols is not a requirement for Protocol articles, and binding it
+scopes a rule to the wrong papers.
+
+**The rule:** a clause NAMES a type when it ENDS with that type — the type is
+the head of the noun phrase — with no preposition and no leading gerund, clauses
+split on `" and "` so *"Systematic reviews and meta-analyses"* still binds
+through its first half.
+
+| | predicted | measured |
+|---|---:|---:|
+| false heading bindings | 15 -> 1 | **15 -> 1** |
+| conflicted rows | 20 | **20** |
+| bound rows | *"unchanged at 94"* | **80** |
+
+**The last was my arithmetic, not the code's.** The analysis said false-bound
+rows *"become unbound, not deleted"*, which entails 94 - 14 = 80; the prediction
+said 94 anyway. The corpus agreed with the argument and disagreed with the
+number. **That is a different failure from D168's 177** — that one was a correct
+inference from a broken instrument; this was a careless inference from a correct
+one, and it is the cheaper of the two to catch because the contradiction was
+already on the page.
+
+**`"Cover letter"` still binds to `Letter` (1 row).** It is a compound whose
+modifier changes the referent, and excluding it needs a stop-word fitted to one
+row of the corpus it was measured on — the objection that keeps
+`is_reviewer_guidance` untouched at 5/20. Pinned by
+`cover_letter_still_binds_to_letter_and_that_is_known`, whose doc says to DELETE
+the test when someone fixes it properly, so the residue is a recorded decision.
+
+#### Every fixture is a real span
+
+Both fixes are tested from strings taken out of the ten fingerprints, never
+composed for the test — a fixture written by the author of the rule inherits the
+author's idea of what a false positive looks like (§14's hand-written-fixture
+family). The false headings above are all real; so are the eight true ones.
+
+---
+
 ### D174 — the runner re-fetched what the crawl already had, and one symptom had three causes
 
 **Date:** 16 Sep 2026. **Corrects D171 and D172's per-journal counts**, and

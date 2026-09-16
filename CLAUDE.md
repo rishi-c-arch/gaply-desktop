@@ -1046,6 +1046,44 @@ time injection.
   = 18, and 1812 + 6 new tests + 1 = 1819. A count that does not reconcile with
   what you just added is the count to re-run, not to report.
 
+  **A TEST COUNT OF ZERO IS NOT A PASS — IT IS THE SUITE NOT HAVING RUN, and
+  `FAILED_BLOCKS: 0` cannot tell the two apart.** 16 Sep 2026, third time this
+  indicator misled in one session:
+
+  ```
+  CARGO_EXIT=101   exists=yes   FAILED_BLOCKS: 0   targets: 0   passed:
+  ```
+
+  `grep -c 'test result: FAILED'` returns 0 over a log of a run that compiled
+  nothing, exactly as it does over a log of a run where everything passed. The
+  cause that day was the disk being full — cargo could not write
+  `libapp_lib.a`, `No space left on device` — and **the only field that said so
+  was `targets: 0`, which was in the output by habit rather than by design.**
+
+  Earlier the same session the same indicator read green over a log that did not
+  exist at all (a failed `cd` meant `$LOG` was empty), which is what the
+  `exists=` check was added for. `exists=yes` did not help here: the file
+  existed and held a linker error.
+
+  **This is the negative-grep family and the unmatchable-selector family in one
+  place: a count of the thing you fear, over input that may be empty for reasons
+  unrelated to fear.** The fix is the same in all three — assert a POSITIVE
+  quantity:
+
+  ```bash
+  # WRONG — 0 failures over 0 tests reads exactly like 0 failures over 1819
+  echo "FAILED_BLOCKS: $(grep -c 'test result: FAILED' "$L")"
+
+  # RIGHT — the suite must have RUN before "no failures" means anything
+  T=$(grep -cE '^     Running ' "$L")
+  P=$(grep -E '^test result: ok' "$L" | awk '{p+=$4} END {print p+0}')
+  echo "CARGO_EXIT=$? targets=$T passed=$P failed=$(grep -c 'test result: FAILED' "$L")"
+  [ "$T" -gt 0 ] || echo "SUITE DID NOT RUN — every other number here is meaningless"
+  ```
+
+  Quote `passed` and `targets` together, always. A green claim needs a number
+  that can only be produced by work actually happening.
+
   **A GREEN RUN ON THE WRONG PLATFORM IS THE SAME ERROR ONE DIMENSION OVER, and
   these two belong together.** 15 Sep 2026, the `Location` ambiguity guard
   (`gaply-core/tests/location_is_unambiguous.rs`). It scans source files and
