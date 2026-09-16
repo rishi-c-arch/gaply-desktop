@@ -11922,3 +11922,183 @@ count. It is **not** met on quality: the requirement corpus carries a substring
 defect and an unbound-article-type defect, and the expectation corpus is
 unmeasured. Each is a separate change with its own before/after, and each should
 state its precision the way D128 requires.
+
+---
+
+### D172 — three extractor defects fixed, 43 conflicted rows to 20, and the one prediction that missed named two more
+
+**Date:** 16 Sep 2026. Fixes the three defects **D171** recorded, each measured
+before and after against the ten stored fingerprints (`examples/journal_stage2_build.rs`).
+
+```
+                    before   fix1   fix1+2   all three
+requirements           200    194      193         198
+conflicted rows         43     35       33          20
+conflict groups          9      7        6           6
+conflict rate        21.5%  18.0%    17.1%       10.1%
+```
+
+#### 1. `reference_style` matched a NAME, not a STATEMENT — predicted 5/5, measured 5/5
+
+Substring matching gave 20 rows of which 6 were wrong, including **5 of 8
+`Harvard` rows that were the word inside a proper noun**. The fix requires a
+whole-word match AND a style-context word (`style`, `referencing`, `citation`,
+`citing`) in the same sentence.
+
+**A word boundary alone does not help** — `Harvard` is a whole word in all five
+false rows. The test is what the sentence is ABOUT, which is the same correction
+D163 made for `word_limit = 12000` from a translation price list.
+
+| | predicted | measured |
+|---|---:|---:|
+| `reference_style` rows | 14 | **14** |
+| of which `Harvard` | 3 | **3** |
+| requirements | 194 | **194** |
+| conflict groups | 7 | **7** |
+| conflicted rows | 35 | **35** |
+
+Exact because the prediction was **corpus-complete**: all 20 rows were read and
+classified before the rule was written. That is the difference from D168's
+177-vs-236 miss, where the prediction came from a defective instrument's output.
+
+#### 2. One sentence, two numbers — predicted 3/3, measured 3/3
+
+> *"PLOS Medicine prefers abstract submissions not exceed 300 words, with a
+> maximum of 500 words allowed."*
+
+`not exceed` and `maximum of` each fired, and the two rows were marked as the
+journal contradicting itself. **The maximum wins and the span carries both.**
+
+§7 defines a requirement as *"a rule; violation is blocking"*. Exceeding 300 is
+not a violation — the journal allows 500. Storing 300 would flag compliant
+manuscripts, the direction D167 refuses.
+
+**A `preferred` field was rejected on the measurement:** one sentence in 200
+requirements, needing a schema change, a lead-to-force map and a renderer that
+does not exist. D128's bar, unmet. Scoped to numeric limits only — a sentence
+naming CONSORT and STROBE states two requirements, not a dispute (4 such spans
+here).
+
+#### 3. Article-type binding — PREDICTED 14 CONFLICTED AND 193 REQUIREMENTS, MEASURED 20 AND 198
+
+The largest defect and **the only prediction that missed**. `article_type_of`
+reads the block heading; 41 of 43 conflicted rows were UNBOUND, and 14 sat in
+sentences naming their type. The fix reads the sentence SHAPE —
+`"<Type> articles are/must/should/have"`, Title Case, ≤4 words, with a stop-list
+so *"All articles are peer reviewed"* does not bind everything to a type called
+`All`.
+
+**Adding `"conceptual analysis"`, `"data report"`, `"community case study"` to
+`ARTICLE_TYPES` was refused**: that is fitting a list to the rows it was measured
+on — the objection that keeps `is_reviewer_guidance` untouched at 5/20 — and it
+would still miss the next journal's vocabulary.
+
+**The miss, and it is two separate defects the prediction assumed away:**
+
+* **A. Binding without NORMALISATION splits one type into two buckets.**
+  `Policy Brief` (5 rows) and `Policy Briefs` (5 rows) under the same heading;
+  `Brief Research Reports` from a sentence against heading `Brief Research
+  Report`; `Data Reports` against `Data Report`. The page phrases the same type
+  both ways. **This is why requirements went UP** — rows that deduplicated as
+  UNBOUND now differ by `article_type` and survive as distinct. The prediction
+  said "binding changes a field, not a count"; it changes both.
+* **B. A guard written for a HYPOTHETICAL broke a MEASURED case.** The binder
+  splits on commas to handle *"For submissions, Data Reports articles are…"* — a
+  sentence **invented, not measured**. The corpus contains
+  *"Curriculum, Instruction, and Pedagogy articles are peer-reviewed…"*, a real
+  Frontiers type whose NAME contains commas. The split yields `"and Pedagogy"`,
+  fails Title Case on `"and"`, and returns `None`. **The hand-written-fixture
+  failure, inside a fix for the hand-written-fixture failure.**
+
+#### A FOURTH defect, found by writing a test, measured and NOT fixed
+
+The obvious fixture heading for the binder test is `"Article types"`. It binds
+every row under it to an article type called **`Article`**, because
+`article_type_of` substring-matches `"article"` in the heading. Measured in
+production over the ten fingerprints:
+
+```
+"Licenses for Subscription Articles"              -> Article    1 row
+"Article types"                                   -> Article    2 rows
+"Cover letter"                                    -> Letter     1 row
+"Availability and peer review of computer code…"  -> Review     2 rows
+"Mandates Data Sharing and Peer Reviews Data"     -> Review     1 row
+```
+
+**Same shape as the `Harvard` defect, one layer up** — a name matched without
+asking what the text is about, in the heading rather than the sentence. Outside
+the three defects this entry fixes; recorded, and the binder test uses
+`"Submission formats"` with a comment saying why, so the trip is not
+reintroduced.
+
+**And a correction to D171's account of cause.** D171 implied the Frontiers
+headings were silent about article type. They are not — they read `Conceptual
+Analysis`, `Data Report`, `Brief Research Report`, `Community Case Study`,
+`Policy Brief`. The rows went unbound because `ARTICLE_TYPES` lacks those names,
+not because the heading said nothing. The sentence binder fixes them either way,
+but the stated cause was wrong.
+
+#### The 20 that remain, every one read
+
+| group | rows | why |
+|---|---:|---|
+| frontiers `figure_limit` | 6 | 5x *"These are capped at 12,000 words"* (anaphora, deliberately unbound) + 1 Curriculum/Instruction/Pedagogy (defect B) |
+| frontiers `reference_style` | 6 | **probably real** — *"Frontiers' journals use one of two reference styles, either Harvard (author-date) or Vancouver"* |
+| j-health `reference_style` | 2 | **probably real** — states both *"Sage Harvard"* and *"Sage Vancouver"* |
+| j-health `word_limit` | 2 | Letters sub-types, bound to `Article` by the FOURTH defect above |
+| nature-medicine `figure_limit` | 2 | *"Extended Data display figures"* vs *"display items"* — two senses sharing one kind |
+| plos-medicine `word_limit` | 2 | *"Articles should not exceed…"* — the type word is the generic one |
+
+**At most 8 of the 20 look like real journal facts.** The rest are three named
+extractor defects with counts, which is a better state than a 10.1% rate nobody
+has read.
+
+#### Tests
+
+Every fixture string is a **real span from the ten fingerprints**, not one
+composed for the test — so the fixtures cannot inherit an author's idea of what
+a false positive looks like. Deletion-tested: removing the style-context test
+fails on the Dryad repository row; making `binding_limit` a passthrough fails on
+*"one sentence, one abstract limit"*. The anaphora residue is pinned by
+`a_sentence_referring_back_stays_unbound_rather_than_guessing`, so leaving it
+unbound is a recorded decision rather than an oversight.
+
+**`expectations = 257` is untouched and still UNVERIFIED.** Tuning
+`is_reviewer_guidance` against rows just read is fitting it to its test set.
+
+#### TWO OF THE TEN CONTRIBUTED NOTHING TO ANY DENOMINATOR IN THIS ENTRY
+
+Every count above — 200 requirements, 43 conflicts, 35 spans, "1 in 10 journals
+states a soft/hard limit pair" — rests on **eight** journals, not ten.
+
+| | pages fetched | classified guideline | requirements | conventions | provenance |
+|---|---:|---:|---:|---:|---|
+| `bmj` | **120** | **18** | 0 | 5 | none |
+| `nature-communications` | **1** | 0 | 0 | 5 | none |
+
+So the soft/hard figure is honestly **1 of 8 contributing journals**, not 1 of 10.
+It does not change the decision, and stating the wrong denominator would be the
+defect this log has corrected twice (D163's `N of M`, D168-C's split).
+
+**These are TWO DIFFERENT FAILURES and the record currently calls them one.**
+`nature-communications` was never reached — one page fetched, nothing
+classified. `bmj` was reached perfectly: 120 pages fetched, **18 of them
+classified as guideline content**, and the extractor found not one requirement
+in any of them. The first is a crawl or entry-point problem; the second is an
+extractor that runs on 18 real guideline pages and produces nothing. They need
+opposite investigations.
+
+**And provenance — added in D170 specifically to distinguish crawled from
+never-crawled — does not separate them.** `store_fingerprint_provenance` is
+called only when `sources > 0`, i.e. when a requirement was stored, so a journal
+whose crawl succeeded completely and whose extraction returned nothing is
+recorded identically to one the crawler could not open. **The `Option` D170
+restored two meanings to has three states to carry and still carries two:**
+never crawled, crawled-and-empty, crawled-and-populated.
+
+The fix is to write provenance whenever the CRAWL ran, with `source_count = 0`
+where that is the truth, so an empty fingerprint says which kind of empty it is.
+That is a change to the writer added in D170 and is not made here — it wants its
+own before/after against these ten, and `bmj`'s 18-guideline-pages-zero-
+requirements result wants its own investigation rather than being folded into a
+provenance change. Both are recorded rather than carried silently.

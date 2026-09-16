@@ -170,6 +170,65 @@ const ARTICLE_TYPES: &[&str] = &[
     "correspondence", "letter", "article", "review", "protocol",
 ];
 
+/// Phrases that look like an article type in the `"<X> articles are"` pattern
+/// but name no type. Without these, *"All articles are peer reviewed"* binds
+/// every requirement on the page to a type called "All".
+const NOT_AN_ARTICLE_TYPE: &[&str] = &[
+    "all", "these", "those", "our", "such", "the", "both",
+    "some", "most", "other", "your", "any", "research",
+];
+
+/// The article type a SENTENCE names, from the shape `"<Type> articles are…"`.
+///
+/// # Why a pattern and not a longer vocabulary — §11 D172
+///
+/// `article_type_of` reads the block HEADING, and over ten stored fingerprints
+/// that left **41 of 43 conflicted rows UNBOUND**, of which 14 sat in sentences
+/// that name their type outright:
+///
+/// > *"Conceptual Analysis articles are peer-reviewed, have a maximum word count
+/// > of 8,000 words and may contain no more than 10…"*
+/// > *"Data Reports articles are peer-reviewed, have a maximum word count of
+/// > 3,000 and may contain no more than 2 Figures/Tables"*
+///
+/// Unbound, those Frontiers article types collapse into one bucket and the
+/// conflict rule reads them as the journal contradicting itself five ways.
+///
+/// **The obvious fix is to add `"conceptual analysis"`, `"data report"`,
+/// `"community case study"`… to [`ARTICLE_TYPES`]. That is fitting a list to the
+/// rows it was measured on** — the objection that keeps `is_reviewer_guidance`
+/// untouched at 5/20 — and it would still miss the next journal's vocabulary.
+/// The sentence SHAPE generalises: a guideline that scopes a limit to a type
+/// says so in a fixed construction, and the construction is what this reads.
+///
+/// Title Case is required because article types are capitalised in guidelines;
+/// [`NOT_AN_ARTICLE_TYPE`] covers the capitalised-but-generic leads.
+fn article_type_in_sentence(sentence: &str) -> Option<String> {
+    let lower = sentence.to_lowercase();
+    let at = ["articles are", "articles must", "articles should", "articles have"]
+        .iter()
+        .filter_map(|m| lower.find(m))
+        .min()?;
+    let head = sentence[..at].trim();
+    if head.is_empty() || head.len() > 60 {
+        return None;
+    }
+    // Only the trailing clause: "For submissions, Data Reports" -> "Data Reports".
+    let head = head.rsplit([',', ':', ';', '.']).next().unwrap_or(head).trim();
+    let words: Vec<&str> = head.split_whitespace().collect();
+    if words.is_empty() || words.len() > 4 {
+        return None;
+    }
+    if !words.iter().all(|w| w.chars().next().is_some_and(|c| c.is_uppercase())) {
+        return None;
+    }
+    let joined = words.join(" ");
+    if NOT_AN_ARTICLE_TYPE.contains(&joined.to_lowercase().as_str()) {
+        return None;
+    }
+    Some(joined)
+}
+
 fn article_type_of(heading: &str) -> Option<String> {
     let h = heading.to_lowercase();
     let mut best: Option<&str> = None;
@@ -281,8 +340,116 @@ const REFERENCE_STYLES: &[(&str, &str)] = &[
     ("author-date", "author-date"),
 ];
 
+/// Words that make a sentence a statement ABOUT REFERENCING, rather than a
+/// sentence that merely contains a style's name.
+///
+/// **Measured — §11 D172.** Over the ten stored fingerprints, `reference_style`
+/// matched the bare substring and produced 20 rows, of which 6 were wrong and
+/// **5 of 8 `Harvard` rows were the word inside a proper noun**: `Harvard
+/// Dataverse` in a repository list (PLOS x2), *"a Fulbright postdoctoral
+/// fellowship in MGH-Harvard Medical School"* (Lancet), *"Professor of
+/// Biostatistics at the Harvard T.[H. Chan]"* and *"Harvard University Boston,
+/// Massachusetts, USA"* (Statistics in Medicine). The sixth was
+/// *"Grant details and acknowledgments are not permitted as numbered
+/// references"* — a rule about what may not BE a reference, read as a
+/// declaration of reference style.
+///
+/// Every one of those six spans lacks any of these words. Every one of the
+/// fourteen correct spans has one. **A word boundary alone does not help** —
+/// `Harvard` is a whole word in all five false rows — which is why the test is
+/// about what the sentence is ABOUT rather than about how the name is spelled.
+const STYLE_CONTEXT: &[&str] = &["style", "referencing", "citation", "citing", "cite "];
+
+/// Does this sentence state a reference style, as opposed to naming one?
+fn states_a_reference_style(lower: &str) -> bool {
+    STYLE_CONTEXT.iter().any(|w| lower.contains(w))
+}
+
+/// Whole-word containment: `needle` must not sit inside a longer alphanumeric
+/// token. Guards a future needle (`"ama style"`, `"apa style"`) rather than the
+/// measured defect, which was a whole word already.
+fn contains_word(hay: &str, needle: &str) -> bool {
+    let mut from = 0;
+    while let Some(i) = hay[from..].find(needle) {
+        let s = from + i;
+        let e = s + needle.len();
+        let before_ok = s == 0 || !hay[..s].chars().next_back().is_some_and(|c| c.is_alphanumeric());
+        let after_ok = e >= hay.len() || !hay[e..].chars().next().is_some_and(|c| c.is_alphanumeric());
+        if before_ok && after_ok {
+            return true;
+        }
+        from = e;
+    }
+    false
+}
+
 const STANDARDS: &[&str] =
     &["CONSORT", "PRISMA", "STROBE", "ARRIVE", "TRIPOD", "CHEERS", "SPIRIT", "STARD"];
+
+/// Reduce one sentence's numeric limits to ONE PER KIND — the binding one.
+///
+/// # The defect, measured — §11 D171/D172
+///
+/// > *"PLOS Medicine prefers abstract submissions not exceed 300 words, with a
+/// > maximum of 500 words allowed."*
+///
+/// Two `LIMIT_LEADS` fire on that sentence — `not exceed` -> 300 and
+/// `maximum of` -> 500 — and both were stored as `abstract_limit`. Same journal,
+/// same kind, same (absent) article type, different values: the conflict rule
+/// then marked the journal as contradicting itself, over **one sentence that
+/// contradicts nothing**.
+///
+/// # The MAXIMUM wins, and the span keeps the rest
+///
+/// §7 defines a requirement as *"a rule; violation is blocking"*. Exceeding 300
+/// words is **not** a violation — the journal says 500 is allowed. Exceeding 500
+/// is. So 500 is the requirement; 300 is a preference, and the span carries it
+/// verbatim for any reader who wants it.
+///
+/// **Storing the lower value would flag compliant manuscripts**, which is the
+/// direction this codebase refuses (§11 D167: a check that reports a correct
+/// paper as wrong is worse than none).
+///
+/// # Why NOT a second field
+///
+/// A `preferred` column beside `value` models the journal more faithfully, and
+/// it was rejected on the measurement: **one sentence in 200 stored
+/// requirements** across ten journals. It needs a schema change, a reliable map
+/// from lead phrase to force (`prefers` vs `maximum` vs `should not exceed`),
+/// and a renderer that today does not exist — D128's bar, unmet. If a corpus
+/// ever shows preferred/hard pairs at real density, this doc comment is where
+/// the case gets made.
+///
+/// # Scoped to NUMERIC limits only
+///
+/// A sentence naming CONSORT **and** STROBE states two requirements, not a
+/// dispute — `many_reporting_standards_are_not_a_journal_contradicting_itself`
+/// pins that, and it is measured here too (4 such spans over the ten journals).
+/// This function never sees them: it is applied to the limit loop alone.
+fn binding_limit(limits: Vec<(RequirementKind, String)>) -> Vec<(RequirementKind, String)> {
+    let mut best: Vec<(RequirementKind, String)> = Vec::new();
+    for (kind, value) in limits {
+        match best.iter_mut().find(|(k, _)| *k == kind) {
+            None => best.push((kind, value)),
+            Some(slot) => {
+                let a = value.parse::<u64>().ok();
+                let b = slot.1.parse::<u64>().ok();
+                if let (Some(a), Some(b)) = (a, b) {
+                    if a > b {
+                        slot.1 = value;
+                    }
+                } else if slot.1 != value {
+                    // Unparseable: keep the first and do not guess which binds.
+                    // Nothing in the corpus reaches this; it exists so a future
+                    // non-numeric limit fails loudly in review rather than
+                    // silently picking one.
+                    debug_assert!(false, "non-numeric limit values: {} vs {value}", slot.1);
+                }
+            }
+        }
+    }
+    best
+}
 
 /// Which unit a limit applies to, and therefore which kind it is.
 fn limit_kind(lower: &str, number_at: usize) -> Option<RequirementKind> {
@@ -309,10 +476,18 @@ fn limit_kind(lower: &str, number_at: usize) -> Option<RequirementKind> {
 pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequirement> {
     let mut out = Vec::new();
     for block in blocks {
-        let article_type = article_type_of(&block.heading);
+        let heading_type = article_type_of(&block.heading);
         for sentence in sentences(&block.text) {
             let lower = sentence.to_lowercase();
+            // HEADING FIRST — a section heading scopes everything under it and
+            // is the more deliberate statement. The sentence is the fallback,
+            // and it is what binds the per-type limits a heading never mentions.
+            let article_type = heading_type
+                .clone()
+                .or_else(|| article_type_in_sentence(sentence));
 
+            // ONE SENTENCE, ONE LIMIT PER KIND — see `binding_limit`.
+            let mut limits: Vec<(RequirementKind, String)> = Vec::new();
             for lead in LIMIT_LEADS {
                 let mut from = 0usize;
                 while let Some(i) = lower[from..].find(lead) {
@@ -336,12 +511,16 @@ pub fn extract_requirements(blocks: &[GuidelineBlock]) -> Vec<ExtractedRequireme
                     {
                         continue;
                     }
-                    push(&mut out, kind, value, &article_type, block, sentence);
+                    limits.push((kind, value));
                 }
             }
+            for (kind, value) in binding_limit(limits) {
+                push(&mut out, kind, value, &article_type, block, sentence);
+            }
 
+            // A style NAME is not a style STATEMENT — §11 D171/D172.
             for (needle, label) in REFERENCE_STYLES {
-                if lower.contains(needle) {
+                if contains_word(&lower, needle) && states_a_reference_style(&lower) {
                     push(&mut out, RequirementKind::ReferenceStyle, (*label).to_string(),
                          &article_type, block, sentence);
                 }
@@ -831,6 +1010,166 @@ mod tests {
             out.iter().all(|r| r.kind != RequirementKind::SectionRequired),
             "a mention was stored as a requirement: {out:#?}"
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // §11 D172 — the three extractor defects Stage 2 exposed
+    // ---------------------------------------------------------------------
+
+    /// **A style NAME is not a style STATEMENT.** Every string here is a real
+    /// span from the ten stored fingerprints — five `Harvard` proper nouns that
+    /// were stored as a reference style, and the three that genuinely state one.
+    #[test]
+    fn a_style_name_inside_a_proper_noun_is_not_a_reference_style() {
+        let wrong = [
+            "Dryad Digital Repository Dutch national centre of expertise and repository for \
+             research data (DANS) figshare Harvard Dataverse Network Kaggle",
+            "After a Fulbright postdoctoral fellowship in MGH-Harvard Medical School, I joined \
+             King's College London as a research fellow.",
+            "Prior to joining NYU, she was Professor of Biostatistics at the Harvard T.",
+            "Harvard University Boston, Massachusetts, USA",
+            "Grant details and acknowledgments are not permitted as numbered references.",
+        ];
+        for s in wrong {
+            let got = extract_requirements(&[b("h", s)]);
+            assert!(
+                !got.iter().any(|r| r.kind == RequirementKind::ReferenceStyle),
+                "named a style from a sentence that states none: {s:?} -> {got:#?}"
+            );
+        }
+
+        let right = [
+            ("Many Frontiers journals use the Harvard referencing system;", "Harvard"),
+            ("The journal follows the Sage Harvard reference style.", "Harvard"),
+            ("All PLOS journals utilize the Vancouver reference style.", "Vancouver"),
+            ("PLOS uses \u{201c}Vancouver\u{201d} style, as outlined in the ICMJE sample references.", "Vancouver"),
+        ];
+        for (s, want) in right {
+            let got = extract_requirements(&[b("h", s)]);
+            assert!(
+                got.iter().any(|r| r.kind == RequirementKind::ReferenceStyle && r.value == want),
+                "missed a real style statement: {s:?} -> {got:#?}"
+            );
+        }
+    }
+
+    /// **One sentence, one limit per kind — the binding one.**
+    ///
+    /// The PLOS Medicine span, verbatim. Before this, `not exceed` and
+    /// `maximum of` each produced a row and the two were marked as the journal
+    /// contradicting itself.
+    #[test]
+    fn a_preferred_and_a_hard_limit_in_one_sentence_are_one_requirement() {
+        let got = extract_requirements(&[b(
+            "Abstract",
+            "PLOS Medicine prefers abstract submissions not exceed 300 words, with a maximum \
+             of 500 words allowed.",
+        )]);
+        let abs: Vec<&ExtractedRequirement> =
+            got.iter().filter(|r| r.kind == RequirementKind::AbstractLimit).collect();
+        assert_eq!(abs.len(), 1, "one sentence, one abstract limit: {abs:#?}");
+        assert_eq!(
+            abs[0].value, "500",
+            "the BLOCKING value wins — exceeding 300 is not a violation, the journal allows 500"
+        );
+        // The preference is not lost; it is in the span, which is where a
+        // reader can see both numbers and neither is invented.
+        assert!(abs[0].source_span.contains("300"), "{:?}", abs[0].source_span);
+        assert!(abs[0].source_span.contains("500"), "{:?}", abs[0].source_span);
+    }
+
+    /// Two STANDARDS in one sentence remain two requirements — the reduction
+    /// above is scoped to numeric limits and must not touch them.
+    #[test]
+    fn two_standards_in_one_sentence_are_still_two_requirements() {
+        let got = extract_requirements(&[b(
+            "Review",
+            "Does the study conform to any relevant guidelines such as CONSORT, STROBE, and \
+             the Fort Lauderdale agreement?",
+        )]);
+        let n = got.iter().filter(|r| r.kind == RequirementKind::ReportingStandard).count();
+        assert_eq!(n, 2, "CONSORT and STROBE are two requirements, not a dispute: {got:#?}");
+    }
+
+    /// **A limit scoped to an article type in its own SENTENCE binds to it.**
+    ///
+    /// NOTE the fixture heading: `"Submission formats"`, not `"Article types"`.
+    /// The obvious heading binds every row under it to a type called `Article`,
+    /// because `article_type_of` substring-matches `"article"` — §11 D172's
+    /// FOURTH defect, found by writing this test and deliberately not fixed
+    /// here. A fixture that tripped it would have measured the heading matcher
+    /// while claiming to measure the sentence binder.
+    ///
+    /// Frontiers states five per-type limits this way and the heading names
+    /// none of them. Unbound, they collapse into one bucket and the conflict
+    /// rule reads the journal as contradicting itself five ways — 19 of the 43
+    /// conflicted rows over the ten fingerprints. Real spans, verbatim.
+    #[test]
+    fn a_type_named_in_the_sentence_binds_the_limit_to_it() {
+        let cases = [
+            ("Conceptual Analysis articles are peer-reviewed, have a maximum word count of \
+              8,000 words and may contain no more than 10 Figures/Tables.", "Conceptual Analysis", "10"),
+            ("Data Reports articles are peer-reviewed, have a maximum word count of 3,000 and \
+              may contain no more than 2 Figures/Tables.", "Data Reports", "2"),
+            ("Brief Research Reports articles are peer-reviewed, have a maximum word count of \
+              4,000 and may contain no more than 4 Figures/Tables.", "Brief Research Reports", "4"),
+        ];
+        for (span, want_type, want_value) in cases {
+            let got = extract_requirements(&[b("Submission formats", span)]);
+            let f = got
+                .iter()
+                .find(|r| r.kind == RequirementKind::FigureLimit)
+                .unwrap_or_else(|| panic!("no figure limit from {span:?} -> {got:#?}"));
+            assert_eq!(f.value, want_value, "{span:?}");
+            assert_eq!(
+                f.article_type.as_deref(),
+                Some(want_type),
+                "the sentence names its type and the binding must use it: {got:#?}"
+            );
+        }
+    }
+
+    /// **The heading still wins.** A section heading scopes everything under it
+    /// and is the more deliberate statement; the sentence is the fallback.
+    #[test]
+    fn a_heading_type_outranks_a_sentence_type() {
+        let got = extract_requirements(&[b(
+            "Brief Communication",
+            "Review articles are peer-reviewed and may contain no more than 8 Figures/Tables.",
+        )]);
+        let f = got.iter().find(|r| r.kind == RequirementKind::FigureLimit).expect("a limit");
+        assert_eq!(f.article_type.as_deref(), Some("Brief Communication"), "{got:#?}");
+    }
+
+    /// **A generic lead is not a type.** Without the stop-list, this binds every
+    /// requirement on the page to an article type called "All".
+    #[test]
+    fn a_generic_lead_does_not_become_an_article_type() {
+        for span in [
+            "All articles are peer reviewed and may contain no more than 6 Figures/Tables.",
+            "These articles are limited to 4 Figures/Tables.",
+        ] {
+            let got = extract_requirements(&[b("h", span)]);
+            let f = got.iter().find(|r| r.kind == RequirementKind::FigureLimit).expect("a limit");
+            assert_eq!(f.article_type, None, "a generic lead must stay UNBOUND: {span:?}");
+        }
+    }
+
+    /// **The residue, pinned so it is not mistaken for a gap nobody noticed.**
+    ///
+    /// *"These are capped at 12,000 words…"* refers back to a previous sentence
+    /// and names no type. 5 of the 19 Frontiers rows read like this, and they
+    /// stay unbound deliberately: resolving the antecedent is an anaphora
+    /// problem, and guessing one would bind a limit to the wrong type — worse
+    /// than leaving it unscoped, which at least renders as "not stated".
+    #[test]
+    fn a_sentence_referring_back_stays_unbound_rather_than_guessing() {
+        let got = extract_requirements(&[b(
+            "Submission formats",
+            "These are capped at 12,000 words and may include up to 15 figures or tables.",
+        )]);
+        let f = got.iter().find(|r| r.kind == RequirementKind::FigureLimit).expect("a limit");
+        assert_eq!(f.article_type, None, "{got:#?}");
     }
 
 }
