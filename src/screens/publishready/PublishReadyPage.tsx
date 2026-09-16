@@ -276,7 +276,16 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
           rail={<PRRail navigate={navigate} />}
           header={
             <HeaderBar title="PublishReady ★">
-              <Badge status="certain">premium</Badge>
+              {/* Was `<Badge status="certain">premium</Badge>`. Removed, not
+                  renamed: the badge asserted that THIS RUN used the premium
+                  analysis, and nothing in the backend checks a tier —
+                  `run_premium_gate` has no production caller and the proxy has
+                  no premium mode (§12.1). Entitlement gates ACCESS to the
+                  screen, which is real and is where the "Premium" label
+                  legitimately appears; it does not change what runs. Enforcing
+                  the tier is a separate week's work blocked on a consent record
+                  that does not exist, and claiming it sooner would be the same
+                  defect pointing the other way. */}
               <Button
                 variant="secondary"
                 data-testid="pr-export"
@@ -322,7 +331,7 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
                 tabs={PR_TABS}
                 bare
                 guidelinesUrl={ranGuidelinesUrl ?? undefined}
-                reviewerLetter={<ReviewerLetterPanel letter={result.reviewerLetter} />}
+                reviewerLetter={<ReviewerLetterPanel letter={result.reviewerLetter} declined={result.declined} />}
               />
             </div>
             <CopilotDock report={result.report} client={copilot} />

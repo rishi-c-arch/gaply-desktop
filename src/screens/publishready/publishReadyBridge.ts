@@ -17,6 +17,7 @@ import {
   Recommendation,
   ReviewerLetter,
   TargetJournal,
+  DeclinedLane,
 } from './publishReadyTypes';
 
 /** Result of ingesting the target journal's guidelines into the local
@@ -129,6 +130,8 @@ export function adaptOutcome(o: PublishReadyOutcome, journal: TargetJournal): Pu
     // in session memory under this id. Dropped before, so the button had
     // nothing to ask for.
     runId: o.run_id,
+    // Straight through: the backend owns these strings (gaply_core::declined).
+    declined: (o as unknown as { declined?: DeclinedLane[] }).declined ?? [],
   };
 }
 

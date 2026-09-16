@@ -600,6 +600,15 @@ pub struct PublishReadyOutcome {
     /// Stable identity for the whole run (== manuscript_id/report_id). Threaded
     /// to the Evidence Store + escalation so Chat can query this run later.
     pub run_id: String,
+    /// **What Gaply deliberately does not do, and why.**
+    ///
+    /// Constant for every run — a decline is a property of the product, not of
+    /// the manuscript — but carried on the outcome so the panel that renders a
+    /// result has it in hand. Before this, the reviewer panel rendered
+    /// `letter.novelty.assessment || '—'`, and a researcher met an em-dash where
+    /// a measured decision belonged. An em-dash reads as "Gaply looked and found
+    /// nothing", which is a claim about their paper rather than about this tool.
+    pub declined: &'static [gaply_core::declined::DeclinedLane],
     /// Box 4 (Stage 1, SHADOW): the reviewer letter synthesized from the
     /// Evidence Store's per-finding verdicts, produced ALONGSIDE `reviewer` for
     /// comparison. `None` if assembly failed. NOT authoritative — the wholesale
@@ -1036,6 +1045,8 @@ pub fn run_publishready_measured(
 
     let shadow_reviewer = shadow_outcome.map(|o| o.letter);
     Ok(PublishReadyOutcome {
+        // Constant per build, not per run — see the field's docs.
+        declined: gaply_core::declined::DECLINED_LANES,
         pdf_bytes,
         // The IPC field stays JSON: the frontend renders it and does not need
         // the Rust type. Serializing the TYPED value guarantees it is exactly

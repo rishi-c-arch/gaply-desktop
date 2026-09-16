@@ -6,10 +6,36 @@ import {
   RECOMMENDATION_LABEL,
   RECOMMENDATION_STATUS,
   ReviewerLetter,
+  DeclinedLane,
 } from './publishReadyTypes';
 import './publishready.css';
 
-export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ letter }) => {
+/** One declined lane, rendered where its output would have been.
+ *
+ *  The sentence is the backend's — `gaply_core::declined::DECLINED_LANES` — so
+ *  a user and an engineer read the same decline. If the backend sent nothing
+ *  (older run, mock bridge), this renders the em-dash it replaced rather than
+ *  inventing a reason. */
+const DeclineNote: React.FC<{ testId: string; lane: string; declined?: DeclinedLane[] }> = ({
+  testId,
+  lane,
+  declined,
+}) => {
+  const d = (declined ?? []).find((x) => x.lane === lane);
+  if (!d) return <span data-testid={testId}>—</span>;
+  return (
+    <span data-testid={testId} className="gds-pr__decline">
+      <strong>Not assessed.</strong> {d.reason}{' '}
+      <span className="gds-pr__decline-ref">{d.record}</span>
+    </span>
+  );
+};
+
+export const ReviewerLetterPanel: React.FC<{
+  letter: ReviewerLetter;
+  /** From the run outcome; constant per build. */
+  declined?: DeclinedLane[];
+}> = ({ letter, declined }) => {
   const navigate = useNavigate();
 
   // Honest offline state: deep reasoning is cloud-only. The FULL local report
@@ -121,13 +147,45 @@ export const ReviewerLetterPanel: React.FC<{ letter: ReviewerLetter }> = ({ lett
           the same honest empty state the gate already produces for the text. */}
       <div className="gds-pr__grid">
         <Card title="Novelty vs. recent literature">
-          <span data-testid="pr-novelty">{letter.novelty.assessment || '—'}</span>
+          {/* An em-dash used to stand here. It read as "Gaply looked and found
+              nothing" — a claim about the manuscript — when the truth is that
+              Gaply does not assess novelty at all, on a measurement. The reason
+              comes from the backend (gaply_core::declined) so the sentence a
+              user reads and the decision an engineer reads cannot drift. */}
+          {letter.novelty.assessment ? (
+            <span data-testid="pr-novelty">{letter.novelty.assessment}</span>
+          ) : (
+            <DeclineNote testId="pr-novelty" lane="Novelty" declined={declined} />
+          )}
         </Card>
 
         <Card title={`Journal fit — ${letter.journalFit.journal} (${letter.journalFit.quartile})`}>
+          {/* NOT a declined lane, and deliberately still an em-dash: the fit
+              note is grounded text the harness gate DROPS when the model's
+              claim is not supported by the payload. That is a per-run outcome,
+              not a standing limit, so a constant explanation would be wrong. */}
           <span data-testid="pr-fit">{letter.journalFit.note || '—'}</span>
         </Card>
       </div>
+
+      {/* WHAT GAPLY DOES NOT DO. Every lane here was declined on a measurement
+          recorded in docs/AI_ENGINE_PLAN.md, and until now none of it reached a
+          user — the panel rendered a blank and a reader concluded their paper
+          was clean. Listing them costs one section and converts "found nothing"
+          into "does not look", which a researcher can act on by asking someone
+          who does. */}
+      {declined && declined.length > 0 && (
+        <Card title="What Gaply does not assess">
+          <ul className="gds-pr__declines" data-testid="pr-declined">
+            {declined.map((d) => (
+              <li key={d.lane} data-testid={`pr-declined-${d.lane}`}>
+                <strong>{d.lane}.</strong> {d.reason}{' '}
+                <span className="gds-pr__decline-ref">{d.record}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {/* Suggested alternative journals — grounded in the analysis, ADVISORY
           (Set 4-A). Empty when the backend grounded none; never fabricated. */}

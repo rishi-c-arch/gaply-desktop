@@ -67,6 +67,17 @@ export interface PublishReadyResult {
    *  this id; `export_publishready_pdf` fetches it. Optional because the
    *  dev/mock bridge derives a result without running the pipeline. */
   runId?: string;
+  /** What Gaply deliberately does not do, and why — from
+   *  `gaply_core::declined::DECLINED_LANES`. Rendered in place of the em-dash
+   *  that used to stand where a declined lane's output would have been. */
+  declined?: DeclinedLane[];
+}
+
+/** One lane Gaply does not run. Constant per build; see the Rust module. */
+export interface DeclinedLane {
+  lane: string;
+  reason: string;
+  record: string;
 }
 
 /** Structured-summary payload — the ONLY thing that leaves the device. */

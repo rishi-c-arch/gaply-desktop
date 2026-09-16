@@ -36,3 +36,10 @@
   border-radius: var(--g-radius-panel); text-align: center; gap: 10px;
 }
 .gds-root .gds-pr-teaser__cta > div { display: grid; gap: 10px; justify-items: center; padding: 24px; }
+
+/* Declined lanes — see gaply_core::declined. A blank read as "nothing found";
+   these read as "not assessed", which is the truth and is actionable. */
+.gds-pr__declines { margin: 0; padding-left: 1.1rem; }
+.gds-pr__declines li { margin-bottom: 0.55rem; line-height: 1.45; }
+.gds-pr__decline { line-height: 1.45; }
+.gds-pr__decline-ref { opacity: 0.6; font-variant-numeric: tabular-nums; white-space: nowrap; }
