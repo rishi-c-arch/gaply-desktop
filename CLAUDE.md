@@ -690,6 +690,47 @@ time injection.
   and expect the first few rounds of findings to be about your own tools.** A
   clean first result on real data is the thing to be suspicious of.
 
+- **A BACKEND'S REFUSAL DOES NOT REACH A USER. Three defects in one audit,
+  17 Sep 2026, every one a place where `gaply_core` had already declined to
+  claim something and the presentation layer claimed it anyway.**
+
+  | the backend's refusal | what the screen said |
+  |---|---|
+  | `novelty.assessment` empty — the harness gate emptied it, and §11 D166 declined the lane on 20 manuscripts of evidence | `—`, which reads as *"Gaply looked and found nothing"* |
+  | `run_premium_gate` has ZERO references in `src-tauri`; no tier check exists anywhere | a `premium` badge on the result, asserting this run used the premium analysis |
+  | `publication_probability` is a four-value lookup (5/30/70/92), and `ReviewerLetterPanel` deliberately removed its gauge as a presentation-class violation | `61% publication probability` in the upsell — not one of the four bands, and twice the 30% band of the `MAJOR REVISION` printed beside it |
+
+  **The Rust suite cannot see any of them, by construction.** 1831 tests green,
+  every decline correctly implemented in the module that made it, all three
+  defects live in front of a user.
+
+  **`novelty.rs`, `premium_gate.rs` and `reviewer_agent.rs` are each
+  individually honest. The defect existed only in the composition.** That is
+  §14's v6 pattern one layer up, with the mechanism inverted: v6 was three
+  artefacts AGREEING because they were derived from one another, and this is
+  three artefacts each independently CORRECT composing into something false.
+  Same lesson either way — **correctness of the parts is not a property of the
+  whole**, and in neither case can the parts reveal it.
+
+  **The operational half: every decline recorded in §11 must be checked at the
+  SURFACE that would show it.** A D-entry states what the product will not do;
+  only the screen states what the user is told. Those are two different claims,
+  and this log kept the first for eleven days without once checking the second —
+  D165, D166 and D167 were all written, cited and guarded while the screens
+  above were saying the opposite.
+
+  **What found them was reading the SCREEN, not the code.** The audit that
+  produced all three began by asking what a user sees end to end — is there a
+  screen, does it reach a command, does the command reach the pipeline — and
+  **none of the three was visible from the module that caused it.** A grep for
+  `novelty` in `gaply_core` returns a module whose header opens "DECLINED"; the
+  em-dash is four files away in TypeScript that no Rust test imports.
+
+  So when a decline is recorded, open the surface. The question is not "does the
+  code refuse correctly" — it will — but **"what does the user see where the
+  refusal happened."** An empty field, a stale badge and a mock are all places a
+  refusal turns back into a claim.
+
 - **A PURITY CLAIM IN A DOC COMMENT IS NOT A GUARD. Counted 14 Sep 2026:
   `validate.rs`, `stats_verify.rs` and `stats_verdict.rs` each state "no model,
   no proxy, no network, no I/O" in their module headers — three claims, ZERO
