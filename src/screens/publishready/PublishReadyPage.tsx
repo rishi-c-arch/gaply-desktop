@@ -243,17 +243,32 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
         <div className="gds-pr-entry" data-testid="pr-teaser">
           <Card title="PublishReady ★ — full simulated peer review">
             <div className="gds-pr-teaser">
+              {/* THE BLURRED MOCK IS THE REAL SHAPE OF A REPORT, and it used
+                  to advertise a number the product refuses to compute.
+                  `61% publication probability` was here beside MAJOR REVISION.
+                  The engine has four fixed DISPLAY bands, each a 1:1 function
+                  of the decided recommendation — 0.05 / 0.30 / 0.70 / 0.92
+                  (reviewer_agent.rs) — so 61% is not among them, and the band
+                  for MAJOR REVISION is 30%: the mock showed a figure twice as
+                  favourable as the verdict beside it.
+
+                  ReviewerLetterPanel deliberately renders NO gauge, because a
+                  four-value lookup drawn as a percentage ring is a visual
+                  implication beyond the evidence. A free user was therefore
+                  sold the one thing an entitled user would never see. What is
+                  shown now is what the report actually contains: the
+                  recommendation, the letter, and the counted findings. */}
               <div className="gds-pr-teaser__blur" aria-hidden="true">
                 <div className="gds-pr__head">
                   <div className="gds-pr__verdict" data-status="assessed">MAJOR REVISION</div>
-                  <div className="gds-pr__gauge"><span className="gds-pr__gauge-label">61% publication probability</span></div>
                 </div>
                 <p className="gds-pr__body">Dear Author, we have completed a full review of your manuscript against the target journal…</p>
+                <p className="gds-pr__body">3 blocking · 8 major · 14 minor findings, each quoting the sentence it rests on.</p>
               </div>
               <div className="gds-pr-teaser__cta" data-testid="pr-unlock">
                 <div>
                   <Badge status="neutral">Premium</Badge>
-                  <strong>See the reviewer letter, verdict &amp; publication probability.</strong>
+                  <strong>See the reviewer letter, the recommendation &amp; every finding with its evidence.</strong>
                   <Button onClick={() => navigate('/app/billing')}>Unlock the verdict →</Button>
                 </div>
               </div>
