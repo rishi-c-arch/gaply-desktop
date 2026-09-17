@@ -40,6 +40,7 @@ use gaply_core::swarm::{
 };
 use gaply_core::verify_agent::{verify_citations, MockProxyClient};
 use gaply_core::research_state::ResearchState;
+use gaply_core::specialist::{self, SpecialistInput, SpecialistReport};
 use gaply_core::{ai_detect, extract, now_epoch, plagiarism, rag, validate, Database, GaplyError};
 
 use crate::http_fetcher::RefVerifier;
@@ -263,13 +264,55 @@ pub struct PipelineResult {
     /// **The machine-readable study** (§3.1), derived from `extraction`.
     ///
     /// Purely additive: nothing in the report path reads it, and the golden
-    /// test `the_report_is_byte_identical_with_a_research_state_derived` pins
-    /// that adding it changed no output. It is here so Phase 2's harness has
+    /// test `the_report_is_byte_identical_to_the_pre_research_state_capture`
+    /// pins that adding it changed no output — it compares against a capture
+    /// taken at `e5eb963`, the commit before `ResearchState` existed.
+    ///
+    /// **That citation used to name a test that does not exist**
+    /// (`..._with_a_research_state_derived`). The claim was pinned; the pointer
+    /// to the pin was wrong, which is the dangling-citation defect
+    /// `tests/decision_records.rs` catches for D-numbers and nothing catches for
+    /// test names. It is here so Phase 2's harness has
     /// something to route over, and so the derivation runs on every real run
     /// rather than being written and never exercised.
     ///
     /// Contains NO prose — see `gaply_core::research_state`.
     pub research_state: ResearchState,
+    /// **Specialist findings — §4.2, wired as the thin vertical slice.**
+    ///
+    /// PURELY ADDITIVE, the same discipline as `research_state` above:
+    /// `compile_report` does not read it, the golden capture is unchanged, and
+    /// `the_report_is_byte_identical_to_the_pre_research_state_capture` pins
+    /// that — the same capture, now doing the same job for a second additive
+    /// field.
+    /// `PublishReadyReport` stays byte-for-byte what it was, because the FREE
+    /// tier depends on it and `CACHED_REPORT_SCHEMA_VERSION` gates every stored
+    /// report.
+    ///
+    /// # Only `frequentist_stats` runs today, and that is measured
+    ///
+    /// `specialist::shipped()` returns three. Over the 20-manuscript corpus,
+    /// outside the pipeline:
+    ///
+    /// ```text
+    /// specialist                 ran  declined  findings
+    /// frequentist_stats           20         0        13
+    /// ml_methodology               4        16         7
+    /// claim_evidence_strength     17         3         0
+    /// ```
+    ///
+    /// `ml_methodology` is withheld because its applicability gate admitted a
+    /// histology paper — *"Specimens were processed by standard paraffin
+    /// embedding technique…"* answered with `no_heldout_evaluation_named` —
+    /// which is §11 D157's shape: a confident finding resting on an
+    /// applicability judgement nobody made. `claim_evidence_strength` is
+    /// withheld because it admitted NOTHING on 20 real manuscripts and belongs
+    /// in a decline measurement (D165/D166's family), not in a wiring list.
+    ///
+    /// Both are held out HERE rather than by editing `shipped()`, so the
+    /// specialist set and the graph stay in agreement and the withholding is
+    /// one reviewable line with its reason beside it.
+    pub specialists: Vec<SpecialistReport>,
 }
 
 /// Channel wrapper: forward emitted events to the IPC channel (closed channel
@@ -704,6 +747,16 @@ fn run_pipeline_inner(
     // lands" — this is the landing site.
     let research_state = ResearchState::from_extraction(&extraction);
 
+    // Specialists — additive, and deliberately not all of them. See the field.
+    let specialists = {
+        let sin = SpecialistInput { extraction: &extraction, science: None, analysis: None };
+        specialist::shipped()
+            .iter()
+            .filter(|s| s.id() == "frequentist_stats")
+            .map(|s| specialist::run(s.as_ref(), &sin))
+            .collect::<Vec<_>>()
+    };
+
     Ok(PipelineResult {
         report_id,
         report,
@@ -712,6 +765,7 @@ fn run_pipeline_inner(
         plagiarism: plag,
         text,
         research_state,
+        specialists,
     })
 }
 
@@ -1225,6 +1279,15 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
         .expect("pipeline completes");
         let _ = std::fs::remove_file(&path);
 
+        // ADDITIVE FIELDS ARE PINNED HERE, and the pin is the whole reason they
+        // are safe: `research_state` and `specialists` both ride on
+        // `PipelineResult`, and neither may reach `report`. The free tier reads
+        // this shape and `CACHED_REPORT_SCHEMA_VERSION` gates every stored copy.
+        assert!(
+            !out.specialists.is_empty(),
+            "the specialist stage must RUN, or the assertion below passes vacuously \
+             and would keep passing if it were deleted"
+        );
         let now = serde_json::to_string(&out.report).expect("report serialises");
         assert_eq!(
             now,

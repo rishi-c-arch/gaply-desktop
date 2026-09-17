@@ -252,6 +252,9 @@ mod tests {
     fn pipeline_with(findings: Vec<Finding>) -> PipelineResult {
         PipelineResult {
             report_id: "r1".into(),
+            // Additive field; this fixture exercises the report join, not the
+            // specialist stage.
+            specialists: Vec::new(),
             report: PublishReadyReport {
                 verdict: "Minor revision".into(),
                 combined_confidence: 0.5,
