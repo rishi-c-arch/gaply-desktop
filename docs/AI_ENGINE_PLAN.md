@@ -12420,3 +12420,301 @@ The census counts 18 extractable requirements against 7 stored. The gap is not a
 defect: `extract_requirements` returns the same requirement from several blocks
 of one page and `store_requirements` deduplicates, leaving 7 rows over 5 URLs.
 Verified before writing this entry rather than assumed.
+
+---
+
+### D176 — `ml_methodology` is DECLINED: 5 of 7 findings quote a span that has nothing to do with them, and the gate cannot be measured on one positive example
+
+**Date:** 17 Sep 2026. Third in the family with **D165** (scientific layer, 5.9%
+against a 50% no-skill baseline) and **D166** (novelty, 2 real claims in 20
+manuscripts). Opened while wiring item 1's specialist stage, where
+`frequentist_stats` shipped and this did not.
+
+**Instruments:** `gaply-core/examples/item1_yield.rs`, `ml_gate_audit.rs`,
+`ml_signal_probe.rs`, over the 20-manuscript corpus.
+
+#### 1. TWO defects, and the first report conflated them
+
+The wiring commit described the gate as *"firing on a histology paper"*. **It is
+not a histology paper.** The paraffin sentence belongs to
+`formulation-and-evaluation-of-thermosensitive-nanoemulsion`, which contains a
+histology section AND a section proposing ML for formulation optimisation —
+*"artificial neural networks (ANN): training of multi-layer perceptron models on
+the formulation dataset"*. **The gate admitted it defensibly.** What went wrong
+is that the FINDING quoted a sentence from the histology section.
+
+Two defects, not one:
+
+* **the applicability gate** admits papers that DISCUSS AI rather than report a
+  model;
+* **span selection** attaches a finding to a sentence unrelated to it.
+
+**The second is worse**, and it is the one the first framing hid.
+
+#### 2. Five of seven findings quote the wrong sentence
+
+Every span `ml_methodology` produced over the 20, read in full:
+
+```
+resampling_not_stated_as_post_split  "Asymptotic and resampling strategies for
+                                      assessing and comparing indirect effects…"
+                                      <- a CITATION TITLE about mediation analysis
+no_heldout_evaluation_named          "The term itself dates to the proposal for the
+                                      Dartmouth Summer Research Project…"
+                                      <- AI-history prose
+no_variance_across_runs              "44 per cent of organisations…"
+                                      <- a survey statistic
+no_heldout_evaluation_named          "Machine Learning"
+                                      <- a bare section heading
+no_heldout_evaluation_named          "Specimens were processed by standard paraffin
+                                      embedding technique and sectioned at 5 µm"
+                                      <- histology, in an ML-proposing paper
+```
+
+Only `R PAPER`'s two are defensible — and one of THOSE quotes a preprocessing
+sentence (*"200-dimensional GloVe tweet embeddings"*) for a **resampling** claim.
+
+**This fails the span rule outright.** §14: *"a span is the one field that cannot
+be plausible and wrong at the same time, because it quotes the source and the
+source says what it is."* The field exists so a reader can refute a claim in one
+glance; here it points somewhere else, so the reader checks a sentence, sees no
+problem, and cannot tell whether the FINDING is wrong or the EVIDENCE is. **A
+span that does not belong to its finding is worse than no span**, because a
+finding with no span is visibly unsupported while this one looks supported.
+
+#### 3. THE SUCCESSFUL PREDICTION IS THE EVIDENCE THAT IT CANNOT BE FIXED HERE
+
+The gate is `>= 2 of 18 ML_TERMS anywhere in the body`, and it admits 4 of 20 —
+two of them theses ABOUT AI (`"principal waves in the evolution of artificial
+intelligence"`, `"bias present in the training data"`). That is §11 D163's shape
+a third time: a vocabulary that appears everywhere in the target corpus, like
+`classify_page`'s obligation words and `is_reviewer_guidance`'s *"review"*.
+
+A better signal was proposed and MEASURED before changing anything — *a paper
+reporting a trained model reports its performance*:
+
+| | admits |
+|---|---:|
+| `terms >= 2` (today) | 4 |
+| any performance metric with a number | 5 |
+| **`terms >= 2` AND performance AND split** | **1** |
+
+**Predicted 1 of 20. Measured 1 of 20** — exactly `R PAPER`. The prediction was
+correct and that is precisely why the gate must not ship:
+
+* **one positive example.** Precision on n=1 is not a measurement and recall is
+  undefined. A three-condition rule tuned to admit a single manuscript is fitted
+  to that manuscript — `is_reviewer_guidance`'s objection at n=1 instead of n=20.
+* **the components are the vocabulary failure again.** `Revised Health Economics`
+  scores **6 performance-metric hits and 0 ML terms**, because *precision* and
+  *recall* are ordinary statistical words. The conjunction hides that; it does
+  not fix it.
+
+#### The condition that reopens it — BOTH halves
+
+1. **A corpus with enough papers REPORTING trained models** to measure the
+   applicability gate's precision and recall per stratum, to D128's bar. Twenty
+   manuscripts produced one.
+2. **A span-selection fix, measured separately.** This is not downstream of the
+   gate: the defect is present on the one manuscript the gate gets right. A
+   correct gate over broken spans still hands a researcher a finding whose
+   evidence points at someone else's sentence.
+
+Until then `specialist::shipped()` keeps returning it — the agent graph and the
+specialist set stay in agreement, and `every_specialist_matches_its_node_in_the_shipped_graph`
+keeps passing — and the pipeline's call site admits `frequentist_stats` only,
+in one reviewable line with its reason beside it.
+
+### D177 — the Stage 2 design gate is DECLINED: the layer it preconditions is 11 implemented checks, and its input is wrong in both directions
+
+**The gate was scoped as a precondition.** Stage 2 evaluates every reporting
+standard against every manuscript; the gate would read the manuscript's design
+(`claim_strength::read_design`) and bind only the standards a journal declares
+for that design, so a cross-sectional survey stops being measured against
+CONSORT. It is declined, and for two independent reasons that each suffice.
+
+#### 1. The layer beneath is thinner than the design assumed — D165's shape
+
+Measured over the 20-manuscript corpus (`examples/gate_payoff.rs`,
+`gate_payoff2.rs`), evaluating all eight standards against all twenty:
+
+```
+TOTAL verdicts   500   = 20 manuscripts x 25 items
+  Met            104
+  NotFound       116
+  Unevaluable    280
+```
+
+**280 of 500 — 56% — is a CONSTANT: 14 verdicts on every one of the twenty
+rows, identical.** That is the uniform-result tell, and the mechanism is one
+query away:
+
+```
+CONSORT 5 items, 1 NotImplemented      CHEERS 0 items
+PRISMA  5 items, 3 NotImplemented      SPIRIT 0 items
+STROBE  5 items, 3 NotImplemented      STARD  0 items
+ARRIVE  5 items, 3 NotImplemented
+TRIPOD  5 items, 4 NotImplemented
+```
+
+**Three of the eight standards evaluate nothing at all**, and the five that do
+hold 25 items of which 14 are `NotImplemented`. The entire reporting-standards
+layer is **11 implemented checks**. The arithmetic reconciles exactly:
+104 + 116 = 220 = 20 x 11, and 280 = 20 x 14.
+
+A design gate cannot touch the 280 — those are unevaluable whatever design is
+bound. It only narrows which of the 220 run. And the payoff, measured on the
+three manuscripts whose design read holds, is STROBE alone:
+
+```
+Corrected Chapters 1-2 Jitesh    1 met  1 notfound  3 unevaluable
+Corrected_Chapters_3_4 Jitesh    2 met  0 notfound  3 unevaluable
+Revised Health Economics         2 met  0 notfound  3 unevaluable
+```
+
+**116 NotFounds drop to 1.** STROBE has two implemented items, so a perfectly
+gated run hands those authors a two-item checklist and finds one genuine gap
+across all three. That is the whole prize, and it is the reason this is a
+decline rather than a gate: the precondition is sound and the thing it
+preconditions is not built yet.
+
+#### 2. The input is wrong in BOTH directions, and the quiet one is worse
+
+**Direction A — of 7 manuscripts whose design joins a journal binding, 4 of 9
+readings are wrong.** All five observational readings are correct; all four
+experimental readings are false positives, in two mechanisms:
+
+* **modality** — a design the paper RECOMMENDS. *"randomised controlled trials
+  … **could evaluate**"* (Disha); *"**future research should consider** …
+  randomised controlled trials"* (Jitesh Agarwal); *"**first-in-human studies**:
+  a phase I clinical trial **designed as** a single-dose, randomized, crossover
+  study"* (nanoemulsion, an in-vitro formulation paper).
+* **domain homonym** — *"the trial was laid out in a **completely randomised
+  design** with a factorial arrangement of the three factors; each value
+  reported is the mean of three replications of 100 uniform larvae"* (IJAS
+  Bombyx). Agronomy's CRD, not a clinical RCT.
+
+**The structural fact is sharper than the error rate: `limiting_span` is set
+only inside the OBSERVATIONAL loop.** So every correct reading carries a
+checkable sentence and every wrong one carries none. The gate would bind
+CONSORT to a silkworm feeding trial with no span a reader could refute.
+
+**Direction B — 4 manuscripts have an applicable standard and are silently
+excluded.** ARRIVE is one of the eight `Standard` variants. `read_design`'s two
+marker lists contain no animal term whatsoever — no `animal`, `in vivo`,
+`zebrafish`, `mice` — so four live-vertebrate toxicity studies read as having no
+bindable design:
+
+| manuscript | its actual design | `read_design` returned |
+|---|---|---|
+| `4-5.docx` | *"the zebrafish **Danio rerio** was used to assess effects on embryonic development … and brain acetylcholinesterase (AChE) activity in **adult fish**"* | `["in-vitro","microcosm"]` |
+| `chapter3 .docx` | *"the **animal system** based on the zebrafish Danio rerio … the toxicity bioassays using Danio rerio"* | `["in-vitro","microcosm","experimental group","control group"]` |
+| `final chapter3 .docx` | *"harvested **embryos** were transferred to small tanks containing … lake-water samples … following the **fish embryo acute toxicity** [test]"* | `["in-vitro","in vitro","microcosm","experimental group"]` |
+| `final final L.pdf` | *"OECD 203: **fish, acute toxicity test**"*, a 96-hour LC50 in juvenile or adult fish | `["microcosm","in-vitro","in vitro","experimental group","control group"]` |
+
+**The prediction and the result differed in MECHANISM, not only in count, and
+that is the finding.** Predicted: 3 false exclusions, caused by the JOIN
+vocabulary — `correlational` and `"observational study"` share no substring.
+Measured: 4, and the predicted mechanism produced **zero** of them. Not one
+non-joining manuscript reads `correlational` or `retrospective` at all. The
+cause is one level earlier — a READING gap, not a join gap — and it is quieter
+than the join gap because **you cannot spot a missing marker by reading the
+marker list.** Auditing the vocabulary is exactly the move that cannot find it.
+
+A footnote on the join, since it produced a wrong count first:
+`design_gate_probe` reported 6 joining manuscripts and the truth is 7.
+`BOUND_DESIGNS` carries only British `"randomised trial"`, so the nanoemulsion
+paper's American `"randomized"` fails `contains` in both directions. Here the
+spelling bug suppressed a false positive and so produced the right answer for
+the wrong reason.
+
+#### The asymmetric fix, and why the symmetric one is a trap
+
+The section each marker sits in was measured (`examples/marker_section.rs`), and
+**every damaging experimental false positive except one is outside the Methods**:
+
+```
+Corrected Chapters 1-2   microcosm                               Introduction
+Jitesh Agarwal           microcosm, randomised, controlled trial Introduction
+Disha Correction         control group, randomised, ctrl trial   Conclusion
+nanoemulsion             randomized, double-blind                Conclusion
+                         in-vitro, in vitro                      Methods, Abstract  (correct)
+IJAS Bombyx              randomised                              Methods            (residual)
+```
+
+The positions are not incidental: future work lands in a Conclusion, framing
+metaphor lands in an Introduction, the real design lands in the Methods. So
+`read_design`'s EXPERIMENTAL loop is now restricted to `Abstract | Methods`.
+
+**The observational loop is deliberately NOT restricted, and the asymmetry is
+its own finding.** The symmetric version — the rule that feels obviously right —
+**destroys 3 of the 5 CORRECT observational readings**:
+
+```
+Corrected Chapters 1-2   cross-sectional, correlational, retrospective  Introduction only
+Corrected_Chapters_3_4   cross-sectional                                "Other" only
+Disha Correction         cross-sectional, retrospective                 Introduction, Conclusion
+Jitesh Agarwal           cross-sectional                                Other, Abstract, Intro, Conclusion
+Revised Health Economics cross-sectional                                Abstract, Methods, Discussion
+```
+
+Only one of the five is in the Methods at all. `Corrected_Chapters_3_4`'s sole
+reading lives in `Other`, because a thesis chapter has no IMRaD structure to
+classify. **A restriction that felt obviously right, wrong in the direction that
+matters, and only the corpus said so** — the same shape as D175's host rule,
+which fixes `lancet` and breaks `statistics-in-medicine`.
+
+**The named residual: IJAS Bombyx.** Its `randomised` is in its Methods and is
+correct agronomy. A domain homonym is not a misplaced sentence, so no scope rule
+reaches it. It stays wrong, on the record, rather than being tuned away.
+
+#### What the specialist fix changed, and what a user sees
+
+`claim_evidence_strength` shares `read_design`, so the same defect was live in a
+shipping specialist rather than only in an unbuilt gate. Measured before
+(`examples/item1_gate_trace.rs`):
+
+```
+applies_to: no design       3   declined
+experimental design only   12   ADMITTED, could not fire, reported nothing
+experimental SILENCES obs   3   ADMITTED, could not fire, reported nothing
+no causal sentence          2   the honest zero
+```
+
+**15 of 20 were a silent pass** — `Unevaluable` rendered as `Met`, §11's
+three-state entry inverted: instead of inventing a compliance failure it invents
+a clean bill of health. `applies_to` now declines each with its own sentence, so
+the four cases are distinguishable in a report. After both changes:
+
+```
+declined: no design    10      declined: experimental   5
+no causal sentence      4      FIRED                    1
+```
+
+**And the check fired for the first time, which is how the next defect was
+found.** Its first three findings on `Disha Correction .docx` included
+*"The quickly changing sector **because of** technological change … means that
+the findings may not have longevity"* — a limitations sentence with no causal
+claim in it. `CAUSAL_PHRASES` contains `"cause of"`, and `contains` matched it
+inside **be**`cause of`. **This is the `rema`**`in `**`unexplored` family, in the
+file whose own doc comment names that family forty lines above the bug.** Knowing
+the rule did not prevent the instance; making the check fire on a real manuscript
+did. Fixed with a word-boundary guard; the two surviving findings are both
+defensible.
+
+**What a user sees today: nothing, either way.** `claim_evidence_strength` is one
+of the two specialists `run_pipeline_inner` withholds, so no production path
+reaches it — `agent_graph.rs` records the same, checked 15 Sep 2026. These
+changes are a precondition for wiring it, not a repair to a live screen, and
+saying otherwise would be the defect `ad8e863` describes.
+
+#### The condition that reopens the gate — BOTH halves
+
+1. **`read_design` gains an animal-design marker set and a future-work modality
+   filter.** The modality half is measured and positional (the restriction above
+   is the first instalment); the animal half is absent vocabulary and is pure
+   addition, checkable against the four spans in Direction B.
+2. **The standards layer implements more than 11 items.** Until this moves, a
+   PERFECT gate still delivers a two-item checklist to three manuscripts in
+   twenty. Half one without half two buys a correct answer to a question nobody
+   is asking.

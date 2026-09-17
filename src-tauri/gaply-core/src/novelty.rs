@@ -1136,4 +1136,37 @@ mod tests {
         assert!(t.contains(&"bombyx".to_string()), "{t:?}");
         assert!(!t.iter().any(|x| x == "first" || x == "study" || x == "knowledge"), "{t:?}");
     }
+    /// **The test `states_its_scope`'s doc comment named and nothing defined.**
+    ///
+    /// Found 17 Sep 2026 by `tests/cited_tests_exist.rs`. The comment says the
+    /// strip loop is redundant today because *"no cue in the list introduces a
+    /// scope-shaped phrase"*, that this is a property of the CUE LIST rather
+    /// than of the function, and that this test *"reaches that property
+    /// directly and goes red on that day"*. **It did not exist**, so the claim
+    /// was unpinned — the more dangerous of the two dangling-citation cases,
+    /// because a reader who greps finds nothing and cannot tell an unguarded
+    /// invariant from a mistyped name.
+    ///
+    /// A cue is scope-shaped if it ENDS with a scope preposition — `"unlike
+    /// earlier studies in"` would — because `states_its_scope` strips cues
+    /// before looking for `preposition + content word`, and a cue ending in a
+    /// preposition leaves that preposition in the residue where it can pair
+    /// with the next word and read as a scope the author never wrote.
+    #[test]
+    fn no_novelty_cue_looks_like_a_scope_clause_on_its_own() {
+        for cue in NOVELTY_CUES {
+            let last = cue.split_whitespace().last().unwrap_or("");
+            assert!(
+                !SCOPE_PREPOSITIONS.contains(&last),
+                "cue {cue:?} ends with the scope preposition {last:?}. The strip loop in \
+                 `states_its_scope` is now LOAD-BEARING: stripping this cue leaves \
+                 {last:?} in the residue, where it pairs with the following word and \
+                 reads as a scope the author did not state. Read that function before \
+                 adding this cue."
+            );
+        }
+        // NON-VACUITY: the list must be non-empty, or this passes forever.
+        assert!(NOVELTY_CUES.len() > 5, "the cue list is too small to be the real one");
+    }
+
 }

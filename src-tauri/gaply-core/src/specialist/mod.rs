@@ -136,7 +136,9 @@ pub trait Specialist {
     fn cluster(&self) -> Cluster;
     fn trust_tier(&self) -> TrustTier;
     /// The policy [`run`] enforces. It must be the SAME policy the graph
-    /// declares — `specialists_match_the_graph` is the test that pins it.
+    /// declares — `every_specialist_matches_its_node_in_the_shipped_graph` is the test that pins
+    /// it (the name `specialists_match_the_graph` appeared here and never existed —
+    /// see `tests/cited_tests_exist.rs`).
     fn evidence_policy(&self) -> EvidencePolicy;
     /// **Does this specialist apply to this manuscript at all?**
     ///

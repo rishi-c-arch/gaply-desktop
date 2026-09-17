@@ -731,6 +731,63 @@ time injection.
   refusal happened."** An empty field, a stale badge and a mock are all places a
   refusal turns back into a claim.
 
+- **A CITATION THAT NAMES A TEST IS A CLAIM THAT THE TEST EXISTS, AND A STALE
+  POINTER IS WORSE THAN A MISSING ONE.** 17 Sep 2026, in `pipeline.rs`:
+
+  > *"the golden test `the_report_is_byte_identical_with_a_research_state_derived`
+  > pins that adding it changed no output"*
+
+  No such test exists. The claim WAS pinned — by
+  `the_report_is_byte_identical_to_the_pre_research_state_capture`, which
+  compares against a capture taken before `ResearchState` existed — but the
+  pointer was wrong.
+
+  **A reader who greps for the named test and finds nothing cannot tell which
+  case they are in.** Either the invariant is UNGUARDED, or it is guarded under
+  another name. One of those is an emergency and the other is a typo, and the
+  evidence is identical. That asymmetry is why this is worth a guard and a bare
+  missing test is not.
+
+  `gaply-core/tests/decision_records.rs` already catches the same shape for
+  D-numbers — *"a citation that reads as provenance and leads nowhere is worse
+  than none"* — and caught two in one day. **Test names had the identical
+  failure mode and no guard**, so `gaply-core/tests/cited_tests_exist.rs` is its
+  sibling. Ten minutes; it found two live defects on its first run, of BOTH
+  kinds:
+
+  | site | cited | reality |
+  |---|---|---|
+  | `specialist/mod.rs:139` | `specialists_match_the_graph` | exists as `every_specialist_matches_its_node_in_the_shipped_graph` — **stale pointer** |
+  | `novelty.rs:497` | `no_novelty_cue_looks_like_a_scope_clause_on_its_own` | nothing — **unpinned claim**, and the comment described exactly what it should assert |
+
+  The second was repaired by WRITING the test, not by dropping the claim: the
+  comment specified the property (no cue in `NOVELTY_CUES` may end with a scope
+  preposition, because `states_its_scope` strips cues first and a trailing
+  preposition survives into the residue). It had promised readers a guard for
+  two commits.
+
+  **KEY ON THE FRAMING, NOT THE SHAPE OF THE IDENTIFIER — measured.** The first
+  attempt matched anything test-shaped (verb-phrase prefix, 12+ characters) and
+  was **wrong on 6 of 9**: `no_heldout_evaluation_named` is a finding code,
+  `any_ingested` is a struct field, `every_rule_has_a_declared_tier` is a test
+  that does exist. Keying instead on the sentence around it — *"the test `x`"*,
+  *"`x` pins"*, *"pinned by `x`"* — gave **14 citations, 3 flags, 0 false
+  positives**. A doc comment saying "the test `x`" is making a claim; a bare
+  backticked identifier is not.
+
+  Two design points that generalise to any scan-based guard:
+
+  * **It must fail when its own matcher stops matching.** If the framing list no
+    longer describes how the codebase writes, the scan finds zero citations and
+    passes forever. The assertion is a POSITIVE count — *"no framed citations
+    found at all — the guard is silently inert"* — deletion-tested along with
+    the defect it catches. Same rule as the CI selector that could never match.
+  * **A guard whose header QUOTES the defect must exempt itself.** This one
+    cites the dangling name as its worked example, and flagged itself on the
+    first run. Exempting the file by name keeps the example verbatim, which is
+    the part that makes it legible; rephrasing the header to dodge the scan
+    would have cost the reader the evidence.
+
 - **A PURITY CLAIM IN A DOC COMMENT IS NOT A GUARD. Counted 14 Sep 2026:
   `validate.rs`, `stats_verify.rs` and `stats_verdict.rs` each state "no model,
   no proxy, no network, no I/O" in their module headers — three claims, ZERO

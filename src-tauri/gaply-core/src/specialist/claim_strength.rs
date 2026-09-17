@@ -172,6 +172,26 @@ pub const CAUSAL_PHRASES: &[&str] = &[
 /// the design gate held. On an observational paper every one would have been a
 /// causal overclaim finding. This is the `rema`**`in `**`unexplored` family:
 /// a match inside a compound is not a match.
+/// **A phrase matches only where a word begins.** `contains("cause of")` is
+/// satisfied by "be`cause of`", and that is not a hypothetical: it produced the
+/// SECOND of the three findings this check emitted on its first firing over the
+/// corpus — *"The quickly changing sector because of technological change …
+/// means that the findings may not have longevity"*, a limitations sentence with
+/// no causal claim in it at all (§11 D177).
+///
+/// **This is the `rema`**`in `**`unexplored` family named 40 lines above**, in
+/// the file that names it. Knowing the rule did not prevent the instance; only
+/// firing the check on a real manuscript did, which is why the check had to
+/// start firing before this was findable.
+///
+/// TRUE when ANY occurrence begins a word — one bare use is a real assertion
+/// even if another sits inside a longer word.
+fn starts_at_word_boundary(sentence_lower: &str, phrase: &str) -> bool {
+    sentence_lower.match_indices(phrase).any(|(i, _)| {
+        !sentence_lower[..i].chars().next_back().is_some_and(|c| c.is_alphanumeric())
+    })
+}
+
 fn is_noun_modifier(sentence_lower: &str, phrase: &str) -> bool {
     if !matches!(phrase, "induced" | "induces") {
         return false;
@@ -321,9 +341,38 @@ pub fn read_design(r: &ExtractionResult) -> DesignReading {
         }
         for (p_idx, para) in section.paragraphs.iter().enumerate() {
             let lower = para.to_lowercase();
-            for m in EXPERIMENTAL_MARKERS.iter().filter(|m| lower.contains(**m)) {
-                if !reading.experimental.iter().any(|x| x == m) {
-                    reading.experimental.push((*m).to_string());
+            // **The experimental loop is restricted to Abstract and Methods. The
+            // observational loop deliberately is NOT, and the asymmetry is the
+            // finding — §11 D177.**
+            //
+            // An experimental design named outside the Methods is, in this
+            // corpus, always a design nobody ran: future work in a Conclusion
+            // (*"randomised controlled trials … could evaluate"*), or a framing
+            // metaphor in an Introduction (*"an ideal microcosm for evaluating
+            // the efficacy of place-based industrial policies"* — an
+            // administrative division of Uttar Pradesh, read as a laboratory).
+            // Restricting the loop drops 4 of the 5 damaging false positives
+            // measured over 20 manuscripts.
+            //
+            // **The SYMMETRIC version — restricting both loops — destroys 3 of
+            // the 5 CORRECT observational reads, and that is why this is written
+            // down rather than tidied into one rule.** Only one of the five
+            // lives in Methods; `Corrected_Chapters_3_4`'s sole reading is in
+            // `Other`, because a thesis chapter has no IMRaD structure to
+            // classify. A restriction that felt obviously right, wrong in the
+            // direction that matters, caught only by running it over the corpus
+            // — the same shape as the journal host rule that fixes lancet and
+            // breaks statistics-in-medicine (§11 D175).
+            //
+            // **The named residual: IJAS Bombyx.** *"the trial was laid out in a
+            // completely randomised design with a factorial arrangement"* is in
+            // its Methods and is correct agronomy — a domain homonym, not a
+            // misplaced sentence, so no scope rule reaches it. It stays wrong.
+            if matches!(section.kind, SectionKind::Abstract | SectionKind::Methods) {
+                for m in EXPERIMENTAL_MARKERS.iter().filter(|m| lower.contains(**m)) {
+                    if !reading.experimental.iter().any(|x| x == m) {
+                        reading.experimental.push((*m).to_string());
+                    }
                 }
             }
             for m in OBSERVATIONAL_MARKERS.iter().filter(|m| lower.contains(**m)) {
@@ -375,7 +424,7 @@ pub fn assess_claims(r: &ExtractionResult) -> Vec<ClaimAssessment> {
                 }
                 let Some(_) = CAUSAL_PHRASES
                     .iter()
-                    .find(|c| lower.contains(**c) && !is_noun_modifier(&lower, c))
+                    .find(|c| starts_at_word_boundary(&lower, c) && !is_noun_modifier(&lower, c))
                 else {
                     continue;
                 };
@@ -439,10 +488,34 @@ impl Specialist for ClaimStrengthSpecialist {
             uncertainty_required: true,
         }
     }
-    /// Declines when the manuscript states no design at all, because the check
-    /// is *"the design supports association and the conclusion says causes"* and
-    /// with no design read there is no first half. Ran-and-found-nothing and
-    /// never-ran are different answers.
+    /// **Declines on every input this check cannot rule on, not only the empty
+    /// one.** `assess` needs three things in series: an observational marker,
+    /// NO experimental marker (`admits_only_association`), and a `limiting_span`
+    /// to quote. Until 18 Sep 2026 only the first failure declined. The other two
+    /// returned an empty finding list from a specialist [`super::run`] had
+    /// already ADMITTED — so `not_applicable` was `None` and a reader had a check
+    /// that ran and found nothing, on a manuscript where it could not have found
+    /// anything.
+    ///
+    /// **Measured over the 20-manuscript corpus** (`examples/item1_gate_trace.rs`):
+    ///
+    /// ```text
+    /// applies_to: no design       3   declined before and after
+    /// experimental design only   12   admitted, could not fire, reported nothing
+    /// experimental SILENCES obs   3   admitted, could not fire, reported nothing
+    /// no causal sentence          2   the honest zero
+    /// ```
+    ///
+    /// **15 of 20 were a silent pass.** That is `Unevaluable` rendered as `Met` —
+    /// §11's three-state entry inverted: instead of inventing a compliance
+    /// failure it invents a clean bill of health, which is the quieter direction.
+    ///
+    /// **What a user sees today: nothing, either way.** This specialist is one of
+    /// the two `run_pipeline_inner` withholds (`pipeline.rs`, the `specialists`
+    /// field), so no production path reaches it — `agent_graph.rs` records the
+    /// same, checked 15 Sep 2026. The fix is a precondition for wiring it, not a
+    /// repair to a live screen, and saying otherwise would be the defect
+    /// `ad8e863` describes.
     fn applies_to(&self, input: &SpecialistInput<'_>) -> Option<String> {
         let d = read_design(input.extraction);
         if d.observational.is_empty() && d.experimental.is_empty() {
@@ -452,6 +525,32 @@ impl Specialist for ClaimStrengthSpecialist {
                  just the claim"
                     .into(),
             );
+        }
+        if d.observational.is_empty() {
+            return Some(format!(
+                "this check asks whether a causal conclusion outruns a design that supports \
+                 association only. The manuscript describes an experimental design ({}), \
+                 which can support a causal conclusion, so there is nothing here for the \
+                 check to weigh",
+                d.experimental.join(", ")
+            ));
+        }
+        if !d.experimental.is_empty() {
+            return Some(format!(
+                "the manuscript names an observational design ({}) and an experimental one \
+                 ({}). The design is read over the whole manuscript, so this check cannot \
+                 tell which of them limits the conclusions — including when one is a single \
+                 word describing somebody else's study. It declines rather than guess",
+                d.observational.join(", "),
+                d.experimental.join(", ")
+            ));
+        }
+        if d.limiting_span.is_none() {
+            return Some(format!(
+                "the design was read ({}) but the sentence stating it could not be located, \
+                 and a finding here must quote the design beside the claim",
+                d.observational.join(", ")
+            ));
         }
         None
     }
@@ -548,6 +647,123 @@ mod tests {
         );
         assert_eq!(without.admitted, with.admitted, "the declined layer changes nothing");
         assert_eq!(without.admitted.len(), 1, "and the check still fires: {without:?}");
+    }
+
+    /// **Every input the check cannot rule on must DECLINE, not return empty.**
+    ///
+    /// Three of these four cases returned `admitted: []` from an ADMITTED
+    /// specialist before 18 Sep 2026, which a reader cannot distinguish from
+    /// "ran and found nothing". Each carries its own sentence so a reader can
+    /// tell WHICH gate stopped it — a single shared message would collapse the
+    /// distinction this test exists to make.
+    #[test]
+    fn every_input_the_check_cannot_rule_on_declines_with_its_own_reason() {
+        let no_design = run_on("Abstract\n\nWe looked at some firms.\n\nDiscussion\n\nIt causes growth.\n");
+        let experimental = run_on(
+            "Abstract\n\nParticipants were randomly assigned to a control group.\n\n             Discussion\n\nThe intervention causes recovery.\n",
+        );
+        let mixed = run_on(MIXED_DESIGN);
+
+        for (name, r) in
+            [("no_design", &no_design), ("experimental", &experimental), ("mixed", &mixed)]
+        {
+            assert!(r.not_applicable.is_some(), "{name} must DECLINE, got {r:?}");
+            assert!(
+                r.admitted.is_empty(),
+                "{name} declined, so it must carry no findings: {r:?}"
+            );
+        }
+
+        // The three reasons must differ, or the report cannot say which applied.
+        let reasons: Vec<&str> = [&no_design, &experimental, &mixed]
+            .iter()
+            .map(|r| r.not_applicable.as_deref().unwrap())
+            .collect();
+        assert!(
+            reasons[0] != reasons[1] && reasons[1] != reasons[2] && reasons[0] != reasons[2],
+            "the three declines must be distinguishable: {reasons:?}"
+        );
+        assert!(reasons[0].contains("no study design"), "{}", reasons[0]);
+        assert!(reasons[1].contains("experimental design"), "{}", reasons[1]);
+        assert!(reasons[2].contains("cannot \
+                 tell which"), "{}", reasons[2]);
+    }
+
+    /// **A design named in BOTH lists in the Methods is genuinely ambiguous**,
+    /// and the check declines rather than pick one. Contrast
+    /// [`FUTURE_WORK_DESIGN`] below, which reads the same way to a substring
+    /// matcher and does not.
+    const MIXED_DESIGN: &str = "Abstract\n\nA study of firms.\n\nMethods\n\nThe specific \
+        quantitative strategy selected was the cross-sectional survey design, with a \
+        randomised controlled trial arm for a subset.\n\nConclusion\n\nDigital adoption \
+        causes enterprise growth.\n";
+
+    /// **The case change §11 D177 fixed, and it is the corpus's own.** `Disha
+    /// Correction .docx` states a cross-sectional survey design and then, in its
+    /// CONCLUSION, recommends work nobody has done: *"randomised controlled
+    /// trials or quasi-experimental designs could evaluate…"*. Before the
+    /// experimental loop was restricted to Abstract and Methods, `randomised`
+    /// and `controlled trial` entered the design from that sentence and silenced
+    /// the check on exactly the kind of paper it exists for — 3 of 20
+    /// manuscripts.
+    const FUTURE_WORK_DESIGN: &str = "Abstract\n\nThe specific quantitative strategy \
+        selected was the cross-sectional survey design.\n\nConclusion\n\nDigital adoption \
+        resulted in enterprise growth. Future research should consider randomised \
+        controlled trials or quasi-experimental designs.\n";
+
+    /// A design recommended in a Conclusion is not this study's design. The
+    /// assertion is that the check RUNS — the silencing is what D177 removed.
+    #[test]
+    fn a_trial_recommended_as_future_work_does_not_silence_the_check() {
+        let report = run_on(FUTURE_WORK_DESIGN);
+        assert!(
+            report.not_applicable.is_none(),
+            "a Conclusion's future work must not read as this study's design: {report:?}"
+        );
+        assert_eq!(report.admitted.len(), 1, "and the real claim is found: {report:?}");
+    }
+
+    /// **The decline must not swallow the case the check is FOR.** A
+    /// cross-sectional manuscript with no experimental word anywhere still
+    /// fires — otherwise the fix above would have turned a silent pass into a
+    /// silent decline, which is the same defect wearing an honest label.
+    #[test]
+    fn the_new_declines_do_not_reach_the_manuscript_the_check_is_for() {
+        let report = run_on(OVERCLAIM);
+        assert!(
+            report.not_applicable.is_none(),
+            "the target case must NOT decline: {report:?}"
+        );
+        assert_eq!(report.admitted.len(), 1, "and it must still fire: {report:?}");
+    }
+
+    /// **`because of` is not `cause of`.** The sentence is the real one, from
+    /// `Disha Correction .docx`'s conclusion — it was finding #2 of 3 the first
+    /// time this check fired over the corpus, and it asserts nothing causal: it
+    /// says the findings may date. §11 D177.
+    #[test]
+    fn a_causal_phrase_inside_a_longer_word_is_not_a_causal_claim() {
+        let limitation = "Abstract\n\nThe specific quantitative strategy selected was the \
+            cross-sectional survey design.\n\nConclusion\n\nThe quickly changing sector \
+            because of technological change means that the findings may not have longevity.\n";
+        let report = run_on(limitation);
+        assert!(
+            report.admitted.is_empty(),
+            "\"because of\" must not read as \"cause of\": {report:?}"
+        );
+        assert!(
+            report.not_applicable.is_none(),
+            "and it must fail on the CLAIM, not by declining the design: {report:?}"
+        );
+
+        // The negative control: the same design, a real causal verb, still fires.
+        // Without this the assertion above is satisfied by any breakage upstream.
+        let real = limitation.replace(
+            "The quickly changing sector because of technological change means that the \
+             findings may not have longevity.",
+            "Digital adoption resulted in enterprise growth.",
+        );
+        assert_eq!(run_on(&real).admitted.len(), 1, "the guard must not silence a real claim");
     }
 
     /// **The positive control.** The check had never fired on the six real
