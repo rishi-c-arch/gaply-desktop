@@ -31,7 +31,17 @@ fn validates_real_extraction_output() {
     assert!(report.outcome(RuleId::MissingConfidenceInterval).passed, "CIs are present");
     assert!(report.outcome(RuleId::TestGroupMismatch).passed, "t-test used for two groups");
     assert!(report.outcome(RuleId::PValueOverclaim).passed, "no overclaiming language");
-    assert!(report.outcome(RuleId::SmallSampleCausalClaim).passed, "n = 96 is not small");
+    // **`SmallSampleCausalClaim` is DECLINED (§11 D178), so it has no outcome.**
+    // This line used to read `outcome(SmallSampleCausalClaim).passed` with the
+    // comment "n = 96 is not small" — a PASS, meaning "we checked the sample
+    // size and it was fine". That is the claim the decline withdraws: the rule
+    // read any paragraph-level `n`, not the study's, at a measured precision of
+    // 0 of 15 over 20 manuscripts. Asserting its ABSENCE is what keeps a future
+    // reinstatement from passing this test silently.
+    assert!(
+        report.checks.iter().all(|c| c.rule != RuleId::SmallSampleCausalClaim),
+        "a declined rule must report no outcome — an outcome says the check ran"
+    );
 
     // Overall verdict fails because of the missing effect sizes.
     assert!(!report.passed);

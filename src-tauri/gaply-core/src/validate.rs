@@ -8,7 +8,7 @@
 //! or influence them. That is the point: it is the unoverridable arbiter of
 //! statistical validity.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
 use regex::Regex;
@@ -47,12 +47,21 @@ impl Severity {
 }
 
 impl RuleId {
-    pub const ALL: [RuleId; 5] = [
+    pub const ALL: [RuleId; 4] = [
         RuleId::TestGroupMismatch,
         RuleId::PValueOverclaim,
         RuleId::MissingEffectSize,
         RuleId::MissingConfidenceInterval,
-        RuleId::SmallSampleCausalClaim,
+        // **`SmallSampleCausalClaim` is DECLINED and deliberately absent — §11 D178.**
+        //
+        // The variant is kept so stored reports carrying its flags still
+        // deserialize, but it emits no `RuleOutcome`, because an outcome is a
+        // claim that the check RAN. `review_lens::collect` reads every rule in
+        // `checks` into `executed`, and a criterion whose checks all executed
+        // and none fired earns a STRENGTH — so leaving the rule in while never
+        // firing it would convert a decline into a clean bill of health, which
+        // is the defect `applies_to` was just repaired for in
+        // `claim_strength.rs`.
     ];
 
     pub fn severity(&self) -> Severity {
@@ -103,7 +112,13 @@ pub struct StatsValidityReport {
 
 impl StatsValidityReport {
     pub fn outcome(&self, rule: RuleId) -> &RuleOutcome {
-        self.checks.iter().find(|c| c.rule == rule).expect("every rule has an outcome")
+        self.checks.iter().find(|c| c.rule == rule).unwrap_or_else(|| {
+            panic!(
+                "{rule:?} has no outcome. Every rule in `RuleId::ALL` does; a rule \
+                 DECLINED out of `ALL` deliberately does not, because an outcome is a \
+                 claim that the check ran (§11 D178)."
+            )
+        })
     }
     pub fn flags_for(&self, rule: RuleId) -> Vec<&Flag> {
         self.flags.iter().filter(|f| f.rule == rule).collect()
@@ -181,7 +196,7 @@ pub fn validate(result: &ExtractionResult) -> StatsValidityReport {
     let mut pvalue_locs: BTreeSet<Location> = BTreeSet::new();
     let mut ci_locs: BTreeSet<Location> = BTreeSet::new();
     let mut ttest_locs: BTreeSet<Location> = BTreeSet::new();
-    let mut small_n: BTreeMap<Location, i64> = BTreeMap::new();
+    // (no `small_n` — rule 5 is declined, see below)
 
     for claim in &result.statistics {
         match &claim.stat {
@@ -193,12 +208,6 @@ pub fn validate(result: &ExtractionResult) -> StatsValidityReport {
             }
             Stat::Test { name, .. } if name == "t-test" => {
                 ttest_locs.insert(claim.location.clone());
-            }
-            Stat::SampleSize { n, .. } if *n < 10 => {
-                small_n
-                    .entry(claim.location.clone())
-                    .and_modify(|e| *e = (*e).min(*n))
-                    .or_insert(*n);
             }
             _ => {}
         }
@@ -283,20 +292,39 @@ pub fn validate(result: &ExtractionResult) -> StatsValidityReport {
         }
     }
 
-    // Rule 5: very small sample (n < 10) paired with a strong causal claim.
-    for (loc, n) in &small_n {
-        if patterns().causal.is_match(paragraph(result, loc)) {
-            flags.push(mk(
-                RuleId::SmallSampleCausalClaim,
-                loc.clone(),
-                format!(
-                    "A strong causal claim is paired with a very small sample (n = {n} < 10). \
-                     Such samples are underpowered and highly sensitive to noise; causal \
-                     conclusions from them are unreliable and unlikely to generalize."
-                ),
-            ));
-        }
-    }
+    // **Rule 5 (small sample + causal claim) is DECLINED. §11 D178.**
+    //
+    // It asked "is there an `n < 10` in a paragraph with causal language". The
+    // question it MEANT to ask is "is this STUDY's sample small" — a
+    // manuscript-level fact — and `Stat::SampleSize` produces paragraph-level
+    // numbers. Measured over 20 manuscripts, precision on sub-10 reads was
+    // **0 of 15**, and the errors are not one mechanism:
+    //
+    // ```text
+    // n = 3   "We removed responses that had over 20 per cent missing data
+    //          (n = 3), which resulted in 150 respondents"   <- EXCLUSION count
+    // n = 5   "the other gender made up 3.3 percent (n=5)"   <- SUBGROUP count
+    // n = 3   "all tests were performed in triplicate (n=3)" <- REPLICATES, x7
+    // n = 0   "the release exponent n = 0.52"                <- a severed decimal
+    // ```
+    //
+    // The `n = 0` family was a real parser defect and is FIXED in
+    // `extract/stats.rs` — that repair stands on its own and is not this
+    // decline. It took the corpus from 2 CRITICAL findings to 1. The survivor is
+    // the dangerous one: a user is told their causal conclusions are
+    // "unreliable and unlikely to generalize" because n = 3, when the true
+    // sample is stated **eleven words later in the same sentence** as 150.
+    //
+    // **What makes this a decline rather than a parser to tune: the corpus
+    // contains ZERO true positives.** Every genuine study sample in 20
+    // manuscripts is >= 12 (12 months, 21/26 sparse strata, 27, 30 pilot, 150,
+    // 600). So no change to this rule could be validated as PRESERVING a true
+    // finding — only as removing false ones, which is a guard with no negative
+    // control (§11 D176's bar, met from the other side).
+    //
+    // Reopening needs both halves: a sample-size reading that identifies the
+    // STUDY's n rather than any local n, and a corpus containing genuinely
+    // underpowered studies to measure recall against.
 
     // Per-rule outcomes, in fixed rule order.
     let checks = RuleId::ALL
@@ -414,25 +442,51 @@ mod tests {
         assert!(r.outcome(RuleId::MissingConfidenceInterval).passed);
     }
 
-    // ---- Rule 5: small sample + causal claim ----
+    // ---- Rule 5: DECLINED (§11 D178) ----
 
+    /// **The three tests replaced here asserted the rule fired, and passed.**
+    /// Their fixture was `"In a pilot (n = 6), the drug caused a dramatic
+    /// improvement"` — a sentence written by the rule's author, in the rule's
+    /// own shape. No manuscript in the 20-document corpus contains anything
+    /// like it: every genuine study sample is >= 12. That is the hand-written-
+    /// fixture-inherits-the-premise case, and the corpus was its first
+    /// independent vote.
     #[test]
-    fn rule5_small_n_with_causal_claim_flags() {
-        let r = analyze("In a pilot (n = 6), the drug caused a dramatic improvement (p = 0.04, d = 1.9, 95% CI: 0.2 to 3.6).");
-        assert!(!r.outcome(RuleId::SmallSampleCausalClaim).passed);
-        assert_eq!(r.flags_for(RuleId::SmallSampleCausalClaim)[0].severity, Severity::Critical);
+    fn rule5_is_declined_and_reports_no_outcome_at_all() {
+        // The exact fixture the old tests passed on.
+        let r = analyze(
+            "In a pilot (n = 6), the drug caused a dramatic improvement \
+             (p = 0.04, d = 1.9, 95% CI: 0.2 to 3.6).",
+        );
+        assert!(
+            r.flags.iter().all(|f| f.rule != RuleId::SmallSampleCausalClaim),
+            "the declined rule must emit no flag: {:?}",
+            r.flags
+        );
+        // **And no RuleOutcome, which is the half that matters.** An outcome
+        // with `passed: true` is "we checked and it passed" — `review_lens`
+        // reads every rule in `checks` into `executed` and can award a STRENGTH
+        // from it. A decline that reports a pass is worse than the false
+        // positive it replaced.
+        assert!(
+            r.checks.iter().all(|c| c.rule != RuleId::SmallSampleCausalClaim),
+            "a declined rule must not appear as a check that RAN: {:?}",
+            r.checks
+        );
+        assert!(
+            !RuleId::ALL.contains(&RuleId::SmallSampleCausalClaim),
+            "ALL is what produces `checks`; the decline lives there"
+        );
     }
 
+    /// The variant is KEPT so a stored report written before the decline still
+    /// deserializes. Pinning it here so nobody removes the variant as dead.
     #[test]
-    fn rule5_small_n_without_causal_claim_passes() {
-        let r = analyze("In a pilot (n = 6), we observed a preliminary trend (p = 0.04, d = 1.9, 95% CI: 0.2 to 3.6).");
-        assert!(r.outcome(RuleId::SmallSampleCausalClaim).passed);
-    }
-
-    #[test]
-    fn rule5_large_n_with_causal_claim_passes() {
-        let r = analyze("With a large cohort (n = 400), the intervention caused improvement (p = 0.001, d = 0.3, 95% CI: 0.1 to 0.5).");
-        assert!(r.outcome(RuleId::SmallSampleCausalClaim).passed);
+    fn the_declined_rules_variant_still_round_trips() {
+        let json = serde_json::to_string(&RuleId::SmallSampleCausalClaim).unwrap();
+        let back: RuleId = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, RuleId::SmallSampleCausalClaim);
+        assert_eq!(RuleId::SmallSampleCausalClaim.severity(), Severity::Critical);
     }
 
     // ---- clean bill of health ----

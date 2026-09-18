@@ -934,6 +934,37 @@ time injection.
   Predicting red and getting green is the same class of signal as the
   negative-control entry above: **a measurement result, not a non-event.**
 
+  **RUN EVERY DELETION TEST WITH `--no-fail-fast`. A SINGLE RED MEANS *A* GUARD
+  FIRED — NEVER THAT ONLY ONE DID.** `cargo test` stops at the first failing
+  TARGET, so every guard in every later target is silently not run, and the
+  result reads exactly like "one test caught this".
+
+  Measured 18 Sep 2026, declining `validate.rs`'s rule 5. Re-adding the rule to
+  `RuleId::ALL` was predicted to redden two guards — the unit test and
+  `tests/validation_golden.rs`. It reddened one:
+
+  ```
+  $ cargo test -p gaply_core                 # lib target fails, run STOPS
+  test validate::tests::rule5_is_declined... FAILED   1367 passed; 1 failed
+                                                      # integration targets never ran
+
+  $ cargo test -p gaply_core --no-fail-fast
+  test validate::tests::rule5_is_declined... FAILED
+  test validates_real_extraction_output ...  FAILED   # it guards after all
+  ```
+
+  **The prediction was right and the instrument truncated the evidence.** Had
+  the golden been the ONLY guard — a lib-target change with its pin in
+  `tests/` — the deletion test would have gone green and reported the guard as
+  absent, which is this entry's own failure mode arriving through the test
+  runner rather than through the fixture.
+
+  This qualifies every deletion test in this file run before that date: each
+  one's red is real, and none of their counts was ever evidence about how many
+  guards exist. Same family as the package-scoped green — **a correct answer to
+  a narrower question than the one being asked**, and the fix is the same shape:
+  name the flag that widens it.
+
   **So, operationally: A HAND-WRITTEN FIXTURE INHERITS THE AUTHOR'S PREMISE.
   ITS FIRST INDEPENDENT VOTE IS THE CORPUS.** The first REAL input — the actual
   six lanes, an actual manuscript, the actual committed graph, 36 fetched pages

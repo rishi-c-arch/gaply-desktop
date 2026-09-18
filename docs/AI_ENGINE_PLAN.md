@@ -12718,3 +12718,111 @@ saying otherwise would be the defect `ad8e863` describes.
    PERFECT gate still delivers a two-item checklist to three manuscripts in
    twenty. Half one without half two buys a correct answer to a question nobody
    is asking.
+
+### D178 — a CRITICAL finding told an author their study had 3 participants; the sentence says 150 eleven words later
+
+**The worst defect measured in this phase, because a user would believe it.**
+`Disha Correction .docx` received, at `Critical`, from the deterministic Tier-0
+validator:
+
+> *"A strong causal claim is paired with a very small sample (n = 3 < 10). Such
+> samples are underpowered and highly sensitive to noise; causal conclusions
+> from them are unreliable and unlikely to generalize."*
+
+The manuscript is a survey of 150 edu-tech enterprises. Here is where `n = 3`
+came from:
+
+> *"We removed responses that had over 20 per cent missing data **(n = 3)**,
+> which resulted in **150 respondents** for the final analysis"*
+
+**`n = 3` is the count of responses the authors THREW AWAY, and the true sample
+is in the same sentence.** The manuscript states `n=150` at least four more
+times and reports subgroup n's of 61/32/38/68/82. An author who believed this
+finding would restructure a study that is not underpowered.
+
+#### Precision on sub-10 sample sizes: 0 of 15
+
+Measured over the 20-manuscript corpus (`examples/sample_size_audit.rs`,
+`sample_size_context.rs`). Not one sub-10 read is a study's sample, and the
+errors are four distinct mechanisms, not one:
+
+| read | what it actually is |
+|---|---|
+| Disha `n = 3` | responses EXCLUDED; 150 is eleven words later |
+| Disha `n = 5` | *"the other gender made up 3.3 percent **(n=5)**"* — a SUBGROUP count |
+| nanoemulsion `n = 3` x7 | *"all tests were performed in **triplicate (n=3)**"* — analytical REPLICATES in table captions |
+| nanoemulsion `n = 0` x5 | *"the release exponent **n = 0.52**"* — a severed DECIMAL, and `n` is the Korsmeyer-Peppas release exponent, a variable that counts nothing |
+| Revised Health Economics `n = 0` | *"Cook's distance values greater than **4/n = 0.018**"* — a severed decimal |
+
+Rule 5 also requires causal language in the paragraph, which filtered 15 bad
+reads down to **2 published CRITICAL findings**, on 2 of 20 manuscripts.
+
+#### Half of it was a parser defect, and that repair stands alone
+
+```
+r"(?i)\bn\s*=\s*(\d{1,3}(?:,\d{3})+|\d+)"     // no trailing boundary
+```
+
+`n = 0.52` matches `n = 0` and captures `0`. **A sample size of zero is not a
+small study, it is an impossible one** — arithmetic, not judgement. Both
+sample-size regexes now capture an optional `(\.\d+)?` whose only purpose is to
+REJECT the match, and the fix was predicted before it was measured:
+
+| | predicted | measured |
+|---|---:|---:|
+| `n = 0` reads | 0 | **0** |
+| sub-10 reads | 9 | **9** |
+| total sample-size reads | 354 | **354** (from 360 — exactly the six) |
+| CRITICAL rule-5 findings | 1 | **1** |
+
+No `n >= 10` read was lost. This repair is NOT the decline below: it corrupts
+every consumer of `Stat::SampleSize`, and would still be wrong with rule 5 gone.
+
+#### Rule 5 is DECLINED, and the prediction is the argument
+
+The parser fix took the corpus from 2 CRITICAL findings to 1 — **and the
+survivor is Disha, the dangerous one.** That was predicted before measuring,
+and it is the evidence that this is not a parser to tune:
+
+* **The question is at the wrong layer.** The rule asks *"is there an `n < 10`
+  in a paragraph with causal language"*. What it MEANS to ask is *"is this
+  STUDY's sample small"* — a manuscript-level fact — while `Stat::SampleSize`
+  produces paragraph-level numbers. Disha alone offers 150, 30, 61, 32, 38, 25,
+  5 and 3 as candidates. Same layer mismatch as D177's `read_design`.
+* **The corpus contains ZERO true positives.** Every genuine study sample in 20
+  manuscripts is >= 12: 12 months, 21 and 26 sparse strata, 27, 30 pilot, 150,
+  600. So no change to this rule could be validated as PRESERVING a true
+  finding — only as removing false ones. That is a guard with no negative
+  control, and D176's bar met from the other side.
+* **`triplicate (n=3)` is the case that shows vocabulary cannot fix it.** The
+  NUMBER is correct. Three analytical replicates are not an underpowered study,
+  and *"causal conclusions unreliable"* is meaningless about a solubility table.
+
+#### Declining it out of `ALL` rather than merely not firing it
+
+`RuleOutcome { passed: count == 0 }` means a rule that never fires reports
+`passed: true`, and `review_lens::collect` reads every rule in `checks` into
+`executed` — where a criterion whose checks all ran and none fired earns a
+**STRENGTH**. So leaving the rule in place and silencing it would have converted
+a decline into a clean bill of health: precisely the defect repaired in
+`claim_strength::applies_to` hours earlier, reintroduced one module over.
+
+The variant is KEPT so stored reports carrying its flags still deserialize, and
+a test pins that. It is removed from `RuleId::ALL`, so no `RuleOutcome` is
+emitted at all, and `outcome()`'s panic message now says why rather than
+asserting "every rule has an outcome", which stopped being true.
+
+The golden test's line `assert!(report.outcome(SmallSampleCausalClaim).passed,
+"n = 96 is not small")` was a PASS — *"we checked the sample size and it was
+fine"* — which is exactly the claim being withdrawn. It now asserts the rule's
+ABSENCE, so a silent reinstatement fails.
+
+#### The condition that reopens it — BOTH halves
+
+1. **A sample-size reading that identifies the STUDY's n**, not any local `n` —
+   distinguishing an analytic sample from a pilot, a subgroup, an exclusion
+   count and a measurement's replicates. Disha is the bar: the refuting number
+   is in the same sentence as the wrong one, so anything that reads one clause
+   and stops reproduces this defect.
+2. **A corpus containing genuinely underpowered studies**, so recall can be
+   measured at all. Twenty manuscripts produced none.

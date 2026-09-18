@@ -197,9 +197,18 @@ pub fn regexes() -> &'static Regexes {
                 r"(?i)(\d{2,3})\s*%\s*(?:ci|confidence\s+interval)\s*[:=]?\s*[\[\(]?\s*(-?\d+(?:\.\d+)?)\s*(?:to|,|–|—|-)\s*(-?\d+(?:\.\d+)?)",
             )
             .unwrap(),
-            sample_size: Regex::new(r"(?i)\bn\s*=\s*(\d{1,3}(?:,\d{3})+|\d+)").unwrap(),
+            // **The trailing `(\.\d+)?` exists to be REJECTED, not used.** Without
+            // it `n = 0.52` matched `n = 0` and captured `0` — a sample size of
+            // zero, which is not a small study but an impossible one. Measured
+            // over 20 manuscripts: SIX such reads, every one a decimal severed
+            // from its integer, and in the pharmaceutics manuscript `n` is the
+            // Korsmeyer–Peppas RELEASE EXPONENT — *"the release exponent
+            // n = 0.52 for curcumin indicated Non-Fickian anomalous…"* — a
+            // variable named `n` that counts nothing. One of the six reached a
+            // user as a CRITICAL finding (§11 D178).
+            sample_size: Regex::new(r"(?i)\bn\s*=\s*(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?").unwrap(),
             sample_phrase: Regex::new(
-                r"(?i)\bsample\s+size\s+(?:of|was|=|:)?\s*(\d{1,3}(?:,\d{3})+|\d+)",
+                r"(?i)\bsample\s+size\s+(?:of|was|=|:)?\s*(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?",
             )
             .unwrap(),
             tests: vec![
@@ -296,12 +305,14 @@ pub fn extract(paragraph: &str, loc: &Location) -> Vec<StatClaim> {
     }
 
     let parse_n = |s: &str| -> Option<i64> { s.replace(',', "").parse().ok() };
-    for c in re.sample_size.captures_iter(paragraph) {
-        if let Some(n) = parse_n(&c[1]) {
-            push(Stat::SampleSize { n, raw: c[0].trim().to_string() });
+    // A count has no fractional part. `n = 0.52` is a release exponent, a
+    // Cook's-distance cutoff or a proportion — never a number of participants —
+    // so a captured decimal tail REJECTS the match rather than truncating it.
+    for c in re.sample_size.captures_iter(paragraph).chain(re.sample_phrase.captures_iter(paragraph))
+    {
+        if c.get(2).is_some() {
+            continue;
         }
-    }
-    for c in re.sample_phrase.captures_iter(paragraph) {
         if let Some(n) = parse_n(&c[1]) {
             push(Stat::SampleSize { n, raw: c[0].trim().to_string() });
         }
@@ -349,6 +360,46 @@ mod tests {
     fn stats_of(text: &str) -> Vec<Stat> {
         let l = Location { section: SectionKind::Results, paragraph: 0, section_index: None };
         extract(text, &l).into_iter().map(|c| c.stat).collect()
+    }
+
+    /// **A count has no fractional part, and `n` is not always a count.**
+    ///
+    /// Every string here is from a real manuscript. The regex had no trailing
+    /// boundary, so `n = 0.52` matched `n = 0` and captured `0` — a sample size
+    /// of zero, which is not a small study but an impossible one. Six such reads
+    /// across 20 manuscripts, one of which reached a user as a CRITICAL
+    /// "small sample with causal claim" finding (§11 D178).
+    ///
+    /// In the pharmaceutics cases `n` is the Korsmeyer-Peppas RELEASE EXPONENT:
+    /// a variable named `n` that counts nothing at all.
+    #[test]
+    fn a_severed_decimal_is_not_a_sample_size() {
+        for text in [
+            "The release exponent n = 0.52 for curcumin indicated Non-Fickian anomalous transport.",
+            "At 34 C the Power Law model resulted in n = 0.31 and k = 6842 Pa.",
+            "Observations were evaluated for Cook's distance values greater than 4/n = 0.018.",
+        ] {
+            let sizes: Vec<i64> = stats_of(text)
+                .iter()
+                .filter_map(|s| match s {
+                    Stat::SampleSize { n, .. } => Some(*n),
+                    _ => None,
+                })
+                .collect();
+            assert!(sizes.is_empty(), "{text:?} yielded sample size(s) {sizes:?}");
+        }
+
+        // **The negative control.** Without it this test is satisfied by the
+        // extractor reading no sample size at all, which would be a worse bug
+        // wearing a green tick.
+        let real: Vec<i64> = stats_of("We analysed the final sample (n = 150) of enterprises.")
+            .iter()
+            .filter_map(|s| match s {
+                Stat::SampleSize { n, .. } => Some(*n),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(real, vec![150], "a genuine integer sample size must still be read");
     }
 
     /// Item 1 — the STATISTIC, not the test name. Before this, a paragraph
