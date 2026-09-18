@@ -53,6 +53,8 @@ fn main() -> Result<(), GaplyError> {
     let emit = |e: AnalysisEvent| events.borrow_mut().push(e);
     run_pipeline_measured(
         db.clone(), embedder, path.clone(), None, None, guidelines.clone(),
+        // No journal picker in this harness.
+        None,
         // A development harness invoked by hand: the operator asked for the run,
         // so consent is GRANTED by default. `GAPLY_HARNESS_NO_NETWORK=1` refuses
         // it — the same `NetworkConsent::Denied` a user with the toggle off gets.

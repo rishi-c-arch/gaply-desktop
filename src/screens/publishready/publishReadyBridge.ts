@@ -183,6 +183,10 @@ export class TauriPublishReadyBridge implements PublishReadyBridge {
       // propagated; letting the backend re-derive "which journal" from corpus
       // state would reconstruct identity from write order.
       guidelinesUrl: guidelinesUrl ?? null,
+      // The crawler's key for a PROFILED journal, so the backend can read that
+      // journal's extracted requirements. `null` for a Scopus-directory pick,
+      // which is every journal Gaply has not crawled. §11 D183.
+      journalKey: journal.key ?? null,
     })) as PublishReadyOutcome;
     return adaptOutcome(outcome, journal);
   }

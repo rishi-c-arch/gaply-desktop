@@ -562,6 +562,8 @@ mod tests {
             &extraction,
             manuscript,
             Some("http://journal.test/guidelines"),
+            // No journal_key: these tests cover the RAG-chunk path specifically.
+            None,
         )
         .unwrap();
         assert!(
@@ -588,6 +590,8 @@ mod tests {
             &extraction,
             manuscript,
             Some("http://journal.test/guidelines"),
+            // No journal_key: these tests cover the RAG-chunk path specifically.
+            None,
         )
         .unwrap();
         assert!(checklist.iter().all(|c| c.guideline_source.is_none()));

@@ -36,7 +36,7 @@ fn main() {
         let db = Arc::new(Database::in_memory().expect("db"));
         let embedder: Arc<dyn Embedder> = Arc::new(HashEmbedder);
         let Ok(out) = run_pipeline_measured(
-            db, embedder, path.clone(), None, None, None, NetworkConsent::Denied, &|_e| {},
+            db, embedder, path.clone(), None, None, None, None, NetworkConsent::Denied, &|_e| {},
         ) else { continue };
         let sm = &out.plagiarism.self_matches;
         if sm.is_empty() {

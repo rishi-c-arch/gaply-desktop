@@ -55,6 +55,20 @@ export interface ReviewerLetter {
 export interface TargetJournal {
   name: string;
   quartile: string; // 'Q1'..'Q4'
+  /** **The crawler's key, present ONLY for a profiled journal (§11 D183).**
+   *
+   *  The bundled Scopus directory is keyed by title and carries no key; the ten
+   *  journals Gaply has crawled are keyed in `config/journal-crawl.json`. When
+   *  this is set the backend reads `journal_requirements` for that key and the
+   *  checklist becomes the journal's own word limits, abstract limits and
+   *  required statements. When it is absent the checklist is the four structural
+   *  rows, which is what every journal gave before.
+   *
+   *  It is PASSED, never re-derived: only 4 of the 10 crawler names match a
+   *  Scopus title exactly, so matching by name would wire four journals and fail
+   *  silently for six — the failure mode `JOURNALS.every(x => !('guidelinesUrl'
+   *  in x))` exists to prevent. */
+  key?: string;
 }
 
 export interface PublishReadyResult {

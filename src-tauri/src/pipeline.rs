@@ -199,7 +199,8 @@ pub async fn run_full_analysis(
     // has no journal-guidelines input; the checklist stays structural-only, which
     // is the honest empty case. PublishReady is the path that carries one.
     tokio::task::spawn_blocking(move || {
-        run_pipeline(db, embedder, path, title, None, None, consent, on_event)
+        // The general analysis command has no journal picker, so no key.
+        run_pipeline(db, embedder, path, title, None, None, None, consent, on_event)
     })
     .await
     .map_err(|e| GaplyError::Internal(format!("analysis task panicked: {e}")))?
@@ -340,12 +341,18 @@ fn run_pipeline(
     title: Option<String>,
     user_token: Option<String>,
     guidelines_url: Option<String>,
+    // **Which journal, PASSED not re-derived. §11 D183.** The checklist now
+    // reads `journal_requirements`, which is keyed by journal. Recovering the
+    // key from `guidelines_url` or from corpus state would reconstruct identity
+    // from write order — the mistake `guidelines_url` itself is threaded to
+    // avoid.
+    journal_key: Option<String>,
     consent: NetworkConsent,
     ch: Channel<AnalysisEvent>,
 ) -> Result<(), GaplyError> {
     // The lane state is for the PublishReady verdict path; the general analysis
     // command has no aggregator to feed, so it is discarded here deliberately.
-    run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, consent, &|ev| {
+    run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, journal_key, consent, &|ev| {
         let _ = ch.send(ev);
     })
     .map(|_result| ())
@@ -362,10 +369,16 @@ pub fn run_pipeline_measured(
     title: Option<String>,
     user_token: Option<String>,
     guidelines_url: Option<String>,
+    // **Which journal, PASSED not re-derived. §11 D183.** The checklist now
+    // reads `journal_requirements`, which is keyed by journal. Recovering the
+    // key from `guidelines_url` or from corpus state would reconstruct identity
+    // from write order — the mistake `guidelines_url` itself is threaded to
+    // avoid.
+    journal_key: Option<String>,
     consent: NetworkConsent,
     emit: &dyn Fn(AnalysisEvent),
 ) -> Result<PipelineResult, GaplyError> {
-    run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, consent, emit)
+    run_pipeline_inner(db, embedder, path, title, user_token, guidelines_url, journal_key, consent, emit)
 }
 
 /// The synchronous pipeline. Every stage is a real production call. `emit` is
@@ -387,6 +400,12 @@ fn run_pipeline_inner(
     // Whether the verification lane may make its reference lookups. Threaded in
     // rather than read from a global for the same reason as `guidelines_url`:
     // the decision belongs to the caller and must arrive with the call.
+    // **Which journal, PASSED not re-derived. §11 D183.** The checklist now
+    // reads `journal_requirements`, which is keyed by journal. Recovering the
+    // key from `guidelines_url` or from corpus state would reconstruct identity
+    // from write order — the mistake `guidelines_url` itself is threaded to
+    // avoid.
+    journal_key: Option<String>,
     consent: NetworkConsent,
     emit: &dyn Fn(AnalysisEvent),
 ) -> Result<PipelineResult, GaplyError> {
@@ -682,7 +701,8 @@ fn run_pipeline_inner(
         // items. It is a DB/embedder query (no model load), so the one-at-a-time
         // model lifecycle is unaffected. Degrade to empty on a query error
         // rather than fail the whole analysis.
-        let checklist = build_checklist(&db, &extraction, &text, guidelines_url.as_deref())
+        let checklist =
+            build_checklist(&db, &extraction, &text, guidelines_url.as_deref(), journal_key.as_deref())
             .unwrap_or_else(|e| {
                 tracing::warn!(error = %e, "build_checklist failed; empty checklist");
                 Vec::new()
@@ -934,6 +954,8 @@ Firm size is associated with provision.
             Some("eq".into()),
             None,
             None,
+            // no journal picker in this fixture
+            None,
             NetworkConsent::Denied,
             &emit,
         )
@@ -1007,6 +1029,8 @@ Firm size is associated with provision.
             path.to_string_lossy().to_string(),
             Some("noeq".into()),
             None,
+            None,
+            // no journal picker in this fixture
             None,
             NetworkConsent::Denied,
             &emit,
@@ -1093,6 +1117,8 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
             Some("consent-off".into()),
             None,
             None,
+            // no journal picker in this fixture
+            None,
             NetworkConsent::Denied,
             &emit,
         );
@@ -1166,6 +1192,8 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
             None,
             None,
             None,
+            // no journal picker in this fixture
+            None,
             NetworkConsent::Denied,
             &|_ev| {},
         )
@@ -1221,6 +1249,8 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
             path.to_string_lossy().to_string(),
             Some("no-refs".into()),
             None,
+            None,
+            // no journal picker in this fixture
             None,
             NetworkConsent::Denied,
             &emit,
@@ -1348,6 +1378,8 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
             Some("golden".into()),
             None,
             None,
+            // no journal picker in this fixture
+            None,
             NetworkConsent::Denied,
             &emit,
         )
@@ -1418,6 +1450,8 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
             Some("sci".into()),
             None,
             None,
+            // no journal picker in this fixture
+            None,
             NetworkConsent::Denied,
             &emit,
         )
@@ -1461,6 +1495,8 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
             path.to_string_lossy().to_string(),
             Some("no-prose".into()),
             None,
+            None,
+            // no journal picker in this fixture
             None,
             NetworkConsent::Denied,
             &emit,
@@ -1518,6 +1554,7 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
             Some("E2E manuscript".into()),
             None, // unauthenticated: keeps the verify lane off the cloud tier
             None, // no guidelines requested -> structural-only checklist
+            None, // no journal picker in this fixture
             NetworkConsent::Granted, // the fixtures carry no References section
             &emit,
         );
@@ -1739,6 +1776,7 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
             Some("AI gate regression".into()),
             None, // unauthenticated: keeps the verify lane off the cloud tier
             None, // no guidelines requested -> structural-only checklist
+            None, // no journal picker in this fixture
             NetworkConsent::Granted, // the fixtures carry no References section
             &emit,
         );
@@ -1792,6 +1830,7 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
             Some("pdf e2e".into()),
             None,
             None,
+            None, // no journal picker in this fixture
             NetworkConsent::Granted, // MANUSCRIPT has no References section
             &emit,
         );
@@ -1851,6 +1890,7 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
             Some("checklist e2e".into()),
             None, // unauthenticated: keeps the verify lane off the cloud tier
             guidelines_url,
+            None, // no journal picker in this fixture
             NetworkConsent::Granted, // MANUSCRIPT has no References section
             &emit,
         )

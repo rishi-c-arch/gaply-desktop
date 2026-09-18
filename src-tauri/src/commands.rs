@@ -698,6 +698,10 @@ pub async fn run_publishready(
     // The guideline document the user asked for. Threaded so the checklist scopes
     // to THAT journal — identity propagated, never re-derived from corpus state.
     guidelines_url: Option<String>,
+    // The picker's key for the same journal (§11 D183). The requirements
+    // checklist is keyed by it, and the picker already holds it — the
+    // `journal_fingerprint` command takes exactly this value.
+    journal_key: Option<String>,
 ) -> Result<PublishReadyOutcome, GaplyError> {
     // async + spawn_blocking (mirrors run_full_analysis): the 6-lane pipeline is
     // CPU-heavy and the reviewer does blocking keychain/HTTP, so run off the
@@ -716,6 +720,7 @@ pub async fn run_publishready(
             supplementary_paths,
             user_token,
             guidelines_url,
+            journal_key,
         )
     })
     .await
@@ -773,6 +778,10 @@ pub fn run_publishready_measured(
     supplementary_paths: Option<Vec<String>>,
     user_token: Option<String>,
     guidelines_url: Option<String>,
+    // **Which journal, for the requirements checklist. §11 D183.** Passed from
+    // the picker that already knows it (`journal_fingerprint` takes the same
+    // key), never re-derived from `guidelines_url` or corpus state.
+    journal_key: Option<String>,
 ) -> Result<PublishReadyOutcome, GaplyError> {
     // Content-addressed manuscript identity for the Box 4 comparison record.
     // `run_id` is a local DB row id and cannot link records across machines.
@@ -799,6 +808,7 @@ pub fn run_publishready_measured(
         None,
         user_token.clone(),
         guidelines_url.clone(),
+        journal_key.clone(),
         // PublishReady's own consent gate is at `PublishReadyPage.tsx:142`
         // (`mayUseCloud('publishready')`), which refuses to start the run at
         // all — so reaching this function already means it passed.

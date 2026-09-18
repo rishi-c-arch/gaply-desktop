@@ -33,6 +33,8 @@ fn main() {
             None,
             None,
             None,
+            // no journal picker in this probe
+            None,
             NetworkConsent::Denied,
             &|_ev| {},
         ) {

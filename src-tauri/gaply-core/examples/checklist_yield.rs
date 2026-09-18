@@ -27,7 +27,10 @@ fn main() {
         Some("https://journals.plos.org/plosmedicine/s/submission-guidelines".into()),
     ];
     for u in &urls {
-        let items = build_checklist(&db, &ex, &text, u.as_deref()).expect("checklist");
+        // journal_key threaded so the probe measures what the pipeline now does.
+        let key = std::env::args().nth(3);
+        let items = build_checklist(&db, &ex, &text, u.as_deref(), key.as_deref())
+            .expect("checklist");
         let pass = items.iter().filter(|i| i.passed).count();
         let uneval = items.iter().filter(|i| i.unevaluable).count();
         println!(

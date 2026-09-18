@@ -1714,12 +1714,49 @@ pub fn build_checklist(
     extraction: &ExtractionResult,
     manuscript_text: &str,
     guidelines_url: Option<&str>,
+    journal_key: Option<&str>,
 ) -> Result<Vec<ChecklistItem>, GaplyError> {
     let hits = match guidelines_url {
         Some(url) => crate::rag::chunks_for_source(db, url, Some("journal_guideline"))?,
         None => Vec::new(),
     };
-    Ok(checklist_from_guidelines(extraction, manuscript_text, &hits))
+    let mut items = checklist_from_guidelines(extraction, manuscript_text, &hits);
+
+    // **The journal's OWN extracted requirements supersede the keyword guesses.
+    // §11 D183.**
+    //
+    // `checklist_from_guidelines` can contribute at most three rows, each from a
+    // hardcoded keyword over a RAG chunk (`g.contains("conflict")` matched a
+    // sample-reference TITLE — §11 D181). `journal_requirements` holds what the
+    // crawl actually extracted: 39 rows for Nature Medicine, where the keyword
+    // path contributes ZERO.
+    //
+    // The keyword rows are DROPPED rather than merged, because both paths emit a
+    // competing-interests row and a reader would meet the same requirement
+    // twice, once weakly. Rows with `guideline_source: None` are the always-on
+    // structural checks and are kept — that field is also the neutral signal the
+    // UI reads for "no journal guidance yet", so it must keep meaning that.
+    //
+    // **`bindings: &[]` and `design_independent` together**, per D177: the
+    // design gate is declined, so no row may depend on knowing the study's
+    // design. Measured on Nature Medicine, the unfiltered call yields 46 rows of
+    // which 25 are hedged and 14 undecided.
+    if let Some(key) = journal_key {
+        let requirements = crate::journal_store::requirements_for(db, key)?;
+        if !requirements.is_empty() {
+            let words = manuscript_text.split_whitespace().count();
+            let from_requirements = design_independent(checklist_from_requirements(
+                extraction,
+                manuscript_text,
+                words,
+                &requirements,
+                &[],
+            ));
+            items.retain(|i| i.guideline_source.is_none());
+            items.extend(from_requirements);
+        }
+    }
+    Ok(items)
 }
 
 /// Phrasings that satisfy a data availability statement.

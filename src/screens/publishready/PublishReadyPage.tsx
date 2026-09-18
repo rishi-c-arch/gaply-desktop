@@ -24,6 +24,8 @@ import { downloadReportPdf } from '../report/exportPdf';
 import { ReportTab } from '../report/reportTypes';
 import { estimatePdfPageCount, validateFile } from '../analysis/validateFile';
 import { JOURNALS } from '../journal/journalData';
+import { tauriJournalFingerprintBridge } from './journal/journalFingerprintBridge';
+import { JournalProfileRow } from './journal/fingerprintTypes';
 import { PublishReadyBridge, TauriPublishReadyBridge } from './publishReadyBridge';
 import { useEntitlement } from '../subscription/entitlement';
 import { mayUseCloud } from '../settings/settingsStore';
@@ -127,11 +129,66 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
     };
   }, [b]);
 
+  // **The ten journals Gaply has actually crawled. §11 D183.**
+  //
+  // `journal_profiles` reads what a previous crawl stored — no fetch — and
+  // carries the crawler KEY, which the bundled Scopus directory does not have.
+  // Picking one passes that key, and the backend builds the checklist from that
+  // journal's own extracted requirements instead of four structural rows.
+  const [profiles, setProfiles] = useState<JournalProfileRow[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    tauriJournalFingerprintBridge
+      .profiles()
+      .then((rows) => {
+        if (!cancelled) setProfiles(rows.filter((r) => r.ingested && r.requirement_count > 0));
+      })
+      .catch(() => {
+        // A picker that cannot list the profiled set still works: every journal
+        // falls back to the Scopus directory and the structural checklist.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const journalMatches = useMemo(() => {
     const q = journalQuery.trim().toLowerCase();
     if (!q) return [];
-    return JOURNALS.filter((j) => j.name.toLowerCase().includes(q)).slice(0, 6);
-  }, [journalQuery]);
+    // **MERGED, not appended.** Measured: 4 of the 10 profiled journals also
+    // appear in the Scopus directory under the same name (PLOS Medicine, Nature
+    // Medicine, The Lancet, BMC Public Health). Showing both would put two
+    // entries for one journal in front of a researcher, one useful and one not,
+    // which is worse than either alone. The profiled row WINS — it is the same
+    // journal with strictly more behind it.
+    const norm = (t: string) =>
+      t
+        .toLowerCase()
+        .replace(/&/g, 'and')
+        .replace(/^(the|journal of|j\.?)\s+/, '')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+    const profiled = profiles
+      .filter((p) => p.name.toLowerCase().includes(q))
+      .map((p) => ({
+        name: p.name,
+        quartile: (JOURNALS.find((j) => norm(j.name) === norm(p.name))?.quartile ?? null) as
+          | string
+          | null,
+        key: p.key,
+        requirementCount: p.requirement_count,
+      }));
+    const taken = new Set(profiled.map((p) => norm(p.name)));
+    const scopus = JOURNALS.filter(
+      (j) => j.name.toLowerCase().includes(q) && !taken.has(norm(j.name))
+    ).map((j) => ({
+      name: j.name,
+      quartile: j.quartile ?? null,
+      key: undefined as string | undefined,
+      requirementCount: 0,
+    }));
+    return [...profiled, ...scopus].slice(0, 6);
+  }, [journalQuery, profiles]);
 
   const acceptFile = async (f: File) => {
     setError(null);
@@ -410,10 +467,28 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
                     // the blank case: a silent failure wearing the appearance of
                     // a working feature. An empty field fails visibly instead.
                     // ARCHITECTURE_TRACE §18.6.2.
-                    setJournal({ name: j.name, quartile: j.quartile ?? 'Q4' });
+                    setJournal({ name: j.name, quartile: j.quartile ?? 'Q4', key: j.key });
                   }}
                 >
                   <span>{j.name}</span><Badge status="neutral">{j.quartile ?? '—'}</Badge>
+                  {/* **The difference must be VISIBLE. §11 D183.** A profiled
+                      journal yields a checklist built from its own pages; every
+                      other journal yields the four structural rows. If the two
+                      look identical here, the product hides the thing that makes
+                      the choice matter. */}
+                  {j.key ? (
+                    <span className="gds-pr__profiled" data-testid={`pr-journal-profiled-${j.name}`}>
+                      Gaply has read this journal&apos;s guidelines — {j.requirementCount}{' '}
+                      requirements
+                    </span>
+                  ) : (
+                    <span
+                      className="gds-pr__unprofiled"
+                      data-testid={`pr-journal-unprofiled-${j.name}`}
+                    >
+                      Not crawled — structural checks only
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

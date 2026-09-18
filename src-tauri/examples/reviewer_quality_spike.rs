@@ -65,6 +65,8 @@ fn main() -> Result<(), GaplyError> {
     run_pipeline_measured(
         db.clone(), embedder, path.clone(), None, None, None,
         // A spike invoked by hand: the operator asked for the run.
+        // no journal picker in this probe
+        None,
         app_lib::pipeline::NetworkConsent::Granted,
         &emit,
     )?;

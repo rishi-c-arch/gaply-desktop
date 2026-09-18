@@ -19,7 +19,7 @@ fn main() {
         let db = Arc::new(Database::in_memory().expect("in-memory db"));
         let embedder: Arc<dyn Embedder> = Arc::new(HashEmbedder);
         let out = match run_pipeline_measured(
-            db, embedder, path.clone(), None, None, None, NetworkConsent::Denied, &|_e| {},
+            db, embedder, path.clone(), None, None, None, None, NetworkConsent::Denied, &|_e| {},
         ) {
             Ok(o) => o,
             Err(e) => { println!("\n######## {name}\n  ERROR {e:?}"); continue }

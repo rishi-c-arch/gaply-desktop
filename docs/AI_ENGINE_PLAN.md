@@ -13356,3 +13356,96 @@ NUMBER — the TOC guard — so the test named one guard and exercised another. 
 now carries a second case that only the position rule catches (prose with the
 statement word deep inside a sentence that is not TOC-shaped), and both guards
 redden independently when deleted.
+
+### D183 — the checklist is the journal's own requirements, and the picker says which journals have any
+
+D182 made `checklist_from_requirements` correct and `design_independent` made it
+safe to ship. **Nothing read either of them**: `checklist_from_requirements` had
+zero production callers, so a researcher still got four rows saying their paper
+has an abstract.
+
+#### Before / after, the rows a user sees
+
+Same manuscript, `Revised Health Economics Paper FINAL (1).docx`, through the
+real `build_checklist`:
+
+```
+UNPROFILED JOURNAL — 4 items
+  [PASS] required section: Abstract / Methods / Results / References
+
+PROFILED (key = nature-medicine) — 13 items
+  [PASS] required section: Abstract / Methods / Results / References
+  [PASS] word limit depends on article type
+         the journal states 6 word limits — 4000 (Perspective); 4000 (Article); …
+         journal said: "Format Length – up to 4,000 words."
+  [FAIL] abstract limit: 150 words
+         abstract has 306 words against a limit of 150
+         journal said: "Format Abstract – up to 150 words, unreferenced."
+  [PASS] data availability statement
+         found in the manuscript: "Data Availability: Available from the
+         corresponding author on reasonable request."
+  [PASS] competing interests statement
+         found: "Conflicts of Interest: The authors declare no conflicts of interest."
+  [PASS] funding statement
+         found: "Funding: Ministry of Health, Oman (Grant MOH/CSR/24/29387)."
+         journal said: "Any relevant funding should be declared in a separate funding statement."
+  [FAIL] code availability statement
+         none of 3 phrasings was found anywhere in the manuscript
+         journal said: "Code availability statements should be provided as a separate section…"
+  [PASS] informed consent statement / ethics statement / author contributions statement
+```
+
+Every journal-derived row carries BOTH sentences: the manuscript's and the
+journal's. 0 rows depend on a study design, per D177.
+
+#### Identity is PASSED, and the measurement is why
+
+`build_checklist` now takes a `journal_key`, threaded from the Tauri command
+through `run_pipeline_inner`. It is not derived from `guidelines_url` or from
+corpus state, and the reason is measured rather than stylistic: **only 4 of the
+10 crawler names match a bundled Scopus title exactly.**
+
+```
+plos-one  PLOS ONE       absent      bmj       The BMJ                  absent
+lancet    The Lancet     DUPLICATE   stat-med  Statistics in Medicine   absent
+```
+
+Matching by name would wire four journals and fail silently for six — the exact
+failure `JOURNALS.every(x => !('guidelinesUrl' in x))` was written to prevent:
+*"a stored-but-wrong URL would produce a checklist indistinguishable from the
+blank case."*
+
+Where the journal's own requirements exist they SUPERSEDE the keyword rows
+rather than joining them, because both paths emit a competing-interests row and
+a reader would meet the same requirement twice, once weakly. The always-on
+structural rows are kept — `guideline_source: None` is also the signal the UI
+reads for "no journal guidance yet", so it must keep meaning that.
+
+#### The picker MERGES, and the difference is visible
+
+`journal_profiles` already returned `{key, name, ingested, requirement_count}`,
+so the picker change was small. Two decisions in it were not:
+
+* **Merge, not append.** Measured: 4 of the 10 profiled journals also appear in
+  the Scopus directory under the same name (PLOS Medicine, Nature Medicine, The
+  Lancet, BMC Public Health), and 6 are absent from it entirely. Appending would
+  put one journal in front of a researcher twice, once useful and once not,
+  which is worse than either alone. The profiled row wins: same journal, strictly
+  more behind it.
+* **Say which is which.** A profiled row reads *"Gaply has read this journal's
+  guidelines — 39 requirements"*; every other row reads *"Not crawled —
+  structural checks only"*. A picker where both look the same hides the thing
+  that makes the choice matter, which is the defect `ad8e863` recorded from the
+  other direction.
+
+#### Landed as ONE commit, deliberately
+
+The Rust threading's only consumer is this picker. Splitting them would have put
+a wired-but-unreachable layer in the tree — the pattern the three findings before
+this one were all about (`review_lens`, the specialists, `plagiarism_exact`, and
+`checklist_from_requirements` itself). A parameter nothing passes is the same
+shape as a refusal nothing renders.
+
+Four deletion tests: dropping the key from the picker's click reddens the
+key-reaches-the-run test; appending instead of merging reddens both the
+appears-once test and the key test.

@@ -28,7 +28,7 @@ fn main() {
     // proxy configured sees, and `reviewer_letter_availability` exists because
     // the default proxy is loopback, so that is the common case.
     let out = run_pipeline_measured(
-        db, embedder, path.clone(), None, None, None, NetworkConsent::Denied, &|_e| {},
+        db, embedder, path.clone(), None, None, None, None, NetworkConsent::Denied, &|_e| {},
     )
     .expect("pipeline");
 

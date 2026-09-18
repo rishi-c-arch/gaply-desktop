@@ -165,6 +165,8 @@ fn main() {
             None, // measurement probe: unauthenticated, so no cloud verify tier
             None,
             // A memory probe invoked by hand: the operator asked for the run.
+            // no journal picker in this probe
+            None,
             app_lib::pipeline::NetworkConsent::Granted,
             &emit,
         );

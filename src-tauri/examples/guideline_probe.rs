@@ -67,7 +67,7 @@ fn main() -> Result<(), GaplyError> {
     let manuscript = "Title: A Study\n\nAbstract\nWe did things.\n\nMethods\nWe measured with a \
         conflict of interest declaration.\n\nResults\np = 0.02.\n\nReferences\n1. A. Author (2020).";
     let extraction = gaply_core::extract::extract_from_text(manuscript);
-    let checklist = gaply_core::report::build_checklist(&db, &extraction, manuscript, Some(&url))?;
+    let checklist = gaply_core::report::build_checklist(&db, &extraction, manuscript, Some(&url), None)?;
     let derived: Vec<_> = checklist.iter().filter(|c| c.guideline_source.is_some()).collect();
     println!("  checklist items: {} ({} guideline-derived)", checklist.len(), derived.len());
     for c in &checklist {

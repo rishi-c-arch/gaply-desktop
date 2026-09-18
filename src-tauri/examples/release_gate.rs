@@ -24,6 +24,8 @@ fn main() -> Result<(), GaplyError> {
     app_lib::pipeline::run_pipeline_measured(
         db.clone(), embedder.clone(), path.clone(), None, None, guidelines.clone(),
         // A pre-ship instrument run deliberately: the operator asked for the run.
+        // no journal picker in this probe
+        None,
         app_lib::pipeline::NetworkConsent::Granted,
         &emit,
     )?;
@@ -77,6 +79,8 @@ fn main() -> Result<(), GaplyError> {
         None,
         None,
         guidelines.clone(),
+        // No journal picker in the release gate.
+        None,
     )
     .err();
     if let Some(e) = &full_path_err {

@@ -2,7 +2,7 @@
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GaplySessionProvider } from '../session/SessionProvider';
 import type { AuthService } from '../../services/supabase';
@@ -12,6 +12,7 @@ import { buildProxyPayload } from './buildPayload';
 import { synthesizeReviewerLetter, suggestAlternatives } from './synthesize';
 import { PublishReadyReport, Finding } from '../report/reportTypes';
 import { JOURNALS } from '../journal/journalData';
+import * as fpBridge from './journal/journalFingerprintBridge';
 
 vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
@@ -291,5 +292,111 @@ describe('H4 · target-journal guidelines', () => {
     fireEvent.click(await screen.findByTestId('tab-Checklist'));
     await screen.findByTestId('checklist');
     expect(screen.queryByTestId('checklist-no-guidelines')).toBeNull();
+  });
+});
+
+/* ------------------- the profiled journals in the picker ------------------ */
+
+/** **§11 D183 — the difference between a crawled journal and any other must be
+ *  VISIBLE, and each journal must appear ONCE.**
+ *
+ *  Picking a profiled journal passes the crawler's key, and the backend builds
+ *  the checklist from that journal's own extracted requirements — measured at
+ *  nine rows for Nature Medicine against four structural rows for anything else.
+ *  If the two look identical in the picker, the product hides the thing that
+ *  makes the choice matter.
+ *
+ *  Measured before this shipped: 4 of the 10 profiled journals ALSO appear in
+ *  the bundled Scopus directory under the same name, so appending rather than
+ *  merging would show one journal twice, once useful and once not. */
+describe('§11 D183 · profiled journals in the picker', () => {
+  const profiled = [
+    {
+      key: 'nature-medicine',
+      name: 'Nature Medicine',
+      entry: 'https://www.nature.com/nm',
+      ingested: true,
+      requirement_count: 39,
+      conflict_count: 0,
+      convention_count: 0,
+      expectation_count: 0,
+      standard_count: 11,
+      by_pattern: 39,
+      by_model: 0,
+      version: 1,
+      fetched_at: 1,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.spyOn(fpBridge.tauriJournalFingerprintBridge, 'profiles').mockResolvedValue(profiled as any);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('shows what a crawled journal buys, and says plainly when a journal was not crawled', async () => {
+    renderPR({ forceTier: 'premium', bridge: makePublishReadyMock(REPORT) });
+    await screen.findByTestId('pr-entry');
+    fireEvent.change(screen.getByTestId('pr-journal-input'), {
+      target: { value: 'nature medicine' },
+    });
+    const row = await screen.findByTestId('pr-journal-profiled-Nature Medicine');
+    expect(row.textContent).toContain('39');
+    expect(row.textContent!.toLowerCase()).toContain('guidelines');
+
+    // And a journal the crawler has never seen says so rather than looking the
+    // same. `Lancet Oncology` is in the Scopus directory and not profiled.
+    fireEvent.change(screen.getByTestId('pr-journal-input'), {
+      target: { value: 'lancet oncology' },
+    });
+    const plain = await screen.findByTestId('pr-journal-unprofiled-Lancet Oncology');
+    expect(plain.textContent!.toLowerCase()).toContain('structural checks only');
+  });
+
+  it('shows a journal in BOTH sets exactly once, and it is the profiled one', async () => {
+    renderPR({ forceTier: 'premium', bridge: makePublishReadyMock(REPORT) });
+    await screen.findByTestId('pr-entry');
+    fireEvent.change(screen.getByTestId('pr-journal-input'), {
+      target: { value: 'nature medicine' },
+    });
+    await screen.findByTestId('pr-journal-profiled-Nature Medicine');
+    // Nature Medicine is in the Scopus directory too. One entry, not two.
+    expect(screen.getAllByTestId(/^pr-journal-Nature Medicine$/)).toHaveLength(1);
+    expect(screen.queryByTestId('pr-journal-unprofiled-Nature Medicine')).toBeNull();
+  });
+
+  it('passes the crawler key to the run for a profiled journal', async () => {
+    const bridge = makePublishReadyMock(REPORT);
+    const runSpy = vi.spyOn(bridge, 'run');
+    renderPR({ forceTier: 'premium', bridge });
+    await screen.findByTestId('pr-entry');
+    fireEvent.change(screen.getByTestId('pr-file'), {
+      target: { files: [new File(['x'], 'p.pdf', { type: 'application/pdf' })] },
+    });
+    await screen.findByText('p.pdf');
+    fireEvent.change(screen.getByTestId('pr-journal-input'), {
+      target: { value: 'nature medicine' },
+    });
+    fireEvent.click(await screen.findByTestId('pr-journal-Nature Medicine'));
+    fireEvent.click(screen.getByTestId('pr-run'));
+    await screen.findByTestId('publishready');
+
+    // **The key is what makes the checklist the journal's own.** Without it the
+    // backend reads no `journal_requirements` and the researcher gets the four
+    // structural rows, which is indistinguishable from not having picked a
+    // crawled journal at all.
+    expect(runSpy).toHaveBeenCalled();
+    expect(runSpy.mock.calls[0][0].journal.key).toBe('nature-medicine');
+  });
+
+  it('sends NO key for a journal the crawler has never seen', async () => {
+    const bridge = makePublishReadyMock(REPORT);
+    const runSpy = vi.spyOn(bridge, 'run');
+    renderPR({ forceTier: 'premium', bridge });
+    await reachRunnable();
+    fireEvent.click(screen.getByTestId('pr-run'));
+    await screen.findByTestId('publishready');
+    expect(runSpy.mock.calls[0][0].journal.key).toBeUndefined();
   });
 });
