@@ -289,7 +289,7 @@ pub struct PipelineResult {
     /// tier depends on it and `CACHED_REPORT_SCHEMA_VERSION` gates every stored
     /// report.
     ///
-    /// # Only `frequentist_stats` runs today, and that is measured
+    /// # Two of three run today, and both admissions are measured
     ///
     /// `specialist::shipped()` returns three. Over the 20-manuscript corpus,
     /// outside the pipeline:
@@ -298,20 +298,36 @@ pub struct PipelineResult {
     /// specialist                 ran  declined  findings
     /// frequentist_stats           20         0        13
     /// ml_methodology               4        16         7
-    /// claim_evidence_strength     17         3         0
+    /// claim_evidence_strength      1        19         2   (§11 D177; was 17/3/0)
     /// ```
     ///
     /// `ml_methodology` is withheld because its applicability gate admitted a
     /// histology paper — *"Specimens were processed by standard paraffin
     /// embedding technique…"* answered with `no_heldout_evaluation_named` —
     /// which is §11 D157's shape: a confident finding resting on an
-    /// applicability judgement nobody made. `claim_evidence_strength` is
-    /// withheld because it admitted NOTHING on 20 real manuscripts and belongs
-    /// in a decline measurement (D165/D166's family), not in a wiring list.
+    /// applicability judgement nobody made.
     ///
-    /// Both are held out HERE rather than by editing `shipped()`, so the
-    /// specialist set and the graph stay in agreement and the withholding is
+    /// **`claim_evidence_strength` was withheld for the opposite reason and is
+    /// now admitted.** Its old row read `17 ran, 3 declined, 0 findings`, and
+    /// every one of those 17 was a SILENT PASS: `applies_to` admitted the
+    /// manuscript and `assess` bailed before reading a sentence, so a check that
+    /// could not fire reported nothing. D177 made each of those decline with its
+    /// own sentence and restricted the design read to `Abstract | Methods`. The
+    /// row is now `1 ran, 19 declined, 2 findings` — a smaller numerator and an
+    /// honest denominator.
+    ///
+    /// `ml_methodology` is held out HERE rather than by editing `shipped()`, so
+    /// the specialist set and the graph stay in agreement and the withholding is
     /// one reviewable line with its reason beside it.
+    ///
+    /// # This field reaches no user, and that is not what wiring fixed
+    ///
+    /// Its only consumer in the tree is `review_lens::collect`, and
+    /// `review_lens` is referenced nowhere in the app crate or the frontend —
+    /// no Tauri command builds a `LensInput`. So the two findings and the
+    /// nineteen declines below exist in `PipelineResult` and reach no screen.
+    /// That is a reachability gap one layer further out than the one `ad8e863`
+    /// records, and running the specialist is its precondition, not its repair.
     pub specialists: Vec<SpecialistReport>,
 }
 
@@ -752,7 +768,7 @@ fn run_pipeline_inner(
         let sin = SpecialistInput { extraction: &extraction, science: None, analysis: None };
         specialist::shipped()
             .iter()
-            .filter(|s| s.id() == "frequentist_stats")
+            .filter(|s| matches!(s.id(), "frequentist_stats" | "claim_evidence_strength"))
             .map(|s| specialist::run(s.as_ref(), &sin))
             .collect::<Vec<_>>()
     };
@@ -1283,10 +1299,18 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
         // are safe: `research_state` and `specialists` both ride on
         // `PipelineResult`, and neither may reach `report`. The free tier reads
         // this shape and `CACHED_REPORT_SCHEMA_VERSION` gates every stored copy.
-        assert!(
-            !out.specialists.is_empty(),
-            "the specialist stage must RUN, or the assertion below passes vacuously \
-             and would keep passing if it were deleted"
+        // **Names both, because `!is_empty()` cannot see one of two go missing.**
+        // The stage ran with a single specialist when this pin was written; a
+        // non-emptiness check would have stayed green through
+        // `claim_evidence_strength` being dropped from the filter, which is the
+        // enumeration-goes-quiet failure `journal_tables_have_writers` was built
+        // against. The list is the assertion.
+        let ids: Vec<&str> = out.specialists.iter().map(|r| r.specialist.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["frequentist_stats", "claim_evidence_strength"],
+            "the specialist stage must RUN, and run BOTH admitted specialists, or the \
+             assertion below passes vacuously and would keep passing if it were deleted"
         );
         let now = serde_json::to_string(&out.report).expect("report serialises");
         assert_eq!(
