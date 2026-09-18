@@ -2036,11 +2036,11 @@ pub fn review(lens: &ReviewLens, input: &LensInput<'_>) -> ReviewerReport {
                 source: r.source,
                 code: r.code.clone(),
                 severity,
-                summary: if same.len() == 1 {
-                    r.summary.clone()
-                } else {
-                    format!("{} (raised at {} places; all are quoted)", r.summary, same.len())
-                },
+                // ONE formatter, shared with `compile_report`'s grouping so the
+                // phrasing cannot drift between two surfaces a reader can see.
+                // `quoted: true` is a claim THIS layer can back: `spans` below
+                // carries them. §11 D180.
+                summary: crate::report::raised_at_phrase(&r.summary, same.len(), true),
                 occurrence_unit: occurrence_unit(r.source).to_string(),
                 occurrences: same.len(),
                 spans: spans.clone(),

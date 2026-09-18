@@ -94,6 +94,12 @@ pub struct LocalFinding {
     /// The manuscript sentence this finding is about. LOCAL ONLY — this is the
     /// field whose existence makes this type non-`Serialize`.
     pub nearby_text: Option<String>,
+    /// **The other places' sentences, when this row groups several.** A grouped
+    /// row says "raised at 8 places"; without these it would show ONE quote and
+    /// the other seven would be unreachable, which trades checkable evidence for
+    /// a shorter list. `nearby_text` plus these is every place that resolved.
+    /// Local-only, like `nearby_text`, and for the same reason. §11 D180.
+    pub also_nearby: Vec<String>,
 }
 
 /// One similarity region, local-only for the same reason.

@@ -12981,3 +12981,106 @@ corpus contains AND clears the five mechanisms above on the same run — measure
 against `plagiarism_exact`'s output as the reference, which is what a true
 positive looks like here. Section exclusion (references, front matter, tables)
 is a prerequisite for mechanisms 3-5 and is a separate, unmeasured change.
+
+### D180 — the first fourteen rows a researcher opened were three sentences, and the finding about their own equation ranked fifteenth
+
+**Measured through the product, not a probe.** `examples/what_a_user_sees.rs`
+calls the real pipeline and prints what the frontend receives, on
+`Revised Health Economics Paper FINAL (1).docx` — a competent, clean paper:
+
+```
+ 1-3.  [major] statistical rule failed: p-value overclaiming
+ 4-11. [major] statistical rule failed: missing effect size
+12-14. [major] statistical rule failed: missing confidence interval
+15.    [minor] Arithmetic requires author confirmation: Weighted provision =
+                (0.108 x 0.78) + (0.500 x 0.13) + (0.769 x 0.06) + (0.810 x 0.03) = ...
+16-18. [minor] lexical diversity / mixed citation styles / 23 of 35 references older than 10 years
+19-21. [info ] Extraction: pass / AiDetection: concern / Rag: pass
+```
+
+Eight consecutive rows read, verbatim: *"A p-value is reported without an
+accompanying effect size (e.g. Cohen's d, eta-squared, r, odds ratio).
+Statistical significance does not convey the magnitude or practical importance
+of an effect."* Identical title, identical paragraph, eight times.
+`ReportViewerPage` renders `findings.map` with no dedupe and shows title +
+detail, so those eight are visually identical buttons.
+
+**The mechanism is that severity sorts before specificity and nothing grouped.**
+The one finding unique to this manuscript — quoting the author's own weighted
+provision equation — ranked FIFTEENTH, below fourteen copies of three generic
+ones.
+
+#### After
+
+```
+1. [major] statistical rule failed: p-value overclaiming (raised at 3 places)
+2. [major] statistical rule failed: missing effect size (raised at 8 places)
+3. [major] statistical rule failed: missing confidence interval (raised at 3 places)
+4. [minor] Arithmetic requires author confirmation: Weighted provision = ...
+```
+
+**21 rows to 10, and the arithmetic finding moves from row 15 to row 4.**
+Locations, measured before and after: **14 total both times** — 3 primary plus
+11 in `also_at`. Nothing was traded for the shorter list.
+
+#### The grouping key is exactly what the row displays
+
+`(agent, title, detail)`. Grouping anything a reader could tell apart would hide
+a real difference; grouping less would leave duplicates on screen. Findings
+whose title carries their own subject — an equation, a reference count, a
+citation-style percentage — differ in title and are untouched, which is why
+row 4 survives as itself.
+
+Grouping happens BEFORE the sort and before `f{N}` id assignment, so findings
+and evidence stay the lockstep pair `compile_report`'s unzip depends on, and
+per-occurrence provenance (`"location:Results paragraph 0"`) from the merged
+rows is carried into the survivor rather than dropped with its evidence record.
+
+#### ONE formatter, and the half of it that could not be shared
+
+`review_lens::review` has produced this sentence since it was written. It could
+NOT be called: it was an inline `format!` inside a per-criterion loop, bound to
+`Raw`/`Concern` types `report.rs` cannot reach. So it is EXTRACTED to
+`report::raised_at_phrase` and `review_lens` now calls it — `grep "raised at"`
+returns one site.
+
+**The phrase has two halves and only the count is shared.** `review_lens` holds
+`spans` and can say *"all are quoted"*. `compile_report` holds LOCATIONS, which
+become quotations one layer later and do not all resolve — 41 of 301 fail, by
+the count in `report::evaluate`'s own comment. So the function takes
+`quoted: bool` and each caller states the claim it can back. Claiming a quote
+this layer cannot produce would be the truncated-span defect from the other
+side.
+
+#### Preserving the locations was not enough; the QUOTES had to follow
+
+`report_build` resolves only `f.location` into `nearby_text`, so grouping in the
+payload alone would have shown one quote and left the other seven unreachable —
+trading checkable evidence for a shorter list. `LocalFinding::also_nearby`
+resolves the rest through the SAME `paragraph_at`, skipping any that do not
+resolve rather than quoting empty, and the composer emits them as `also: "..."`.
+`LocalFinding` is non-`Serialize`, so this costs nothing on the wire.
+
+#### The golden did NOT move, and that is the additive field working
+
+`Finding::also_at` is `#[serde(default, skip_serializing_if = "Vec::is_empty")]`.
+All five of the golden fixture's findings are distinct, so nothing groups there
+and the key never reaches the wire — a stored report is byte-identical to what
+it was. **That also means the golden cannot guard grouping**, which is why
+`identical_rows_group_into_one_carrying_every_location` exists and asserts both
+directions: a grouped row carries `also_at`, an ungrouped row gains no key.
+
+#### Two guards earned themselves
+
+`validation_findings_carry_the_location_their_rule_evaluated` went red, correctly:
+it compared `f.location` against `validation.flags` as a multiset, and grouping
+turned 3 flags into 1 finding. **The tempting repair was to assert the smaller
+set, which would have silently licensed losing two locations.** It now collects
+`location` PLUS `also_at`, so the invariant it pins is that every flag's location
+still reaches a finding, with where it lands left to the grouping.
+
+And `cargo build` reported success while `cargo test --workspace` printed
+`targets=0 passed=0` — four `Finding` / `LocalFinding` literals live in
+`#[cfg(test)]` blocks that a plain build never compiles. `targets=0` is the
+suite not running, not a pass, and `cargo check --workspace --all-targets`
+enumerated all four in one go.

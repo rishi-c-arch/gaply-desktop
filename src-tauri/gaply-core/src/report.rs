@@ -182,6 +182,41 @@ pub struct Finding {
     /// `only_located_families_carry_a_location` pins the wired set so a new
     /// family cannot default into silence.
     pub location: Option<Location>,
+    /// **The OTHER places this same finding was raised.** `location` holds the
+    /// first; together they are every place, which is what a grouped row must
+    /// not lose — the locations ARE the evidence a reader checks.
+    ///
+    /// `serde(default)` + `skip_serializing_if` for the reason
+    /// `ChecklistItem::source_span` has them: a required field breaks every
+    /// stored report, and skipping the empty case keeps an UNGROUPED finding
+    /// byte-identical to what it serialized before §11 D180 — so the golden
+    /// moves only where grouping actually happened.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also_at: Vec<Location>,
+}
+
+/// **How a finding raised in several places is titled. ONE formatter, two
+/// callers.** `review_lens::review` has produced this sentence since it was
+/// written; `compile_report` now groups too, and the phrasing must not drift
+/// between the two surfaces a reader can see. It was an inline `format!` inside
+/// `review`'s per-criterion loop, bound to types `report.rs` cannot reach, so it
+/// is extracted here rather than synthesised a second time. §11 D180.
+///
+/// **`quoted` is not decoration.** `review_lens` holds the spans and can say
+/// *"all are quoted"*; `compile_report` holds LOCATIONS, which become quotations
+/// one layer later in `report_build` and do not all resolve — 41 of 301 fail, by
+/// the count in `report::evaluate`'s own comment. Claiming a quote this layer
+/// cannot produce is the truncated-span defect from the other side, so the
+/// caller states which claim it can back.
+pub fn raised_at_phrase(summary: &str, places: usize, quoted: bool) -> String {
+    if places <= 1 {
+        return summary.to_string();
+    }
+    if quoted {
+        format!("{summary} (raised at {places} places; all are quoted)")
+    } else {
+        format!("{summary} (raised at {places} places)")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -553,6 +588,7 @@ pub fn compile_report(
     for flag in &validation.flags {
         items.push(paired(
             Finding {
+                also_at: Vec::new(),
                 // a deterministic statistical rule failed in the manuscript
                 //
                 // THE ONE LOCATED FAMILY. `flag.location` is the location the
@@ -639,6 +675,7 @@ pub fn compile_report(
             }
             items.push(paired(
                 Finding {
+                    also_at: Vec::new(),
                     // a citation is refuted or supported by external evidence
                     //
                     // GAP, not a document-level finding. This IS about one
@@ -694,6 +731,7 @@ pub fn compile_report(
             );
             items.push(paired(
                 Finding {
+                    also_at: Vec::new(),
                     // OUR verification lane could not check them (§23.4 f4)
                     //
                     // CORRECT None: one finding covering N citations. Any single
@@ -739,6 +777,7 @@ pub fn compile_report(
             };
             items.push(paired(
                 Finding {
+                    also_at: Vec::new(),
                     // this text overlaps another document
                     //
                     // CORRECT None, on two independent grounds. (1) The span's
@@ -827,6 +866,7 @@ pub fn compile_report(
         };
         items.push(paired(
             Finding {
+                also_at: Vec::new(),
                 // depends on WHICH lane opined — total match below
                 //
                 // CORRECT None: an `Opinion` is an agent's aggregate stance on
@@ -865,6 +905,67 @@ pub fn compile_report(
             reason: HarnessNoteReason::OutputRejectedByInternalGate,
         })
         .collect();
+
+    // --- grouping: rows a reader cannot tell apart are ONE row (§11 D180) -----
+    //
+    // Measured on `Revised Health Economics Paper FINAL (1).docx` through the
+    // product path: 21 findings, of which the first FOURTEEN were three
+    // sentences repeated — 8 x "missing effect size", 3 x "p-value
+    // overclaiming", 3 x "missing confidence interval" — each row carrying the
+    // identical title AND the identical detail paragraph. The one finding unique
+    // to that manuscript (its own weighted-provision equation) ranked 15th,
+    // below all fourteen, because severity sorts before specificity and nothing
+    // grouped. `ReportViewerPage` renders `findings.map` with no dedupe, so
+    // fourteen visually identical buttons is what a researcher opens.
+    //
+    // **The key is (agent, title, detail) — EXACTLY what the row displays.**
+    // Grouping anything a reader could tell apart would hide a real difference;
+    // grouping less would leave duplicates on screen. Findings whose title
+    // carries their own subject — an equation, a reference count — differ in
+    // title and are untouched.
+    //
+    // Grouped BEFORE the sort and before `f{N}` id assignment, so findings and
+    // evidence stay the lockstep pair the unzip below depends on.
+    {
+        let mut merged: Vec<_> = Vec::with_capacity(items.len());
+        for it in items {
+            let hit = merged.iter_mut().find(|p: &&mut ReportFinding| {
+                p.finding.agent == it.finding.agent
+                    && p.finding.title == it.finding.title
+                    && p.finding.detail == it.finding.detail
+            });
+            match hit {
+                Some(prev) => {
+                    // EVERY location survives: `location` holds the first, and
+                    // `also_at` the rest. Losing them would trade fourteen
+                    // checkable addresses for one, which is the truncated-span
+                    // defect wearing a tidier list.
+                    if let Some(loc) = it.finding.location.clone() {
+                        prev.finding.also_at.push(loc);
+                    }
+                    // Provenance is per-occurrence ("location:Results paragraph
+                    // 0"), so the merged rows' trail is carried too rather than
+                    // dropped with their evidence record.
+                    for p in it.finding.provenance.into_iter().chain(it.evidence.provenance) {
+                        if !prev.finding.provenance.contains(&p) {
+                            prev.finding.provenance.push(p.clone());
+                        }
+                        if !prev.evidence.provenance.contains(&p) {
+                            prev.evidence.provenance.push(p);
+                        }
+                    }
+                }
+                None => merged.push(it),
+            }
+        }
+        for m in &mut merged {
+            // `quoted: false` — this layer holds LOCATIONS. They become
+            // quotations in `report_build`, and not all of them resolve.
+            m.finding.title =
+                raised_at_phrase(&m.finding.title, m.finding.also_at.len() + 1, false);
+        }
+        items = merged;
+    }
 
     // --- priority ordering ----------------------------------------------------
     // CRITICAL hard constraints first — severity outranks EVERYTHING, including
@@ -1025,6 +1126,7 @@ fn stylo_finding(signal: &str, dev: Deviation, title: String, detail: String, ev
     let confidence = dev.confidence();
     paired(
         Finding {
+            also_at: Vec::new(),
             // writing quality — report.rs's own scoping excludes the authorship tells
             //
             // CORRECT None, for all SEVEN branches that call this constructor.
@@ -1136,6 +1238,7 @@ fn stylometry_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
             // Info, not Minor: this is a statement about OUR parse, not the paper.
             out.push(paired(
                 Finding {
+                    also_at: Vec::new(),
                     // OUR parse could not measure citation density
                     //
                     // CORRECT None: a statement about our parse of the whole
@@ -1263,6 +1366,7 @@ fn table_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
     let complete = captioned == total;
     paired(
         Finding {
+            also_at: Vec::new(),
             // tables and their captions are the manuscript's
             //
             // CORRECT None for THIS finding, though the address exists.
@@ -1326,6 +1430,7 @@ fn citation_count_findings(registry: &[ReferenceVerification]) -> Vec<ReportFind
     let total = registry.len();
     paired(
         Finding {
+            also_at: Vec::new(),
             // how many references WE resolved counts for
             //
             // CORRECT None: a count over the registry, not a place in the text.
@@ -1460,6 +1565,7 @@ fn uncited_reference_findings(ex: &ExtractionResult) -> Vec<ReportFinding> {
 
     paired(
         Finding {
+            also_at: Vec::new(),
             // references the manuscript never cites
             //
             // GAP (and moot while this is unwired). Each uncited entry has an
@@ -1539,6 +1645,7 @@ fn reference_recency_findings(ex: &ExtractionResult, current_year: i32) -> Vec<R
     };
     paired(
         Finding {
+            also_at: Vec::new(),
             // the manuscript's references are old
             //
             // CORRECT None: an arithmetic summary over the whole bibliography.

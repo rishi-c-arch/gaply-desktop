@@ -170,6 +170,18 @@ impl PipelineResult {
                     .as_ref()
                     .and_then(|loc| paragraph_at(&self.extraction, loc))
                     .map(str::to_string),
+                // Resolved through the SAME `paragraph_at`, so a grouped row's
+                // other occurrences are quoted exactly as its first is. A
+                // location that does not resolve is SKIPPED rather than quoted
+                // empty — `Some("")` is a row claiming evidence and showing
+                // none. §11 D180.
+                also_nearby: f
+                    .also_at
+                    .iter()
+                    .filter_map(|loc| paragraph_at(&self.extraction, loc))
+                    .filter(|p| !p.trim().is_empty())
+                    .map(str::to_string)
+                    .collect(),
             })
             .collect();
 
@@ -232,6 +244,7 @@ mod tests {
 
     fn located(location: Option<gaply_core::extract::Location>) -> Finding {
         Finding {
+            also_at: Vec::new(),
             severity: FindingSeverity::Major,
             tier: CertaintyTier::MathematicallyCertain,
             certainty_label: CertaintyTier::MathematicallyCertain.label().into(),

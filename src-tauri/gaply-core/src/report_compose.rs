@@ -467,6 +467,15 @@ fn findings(model: &LocalReportModel, out: &mut Vec<Block>) {
                     indent: 1,
                 });
             }
+            // A grouped row's OTHER occurrences, each quoted. Without these the
+            // title says "raised at 8 places" and the reader can check one of
+            // them. §11 D180.
+            for near in &f.also_nearby {
+                out.push(Block::Bullet {
+                    text: format!("also: \"{}\"", shorten(near)),
+                    indent: 1,
+                });
+            }
         }
     }
 }
@@ -770,6 +779,7 @@ mod tests {
 
     fn finding_with(nearby: Option<&str>) -> crate::report_model::LocalFinding {
         crate::report_model::LocalFinding {
+            also_nearby: Vec::new(),
             id: "f1".into(),
             severity: FindingSeverity::Major,
             tier: crate::report::CertaintyTier::MathematicallyCertain,

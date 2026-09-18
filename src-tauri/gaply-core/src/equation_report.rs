@@ -116,6 +116,7 @@ pub fn arithmetic_finding(
     }
 
     Some(Finding {
+        also_at: Vec::new(),
             // §12.1's GAP, CLOSED. The caller locates `source_line` with
             // `extract::locate_line`; `None` now means the line was not found
             // in exactly one paragraph, which is a decision rather than an
@@ -150,6 +151,7 @@ pub fn dimension_finding(
         return None;
     };
     Some(Finding {
+        also_at: Vec::new(),
             // §12.1's GAP, CLOSED — see `arithmetic_finding`.
             location,
             claim: ClaimKind::ManuscriptDefect,

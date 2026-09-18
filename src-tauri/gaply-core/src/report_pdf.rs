@@ -1614,6 +1614,7 @@ mod tests {
 
     fn finding(id: &str, title: &str, severity: FindingSeverity) -> LocalFinding {
         LocalFinding {
+            also_nearby: Vec::new(),
             id: id.into(),
             severity,
             tier: CertaintyTier::MathematicallyCertain,
@@ -2052,6 +2053,7 @@ mod layout_tests {
             journal_name: Some("PLOS Medicine".into()),
             guidelines_url: None,
             findings: vec![LocalFinding {
+                also_nearby: Vec::new(),
                 id: "f1".into(),
                 severity: FindingSeverity::Major,
                 tier: CertaintyTier::MathematicallyCertain,

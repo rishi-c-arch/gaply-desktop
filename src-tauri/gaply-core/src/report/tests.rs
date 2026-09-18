@@ -1339,8 +1339,18 @@ fn validation_findings_carry_the_location_their_rule_evaluated() {
         &[],
     );
 
-    let mut from_findings: Vec<Location> =
-        report.findings.iter().filter_map(|f| f.location.clone()).collect();
+    // **`location` PLUS `also_at`, because grouping is what makes this test
+    // load-bearing.** §11 D180 merges rows a reader cannot tell apart, so the
+    // three `MissingEffectSize` flags here become ONE finding. Collecting only
+    // `f.location` would then compare 1 against 3 — and "fix" it by asserting
+    // the smaller set, which would silently license losing two locations. The
+    // invariant is that EVERY flag's location still reaches a finding; where it
+    // lands is the grouping's business.
+    let mut from_findings: Vec<Location> = report
+        .findings
+        .iter()
+        .flat_map(|f| f.location.clone().into_iter().chain(f.also_at.iter().cloned()))
+        .collect();
     let mut from_flags: Vec<Location> =
         validation.flags.iter().map(|f| f.location.clone()).collect();
     from_findings.sort();
@@ -1368,6 +1378,61 @@ fn validation_findings_carry_the_location_their_rule_evaluated() {
             "{loc:?} resolved to {text:?}, which is another paragraph's text"
         );
     }
+}
+
+/// **Rows a reader cannot tell apart become ONE row, and no location is lost.**
+/// §11 D180.
+///
+/// Measured on a real manuscript through the product path: 21 findings of which
+/// the first FOURTEEN were three sentences repeated, and the one finding unique
+/// to that paper ranked 15th. `ReportViewerPage` renders `findings.map` with no
+/// dedupe, so that is what a researcher opened.
+///
+/// The golden fixture cannot guard this: all five of its findings are distinct,
+/// so nothing groups there and `skip_serializing_if` keeps `also_at` off the
+/// wire entirely. That is correct behaviour and it is why this test exists.
+#[test]
+fn identical_rows_group_into_one_carrying_every_location() {
+    let ex = crate::extract::extract_from_text(TWO_LOCATED_PARAGRAPHS);
+    let validation = crate::validate::validate(&ex);
+    let report = compile_report(
+        &minimal_outcome(), &validation, None, None, None, TEST_YEAR, vec![], &[], &[],
+    );
+
+    let effect: Vec<&Finding> = report
+        .findings
+        .iter()
+        .filter(|f| f.title.starts_with("statistical rule failed: missing effect size"))
+        .collect();
+    assert_eq!(effect.len(), 1, "the repeats must be ONE row: {:?}", effect);
+
+    let f = effect[0];
+    let places = 1 + f.also_at.len();
+    assert!(places >= 2, "fixture must produce a repeat to group: {f:?}");
+    assert!(
+        f.title.ends_with(&format!("(raised at {places} places)")),
+        "the count must be in the title a reader reads: {:?}",
+        f.title
+    );
+    // **No "all are quoted" at THIS layer.** It holds locations; they become
+    // quotations in `report_build` and not all resolve. Claiming otherwise is
+    // the truncated-span defect from the other side.
+    assert!(!f.title.contains("all are quoted"), "{:?}", f.title);
+
+    // The wire carries the extra locations; an UNGROUPED row carries no key at
+    // all, which is what keeps stored reports byte-identical.
+    let json = serde_json::to_string(f).expect("serialise");
+    assert!(json.contains("\"also_at\""), "a grouped row must carry its locations: {json}");
+    let solo = report
+        .findings
+        .iter()
+        .find(|x| x.also_at.is_empty())
+        .expect("an ungrouped finding");
+    let solo_json = serde_json::to_string(solo).expect("serialise");
+    assert!(
+        !solo_json.contains("also_at"),
+        "an ungrouped row must not gain a key: {solo_json}"
+    );
 }
 
 /// An unresolvable location yields `None`, never `Some("")`.

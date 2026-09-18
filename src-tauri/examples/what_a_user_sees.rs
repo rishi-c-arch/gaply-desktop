@@ -45,7 +45,12 @@ fn main() {
     println!("  by title:");
     for (k, n) in &kinds { println!("    {n:>3}  {k}"); }
     let located = f.iter().filter(|x| !x["location"].is_null()).count();
-    println!("  findings carrying a location: {located} of {}", f.len());
+    let primary = f.iter().filter(|x| !x["location"].is_null()).count();
+    let also: usize = f.iter()
+        .map(|x| x["also_at"].as_array().map(|a| a.len()).unwrap_or(0))
+        .sum();
+    println!("  LOCATIONS: {primary} primary + {also} in also_at = {} total", primary + also);
+    let _ = located;
     println!("  IN RENDER ORDER:");
     for (i, x) in f.iter().enumerate() {
         println!("    {:>2}. [{:<5}] {}", i + 1,

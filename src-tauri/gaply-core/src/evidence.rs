@@ -679,6 +679,7 @@ mod tests {
 
     fn finding(agent: AgentKind, confidence: f64, provenance: &[&str]) -> Finding {
         Finding {
+            also_at: Vec::new(),
             severity: FindingSeverity::Major,
             tier: CertaintyTier::AiAssessedModerate,
             certainty_label: CertaintyTier::AiAssessedModerate.label().into(),
