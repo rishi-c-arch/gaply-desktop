@@ -1508,6 +1508,123 @@ fn a_structured_abstract_item_is_undecided_not_passed() {
     assert!(!it2.unevaluable && !it2.passed, "a missing abstract is a decided FAIL: {it2:?}");
 }
 
+/// A `SectionRequired` requirement naming a statement, as the crawler stores it.
+fn stmt_req(value: &str) -> crate::journal_store::StoredRequirement {
+    crate::journal_store::StoredRequirement {
+        kind: crate::journal_extract::RequirementKind::SectionRequired,
+        value: value.into(),
+        article_type: None,
+        status: "VERIFIED".into(),
+        source_url: "https://example.test/authors".into(),
+        source_heading: "Required statements".into(),
+        source_span: "Manuscripts must include this statement.".into(),
+        conflict_id: None,
+    }
+}
+
+/// **The earliest mention of a topic in a thesis is its TABLE OF CONTENTS.**
+/// §11 D182.
+///
+/// `statement_in_text` took `.min()` over the needle positions, so it returned
+/// the first mention rather than a declaration. Measured over 20 manuscripts it
+/// was right about funding 1 time in 6. Every string here is from the corpus.
+#[test]
+fn a_contents_entry_is_not_a_funding_statement() {
+    // The TOC line appears BEFORE the real statement, which is the whole bug:
+    // `.min()` preferred it by position.
+    const M: &str = "Contents\n\n7  Funding and Financial Constraints\t45\n\n        Methods\n\nWe surveyed 222 firms.\n\n        Funding: Ministry of Health, Oman (Grant MOH/CSR/24/29387).\n";
+    let ex = crate::extract::extract_from_text(M);
+    let reqs = [stmt_req("funding statement")];
+    let items = crate::report::checklist_from_requirements(&ex, M, 40, &reqs, &[]);
+    let f = items
+        .iter()
+        .find(|i| i.requirement.contains("funding"))
+        .expect("the requirement raises the item");
+    assert!(f.passed, "the manuscript HAS a funding statement: {:?}", f.detail);
+    assert!(
+        f.detail.contains("Ministry of Health"),
+        "it must quote the declaration, not the contents entry: {:?}",
+        f.detail
+    );
+    assert!(
+        !f.detail.contains("Financial Constraints"),
+        "the contents entry must not be quoted as the statement: {:?}",
+        f.detail
+    );
+
+    // **The two guards catch DIFFERENT things, and the first version of this
+    // test only exercised one.** Deleting the position rule left it GREEN,
+    // because the contents line above is rejected for ENDING IN A PAGE NUMBER.
+    // This is the case only the position rule catches: prose where the statement
+    // word sits deep inside a sentence that is not TOC-shaped. From the corpus:
+    // "Under ODOP, each of UP's 75 districts was designated a unique traditional
+    // product for promotion, branding, marketing and funding support."
+    const PROSE: &str = "Methods\n\nWe surveyed firms.\n\n        Under ODOP, each of the districts was designated a unique traditional product \
+        for promotion, branding, marketing and funding support.\n";
+    let ex2 = crate::extract::extract_from_text(PROSE);
+    let items2 = crate::report::checklist_from_requirements(&ex2, PROSE, 40, &reqs, &[]);
+    let f2 = items2.iter().find(|i| i.requirement.contains("funding")).expect("raised");
+    assert!(
+        !f2.passed,
+        "a sentence merely mentioning funding is not a funding statement: {:?}",
+        f2.detail
+    );
+}
+
+/// **A statement name inside a reference TITLE is not a declaration.** §11 D182.
+/// From the corpus: *"The ethics of ChatGPT: Exploring the ethical issues of an
+/// emerging technology."* satisfied an ethics-statement requirement.
+#[test]
+fn a_reference_title_is_not_an_ethics_statement() {
+    const M: &str = "Methods\n\nWe surveyed 222 firms.\n\n        References\n\nThe ethics of ChatGPT: Exploring the ethical issues of an         emerging technology.\n";
+    let ex = crate::extract::extract_from_text(M);
+    let reqs = [stmt_req("ethics statement")];
+    let items = crate::report::checklist_from_requirements(&ex, M, 40, &reqs, &[]);
+    let e = items
+        .iter()
+        .find(|i| i.requirement.contains("ethics"))
+        .expect("the requirement raises the item");
+    assert!(!e.passed, "a citation is not the author's declaration: {:?}", e.detail);
+
+    // The negative control: the SAME sentence in the body is still found, so
+    // this test cannot pass by the check having stopped working.
+    const BODY: &str = "Methods\n\nWe surveyed 222 firms.\n\n        Ethical Approval: Ministry of Health, Oman.\n";
+    let ex2 = crate::extract::extract_from_text(BODY);
+    let items2 = crate::report::checklist_from_requirements(&ex2, BODY, 40, &reqs, &[]);
+    let e2 = items2.iter().find(|i| i.requirement.contains("ethics")).expect("raised");
+    assert!(e2.passed, "a real declaration must still be found: {:?}", e2.detail);
+}
+
+/// **A row that judged nothing must not render as a pass.** §11 D182.
+/// `design_independent` removes the standard rows for the pipeline, but any
+/// caller passing bindings still sees these, and green on
+/// *"CHEERS applies to an economic evaluation … Gaply has no evaluator"* is
+/// `Unevaluable` rendered as `Met` for the third time in this log.
+#[test]
+fn a_standard_binding_row_is_undecided_not_passed() {
+    const M: &str = "Methods\n\nWe surveyed 222 firms.\n";
+    let ex = crate::extract::extract_from_text(M);
+    let b = crate::journal_standards::StandardBinding {
+        standard: crate::journal_standards::Standard::Cheers,
+        design: "economic evaluation".into(),
+        source_span: "Economic evaluations must follow CHEERS.".into(),
+    };
+    let items = crate::report::checklist_from_requirements(&ex, M, 40, &[], &[b]);
+    let row = items
+        .iter()
+        .find(|i| i.requirement.contains("applies to"))
+        .expect("the binding raises a row");
+    assert!(!row.passed, "it judged nothing: {:?}", row.detail);
+    assert!(row.unevaluable, "and undecided is the state the type carries");
+
+    // And the pipeline's filter removes it entirely.
+    let kept = crate::report::design_independent(items);
+    assert!(
+        !kept.iter().any(|i| i.requirement.contains("applies to")),
+        "design-dependent rows must not reach the design-independent checklist"
+    );
+}
+
 /// An unresolvable location yields `None`, never `Some("")`.
 ///
 /// The rule path wants `""` (no regex matches it, so no rule fires); the report
@@ -2293,7 +2410,13 @@ mod unbound_standards {
         );
         assert!(row.detail.contains("we read it wrong"), "the finding must invite correction");
         // It is NOT a compliance failure against the manuscript.
-        assert!(row.passed, "a statement about the journal must not mark the manuscript down");
+        // **This asserted `passed` and that was the claim §11 D182 withdrew.**
+        // The rationale — "a statement about the journal must not mark the
+        // manuscript down" — is right, and `passed: true` was the wrong half of
+        // it: green reads as "my manuscript satisfies this" on a row that
+        // judged nothing. `unevaluable` marks nothing down AND claims nothing.
+        assert!(!row.passed, "a row that judged nothing must not render as a pass");
+        assert!(row.unevaluable, "it is undecided, which is a state the type carries");
     }
 
     /// Never named, and we could have checked it: a fact about the journal,

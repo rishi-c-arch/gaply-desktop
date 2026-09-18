@@ -13235,3 +13235,124 @@ DID, not what it does.* A snapshot is a measurement with a timestamp, and the
 timestamp is part of the result.
 
 Three deletion tests, each red at the predicted assertion.
+
+### D182 — the earliest mention of a topic in a thesis is its table of contents
+
+`checklist_from_requirements` finds every required statement the same way:
+`synonyms_for(needle)` then `statement_in_text`. That function was one line:
+
+```rust
+let at = names.iter().filter_map(|n| lower.find(n)).min()?;
+```
+
+**`.min()` is the earliest occurrence in the document, and in a thesis the
+earliest occurrence of any topic word is its CONTENTS ENTRY.** The bias was
+structural, not incidental.
+
+#### Measured across 20 manuscripts, by reading every match
+
+One confirmed false PASS is grounds to check its siblings, and the siblings were
+worse than the one that prompted it:
+
+```
+funding   1 correct of 6        ethics    1 correct of 4
+competing interest 1/1   data availability 1/1   author contribution 1/1
+informed consent 3/4
+```
+
+The wrong matches had three shapes:
+
+| shape | what was quoted as a declaration |
+|---|---|
+| contents entry | *"7  Funding and Financial Constraints    45"* |
+| | *"1 Strengthening Financial Support Mechanisms  271"* |
+| | *"APPENDIX C - ETHICAL CLEARANCE & RESPONDENT DECLARATION  296"* |
+| reference title | *"The ethics of ChatGPT: Exploring the ethical issues of an emerging technology."* |
+| discussion prose | *"Both regulatory and financial support are required simultaneously…"* |
+
+#### The fix found a statement the old rule was HIDING
+
+`Revised Health Economics Paper FINAL (1).docx` was reported as having no funding
+statement worth quoting; the prose sentence above was returned instead. It has
+one:
+
+> *"Funding: Ministry of Health, Oman (Grant MOH/CSR/24/29387)."*
+
+`.min()` reached the discussion sentence first. **The old rule was not merely
+admitting a false match, it was concealing the true one** — which is the
+strongest argument that this was never a tuning problem.
+
+Corpus-wide: **7 correct / 8 false becomes 9 correct / 5 false**, and the entire
+contents-entry class is gone. The residual five are prose, a figure caption, an
+appendix heading and a reference title, all on the two generic needles
+(`funding`, `ethic`). Tightening further trades recall against a 15-case ground
+truth, which is fitting to the corpus, so it is named rather than pursued.
+
+Two conditions, each measured against that ground truth (7 of 7 real statements
+kept, false matches 8 -> 2 before the References exclusion):
+
+* the name begins its sentence (within 40 characters) — real declarations read
+  *"Conflicts of Interest: …"*, *"Funding: …"*, *"Funding Source of Research …"*;
+  the latest genuine one sits at character 34;
+* the sentence is not TOC-shaped — it does not end in a page number;
+* and the search runs over the BODY, because a statement name inside a reference
+  title is never the author's declaration.
+
+#### `Unevaluable` rendered as `Met`, for the third and fourth time in this log
+
+Two checklist rows reported `passed: true` on things nobody checked:
+
+* *"[PASS] CHEERS applies to an economic evaluation … Gaply has no evaluator for
+  this standard yet"* — a pass on a check that does not exist.
+* *"[PASS] CONSORT: named by this journal, but no study design stated"* — a
+  statement about the JOURNAL, rendered green as though the manuscript satisfied
+  something.
+
+Both carried a comment explaining the choice: *"`false` would render as a red
+mark against a manuscript that did nothing wrong."* **That reasoning is right and
+`true` was the wrong half of it.** Green reads as "my manuscript satisfies
+this". `unevaluable` marks nothing down AND claims nothing, and it already
+exists on the type — the same repair as D177's `applies_to` and D178's rule 5.
+The two tests asserting `row.passed` were what kept the claim alive.
+
+#### Wiring the design-independent rows, and why it is a filter at the CALLER
+
+D177 declined the design gate. Its absence is visible to a user the moment the
+requirements checklist ships: measured on Nature Medicine, 46 rows of which **25
+are hedged on an undetermined design and 14 undecided**, including an ARRIVE
+animal-study item evaluated against a cross-sectional employer survey.
+
+`report::design_independent` removes them, used with `bindings: &[]`. Both halves
+are needed and the reason is worth recording: the per-binding and per-item
+standard rows are emitted inside `for b in bindings`, so passing none suppresses
+them at source — the per-item rows CANNOT be filtered afterwards, because their
+`checked_field` names the extraction field each item read, which is real
+information rather than a marker. Passing none does not suppress
+`unbound_standard_findings`, and that is what the filter removes.
+
+**The first attempt gated inside `checklist_from_requirements` on
+`bindings.is_empty()`, and two tests caught it.** That predicate conflates "this
+journal binds no standards" with "this caller does not want standards", and two
+tests exist precisely to exercise the first. The caller says what it wants; the
+function keeps saying what it knows.
+
+Result, four journals, same manuscript:
+
+```
+nature-medicine  46 -> 9 rows    bmj  38 -> 4    plos-medicine 36 -> 5    frontiers 20 -> 4
+0 hedged on a design, 0 undecided, in all four
+```
+
+Nature Medicine's nine are what a checklist should be: a word limit that depends
+on article type, `[FAIL] abstract limit: 150 words — abstract has 306`, five
+statements each quoting the manuscript's own sentence, and
+`[FAIL] code availability statement — none of 3 phrasings found`.
+
+#### A deletion test went green, and the repair was to the TEST
+
+Removing the position rule left `a_contents_entry_is_not_a_funding_statement`
+PASSING. The contents line in that fixture is rejected for ENDING IN A PAGE
+NUMBER — the TOC guard — so the test named one guard and exercised another. It
+now carries a second case that only the position rule catches (prose with the
+statement word deep inside a sentence that is not TOC-shaped), and both guards
+redden independently when deleted.

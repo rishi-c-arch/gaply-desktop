@@ -1762,11 +1762,68 @@ fn synonyms_for(needle: &'static str) -> Vec<&'static str> {
 /// *"found"* has to be checkable: the manuscript's own words are what let a
 /// reader refute it in one glance.
 fn statement_in_text(lower: &str, original: &str, names: &[&str]) -> Option<String> {
-    let at = names.iter().filter_map(|n| lower.find(n)).min()?;
-    let start = original[..at].rfind(['.', '\n']).map(|i| i + 1).unwrap_or(0);
-    let rest = &original[at..];
-    let end = rest.find(['.', '\n']).map(|i| at + i + 1).unwrap_or(original.len());
-    Some(original[start..end].trim().to_string())
+    // **`.min()` found the EARLIEST mention, and in a thesis that is the table of
+    // contents.** §11 D182. Measured over 20 manuscripts, the old rule was right
+    // about funding 1 time in 6 and about ethics 1 in 4, and the wrong matches
+    // had three shapes: TOC lines ("7  Funding and Financial Constraints    45"),
+    // a reference title ("The ethics of ChatGPT: Exploring the ethical issues"),
+    // and discussion prose ("Both regulatory and financial support are
+    // required…"). The bias was structural: the earliest occurrence of any topic
+    // word in a thesis IS its contents entry.
+    //
+    // So this scans EVERY occurrence for one that looks like a DECLARATION,
+    // rather than taking the first mention of the topic. Two conditions,
+    // measured against the corpus (7 of 7 real statements kept, false matches
+    // 8 -> 2):
+    //
+    //   * the name begins its sentence (within 40 chars) — real declarations
+    //     read "Conflicts of Interest: …", "Data Availability: …", "Funding
+    //     Source of Research …"; the latest genuine one sits at char 34.
+    //   * the sentence is not TOC-shaped — it does not end in a page number.
+    //
+    // The two that survive are a reference title (excluded separately by the
+    // caller, which searches non-References text) and one prose sentence whose
+    // only tell is semantic — "are required" versus "was obtained" — which is
+    // not attempted here.
+    for (at, _) in names.iter().flat_map(|n| lower.match_indices(n)) {
+        let start = original[..at].rfind(['.', '\n']).map(|i| i + 1).unwrap_or(0);
+        let rest = &original[at..];
+        let end = rest.find(['.', '\n']).map(|i| at + i + 1).unwrap_or(original.len());
+        let sentence = original[start..end].trim();
+        if at - start >= 40 {
+            continue;
+        }
+        let trimmed = sentence.trim_end();
+        let toc_shaped = trimmed
+            .split_whitespace()
+            .last()
+            .is_some_and(|w| w.len() <= 4 && w.chars().all(|c| c.is_ascii_digit()));
+        if toc_shaped {
+            continue;
+        }
+        return Some(sentence.to_string());
+    }
+    None
+}
+
+/// The manuscript minus its reference list, for statement searching.
+///
+/// **A statement name inside a reference TITLE is never the author's
+/// declaration.** §11 D182: *"The ethics of ChatGPT: Exploring the ethical
+/// issues of an emerging technology."* satisfied an ethics-statement
+/// requirement. Searching the body only removes that class outright, rather
+/// than trying to tell a citation from a declaration by shape.
+fn text_without_references(extraction: &ExtractionResult, fallback: &str) -> String {
+    let body: Vec<&str> = extraction
+        .sections
+        .iter()
+        .filter(|s| s.kind != SectionKind::References)
+        .flat_map(|s| s.paragraphs.iter().map(String::as_str))
+        .collect();
+    if body.is_empty() {
+        return fallback.to_string();
+    }
+    body.join("\n")
 }
 
 /// **A checklist built from a journal's OWN extracted requirements.**
@@ -1910,6 +1967,11 @@ pub fn checklist_from_requirements(
     }
 
     // --- data availability ------------------------------------------------
+    //
+    // **Searched over the BODY, not the whole manuscript. §11 D182.** A
+    // statement name inside a reference title is not the author's declaration.
+    let body_text = text_without_references(extraction, manuscript_text);
+    let manuscript_text = body_text.as_str();
     let lower_text = manuscript_text.to_lowercase();
     if let Some(r) = requirements.iter().find(|r| r.kind == RequirementKind::DataPolicy) {
         let found = statement_in_text(&lower_text, manuscript_text, DATA_AVAILABILITY_NAMES);
@@ -2008,7 +2070,16 @@ pub fn checklist_from_requirements(
             requirement: format!("{} applies to {article} {}", b.standard.as_str(), b.design),
             // Whether the manuscript IS that design is not known here, so this
             // reports the binding rather than judging compliance.
-            passed: true,
+            //
+            // **And "reports rather than judges" is exactly `unevaluable`, not
+            // `passed`. §11 D182.** A green PASS on a row whose own detail opens
+            // "IF your study is a clinical trial" is read as "my manuscript
+            // satisfies CONSORT". It is worst where `published` is `None` —
+            // *"[PASS] CHEERS applies to an economic evaluation … Gaply has no
+            // evaluator for this standard yet"* — a pass on a check that does
+            // not exist. Same defect as D177's specialist and D178's rule 5,
+            // and D177 is precisely why the design is unknown here.
+            passed: false,
             detail: match published {
                 Some(_) => format!(
                     "if your study is {article} {}, this journal {verb} {} reporting. Gaply {}.",
@@ -2031,7 +2102,7 @@ pub fn checklist_from_requirements(
             // `research_state.science.methods`, which is now a declined layer
             // (§11 D165) and was never what decided this row anyway.
             checked_field: Some("journal_requirements.reporting_standard (binding)".into()),
-            unevaluable: false,
+            unevaluable: true,
         });
 
         // --- one row per item, each carrying the fraction -------------------
@@ -2177,16 +2248,65 @@ fn unbound_standard_findings(
             // Neither shape is a compliance failure. `passed` is the wrong axis
             // for a statement about what the journal asked, and `false` would
             // render as a red mark against a manuscript that did nothing wrong.
-            passed: true,
+            //
+            // **Neither is right, and `true` was the wrong half of the choice.
+            // §11 D182.** This row is not a verdict on the manuscript at all —
+            // it says the JOURNAL named a standard without stating which designs
+            // it covers. `passed: true` renders green, which a reader takes as
+            // "my manuscript satisfies this", on a check that was never run.
+            // That is `Unevaluable` rendered as `Met`, the same defect repaired
+            // in `claim_strength::applies_to` (D177) and `validate`'s rule 5
+            // (D178). The third state is the honest one and it already exists.
+            passed: false,
             detail,
             guideline_source: url,
             source_span: span,
             article_type: None,
             checked_field: Some("journal_requirements.reporting_standard (absence)".into()),
-            unevaluable: false,
+            unevaluable: true,
         });
     }
     out
+}
+
+/// **The checklist rows that do NOT depend on knowing the study's design.**
+///
+/// §11 D182. `checklist_from_requirements` also emits reporting-standard rows —
+/// one per binding ("CONSORT applies to a clinical trial") and one per named-but-
+/// unbound standard. Both are hedged on a design the product cannot determine,
+/// because §11 D177 DECLINED the gate that would: its input read `randomised`
+/// out of *"randomised controlled trials could evaluate"* and missed four
+/// live-animal studies entirely. Measured on `Revised Health Economics` against
+/// Nature Medicine, shipping them gives a researcher 46 rows of which 25 are
+/// hedged and 14 undecided — including an ARRIVE animal-study item evaluated
+/// against a cross-sectional employer survey, which is the gate's absence made
+/// visible.
+///
+/// **USE IT WITH `bindings: &[]`, and both halves are needed.** The per-BINDING
+/// rows ("CONSORT applies to a clinical trial") and the per-ITEM rows ("CONSORT
+/// item 1b (if your study is a clinical trial…)") are emitted inside
+/// `for b in bindings`, so passing none suppresses them at the source; the
+/// per-item rows cannot be filtered afterwards because their `checked_field`
+/// names the extraction field each item read, which is real information and not
+/// a marker. What passing none does NOT suppress is
+/// `unbound_standard_findings`, which then reports every standard as unbound —
+/// and that is what this filter removes.
+///
+/// **Filtering here rather than inside `checklist_from_requirements`** keeps
+/// that function's contract whole: `bindings.is_empty()` is NOT the same
+/// statement as "this caller does not want standards" — a journal may genuinely
+/// bind none — and gating on it inside the function broke the two tests written
+/// to exercise exactly that case. The caller says what it wants; the function
+/// keeps saying what it knows.
+pub fn design_independent(items: Vec<ChecklistItem>) -> Vec<ChecklistItem> {
+    items
+        .into_iter()
+        .filter(|i| {
+            !i.checked_field
+                .as_deref()
+                .is_some_and(|f| f.starts_with("journal_requirements.reporting_standard"))
+        })
+        .collect()
 }
 
 /// Deterministic checklist core (separated for direct testing).
