@@ -221,6 +221,34 @@ fn gate_failed_opinion_is_rejected_before_the_round_table() {
 
 // --- offline guarantee ------------------------------------------------------------
 
+/// **An unexamined plagiarism lane ABSTAINS; it does not vote PASS.** §11 D179.
+///
+/// With the self-match half declined, an empty corpus means nothing was
+/// compared. `from_plagiarism` would otherwise answer PASS at 0.7 confidence,
+/// which is a fabricated clean bill entering consensus. The fixture above seeds
+/// a corpus precisely to avoid this path, so without this test the behaviour
+/// would be untested and the seeding would read as incidental.
+#[test]
+fn a_plagiarism_lane_with_no_corpus_is_gate_rejected_rather_than_voting_pass() {
+    let db = crate::Database::in_memory().unwrap();
+    let embedder = crate::embed::HashEmbedder;
+    let mut session = crate::plagiarism::PlagiarismSession::new().unwrap();
+    session.ingest_manuscript(&embedder, "Some manuscript text repeated. Some manuscript text repeated.").unwrap();
+    let plag = session.report(&db, None).unwrap();
+
+    assert_eq!(plag.corpus_chunks_available, 0, "precondition: nothing to compare against");
+    let op = adapters::from_plagiarism(&plag);
+    assert!(!op.gate_passed, "an unexamined lane must be rejected before the debate: {op:?}");
+
+    // And the decline is STATED, not merely implied by an empty vector.
+    assert!(plag.self_matches.is_empty(), "the self-match half is declined");
+    assert!(
+        plag.note.contains("Internal (same-document) duplication is NOT"),
+        "the report must say the self-match half did not run: {}",
+        plag.note
+    );
+}
+
 #[test]
 fn five_local_agents_run_fully_offline() {
     // Only Verification is a network agent — by declaration...
@@ -247,6 +275,24 @@ fn five_local_agents_run_fully_offline() {
 
     let db = crate::Database::in_memory().unwrap();
     let embedder = crate::embed::HashEmbedder;
+    // **The corpus is SEEDED, and it has to be.** Since §11 D179 declined the
+    // self-match half, the plagiarism lane's only comparison is against the
+    // shared corpus, and an EMPTY corpus means it examined nothing — so its
+    // opinion is gate-rejected before the debate rather than voting PASS on a
+    // check that never ran. An empty in-memory db therefore makes this a
+    // 4-agent debate, which is not what this test is named for.
+    crate::rag::ingest_document(
+        &db,
+        &embedder,
+        &crate::rag::RawDocument {
+            source_type: crate::rag::SourceType::Retraction,
+            title: "Corpus seed".into(),
+            source_url: "https://example.test/seed".into(),
+            fetched_at: 0,
+            content: "Unrelated corpus text about metallurgy and furnace temperatures.".into(),
+        },
+    )
+    .unwrap();
     let mut session = crate::plagiarism::PlagiarismSession::new().unwrap();
     session.ingest_manuscript(&embedder, text).unwrap();
     let plag = session.report(&db, None).unwrap();
@@ -477,6 +523,24 @@ fn end_to_end_six_agents_produce_confidence_weighted_result() {
     let ai = crate::ai_detect::detect_text(&model, crate::ai_detect::DeepKind::Absent, text);
     let db = crate::Database::in_memory().unwrap();
     let embedder = crate::embed::HashEmbedder;
+    // **The corpus is SEEDED, and it has to be.** Since §11 D179 declined the
+    // self-match half, the plagiarism lane's only comparison is against the
+    // shared corpus, and an EMPTY corpus means it examined nothing — so its
+    // opinion is gate-rejected before the debate rather than voting PASS on a
+    // check that never ran. An empty in-memory db therefore makes this a
+    // 4-agent debate, which is not what this test is named for.
+    crate::rag::ingest_document(
+        &db,
+        &embedder,
+        &crate::rag::RawDocument {
+            source_type: crate::rag::SourceType::Retraction,
+            title: "Corpus seed".into(),
+            source_url: "https://example.test/seed".into(),
+            fetched_at: 0,
+            content: "Unrelated corpus text about metallurgy and furnace temperatures.".into(),
+        },
+    )
+    .unwrap();
     let mut session = crate::plagiarism::PlagiarismSession::new().unwrap();
     session.ingest_manuscript(&embedder, text).unwrap();
     let plag = session.report(&db, None).unwrap();

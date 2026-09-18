@@ -749,7 +749,14 @@ fn run_pipeline_inner(
         // `validate()` iterates `result.statistics`; empty in, no flags out.
         validation_examined: !extraction.statistics.is_empty(),
         // Nothing to compare against, and too few chunks for self-overlap.
-        plagiarism_examined: plag.corpus_chunks_available > 0 || plag.chunk_count >= 2,
+        // **`chunk_count >= 2` used to be enough, and stopped being true.** It
+        // meant "the manuscript was long enough to self-compare", which was a
+        // real examination while the self-match half shipped. That half is
+        // declined (§11 D179), so the only comparison left is against the shared
+        // corpus — and with an empty corpus this lane examines NOTHING. Leaving
+        // the old disjunction would keep "Text similarity" out of the report's
+        // "What was not examined" list for every manuscript with two chunks.
+        plagiarism_examined: plag.corpus_chunks_available > 0,
         // Below the stylometry gates no eligible finding is possible.
         ai_detection_examined: text.split_whitespace().count() >= MIN_STYLOMETRY_WORDS,
         // Its eligible outputs are table-caption and reference-recency findings.
@@ -1122,6 +1129,58 @@ Diekelmann S and Born J. 2010. The memory function of sleep. Nature Reviews Neur
         assert!(
             !out.lanes.verification_examined,
             "a refused lane examined nothing and must not count as having run"
+        );
+    }
+
+    /// **An empty corpus means the plagiarism lane examined NOTHING.** §11 D179.
+    ///
+    /// Predicted red and got green the first time this was deletion-tested:
+    /// reverting `plagiarism_examined` to its old
+    /// `|| plag.chunk_count >= 2` disjunction broke no test, because none
+    /// existed. A silenced lane that still reports "examined" is the defect
+    /// D178 recorded, and it was unguarded here.
+    #[test]
+    fn a_plagiarism_lane_with_no_corpus_did_not_examine_anything() {
+        force_heuristic();
+        // **Long enough to produce two or more chunks, deliberately.** The
+        // golden manuscript is ONE chunk, so the old `chunk_count >= 2` rule
+        // would not have fired for it either and the test would prove nothing
+        // — which the precondition below caught on the first run.
+        let body: String = (1..=900)
+            .map(|i| format!("Sentence {i} reports an observation about the cohort. "))
+            .collect();
+        let manuscript = format!(
+            "Long Manuscript\n\nAbstract\nA study (n = 96) reported outcomes (p < 0.01).\n\n\
+             Methods\nWe used a paired t-test.\n\nResults\n{body}\n\nReferences\n\
+             Doe, J. (2022). Title. Journal, 1(1), 1-9.\n"
+        );
+        let manuscript = manuscript.as_str();
+        let db = Arc::new(Database::in_memory().expect("in-memory db"));
+        let embedder: Arc<dyn Embedder> = Arc::new(gaply_core::embed::HashEmbedder);
+        let path = std::env::temp_dir().join(format!("gaply_plag_{}.txt", std::process::id()));
+        std::fs::write(&path, manuscript).expect("write");
+        let out = run_pipeline_inner(
+            db,
+            embedder,
+            path.to_string_lossy().to_string(),
+            None,
+            None,
+            None,
+            NetworkConsent::Denied,
+            &|_ev| {},
+        )
+        .expect("pipeline completes");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(out.plagiarism.corpus_chunks_available, 0, "precondition: no corpus");
+        assert!(
+            out.plagiarism.chunk_count >= 2,
+            "precondition: long enough that the OLD rule would have said 'examined' ({} chunks)",
+            out.plagiarism.chunk_count
+        );
+        assert!(
+            !out.lanes.plagiarism_examined,
+            "nothing was compared, so the lane must not count as having run"
         );
     }
 

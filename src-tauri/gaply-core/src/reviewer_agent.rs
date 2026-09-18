@@ -1081,7 +1081,13 @@ pub struct LaneExamination {
     pub verification_examined: bool,
     /// Zero statistical claims extracted — `validate()` iterates them.
     pub validation_examined: bool,
-    /// No corpus to compare against AND fewer than two chunks for self-overlap.
+    /// **True only when there was a corpus to compare against.** It used to also
+    /// accept "two or more chunks", meaning the manuscript was long enough to
+    /// compare against ITSELF — a real examination until §11 D179 declined the
+    /// self-match half. With that half withdrawn, an empty corpus means this
+    /// lane examined nothing, and the old disjunction would have kept "Text
+    /// similarity" out of the report's *What was not examined* list for every
+    /// manuscript with two chunks.
     pub plagiarism_examined: bool,
     /// Text below the stylometry gates, so no eligible finding was possible.
     pub ai_detection_examined: bool,

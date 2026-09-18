@@ -421,6 +421,15 @@ pub mod adapters {
             .map(|m| m.similarity)
             .fold(0.0_f64, f64::max);
         let matched = strongest >= r.threshold;
+        // **An unexamined lane must not vote PASS.** With the self-match half
+        // declined (§11 D179) the only remaining comparison is against the
+        // shared corpus, so an EMPTY corpus means nothing was compared at all —
+        // and `strongest` is then 0.0, `matched` false, and this would answer
+        // PASS at 0.7 confidence into the round-table. That is a fabricated
+        // clean bill entering consensus, the same shape as a declined
+        // specialist reporting `passed: true` (§11 D178). `gate_passed: false`
+        // rejects the opinion before the debate instead.
+        let examined = r.corpus_chunks_available > 0;
         Opinion {
             agent: AgentKind::Plagiarism,
             answer: if matched { ANSWER_CONCERN.into() } else { ANSWER_PASS.into() },
@@ -433,7 +442,7 @@ pub mod adapters {
             ),
             confidence: if matched { strongest } else { 0.7 },
             hard_constraint: false,
-            gate_passed: true,
+            gate_passed: examined,
         }
     }
 

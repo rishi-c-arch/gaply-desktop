@@ -645,7 +645,12 @@ fn limitations(model: &LocalReportModel, out: &mut Vec<Block>) {
     let unexamined: Vec<&str> = [
         (!l.verification_examined, "Reference checking: no references were parsed."),
         (!l.validation_examined, "Statistical checking: no statistics were found."),
-        (!l.plagiarism_examined, "Text similarity: nothing was available to compare against."),
+        (
+            !l.plagiarism_examined,
+            "Text similarity: no comparison library was available, so nothing was compared \
+             against. Repeated text WITHIN this manuscript is not covered by this check \
+             either; the exact-match check covers that.",
+        ),
         (!l.ai_detection_examined, "AI writing signals: the manuscript was too short to score."),
         (!l.extraction_examined, "Table and reference checks: neither was found."),
     ]

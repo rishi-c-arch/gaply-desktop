@@ -12826,3 +12826,158 @@ ABSENCE, so a silent reinstatement fails.
    and stops reproduces this defect.
 2. **A corpus containing genuinely underpowered studies**, so recall can be
    measured at all. Twenty manuscripts produced none.
+
+### D179 — the duplication lane found none of the duplication and 1879 of the things that were not: zero precision and zero recall on the same document
+
+**The largest decline in this log.** The embedding-similarity plagiarism lane's
+SELF-match half shipped **1879 Major "internal duplication" findings across 20
+manuscripts**, and it is withdrawn. `corpus_matches` is untouched, for a reason
+recorded at the end.
+
+#### Recall first, because it is the case
+
+`Disha Correction .docx` contains two genuinely duplicated passages: **350 words
+and 343 words, repeated verbatim, Jaccard 1.000.** The lane produced **278 Major
+findings on that document and neither of them.** All 278 excerpts were dumped
+and searched for the distinctive opening of each block; both counts are zero.
+
+Corpus-wide the true positives are not scarce. `plagiarism_exact` — the
+deterministic winnowing matcher that already ships as the
+`check_plagiarism_exact` command — finds passages repeated verbatim at
+distances that exclude any overlap artefact:
+
+```
+4-5.docx           19 verbatim passages >= 150 words   incl. 457 words,
+                                                       A[85720..88791] vs B[255178..258252]
+                                                       — 169,458 characters apart
+final final L.pdf  13
+Disha Correction    2
+the other 17        0
+```
+
+So the capability is **not undeliverable — it is already delivered**, correctly,
+one module over, by a matcher that verifies verbatim and carries real character
+spans in BOTH locations. That is what makes this a decline rather than a
+threshold move: nothing is lost by withdrawing the signal.
+
+#### Precision: five mechanisms, and the count of them is the argument
+
+Fifteen pairs were read across the strongest structural candidates. **All
+fifteen are different text.** They fail for five distinct reasons:
+
+| # | mechanism | what was read |
+|---|---|---|
+| 1 | shared sentence scaffolding | two DIFFERENT hypotheses, both *"This hypothesis is based on the theory of…"* — scored **0.977** |
+| 2 | single-topic vocabulary | a limnology chapter, 18 of its 21 chunks "matched" |
+| 3 | **reference lists** | *"Ahmad, M., … silver nanoparticles"* against *"Synthesis of metallic nanoparticles using plant extracts"* |
+| 4 | **Turnitin report boilerplate** | *"Integrity Overview Submission ID trn:oid:::3117:616484955 Page 10 of 401"* — front matter bound into the PDF, not manuscript text |
+| 5 | **numeric data tables** | *"± 123.28 … BDL BDL … Chlorides (mg/L)"* against different measurements |
+
+**Mechanisms 3, 4 and 5 are immune to the embedder by construction.** A
+bibliography IS similar to a bibliography; a numeric table IS similar to a
+numeric table. A better model scores those HIGHER. They need section exclusion,
+which is a different change and is unmeasured. Only 1 and 2 are the kind an
+embedder might address, and those are exactly the two that cannot be separated
+from genuine paraphrase without a calibrated true positive.
+
+**Do not read this entry as "swap the embedder and it works."**
+
+#### The negative control: the threshold sits inside the noise floor
+
+25,111 chunk pairs from UNRELATED manuscripts, embedded by the shipped
+`HashEmbedder` (signed-hash bag-of-words, no stopword removal, no IDF —
+`src/lib.rs`, the Tauri `setup` closure, so this is production and not a test
+double):
+
+```
+median 0.523    p75 0.653    p95 0.762    max 0.969
+>= 0.80 (the shipped threshold): 437 pairs (1.7%)
+```
+
+A physics thesis chunk and an edu-tech survey chunk reach **0.969**. The bar is
+0.04 above the p95 of pure noise. Within one document, where every chunk shares
+the author's vocabulary, the baseline is higher still — which is why **63% of
+all chunks in the corpus match something in their own document.**
+
+#### THE METHOD ERROR, which is the most transferable thing here
+
+The instruction was to select candidates WITHOUT using the suspect signal. The
+selection used contiguous "runs" — 1879 rows collapsing to 126 runs, 28 of them
+with exactly one target — which is structural rather than semantic, and felt
+independent. **It was not. Those runs were computed from cosine's own matches.**
+Structural selection AMONG a broken instrument's output is still that
+instrument's output, and concluding from the resulting absence compounded it
+into a confident wrong answer: *"no manuscript in twenty contains genuine
+self-duplication."* Thirty-four passages do.
+
+The independent instrument existed in the tree the whole time and was found by
+an **accidental grep** for `self_matches`, not by looking for it.
+
+**Both predictions were wrong, in the same direction — toward the conclusion
+already reached:**
+
+| predicted | measured |
+|---|---|
+| no true positives exist in the corpus | **34 passages >= 150 words across 3 manuscripts** |
+| the exact matcher will find far FEWER matches | **79,807 vs 1,879 — 42x MORE** |
+
+This is §14's family with the loop closed by an accident rather than by method.
+The rule that would have caught it: **before concluding from absence, name the
+instrument that would have shown presence, and check that it is not the one
+under suspicion.**
+
+#### The min_match_words caveat, carried deliberately
+
+`plagiarism_exact`'s `DEFAULT_MIN_MATCH_WORDS = 8`, so the great majority of
+those 79,807 are ordinary academic phrases and are NOT evidence of duplication.
+Only the long matches are: **34 at >= 150 words.** Its `duplication_ratio` (0.690
+for `4-5.docx`) counts bytes covered by ANY match including the 8-word ones, and
+is inflated by exactly the over-counting the 278 had. **That number must not be
+put in front of a user without re-deriving it at a real threshold.**
+
+#### The trap: three places would have read as "checked and clean"
+
+Silencing a lane makes it report success unless each consumer is corrected —
+D178's lesson, met again three times in one change:
+
+1. **`swarm::adapters::from_plagiarism`** computed `strongest` over both match
+   lists and answered `ANSWER_PASS` at 0.7 confidence when nothing matched. With
+   the self half declined and an empty corpus, that is a fabricated clean bill
+   entering the round-table consensus. It now sets `gate_passed: false` when
+   `corpus_chunks_available == 0`, which rejects the opinion before the debate.
+2. **`pipeline.rs`'s `plagiarism_examined`** was
+   `corpus_chunks_available > 0 || chunk_count >= 2`. The second disjunct meant
+   "long enough to self-compare", which was a real examination while the self
+   half shipped and stopped being one. It is now `corpus_chunks_available > 0`,
+   so "Text similarity" appears in the report's *What was not examined* list
+   whenever nothing was compared.
+3. **The user-facing sentence** said only *"nothing was available to compare
+   against"*, which would leave a reader thinking internal duplication was
+   covered. It now says it is not, and names the check that does cover it.
+
+The golden report changed in exactly two keys and **nothing was lost**:
+`debate.rejected_agents` `[]` -> `["plagiarism"]`, and `harness_notes` gains one
+entry carrying `output_rejected_by_internal_gate` plus the decline sentence.
+`verdict`, `combined_confidence`, `findings`, `evidence` and `checklist` are
+byte-identical. The decline is therefore VISIBLE in the report a user opens,
+which is the §11 D177 requirement met at the surface rather than asserted.
+
+#### Scope, and why it stops where it does
+
+`self_plagiarism()` is KEPT, public, and still tested: it detects a verbatim
+repeat correctly on constructed input, and that test now records that the input
+is synthetic and the corpus has no counterpart. What is declined is SHIPPING its
+output.
+
+**`corpus_matches` is untouched.** Every measurement in this entry ran with
+`corpus_chunks_available: 0`, so the corpus half was never exercised. Declining
+an unmeasured thing is the precise error this record is about, and it is not
+going to be committed twice in the same entry.
+
+#### The condition that reopens it
+
+A self-duplication signal may ship again when it can find the 34 passages this
+corpus contains AND clears the five mechanisms above on the same run — measured
+against `plagiarism_exact`'s output as the reference, which is what a true
+positive looks like here. Section exclusion (references, front matter, tables)
+is a prerequisite for mechanisms 3-5 and is a separate, unmeasured change.

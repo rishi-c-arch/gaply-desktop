@@ -43,6 +43,13 @@ pub const ISOLATION_NOTE: &str = "User-uploaded text is analyzed in a per-sessio
 store and is never written to the shared corpus. Similarity is a lexical-overlap signal for \
 human review, not a determination of plagiarism.";
 
+/// Why `self_matches` is always empty, carried in every report's `note` so the
+/// absence is stated rather than inferred. §11 D179.
+pub const SELF_MATCH_DECLINE_NOTE: &str = "Internal (same-document) duplication is NOT \
+checked here: the embedding-similarity signal could not distinguish repeated text from an \
+author's repeated vocabulary, so it was withdrawn rather than shown. Verbatim recycled text \
+IS checked, deterministically, by the exact-match plagiarism check.";
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MatchSource {
@@ -240,8 +247,39 @@ impl PlagiarismSession {
             corpus_chunks_available: corpus_chunk_count(shared)?,
             threshold: t,
             corpus_matches: self.compare_to_corpus(shared, t, 5)?,
-            self_matches: self.self_plagiarism(t)?,
-            note: ISOLATION_NOTE.to_string(),
+            // **The SELF-match half is DECLINED. §11 D179.**
+            //
+            // `self_plagiarism` is kept, public, and still tested — it detects a
+            // verbatim repeat correctly on constructed input. What is declined
+            // is SHIPPING its output as findings, because measured over 20 real
+            // manuscripts it had zero precision AND zero recall:
+            //
+            // * 1879 Major "internal duplication" findings corpus-wide;
+            //   15 pairs read across the strongest structural candidates, all 15
+            //   different text.
+            // * On `Disha Correction .docx` it produced 278 findings and found
+            //   NEITHER of that document's two genuine verbatim repeats — 350
+            //   and 343 words, Jaccard 1.000 — which `plagiarism_exact` locates
+            //   with character spans in both places.
+            //
+            // The negative control is why: embedding 25,111 chunk pairs from
+            // UNRELATED manuscripts gives median cosine 0.523 and p95 0.762
+            // against a shipped threshold of 0.80, with 437 pairs (1.7%) over
+            // the bar and a maximum of 0.969. The threshold sits inside the
+            // noise floor, so "similar" cannot be told from "written by the same
+            // author about the same topic".
+            //
+            // **The capability is not undeliverable — it is already delivered.**
+            // `plagiarism_exact` is deterministic winnowing with verified
+            // verbatim matches, ships as the `check_plagiarism_exact` command,
+            // and is reachable from the Checks screen.
+            //
+            // Scope: `corpus_matches` is UNTOUCHED. Every measurement here ran
+            // with `corpus_chunks_available: 0`, so the corpus half was never
+            // exercised, and declining an unmeasured thing is the error this
+            // decision record is about.
+            self_matches: Vec::new(),
+            note: format!("{ISOLATION_NOTE} {SELF_MATCH_DECLINE_NOTE}"),
         })
     }
 }
@@ -370,6 +408,56 @@ mod tests {
         }
     }
 
+    /// **THE GUARD ON THE DECLINE, and it exists because the obvious one did
+    /// not work.** §11 D179 declined shipping `self_plagiarism`'s output. The
+    /// first attempt to deletion-test that — restore the call in `report()` and
+    /// predict a red suite — went GREEN: every plagiarism fixture in the tree,
+    /// including the golden manuscript, is too short to produce two
+    /// NON-ADJACENT chunks, so the restored call returned empty and nothing
+    /// could tell the difference. A decline whose removal changes no test is
+    /// not declined, it is coincidental.
+    ///
+    /// This pins BOTH halves on input that genuinely matches: the function
+    /// still finds the repeat, and the report still does not carry it.
+    #[test]
+    fn report_ships_no_self_matches_even_when_the_function_finds_them() {
+        let phrase = "alpha bravo charlie delta echo foxtrot golf hotel";
+        let filler: String = (1..=22).map(|i| format!("f{i} ")).collect();
+        let text = format!("{phrase} {filler} {phrase}");
+
+        let mut session = PlagiarismSession::new().unwrap();
+        session.ingest_with(&HashEmbedder, &text, 8, 2).unwrap();
+
+        // Precondition: on THIS input the function does find the repeat, so the
+        // assertion below cannot pass by the input being unmatchable.
+        assert!(
+            !session.self_plagiarism(0.9).unwrap().is_empty(),
+            "precondition: the function must find this repeat, or the guard is vacuous"
+        );
+
+        let db = crate::Database::in_memory().unwrap();
+        let report = session.report(&db, Some(0.9)).unwrap();
+        assert!(
+            report.self_matches.is_empty(),
+            "the declined half must not reach a report: {:?}",
+            report.self_matches
+        );
+        assert!(
+            report.note.contains(SELF_MATCH_DECLINE_NOTE),
+            "and the report must SAY the half did not run: {}",
+            report.note
+        );
+    }
+
+    /// **This test is why `self_plagiarism` is KEPT rather than deleted.** The
+    /// function detects a verbatim repeat correctly — on SYNTHETIC input: a
+    /// distinctive 8-token phrase with no shared vocabulary structure, at
+    /// threshold 0.9. §11 D179 measured what it does on 20 real manuscripts
+    /// instead: 1879 findings, zero verified real, and it missed the two
+    /// genuine 350- and 343-word verbatim repeats in the document where it
+    /// raised 278. Shipping its output is declined; the function is not broken
+    /// in the sense this test checks, and the gap between those two statements
+    /// is the whole entry.
     #[test]
     fn self_plagiarism_flags_repeated_distant_passage() {
         // a distinctive 8-token phrase, 22 tokens of filler, then the phrase again
