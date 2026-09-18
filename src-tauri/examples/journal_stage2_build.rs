@@ -264,6 +264,8 @@ fn main() {
             store_fingerprint_provenance(
                 &db,
                 &FingerprintProvenance {
+                    // A real crawl, by construction — this harness IS the crawl.
+                    origin: "crawled".into(),
                     journal_key: key.to_string(),
                     version: 1,
                     content_hash: format!("{:x}", hasher.finalize()),

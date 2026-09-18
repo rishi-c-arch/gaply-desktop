@@ -13599,3 +13599,80 @@ on a snapshot answers *"how old is this"*, and an hour-long crawl is one
 snapshot rather than 213 independently-aged facts. It must never be read as a
 per-page fetch time, and widening its meaning to claim that would be D184's move
 one step smaller.
+
+### D186 — the ten profiled journals ship with the app, and a bundled row cannot pass for a fetched one
+
+D183 made the checklist read `journal_requirements`. **Nothing put anything
+there.** No crawl command is registered and nothing in the frontend invokes one;
+`journal_requirements` is populated only by `examples/`, which do not ship. So on
+every install the tables are empty, `journal_profiles` returns ten journals with
+`ingested: false`, the picker filters all ten out, and a researcher gets four
+structural rows.
+
+**The feature shipped dormant** — the fifth instance in one day of a correct
+implementation with no path to a user, and the first one introduced by this log
+rather than found in it.
+
+#### Why a seed rather than a crawl command
+
+213 requirements extracted from public author-guidelines pages are not user data.
+A crawl on each machine would make every user re-run a 120-page fetch against ten
+publishers to derive a fixed answer that already exists — measured at **one hour
+wall-clock** for the run that produced this seed. The dormant option ships a
+feature whose entire value is invisible.
+
+`gaply-core/data/journal-seed.json` (327 KB, `include_str!`) carries 213
+requirements, 50 bindings, 50 conventions, 258 expectations and 10 fingerprints
+from the D185 re-crawl — the one that came back byte-identical to September, so
+the snapshot is known to be stable rather than assumed to be.
+
+#### Provenance, not just rows
+
+Every requirement carries `source_url`, `source_heading` and `source_span` — the
+journal's own sentence — and `fetched_at`, the SNAPSHOT time. A row a researcher
+reads says both what the journal wrote and how old the reading is:
+
+```
+[FAIL] abstract limit: 150 words — abstract has 306 words
+       journal said: "Format Abstract – up to 150 words, unreferenced."
+```
+
+and the picker row says where it came from and when:
+
+```
+Nature Medicine  [Q1]  Gaply has read this journal's guidelines — 39 requirements
+                       · bundled with this release, 18/09/2026
+```
+
+#### Seeded and crawled are distinguishable, and stay that way
+
+Migration 25's `journal_fingerprints.origin` (`CHECK (origin IN ('crawled',
+'bundled'))`) is written `bundled` by `load_bundled_seed` and `crawled` by
+`store_fingerprint_provenance` — explicitly in both, never left to the column
+default, so the value is a statement rather than an absence. It is carried
+through `FingerprintProvenance` -> `JournalProfileRow` -> the picker.
+
+A later crawl REPLACES the row and the origin with it, so the distinction
+survives exactly as long as it is true. `DEFAULT 'crawled'` is honest for rows
+predating the migration: every fingerprint written before it came from a real
+fetch on the machine holding it.
+
+#### The seed never overwrites a crawl
+
+A journal is seeded only when it has NO fingerprint row — a machine that has
+crawled holds fresher data by definition. Pinned three ways, and the second is
+the one that matters:
+
+* a fresh database gets ten journals, 213 requirements, `origin: bundled`, and
+  the rows are read back through the REAL reader rather than counted;
+* a journal already crawled is skipped, keeps `origin: crawled`, keeps its own
+  `content_hash` and `version` — **and the other nine still seed**, because
+  skipping is per journal and a global skip would have passed the first test;
+* loading twice adds nothing.
+
+#### A failure to seed is not a failure to start
+
+The startup load logs and continues. A stranger whose seed load fails gets the
+structural checklist — which is what they had before the seed existed — rather
+than an app that will not open. The seed makes the journal layer visible; it is
+not load-bearing for anything else.

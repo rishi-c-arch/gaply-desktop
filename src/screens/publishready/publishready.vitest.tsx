@@ -316,6 +316,7 @@ describe('§11 D183 · profiled journals in the picker', () => {
       name: 'Nature Medicine',
       entry: 'https://www.nature.com/nm',
       ingested: true,
+      origin: 'bundled',
       requirement_count: 39,
       conflict_count: 0,
       convention_count: 0,
@@ -352,6 +353,34 @@ describe('§11 D183 · profiled journals in the picker', () => {
     });
     const plain = await screen.findByTestId('pr-journal-unprofiled-Lancet Oncology');
     expect(plain.textContent!.toLowerCase()).toContain('structural checks only');
+  });
+
+  it('says whether a profile was bundled or fetched here, and when', async () => {
+    renderPR({ forceTier: 'premium', bridge: makePublishReadyMock(REPORT) });
+    await screen.findByTestId('pr-entry');
+    fireEvent.change(screen.getByTestId('pr-journal-input'), {
+      target: { value: 'nature medicine' },
+    });
+    const row = await screen.findByTestId('pr-journal-profiled-Nature Medicine');
+    // **§11 D186.** "shipped in the app" and "this machine fetched it from the
+    // journal" answer different questions for a researcher weighing a limit
+    // that may be months old, and the date is the half they act on.
+    expect(row.textContent).toContain('bundled with this release');
+    expect(row.textContent).toMatch(/\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}/);
+
+    // A locally crawled profile must NOT say "bundled".
+    vi.spyOn(fpBridge.tauriJournalFingerprintBridge, 'profiles').mockResolvedValue([
+      { ...profiled[0], origin: 'crawled' },
+    ] as any);
+    cleanup();
+    renderPR({ forceTier: 'premium', bridge: makePublishReadyMock(REPORT) });
+    await screen.findByTestId('pr-entry');
+    fireEvent.change(screen.getByTestId('pr-journal-input'), {
+      target: { value: 'nature medicine' },
+    });
+    const crawled = await screen.findByTestId('pr-journal-profiled-Nature Medicine');
+    expect(crawled.textContent).toContain('fetched on this device');
+    expect(crawled.textContent).not.toContain('bundled');
   });
 
   it('shows a journal in BOTH sets exactly once, and it is the profiled one', async () => {

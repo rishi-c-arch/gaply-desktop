@@ -127,6 +127,15 @@ pub struct FingerprintProvenance {
     /// quarantined fingerprint without saying so is showing poisoned input.
     pub quarantined_at: Option<i64>,
     pub quarantine_reason: Option<String>,
+    /// **`crawled` or `bundled` — where this profile came from. §11 D186.**
+    ///
+    /// `fetched_at` says WHEN; this says WHO fetched it. A snapshot that shipped
+    /// in the app and one this machine pulled from the journal answer different
+    /// questions for a reader deciding whether to trust a word limit, and a
+    /// screen that renders them identically has hidden the difference — the same
+    /// reason the picker does not let a profiled journal look like an unprofiled
+    /// one. A later crawl replaces the row and this value with it.
+    pub origin: String,
 }
 
 /// §7's three parts plus provenance and the standard bindings.
@@ -251,7 +260,7 @@ pub fn fingerprint_for(
     let provenance = conn
         .query_row(
             "SELECT version, content_hash, fetched_at, refetch_after, source_count,
-                    quarantined_at, quarantine_reason
+                    quarantined_at, quarantine_reason, origin
                FROM journal_fingerprints WHERE journal_key = ?1",
             rusqlite::params![journal_key],
             |row| {
@@ -264,6 +273,7 @@ pub fn fingerprint_for(
                     source_count: row.get(4)?,
                     quarantined_at: row.get(5)?,
                     quarantine_reason: row.get(6)?,
+                    origin: row.get(7)?,
                 })
             },
         )

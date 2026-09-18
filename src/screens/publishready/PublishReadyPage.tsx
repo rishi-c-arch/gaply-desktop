@@ -177,6 +177,8 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
           | null,
         key: p.key,
         requirementCount: p.requirement_count,
+        origin: p.origin,
+        fetchedAt: p.fetched_at,
       }));
     const taken = new Set(profiled.map((p) => norm(p.name)));
     const scopus = JOURNALS.filter(
@@ -186,6 +188,8 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
       quartile: j.quartile ?? null,
       key: undefined as string | undefined,
       requirementCount: 0,
+      origin: null as string | null,
+      fetchedAt: null as number | null,
     }));
     return [...profiled, ...scopus].slice(0, 6);
   }, [journalQuery, profiles]);
@@ -480,6 +484,21 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
                     <span className="gds-pr__profiled" data-testid={`pr-journal-profiled-${j.name}`}>
                       Gaply has read this journal&apos;s guidelines — {j.requirementCount}{' '}
                       requirements
+                      {/* **Where it came from, and when. §11 D186.** A snapshot
+                          that shipped in the app and one this machine fetched
+                          from the journal answer different questions, and the
+                          date is what a researcher weighs when a limit is
+                          months old. Rendering them alike would hide the
+                          difference, which is the defect this whole row exists
+                          to avoid. */}
+                      {j.fetchedAt ? (
+                        <span className="gds-pr__provenance">
+                          {' · '}
+                          {j.origin === 'bundled' ? 'bundled with this release' : 'fetched on this device'}
+                          {', '}
+                          {new Date(j.fetchedAt * 1000).toLocaleDateString()}
+                        </span>
+                      ) : null}
                     </span>
                   ) : (
                     <span

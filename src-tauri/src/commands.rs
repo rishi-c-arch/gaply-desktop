@@ -522,6 +522,13 @@ pub struct JournalProfileRow {
     pub version: Option<i64>,
     pub fetched_at: Option<i64>,
     pub quarantine_reason: Option<String>,
+    /// **`crawled` or `bundled`. §11 D186.** `None` when never ingested.
+    ///
+    /// The picker shows it because "shipped in the app" and "this machine
+    /// fetched it from the journal" are different provenance, and a row that
+    /// renders them alike has hidden the difference. `fetched_at` beside it says
+    /// how old the snapshot is.
+    pub origin: Option<String>,
 }
 
 /// The ten profiled journals with what ingestion found for each.
@@ -558,6 +565,7 @@ pub async fn journal_profiles(
                 by_model,
                 version: fp.provenance.as_ref().map(|p| p.version),
                 fetched_at: fp.provenance.as_ref().map(|p| p.fetched_at),
+                origin: fp.provenance.as_ref().map(|p| p.origin.clone()),
                 quarantine_reason: fp.provenance.and_then(|p| p.quarantine_reason),
             });
         }

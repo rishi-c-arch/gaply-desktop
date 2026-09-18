@@ -78,6 +78,8 @@ export interface FingerprintProvenance {
   content_hash: string;
   /** Unix seconds. */
   fetched_at: number;
+  /** `crawled` | `bundled` — who fetched it (§11 D186). */
+  origin: string;
   refetch_after: number;
   source_count: number;
   quarantined_at: number | null;
@@ -112,4 +114,6 @@ export interface JournalProfileRow {
   version: number | null;
   fetched_at: number | null;
   quarantine_reason: string | null;
+  /** `crawled` | `bundled`; null when never ingested (§11 D186). */
+  origin: string | null;
 }

@@ -89,6 +89,35 @@ pub fn run() {
             }
 
             let db = Arc::new(Database::open(&config.db_path)?);
+
+            // **The bundled journal snapshot. §11 D186.**
+            //
+            // Without it the picker's profiled set is EMPTY on every install —
+            // `journal_profiles` returns ten journals with `ingested: false`,
+            // the picker filters them all out, and the checklist a researcher
+            // gets is the four structural rows. The feature would ship dormant.
+            //
+            // It never overwrites a crawl: a journal is seeded only when it has
+            // no fingerprint row, and seeded rows are marked `bundled` so a
+            // screen can tell them from ones this machine fetched.
+            //
+            // A failure here is logged and NOT fatal. A stranger whose seed load
+            // failed gets the structural checklist — which is what they had
+            // before the seed existed — rather than an app that will not start.
+            match gaply_core::journal_store::load_bundled_seed(&db) {
+                Ok(r) if !r.seeded.is_empty() => tracing::info!(
+                    seeded = ?r.seeded,
+                    requirements = r.requirements,
+                    bindings = r.bindings,
+                    "bundled journal snapshot loaded"
+                ),
+                Ok(r) => tracing::debug!(
+                    already_present = ?r.skipped_already_present,
+                    "bundled journal snapshot: nothing to seed"
+                ),
+                Err(e) => tracing::warn!(error = %e, "bundled journal snapshot did not load"),
+            }
+
             let embedder = Arc::new(gaply_core::embed::HashEmbedder);
             app.manage(AppState::new(config, db.clone(), db, embedder, data_dir.clone()));
 
