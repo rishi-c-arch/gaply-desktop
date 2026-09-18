@@ -13449,3 +13449,153 @@ shape as a refusal nothing renders.
 Four deletion tests: dropping the key from the picker's click reddens the
 key-reaches-the-run test; appending instead of merging reddens both the
 appears-once test and the key test.
+
+### D184 — a hardcoded clock in the harness that produces the numbers everything else rests on
+
+```rust
+// examples/journal_stage2_build.rs
+let now = 1_789_200_000i64;
+```
+
+Every row that harness has ever written carries it. All **213 requirements and
+all 10 fingerprints** say `fetched 2026-09-12T08:00:00Z` — identical to the
+second across ten publishers, which no real crawl produces. Ten separate fetches
+of ten separate sites do not agree on a timestamp, and the uniform-result tell
+is what surfaced it.
+
+**The 213 rows are REAL.** Their `source_url`, `source_heading` and
+`source_span` come from actual pages, and nothing about the extraction is in
+question. What never happened is the time attached to them.
+
+#### Why it was harmless until it wasn't
+
+The output lived in `/tmp` and served measurements about extraction, so the
+clock was furniture. It became a defect the moment that output was proposed as a
+SHIPPED SEED (§11 D185), where `fetched_at` is precisely the field a researcher
+reads when deciding whether to trust a nine-month-old word limit. Seeding it
+would have put a *specific, false* freshness claim in front of every user:
+*"Nature Medicine's guidelines, fetched 12 September at 08:00."*
+
+Not merely unable to say it is stale — asserting a precise time that never
+happened. That is the freshness version of the honesty defects this log has
+spent the day on, and it would have been introduced by the fix for one of them.
+
+#### The family it belongs to
+
+**A synthetic value wearing the shape of a measured one, inside the instrument
+that produces the numbers.** The same shape as §11's `exists()` stub, which
+returned `false` under a comment claiming it had been checked by grep: the
+answers happened to be right, and the comment pre-empted the check it should
+have prompted. Here the number is wrong and nothing pre-empted anything — it
+simply looked like every other timestamp in the schema.
+
+The distinguishing feature of this family is that the instrument is not
+malfunctioning. `store_requirements` stored faithfully what it was given; the
+harness gave it a constant. Everything downstream — the fingerprint, the
+`refetch_after` window computed as `now + REFETCH_AFTER_SECS`, the
+`journal_profiles` row a picker renders — inherited it correctly.
+
+#### The fix, and why the harness came before the seed
+
+`now` is a real clock. Three options existed for the seed — bundle the rows
+as-is, bundle them with the truth recorded about them, or fix the harness and
+crawl once for real — and only the third stops the harness fabricating a
+timestamp the next time it runs. Fixing the consumer while leaving the producer
+able to lie is the shape this log keeps finding one module over.
+
+A real clock also makes the seed RE-DERIVABLE: run it again and the provenance
+says when, so a shipped snapshot can be compared against the pages it came from
+rather than taken on faith. That is what `refetch_after` was always for, and it
+could not work while `now` was frozen.
+
+### D185 — a starved journal printed as a healthy one, and the summary had no column for the flag that said so
+
+Re-crawling the ten journals to replace D184's fabricated timestamp produced
+**185 requirements against September's 213**, and the table read:
+
+```
+plos-medicine   1 page   0 guideline pages   0 reqs   prov: yes
+```
+
+which looks exactly like a journal that states no requirements. PLOS Medicine
+states 33. It was crawled straight after `plos-one` — same host — and never got
+a rate-limit token.
+
+**`CrawlOutcome.rate_limited` has been set for precisely this since the limiter
+was written**, with a doc comment naming the case: *"a crawl of a second journal
+on the same host began with an empty bucket and ended having fetched ZERO pages
+… Measured: Nature Communications, immediately after Nature Medicine's 40
+requests to `www.nature.com`."* The harness's `Row` had no field for it. The
+producer knew; the instrument discarded it.
+
+Same family as §11 D179's `plagiarism_examined` and D178's rule-5 outcome:
+**"we fetched nothing" and "there is nothing" are different answers, and a
+summary that cannot tell them apart reports a property of itself as a property
+of the world.** The row now carries a `coverage` column with the states
+separated, and the summary refuses to let the headline stand alone:
+
+```
+RATE-LIMITED JOURNALS  1 of 10: plos-medicine
+-> their counts are NOT findings about those journals.
+```
+
+#### The second pass, measured rather than assumed
+
+The limiter is per-host and shared, so whichever sibling runs second starves;
+reordering only moves the victim. Pass 2 revisits ONLY the journals pass 1
+reported as rate-limited, after every other journal has finished, by which time
+the bucket has refilled at no cost.
+
+```
+plos-medicine   1 page, 0 reqs  ->  120 pages, 33 reqs
+rate-limited journals           ->  none
+```
+
+#### Two page kinds that are not guidance
+
+The same broken crawl also ADDED five BMJ requirements, and reading them found
+four artefacts — D163's shape, where a translation price list yielded
+`word_limit = 12000`:
+
+| row | source | what it is |
+|---|---|---|
+| `CONSORT`, `PRISMA`, `SPIRIT` | `/content/by/section/Research Methods & Reporting` | an issue listing; each span is a paper TITLE — *"DOI: 10.1136/bmj-2025-088561 CONSORT-C 2026 explanation and elaboration"* |
+| `word_limit 300` | `BMJ%20Author%20Licence%20March%202013.doc` | a copyright licence parsed as prose |
+
+`carries_guidance` refuses both by URL PATH, and the choice of path over content
+is the point: **an article listing's content looks exactly like guidance** — it
+is dense with the vocabulary — which is why content classification admitted it.
+`/content/by/` is a listing route; a `.doc` is a file to download.
+
+It is a REFUSAL, so its failure direction is losing a real guidance page, and
+the test's negative control is five real entry URLs from the shipped config.
+
+**A named limit, kept rather than covered:** the extension is checked on the
+path, so a file served through a query (`…/s/file?id=x/guidelines.pdf`) slips
+through. That shape was NOT observed producing a bad requirement — it was
+invented while writing the test, and it failed. Extending a rule from a case
+nobody measured is how this file's lexicon problems started, so it is recorded
+instead.
+
+#### The result: the fresh crawl is byte-identical to September
+
+```
+September 213   fresh 213   identical 213   only-in-either 0
+```
+
+Not the same count — **the same rows**. Six months of publisher churn moved
+nothing this extractor reads, which is the first real evidence about whether a
+bundled snapshot ages well, and it is the question D184's constraint exists to
+make visible. The fresh crawl is strictly better only because its provenance is
+now true.
+
+#### One timestamp for the run, and why that is not D184 again
+
+All ten fingerprints carry `2026-09-18 10:45:13` — the run's start — and the
+crawl took an hour. That trips the uniform-result tell exactly as the constant
+did, so the difference is recorded at the assignment: the constant was FALSE
+about every row; this is TRUE at the granularity the field is for. `fetched_at`
+on a snapshot answers *"how old is this"*, and an hour-long crawl is one
+snapshot rather than 213 independently-aged facts. It must never be read as a
+per-page fetch time, and widening its meaning to claim that would be D184's move
+one step smaller.

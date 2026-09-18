@@ -186,6 +186,49 @@ pub struct CrawlOutcome {
     pub pages: Vec<CrawledPage>,
 }
 
+/// **Is this URL a document that could CARRY guidance at all?** §11 D185.
+///
+/// Two kinds reached the extractor in the re-crawl and produced requirements
+/// from documents that are not guidance — D163's shape, where a price list
+/// yielded `word_limit = 12000`:
+///
+/// * **An article LISTING.** `bmj.com/content/by/section/Research%20Methods%20%26
+///   Reporting` is an issue index, and the extractor read three paper TITLES as
+///   requirements: *"DOI: 10.1136/bmj-2025-088561 CONSORT-C 2026 explanation and
+///   elaboration"* became "this journal requires CONSORT". A page listing papers
+///   ABOUT reporting guidelines is the single most likely page to be misread
+///   this way, which is why it is excluded by shape rather than fought in the
+///   extractor.
+/// * **A binary attachment.** `BMJ%20Author%20Licence%20March%202013.doc`
+///   yielded `word_limit = 300` from *"The right to use selected figures and
+///   tables (of which the author or his employer owns…)"* — a copyright licence
+///   parsed as prose.
+///
+/// **The rule keys on the URL PATH, not on content**, deliberately: the content
+/// of an article listing looks like guidance (it is full of the vocabulary), and
+/// that is exactly why content-based classification admitted it. `/content/by/`
+/// is a listing route; an extension in `DOCUMENT_EXTENSIONS` is a file to
+/// download rather than a page to read.
+///
+/// **Named limit: the extension is checked on the PATH only.** A file served
+/// through a query parameter — `…/s/file?id=x/guidelines.pdf` — slips through.
+/// That shape was NOT observed producing a bad requirement in any of the ten
+/// journals; it is recorded here rather than covered, because a rule extended
+/// from a case nobody measured is how the lexicon mistakes in this file started.
+///
+/// It is a REFUSAL, so its failure direction is a journal losing a real
+/// requirements page whose URL happens to match. `/content/by/` is specific
+/// enough that no guidance page observed across ten journals uses it, and the
+/// extensions are not HTML at all.
+fn carries_guidance(u: &Url) -> bool {
+    let path = u.path().to_lowercase();
+    if path.contains("/content/by/") {
+        return false;
+    }
+    const DOCUMENT_EXTENSIONS: &[&str] = &[".doc", ".docx", ".pdf", ".rtf", ".xls", ".xlsx", ".zip"];
+    !DOCUMENT_EXTENSIONS.iter().any(|e| path.ends_with(e))
+}
+
 /// Topic terms. **Crawl ORDER only.** Adding a term changes what is fetched
 /// first; it can never change what is admitted, so a term missing here costs
 /// latency rather than coverage — which is the entire point of the inversion.
@@ -393,6 +436,9 @@ pub fn crawl(
 
     let scope = journal_scope(&entry_url, budget);
     let allowed = |u: &Url| -> bool {
+        if !carries_guidance(u) {
+            return false;
+        }
         let h = u.host_str().unwrap_or_default();
         if budget.author_services_hosts.iter().any(|a| a == h) && h != host {
             // An allowlisted publisher host carries requirements for many
@@ -619,6 +665,42 @@ pub fn crawl(
 
 #[cfg(test)]
 mod tests {
+
+    /// **A document that cannot carry guidance is refused by URL SHAPE.** §11 D185.
+    ///
+    /// Both of these produced requirements in a real crawl. The listing gave
+    /// three: the extractor read paper titles as the journal's own policy. The
+    /// `.doc` gave a word limit from a copyright licence.
+    #[test]
+    fn an_article_listing_and_a_binary_attachment_carry_no_guidance() {
+        let no = [
+            "https://www.bmj.com/content/by/section/Research%20Methods%20%26amp%3B%20Reporting",
+            "http://www.bmj.com/sites/default/files/BMJ%20Author%20Licence%20March%202013.doc",
+        ];
+        for u in no {
+            assert!(
+                !carries_guidance(&Url::parse(u).unwrap()),
+                "must be refused: {u}"
+            );
+        }
+
+        // **The negative control, and it is the half that matters.** This is a
+        // REFUSAL, so its failure direction is losing a real guidance page. Each
+        // of these is an entry a journal in the shipped config actually uses.
+        let yes = [
+            "https://journals.plos.org/plosone/s/submission-guidelines",
+            "https://www.bmj.com/about-bmj/resources-authors",
+            "https://www.nature.com/nm/for-authors",
+            "https://bmcpublichealth.biomedcentral.com/submission-guidelines",
+            "https://www.bmj.com/content/bmj/section/research",
+        ];
+        for u in yes {
+            assert!(
+                carries_guidance(&Url::parse(u).unwrap()),
+                "must still be admitted: {u}"
+            );
+        }
+    }
     use super::*;
     use gaply_core::refverify::MockHttpFetcher;
 
