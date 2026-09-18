@@ -84,16 +84,16 @@
     "maximum": 200
   },
   "profiled_journals": [
-    { "key": "plos-one",        "name": "PLOS ONE",                   "entry": "https://journals.plos.org/plosone/s/submission-guidelines" },
-    { "key": "plos-medicine",   "name": "PLOS Medicine",              "entry": "https://journals.plos.org/plosmedicine/s/submission-guidelines" },
-    { "key": "nature-medicine", "name": "Nature Medicine",            "entry": "https://www.nature.com/nm/for-authors" },
-    { "key": "nature-comms",    "name": "Nature Communications",      "entry": "https://www.nature.com/ncomms/submission-guidelines" },
-    { "key": "bmj",             "name": "The BMJ",                    "entry": "https://www.bmj.com/about-bmj/resources-authors" },
-    { "key": "lancet",          "name": "The Lancet",                 "entry": "https://www.thelancet.com/lancet/information-for-authors" },
-    { "key": "stat-med",        "name": "Statistics in Medicine",     "entry": "https://onlinelibrary.wiley.com/page/journal/10970258/homepage/forauthors.html" },
-    { "key": "front-pubhealth", "name": "Frontiers in Public Health", "entry": "https://www.frontiersin.org/journals/public-health/for-authors/author-guidelines" },
-    { "key": "jhp-sage",        "name": "J. Health Psychology",       "entry": "https://journals.sagepub.com/author-instructions/JHP" },
-    { "key": "bmc-pubhealth",   "name": "BMC Public Health",          "entry": "https://bmcpublichealth.biomedcentral.com/submission-guidelines" }
+    { "key": "plos-one",                "name": "PLOS ONE",                   "entry": "https://journals.plos.org/plosone/s/submission-guidelines" },
+    { "key": "plos-medicine",           "name": "PLOS Medicine",              "entry": "https://journals.plos.org/plosmedicine/s/submission-guidelines" },
+    { "key": "nature-medicine",         "name": "Nature Medicine",            "entry": "https://www.nature.com/nm/for-authors" },
+    { "key": "nature-communications",   "name": "Nature Communications",      "entry": "https://www.nature.com/ncomms/submission-guidelines" },
+    { "key": "bmj",                     "name": "The BMJ",                    "entry": "https://www.bmj.com/about-bmj/resources-authors" },
+    { "key": "lancet",                  "name": "The Lancet",                 "entry": "https://www.thelancet.com/lancet/information-for-authors" },
+    { "key": "statistics-in-medicine",  "name": "Statistics in Medicine",     "entry": "https://onlinelibrary.wiley.com/page/journal/10970258/homepage/forauthors.html" },
+    { "key": "frontiers-public-health", "name": "Frontiers in Public Health", "entry": "https://www.frontiersin.org/journals/public-health/for-authors/author-guidelines" },
+    { "key": "j-health-psychology",     "name": "J. Health Psychology",       "entry": "https://journals.sagepub.com/author-instructions/JHP" },
+    { "key": "bmc-public-health",       "name": "BMC Public Health",          "entry": "https://bmcpublichealth.biomedcentral.com/submission-guidelines" }
   ],
   "journal_path_segments": {
     "journals.plos.org": 1,
