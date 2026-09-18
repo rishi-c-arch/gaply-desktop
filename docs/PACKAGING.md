@@ -4,9 +4,9 @@ Final packaging documentation (Prompt 22). **Honest scope up front:**
 
 | | Status |
 |---|---|
-| Full Rust core (6-agent swarm, debate, report compiler, security layer) | **Packaged & working today** — 171 tests, Windows CI green |
+| Full Rust core (6-agent swarm, debate, report compiler, security layer) | **Packaged & working today** — 1850 tests across 19 targets (`cargo test --workspace`, 18 Sep 2026; the 171 this replaces was written by c33c31b on 7 Jul 2026), Windows CI green |
 | Tauri desktop shell, MSI/NSIS installers | **Working today** — proven by CI installer artifacts |
-| macOS DMG build path | **Measured 12 Sep 2026** — `npm run tauri build` completes; 480 MB DMG, arm64 only, models bundled, validly ad-hoc signed. Notarization still needs the Developer Program. See §1a. |
+| macOS DMG build path | **Re-measured 18 Sep 2026** — `npm run tauri build` completes in 6m00s cold; **474 MB** DMG, arm64 only, models bundled, ten journals seeded at first run, validly ad-hoc signed. Notarization still needs the Developer Program. See §1a. |
 | Tauri updater | **Configured** (keys generated, pubkey embedded, endpoint set); activation is a documented 3-step flip |
 | Microsoft Store submission | **Documented** — MSI/NSIS acceptable as Win32 app; MSIX wrap is the zero-cert path |
 | Real local SLM inference (Ollama / Qwen / MiniLM / GPT-2) | **NOT wired in** — future path documented here; the app ships on interim proxies (`HeuristicModel`, `HashEmbedder`) by design |
@@ -36,20 +36,29 @@ CI cannot execute Apple's notarization without credentials. The steps once enrol
    then staples: `xcrun stapler staple gaply.dmg`.
 Without these, the DMG builds but Gatekeeper will block it on other Macs.
 
-### 1a. What the macOS build actually produces (measured 12 Sep 2026)
+### 1a. What the macOS build actually produces (re-measured 18 Sep 2026)
 
 Everything above §1a was written from Tauri's documentation. This section was
 written from the artefact. The two disagreed on the point that matters most.
 
-`npm run tauri build` on `main` at 47d3692, on an M-series Mac:
+**These numbers are re-measured, and the previous set is kept beside them
+deliberately.** A packaging document quoting an old build is the same staleness
+§11 D181 records: a 97% ingestion loss was diagnosed in detail from a database
+snapshot dated three days earlier, and the mechanism had already been fixed
+underneath it — the current ingest stores 15,542 characters where the snapshot
+held 368. A stored measurement tells you what a build DID, not what it does.
 
-| | |
-|---|---|
-| `gaply_0.1.0_aarch64.dmg` | **480 MB** |
-| `gaply.app` | 523 MB |
-| architecture | **`arm64` only** — no `x86_64-apple-darwin` target is installed, so there is nothing here for an Intel Mac |
-| bundled models | yes — `Contents/Resources/models/stage1-lm/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf` (379 MB) and `slm1-adapter/tokenizer.json` (11 MB). They are ~75% of the download. |
-| build time | ~1m25s of cargo on a warm `target/`, plus bundling |
+`npm run tauri build` on `main` at e8ef42c, on an M-series Mac:
+
+| | 18 Sep 2026 (e8ef42c) | 12 Sep 2026 (47d3692) |
+|---|---|---|
+| `gaply_0.1.0_aarch64.dmg` | **474 MB** (496,508,570 bytes) | 480 MB |
+| `gaply.app` | 524 MB | 523 MB |
+| architecture | **`arm64` only** — no `x86_64-apple-darwin` target is installed, so there is nothing here for an Intel Mac | same |
+| bundled models | yes — `Contents/Resources/models/stage1-lm/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf` (379 MB) and `slm1-adapter/tokenizer.json` (11 MB). They are ~75% of the download. | same |
+| bundled journal seed | **NEW** — `gaply-core/data/journal-seed.json`, 327 KB compiled into the binary (§11 D186) | absent |
+| build time | **6m00s** wall clock, cold `target/` for the app crate | ~1m25s on a warm `target/` |
+| signature | `adhoc`, hardened `runtime`; `codesign --verify --deep --strict` exits 0 | same |
 
 **It first failed on disk, not on code:** `error: failed to build archive …
 No space left on device (os error 28)`, with 1.8 GiB free. `src-tauri/target/debug`
@@ -166,9 +175,30 @@ Application Support, nothing:
    search and plagiarism are inert on first run and the app says so. Worth
    telling three researchers in advance rather than letting them find it.
 3. **Two `ERROR r2d2: database is locked` lines on first run only**, during the
-   21-migration burst against the empty DB. It recovers and boots (`applied=21`,
-   then `gaply desktop started`), but a fresh install logs errors it does not
-   act on.
+   migration burst against the empty DB. It recovers and boots, but a fresh
+   install logs errors it does not act on. **Re-measured 18 Sep 2026 at
+   `applied=25`** — the burst grew by four migrations since this was first
+   written and still recovers; both lines are logged before migration 1, and
+   the run reaches `schema_version=25 applied=25`.
+4. **Ten journals arrive populated.** `bundled journal snapshot loaded
+   seeded=[bmc-public-health, bmj, frontiers-public-health, j-health-psychology,
+   lancet, nature-communications, nature-medicine, plos-medicine, plos-one,
+   statistics-in-medicine] requirements=213 bindings=50` (§11 D186). Without it
+   the journal layer is invisible on every install: the tables are empty, the
+   picker filters all ten out, and the checklist is four structural rows.
+
+   The seed is marked `origin: bundled` so a shipped snapshot cannot pass for one
+   the machine fetched, and the picker says *"bundled with this release"*
+   followed by the snapshot's date — 18 Sep 2026, rendered by
+   `toLocaleDateString()`, so the recipient sees it in their own locale's format
+   rather than this machine's. A journal the user has crawled is never
+   overwritten.
+
+**Whole first-run startup: 420 ms** — 25 migrations plus a 581-row seed insert
+(10 fingerprints + 213 requirements + 50 bindings + 50 conventions + 258
+expectations; the file's `_comment` is seven lines of prose, not data), of which
+the seed is 79 ms. Measured from the shipped binary with `HOME` pointed at an
+empty directory, which is the same simulation the four points above use.
 
 ## 2. Tauri updater (configured for future auto-update)
 
