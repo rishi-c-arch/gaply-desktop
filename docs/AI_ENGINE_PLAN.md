@@ -13084,3 +13084,154 @@ And `cargo build` reported success while `cargo test --workspace` printed
 `#[cfg(test)]` blocks that a plain build never compiles. `targets=0` is the
 suite not running, not a pass, and `cargo check --workspace --all-targets`
 enumerated all four in one go.
+
+### D181 — a false FAIL told an author to add a declaration their paper contains, and the function that prevents it sits eleven lines away
+
+`Revised Health Economics Paper FINAL (1).docx` contains:
+
+> *"Conflicts of Interest: The authors declare no conflicts of interest."*
+
+and its checklist said **FAIL — no conflict-of-interest statement found.**
+
+```rust
+if g.contains("conflict") {
+    let declared = text_lower.contains("conflict of interest");   // SINGULAR
+```
+
+The manuscript writes the plural. `synonyms_for("competing interest")` lists
+`"conflicts of interest"` explicitly, and **its doc comment cites this exact
+sentence as the case it was written for**: *"the manuscript writes 'Conflicts of
+Interest: The authors declare no conflicts of interest.' Checking only the
+journal's word reports a missing statement that is on the page… a false FLAG,
+which is the direction that costs a researcher work."*
+
+`statement_in_text` sits beside it and returns the SENTENCE, *"because a
+checklist item saying 'found' has to be checkable"*.
+
+**Both helpers are called only from `checklist_from_requirements`, which has
+ZERO production callers.** The shipping path, `checklist_from_guidelines`,
+reimplemented the check with a bare `contains`. The correct implementation, its
+synonym table and its sentence-quoting helper all live in the function no user
+reaches — the fourth instance of that shape in one day, after `review_lens`, the
+specialists and `plagiarism_exact`.
+
+#### Before / after, the row a user reads
+
+```
+BEFORE  [FAIL] conflict-of-interest declaration
+               no conflict-of-interest statement found
+               (no span)
+
+AFTER   [PASS] conflict-of-interest declaration
+               found in the manuscript: Conflicts of Interest: The authors
+               declare no conflicts of interest.
+               journal said: Additional Information Requested at Submission …
+```
+
+#### AUDITING THE OTHER TWO FOUND THE TRIGGER WAS ALSO WRONG
+
+One hardcoded `contains` being wrong is a reason to check the rest, and the
+check went further than expected — **the branch's TRIGGER was wrong in the same
+way as its body.** Adding `source_span` to the COI row made it visible on the
+first run:
+
+> journal said: *"Amino acid metabolism conflicts with protein diversity."*
+
+That is a paper title inside PLOS's **ICMJE sample reference list**.
+`g.contains("conflict")` matched an example citation; PLOS's real policy says
+*"Competing interests"*, which the bare word never touched. Exactly one PLOS ONE
+chunk contains `conflict` and two contain `competing interest`.
+
+**The span exposed it, which is what spans are for** — a plausible row with a
+wrong trigger is invisible until it quotes its source. The trigger now keys on
+the same requirement phrasings the check uses, so the sentence that raises an
+item is the sentence that states it.
+
+**A named limit that follows.** PLOS's real sentence is *"Competing interests —
+This information should not be in your manuscript file; you will provide it via
+[the submission system]"*. So a PASS here means *"you have written the
+declaration"*, not *"you have complied with PLOS's process"*. The row carries
+both sentences so a reader can see the difference; generalising that is not
+attempted here.
+
+#### "structured abstract" was checking that an abstract EXISTS
+
+```rust
+requirement: "structured abstract",
+passed: extraction.sections.iter().any(|s| s.kind == SectionKind::Abstract),
+detail:  "abstract present (structure itself needs editorial review)",
+```
+
+The detail admitted it and `passed` said otherwise, and `passed` is what a reader
+sees. **6 of 20 corpus manuscripts would have taken that PASS.** Nothing here
+parses headed subsections, so the honest state is the third one — `unevaluable`,
+the field added for exactly this. A MISSING abstract stays a decided FAIL,
+because that much is decidable.
+
+`golden_report_for_sample_manuscript` asserted `by_req("structured abstract")
+.passed` — the claim being withdrawn — so the test was the thing keeping the
+overclaim alive. It now asserts `unevaluable` and `!passed`.
+
+#### The Vancouver branch: correct here, and its risk named rather than claimed
+
+`g.contains("vancouver") || g.contains("numbered")` fires on PLOS for a real
+sentence — *"References are listed at the end of the manuscript and numbered in
+the order that they appear in the text"* — with `vancouver` in two further
+chunks. Measured across the corpus it would pass 1 manuscript of 20, which
+matches author-date styling everywhere else.
+
+But `numbered` would equally fire on *"tables should be numbered
+consecutively"*. No such instance exists in the six ingested journals, so it is
+recorded as a latent risk rather than asserted as a defect, and the row now
+carries the journal sentence that triggered it so the next reader can see which.
+
+#### Measured scope of the whole checklist, and a WITHDRAWN claim
+
+Six journals from a stored corpus, same manuscript, before this change:
+
+```
+<no journal selected>   4 items      nature.com/nm    4 items   (journal added 0)
+bmj.com                 4 items      bmc              4 items   (journal added 0)
+plosone                 6 items      plosmedicine     6 items   (journal added 2)
+```
+
+**This entry first said those four contribute nothing because of "a fetch-layer
+problem". There was no fetch-layer defect.** The claim is withdrawn, and what
+replaced it was measured by running the current code rather than reading the
+corpus that produced the table above.
+
+* **The snapshot was stale.** That database is dated 15 Sep. The CURRENT ingest,
+  on the same `nature.com/nm`, stores **15,542 characters across 5 chunks** where
+  the snapshot held **368**. The 97% loss being diagnosed no longer happens.
+* **The URLs were hand-typed.** `PublishReadyPage` holds `guidelinesUrl` in
+  `useState('')`, and a test pins
+  `JOURNALS.every(x => !('guidelinesUrl' in x))` — deliberately, because a
+  stored-but-wrong URL would "produce a checklist indistinguishable from the
+  blank case: silent failure". The bare domains in that corpus were test input,
+  not a choice the product makes.
+* **BMJ's bare domain is now REFUSED**, with *"guidelines unavailable; checklist
+  will remain empty (no fabrication)"* — the honest-degradation path working, and
+  the snapshot predates it.
+* **One modest finding survives.** `nature.com/nm/for-authors` is a HUB page:
+  3,413 characters of genuine but index-level guidance — *"Submission Guidelines
+  … 1 – What you need to know before"* — with the substance one level deeper. A
+  depth limit, not a fetch failure.
+
+With correct URLs on today's code: BMC `/submission-guidelines` stores 10 chunks
+/ 32,639 chars, PLOS ONE 29 / 99,274. The ingest works.
+
+#### The method note, which is the transferable part
+
+**A layer was named from a snapshot, and the mechanism had changed underneath
+it.** The reasoning was sound at every step — 368 characters is a third of a
+page, the sizes were not uniform so it was not a throttle, the host was right so
+it was not a boundary — and it was reasoning about a database written three days
+earlier by code that no longer runs. Three of four claims were wrong.
+
+What corrected it was running the current ingest into a fresh database and
+reading what landed. This is the static-trace rule arriving through a DATA
+STORE instead of through source: *a stored artefact tells you what a mechanism
+DID, not what it does.* A snapshot is a measurement with a timestamp, and the
+timestamp is part of the result.
+
+Three deletion tests, each red at the predicted assertion.

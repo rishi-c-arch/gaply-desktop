@@ -2258,39 +2258,76 @@ pub fn checklist_from_guidelines(
         // simply not extractable by regex? Until that is answered, silence.
         let _ = (&extract_word_limit, word_count);
         // structured abstract
+        //
+        // **The requirement is "structured"; the check is "exists". §11 D181.**
+        // `passed: true` on any Abstract section claimed the STRUCTURE had been
+        // verified when only its presence had — the detail string admitted it
+        // ("structure itself needs editorial review") while `passed` said
+        // otherwise, and `passed` is what a reader sees. Measured: 6 of 20
+        // manuscripts would have taken that PASS. Nothing here parses headed
+        // subsections, so the honest state is the third one — `unevaluable` —
+        // which is exactly what that field exists for. A missing abstract is
+        // still a real FAIL, because that much IS decidable.
         if g.contains("structured abstract") {
             let has_abstract =
                 extraction.sections.iter().any(|s| s.kind == SectionKind::Abstract);
             items.push(ChecklistItem {
                 requirement: "structured abstract".into(),
-                passed: has_abstract,
+                passed: false,
                 detail: if has_abstract {
-                    "abstract present (structure itself needs editorial review)".into()
+                    "an abstract is present, but whether it is STRUCTURED (headed \
+                     subsections such as Background / Methods / Results) is not checked \
+                     here. This item is undecided, not passed."
+                        .into()
                 } else {
                     "no abstract section found".into()
                 },
                 guideline_source: src.clone(),
-                source_span: None,
+                source_span: statement_in_text(&g, &hit.content, &["structured abstract"]),
                 article_type: None,
-                checked_field: None,
-                unevaluable: false,
+                checked_field: Some("extraction.sections".into()),
+                unevaluable: has_abstract,
             });
         }
         // conflict-of-interest declaration
-        if g.contains("conflict") {
-            let declared = text_lower.contains("conflict of interest");
+        //
+        // **`contains("conflict of interest")` — singular — reported a FALSE FAIL
+        // on a manuscript containing the statement. §11 D181.**
+        // `Revised Health Economics Paper FINAL (1).docx` writes *"Conflicts of
+        // Interest: The authors declare no conflicts of interest."* and was told
+        // to add one. `synonyms_for` lists that exact plural, and its doc comment
+        // cites that exact sentence as the case it was written for — it was
+        // called only from `checklist_from_requirements`, which has no
+        // production caller. So did `statement_in_text`, which returns the
+        // SENTENCE precisely so a "found" row can be checked in a glance.
+        // Measured over 20 manuscripts: the two agree on 19 and the singular
+        // check is wrong on the 1.
+        // **The TRIGGER was as wrong as the check.** `g.contains("conflict")`
+        // matched PLOS ONE on a sample-reference TITLE — *"Amino acid metabolism
+        // conflicts with protein diversity."* — inside the ICMJE example list,
+        // while PLOS's actual policy says *"Competing interests"*. The bare word
+        // never touched the requirement. Keying the trigger on the same
+        // REQUIREMENT phrasings the check uses means the sentence that raises
+        // the item is the sentence that states it, which is what `source_span`
+        // then shows. §11 D181.
+        let coi_names = synonyms_for("competing interest");
+        if coi_names.iter().any(|n| g.contains(n)) {
+            let names = coi_names.clone();
+            let found = statement_in_text(&text_lower, manuscript_text, &names);
             items.push(ChecklistItem {
                 requirement: "conflict-of-interest declaration".into(),
-                passed: declared,
-                detail: if declared {
-                    "conflict-of-interest statement found".into()
-                } else {
-                    "no conflict-of-interest statement found".into()
+                passed: found.is_some(),
+                detail: match &found {
+                    Some(sentence) => format!("found in the manuscript: {sentence}"),
+                    None => format!(
+                        "none of {} phrasings was found anywhere in the manuscript",
+                        names.len()
+                    ),
                 },
                 guideline_source: src.clone(),
-                source_span: None,
+                source_span: statement_in_text(&g, &hit.content, &coi_names),
                 article_type: None,
-                checked_field: None,
+                checked_field: Some("manuscript full text".into()),
                 unevaluable: false,
             });
         }
@@ -2312,7 +2349,18 @@ pub fn checklist_from_guidelines(
                 passed,
                 detail: format!("{numbered}/{total} reference entries are numbered"),
                 guideline_source: src.clone(),
-                source_span: None,
+                // **The trigger is a keyword and the row now shows it.** §11 D181
+                // audited all three branches after one was found wrong; this
+                // one's LOGIC is correct on the corpus (PLOS fires it on
+                // *"References are listed at the end of the manuscript and
+                // numbered in the order that they appear in the text"*, and says
+                // "Vancouver" in two chunks). But `g.contains("numbered")` would
+                // equally fire on *"tables should be numbered consecutively"*.
+                // No instance of that exists in the six ingested journals, so it
+                // is named as a risk rather than claimed as a defect — and the
+                // journal's own sentence is carried so a reader can see which
+                // one triggered it.
+                source_span: statement_in_text(&g, &hit.content, &["vancouver", "numbered"]),
                 article_type: None,
                 checked_field: None,
                 unevaluable: false,

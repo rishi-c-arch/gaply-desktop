@@ -156,7 +156,13 @@ fn golden_report_for_sample_manuscript() {
     // Word-limit detector disabled — see checklist_from_guidelines.
     assert!(!report.checklist.iter().any(|c| c.requirement.contains("word limit")));
     assert!(by_req("conflict-of-interest").passed);
-    assert!(by_req("structured abstract").passed);
+    // **This line asserted `passed` and that was the claim §11 D181 withdrew.**
+    // Nothing parses headed subsections, so a present abstract makes the item
+    // UNDECIDED, not passed — asserting the pass is what kept the overclaim
+    // alive. `unevaluable` is the third state, and the row must not read as a
+    // pass while carrying it.
+    assert!(by_req("structured abstract").unevaluable);
+    assert!(!by_req("structured abstract").passed);
     // guideline-derived items carry the guideline's provenance URL
     // Provenance is still asserted — on a detector that is still enabled.
     assert_eq!(
@@ -1433,6 +1439,73 @@ fn identical_rows_group_into_one_carrying_every_location() {
         !solo_json.contains("also_at"),
         "an ungrouped row must not gain a key: {solo_json}"
     );
+}
+
+/// **The plural is the whole bug, and the sentence is from the corpus.** §11 D181.
+///
+/// `Revised Health Economics Paper FINAL (1).docx` writes exactly this and was
+/// told to add a conflict-of-interest declaration, because the shipping check
+/// was `text_lower.contains("conflict of interest")` — singular. `synonyms_for`
+/// lists the plural and `statement_in_text` returns the sentence; both existed,
+/// both were called only from `checklist_from_requirements`, which has no
+/// production caller.
+#[test]
+fn a_plural_conflicts_declaration_is_found_and_quoted() {
+    const DECLARED: &str = "Methods\n\nWe surveyed 222 firms.\n\nConflicts of Interest: \
+        The authors declare no conflicts of interest.\n";
+    let ex = crate::extract::extract_from_text(DECLARED);
+    // The journal sentence must state the REQUIREMENT, not merely contain the
+    // word: the trigger fired on PLOS via a sample-reference title, "Amino acid
+    // metabolism conflicts with protein diversity."
+    let g = guideline_hit("Competing interests must be declared by all authors.");
+    let items = checklist_from_guidelines(&ex, DECLARED, &[g]);
+
+    let coi = items
+        .iter()
+        .find(|i| i.requirement == "conflict-of-interest declaration")
+        .expect("the requirement sentence must raise the item");
+    assert!(coi.passed, "the declaration IS in the manuscript: {:?}", coi.detail);
+    assert!(
+        coi.detail.contains("declare no conflicts of interest"),
+        "a 'found' row must quote the sentence, or it cannot be checked: {:?}",
+        coi.detail
+    );
+
+    // The negative control: without the statement the row must still FAIL, or
+    // this test is satisfied by a check that passes on everything.
+    const ABSENT: &str = "Methods\n\nWe surveyed 222 firms.\n\nResults\n\nProvision rose.\n";
+    let ex2 = crate::extract::extract_from_text(ABSENT);
+    let g2 = guideline_hit("Competing interests must be declared by all authors.");
+    let missing = checklist_from_guidelines(&ex2, ABSENT, &[g2]);
+    let coi2 = missing
+        .iter()
+        .find(|i| i.requirement == "conflict-of-interest declaration")
+        .expect("item still raised");
+    assert!(!coi2.passed, "a manuscript with no declaration must FAIL");
+}
+
+/// **"structured abstract" is not "an abstract exists".** §11 D181.
+///
+/// `passed: true` on any Abstract section claimed the structure had been
+/// verified; nothing here parses headed subsections. 6 of 20 corpus manuscripts
+/// would have taken that PASS. The third state is the honest one.
+#[test]
+fn a_structured_abstract_item_is_undecided_not_passed() {
+    const WITH: &str = "Abstract\n\nWe surveyed firms and provision rose.\n\nMethods\n\nA survey.\n";
+    let ex = crate::extract::extract_from_text(WITH);
+    let g = guideline_hit("Authors must supply structured abstracts.");
+    let items = checklist_from_guidelines(&ex, WITH, &[g]);
+    let it = items.iter().find(|i| i.requirement == "structured abstract").expect("raised");
+    assert!(it.unevaluable, "presence is not structure: {:?}", it.detail);
+    assert!(!it.passed, "an undecided item must not read as a pass: {it:?}");
+
+    // A MISSING abstract is still decidable, and still a real failure.
+    const WITHOUT: &str = "Methods\n\nA survey.\n\nResults\n\nProvision rose.\n";
+    let ex2 = crate::extract::extract_from_text(WITHOUT);
+    let g2 = guideline_hit("Authors must supply structured abstracts.");
+    let items2 = checklist_from_guidelines(&ex2, WITHOUT, &[g2]);
+    let it2 = items2.iter().find(|i| i.requirement == "structured abstract").expect("raised");
+    assert!(!it2.unevaluable && !it2.passed, "a missing abstract is a decided FAIL: {it2:?}");
 }
 
 /// An unresolvable location yields `None`, never `Some("")`.
