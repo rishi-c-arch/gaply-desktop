@@ -14084,3 +14084,127 @@ Gaply not writing them in its own prose is the point, and an escape is the same
 character by the time a reader meets it. The guard's blind spot is recorded here
 rather than widened, because widening it is a separate change with its own
 false-positive question over every regex and doc comment in the scanned modules.
+
+### D191 — the analysis cross-check fired on 29 of 31 claimed tests, and three of the rows show three different defects
+
+`frequentist::tests_absent_from_the_record` is the §1 differentiator: *"a reviewer
+who can see the code checks the statistics against what was actually run."* It is
+the only check in the product that compares what a manuscript CLAIMS against what
+its author actually RAN — every other finding rests on the manuscript alone, or on
+an external registry.
+
+Its own doc comment has said since it was written: *"UNREACHABLE TODAY… It has
+never run on a real pair, and nothing here should be read as though it had."*
+**It still has not, and this entry is why.**
+
+#### THE CAVEAT FIRST, because the number below is not what it looks like
+
+**There is no real pair on this machine.** The only real analysis artefact is
+SPSS's own journal (`statistics.jnl`, 398 lines, 82 commands). Its dataset is
+`~/Desktop/TUSHAR /Reliability_Validity_Results.sav` — **that directory is gone** —
+and no manuscript here belongs to that study. The four manuscripts mentioning
+factor analysis are a different author's work.
+
+So the run below paired **two unrelated files**. Every finding it produced is an
+artefact of the pairing, and **the firing rate is NOT the check's false-positive
+rate.** It is evidence the check has defects; it is not a measurement of how often
+the check is wrong. Those are different claims and only the first is supported.
+
+#### What the synthetic pair produced
+
+`examples/analysis_pair_probe.rs`, record = 82 procedures / 5 statistical /
+`kinds: [FactorAnalysis]`:
+
+| manuscript | Test statistics in prose | findings |
+|---|---:|---:|
+| Revised Health Economics Paper FINAL (1).docx | 12 | 11 |
+| Jitesh Agarwal .docx | 18 | 17 |
+| R PAPER .docx | 1 | 1 |
+| | **31** | **29** |
+
+A check that fires on nearly everything. Reading the rows, never the count, found
+three defects, each independent of the pairing:
+
+**1. The test-name mapping is wrong, and would be wrong on a correct upload.**
+
+> *"The manuscript reports a regression (`logistic regression`), and no
+> LinearRegression appears among the 5 procedure(s)…"*
+
+`lower.contains("regression")` routes LOGISTIC regression to
+`ProcedureKind::LinearRegression`. `LogisticRegression` is a variant that already
+exists and is never selected. **A researcher who uploaded the exact analysis file
+that ran their logistic regression would still be told it was absent.**
+
+**THIS IS THE ONE THAT SURVIVES CORRECT INPUT, AND IT IS A DIFFERENT CLASS FROM
+THE OTHER TWO.** Not because the others are pairing artefacts — all three are
+independent of the pairing, which is the point of listing them — but because of
+WHERE each lives:
+
+* **Defect 1 is inside this check.** The mapping from a test name to a
+  `ProcedureKind` is the check's own logic, and it is wrong. Do everything right
+  — run the logistic regression, keep the syntax file, upload it with the
+  manuscript — and the check still reports the procedure absent. The user has no
+  move that avoids it.
+* **Defect 2 is upstream, in extraction.** The prose side invents a `Stat::Test`
+  from a CFI formula; this check merely surfaces it. It would fire on a correct
+  upload too (the author ran no chi-square, so none can be matched), but the
+  repair belongs to `extract::stats`, not here.
+* **Defect 3 is presentational.** A mis-anchored span does not make the finding
+  wrong, it makes it uncheckable — the span rule's failure mode, not the
+  check's.
+
+The ordering matters for the repair: fixing 1 without 2 leaves a check that is
+correct about tests the manuscript never claimed, and fixing either without 3
+leaves rows a reader cannot verify.
+
+**2. The PROSE side is wrong before the record is consulted.**
+
+> *"reports a chi-square (`χ²`) … span: `CFI = 1 − [(χ²_model − df_model) /
+> (χ²_null − df_null)]`"*
+
+That χ² is inside a **fit-index formula**, not a test the paper ran. The
+extraction produced a `Stat::Test` from a definition of CFI. No analysis record
+can repair a claim the manuscript never made, and it is the same shape as §11
+D163's `word_limit = 12000` taken from a translation price list.
+
+**3. The span points at the wrong sentence.**
+
+> *span: `Methods: Cross-sectional employer survey (n = 222) conducted prior to…`*
+
+The anchor is the Methods paragraph, not the sentence reporting the test. By the
+span rule the row exists to be checkable in a glance, and this one sends the
+reader to the wrong place.
+
+The check's existing uncertainty note, *"absence from the record is not proof the
+test was not run"*, is honest and covers **none** of these. All three are defects
+on Gaply's side, not properties of the upload.
+
+#### So the upload path ships and the check does NOT
+
+This is §11 D157's shape caught before it shipped rather than after: a confident
+finding resting on a judgement nobody made. Wiring the upload and enabling this
+check together would have given a researcher 11 Major findings on a 12-test
+paper, most of them wrong, with the one true positive indistinguishable from the
+rest.
+
+The upload path ships as **the instrument**: it accepts `.py`, `.R`, `.sps`,
+`.ipynb`, `.csv`, parses the one format there is a measured parser for, and
+**says what arrived and what was done with it** — *"3 files: 1 parsed (82
+commands, 5 statistical), 2 stored and not parsed."* A file uploaded and silently
+ignored is worse than one refused, and the count of what arrives is the
+measurement that decides whether Python and R parsers are worth building at all.
+Today that question has one data point: the single real `.py` on this machine
+imports `numpy`, `scipy.integrate` and `scipy.special`, and contains **zero** of
+the procedures `ProcedureKind` enumerates. It is numerical mathematics, not
+statistics.
+
+#### The condition that reopens the check
+
+**A real pair: a manuscript and the analysis that produced it, from the same
+study.** Nothing on this machine is one, which is why the three defects above are
+recorded rather than fixed in passing. A fix validated against a synthetic pair
+inherits the pairing, and that is the fixture problem with extra steps.
+
+The upload path is what creates the first real pair. Order: ship the instrument,
+collect pairs, then fix the mapping, the prose-side extraction and the span
+against one.

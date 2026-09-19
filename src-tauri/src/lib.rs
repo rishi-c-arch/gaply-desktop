@@ -1,4 +1,5 @@
 pub mod ai;
+mod analysis_ingest;
 mod aicheck;
 pub mod audit_export;
 pub mod citation_resolver;
@@ -237,6 +238,7 @@ pub fn run() {
             commands::export_publishready_pdf,
             commands::get_report,
             commands::sample_manuscript_path,
+            analysis_ingest::analysis_ingest,
             commands::ingest_guidelines,
             commands::journal_fingerprint,
             commands::journal_profiles,

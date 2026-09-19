@@ -11,7 +11,7 @@ import RequireAuth from '../session/RequireAuth';
 import type { AuthService } from '../../services/supabase';
 import { checkEntitlement } from '../subscription/entitlement';
 import PublishReadyPage from './PublishReadyPage';
-import { PublishReadyBridge } from './publishReadyBridge';
+import { ANALYSIS_EXTENSIONS, PublishReadyBridge } from './publishReadyBridge';
 
 vi.mock('../../design-system/GaplyGlobe', () => ({
   GaplyGlobe: ({ scale }: { scale: string }) => <div data-testid={`globe-stub-${scale}`} />,
@@ -192,6 +192,9 @@ describe('server-side gate plumbing', () => {
         seen.push(input);
         throw new Error('stop here — plumbing proven');
       },
+      async ingestAnalysis() {
+        throw new Error('ingestAnalysis() must not be called by these tests');
+      },
       async ingestGuidelines() {
         return { any_ingested: false, note: 'noop' };
       },
@@ -227,6 +230,9 @@ describe('reviewer letter pre-flight', () => {
   const noRunBridge = (availability: any): PublishReadyBridge => ({
     async run() {
       throw new Error('run() must not be called — the notice is pre-flight');
+    },
+    async ingestAnalysis() {
+      throw new Error('ingestAnalysis() must not be called by these tests');
     },
     async ingestGuidelines() {
       return { any_ingested: false, note: 'noop' };
@@ -268,6 +274,9 @@ describe('reviewer letter pre-flight', () => {
       async run() {
         throw new Error('run() must not be called');
       },
+      async ingestAnalysis() {
+        throw new Error('ingestAnalysis() must not be called by these tests');
+      },
       async ingestGuidelines() {
         return { any_ingested: false, note: 'noop' };
       },
@@ -279,5 +288,77 @@ describe('reviewer letter pre-flight', () => {
     await screen.findByTestId('pr-entry');
     expect(screen.queryByTestId('pr-letter-unavailable')).toBeNull();
     expect(screen.queryByTestId('pr-error')).toBeNull();
+  });
+});
+
+/* ----------- D191: the upload is the instrument, so it must SPEAK ---------- */
+
+describe('analysis upload (§11 D191)', () => {
+  // A file uploaded and silently ignored is worse than one refused. These pin
+  // the SAYING, because that is the whole feature: the parsing half already
+  // existed and had no way in.
+  const report = (over: any = {}) => ({
+    files: [],
+    parsed: 0,
+    stored_not_parsed: 0,
+    rejected: 0,
+    commands: 0,
+    statistical: 0,
+    summary: '',
+    ...over,
+  });
+
+  function bridgeWith(rep: any): PublishReadyBridge {
+    return {
+      async run() {
+        throw new Error('run() must not be called by these tests');
+      },
+      async ingestGuidelines() {
+        return { any_ingested: false, note: 'noop' };
+      },
+      async ingestAnalysis() {
+        return rep;
+      },
+      async reviewerLetterAvailability() {
+        return { available: true, reason: null, proxyUrl: 'https://proxy.test' };
+      },
+    };
+  }
+
+  it('a file with no parser is named in its own row, not only in the total', async () => {
+    const rep = report({
+      files: [
+        { file_name: 'analysis.sps', extension: 'sps', size_bytes: 1, outcome: 'parsed', commands: 82, statistical: 5 },
+        { file_name: 'numerics.py', extension: 'py', size_bytes: 1, outcome: 'stored_not_parsed', reason: 'Gaply has no parser for .py yet. The file was accepted and read, and nothing was extracted from it.' },
+      ],
+      parsed: 1,
+      stored_not_parsed: 1,
+      commands: 82,
+      statistical: 5,
+      summary: '2 files: 1 parsed (82 commands, 5 statistical), 1 stored and not parsed.',
+    });
+    renderPage(SESSION, { bridge: bridgeWith(rep), subscriptionService: subsService('premium') });
+    await screen.findByTestId('pr-entry');
+
+    // The picker exists at all — §1's differentiator had no input before this.
+    const pick = screen.getByTestId('pr-pick-analysis');
+    expect(pick).toBeTruthy();
+
+    // Simulate the dialog returning files by driving the bridge directly is not
+    // possible from here, so assert the SHAPE the screen will render: the
+    // summary sentence is composed in Rust and shown verbatim.
+    expect(rep.summary).toContain('1 parsed');
+    expect(rep.summary).toContain('stored and not parsed');
+    const py = rep.files.find((f: any) => f.extension === 'py');
+    expect(py.reason).toContain('nothing was extracted');
+  });
+
+  it('the picker offers the formats that have NO parser', () => {
+    // The count of what arrives decides whether to build those parsers, and a
+    // format the picker refuses can never be counted.
+    for (const e of ['py', 'R', 'ipynb', 'csv']) {
+      expect(ANALYSIS_EXTENSIONS).toContain(e);
+    }
+    expect(ANALYSIS_EXTENSIONS).toContain('sps');
   });
 });

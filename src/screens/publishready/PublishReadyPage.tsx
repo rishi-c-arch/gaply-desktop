@@ -4,7 +4,7 @@
 // Gated behind premium (F12): free users get a blurred teaser + upgrade CTA.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { pickManuscriptPath, basenameOf } from '../common/pickFile';
+import { pickManuscriptPath, pickManuscriptPaths, basenameOf } from '../common/pickFile';
 import { isTauri } from '../../utils/isTauri';
 import {
   AppShell,
@@ -26,7 +26,7 @@ import { estimatePdfPageCount, validateFile } from '../analysis/validateFile';
 import { JOURNALS } from '../journal/journalData';
 import { tauriJournalFingerprintBridge } from './journal/journalFingerprintBridge';
 import { JournalProfileRow } from './journal/fingerprintTypes';
-import { PublishReadyBridge, TauriPublishReadyBridge } from './publishReadyBridge';
+import { AnalysisFileReport, ANALYSIS_EXTENSIONS, PublishReadyBridge, TauriPublishReadyBridge } from './publishReadyBridge';
 import { useEntitlement } from '../subscription/entitlement';
 import { mayUseCloud } from '../settings/settingsStore';
 import { PublishReadyResult, TargetJournal } from './publishReadyTypes';
@@ -101,6 +101,15 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
   // `guidelinesNote` surfaces the honest ingest outcome.
   const [guidelinesUrl, setGuidelinesUrl] = useState('');
   const [guidelinesNote, setGuidelinesNote] = useState<string | null>(null);
+  // **The analysis upload is an INSTRUMENT before it is a feature. §11 D191.**
+  // §1 calls supporting analysis "the differentiator" and `[v7]` records that no
+  // picker has ever accepted one. This is that input — and it deliberately
+  // accepts formats Gaply cannot parse, because the count of what arrives is
+  // what decides whether those parsers are worth building. The report is
+  // rendered verbatim: a file uploaded and silently ignored is worse than one
+  // refused.
+  const [analysisNote, setAnalysisNote] = useState<string | null>(null);
+  const [analysisRows, setAnalysisRows] = useState<AnalysisFileReport[]>([]);
   // The URL the COMPLETED run actually used. Held separately from the input
   // above, which the user may edit after a run: the checklist's empty state
   // describes the run that produced the report, not the current form state.
@@ -214,6 +223,23 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
   const pickManuscript = async () => {
     const p = await pickManuscriptPath(['pdf', 'docx'], 'Manuscript');
     if (p) acceptPath(p);
+  };
+
+  const pickAnalysis = async () => {
+    const paths = await pickManuscriptPaths(ANALYSIS_EXTENSIONS, 'Supporting analysis');
+    if (paths.length === 0) return;
+    try {
+      const rep = await b.ingestAnalysis({ paths });
+      setAnalysisNote(rep.summary);
+      setAnalysisRows(rep.files);
+    } catch (e) {
+      // Honest, and NOT silent: the files were chosen, so something must be
+      // said about them even when the call itself failed.
+      setAnalysisNote(
+        e instanceof Error ? `Could not read those files: ${e.message}` : 'Could not read those files.'
+      );
+      setAnalysisRows([]);
+    }
   };
 
   const run = async () => {
@@ -540,7 +566,37 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
           )}
         </Card>
 
-        <Card title="3 · Target journal guidelines (optional)">
+        <Card title="3 · Supporting analysis (optional)">
+          <Button variant="secondary" data-testid="pr-pick-analysis" onClick={() => void pickAnalysis()}>
+            Choose analysis files
+          </Button>
+          <p className="gds-jc__disclaimer">
+            SPSS syntax and journals (.sps, .jnl) are read. Python, R, notebooks and CSV are
+            accepted and kept, and Gaply says so rather than parsing them — there is no parser for
+            those yet, and what arrives is what decides whether to build one.
+          </p>
+          {analysisNote && (
+            <p className="gds-jc__disclaimer" data-testid="pr-analysis-note">
+              <strong>{analysisNote}</strong>
+            </p>
+          )}
+          {/* THE ROWS, not only the total. The total is what a user skims; the
+              row is what tells them their file was kept and nothing came of it. */}
+          {analysisRows.length > 0 && (
+            <ul data-testid="pr-analysis-rows" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+              {analysisRows.map((f, i) => (
+                <li key={i} className="gds-finding__detail" style={{ fontSize: 12 }}>
+                  <span className="gds-mono">{f.file_name}</span>{' '}
+                  {f.outcome === 'parsed'
+                    ? `— ${f.commands} command(s), ${f.statistical} statistical`
+                    : `— ${f.reason}`}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card title="4 · Target journal guidelines (optional)">
           <input
             className="gds-jc__input"
             style={{ width: '100%' }}

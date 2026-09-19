@@ -46,6 +46,42 @@ export interface ReviewerLetterAvailability {
   proxyUrl: string;
 }
 
+/** Extensions the analysis picker offers. MIRRORS
+ *  `analysis_ingest::ACCEPTED_EXTENSIONS`. Three of these have no parser and are
+ *  offered anyway: the count of what arrives is the measurement that decides
+ *  whether to build one, and a format the picker refuses can never be counted
+ *  (§11 D191). */
+export const ANALYSIS_EXTENSIONS = ['sps', 'jnl', 'py', 'R', 'r', 'ipynb', 'csv'];
+
+/** One uploaded file and what was done with it. Wire shape from Rust
+ *  `AnalysisFileReport`, whose `outcome` is a THREE-variant tag — parsed,
+ *  stored-but-no-parser, unreadable — because "we kept your file and did nothing
+ *  with it" is a sentence that has to be sayable and a bool cannot say it. */
+export interface AnalysisFileReport {
+  file_name: string;
+  extension: string;
+  size_bytes: number;
+  outcome: 'parsed' | 'stored_not_parsed' | 'rejected';
+  /** Present when `outcome === 'parsed'`. */
+  commands?: number;
+  statistical?: number;
+  unparsed_lines?: number;
+  /** Present for the other two. Already phrased for a user. */
+  reason?: string;
+}
+
+export interface AnalysisIngestReport {
+  files: AnalysisFileReport[];
+  parsed: number;
+  stored_not_parsed: number;
+  rejected: number;
+  commands: number;
+  statistical: number;
+  /** The sentence the screen shows, composed in Rust so the surfaces that
+   *  render it cannot word it differently. */
+  summary: string;
+}
+
 export interface PublishReadyBridge {
   /** `userToken` (Set 8): the signed-in user's Supabase JWT, forwarded so the
    *  proxy can run the REAL server-side entitlement check + consume a use.
@@ -57,6 +93,11 @@ export interface PublishReadyBridge {
    *  proxy, no JWT (RAG is local); a bad page degrades honestly (structural
    *  checks only) and never blocks the run. */
   ingestGuidelines(input: { journalUrl?: string; guidelinesUrl?: string }): Promise<GuidelinesIngestResult>;
+  /** Read the chosen analysis files and report what was done with each. LOCAL:
+   *  no proxy, no network. Parses SPSS; accepts and counts everything else.
+   *  **Does NOT feed the specialist cross-check** — that check fired on 29 of 31
+   *  claimed tests on the one pairing available and stays unwired (§11 D191). */
+  ingestAnalysis(input: { paths: string[] }): Promise<AnalysisIngestReport>;
   /** Pre-flight, instant, no network and no keychain: is the configured proxy
    *  the loopback default? Asked BEFORE a run so a user is not told the
    *  reviewer letter was unavailable only after paying for a full analysis. */
@@ -204,6 +245,14 @@ export class TauriPublishReadyBridge implements PublishReadyBridge {
     })) as GuidelinesIngestResult;
   }
 
+  async ingestAnalysis({ paths }: { paths: string[] }): Promise<AnalysisIngestReport> {
+    if (!isTauri) {
+      throw new Error('Analysis upload runs in the Gaply desktop app.');
+    }
+    const { invoke } = await import('@tauri-apps/api/core');
+    return (await invoke('analysis_ingest', { paths })) as AnalysisIngestReport;
+  }
+
   async reviewerLetterAvailability(): Promise<ReviewerLetterAvailability> {
     if (!isTauri) {
       // The web build has no proxy of its own; saying "unavailable" here is the
@@ -244,6 +293,12 @@ export function makePublishReadyMock(
       ingestCalls.push(input);
       callOrder.push('ingest');
       return opts?.ingestResult ?? { any_ingested: true, note: 'guidelines ingested (mock)' };
+    },
+    async ingestAnalysis({ paths }: { paths: string[] }) {
+      return {
+        files: [], parsed: 0, stored_not_parsed: 0, rejected: 0, commands: 0, statistical: 0,
+        summary: `${paths.length} file(s) (mock).`,
+      };
     },
     async reviewerLetterAvailability() {
       // Deliberately NOT recorded in `callOrder`. That array exists to prove
