@@ -473,6 +473,18 @@ pub async fn ingest_guidelines(
     state: State<'_, AppState>,
     journal_url: Option<String>,
     guidelines_url: Option<String>,
+    // **The journal the user picked. §11 D192.** With it, the requirement
+    // extractor runs on the fetched page and the checklist becomes that
+    // journal's own stated requirements instead of three keyword rows. The
+    // report returns the key it used; the caller must pass that SAME key to
+    // `run_publishready`, or the checklist reads a different journal's rows.
+    //
+    // BOTH are taken, and `journal_key` wins — see `guidelines::JournalIdentity`.
+    // For the ten crawled journals the picker already holds a curated key, and
+    // minting one from the name instead disagrees with it on three of them, which
+    // would point the run at an empty key and lose every crawled row.
+    journal_name: Option<String>,
+    journal_key: Option<String>,
 ) -> Result<crate::guidelines::GuidelinesReport, GaplyError> {
     // async + spawn_blocking (mirrors build_gapfinder_corpus / run_full_analysis):
     // the guideline page fetch is blocking HTTP, so run off the event-loop thread
@@ -487,6 +499,10 @@ pub async fn ingest_guidelines(
             embedder.as_ref(),
             journal_url.as_deref(),
             guidelines_url.as_deref(),
+            crate::guidelines::JournalIdentity {
+                key: journal_key.as_deref(),
+                name: journal_name.as_deref(),
+            },
         ))
     })
     .await

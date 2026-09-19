@@ -15,7 +15,7 @@ fn main() -> Result<(), GaplyError> {
 
     if let Some(u) = guidelines.clone() {
         let ing = app_lib::guidelines::GuidelinesIngestor::new()?;
-        let r = ing.ingest(&db, embedder.as_ref(), None, Some(&u));
+        let r = ing.ingest(&db, embedder.as_ref(), None, Some(&u), Default::default());
         println!("[guidelines] {} ({})", r.any_ingested, r.note);
     }
 

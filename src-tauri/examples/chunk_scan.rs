@@ -11,7 +11,7 @@ fn main() -> Result<(), GaplyError> {
     let db = Database::in_memory()?;
     let emb = HashEmbedder;
     let ing = app_lib::guidelines::GuidelinesIngestor::new()?;
-    let rep = ing.ingest(&db, &emb, None, Some(&url));
+    let rep = ing.ingest(&db, &emb, None, Some(&url), Default::default());
     println!("ingested: {} ({})", rep.any_ingested, rep.note);
 
     // Pull EVERY chunk: a huge k with no filter, then keep journal_guideline.

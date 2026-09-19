@@ -220,7 +220,15 @@ describe('H4 · target-journal guidelines', () => {
     fireEvent.click(screen.getByTestId('pr-run'));
     await screen.findByTestId('publishready');
     expect(bridge.callOrder).toEqual(['ingest', 'run']); // ingest FIRST
-    expect(bridge.ingestCalls).toEqual([{ guidelinesUrl: 'https://journal.example/authors' }]);
+    expect(bridge.ingestCalls).toEqual([
+      {
+        guidelinesUrl: 'https://journal.example/authors',
+        // §11 D192: without an identity the page reaches the RAG corpus and
+        // nothing is keyed, which is what every pasted URL did before.
+        journalName: 'The Lancet',
+        journalKey: undefined,
+      },
+    ]);
   });
 
   it('skips ingestion when the guidelines URL is blank (structural checks only)', async () => {
@@ -255,7 +263,21 @@ describe('H4 · target-journal guidelines', () => {
     // were provided" would be false — the user did provide one.
     // ARCHITECTURE_TRACE §18.6.2.
     const url = 'https://www.bmj.com';
-    renderPR({ forceTier: 'premium', bridge: makePublishReadyMock(REPORT_NO_GUIDELINES) });
+    // The sentence is the BACKEND's (§11 D192). What the screen invented said
+    // "That page was fetched successfully" for a 404 and a rate-limited host
+    // alike; the note knows which happened and this is the homepage case.
+    const note_text =
+      `That page was reached, and no author guidance was found on it: the page carries ` +
+      `navigation, not guidance (0 obligation sentence(s), 0 stated requirement(s)). The URL ` +
+      `analysed was ${url}. This may mean the URL points to a journal homepage rather than an ` +
+      `author-guidelines page, or that the page contains requirements that Gaply currently ` +
+      `detects none of — Gaply does not yet detect every form of them.`;
+    renderPR({
+      forceTier: 'premium',
+      bridge: makePublishReadyMock(REPORT_NO_GUIDELINES, {
+        ingestResult: { any_ingested: true, note: note_text, journal_key: null },
+      }),
+    });
     await reachRunnable();
     fireEvent.change(screen.getByTestId('pr-guidelines-input'), { target: { value: url } });
     fireEvent.click(screen.getByTestId('pr-run'));
@@ -292,6 +314,110 @@ describe('H4 · target-journal guidelines', () => {
     fireEvent.click(await screen.findByTestId('tab-Checklist'));
     await screen.findByTestId('checklist');
     expect(screen.queryByTestId('checklist-no-guidelines')).toBeNull();
+  });
+});
+
+/* ------------- §11 D192 · a pasted URL becomes requirements --------------- */
+
+/** **§11 D192 — the deterministic extractor was unwired on this path.**
+ *
+ *  `journal_extract::extract_requirements` is tested and had no production
+ *  caller for a pasted URL: the page went into the RAG corpus and the
+ *  requirements printed on it were stepped over, so the checklist fell back to
+ *  the structural rows. These pin the two halves the screen owns — the journal's
+ *  identity going out, and the key coming back — because neither is visible from
+ *  Rust and a backend that stores rows under a key nobody reads has done
+ *  nothing. */
+describe('§11 D192 · the pasted guidelines URL is keyed to a journal', () => {
+  it('sends the journal the user picked, so the extractor has somewhere to store', async () => {
+    const bridge = makePublishReadyMock(REPORT);
+    renderPR({ forceTier: 'premium', bridge });
+    await reachRunnable();
+    fireEvent.change(screen.getByTestId('pr-guidelines-input'), {
+      target: { value: 'https://journal.example/authors' },
+    });
+    fireEvent.click(screen.getByTestId('pr-run'));
+    await screen.findByTestId('publishready');
+    expect(bridge.ingestCalls[0].journalName).toBe('The Lancet');
+  });
+
+  it('runs against the key the ingest returned, rather than deriving it twice', async () => {
+    // The backend mints a key and RETURNS it; the screen must pass that one on.
+    // Deriving "which journal" a second time is the drift §11 D129 records, and
+    // it is invisible when it happens — an empty fingerprint and a journal with
+    // no requirements render identically.
+    const bridge = makePublishReadyMock(REPORT, {
+      ingestResult: {
+        any_ingested: true,
+        note: '1 guideline source(s) read; 2 requirement(s) extracted.',
+        journal_key: 'journal-of-test-medicine',
+        requirements_stored: 2,
+        requirements_duplicate: 0,
+      },
+    });
+    renderPR({ forceTier: 'premium', bridge });
+    await reachRunnable();
+    fireEvent.change(screen.getByTestId('pr-guidelines-input'), {
+      target: { value: 'https://journal.example/authors' },
+    });
+    fireEvent.click(screen.getByTestId('pr-run'));
+    await screen.findByTestId('publishready');
+    expect(bridge.lastRunJournal?.key).toBe('journal-of-test-medicine');
+  });
+
+  it('leaves the run keyless when the page yielded nothing to key', async () => {
+    // The honest common case, and it must not invent a key: a hub of links, or
+    // a page whose guidelines render in the browser after it loads.
+    const bridge = makePublishReadyMock(REPORT, {
+      ingestResult: { any_ingested: false, note: 'That page could not be read: http 404.', journal_key: null },
+    });
+    renderPR({ forceTier: 'premium', bridge });
+    await reachRunnable();
+    fireEvent.change(screen.getByTestId('pr-guidelines-input'), {
+      target: { value: 'https://journal.example/authors' },
+    });
+    fireEvent.click(screen.getByTestId('pr-run'));
+    await screen.findByTestId('publishready');
+    expect(bridge.lastRunJournal?.key).toBeUndefined();
+  });
+
+  /** **The JS-rendered page must reach the USER, not only the log.**
+   *
+   *  Measured on Annals of Internal Medicine: the fetch SUCCEEDED, 200, and the
+   *  body classified as navigation — 0 obligation sentences, 0 stated
+   *  requirements. Before this the screen said only that guidelines were
+   *  unavailable, so a researcher met four structural rows and nothing telling
+   *  them their journal's page had not been read. The sentence is composed in
+   *  Rust (§11 D190's rule: two surfaces could render it and only one should
+   *  word it), so what this pins is that the screen SHOWS it. */
+  it('shows the reason a reached page yielded nothing — the Annals case', async () => {
+    const annals =
+      'That page was reached, and no author guidance was found on it: the page carries ' +
+      'navigation, not guidance (0 obligation sentence(s), 0 stated requirement(s)): a homepage ' +
+      'or a hub of links rather than author guidelines. Nothing was extracted, and the checklist ' +
+      'shows the structural checks only. Some journals render their guidelines in the browser ' +
+      'after the page loads, which this fetch cannot see.';
+    const bridge = makePublishReadyMock(REPORT_NO_GUIDELINES, {
+      ingestResult: { any_ingested: false, note: annals, journal_key: null },
+    });
+    renderPR({ forceTier: 'premium', bridge });
+    await reachRunnable();
+    fireEvent.change(screen.getByTestId('pr-guidelines-input'), {
+      target: { value: 'https://www.acpjournals.org/journal/aim/authors' },
+    });
+    fireEvent.click(screen.getByTestId('pr-run'));
+    await screen.findByTestId('publishready');
+    // On the CHECKLIST, not the entry screen. The entry screen showed it and
+    // the completed run replaces that screen, so the one case this sentence
+    // exists for reached nobody — the user saw four structural rows and a
+    // sentence claiming the page had been fetched successfully.
+    fireEvent.click(await screen.findByTestId('tab-Checklist'));
+    const note = await screen.findByTestId('checklist-guidelines-empty');
+    expect(note.textContent).toBe(annals);
+    // The two facts a user needs and could not previously get: the page WAS
+    // read, and why nothing came of it.
+    expect(note.textContent).toMatch(/was reached/);
+    expect(note.textContent).toMatch(/render their guidelines in the browser/);
   });
 });
 

@@ -172,7 +172,7 @@ fn main() {
     set_stage(&stage, "guidelines_ingest");
     let url = start_guidelines_fixture();
     let ingestor = app_lib::guidelines::GuidelinesIngestor::new().expect("ingestor");
-    let report = ingestor.ingest(&db, embedder.as_ref(), None, Some(&url));
+    let report = ingestor.ingest(&db, embedder.as_ref(), None, Some(&url), Default::default());
     println!(
         "guidelines ingest: {} result(s), ingested={}, app_rss={:.0}MB",
         report.results.len(),

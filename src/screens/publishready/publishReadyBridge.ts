@@ -27,6 +27,17 @@ import {
 export interface GuidelinesIngestResult {
   any_ingested: boolean;
   note: string;
+  /** **The key the requirements were stored under (§11 D192).** Minted in Rust
+   *  from the journal name, and returned so the caller passes the SAME key to
+   *  `run` — deriving it twice is the drift §11 D129 records. `null` when no
+   *  journal was named, or when the page yielded nothing to store. */
+  journal_key?: string | null;
+  /** Requirements extracted from the page and written. 0 is the honest common
+   *  case: a hub of links, or a page whose guidelines render in the browser. */
+  requirements_stored?: number;
+  /** Already on record for this journal from this URL. A re-paste that adds
+   *  nothing says so rather than reading as a fresh success. */
+  requirements_duplicate?: number;
 }
 
 /**
@@ -92,7 +103,23 @@ export interface PublishReadyBridge {
    *  checklist can cross-reference the manuscript against the REAL guidelines. No
    *  proxy, no JWT (RAG is local); a bad page degrades honestly (structural
    *  checks only) and never blocks the run. */
-  ingestGuidelines(input: { journalUrl?: string; guidelinesUrl?: string }): Promise<GuidelinesIngestResult>;
+  ingestGuidelines(input: {
+    journalUrl?: string;
+    guidelinesUrl?: string;
+    /** **The journal the user picked (§11 D192).** With it, the deterministic
+     *  requirement extractor runs on the fetched page and the checklist becomes
+     *  that journal's own stated requirements. Without it the page still reaches
+     *  the RAG corpus, but nothing can be keyed and the checklist stays
+     *  structural — which is what every pasted URL did before. */
+    journalName?: string;
+    /** **The crawler's curated key, when the pick is one of the ten.** Sent so
+     *  the pasted page APPENDS to that journal's existing rows. It wins over the
+     *  key minted from the name, and it must: `The BMJ` mints `the-bmj` against a
+     *  stored `bmj`, and two of the other nine disagree the same way, so
+     *  preferring the minted key would point the run at an empty key and lose
+     *  every crawled row. */
+    journalKey?: string;
+  }): Promise<GuidelinesIngestResult>;
   /** Read the chosen analysis files and report what was done with each. LOCAL:
    *  no proxy, no network. Parses SPSS; accepts and counts everything else.
    *  **Does NOT feed the specialist cross-check** — that check fired on 29 of 31
@@ -232,7 +259,17 @@ export class TauriPublishReadyBridge implements PublishReadyBridge {
     return adaptOutcome(outcome, journal);
   }
 
-  async ingestGuidelines({ journalUrl, guidelinesUrl }: { journalUrl?: string; guidelinesUrl?: string }): Promise<GuidelinesIngestResult> {
+  async ingestGuidelines({
+    journalUrl,
+    guidelinesUrl,
+    journalName,
+    journalKey,
+  }: {
+    journalUrl?: string;
+    guidelinesUrl?: string;
+    journalName?: string;
+    journalKey?: string;
+  }): Promise<GuidelinesIngestResult> {
     if (!isTauri) {
       throw new Error('PublishReady runs in the Gaply desktop app.');
     }
@@ -242,6 +279,8 @@ export class TauriPublishReadyBridge implements PublishReadyBridge {
     return (await invoke('ingest_guidelines', {
       journalUrl: journalUrl ?? null,
       guidelinesUrl: guidelinesUrl ?? null,
+      journalName: journalName ?? null,
+      journalKey: journalKey ?? null,
     })) as GuidelinesIngestResult;
   }
 
@@ -276,15 +315,19 @@ export function makePublishReadyMock(
   opts?: { ingestResult?: GuidelinesIngestResult; availability?: ReviewerLetterAvailability }
 ): PublishReadyBridge & {
   lastPayload?: unknown;
+  /** The journal object the run was actually given — the key on it is what the
+   *  backend reads requirements under (§11 D192). */
+  lastRunJournal?: TargetJournal;
   /** Recorded ingest calls + call order, so tests can prove ingest-before-run. */
-  ingestCalls: Array<{ journalUrl?: string; guidelinesUrl?: string }>;
+  ingestCalls: Array<{ journalUrl?: string; guidelinesUrl?: string; journalName?: string; journalKey?: string }>;
   callOrder: string[];
 } {
-  const ingestCalls: Array<{ journalUrl?: string; guidelinesUrl?: string }> = [];
+  const ingestCalls: Array<{ journalUrl?: string; guidelinesUrl?: string; journalName?: string; journalKey?: string }> = [];
   const callOrder: string[] = [];
   const bridge: PublishReadyBridge & {
     lastPayload?: unknown;
-    ingestCalls: Array<{ journalUrl?: string; guidelinesUrl?: string }>;
+    lastRunJournal?: TargetJournal;
+    ingestCalls: Array<{ journalUrl?: string; guidelinesUrl?: string; journalName?: string; journalKey?: string }>;
     callOrder: string[];
   } = {
     ingestCalls,
@@ -311,6 +354,7 @@ export function makePublishReadyMock(
     },
     async run({ journal }) {
       callOrder.push('run');
+      bridge.lastRunJournal = journal;
       const proxyPayload = buildProxyPayload(report, journal);
       bridge.lastPayload = proxyPayload;
       const reviewerLetter = synthesizeReviewerLetter(report, journal);

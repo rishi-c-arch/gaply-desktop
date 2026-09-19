@@ -17,7 +17,7 @@ fn main() {
     let ingestor = GuidelinesIngestor::new().expect("ingestor");
 
     for url in std::env::args().skip(1) {
-        let report = ingestor.ingest(&db, &embedder, None, Some(&url));
+        let report = ingestor.ingest(&db, &embedder, None, Some(&url), Default::default());
         println!("\n{url}");
         println!("  any_ingested {}   note: {}", report.any_ingested, report.note);
     }

@@ -195,8 +195,82 @@ pub enum GuidelineIngest {
     Skipped { source_url: String },
     /// Injection-flagged — recorded but NOT ingested as usable guideline text.
     Quarantined { source_url: String, reason: String },
-    /// Unreachable / non-HTML / paywalled / empty / rate-limited.
-    Unavailable { source_url: String, reason: String },
+    /// No usable guidance. **Two different situations, and the note must not
+    /// collapse them:** `reached: false` is rate-limited / fetch error / non-200
+    /// — Gaply never saw the page; `reached: true` is a 200 whose body was an
+    /// interstitial or a hub of links — Gaply read it and there was no guidance
+    /// on it. Only the second is a statement about the journal's page, and
+    /// telling a user their page "was reached" when it was not is a claim about
+    /// the world that the reason string alone cannot keep honest. §11 D192.
+    Unavailable { source_url: String, reason: String, reached: bool },
+}
+
+/// **A stable journal key for a URL the USER pasted. §11 D192.**
+///
+/// The ten crawled journals carry curated keys from `config/journal-crawl.json`.
+/// A journal the user names has none, so one is minted from the name — the same
+/// name the picker showed and `run_publishready` is given, so the identity is
+/// PROPAGATED rather than re-derived from corpus state (the §11 D183 rule that
+/// `guidelines_url` itself is threaded to honour).
+///
+/// Minted here, in Rust, and RETURNED to the caller: the frontend must pass the
+/// same key to `run_publishready` or the checklist reads a different journal's
+/// rows. Two derivations of one key is the drift §11 D129 records.
+pub fn key_for_named_journal(name: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = true;
+    for c in name.trim().to_lowercase().chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+/// **Which journal these requirements belong to. §11 D192.**
+///
+/// Two ways a journal can be identified and they are NOT interchangeable, so
+/// the precedence rule lives here rather than at each call site:
+///
+/// * `key` — the crawler's curated key, present only for the ten journals in
+///   `config/journal-crawl.json`. **It wins whenever it exists**, because those
+///   journals already have rows stored under it and a pasted page must APPEND to
+///   them rather than start a parallel slug.
+/// * `name` — what the picker displayed. A key is minted from it when, and only
+///   when, there is no curated one.
+///
+/// **Measured, and the reason this is a type instead of a second `Option<&str>`
+/// parameter:** minting from the name disagrees with the curated key on 3 of the
+/// 10 crawled journals — `The BMJ` mints `the-bmj` against a stored `bmj`, `The
+/// Lancet` mints `the-lancet` against `lancet`, and `Frontiers in Public Health`
+/// mints `frontiers-in-public-health` against `frontiers-public-health`. A
+/// caller that preferred the minted key would repoint a BMJ run at an empty key
+/// and silently lose every crawled row — the same two-derivations-of-one-key
+/// defect as the five mismatched keys fixed in `ba66f40`, arriving from the
+/// other side. Found by running the minter over `journal-crawl.json` rather than
+/// by reading it: derive the list from the artefact.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct JournalIdentity<'a> {
+    /// The curated crawler key, when the picked journal is one of the ten.
+    pub key: Option<&'a str>,
+    /// The displayed name, used only to mint a key when `key` is absent.
+    pub name: Option<&'a str>,
+}
+
+impl JournalIdentity<'_> {
+    /// The key requirements are stored under, or `None` when the caller
+    /// identified no journal at all (the page still reaches the RAG corpus; the
+    /// checklist stays structural).
+    pub fn resolve(&self) -> Option<String> {
+        self.key
+            .map(str::to_string)
+            .or_else(|| self.name.map(key_for_named_journal))
+            .filter(|k| !k.is_empty())
+    }
 }
 
 /// Result of an ingestion job across the provided URLs.
@@ -206,6 +280,19 @@ pub struct GuidelinesReport {
     pub any_ingested: bool,
     /// Human-readable, honest summary for the UI.
     pub note: String,
+    /// **The key the requirements were stored under, when a journal was named.**
+    /// `None` when the caller supplied no name — the page still reaches the RAG
+    /// corpus, but nothing can be keyed, and the checklist stays structural.
+    #[serde(default)]
+    pub journal_key: Option<String>,
+    /// Requirements EXTRACTED from the fetched pages and stored. §11 D192.
+    #[serde(default)]
+    pub requirements_stored: usize,
+    /// Requirements the extractor produced that were already on record for this
+    /// journal from this URL. Reported rather than hidden: a re-paste that adds
+    /// nothing should say so instead of looking like a fresh success.
+    #[serde(default)]
+    pub requirements_duplicate: usize,
 }
 
 /// Owns the production fetcher + a token-bucket rate limiter.
@@ -228,8 +315,11 @@ impl GuidelinesIngestor {
         embedder: &dyn Embedder,
         journal_url: Option<&str>,
         guidelines_url: Option<&str>,
+        journal: JournalIdentity<'_>,
     ) -> GuidelinesReport {
-        ingest_with(&self.fetcher, &self.limiter, db, embedder, journal_url, guidelines_url)
+        ingest_with(
+            &self.fetcher, &self.limiter, db, embedder, journal_url, guidelines_url, journal,
+        )
     }
 }
 
@@ -242,6 +332,12 @@ pub fn ingest_with(
     embedder: &dyn Embedder,
     journal_url: Option<&str>,
     guidelines_url: Option<&str>,
+    // **The journal this page belongs to. §11 D192.** Without it a page still
+    // reaches the RAG corpus and contributes at most three keyword rows; with it
+    // the requirement extractor runs and the checklist becomes that journal's
+    // own stated requirements. See `JournalIdentity` for why the curated key
+    // wins over the minted one.
+    journal: JournalIdentity<'_>,
 ) -> GuidelinesReport {
     // Author-guidelines URL is the primary source; the journal landing page is
     // a secondary source (often carries scope/submission requirements too).
@@ -250,9 +346,41 @@ pub fn ingest_with(
         journal_url.map(|u| (u, "Journal page")),
     ];
 
+    let key = journal.resolve();
     let mut results = Vec::new();
+    let (mut stored, mut duplicate) = (0usize, 0usize);
     for (url, title) in targets.into_iter().flatten() {
-        results.push(fetch_and_ingest_one(fetcher, limiter, db, embedder, url, title));
+        // The extraction happens INSIDE the fetch, where the page body is still
+        // in scope: `GuidelineIngest::Ingested` carries a chunk count, not HTML.
+        let (one, s1, d1) =
+            fetch_and_ingest_one(fetcher, limiter, db, embedder, url, title, key.as_deref());
+        stored += s1;
+        duplicate += d1;
+        results.push(one);
+    }
+
+    // **`origin: crawled` — the value that already means "this machine fetched
+    // it".** D186 gave seeded rows `bundled` and `store_fingerprint_provenance`
+    // writes `crawled`; the picker renders anything non-bundled as "fetched on
+    // this device". Inventing a third value would split one distinction in two.
+    if let Some(k) = &key {
+        if stored > 0 {
+            let now = gaply_core::now_epoch();
+            let prov = gaply_core::journal_fingerprint::FingerprintProvenance {
+                journal_key: k.clone(),
+                version: 1,
+                content_hash: String::new(),
+                fetched_at: now,
+                refetch_after: now + 90 * 24 * 3600,
+                source_count: results.len() as i64,
+                quarantined_at: None,
+                quarantine_reason: None,
+                origin: "crawled".into(),
+            };
+            if let Err(e) = gaply_core::journal_store::store_fingerprint_provenance(db, &prov) {
+                tracing::warn!(error = %e, journal = %k, "storing provenance failed");
+            }
+        }
     }
 
     // Count the sources that ACTUALLY landed, not the ones attempted. `note`
@@ -265,15 +393,81 @@ pub fn ingest_with(
         .filter(|r| matches!(r, GuidelineIngest::Ingested { .. } | GuidelineIngest::Skipped { .. }))
         .count();
     let any_ingested = ingested_count > 0;
+    // **THE SENTENCE IS COMPOSED HERE, AND IT MUST CARRY THE UNAVAILABLE CASE.
+    // §11 D192.**
+    //
+    // A page whose guidelines are rendered client-side comes back with no
+    // guidance on it — measured on Annals of Internal Medicine, where the FETCH
+    // SUCCEEDED and the page classified as navigation, 0 obligation sentences
+    // and 0 stated requirements. The old sentence said only "guidelines
+    // unavailable", so a researcher met four structural rows and nothing telling
+    // them their journal's page had not been read. The reason the classifier
+    // gave is the honest thing to show, and it is already phrased.
+    //
+    // Composed in Rust rather than in the screen for D190's reason: two
+    // surfaces could render this and only one of them should word it.
+    let reason_of = |r: &GuidelineIngest| match r {
+        GuidelineIngest::Unavailable { reason, reached, .. } => Some((reason.clone(), *reached)),
+        GuidelineIngest::Quarantined { reason, .. } => {
+            Some((format!("quarantined: {reason}"), true))
+        }
+        _ => None,
+    };
     let note = if results.is_empty() {
         "no journal or guidelines URL provided; checklist stays empty".to_string()
+    } else if any_ingested && stored > 0 {
+        format!(
+            "{ingested_count} guideline source(s) read; {stored} requirement(s) extracted from \
+             this journal's own pages. The checklist uses them instead of the structural checks \
+             alone."
+        )
+    } else if any_ingested && key.is_none() {
+        // **The extractor never ran, so nothing may be said about the page.**
+        // This branch used to share the sentence below — "no requirement Gaply
+        // can extract was stated on them" — which is a claim about the page's
+        // CONTENT arrived at without reading it: with no journal named there is
+        // nowhere to key requirements, so extraction is skipped entirely. Caught
+        // in the D192 before/after, where BMC Medicine's BEFORE row said it about
+        // a page the AFTER row got two requirements out of.
+        format!(
+            "{ingested_count} guideline source(s) read into the corpus. No journal was named, so \
+             nothing could be stored against one, and the checklist shows the structural checks."
+        )
     } else if any_ingested {
-        format!("{ingested_count} guideline source(s) ingested")
+        // Fetched, readable, extractor RAN, and found nothing it can state.
+        // NOT a failure, and not a success either: say which.
+        format!(
+            "{ingested_count} guideline source(s) read, but no requirement Gaply can extract was \
+             stated on them. The checklist falls back to the structural checks."
+        )
     } else {
-        "guidelines unavailable; checklist will remain empty (no fabrication)".to_string()
+        let first = results.iter().filter_map(reason_of).next();
+        let (why, reached) = first
+            .map(|(r, reached)| (r.split_whitespace().collect::<Vec<_>>().join(" "), reached))
+            .unwrap_or_else(|| ("the page could not be read".to_string(), false));
+        if reached {
+            format!(
+                "That page was reached, and no author guidance was found on it: {why}. Nothing \
+                 was extracted, and the checklist shows the structural checks only. Some \
+                 journals render their guidelines in the browser after the page loads, which \
+                 this fetch cannot see."
+            )
+        } else {
+            format!(
+                "That page could not be read: {why}. Nothing was extracted, and the checklist \
+                 shows the structural checks only."
+            )
+        }
     };
 
-    GuidelinesReport { results, any_ingested, note }
+    GuidelinesReport {
+        results,
+        any_ingested,
+        note,
+        journal_key: key,
+        requirements_stored: stored,
+        requirements_duplicate: duplicate,
+    }
 }
 
 fn fetch_and_ingest_one(
@@ -283,34 +477,47 @@ fn fetch_and_ingest_one(
     embedder: &dyn Embedder,
     url: &str,
     title: &str,
-) -> GuidelineIngest {
-    let unavailable = |reason: String| GuidelineIngest::Unavailable { source_url: url.to_string(), reason };
+    // The journal these requirements belong to, when the user named one.
+    journal_key: Option<&str>,
+) -> (GuidelineIngest, usize, usize) {
+    let unavailable = |reason: String, reached: bool| {
+        (GuidelineIngest::Unavailable { source_url: url.to_string(), reason, reached }, 0, 0)
+    };
 
     // Rate limit per host — never an unlimited fetcher.
     if !limiter.try_consume(&host_of(url)).allowed {
-        return unavailable("rate_limited".to_string());
+        return unavailable("rate_limited".to_string(), false);
     }
 
     let resp = match fetcher.get(&HttpRequest::get(url)) {
         Ok(r) => r,
-        Err(e) => return unavailable(format!("fetch failed: {e}")),
+        Err(e) => return unavailable(format!("fetch failed: {e}"), false),
     };
     if resp.status != 200 {
-        return unavailable(format!("http {}", resp.status));
+        return unavailable(format!("http {}", resp.status), false);
     }
 
     let text = html_to_text(&resp.body);
     // Ask what this page IS, not how long it is. See `classify_page`.
     match classify_page(&html_title(&resp.body), &text) {
         PageVerdict::Interstitial { signature } => {
-            return unavailable(format!(
-                "the response is an interstitial, not the page (title says {signature:?}) —                  the request did not reach the journal"
-            ));
+            return unavailable(
+                format!(
+                    "the response is an interstitial, not the page (title says \
+                     {signature:?}); the request did not reach the journal"
+                ),
+                true,
+            );
         }
         PageVerdict::Navigation { obligations, requirements } => {
-            return unavailable(format!(
-                "the page carries navigation, not guidance ({obligations} obligation                  sentence(s), {requirements} stated requirement(s)) — a homepage or a hub                  of links rather than author guidelines"
-            ));
+            return unavailable(
+                format!(
+                    "the page carries navigation, not guidance ({obligations} obligation \
+                     sentence(s), {requirements} stated requirement(s)): a homepage or a hub \
+                     of links rather than author guidelines"
+                ),
+                true,
+            );
         }
         PageVerdict::Guideline { .. } => {}
     }
@@ -327,10 +534,17 @@ fn fetch_and_ingest_one(
     };
     let untrusted = UntrustedText::new(text, provenance);
     if untrusted.is_suspicious() {
-        return GuidelineIngest::Quarantined {
-            source_url: url.to_string(),
-            reason: format!("guideline text flagged as injection: {:?}", untrusted.injection_flags()),
-        };
+        return (
+            GuidelineIngest::Quarantined {
+                source_url: url.to_string(),
+                reason: format!(
+                    "guideline text flagged as injection: {:?}",
+                    untrusted.injection_flags()
+                ),
+            },
+            0,
+            0,
+        );
     }
 
     // llm_safe() is the normalized, injection-checked text (redaction if it were
@@ -346,14 +560,48 @@ fn fetch_and_ingest_one(
     match ingest_document(db, embedder, &doc) {
         Ok(report) => match report.status {
             IngestStatus::Ingested { chunks } => {
-                GuidelineIngest::Ingested { source_url: url.to_string(), chunks }
+                // **THE EXTRACTOR RUNS HERE, ON THE PAGE ALREADY FETCHED. §11 D192.**
+                //
+                // `journal_extract::extract_requirements` is deterministic,
+                // tested, and had NO production caller on this path: it was
+                // reached only from `examples/` and from this module's own
+                // tests. A pasted URL went into the RAG corpus and the
+                // requirements written on the page were stepped over, so the
+                // checklist fell back to at most three keyword rows.
+                //
+                // No model, no search, no new trust boundary — the page is
+                // public, the fetch has already happened, and the extractor
+                // reads blocks built from the same response.
+                let (mut stored, mut dup) = (0usize, 0usize);
+                if let Some(k) = journal_key {
+                    let blocks = html_to_blocks(&resp.body);
+                    let reqs = gaply_core::journal_extract::extract_requirements(&blocks);
+                    if !reqs.is_empty() {
+                        match gaply_core::journal_store::store_requirements(
+                            db, k, url, &reqs, now_epoch(),
+                        ) {
+                            Ok(o) => {
+                                stored = o.inserted;
+                                dup = o.duplicates;
+                            }
+                            // Never fatal: the page is in the corpus either way
+                            // and the structural checklist is unaffected.
+                            Err(e) => {
+                                tracing::warn!(error = %e, journal = %k, "storing requirements failed")
+                            }
+                        }
+                    }
+                }
+                (GuidelineIngest::Ingested { source_url: url.to_string(), chunks }, stored, dup)
             }
             IngestStatus::Quarantined { reason } => {
-                GuidelineIngest::Quarantined { source_url: url.to_string(), reason }
+                (GuidelineIngest::Quarantined { source_url: url.to_string(), reason }, 0, 0)
             }
-            IngestStatus::Skipped => GuidelineIngest::Skipped { source_url: url.to_string() },
+            IngestStatus::Skipped => {
+                (GuidelineIngest::Skipped { source_url: url.to_string() }, 0, 0)
+            }
         },
-        Err(e) => unavailable(format!("ingest failed: {e}")),
+        Err(e) => unavailable(format!("ingest failed: {e}"), true),
     }
 }
 
@@ -547,7 +795,15 @@ mod tests {
         let emb = embedder();
         let fetcher = MockHttpFetcher::new().route("guidelines", 200, GUIDELINE_HTML);
         let out =
-            ingest_with(&fetcher, &roomy(), &db, &emb, None, Some("http://journal.test/guidelines"));
+            ingest_with(
+                &fetcher,
+                &roomy(),
+                &db,
+                &emb,
+                None,
+                Some("http://journal.test/guidelines"),
+                Default::default(),
+            );
 
         assert!(out.any_ingested, "well-formed guideline should ingest: {:?}", out);
         assert!(matches!(out.results[0], GuidelineIngest::Ingested { .. }));
@@ -578,7 +834,15 @@ mod tests {
         let emb = embedder();
         let fetcher = MockHttpFetcher::new(); // default 404
         let out =
-            ingest_with(&fetcher, &roomy(), &db, &emb, None, Some("http://journal.test/guidelines"));
+            ingest_with(
+                &fetcher,
+                &roomy(),
+                &db,
+                &emb,
+                None,
+                Some("http://journal.test/guidelines"),
+                Default::default(),
+            );
 
         assert!(!out.any_ingested);
         assert!(matches!(out.results[0], GuidelineIngest::Unavailable { .. }));
@@ -603,7 +867,15 @@ mod tests {
         let emb = embedder();
         let fetcher = MockHttpFetcher::new().route("guidelines", 200, "{}"); // tiny, non-HTML
         let out =
-            ingest_with(&fetcher, &roomy(), &db, &emb, None, Some("http://journal.test/guidelines"));
+            ingest_with(
+                &fetcher,
+                &roomy(),
+                &db,
+                &emb,
+                None,
+                Some("http://journal.test/guidelines"),
+                Default::default(),
+            );
         // The reason changed with the gate (§11 D159): a page is refused for
         // WHAT IT IS, not for being short. A body of `{}` carries no obligation
         // and no requirement, so it is navigation-or-nothing — and the message
@@ -634,6 +906,7 @@ mod tests {
         let out = ingest_with(
             &MockHttpFetcher::new().route("guidelines", 200, challenge),
             &roomy(), &db, &emb, None, Some("http://journal.test/guidelines"),
+             Default::default(),
         );
         let interstitial_reason = match &out.results[0] {
             GuidelineIngest::Unavailable { reason, .. } => reason.clone(),
@@ -646,6 +919,7 @@ mod tests {
             &MockHttpFetcher::new().route("guidelines", 200, "<html><head><title>The BMJ</title>\
                 </head><body>Latest content Research Education News Archive Jobs</body></html>"),
             &roomy(), &db, &emb, None, Some("http://journal.test/guidelines"),
+             Default::default(),
         );
         let nav_reason = match &out2.results[0] {
             GuidelineIngest::Unavailable { reason, .. } => reason.clone(),
@@ -670,7 +944,15 @@ mod tests {
             reference style throughout.</p></body></html>";
         let fetcher = MockHttpFetcher::new().route("guidelines", 200, attack);
         let out =
-            ingest_with(&fetcher, &roomy(), &db, &emb, None, Some("http://journal.test/guidelines"));
+            ingest_with(
+                &fetcher,
+                &roomy(),
+                &db,
+                &emb,
+                None,
+                Some("http://journal.test/guidelines"),
+                Default::default(),
+            );
 
         // Flagged and NOT ingested as usable guideline text.
         assert!(matches!(
@@ -701,6 +983,7 @@ mod tests {
             &emb,
             Some("http://journal.test/journal"),
             Some("http://journal.test/guidelines"),
+            Default::default(),
         );
         // Exactly one hit the limiter and came back rate_limited.
         let throttled = out
@@ -728,14 +1011,185 @@ mod tests {
             &emb,
             Some("http://other.test/journal"),
             Some("http://journal.test/guidelines"),
+            Default::default(),
         );
         assert_eq!(out.results.len(), 2, "two targets attempted: {:?}", out.results);
         assert!(out.any_ingested);
+        // The COUNT is this test's subject, not the wording: §11 D192 reworded
+        // the sentence (it now distinguishes "read" from "read and extracted
+        // from"), and a test pinned to the phrasing would have gone red on a
+        // rewrite while the defect it names — 2 attempted reported as 2
+        // ingested — stayed fixed. Assert the number and the denominator.
         assert!(
-            out.note.starts_with("1 guideline source(s) ingested"),
+            out.note.starts_with("1 guideline source(s) "),
             "one landed, so the note must say 1 — got {:?} from {:?}",
             out.note,
             out.results
+        );
+        assert!(
+            !out.note.contains("2 guideline source(s)"),
+            "two were attempted and one landed; the note must not count attempts: {:?}",
+            out.note
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // The pasted URL becomes requirements (§11 D192)
+    // -----------------------------------------------------------------
+
+    /// **The wiring, read back through the reader a checklist uses.**
+    ///
+    /// `journal_extract::extract_requirements` is deterministic and tested and
+    /// had no production caller on this path: a pasted URL went into the RAG
+    /// corpus and the requirements written on the page were stepped over. The
+    /// assertion is not that the extractor works — its own tests cover that —
+    /// but that the pasted page's requirements arrive where the checklist reads,
+    /// carrying the span that lets a reader refute them.
+    #[test]
+    fn a_named_journal_turns_a_pasted_page_into_requirements_with_their_spans() {
+        let db = db();
+        let emb = embedder();
+        let fetcher = MockHttpFetcher::new().route("guidelines", 200, GUIDELINE_HTML);
+        let out = ingest_with(
+            &fetcher,
+            &roomy(),
+            &db,
+            &emb,
+            None,
+            Some("http://journal.test/guidelines"),
+            JournalIdentity { key: None, name: Some("Journal of Test Medicine") },
+        );
+        assert_eq!(out.journal_key.as_deref(), Some("journal-of-test-medicine"));
+        assert!(out.requirements_stored > 0, "nothing stored: {:?}", out);
+
+        // Read back the way the checklist does, not out of the report.
+        let fp = gaply_core::journal_fingerprint::fingerprint_for(&db, "journal-of-test-medicine")
+            .expect("fingerprint");
+        assert!(!fp.requirements.is_empty(), "stored but unreadable: {fp:?}");
+        for r in &fp.requirements {
+            assert_eq!(r.source_url, "http://journal.test/guidelines", "{r:?}");
+            assert!(!r.source_span.trim().is_empty(), "a span-less row cannot be refuted: {r:?}");
+            assert!(
+                GUIDELINE_HTML.contains(r.source_span.trim()),
+                "the span must quote the page it came from: {:?}",
+                r.source_span
+            );
+        }
+        // The picker renders anything non-bundled as fetched on this device.
+        assert_eq!(
+            fp.provenance.as_ref().map(|p| p.origin.as_str()),
+            Some("crawled"),
+            "a page this machine fetched must not read as bundled: {:?}",
+            fp.provenance
+        );
+    }
+
+    /// **Naming no journal must change nothing.** The BEFORE half of the D192
+    /// measurement, pinned: without an identity the page still reaches the RAG
+    /// corpus and no requirement is keyed, which is what every pasted URL did.
+    #[test]
+    fn without_a_named_journal_nothing_is_keyed() {
+        let db = db();
+        let emb = embedder();
+        let fetcher = MockHttpFetcher::new().route("guidelines", 200, GUIDELINE_HTML);
+        let out = ingest_with(
+            &fetcher,
+            &roomy(),
+            &db,
+            &emb,
+            None,
+            Some("http://journal.test/guidelines"),
+            Default::default(),
+        );
+        assert!(out.any_ingested, "the page must still reach the corpus: {:?}", out.results);
+        assert_eq!(out.journal_key, None);
+        assert_eq!(out.requirements_stored, 0);
+        // And the note must not describe a page nothing read. The extractor is
+        // skipped when there is no key, so "no requirement was stated on them"
+        // would be a claim about content arrived at without looking at it.
+        assert!(
+            out.note.contains("No journal was named"),
+            "the reason nothing was stored is the caller, not the page: {:?}",
+            out.note
+        );
+        assert!(
+            !out.note.contains("no requirement Gaply can extract was stated"),
+            "that sentence describes a page the extractor never read: {:?}",
+            out.note
+        );
+    }
+
+    /// **The curated key wins, and this is the case that measures why.**
+    ///
+    /// `The BMJ` mints `the-bmj` while the crawler stored its rows under `bmj`.
+    /// Preferring the minted key would point the run at an empty key and lose
+    /// every crawled row — silently, because an empty fingerprint and a journal
+    /// with no requirements render the same. Two of the other nine disagree the
+    /// same way (`The Lancet`, `Frontiers in Public Health`).
+    #[test]
+    fn a_crawled_journals_curated_key_beats_the_key_minted_from_its_name() {
+        assert_eq!(key_for_named_journal("The BMJ"), "the-bmj", "the minter is the premise here");
+        let id = JournalIdentity { key: Some("bmj"), name: Some("The BMJ") };
+        assert_eq!(id.resolve().as_deref(), Some("bmj"), "a pasted page must append to bmj's rows");
+
+        // And with no curated key there is still an answer, or the feature does
+        // nothing for the journals that need it most.
+        let minted = JournalIdentity { key: None, name: Some("The BMJ") };
+        assert_eq!(minted.resolve().as_deref(), Some("the-bmj"));
+        assert_eq!(JournalIdentity::default().resolve(), None);
+        // A name that mints to nothing is not a key.
+        assert_eq!(JournalIdentity { key: None, name: Some("   ") }.resolve(), None);
+    }
+
+    /// **"Reached" is a claim about the world and must be false when it is.**
+    ///
+    /// Measured on Annals of Internal Medicine, where the fetch SUCCEEDED and
+    /// the page classified as navigation: the user is told their page was read
+    /// and had no guidance on it. A rate-limited or refused fetch is the other
+    /// state, and telling that user their page "was reached" is a claim Gaply
+    /// cannot make — the reason string alone cannot keep the two apart.
+    #[test]
+    fn the_note_says_read_only_when_the_page_was_actually_read() {
+        let db = db();
+        let emb = embedder();
+
+        // Reached: 200, and the body is a hub of links. The Annals shape.
+        let nav = "<html><head><title>Annals</title></head><body>\
+            Latest content Research Education News Archive Jobs</body></html>";
+        let reached = ingest_with(
+            &MockHttpFetcher::new().route("guidelines", 200, nav),
+            &roomy(),
+            &db,
+            &emb,
+            None,
+            Some("http://journal.test/guidelines"),
+            Default::default(),
+        );
+        assert!(
+            reached.note.starts_with("That page was reached"),
+            "a 200 whose body was read must say so: {:?}",
+            reached.note
+        );
+        assert!(
+            reached.note.contains("render their guidelines in the browser"),
+            "the JS-rendered case is the one a user meets and must be named: {:?}",
+            reached.note
+        );
+
+        // Not reached: nothing came back at all.
+        let missed = ingest_with(
+            &MockHttpFetcher::new(),
+            &roomy(),
+            &db,
+            &emb,
+            None,
+            Some("http://journal.test/guidelines"),
+            Default::default(),
+        );
+        assert!(
+            missed.note.starts_with("That page could not be read"),
+            "a fetch that never landed must not claim the page was reached: {:?}",
+            missed.note
         );
     }
 

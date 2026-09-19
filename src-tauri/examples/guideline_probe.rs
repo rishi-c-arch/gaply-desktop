@@ -31,7 +31,7 @@ fn main() -> Result<(), GaplyError> {
 
     println!("=== STEP 1: INGEST ===");
     let ing = app_lib::guidelines::GuidelinesIngestor::new()?;
-    let report = ing.ingest(&db, &emb, None, Some(&url));
+    let report = ing.ingest(&db, &emb, None, Some(&url), Default::default());
     println!("any_ingested: {}", report.any_ingested);
     println!("note: {}", report.note);
     for r in &report.results {

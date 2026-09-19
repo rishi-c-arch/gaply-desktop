@@ -29,11 +29,11 @@ const offlineAuth: AuthService = {
   },
 } as any;
 
-function renderReport(report?: PublishReadyReport, isPaid = false) {
+function renderReport(report?: PublishReadyReport, isPaid = false, extra: any = {}) {
   return render(
     <MemoryRouter>
       <GaplySessionProvider authService={offlineAuth}>
-        <ReportViewerPage report={report} isPaid={isPaid} />
+        <ReportViewerPage report={report} isPaid={isPaid} {...extra} />
       </GaplySessionProvider>
     </MemoryRouter>
   );
@@ -286,5 +286,44 @@ describe('checklist rows carry every page the journal states them on (§11 D188)
     expect(mark.textContent).not.toBe('✗');
     expect(mark.textContent).not.toBe('✓');
     expect(screen.getByTestId('check-undecided-0').textContent).toMatch(/not a finding about your manuscript/i);
+  });
+});
+
+/* --------- the empty-checklist sentence, where no note was kept ----------- */
+
+/** **§11 D192 — the fallback, and why it is still here.**
+ *
+ *  The live path renders the sentence the backend composed; a report reopened
+ *  from storage kept no note, so this text is what a reader meets there. What it
+ *  no longer says is *"That page was fetched successfully"* — that was asserted
+ *  for a 404, a rate-limited host and a bot interstitial alike, by the layer
+ *  furthest from the evidence and with nothing available to it that could tell
+ *  them apart. The backend now carries that distinction (`reached`); this
+ *  surface simply stops claiming it. */
+describe('§11 D192 · the checklist sentence for a URL that yielded nothing', () => {
+  const emptyChecklistReport = {
+    ...(SAMPLE_REPORT as any),
+    checklist: ((SAMPLE_REPORT as any).checklist ?? []).filter((c: any) => !c.guideline_source),
+  };
+
+  it('renders the backend sentence verbatim when there is one', async () => {
+    const note = 'That page was reached, and no author guidance was found on it: X.';
+    renderReport(emptyChecklistReport as any, true, {
+      guidelinesUrl: 'https://www.bmj.com',
+      guidelinesNote: note,
+    });
+    fireEvent.click(await screen.findByTestId('tab-Checklist'));
+    expect((await screen.findByTestId('checklist-guidelines-empty')).textContent).toBe(note);
+  });
+
+  it('falls back without claiming the page was fetched successfully', async () => {
+    renderReport(emptyChecklistReport as any, true, { guidelinesUrl: 'https://www.bmj.com' });
+    fireEvent.click(await screen.findByTestId('tab-Checklist'));
+    const el = await screen.findByTestId('checklist-guidelines-empty');
+    expect(el.textContent).toContain('https://www.bmj.com');
+    expect(el.textContent).toMatch(/requirements that Gaply currently detects/i);
+    // The claim this surface cannot make. A stored report does not record
+    // whether the fetch landed, so the sentence must not decide that it did.
+    expect(el.textContent).not.toMatch(/fetched successfully/i);
   });
 });

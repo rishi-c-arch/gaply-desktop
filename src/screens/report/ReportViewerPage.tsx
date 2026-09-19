@@ -66,6 +66,11 @@ export interface ReportViewerPageProps {
    *  Only the checklist's empty state reads it, and only to tell two cases
    *  apart: no URL given, versus a URL given that yielded no requirements. */
   guidelinesUrl?: string;
+  /** **The ingest's own sentence, composed in Rust (§11 D190, §11 D192).**
+   *  Rendered verbatim where the checklist would otherwise invent one. Absent
+   *  for a report reopened from storage, which is why the invented sentence
+   *  survives as the fallback rather than being deleted. */
+  guidelinesNote?: string;
 }
 
 function statusForSection(findings: Finding[], section: string): BadgeStatus | 'neutral' {
@@ -85,6 +90,7 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
   bare = false,
   reviewerLetter,
   guidelinesUrl,
+  guidelinesNote,
 }) => {
   const { session } = useGaplySession();
   const { toast } = useToast();
@@ -200,7 +206,7 @@ const ReportInner: React.FC<ReportViewerPageProps> = ({
           >
             <Panel title={tab}>
               {tab === 'Checklist' ? (
-                <ChecklistView items={report.checklist} guidelinesUrl={guidelinesUrl} />
+                <ChecklistView items={report.checklist} guidelinesUrl={guidelinesUrl} guidelinesNote={guidelinesNote} />
               ) : tab === 'Overview' ? (
                 <OverviewView
                   report={report}
@@ -382,9 +388,14 @@ const FindingsList: React.FC<{
 
 /* ------------------------------- checklist ------------------------------ */
 
-const ChecklistView: React.FC<{ items: ChecklistItem[]; guidelinesUrl?: string }> = ({
+const ChecklistView: React.FC<{
+  items: ChecklistItem[];
+  guidelinesUrl?: string;
+  guidelinesNote?: string;
+}> = ({
   items,
   guidelinesUrl,
+  guidelinesNote,
 }) => {
   // H4 honest empty-state: when NO item carries a guideline source, the
   // target-journal guidelines weren't provided/ingested — so only the always-on
@@ -494,11 +505,29 @@ const ChecklistView: React.FC<{ items: ChecklistItem[]; guidelinesUrl?: string }
           style={{ fontSize: 12, marginTop: 8 }}
           data-testid="checklist-guidelines-empty"
         >
-          That page was fetched successfully. The URL analysed was{' '}
-          <span className="gds-mono">{guidelinesUrl}</span>. None of the guideline requirements
-          that Gaply currently detects were found on it. This may mean the URL points to a journal
-          homepage rather than an author-guidelines page, or that the page contains
-          author-guideline requirements Gaply does not yet detect.
+          {/* **The ingest's own sentence wins. §11 D192.**
+
+              What stood here asserted *"That page was fetched successfully"* for
+              every empty checklist — including a 404, a rate-limited host and a
+              bot interstitial, none of which this component can tell apart. It
+              is the `reached` distinction the backend now carries, invented on
+              the screen instead: a claim about the world made by the layer
+              furthest from the evidence.
+
+              It was also a SECOND wording of a sentence Rust already composes,
+              which is the divergence §11 D190 was about. So the note is rendered
+              verbatim when there is one, and the old text survives only for a
+              report reopened from storage, where no note was kept. */}
+          {guidelinesNote ? (
+            guidelinesNote
+          ) : (
+            <>
+              The URL analysed was <span className="gds-mono">{guidelinesUrl}</span>. None of the
+              guideline requirements that Gaply currently detects were found on it. This may mean
+              the URL points to a journal homepage rather than an author-guidelines page, or that
+              the page contains author-guideline requirements Gaply does not yet detect.
+            </>
+          )}
         </p>
       ) : (
         !hasGuidelineItems && (

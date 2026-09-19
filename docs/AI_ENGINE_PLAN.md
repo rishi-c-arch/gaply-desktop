@@ -14208,3 +14208,206 @@ inherits the pairing, and that is the fixture problem with extra steps.
 The upload path is what creates the first real pair. Order: ship the instrument,
 collect pairs, then fix the mapping, the prose-side extraction and the span
 against one.
+
+### D192 — §6 names OpenAI-with-search as the journal layer's mechanism, and the deterministic extractor that does the job had no caller
+
+**The task was to build the OpenAI provider with web search and point it at the
+journal layer.** The measurement that was supposed to size that work found
+something else: the journal layer's extractor already exists, is deterministic,
+is tested, and **was not wired into the path a user takes.**
+
+#### The correction to the architecture document
+
+`docs/publishready-premium-architecture.md` §6, in the table of models:
+
+| Deep research on the journal | OpenAI with search, via proxy | **journal layer only** — recent papers, scope, conventions. Never the manuscript. |
+
+and the paragraph below it: *"Deep research is pointed at the journal, not the
+manuscript. That is the design move that reconciles 'use OpenAI's deep research'
+with 'data privacy is important.'"*
+
+**The code wins, and the code says something different.** What extracts a
+journal's requirements is `gaply-core/src/journal_extract.rs` —
+`extract_requirements(&[Block]) -> Vec<Requirement>`, pattern-based, no model, no
+network beyond the page fetch that already happened. It is what produced every
+requirement in the bundled seed for the ten crawled journals. **It had no
+production caller on the pasted-URL path**: `guidelines.rs` fetched the page,
+sanitised it, embedded it into the RAG corpus, and stepped over the requirements
+printed on it. The only callers were `examples/` and the module's own tests.
+
+So the document described a mechanism that does not exist, for a job that was
+already being done by a mechanism the document does not mention, on a path where
+that mechanism was not running. **This is the sixth time this month the
+architecture document has been wrong about the code, and the shape is worth
+naming: it was not wrong about a detail. It was wrong about which component does
+the work** — and being wrong that way is what let the gap sit, because anyone
+looking for "the journal layer" found a paragraph about OpenAI and no reason to
+go and check whether the deterministic path was connected.
+
+**What that cost a user.** A pasted author-guidelines URL produced a checklist of
+at most three keyword rows plus the four structural ones. The journal's own
+stated word limit, abstract limit and required statements were on the page, were
+extractable, and were discarded. Every journal outside the crawled ten — which is
+every journal in the bundled Scopus directory — got that.
+
+#### The measurement, on a journal outside the ten
+
+`examples/pasted_url_probe.rs`, driving the real `ingest_with` with the real
+`ReqwestFetcher`. BMC Medicine, `https://bmcmedicine.biomedcentral.com/submission-guidelines`:
+
+| | BEFORE | AFTER |
+|---|---|---|
+| verdict | `Ingested { chunks: 10 }` | `Ingested { chunks: 10 }` |
+| `journal_key` | `None` | `Some("bmc-medicine")` |
+| `requirements_stored` | 0 | **2** |
+| rows read back through `fingerprint_for` | — | 2 |
+| `provenance.origin` | — | `"crawled"` |
+
+Both rows carry their URL and the sentence they came from, read back through the
+reader a checklist uses rather than out of the report:
+
+```
+[data_policy]      data availability statement required
+  span: For all manuscripts, information about data availability should be
+        detailed in an 'Availability of data and materials' section.
+[section_required] competing interests statement   (article_type = Letter)
+```
+
+`origin: "crawled"` is the value D186 already gave a page this machine fetched;
+the picker renders anything non-bundled as *fetched on this device*. Inventing a
+third value would split one distinction in two.
+
+#### Annals of Internal Medicine: THE FETCH SUCCEEDED
+
+The second journal probed, and the finding is the opposite of the expected one.
+`https://www.acpjournals.org/journal/aim/authors` was **reached — HTTP 200, no
+interstitial, no block, no rate limit.** The body classified as navigation:
+
+```
+Unavailable { reason: "the page carries navigation, not guidance
+              (0 obligation sentence(s), 0 stated requirement(s)): a homepage
+              or a hub of links rather than author guidelines",
+              reached: true }
+```
+
+Zero obligation sentences on a real journal's real author-guidelines URL, served
+successfully. **The guidelines are rendered in the browser after the page
+loads**, so the HTML that arrives carries the chrome and none of the content.
+This is not a publisher refusing Gaply — the CLAUDE.md rule against reading a
+fetch through `curl` exists because four such conclusions were wrong — and it is
+not something a retry, a header change or a different client fixes. It is a
+category of page a plain fetch cannot read, and the honest thing is to say so to
+the person who pasted the URL.
+
+**So the note now carries the reason, and the reason had to become a state.**
+`GuidelineIngest::Unavailable` covered five outcomes: rate-limited, fetch error,
+non-200, interstitial, navigation. The first three mean *Gaply never saw the
+page*; the last two mean *Gaply read it and there was no guidance on it*. The
+sentence composed from them said "That page was reached" for all five — a claim
+about the world that the reason string alone cannot keep honest. The variant now
+carries `reached: bool` and the note branches on it.
+
+#### The key is passed, never derived twice — and 3 of the 10 prove why
+
+A journal the user names has no curated key, so one is minted from the name.
+`JournalIdentity` resolves which: **the curated key wins whenever it exists.**
+Running the minter over `config/journal-crawl.json` rather than reading it:
+
+| journal | curated key | minted from the name |
+|---|---|---|
+| The BMJ | `bmj` | `the-bmj` |
+| The Lancet | `lancet` | `the-lancet` |
+| Frontiers in Public Health | `frontiers-public-health` | `frontiers-in-public-health` |
+
+**Three of the ten disagree.** Preferring the minted key would have pointed a BMJ
+run at an empty key and lost every crawled row — silently, because an empty
+fingerprint and a journal with no requirements render identically. That is the
+same two-derivations-of-one-key defect as the five mismatched keys fixed in
+`ba66f40`, arriving from the other side, and the first draft of the frontend had
+it: it overrode `journal.key` with whatever the ingest returned while sending
+only the name. The fix is to send both and let one place decide.
+
+#### Two surfaces were claiming things they could not know
+
+Found while wiring the sentence through, and both are the same defect as
+`reached`:
+
+1. **The note reached nobody in the one case it exists for.** It rendered on the
+   entry screen, which the completed run replaces. Annals produces a *successful
+   run* with an empty checklist, so the user met four structural rows and no
+   explanation. The note now rides into the report and renders on the checklist.
+2. **`ReportViewerPage` asserted "That page was fetched successfully"** for every
+   empty checklist — a 404, a rate-limited host and a bot interstitial alike —
+   invented by the layer furthest from the evidence, with nothing available to it
+   that could tell them apart. It was also a second wording of a sentence Rust
+   already composes, which is the divergence D190 was about. The backend's
+   sentence now wins; the old text survives only as the fallback for a report
+   reopened from storage, with the claim removed.
+
+#### The em-dash guard cannot see this file, and that is a second gap
+
+D190 recorded that a guard testing for a character cannot see the escape that
+produces it. Writing this entry's code produced an em dash in a reader-facing
+string in `guidelines.rs` — and the guard would not have caught it **even
+unescaped**, for a different reason: `no_module_that_writes_to_the_reader_
+contains_an_em_dash` scans a hand-typed list of five files, all in `gaply-core`,
+by `include_str!`. It cannot reach the app crate at all. A count of app-crate
+modules with an em dash inside a string literal returns **15 files, 57 lines**;
+how many are reader-facing rather than log or test text is unmeasured.
+
+That is the "derive the list from the artefact, not from memory" rule failing on
+a guard written to enforce a different rule. Not widened here — the false-positive
+question over app-crate strings is its own survey — but recorded so it is
+findable from the guard rather than only from the next defect.
+
+#### What is NOT built
+
+Steps 2 and 3 of the original task — per-task provider routing, and a
+search-capable client — remain undone. **They should be sized against this
+result**: the job §6 assigned to OpenAI-with-search was, for the pasted-URL path,
+one call to a function that already existed. What search would add is the case
+this entry ends on, Annals — a page whose content never reaches a fetcher — and
+that is a narrower and much better-defined problem than "deep research on the
+journal."
+
+#### The guard, and what its first run found
+
+`gaply-core/tests/journal_producers_have_callers.rs`. It enumerates `pub fn`
+from `journal_extract.rs` and `journal_store.rs` — **derived from the source, not
+typed from memory**, the D170 rule whose hand survey grepped four table names and
+missed the fifth — strips each candidate caller at its first `#[cfg(test)]`, and
+requires a production call site. The scan covers `src` **and `../src`**: the
+callers live in the app crate, so a guard confined to `gaply_core` would have
+passed on this very defect.
+
+It is the sibling `journal_tables_have_writers.rs` named and did not build. That
+guard's "what it cannot catch" list opens with *"a writer that is never CALLED —
+`store_standard_bindings` existing does not mean a crawl invokes it."* Written
+two months ago, and still true: of the nine public functions, **three have no
+production caller** — `store_conventions`, `store_standard_bindings`,
+`store_expectations`, all reachable only from `examples/journal_stage2_build.rs`
+and their own unit tests. They are allowlisted with that measurement rather than
+fixed here, because wiring them means deciding when a crawl runs on a user's
+machine, which carries a consent question.
+
+The allowlist is matched **exactly in both directions**: a name that gains a
+production caller fails too, with an instruction to delete the line. An allowlist
+that stops matching tightens a guard into noise, which is loud; one that keeps
+matching after its reason has gone exempts real code quietly, and the quiet
+direction is the one to design against.
+
+Five deletion tests, each predicted first. Unwiring the extractor reddens the
+guard **and** the D192 unit test — two targets, which only `--no-fail-fast`
+shows. Breaking the `pub fn` parser fails vacuously (*"only 0 public fns
+parsed"*) rather than passing. Dropping `../src` fails naming the app crate.
+Removing an allowlist entry reddens as unreachable.
+
+**The fifth went red for the wrong reason and had to be redone**, which is worth
+recording because it is the deletion-test entry's failure mode in a form that
+entry does not cover. Swapping a called function *in* for an allowlisted one
+*out* made the removed one unreachable, and that assertion fires first — so the
+branch under test never ran, and the red said nothing about it. A deletion test
+that goes red for a reason other than the predicted one is exactly as
+uninformative as one that goes green: **the prediction has to name the message,
+not just the colour.** Re-run as an addition that removes nothing, it fails with
+*"now HAVE a production caller — delete those lines"*.

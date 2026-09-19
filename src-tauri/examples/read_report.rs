@@ -41,11 +41,11 @@ fn main() -> Result<(), GaplyError> {
     if guidelines.is_some() || !others.is_empty() {
         let ing = app_lib::guidelines::GuidelinesIngestor::new()?;
         for url in others.iter() {
-            let rep = ing.ingest(&db, embedder.as_ref(), None, Some(url));
+            let rep = ing.ingest(&db, embedder.as_ref(), None, Some(url), Default::default());
             println!("[guidelines OTHER] {url} -> {} ({})", rep.any_ingested, rep.note);
         }
         if let Some(url) = guidelines.clone() {
-            let rep = ing.ingest(&db, embedder.as_ref(), None, Some(&url));
+            let rep = ing.ingest(&db, embedder.as_ref(), None, Some(&url), Default::default());
             println!("[guidelines SELECTED] {url} -> {} ({})", rep.any_ingested, rep.note);
         }
     }

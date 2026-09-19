@@ -261,10 +261,22 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
       // degradation) — it NEVER blocks the review.
       const url = guidelinesUrl.trim();
       setRanGuidelinesUrl(url || null);
+      // **§11 D192: the key the ingest minted is what the run must read.**
+      // `journal.key` is set only for the ten crawled journals; for every other
+      // pick it is absent, and before this the pasted page went into the RAG
+      // corpus while its stated requirements were stepped over. Naming the
+      // journal lets the extractor store them, and the key it returns is
+      // PASSED to the run rather than derived a second time (§11 D129).
+      let runJournal = journal;
       if (url) {
         try {
-          const ing = await b.ingestGuidelines({ guidelinesUrl: url });
+          const ing = await b.ingestGuidelines({
+            guidelinesUrl: url,
+            journalName: journal.name,
+            journalKey: journal.key,
+          });
           setGuidelinesNote(ing.note);
+          if (ing.journal_key) runJournal = { ...journal, key: ing.journal_key };
         } catch {
           setGuidelinesNote(
             'Could not fetch that guidelines page — the checklist will show structural checks only.'
@@ -276,7 +288,7 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
       setResult(
         await b.run({
           manuscriptPath: file.path,
-          journal,
+          journal: runJournal,
           userToken: session?.access_token,
           // Only the guidelines the user actually supplied scope the checklist.
           guidelinesUrl: url || undefined,
@@ -433,6 +445,11 @@ const Inner: React.FC<PublishReadyPageProps> = ({ bridge, subscriptionService, f
                 tabs={PR_TABS}
                 bare
                 guidelinesUrl={ranGuidelinesUrl ?? undefined}
+                // §11 D192: the ingest's sentence must survive into the report.
+                // It was rendered on the ENTRY screen only, which the completed
+                // run replaces — so the one case it exists for, a page that was
+                // reached and had no guidance on it, reached nobody.
+                guidelinesNote={guidelinesNote ?? undefined}
                 reviewerLetter={<ReviewerLetterPanel letter={result.reviewerLetter} declined={result.declined} />}
               />
             </div>
