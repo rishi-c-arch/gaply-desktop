@@ -1691,3 +1691,56 @@ time injection.
   whether it constrains what was TYPED or what is RENDERED**, because those
   diverge the moment anyone writes an escape, and a guard silent about which it
   checks will be read as checking both.
+
+- **THE ENTRY ABOVE DID NOT STOP ME. Naming a trap is not a guard against it —
+  the count is four in the session AFTER it was written.**
+
+  The `cd X && …` failure is recorded directly above: a `cd` that fails
+  short-circuits the `&&`, the edit never runs, and an unconditional success line
+  makes it invisible. That entry was written on 18 Sep. On 19 Sep the same
+  mistake was made **four more times by the author of the entry**, in one
+  session:
+
+  | # | what was lost | what printed |
+  |---|---|---|
+  | 1 | a test fix that rewrote an assertion | `8 passed` |
+  | 2 | a probe file (`&&` protected it — nothing written) | `error: no example target` |
+  | 3 | a probe file, second attempt | `BUILD done` |
+  | 4 | **a 103-line decision record append** | `D191 appended` |
+
+  The fourth is the one to look at. `cat >> docs/AI_ENGINE_PLAN.md` from the
+  wrong directory wrote NOTHING, and the transcript carried the word *appended*
+  because `echo` was a separate statement after a `;`. The record existed only in
+  the message claiming it existed.
+
+  **This is the lint-gate entry's lesson arriving a second time, and it deserves
+  the same conclusion stated harder.** That entry already says: *"the norm above
+  was already written — two commits earlier, by me — and I broke it anyway, which
+  is the evidence that knowing the rule is not the same as applying it, and that
+  the check has to be MECHANICAL rather than remembered."* Four repetitions in
+  one day is the strongest evidence in this file for that claim, and it argues
+  that an entry which only DESCRIBES a trap is worth less than one that changes
+  what you type.
+
+  **So the mechanical forms, which are the whole of the fix:**
+
+  ```bash
+  # WRONG — one failed cd silently discards everything after it
+  cd some/dir && cat > file <<'EOF' ... EOF
+
+  # RIGHT — no cd at all. An absolute path cannot be in the wrong directory.
+  cat > /abs/path/file <<'EOF' ... EOF
+
+  # RIGHT — the confirmation is read from the ARTEFACT, never echoed
+  before=$(wc -l < "$P"); cat >> "$P" <<'EOF' ... EOF
+  after=$(wc -l < "$P"); echo "lines $before -> $after"
+  ```
+
+  And in a Python edit, `assert old in s` before `s.replace(old, new)`: a replace
+  that matches nothing is a silent no-op, and `print("done")` after it is the same
+  lie in another language.
+
+  **The general form, because this is not about `cd`:** a step whose success is
+  reported by a statement you wrote, rather than by the thing it changed, is
+  unverified however confident the wording. Read the file, count the lines, grep
+  for the new identifier. **Never let the transcript be the evidence.**
