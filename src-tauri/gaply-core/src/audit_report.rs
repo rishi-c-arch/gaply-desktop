@@ -1850,6 +1850,28 @@ mod tests {
     /// literal em dash in any non-comment line. Regex lines are exempt: a
     /// character class matching a dash in someone else's text is not a dash in
     /// ours.
+    ///
+    /// # WHAT IT CANNOT SEE, stated here because this is where you will be
+    /// standing when it fails
+    ///
+    /// **This is a scan over SOURCE, and an em dash in the OUTPUT is a
+    /// different property.** The test is `line.contains('\u{2014}')` — the
+    /// CHARACTER. A Rust escape written `\u{2014}` in source is seven ASCII
+    /// characters until the compiler reads it, so this guard is blind to it,
+    /// and so is any scan for a character that a language can also spell.
+    ///
+    /// Measured 19 Sep 2026 (§11 D190): one commit added an em dash twice, once
+    /// as a literal in a test assertion and once as an escape in a production
+    /// string. This caught the first and passed the second. Both were removed,
+    /// because the rule is EDITORIAL — `ai_signals` tracks `em_dash_per100` as
+    /// an AI-authorship tell, and an escape is the same character by the time a
+    /// reader meets it.
+    ///
+    /// Deliberately NOT widened to match `\\u{2014}` as text: that has its own
+    /// false-positive question over every regex, doc comment and test fixture in
+    /// the scanned modules, and is a separate change. What is recorded is that a
+    /// green run here does not mean no em dash reaches the reader — only that
+    /// none was typed as a character.
     #[test]
     fn no_module_that_writes_to_the_reader_contains_an_em_dash() {
         let sources = [
@@ -1886,7 +1908,8 @@ mod tests {
         }
         assert!(
             bad.is_empty(),
-            "em dash in a module that writes to the reader:\n  {}",
+            "em dash in a module that writes to the reader (NOTE: this scan sees the \
+             CHARACTER only, never its escaped spelling in source; see this test's docs):\n  {}",
             bad.join("\n  ")
         );
     }

@@ -1659,3 +1659,35 @@ time injection.
   thing.** For an edit, that the pattern was present. For a guard's test, that
   it fails when the guard is removed. For a probe, that its baseline is the rule
   as it stands today rather than as it stood when the probe was written.
+
+- **A GUARD THAT TESTS FOR A CHARACTER CANNOT SEE THE ESCAPE THAT PRODUCES IT.
+  A scan over SOURCE and a property of OUTPUT are different things, and a guard
+  written for one should say which it is.**
+
+  `audit_report::no_module_that_writes_to_the_reader_contains_an_em_dash` is a
+  source scan: `line.contains('\u{2014})` — the CHARACTER. A Rust escape written
+  `\u{2014}` in source is **seven ASCII characters** until the compiler reads it,
+  so the guard is blind to it. The same holds for any scan looking for a
+  character a language can also spell: `\t`, `\u{00A0}`, an HTML entity, a
+  `String::from_utf8` built at runtime.
+
+  **Measured 19 Sep 2026 (§11 D190).** One commit introduced an em dash twice —
+  as a literal in a test assertion, and as an escape in a production string. The
+  guard caught the first and passed the second. Half a catch reads exactly like a
+  full one: the failure named a file and a line, the fix was applied there, and a
+  re-run went green with the real defect still in the shipped string.
+
+  **The tell was not available from the guard.** Nothing in its message or its
+  docs said what it could not see, so the natural inference from a green re-run
+  was that the module was clean. That is why the blind spot now lives IN THE
+  GUARD — in its doc comment and in its failure message — and not only in the
+  decision record. **The next person to trip it will be reading the failure, not
+  the log.**
+
+  Deliberately NOT widened to match the escape as text: that carries its own
+  false-positive question over every regex, doc comment and test fixture in the
+  scanned modules, and is a separate change with its own measurement. The rule
+  recorded instead is the general one — **when you write a guard, say in it
+  whether it constrains what was TYPED or what is RENDERED**, because those
+  diverge the moment anyone writes an escape, and a guard silent about which it
+  checks will be read as checking both.
