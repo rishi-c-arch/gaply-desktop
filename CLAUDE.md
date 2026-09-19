@@ -1553,3 +1553,109 @@ time injection.
     with the entry above: predict the failure, break it on purpose, and confirm
     the assertion actually goes red — reinstating `fromXmlString` fails the pin,
     removing the column property fails the layout pins.
+
+- **EVERY NUMBER I REPORTED WRONG IN ONE SESSION CAME FROM THE SAME MOVE:
+  QUOTING A FIGURE BEFORE CHECKING THE INSTRUMENT THAT PRODUCED IT.** Three
+  failures, 18–19 Sep 2026, in one afternoon of otherwise careful work. None was
+  a wrong calculation; each was a correct reading of something that was not
+  measuring what I said it measured.
+
+  **1. A FAILED `cd` SHORT-CIRCUITED AN `&&`, AND AN UNCONDITIONAL SUCCESS LINE
+  HID IT.** The call was `cd gaply-core && python3 - <<'PY' …` to rewrite a
+  test. The shell was already in `gaply-core`, so `cd` failed, `&&`
+  short-circuited, and **the edit never ran**. The next line ran the suite and
+  printed `8 passed`.
+
+  ```
+  (eval):cd:1: no such file or directory: gaply-core
+  test result: ok. 8 passed; 0 failed
+  ```
+
+  Both lines are true and their conjunction reads as *"the fix landed and the
+  tests pass"*. It was found forty minutes later by grepping for the new test's
+  NAME and getting zero hits.
+
+  **This is §11's refused-call entry with an `echo` on top, and the echo is what
+  made it invisible.** That entry already says a refused Bash call runs nothing
+  including the parts you assume ran. What is new is the second half: my script
+  ended with `print("replaced")` — a success word emitted unconditionally,
+  exactly the `echo TSC_DONE` shape — so the transcript carried a confirmation
+  that no code path had earned. **A `str.replace` that matches nothing is a
+  silent no-op**, and Python will happily report success for it.
+
+  The fix is one line and it is the same one every time: **assert the thing you
+  are about to change is there.**
+
+  ```python
+  # WRONG — a no-op prints the same word as a rewrite
+  s = s.replace(old, new); print("replaced")
+
+  # RIGHT — the edit cannot claim more than it did
+  assert old in s, "pattern absent — this edit would be a silent no-op"
+  s = s.replace(old, new); print(f"replaced {n} site(s), verified present")
+  ```
+
+  And after an edit that matters, **grep for the new identifier before running
+  the tests**. A test suite cannot tell you a test is missing.
+
+  **2. A TEST THAT PASSED IN BOTH WORLDS — the sharper one, and the fourth time
+  the deletion-test entry's second half has earned itself.** Rule 4 of §11 D189
+  hinges on a regex branch staying mandatory; the trap is that `[.)]?\s*` lets
+  `[IVXLCM]+` eat leading numeral-letters. The test written to pin it asserted:
+
+  ```rust
+  assert!(detect_heading("IVMethods").is_none());
+  assert!(detect_heading("CLIMATE").is_none());
+  ```
+
+  Both TRUE, and both true **under the trap as well** — `IVM` strips to
+  `"ethods"`, `CLIM` strips to `"ATE"`, and neither classifies either way. The
+  test could not distinguish the two regexes it existed to distinguish, and it
+  passed in both.
+
+  **It was found only because a deletion test predicted red and got green.** The
+  trap was applied deliberately, the prediction was written down first, and a
+  DIFFERENT test reddened instead. Measuring both patterns directly then showed
+  what the trap actually does:
+
+  ```
+                 [.)]?\s*        (?:[.)]\s*|\s+)
+  Methods     -> "ethods"        "Methods"
+  Conclusion  -> "onclusion"     "Conclusion"
+  ```
+
+  So the real damage was never to odd words like "CLIMATE": **it breaks every
+  heading beginning with I, V, X, L, C or M**, which is most of the lexicon. The
+  discriminating assertion is `detect_heading("Methods").is_some()` — the
+  POSITIVE case, which fails under the trap and holds under the shipped rule.
+
+  **The generalisation: a guard's test must assert something that is FALSE in
+  the broken world.** Listing true statements about the fixed world is not a
+  test, however many of them there are, and no amount of reading the assertions
+  reveals it — only breaking the thing does. The prediction being wrong is the
+  signal; had I not written one down, the green run would have read as success.
+
+  **3. A PROBE MEASURED AGAINST A RULE THAT NO LONGER EXISTED, AND THEN AGAINST
+  ONE THAT NEVER DID.** A corpus probe reported "newly admitted" lines relative
+  to the current classifier. After the fix shipped, its baseline still called
+  only `detect_heading` — so it reported the newly-shipped behaviour as
+  outstanding (`1` where the truth was `0`). Correcting it to also call
+  `detect_runin_heading` over-shot: that function is position-independent while
+  the real rule admits a run-in only in the preamble, so all 37 candidate lines
+  looked already-handled (`0` where the truth was `36`).
+
+  Two wrong baselines, failing in opposite directions, for one rule. **A probe's
+  baseline is a copy of the product's rule, and a copy drifts the moment the
+  rule moves** — which is §11 D129's shape applied to an instrument rather than
+  to a feature. The probe now mirrors `split_document`'s position logic and says
+  in a comment that both earlier baselines were wrong and why, because the next
+  person will otherwise re-derive one of them.
+
+  **What ties all three together, and what to do about it:** in each case a
+  number was reported — `8 passed`, a green deletion test, `newly admitted: 1` —
+  and the number was correct about something other than the question. The habit
+  that catches it is cheap and mechanical: **before quoting a measurement, state
+  what would have to be true for the instrument to be lying, and check that one
+  thing.** For an edit, that the pattern was present. For a guard's test, that
+  it fails when the guard is removed. For a probe, that its baseline is the rule
+  as it stands today rather than as it stood when the probe was written.

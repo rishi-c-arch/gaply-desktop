@@ -170,6 +170,7 @@ pub struct Regexes {
     /// [`EFFECT_SIZE_ALTERNATION`].
     pub effect_size_value: Regex,
     pub heading_number: Regex,
+    pub runin_heading: Regex,
     pub table_caption: Regex,
     pub doi: Regex,
     pub year_paren: Regex,
@@ -236,7 +237,22 @@ pub fn regexes() -> &'static Regexes {
                 r"(?i)({EFFECT_SIZE_ALTERNATION})\s*(?:=|:|of)?\s*(-?\d+(?:\.\d+)?)"
             ))
             .unwrap(),
-            heading_number: Regex::new(r"^\s*(?:\d+(?:\.\d+)*|[IVXLCM]+)[.)]?\s+").unwrap(),
+            // **`[.)]` STANDS IN FOR THE SPACE, and must stay MANDATORY on that
+            // branch. §11 D189.** The old pattern required `\s+`, so "VI.CONCLUSION"
+            // was never stripped and the heading was never recognised.
+            //
+            // TRAP, measured: making the separator optional instead —
+            // `[.)]?\s*` — lets `[IVXLCM]+` match "CLIM" in "CLIMATE" and strip
+            // the front off ordinary words. The alternation below cannot: after
+            // the numerals it demands either a `.`/`)` or whitespace.
+            heading_number: Regex::new(r"^\s*(?:\d+(?:\.\d+)*|[IVXLCM]+)(?:[.)]\s*|\s+)")
+                .unwrap(),
+            // A RUN-IN heading: a phrase, a punctuation separator, then body
+            // text on the SAME line ("Abstract- Emotion detection in…").
+            // Letters/spaces/& only in the prefix — no digits — so numbered
+            // headings keep taking the path above. §11 D189.
+            runin_heading: Regex::new(r"^\s*([A-Za-z][A-Za-z &]{0,28}?)\s*[-\u{2013}\u{2014}:.]\s*(\S.*)$")
+                .unwrap(),
             table_caption: Regex::new(r"(?i)^table\s+(\d+)[.:]?\s*(.*)$").unwrap(),
             doi: Regex::new(r"(?i)\b(10\.\d{4,9}/[^\s]+)").unwrap(),
             year_paren: Regex::new(r"\((19|20)\d{2}[a-z]?\)").unwrap(),

@@ -13884,3 +13884,119 @@ produce — would be misdrawn as a compliance failure. Building the Rust half fi
 would add a second invisible state to a screen that cannot show the first, which
 is the pattern §11 D187 records one layer out.
 
+### D189 — the product denied an abstract it quoted; two of four mechanisms fixed, one declined, one left open
+
+The checklist said *"Abstract section missing"* on a manuscript whose abstract
+finding 1 quoted two pages earlier: `"Abstract- Emotion detection in social media
+text…"`. **The hyphen was never the rule.** `detect_heading` rejects at
+`split_whitespace().count() > 5` (`sections.rs:56`) *before* any separator is
+examined, so `"Abstract: …"` fails identically at 182 words. A separator fix
+would not have helped.
+
+#### The corpus number, which bounds everything below
+
+**3 files, 2 distinct papers, out of 32.** Too thin a numerator to fit a rule to.
+What IS measurable at scale is the other direction: 29,741 non-empty lines, each
+one a chance for a relaxed rule to invent a heading. **A false heading is worse
+than a missed one** — it splits a section where none exists and moves every
+statistic after it into a section that does not exist. So each candidate was
+scored by what it newly ADMITS, not by whether it rescues the two papers.
+
+The gate earns its keep: the corpus has **2,541 distinct "heading-shaped" lines**
+against 23 matching phrases, nearly all of them table labels (`turbidity (ntu)`,
+`cod (mg/l)`, `monsoon`). Exact matching is load-bearing.
+
+| rule | newly admitted / 29,741 | wanted | verdict |
+|---|---:|---:|---|
+| R1 — known phrase + separator, anywhere | **37** | 1 | REFUTED |
+| R3 — R1, but only before the first heading | **1** | 1 | shipped |
+| R2 — numbering `[.)]` without a following space | **1** | 1 | shipped |
+
+**R1 is refuted by one file.** 18 of its 37 admits are `chapter3 .docx` lines of
+the form `"Method: Thermometric; APHA Method No.: 2550 B; Units: degrees
+Celsius"` — a parameter table that would split one Methods section eighteen
+times. 14 more are `Background:` / `Methodology:` labels inside a literature
+review's summaries *of other papers*.
+
+#### The four mechanisms, and four different answers
+
+**1. `"Abstract- …"` at line start — FIXED.** A run-in heading is admitted only
+in the PREAMBLE, before any heading has been accepted. The restriction is
+structural rather than fitted: an abstract is a paper's first section, so a
+run-in abstract heading cannot follow one. 37 admits collapse to 1.
+`detect_runin_heading` splits at the separator and asks the REAL `detect_heading`
+about the prefix, so lexicon, numbering strip and the five-word bound all still
+apply — to the heading rather than to the paragraph glued behind it. The
+remainder becomes the section's first paragraph; dropping it would recognise the
+heading and lose the abstract behind it, which is the same denial one step later.
+
+**2. PDF front page collapsing title+authors+emails+abstract to one line — OPEN,
+not a limit.** An earlier reading of this entry expected a decline for want of a
+layout model. That was wrong and the correction matters: `Abstract-` sits at
+**word 64 of line 0**, with the same separator as the `.docx`. It is recoverable
+in principle by splitting a preamble line at an interior heading token.
+
+**The measurement that would decide it is named rather than performed:** a
+mid-line rule makes EVERY preamble line mentioning the word a candidate, which is
+a different risk class from a line-start one, and its false-positive cost over
+the 32 files has not been measured. Left open on that basis, not on difficulty.
+
+**3. `"Synopsis Abstract"` — DECLINED, and the reasoning is about the shape of
+the fix.** It passes the shape gate and fails the lexicon; adding a phrase is one
+line. But `"synopsis abstract"` is one thesis's idiosyncrasy and `"synopsis"`
+alone is the generalisable form — **so the one-line fix is the wrong line**, and
+one file is not evidence for either. A lexicon gap with a single witness is
+exactly where that file's lexicon problems started, and the 24-phrase list grew
+by additions justified the same way.
+
+`"IV. Experimental Setup and Results"` on the same manuscript is the same shape
+and is declined for the same reason; that paper's Results section stays
+unrecognised, and this is why.
+
+**4. `"VI.Conclusion"` — FIXED.** Not a vocabulary question: `heading_number`
+required `\s+` after the numbering, so glued numbering was never stripped.
+`(?:[.)]\s*|\s+)` admits 1 line in 29,741, zero false positives.
+
+#### Two traps in rule 4, both found while building it
+
+* **`[.)]` must stay MANDATORY on that branch, and the damage is worse than
+  "ordinary words".** The obvious relaxation — `[.)]?\s*` — lets `[IVXLCM]+` eat
+  leading numeral-letters off ANY word. Measured directly against both patterns:
+
+  ```
+                 [.)]?\s*        (?:[.)]\s*|\s+)
+  Methods     -> "ethods"       "Methods"
+  Conclusion  -> "onclusion"    "Conclusion"
+  Introduction-> "ntroduction"  "Introduction"
+  CLIMATE     -> "ATE"          "CLIMATE"
+  ```
+
+  So it does not merely mangle prose: **every heading beginning with I, V, X, L,
+  C or M stops being recognised**, which is most of the lexicon. The alternation
+  demands either a `.`/`)` or whitespace after the numerals, and that is what
+  prevents it.
+
+  **The test that pins this had to be corrected before it could catch it.** Its
+  first version asserted only that `"IVMethods"` and `"CLIMATE"` are not
+  headings — both true under the trap as well (`IVM` -> `"ethods"`, `CLIM` ->
+  `"ATE"`), so the deletion test reddened a different test and left this one
+  green. Asserting that `"Methods"` IS still a heading is what discriminates.
+* **The `regex` crate has no look-around.** `(?=\S)` fails to compile, so
+  "followed by a non-space" is a code check beside the pattern, not part of it.
+  Any future heading rule inherits this.
+
+#### Wider blast radius than "the classifier", traced
+
+`docparse.rs:367` calls `detect_heading` during **PDF reflow**, so rule 4 changes
+how PDFs are broken into lines, not only how sections are split: `R PAPER .pdf`
+went 49 → 51 lines because the newly-recognised heading now gets its paragraph
+break. Found by noticing the corpus line total move by one and chasing it rather
+than shrugging. The golden extraction capture is unchanged.
+
+#### SAFE, NOT VALIDATED — the caveat both rules carry
+
+Measured false-positive cost is **zero** for each, over 29,741 lines. But each
+rescues **exactly one thing** and neither has a second witness: R3 fires on one
+paper's abstract, R2 on one paper's conclusion. Zero false positives is a
+property that was measured; correctness in general is not. If a second manuscript
+ever exercises either rule, that is the first independent vote it has had.
